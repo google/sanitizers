@@ -17,7 +17,7 @@
 // Author: Alexander Potapenko
 // Author: Kostya Serebryany
 
-#define DEBUG_TYPE "after_free"
+#define DEBUG_TYPE "AddressSanitizer"
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/DebugInfo.h"
@@ -46,21 +46,7 @@
 using namespace llvm;
 using namespace std;
 
-#if defined(__GNUC__)
-# include <cxxabi.h>  // __cxa_demangle
-#endif
-
-//#define DEBUG 1
-//#define DEBUG_TRACES 1
-//#define DEBUG_CYCLES 1
-//#define DEBUG_DEBUG_INFO 1
-//#define DEBUG_IGNORE_MOPS 1
-
 // Command-line flags. {{{1
-static cl::opt<unsigned char>
-    ClDeadBeef("dead-beef",
-        cl::desc("TODO(glider)"),
-        cl::init(0x42));
 static cl::opt<bool>
     ClInstrumentReads("instrument-reads",
         cl::desc("TODO(glider)"),
@@ -81,10 +67,6 @@ static cl::opt<bool>
     ClCrOS("cros",
         cl::desc("CrOS"),
         cl::init(false));
-static cl::opt<string>
-    ClInstrumentOnlyFunction("instrument-only-function",
-                             cl::desc("TODO(glider)"),
-                             cl::init(""));
 static cl::opt<string>
     IgnoreFile("ignore",
                cl::desc("File containing the list of functions to ignore "
@@ -268,14 +250,6 @@ bool AfterFreeInstrument::runOnFunction(Function &F) {
 
   if (TripleVectorMatchKnown(Ignores.ignores, F.getNameStr(), "", "")) {
     return true;
-  }
-
-  if (ClInstrumentOnlyFunction != "") {
-    // Skip everything but the function specified using
-    // -instrument-only-function.
-    if (F.getNameStr() != ClInstrumentOnlyFunction) {
-      return true;
-    }
   }
 
   // Initialize the private fields. No one has accessed them before.
