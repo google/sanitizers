@@ -277,7 +277,7 @@ bool AddresSanitizer::runOnFunction(Function &F) {
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
-          isa<StoreInst>(BI) && ClInstrumentWrites) {
+          (isa<StoreInst>(BI) && ClInstrumentWrites)) {
         to_instrument.insert(BI);
       }
     }
