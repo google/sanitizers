@@ -218,6 +218,7 @@ def gcc(default_cc, fallback_cc):
 
   if not from_asm:
     llvm_gcc_args = [default_cc, '-emit-llvm', MARCH[platform], src_file,
+                     '-fno-omit-frame-pointer',
         optimization] + debug_info_args + ['-c'] + DA_FLAGS + compiler_args + ['-o', src_bitcode]
     if compile_pic:
       llvm_gcc_args += [fpic]
@@ -256,7 +257,7 @@ def gcc(default_cc, fallback_cc):
       return
 
     llc_args = [LLC, '-march=' + XARCH[platform], optimization,
-        src_instrumented, '-unwind-tables', '-o', src_asm]
+        src_instrumented, '-unwind-tables',  '-disable-fp-elim', '-o', src_asm]
     print_args(llc_args)
     if compile_pic: llc_args += [llc_pic]
     retcode = subprocess.call(llc_args)
