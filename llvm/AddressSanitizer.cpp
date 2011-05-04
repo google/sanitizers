@@ -80,7 +80,7 @@ struct AddresSanitizer : public FunctionPass {
   AddresSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
   virtual bool runOnFunction(Function &F);
-  Instruction *splitBasicBlock(Instruction *SplitAfter, Value *cmp);
+  Instruction *splitBlockAndInsertIfThen(Instruction *SplitAfter, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
  private:
   LLVMContext *Context;
@@ -95,12 +95,21 @@ struct AddresSanitizer : public FunctionPass {
 AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
 }
 
-Instruction *AddresSanitizer::splitBasicBlock(Instruction *SplitAfter, Value *Cmp) {
+// Split the basic block and insert an if-then code.
+// Before:
+//   SplitAfter
+//   NextInsn
+// After:
+//   SplitAfter
+//   if (Cmp)
+//     NewBasicBlock
+//   NextInsn
+Instruction *AddresSanitizer::splitBlockAndInsertIfThen(Instruction *SplitAfter, Value *Cmp) {
   BasicBlock *Head = SplitAfter->getParent();
   BasicBlock *Tail = SplitBlock(Head, SplitAfter, this);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
   BasicBlock *WriteCheck =
-      BasicBlock::Create(*Context, "write_check", Head->getParent());
+      BasicBlock::Create(*Context, "", Head->getParent());
   BranchInst *HeadNewTerm = BranchInst::Create(/*ifTrue*/WriteCheck,
                                                /*ifFalse*/Tail,
                                                Cmp);
@@ -183,7 +192,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   // but we're ok with that as long as we break from the loop immediately
   // after insrtumentMop().
 
-  Instruction *CheckTerm = splitBasicBlock(BI, Cmp);
+  Instruction *CheckTerm = splitBlockAndInsertIfThen(BI, Cmp);
 
   Value *UpdateShadowIntPtr = BinaryOperator::CreateShl(
       Shadow, ConstantInt::get(LongTy, ClCrOS ? 2 : 1), "", CheckTerm);
@@ -205,7 +214,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
       Value *cmp2 = new ICmpInst(
           CheckTerm, ICmpInst::ICMP_SGT, LastAccessedByte, ShadowValue);
 
-      CheckTerm = splitBasicBlock(CheckTerm, cmp2);
+      CheckTerm = splitBlockAndInsertIfThen(CheckTerm, cmp2);
     }
 
     Value *ShadowLongPtr = new IntToPtrInst(Shadow, LongPtrTy, "", CheckTerm);
