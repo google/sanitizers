@@ -78,8 +78,7 @@ namespace {
 
 struct AddresSanitizer : public FunctionPass {
   AddresSanitizer();
-  void instrumentMop(BasicBlock::iterator &BI, bool isStore);
-  void instrumentMopCond(BasicBlock::iterator &BI, bool isStore);
+  void instrumentMop(BasicBlock::iterator &BI);
   virtual bool runOnBasicBlock(BasicBlock &BB);
   virtual bool runOnFunction(Function &F);
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
@@ -95,11 +94,6 @@ struct AddresSanitizer : public FunctionPass {
 };
 
 AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
-}
-
-void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI,
-                                        bool isStore) {
-  instrumentMopCond(BI, isStore);
 }
 
 Instruction *AddresSanitizer::splitBasicBlock(Instruction *SplitAfter, Value *Cmp) {
@@ -123,12 +117,11 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
     to->setMetadata("dbg", dbg);
 }
 
-void AddresSanitizer::instrumentMopCond(BasicBlock::iterator &BI,
-                                            bool isStore) {
+void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     Instruction *mop = BI;
-    Value *Addr = isStore
-      ? static_cast<StoreInst*>(mop)->getPointerOperand()
-      : static_cast<LoadInst*>(mop)->getPointerOperand();
+    Value *Addr = isa<StoreInst>(*mop)
+      ? cast<StoreInst>(*mop).getPointerOperand()
+      : cast<LoadInst>(*mop).getPointerOperand();
     const Type *OrigPtrTy = Addr->getType();
     const Type *OrigType = cast<PointerType>(OrigPtrTy)->getElementType();
 
@@ -219,8 +212,8 @@ void AddresSanitizer::instrumentMopCond(BasicBlock::iterator &BI,
       Value *ShadowLongPtr = new IntToPtrInst(Shadow, LongPtrTy, "", CheckTerm);
       new StoreInst(AddrLong, ShadowLongPtr, "", CheckTerm);
     }
-
-    Value *DeadBeef = ConstantInt::get(ByteTy, isStore * 16 + (type_size / 8));
+    uint8_t telltale_value = isa<StoreInst>(*mop) * 16 + (type_size / 8);
+    Value *DeadBeef = ConstantInt::get(ByteTy, telltale_value);
     Instruction *CheckStoreInst = new StoreInst(DeadBeef, CheckPtr, "", CheckTerm);
     CloneDebugInfo(mop, CheckStoreInst);
 }
@@ -287,8 +280,8 @@ bool AddresSanitizer::runOnBasicBlock(BasicBlock &BB) {
     if (!to_instrument.count(BI)) continue;
     if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
         isa<StoreInst>(BI) && ClInstrumentWrites) {
-      // Instrument LOAD.
-      instrumentMop(BI, false);
+      // Instrument LOAD or STORE.
+      instrumentMop(BI);
       // BI is put into a separate block, so we need to stop processing this
       // one, making sure we don't instrument it twice.
       to_instrument.erase(BI);
