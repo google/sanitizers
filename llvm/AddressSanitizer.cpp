@@ -80,7 +80,7 @@ struct AddresSanitizer : public FunctionPass {
   AddresSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
   virtual bool runOnFunction(Function &F);
-  Instruction *splitBlockAndInsertIfThen(Instruction *SplitAfter, Value *cmp);
+  Instruction *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
  private:
   LLVMContext *Context;
@@ -97,18 +97,20 @@ AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
 
 // Split the basic block and insert an if-then code.
 // Before:
-//   SplitAfter
+//   Head
+//   SplitBefore
 //   Tail
 // After:
-//   SplitAfter
+//   Head
 //   if (Cmp)
 //     NewBasicBlock
+//   SplitBefore
 //   Tail
 //
 // Returns the NewBasicBlock's terminator.
-Instruction *AddresSanitizer::splitBlockAndInsertIfThen(Instruction *SplitAfter, Value *Cmp) {
-  BasicBlock *Head = SplitAfter->getParent();
-  BasicBlock *Tail = SplitBlock(Head, SplitAfter, this);
+Instruction *AddresSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp) {
+  BasicBlock *Head = SplitBefore->getParent();
+  BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
   BasicBlock *NewBasicBlock =
       BasicBlock::Create(*Context, "", Head->getParent());
