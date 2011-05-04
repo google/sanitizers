@@ -235,7 +235,7 @@ def gcc(default_cc, fallback_cc):
     if ASAN == '2' or ASAN == '3':
       ASAN_WRITES = '1'
     # TODO(glider): additional opt passes.
-    opt_args = [OPT, '-load', PASS_SO,  '-after-free',
+    opt_args = [OPT, '-load', PASS_SO,  '-asan',
                 '-instrument-reads=' + ASAN_READS,
                 '-instrument-writes=' + ASAN_WRITES  ]
     if ASAN_IGNORE != '':

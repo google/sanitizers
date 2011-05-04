@@ -319,5 +319,5 @@ void AfterFreeInstrument::getAnalysisUsage(AnalysisUsage &AU) const {
 
 
 char AfterFreeInstrument::ID = 0;
-RegisterPass<AfterFreeInstrument> X("after-free",
+RegisterPass<AfterFreeInstrument> X("asan",
     "Use-after-free instrumentation ");
