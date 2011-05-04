@@ -29,6 +29,7 @@
 #include "llvm/InstrTypes.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
@@ -158,39 +159,39 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     OrigPtrTy = PointerType::get(OrigType, 0);
   }
 
-  Value *AddrLong = BitCastInst::CreatePointerCast(Addr, LongTy, "", BI);
+  IRBuilder<> irb1(BI->getParent(), BI);
+
+  Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
   Value *Shadow = AddrLong;
 
   Value *ShadowPtr = NULL;
   Value *CmpVal;
   if (Clm32 || ClCompactShadow) {
-    Shadow = BinaryOperator::CreateLShr(
-        Shadow, ConstantInt::get(LongTy, 3), "", BI);
+    Shadow = irb1.CreateLShr(Shadow, 3);
     uint64_t mask = Clm32
         ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
         : kCompactShadowMask64;
-    Shadow = BinaryOperator::CreateOr(
-        Shadow, ConstantInt::get(LongTy, mask), "", BI);
-    ShadowPtr = new IntToPtrInst(Shadow, BytePtrTy, "", BI);
+    Shadow = irb1.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
+    ShadowPtr = irb1.CreateIntToPtr(Shadow, BytePtrTy);
     CmpVal = ConstantInt::get(ByteTy, 0);
   } else {
     // Shadow |= kFullLowShadowMask
-    Shadow = BinaryOperator::CreateOr(
-        Shadow, ConstantInt::get(LongTy, kFullLowShadowMask), "", BI);
+    Shadow = irb1.CreateOr(
+        Shadow, ConstantInt::get(LongTy, kFullLowShadowMask));
     // Shadow &= ~kFullHighShadowMask
-    Shadow = BinaryOperator::CreateAnd(
-        Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask), "", BI);
+    Shadow = irb1.CreateAnd(
+        Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask));
     // ShadowPadded = Shadow + kBankPadding;
-    Value *ShadowPadded = BinaryOperator::CreateAdd(
-        Shadow, ConstantInt::get(LongTy, kBankPadding), "", BI);
+    Value *ShadowPadded = irb1.CreateAdd(
+        Shadow, ConstantInt::get(LongTy, kBankPadding));
 
-    ShadowPtr = new IntToPtrInst(ShadowPadded, OrigPtrTy, "", BI);
+    ShadowPtr = irb1.CreateIntToPtr(ShadowPadded, OrigPtrTy);
     CmpVal = Constant::getNullValue(OrigType);
   }
-  Value *ShadowValue = new LoadInst(ShadowPtr, "", BI);
+  Value *ShadowValue = irb1.CreateLoad(ShadowPtr);
   // If the shadow value is non-zero, write to the check address, else
   // continue executing the old code.
-  Value *Cmp = new ICmpInst(BI, ICmpInst::ICMP_NE, ShadowValue, CmpVal, "");
+  Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
   // Split the mop and the successive code into a separate block.
   // Note that it invalidates the iterators used in runOnFunction(),
   // but we're ok with that as long as we break from the loop immediately
