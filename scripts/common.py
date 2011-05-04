@@ -245,8 +245,8 @@ def gcc(default_cc, fallback_cc):
       opt_args += ['-ignore=' + TSAN_IGNORE]
     if TSAN_OPT_ARGS:
       opt_args += [TSAN_OPT_ARGS]
-    if m32:
-      opt_args += ['-m32']
+#    if m32:
+#      opt_args += ['-m32']
     if ASAN_CROS:
       opt_args += ['-cros']
     opt_args += [src_bitcode, '-o', src_instrumented]

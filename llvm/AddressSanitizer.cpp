@@ -33,15 +33,16 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Type.h"
 
 #include <stdint.h>
 #include <stdio.h>
 
-#ifdef ASAN_USES_IGNORES
+#ifdef ASAN_LLVM_USES_IGNORES
 #include "ignore.h"
-#endif  // ASAN_USES_IGNORES
+#endif  // ASAN_LLVM_USES_IGNORES
 
 #include "asan_rtl.h"
 
@@ -62,10 +63,6 @@ static cl::opt<bool>
         cl::desc("TODO(glider)"),
         cl::init(true));
 static cl::opt<bool>
-    Clm32("m32",
-        cl::desc("m32"),
-        cl::init(false));
-static cl::opt<bool>
     ClCrOS("cros",
         cl::desc("CrOS"),
         cl::init(false));
@@ -77,9 +74,8 @@ static cl::opt<string>
 // }}}
 
 namespace {
-
-struct AddresSanitizer : public FunctionPass {
-  AddresSanitizer();
+struct AddressSanitizer : public FunctionPass {
+  AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
   virtual bool runOnFunction(Function &F);
   Instruction *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
@@ -93,9 +89,24 @@ struct AddresSanitizer : public FunctionPass {
   const Type *BytePtrTy;
   SmallSet<Instruction*, 16> to_instrument;
 };
+}  // namespace
 
-AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
+char AddressSanitizer::ID = 0;
+#ifdef ASAN_LLVM_PLUGIN
+// This code is temporary (we build the plugin with some old version of 
+// llvm which comes with ubuntu 10.04)
+AddressSanitizer::AddressSanitizer() : FunctionPass(&ID) { }
+RegisterPass<AddressSanitizer> X("asan",
+                                 "AddressSanitizer: detects use-after-free and out-of-bounds bugs.");
+#else
+INITIALIZE_PASS(AddressSanitizer, "asan",
+    "AddressSanitizer: detects use-after-free and out-of-bounds bugs.", false, false)
+AddressSanitizer::AddressSanitizer() : FunctionPass(ID) { }
+FunctionPass *llvm::createAddressSanitizerPass() {
+  return new AddressSanitizer();
 }
+#endif
+
 
 // Split the basic block and insert an if-then code.
 // Before:
@@ -110,7 +121,7 @@ AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
 //   Tail
 //
 // Returns the NewBasicBlock's terminator.
-Instruction *AddresSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp) {
+Instruction *AddressSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp) {
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
@@ -131,7 +142,7 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
     to->setMetadata("dbg", dbg);
 }
 
-void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
+void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
   Value *Addr = isa<StoreInst>(*mop)
       ? cast<StoreInst>(*mop).getPointerOperand()
@@ -169,7 +180,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Value *CmpVal;
   if (ClCompactShadow) {
     Shadow = irb1.CreateLShr(Shadow, 3);
-    uint64_t mask = Clm32
+    uint64_t mask = TD->getPointerSize() == 4
         ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
         : kCompactShadowMask64;
     Shadow = irb1.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
@@ -233,8 +244,8 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 }
 
 // virtual
-bool AddresSanitizer::runOnFunction(Function &F) {
-#ifdef ASAN_USES_IGNORES
+bool AddressSanitizer::runOnFunction(Function &F) {
+#ifdef ASAN_LLVM_USES_IGNORES
   // ignores. TODO(kcc): clean this up
   // We use the 'ignore' machinery from ThreadSanitizer.
   // See http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
@@ -252,21 +263,22 @@ bool AddresSanitizer::runOnFunction(Function &F) {
   if (TripleVectorMatchKnown(Ignores.ignores, F.getNameStr(), "", "")) {
     return false;  // Nothing changed.
   }
-#endif  // ASAN_USES_IGNORES
+#endif  // ASAN_LLVM_USES_IGNORES
 
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
 
-  if (Clm32) {
+  if (TD->getPointerSize() == 4) {
     // For 32-bit arch the mapping is always compact.
     ClCompactShadow = true;
   }
 
   // Initialize the private fields. No one has accessed them before.
   Context = &(F.getContext());
-  LongTy = Clm32 ? Type::getInt32Ty(*Context)
-                 : Type::getInt64Ty(*Context);
+  LongTy = TD->getPointerSize() == 4
+      ? Type::getInt32Ty(*Context)
+      : Type::getInt64Ty(*Context);
   ByteTy  = Type::getInt8Ty(*Context);
   BytePtrTy = PointerType::get(ByteTy, 0);
   LongPtrTy = PointerType::get(LongTy, 0);
@@ -302,8 +314,3 @@ bool AddresSanitizer::runOnFunction(Function &F) {
   }
   return n_instrumented > 0;
 }
-}  // namespace
-
-char AddresSanitizer::ID = 0;
-RegisterPass<AddresSanitizer> X("asan",
-    "AddressSanitizer: detects use-after-free and out-of-bounds bugs.");

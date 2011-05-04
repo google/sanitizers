@@ -20,7 +20,7 @@ OPT=-O2
 
 AddressSanitizer.so: AddressSanitizer.cpp Makefile
 	$(CXX) -c $(OPT) -fPIC -g AddressSanitizer.cpp -o AddressSanitizer.o \
-		-DASAN_USES_IGNORES=1 -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -I$(TSAN) -I$(ASAN)
+		-DASAN_LLVM_USES_IGNORES=1 -DASAN_LLVM_PLUGIN=1 -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -I$(TSAN) -I$(ASAN)
 	$(CXX) -fPIC -shared -g $(TSAN)/ignore.cc $(TSAN)/common_util.cc AddressSanitizer.o -o AddressSanitizer.so
 
 clean:
