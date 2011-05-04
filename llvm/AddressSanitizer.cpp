@@ -299,12 +299,10 @@ bool AddresSanitizer::runOnBasicBlock(BasicBlock &BB) {
 }
 
 void AddresSanitizer::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.setPreservesAll();
   AU.addRequired<TargetData>();
 }
 
 }  // namespace
-
 
 char AddresSanitizer::ID = 0;
 RegisterPass<AddresSanitizer> X("asan",
