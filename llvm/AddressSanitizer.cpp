@@ -79,7 +79,6 @@ namespace {
 struct AddresSanitizer : public FunctionPass {
   AddresSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
-  virtual bool runOnBasicBlock(BasicBlock &BB);
   virtual bool runOnFunction(Function &F);
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
   Instruction *splitBasicBlock(Instruction *SplitAfter, Value *cmp);
@@ -180,7 +179,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     // continue executing the old code.
     Value *Cmp = new ICmpInst(BI, ICmpInst::ICMP_NE, ShadowValue, CmpVal, "");
     // Split the mop and the successive code into a separate block.
-    // Note that it invalidates the iterators used in runOnBasicBlock(),
+    // Note that it invalidates the iterators used in runOnFunction(),
     // but we're ok with that as long as we break from the loop immediately
     // after insrtumentMop().
 
@@ -238,8 +237,11 @@ bool AddresSanitizer::runOnFunction(Function &F) {
   }
 
   if (TripleVectorMatchKnown(Ignores.ignores, F.getNameStr(), "", "")) {
-    return true;
+    return false;  // Nothing changed.
   }
+
+  if (!getAnalysisIfAvailable<TargetData>())
+    return false;
 
   // Initialize the private fields. No one has accessed them before.
   Context = &(F.getContext());
@@ -251,44 +253,35 @@ bool AddresSanitizer::runOnFunction(Function &F) {
 
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
-       FI != FE;
-       ++FI) {
-
+       FI != FE; ++FI) {
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
-         BI != BE;
-         ++BI) {
+         BI != BE; ++BI) {
       if ((isa<LoadInst>(BI)) || (isa<StoreInst>(BI))) {
         to_instrument.insert(BI);
       }
     }
   }
 
+  int n_instrumented = 0;
   for (Function::iterator FI = F.begin(), FE = F.end();
-       FI != FE;
-       ++FI) {
-    runOnBasicBlock(*FI);
-  }
-  return true;
-}
-
-// virtual
-bool AddresSanitizer::runOnBasicBlock(BasicBlock &BB) {
-  // TODO(glider): instrument llvm.memcpy and llvm.memmove
-  for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
-       BI != BE;
-       ++BI) {
-    if (!to_instrument.count(BI)) continue;
-    if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
-        isa<StoreInst>(BI) && ClInstrumentWrites) {
-      // Instrument LOAD or STORE.
-      instrumentMop(BI);
-      // BI is put into a separate block, so we need to stop processing this
-      // one, making sure we don't instrument it twice.
-      to_instrument.erase(BI);
-      break;
+       FI != FE; ++FI) {
+    BasicBlock &BB = *FI;
+    for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
+         BI != BE; ++BI) {
+      if (!to_instrument.count(BI)) continue;
+      if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
+          isa<StoreInst>(BI) && ClInstrumentWrites) {
+        // Instrument LOAD or STORE.
+        instrumentMop(BI);
+        n_instrumented++;
+        // BI is put into a separate block, so we need to stop processing this
+        // one, making sure we don't instrument it twice.
+        to_instrument.erase(BI);
+        break;
+      }
     }
   }
-  return true;
+  return n_instrumented > 0;
 }
 
 void AddresSanitizer::getAnalysisUsage(AnalysisUsage &AU) const {
