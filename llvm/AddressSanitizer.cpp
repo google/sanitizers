@@ -39,7 +39,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#ifdef ASAN_USES_IGNORES
 #include "ignore.h"
+#endif  // ASAN_USES_IGNORES
 
 #include "asan_rtl.h"
 
@@ -230,28 +232,25 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   CloneDebugInfo(mop, CheckStoreInst);
 }
 
-// ----- ignores. TODO(kcc): clean this up -------
-static IgnoreLists Ignores;
-void ParseIgnoreFile(string &file) {
-  string ignore_contents = ReadFileToString(file, /*die_if_failed*/true);
-  ReadIgnoresFromString(ignore_contents, &Ignores);
-}
-
-// -------------- end ignores ------------------
-
 // virtual
 bool AddresSanitizer::runOnFunction(Function &F) {
+#ifdef ASAN_USES_IGNORES
+  // ignores. TODO(kcc): clean this up
   static bool ignores_inited;
+  static IgnoreLists Ignores;
   if (ignores_inited == false) {
     ignores_inited = true;
     if (IgnoreFile.size()) {
-      ParseIgnoreFile(IgnoreFile);
+      string ignore_contents = ReadFileToString(IgnoreFile,
+                                                /*die_if_failed*/true);
+      ReadIgnoresFromString(ignore_contents, &Ignores);
     }
   }
 
   if (TripleVectorMatchKnown(Ignores.ignores, F.getNameStr(), "", "")) {
     return false;  // Nothing changed.
   }
+#endif  // ASAN_USES_IGNORES
 
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
