@@ -117,14 +117,10 @@ Instruction *AddresSanitizer::splitBasicBlock(Instruction *SplitAfter, Value *Cm
   return CheckTerm;
 }
 
-static void CloneMetadata(Instruction *from, Instruction *to) {
-  if (from->hasMetadata()) {
-    SmallVectorImpl<std::pair<unsigned, MDNode*> > MDs(1);
-    from->getAllMetadata(MDs);
-    for (size_t i = 0; i < MDs.size(); i++) {
-      to->setMetadata(MDs[i].first, MDs[i].second);
-    }
-  }
+static void CloneDebugInfo(Instruction *from, Instruction *to) {
+  MDNode *dbg = from->getMetadata("dbg");  // newer versions allow MD_dbg.
+  if (dbg)
+    to->setMetadata("dbg", dbg);
 }
 
 void AddresSanitizer::instrumentMopCond(BasicBlock::iterator &BI,
@@ -226,7 +222,7 @@ void AddresSanitizer::instrumentMopCond(BasicBlock::iterator &BI,
 
     Value *DeadBeef = ConstantInt::get(ByteTy, isStore * 16 + (type_size / 8));
     Instruction *CheckStoreInst = new StoreInst(DeadBeef, CheckPtr, "", CheckTerm);
-    CloneMetadata(mop, CheckStoreInst);
+    CloneDebugInfo(mop, CheckStoreInst);
 }
 
 // ----- ignores. TODO(kcc): clean this up -------
