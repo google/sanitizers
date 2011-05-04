@@ -289,17 +289,10 @@ bool AddresSanitizer::runOnBasicBlock(BasicBlock &BB) {
        BI != BE;
        ++BI) {
     if (to_instrument.find(BI) == to_instrument.end()) continue;
-    if (isa<LoadInst>(BI) && ClInstrumentReads) {
+    if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
+        isa<StoreInst>(BI) && ClInstrumentWrites) {
       // Instrument LOAD.
       instrumentMop(BI, false);
-      // BI is put into a separate block, so we need to stop processing this
-      // one, making sure we don't instrument it twice.
-      to_instrument.erase(BI);
-      break;
-    }
-    if (isa<StoreInst>(BI) && ClInstrumentWrites) {
-      // Instrument STORE.
-      instrumentMop(BI, true);
       // BI is put into a separate block, so we need to stop processing this
       // one, making sure we don't instrument it twice.
       to_instrument.erase(BI);
@@ -313,7 +306,6 @@ void AddresSanitizer::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
   AU.addRequired<TargetData>();
 }
-
 
 }  // namespace
 
