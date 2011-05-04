@@ -98,24 +98,26 @@ AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
 // Split the basic block and insert an if-then code.
 // Before:
 //   SplitAfter
-//   NextInsn
+//   Tail
 // After:
 //   SplitAfter
 //   if (Cmp)
 //     NewBasicBlock
-//   NextInsn
+//   Tail
+//
+// Returns the NewBasicBlock's terminator.
 Instruction *AddresSanitizer::splitBlockAndInsertIfThen(Instruction *SplitAfter, Value *Cmp) {
   BasicBlock *Head = SplitAfter->getParent();
   BasicBlock *Tail = SplitBlock(Head, SplitAfter, this);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
-  BasicBlock *WriteCheck =
+  BasicBlock *NewBasicBlock =
       BasicBlock::Create(*Context, "", Head->getParent());
-  BranchInst *HeadNewTerm = BranchInst::Create(/*ifTrue*/WriteCheck,
+  BranchInst *HeadNewTerm = BranchInst::Create(/*ifTrue*/NewBasicBlock,
                                                /*ifFalse*/Tail,
                                                Cmp);
   ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
 
-  BranchInst *CheckTerm = BranchInst::Create(Tail, WriteCheck);
+  BranchInst *CheckTerm = BranchInst::Create(Tail, NewBasicBlock);
   return CheckTerm;
 }
 
