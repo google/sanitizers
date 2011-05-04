@@ -302,9 +302,8 @@ void DoubleFree() {
   abort();
 }
 
-TEST(AddressSanitizer, DISABLED_DoubleFreeTest) {
-  DoubleFree();
-  EXPECT_DEATH(DoubleFree, "attempting double-free");
+TEST(AddressSanitizer, DoubleFreeTest) {
+  EXPECT_DEATH(DoubleFree(), "attempting double-free");
 }
 
 __attribute__((noinline))
