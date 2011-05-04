@@ -54,8 +54,8 @@ static cl::opt<bool>
         cl::init(true));
 static cl::opt<bool>
     ClCompactShadow("compact-shadow",
-        cl::desc("TODO(kcc)"),
-        cl::init(false));
+        cl::desc("Use compact (qword-to-byte) shadow mapping"),
+        cl::init(true));
 static cl::opt<bool>
     ClInstrumentWrites("instrument-writes",
         cl::desc("TODO(glider)"),
@@ -166,7 +166,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   Value *ShadowPtr = NULL;
   Value *CmpVal;
-  if (Clm32 || ClCompactShadow) {
+  if (ClCompactShadow) {
     Shadow = irb1.CreateLShr(Shadow, 3);
     uint64_t mask = Clm32
         ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
@@ -203,29 +203,31 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Value *UpdateShadowIntPtr = irb2.CreateShl(Shadow, ClCrOS ? 2 : 1);
   Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
 
-  if (Clm32 || ClCompactShadow) {
-    if (type_size != 64) {
-      // addr & 7
-      Value *Lower3Bits = irb2.CreateAnd(
-          AddrLong, ConstantInt::get(LongTy, 7));
-      // (addr & 7) + size
-      Value *LastAccessedByte = irb2.CreateAdd(
-          Lower3Bits, ConstantInt::get(LongTy, type_size / 8));
-      // (uint8_t) ((addr & 7) + size)
-      LastAccessedByte = irb2.CreateIntCast(
-          LastAccessedByte, ByteTy, false);
-      // ((uint8_t) ((addr & 7) + size)) > ShadowValue
-      Value *cmp2 = irb2.CreateICmpSGT(LastAccessedByte, ShadowValue);
+  if (ClCompactShadow && type_size != 64) {
+    // addr & 7
+    Value *Lower3Bits = irb2.CreateAnd(
+        AddrLong, ConstantInt::get(LongTy, 7));
+    // (addr & 7) + size
+    Value *LastAccessedByte = irb2.CreateAdd(
+        Lower3Bits, ConstantInt::get(LongTy, type_size / 8));
+    // (uint8_t) ((addr & 7) + size)
+    LastAccessedByte = irb2.CreateIntCast(
+        LastAccessedByte, ByteTy, false);
+    // ((uint8_t) ((addr & 7) + size)) > ShadowValue
+    Value *cmp2 = irb2.CreateICmpSGT(LastAccessedByte, ShadowValue);
 
-      CheckTerm = splitBlockAndInsertIfThen(CheckTerm, cmp2);
-    }
+    CheckTerm = splitBlockAndInsertIfThen(CheckTerm, cmp2);
+  }
 
-    Value *ShadowLongPtr = new IntToPtrInst(Shadow, LongPtrTy, "", CheckTerm);
-    new StoreInst(AddrLong, ShadowLongPtr, "", CheckTerm);
+  IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
+
+  if (ClCompactShadow) {
+    Value *ShadowLongPtr = irb3.CreateIntToPtr(Shadow, LongPtrTy);
+    irb3.CreateStore(AddrLong, ShadowLongPtr);
   }
   uint8_t telltale_value = isa<StoreInst>(*mop) * 16 + (type_size / 8);
   Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
-  Instruction *CheckStoreInst = new StoreInst(TellTale, CheckPtr, "", CheckTerm);
+  Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
   CloneDebugInfo(mop, CheckStoreInst);
 }
 
@@ -255,6 +257,11 @@ bool AddresSanitizer::runOnFunction(Function &F) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
+
+  if (Clm32) {
+    // For 32-bit arch the mapping is always compact.
+    ClCompactShadow = true;
+  }
 
   // Initialize the private fields. No one has accessed them before.
   Context = &(F.getContext());
