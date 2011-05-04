@@ -116,7 +116,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
   // fprintf(stderr, "realloc:\n");
   int *r = (int*)malloc(10);
   r = (int*)realloc(r, 2000);
-  r[1000];
+  r[1000] = 0;
   free(r);
 
   // fprintf(stderr, "operator new []\n");
