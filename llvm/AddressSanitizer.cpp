@@ -198,26 +198,24 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   // after insrtumentMop().
 
   Instruction *CheckTerm = splitBlockAndInsertIfThen(BI, Cmp);
+  IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  Value *UpdateShadowIntPtr = BinaryOperator::CreateShl(
-      Shadow, ConstantInt::get(LongTy, ClCrOS ? 2 : 1), "", CheckTerm);
-  Value *CheckPtr =
-      new IntToPtrInst(UpdateShadowIntPtr, BytePtrTy, "", CheckTerm);
+  Value *UpdateShadowIntPtr = irb2.CreateShl(Shadow, ClCrOS ? 2 : 1);
+  Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
 
   if (Clm32 || ClCompactShadow) {
     if (type_size != 64) {
       // addr & 7
-      Value *Lower3Bits = BinaryOperator::CreateAnd(
-          AddrLong, ConstantInt::get(LongTy, 7), "", CheckTerm);
+      Value *Lower3Bits = irb2.CreateAnd(
+          AddrLong, ConstantInt::get(LongTy, 7));
       // (addr & 7) + size
-      Value *LastAccessedByte = BinaryOperator::CreateAdd(
-          Lower3Bits, ConstantInt::get(LongTy, type_size / 8), "", CheckTerm);
+      Value *LastAccessedByte = irb2.CreateAdd(
+          Lower3Bits, ConstantInt::get(LongTy, type_size / 8));
       // (uint8_t) ((addr & 7) + size)
-      LastAccessedByte = BitCastInst::CreateIntegerCast(
-          LastAccessedByte, ByteTy, false, "", CheckTerm);
+      LastAccessedByte = irb2.CreateIntCast(
+          LastAccessedByte, ByteTy, false);
       // ((uint8_t) ((addr & 7) + size)) > ShadowValue
-      Value *cmp2 = new ICmpInst(
-          CheckTerm, ICmpInst::ICMP_SGT, LastAccessedByte, ShadowValue);
+      Value *cmp2 = irb2.CreateICmpSGT(LastAccessedByte, ShadowValue);
 
       CheckTerm = splitBlockAndInsertIfThen(CheckTerm, cmp2);
     }
