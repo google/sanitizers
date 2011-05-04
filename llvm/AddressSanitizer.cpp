@@ -76,8 +76,8 @@ static cl::opt<string>
 
 namespace {
 
-struct AfterFreeInstrument : public FunctionPass {
-  AfterFreeInstrument();
+struct AddresSanitizer : public FunctionPass {
+  AddresSanitizer();
   void instrumentMop(BasicBlock::iterator &BI, bool isStore);
   void instrumentMopCond(BasicBlock::iterator &BI, bool isStore);
   virtual bool runOnBasicBlock(BasicBlock &BB);
@@ -94,15 +94,15 @@ struct AfterFreeInstrument : public FunctionPass {
   std::set<Instruction*> to_instrument;
 };
 
-AfterFreeInstrument::AfterFreeInstrument() : FunctionPass(&ID) {
+AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
 }
 
-void AfterFreeInstrument::instrumentMop(BasicBlock::iterator &BI,
+void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI,
                                         bool isStore) {
   instrumentMopCond(BI, isStore);
 }
 
-Instruction *AfterFreeInstrument::splitBasicBlock(Instruction *SplitAfter, Value *Cmp) {
+Instruction *AddresSanitizer::splitBasicBlock(Instruction *SplitAfter, Value *Cmp) {
   BasicBlock *Head = SplitAfter->getParent();
   BasicBlock *Tail = SplitBlock(Head, SplitAfter, this);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
@@ -127,7 +127,7 @@ static void CloneMetadata(Instruction *from, Instruction *to) {
   }
 }
 
-void AfterFreeInstrument::instrumentMopCond(BasicBlock::iterator &BI,
+void AddresSanitizer::instrumentMopCond(BasicBlock::iterator &BI,
                                             bool isStore) {
     Instruction *mop = BI;
     Value *Addr = isStore
@@ -239,7 +239,7 @@ void ParseIgnoreFile(string &file) {
 // -------------- end ignores ------------------
 
 // virtual
-bool AfterFreeInstrument::runOnFunction(Function &F) {
+bool AddresSanitizer::runOnFunction(Function &F) {
   static bool ignores_inited;
   if (ignores_inited == false) {
     ignores_inited = true;
@@ -283,7 +283,7 @@ bool AfterFreeInstrument::runOnFunction(Function &F) {
 }
 
 // virtual
-bool AfterFreeInstrument::runOnBasicBlock(BasicBlock &BB) {
+bool AddresSanitizer::runOnBasicBlock(BasicBlock &BB) {
   // TODO(glider): instrument llvm.memcpy and llvm.memmove
   for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
        BI != BE;
@@ -309,7 +309,7 @@ bool AfterFreeInstrument::runOnBasicBlock(BasicBlock &BB) {
   return true;
 }
 
-void AfterFreeInstrument::getAnalysisUsage(AnalysisUsage &AU) const {
+void AddresSanitizer::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
   AU.addRequired<TargetData>();
 }
@@ -318,6 +318,6 @@ void AfterFreeInstrument::getAnalysisUsage(AnalysisUsage &AU) const {
 }  // namespace
 
 
-char AfterFreeInstrument::ID = 0;
-RegisterPass<AfterFreeInstrument> X("asan",
+char AddresSanitizer::ID = 0;
+RegisterPass<AddresSanitizer> X("asan",
     "Use-after-free instrumentation ");
