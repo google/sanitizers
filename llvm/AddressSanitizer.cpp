@@ -80,11 +80,11 @@ struct AddresSanitizer : public FunctionPass {
   AddresSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
   virtual bool runOnFunction(Function &F);
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
   Instruction *splitBasicBlock(Instruction *SplitAfter, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
  private:
   LLVMContext *Context;
+  TargetData *TD;
   const Type *LongTy;
   const Type *LongPtrTy;
   const Type *ByteTy;
@@ -126,7 +126,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
     int type_size = 0;  // in bits
     if (OrigType->isSized()) {
-      type_size = getAnalysis<TargetData>().getTypeStoreSizeInBits(OrigType);
+      type_size = TD->getTypeStoreSizeInBits(OrigType);
     } else {
       errs() << "Type " << *OrigType << " has unknown size!\n";
       assert(false);
@@ -240,7 +240,8 @@ bool AddresSanitizer::runOnFunction(Function &F) {
     return false;  // Nothing changed.
   }
 
-  if (!getAnalysisIfAvailable<TargetData>())
+  TD = getAnalysisIfAvailable<TargetData>();
+  if (!TD)
     return false;
 
   // Initialize the private fields. No one has accessed them before.
@@ -263,6 +264,7 @@ bool AddresSanitizer::runOnFunction(Function &F) {
     }
   }
 
+  // Instrument.
   int n_instrumented = 0;
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
@@ -281,13 +283,8 @@ bool AddresSanitizer::runOnFunction(Function &F) {
   }
   return n_instrumented > 0;
 }
-
-void AddresSanitizer::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<TargetData>();
-}
-
 }  // namespace
 
 char AddresSanitizer::ID = 0;
 RegisterPass<AddresSanitizer> X("asan",
-    "Use-after-free instrumentation ");
+    "AddressSanitizer: detects use-after-free and out-of-bounds bugs.");
