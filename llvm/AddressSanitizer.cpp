@@ -212,8 +212,8 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
       new StoreInst(AddrLong, ShadowLongPtr, "", CheckTerm);
     }
     uint8_t telltale_value = isa<StoreInst>(*mop) * 16 + (type_size / 8);
-    Value *DeadBeef = ConstantInt::get(ByteTy, telltale_value);
-    Instruction *CheckStoreInst = new StoreInst(DeadBeef, CheckPtr, "", CheckTerm);
+    Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
+    Instruction *CheckStoreInst = new StoreInst(TellTale, CheckPtr, "", CheckTerm);
     CloneDebugInfo(mop, CheckStoreInst);
 }
 
