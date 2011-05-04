@@ -236,6 +236,8 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 bool AddresSanitizer::runOnFunction(Function &F) {
 #ifdef ASAN_USES_IGNORES
   // ignores. TODO(kcc): clean this up
+  // We use the 'ignore' machinery from ThreadSanitizer.
+  // See http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
   static bool ignores_inited;
   static IgnoreLists Ignores;
   if (ignores_inited == false) {
