@@ -218,7 +218,7 @@ void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 }
 
 // ----- ignores. TODO(kcc): clean this up -------
-IgnoreLists Ignores;
+static IgnoreLists Ignores;
 void ParseIgnoreFile(string &file) {
   string ignore_contents = ReadFileToString(file, /*die_if_failed*/true);
   ReadIgnoresFromString(ignore_contents, &Ignores);
