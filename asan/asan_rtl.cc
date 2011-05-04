@@ -60,6 +60,7 @@ static int    F_atexit;
 static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
 static int    F_stats;
+static bool   F_fast_unwind;
 
 #ifndef ASAN_COMPACT_SHADOW
 # error must define ASAN_COMPACT_SHADOW
@@ -496,6 +497,19 @@ static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *para
 }
 
 #define GET_CALLER_PC() (uintptr_t)__builtin_return_address(0)
+#define GET_CURRENT_FRAME() (uintptr_t*)__builtin_frame_address(0)
+
+__attribute__((noinline))
+static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
+  stack->trace[stack->size++] = GET_CALLER_PC();
+  uintptr_t *prev_frame = frame;
+  while (frame - prev_frame < (1 << 16) && stack->size < stack->max_size) {
+    uintptr_t pc = frame[1];
+    stack->trace[stack->size++] = pc;
+    prev_frame = frame;
+    frame = (uintptr_t*)frame[0];
+  }
+}
 
 #define GET_STACK_TRACE_HERE(max_s)               \
   StackTrace stack;                               \
@@ -505,7 +519,10 @@ static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *para
   } else {                                        \
     stack.max_size = max_s;                       \
     stack.size  = 0;                              \
-    _Unwind_Backtrace(Unwind_Trace, &stack);      \
+    if (F_fast_unwind)                            \
+      FastUnwindStack(GET_CURRENT_FRAME(), &stack); \
+    else                                          \
+      _Unwind_Backtrace(Unwind_Trace, &stack);    \
     if (stack.size >= 2) {                        \
       CHECK(stack.trace[1] == GET_CALLER_PC());   \
     }                                             \
@@ -1377,6 +1394,7 @@ static void asan_init() {
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
+  F_fast_unwind = IntFlagValue(options, "fast_unwind=", 0);
 
   if (F_atexit) {
     atexit(asan_atexit);
