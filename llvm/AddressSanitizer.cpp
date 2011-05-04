@@ -117,104 +117,104 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
 }
 
 void AddresSanitizer::instrumentMop(BasicBlock::iterator &BI) {
-    Instruction *mop = BI;
-    Value *Addr = isa<StoreInst>(*mop)
+  Instruction *mop = BI;
+  Value *Addr = isa<StoreInst>(*mop)
       ? cast<StoreInst>(*mop).getPointerOperand()
       : cast<LoadInst>(*mop).getPointerOperand();
-    const Type *OrigPtrTy = Addr->getType();
-    const Type *OrigType = cast<PointerType>(OrigPtrTy)->getElementType();
+  const Type *OrigPtrTy = Addr->getType();
+  const Type *OrigType = cast<PointerType>(OrigPtrTy)->getElementType();
 
-    int type_size = 0;  // in bits
-    if (OrigType->isSized()) {
-      type_size = TD->getTypeStoreSizeInBits(OrigType);
-    } else {
-      errs() << "Type " << *OrigType << " has unknown size!\n";
-      assert(false);
+  int type_size = 0;  // in bits
+  if (OrigType->isSized()) {
+    type_size = TD->getTypeStoreSizeInBits(OrigType);
+  } else {
+    errs() << "Type " << *OrigType << " has unknown size!\n";
+    assert(false);
+  }
+
+  if (type_size != 8  && type_size != 16
+      && type_size != 32 && type_size != 64) {
+    // TODO(kcc): do something better.
+    return;
+  }
+
+  if (!(OrigType->isIntOrIntVectorTy() || OrigType->isPointerTy())) {
+    // This type is unsupported by the ICMP instruction. Cast it to the int of
+    // appropriate size.
+    OrigType = IntegerType::get(*Context, type_size);
+    OrigPtrTy = PointerType::get(OrigType, 0);
+  }
+
+  Value *AddrLong = BitCastInst::CreatePointerCast(Addr, LongTy, "", BI);
+  Value *Shadow = AddrLong;
+
+  Value *ShadowPtr = NULL;
+  Value *CmpVal;
+  if (Clm32 || ClCompactShadow) {
+    Shadow = BinaryOperator::CreateLShr(
+        Shadow, ConstantInt::get(LongTy, 3), "", BI);
+    uint64_t mask = Clm32
+        ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
+        : kCompactShadowMask64;
+    Shadow = BinaryOperator::CreateOr(
+        Shadow, ConstantInt::get(LongTy, mask), "", BI);
+    ShadowPtr = new IntToPtrInst(Shadow, BytePtrTy, "", BI);
+    CmpVal = ConstantInt::get(ByteTy, 0);
+  } else {
+    // Shadow |= kFullLowShadowMask
+    Shadow = BinaryOperator::CreateOr(
+        Shadow, ConstantInt::get(LongTy, kFullLowShadowMask), "", BI);
+    // Shadow &= ~kFullHighShadowMask
+    Shadow = BinaryOperator::CreateAnd(
+        Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask), "", BI);
+    // ShadowPadded = Shadow + kBankPadding;
+    Value *ShadowPadded = BinaryOperator::CreateAdd(
+        Shadow, ConstantInt::get(LongTy, kBankPadding), "", BI);
+
+    ShadowPtr = new IntToPtrInst(ShadowPadded, OrigPtrTy, "", BI);
+    CmpVal = Constant::getNullValue(OrigType);
+  }
+  Value *ShadowValue = new LoadInst(ShadowPtr, "", BI);
+  // If the shadow value is non-zero, write to the check address, else
+  // continue executing the old code.
+  Value *Cmp = new ICmpInst(BI, ICmpInst::ICMP_NE, ShadowValue, CmpVal, "");
+  // Split the mop and the successive code into a separate block.
+  // Note that it invalidates the iterators used in runOnFunction(),
+  // but we're ok with that as long as we break from the loop immediately
+  // after insrtumentMop().
+
+  Instruction *CheckTerm = splitBasicBlock(BI, Cmp);
+
+  Value *UpdateShadowIntPtr = BinaryOperator::CreateShl(
+      Shadow, ConstantInt::get(LongTy, ClCrOS ? 2 : 1), "", CheckTerm);
+  Value *CheckPtr =
+      new IntToPtrInst(UpdateShadowIntPtr, BytePtrTy, "", CheckTerm);
+
+  if (Clm32 || ClCompactShadow) {
+    if (type_size != 64) {
+      // addr & 7
+      Value *Lower3Bits = BinaryOperator::CreateAnd(
+          AddrLong, ConstantInt::get(LongTy, 7), "", CheckTerm);
+      // (addr & 7) + size
+      Value *LastAccessedByte = BinaryOperator::CreateAdd(
+          Lower3Bits, ConstantInt::get(LongTy, type_size / 8), "", CheckTerm);
+      // (uint8_t) ((addr & 7) + size)
+      LastAccessedByte = BitCastInst::CreateIntegerCast(
+          LastAccessedByte, ByteTy, false, "", CheckTerm);
+      // ((uint8_t) ((addr & 7) + size)) > ShadowValue
+      Value *cmp2 = new ICmpInst(
+          CheckTerm, ICmpInst::ICMP_SGT, LastAccessedByte, ShadowValue);
+
+      CheckTerm = splitBasicBlock(CheckTerm, cmp2);
     }
 
-    if (type_size != 8  && type_size != 16
-     && type_size != 32 && type_size != 64) {
-      // TODO(kcc): do something better.
-      return;
-    }
-
-    if (!(OrigType->isIntOrIntVectorTy() || OrigType->isPointerTy())) {
-      // This type is unsupported by the ICMP instruction. Cast it to the int of
-      // appropriate size.
-      OrigType = IntegerType::get(*Context, type_size);
-      OrigPtrTy = PointerType::get(OrigType, 0);
-    }
-
-    Value *AddrLong = BitCastInst::CreatePointerCast(Addr, LongTy, "", BI);
-    Value *Shadow = AddrLong;
-
-    Value *ShadowPtr = NULL;
-    Value *CmpVal;
-    if (Clm32 || ClCompactShadow) {
-      Shadow = BinaryOperator::CreateLShr(
-          Shadow, ConstantInt::get(LongTy, 3), "", BI);
-      uint64_t mask = Clm32
-          ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
-          : kCompactShadowMask64;
-      Shadow = BinaryOperator::CreateOr(
-          Shadow, ConstantInt::get(LongTy, mask), "", BI);
-      ShadowPtr = new IntToPtrInst(Shadow, BytePtrTy, "", BI);
-      CmpVal = ConstantInt::get(ByteTy, 0);
-    } else {
-      // Shadow |= kFullLowShadowMask
-      Shadow = BinaryOperator::CreateOr(
-          Shadow, ConstantInt::get(LongTy, kFullLowShadowMask), "", BI);
-      // Shadow &= ~kFullHighShadowMask
-      Shadow = BinaryOperator::CreateAnd(
-          Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask), "", BI);
-      // ShadowPadded = Shadow + kBankPadding;
-      Value *ShadowPadded = BinaryOperator::CreateAdd(
-          Shadow, ConstantInt::get(LongTy, kBankPadding), "", BI);
-
-      ShadowPtr = new IntToPtrInst(ShadowPadded, OrigPtrTy, "", BI);
-      CmpVal = Constant::getNullValue(OrigType);
-    }
-    Value *ShadowValue = new LoadInst(ShadowPtr, "", BI);
-    // If the shadow value is non-zero, write to the check address, else
-    // continue executing the old code.
-    Value *Cmp = new ICmpInst(BI, ICmpInst::ICMP_NE, ShadowValue, CmpVal, "");
-    // Split the mop and the successive code into a separate block.
-    // Note that it invalidates the iterators used in runOnFunction(),
-    // but we're ok with that as long as we break from the loop immediately
-    // after insrtumentMop().
-
-    Instruction *CheckTerm = splitBasicBlock(BI, Cmp);
-
-    Value *UpdateShadowIntPtr = BinaryOperator::CreateShl(
-        Shadow, ConstantInt::get(LongTy, ClCrOS ? 2 : 1), "", CheckTerm);
-    Value *CheckPtr =
-        new IntToPtrInst(UpdateShadowIntPtr, BytePtrTy, "", CheckTerm);
-
-    if (Clm32 || ClCompactShadow) {
-      if (type_size != 64) {
-        // addr & 7
-        Value *Lower3Bits = BinaryOperator::CreateAnd(
-            AddrLong, ConstantInt::get(LongTy, 7), "", CheckTerm);
-        // (addr & 7) + size
-        Value *LastAccessedByte = BinaryOperator::CreateAdd(
-            Lower3Bits, ConstantInt::get(LongTy, type_size / 8), "", CheckTerm);
-        // (uint8_t) ((addr & 7) + size)
-        LastAccessedByte = BitCastInst::CreateIntegerCast(
-            LastAccessedByte, ByteTy, false, "", CheckTerm);
-        // ((uint8_t) ((addr & 7) + size)) > ShadowValue
-        Value *cmp2 = new ICmpInst(
-            CheckTerm, ICmpInst::ICMP_SGT, LastAccessedByte, ShadowValue);
-
-        CheckTerm = splitBasicBlock(CheckTerm, cmp2);
-      }
-
-      Value *ShadowLongPtr = new IntToPtrInst(Shadow, LongPtrTy, "", CheckTerm);
-      new StoreInst(AddrLong, ShadowLongPtr, "", CheckTerm);
-    }
-    uint8_t telltale_value = isa<StoreInst>(*mop) * 16 + (type_size / 8);
-    Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
-    Instruction *CheckStoreInst = new StoreInst(TellTale, CheckPtr, "", CheckTerm);
-    CloneDebugInfo(mop, CheckStoreInst);
+    Value *ShadowLongPtr = new IntToPtrInst(Shadow, LongPtrTy, "", CheckTerm);
+    new StoreInst(AddrLong, ShadowLongPtr, "", CheckTerm);
+  }
+  uint8_t telltale_value = isa<StoreInst>(*mop) * 16 + (type_size / 8);
+  Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
+  Instruction *CheckStoreInst = new StoreInst(TellTale, CheckPtr, "", CheckTerm);
+  CloneDebugInfo(mop, CheckStoreInst);
 }
 
 // ----- ignores. TODO(kcc): clean this up -------
