@@ -256,7 +256,8 @@ bool AddresSanitizer::runOnFunction(Function &F) {
        FI != FE; ++FI) {
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
-      if ((isa<LoadInst>(BI)) || (isa<StoreInst>(BI))) {
+      if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
+          isa<StoreInst>(BI) && ClInstrumentWrites) {
         to_instrument.insert(BI);
       }
     }
@@ -269,16 +270,13 @@ bool AddresSanitizer::runOnFunction(Function &F) {
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
          BI != BE; ++BI) {
       if (!to_instrument.count(BI)) continue;
-      if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
-          isa<StoreInst>(BI) && ClInstrumentWrites) {
-        // Instrument LOAD or STORE.
-        instrumentMop(BI);
-        n_instrumented++;
-        // BI is put into a separate block, so we need to stop processing this
-        // one, making sure we don't instrument it twice.
-        to_instrument.erase(BI);
-        break;
-      }
+      // Instrument LOAD or STORE.
+      instrumentMop(BI);
+      n_instrumented++;
+      // BI is put into a separate block, so we need to stop processing this
+      // one, making sure we don't instrument it twice.
+      to_instrument.erase(BI);
+      break;
     }
   }
   return n_instrumented > 0;
