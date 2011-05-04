@@ -20,6 +20,7 @@
 #define DEBUG_TYPE "AddressSanitizer"
 
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/Analysis/DebugInfo.h"
 #include "llvm/CallingConv.h"
 #include "llvm/DerivedTypes.h"
@@ -42,7 +43,6 @@
 #include "asan_rtl.h"
 
 #include <map>
-#include <set>
 using namespace llvm;
 using namespace std;
 
@@ -91,7 +91,7 @@ struct AddresSanitizer : public FunctionPass {
   const Type *LongPtrTy;
   const Type *ByteTy;
   const Type *BytePtrTy;
-  std::set<Instruction*> to_instrument;
+  SmallSet<Instruction*, 16> to_instrument;
 };
 
 AddresSanitizer::AddresSanitizer() : FunctionPass(&ID) {
@@ -284,7 +284,7 @@ bool AddresSanitizer::runOnBasicBlock(BasicBlock &BB) {
   for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
        BI != BE;
        ++BI) {
-    if (to_instrument.find(BI) == to_instrument.end()) continue;
+    if (!to_instrument.count(BI)) continue;
     if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
         isa<StoreInst>(BI) && ClInstrumentWrites) {
       // Instrument LOAD.
