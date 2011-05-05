@@ -1,5 +1,4 @@
 #!/bin/bash
-
 ROOT=`pwd`
 cd clang_src
 patch -p 0 < $ROOT/llvm/clang.patch
