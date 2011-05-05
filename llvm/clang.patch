@@ -1,0 +1,71 @@
+Index: include/llvm/Transforms/Instrumentation.h
+===================================================================
+--- include/llvm/Transforms/Instrumentation.h	(revision 130836)
++++ include/llvm/Transforms/Instrumentation.h	(working copy)
+@@ -30,6 +30,9 @@
+ // Insert GCOV profiling instrumentation
+ ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true);
+ 
++// Insert AddressSanitizer (address sanity checking) instrumentation
++ModulePass *createAddressSanitizerPass();
++
+ } // End llvm namespace
+ 
+ #endif
+Index: include/llvm/InitializePasses.h
+===================================================================
+--- include/llvm/InitializePasses.h	(revision 130836)
++++ include/llvm/InitializePasses.h	(working copy)
+@@ -95,6 +95,7 @@
+ void initializeEdgeProfilerPass(PassRegistry&);
+ void initializePathProfilerPass(PassRegistry&);
+ void initializeGCOVProfilerPass(PassRegistry&);
++void initializeAddressSanitizerPass(PassRegistry&);
+ void initializeEarlyCSEPass(PassRegistry&);
+ void initializeExpandISelPseudosPass(PassRegistry&);
+ void initializeFindUsedTypesPass(PassRegistry&);
+Index: include/llvm/Support/StandardPasses.h
+===================================================================
+--- include/llvm/Support/StandardPasses.h	(revision 130836)
++++ include/llvm/Support/StandardPasses.h	(working copy)
+@@ -23,6 +23,7 @@
+ #include "llvm/Analysis/Passes.h"
+ #include "llvm/Analysis/Verifier.h"
+ #include "llvm/Transforms/Scalar.h"
++#include "llvm/Transforms/Instrumentation.h"
+ #include "llvm/Transforms/IPO.h"
+ 
+ namespace llvm {
+@@ -126,6 +127,8 @@
+       PM->add(createGVNPass());                 // Remove redundancies
+     PM->add(createMemCpyOptPass());             // Remove memcpy / form memset
+     PM->add(createSCCPPass());                  // Constant prop with SCCP
++
++    PM->add(createAddressSanitizerPass());
+   
+     // Run instcombine after redundancy elimination to exploit opportunities
+     // opened up by them.
+Index: lib/Transforms/Instrumentation/Instrumentation.cpp
+===================================================================
+--- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 130836)
++++ lib/Transforms/Instrumentation/Instrumentation.cpp	(working copy)
+@@ -24,6 +24,7 @@
+   initializeOptimalEdgeProfilerPass(Registry);
+   initializePathProfilerPass(Registry);
+   initializeGCOVProfilerPass(Registry);
++  initializeAddressSanitizerPass(Registry);
+ }
+ 
+ /// LLVMInitializeInstrumentation - C binding for
+Index: lib/Transforms/Instrumentation/CMakeLists.txt
+===================================================================
+--- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 130836)
++++ lib/Transforms/Instrumentation/CMakeLists.txt	(working copy)
+@@ -1,4 +1,7 @@
+ add_llvm_library(LLVMInstrumentation
++  AddressSanitizer.cpp
++  ignore.cc
++  common_util.cc
+   EdgeProfiling.cpp
+   GCOVProfiling.cpp
+   Instrumentation.cpp
