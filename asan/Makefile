@@ -12,19 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 CC=gcc
 CXX=g++
-ASAN_CXX=../scripts/g++
 
 CLANG_SRC=../clang_src
 CLANG_BUILD=../clang_build
 CLANG_BUILD_TYPE=Debug+Asserts
 CLANG=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang
 
-
-LLVM_OPT=-O1
-LLVM_PLUGIN=../llvm
 LIBS=-lpthread
 BITS=64
 BYTE_TO_BYTE=0
@@ -41,7 +36,7 @@ GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
-all: llvm t_cros t_64 t_64_full t_32
+all: t_cros t_64 t_64_full t_32
 t_cros:
 	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=1 SUFF=32cros   asan_test32cros
 t_64:
@@ -54,9 +49,6 @@ t_32:
 SUFF=zzz
 
 rtl: asan_rtl$(SUFF).a
-
-llvm:
-	make -C ${LLVM_PLUGIN}
 
 asan_rtl$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) \
@@ -88,4 +80,3 @@ $(GTEST_LIB):
 
 clean:
 	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*
-	make -C ${LLVM_PLUGIN} clean
