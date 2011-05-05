@@ -49,6 +49,8 @@ using namespace llvm;
 using namespace std;
 
 // Command-line flags. {{{1
+static cl::opt<bool> ClAsan("asan",
+       cl::desc("enable AddressSanitizer"), cl::init(true));
 static cl::opt<bool> ClInstrumentReads("asan-instrument-reads",
        cl::desc("instrument read instructions"), cl::init(true));
 static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
@@ -246,6 +248,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
 //virtual
 bool AddressSanitizer::runOnModule(Module &M) {
+  if (!ClAsan) return false;
   bool res = false;
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
     if (F->isDeclaration()) continue;
