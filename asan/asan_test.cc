@@ -294,11 +294,11 @@ TEST(AddressSanitizer, DISABLED_WrongFreeTest) {
 }
 
 void DoubleFree() {
-  fprintf(stderr, "DoubleFree\n");
   int *x = (int*)malloc(100 * sizeof(int));
+  fprintf(stderr, "DoubleFree: x=%p\n", x);
   free(x);
   free(x);
-  fprintf(stderr, "should have failed in the second free()\n");
+  fprintf(stderr, "should have failed in the second free(%p)\n", x);
   abort();
 }
 
