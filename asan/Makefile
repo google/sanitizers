@@ -48,13 +48,13 @@ t_32:
 
 SUFF=zzz
 
-rtl: asan_rtl$(SUFF).a asan_rtl$(SUFF).so
+rtl: libasan$(SUFF).a libasan$(SUFF).so
 
-asan_rtl$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
+libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) \
 	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
-asan_rtl$(SUFF).so: $(RTL_SRC) $(RTL_HDR)
+libasan$(SUFF).so: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -o $@ -g $(RTL_SRC) -shared -fPIC -lpthread \
 	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
@@ -63,16 +63,16 @@ $(SYMBOL_TABLE_O):
 	cd ../third_party/gdb_symbols && $(MAKE)
 
 	
-asan_rtl$(SUFF).a: asan_rtl$(SUFF).o
+libasan$(SUFF).a: libasan$(SUFF).o
 	ar ruv $@ $^
 
-asan_test$(SUFF): asan_test.cc asan_rtl$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
+asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
 	$(CLANG_CXX) $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
 		-mllvm -asan-cros=$(CROS) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
-	$(CLANG_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB) asan_rtl$(SUFF).a
+	$(CLANG_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB) libasan$(SUFF).a
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
