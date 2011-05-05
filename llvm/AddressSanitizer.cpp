@@ -314,7 +314,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
          BI != BE; ++BI) {
       if (!to_instrument.count(BI)) continue;
-      errs() << F.getNameStr() << (isa<StoreInst>(BI) ? " st" : " ld") << "\n";
+      // errs() << F.getNameStr() << (isa<StoreInst>(BI) ? " st" : " ld") << "\n";
       // Instrument LOAD or STORE.
       instrumentMop(BI);
       n_instrumented++;
