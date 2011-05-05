@@ -62,8 +62,8 @@ static bool   F_poison_shadow;
 static int    F_stats;
 static bool   F_fast_unwind;
 
-#ifndef ASAN_COMPACT_SHADOW
-# error must define ASAN_COMPACT_SHADOW
+#ifndef ASAN_BYTE_TO_BYTE_SHADOW
+# error must define ASAN_BYTE_TO_BYTE_SHADOW
 #endif
 
 #ifndef ASAN_CROS
@@ -229,7 +229,7 @@ const size_t kLowMemEnd     = kCompactShadowMask;
 
 #endif  // __WORDSIZE
 
-#if ASAN_COMPACT_SHADOW
+#if !ASAN_BYTE_TO_BYTE_SHADOW
 const size_t kLowShadowBeg   = kCompactShadowMask;
 const size_t kLowShadowEnd   = (kLowMemEnd >> 3) | kCompactShadowMask;
 const size_t kHighShadowBeg  = (kHighMemBeg >> 3) | kCompactShadowMask;
@@ -335,7 +335,7 @@ bool AddrIsInShadow(uintptr_t a) {
 
 uintptr_t MemToShadow(uintptr_t p) {
   CHECK(AddrIsInMem(p));
-#if ASAN_COMPACT_SHADOW
+#if !ASAN_BYTE_TO_BYTE_SHADOW
   return (p >> 3) | kCompactShadowMask;
 #else
   uintptr_t shadow = (p | kFullLowShadowMask) & (~kFullHighShadowMask);
@@ -344,7 +344,7 @@ uintptr_t MemToShadow(uintptr_t p) {
 }
 
 uintptr_t ShadowToMem(uintptr_t shadow) {
-#if ASAN_COMPACT_SHADOW
+#if !ASAN_BYTE_TO_BYTE_SHADOW
     return (shadow & ~kCompactShadowMask) << 3;
 #else
   uintptr_t mem = shadow - kBankPadding;
@@ -359,7 +359,7 @@ uintptr_t ShadowToMem(uintptr_t shadow) {
 uintptr_t BadToShadow(uintptr_t bad) {
 #if ASAN_CROS
   return bad >> 2;
-#elif ASAN_COMPACT_SHADOW
+#elif !ASAN_BYTE_TO_BYTE_SHADOW
   return bad >> 1;
 #else
   return (bad >> 1) + kBankPadding;
@@ -715,7 +715,7 @@ struct Ptr {
     if (!F_poison_shadow) return;
     uintptr_t red_zone_words = F_red_zone_words;
     uintptr_t size_in_words = this->size_in_words();
-#if ASAN_COMPACT_SHADOW
+#if !ASAN_BYTE_TO_BYTE_SHADOW
       uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
       // this->PrintOnLine("malloc poison: ", "\n");
       // Printf("shadow: %p\n", shadow);
@@ -752,7 +752,7 @@ struct Ptr {
     uintptr_t real_size_in_words = this->real_size_in_words();
     uintptr_t size_in_words = this->size_in_words();
     CHECK(AddrIsInMem(rz1_beg()));
-#if ASAN_COMPACT_SHADOW
+#if !ASAN_BYTE_TO_BYTE_SHADOW
     if (poison) {
       CompactPoison(0xda, 0xd0, 0xdb);
     } else {

@@ -17,11 +17,17 @@ CC=gcc
 CXX=g++
 ASAN_CXX=../scripts/g++
 
+CLANG_SRC=../clang_src
+CLANG_BUILD=../clang_build
+CLANG_BUILD_TYPE=Debug+Asserts
+CLANG=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang
+
+
 LLVM_OPT=-O1
 LLVM_PLUGIN=../llvm
 LIBS=-lpthread
 BITS=64
-COMPACT=0
+BYTE_TO_BYTE=0
 CROS=0
 
 SYMBOL_TABLE_O=../third_party/gdb_symbols/symbol_table.o
@@ -37,13 +43,13 @@ GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 all: llvm t_cros t_64 t_64_full t_32
 t_cros:
-	$(MAKE) BITS=32 COMPACT=1 CROS=1 SUFF=32cros   asan_test32cros
+	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=1 SUFF=32cros   asan_test32cros
 t_64:
-	$(MAKE) BITS=64 COMPACT=1 SUFF=64C1 asan_test64C1
+	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 asan_test64
 t_64_full:
-	$(MAKE) BITS=64 COMPACT=0 SUFF=64C0 asan_test64C0
+	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full asan_test64full
 t_32:
-	$(MAKE) BITS=32 COMPACT=1 SUFF=32   asan_test32
+	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   asan_test32
 
 SUFF=zzz
 
@@ -53,7 +59,9 @@ llvm:
 	make -C ${LLVM_PLUGIN}
 
 asan_rtl$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
-	$(CXX) -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_COMPACT_SHADOW=$(COMPACT) -O3 -c -o $@ -g $(RTL_SRC)
+	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) \
+	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
+
 
 $(SYMBOL_TABLE_O):
 	cd ../third_party/gdb_symbols && $(MAKE)
@@ -65,9 +73,13 @@ asan_rtl$(SUFF).a: asan_rtl$(SUFF).o
 #asan_rtl($BITS).so: $(RTL_SRC) $(RTL_HDR)
 #	$(CXX) -m$(BITS) -O3 -shared -fPIC -g $(RTL_SRC) -o $@ -lpthread
 
-asan_test$(SUFF): asan_test.cc rtl llvm Makefile asan_test.ignore $(GTEST_LIB)
-	ASAN_CROS=$(CROS) ASAN_COMPACT=$(COMPACT) ASAN_IGNORE=asan_test.ignore $(ASAN_CXX) $(GTEST_INCLUDE) -m$(BITS) -g -c $< -O2 -o $@.o
-	ASAN_CROS=$(CROS) ASAN_COMPACT=$(COMPACT) $(ASAN_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
+asan_test$(SUFF): asan_test.cc asan_rtl$(SUFF).a Makefile asan_test.ignore $(GTEST_LIB)
+	$(CLANG) $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
+		-m$(BITS) \
+		-mllvm -asan-ignore=asan_test.ignore \
+		-mllvm -asan-cros=$(CROS) \
+		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
+	$(CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB) asan_rtl$(SUFF).a
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \

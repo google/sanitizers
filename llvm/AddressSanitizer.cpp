@@ -41,9 +41,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#ifdef ASAN_LLVM_USES_IGNORES
-#include "ignore.h"
-#endif  // ASAN_LLVM_USES_IGNORES
+#include "ignore.h"  // From ThreadSanitizer.
 
 #include "asan_rtl.h"
 
@@ -51,28 +49,29 @@ using namespace llvm;
 using namespace std;
 
 // Command-line flags. {{{1
-static cl::opt<bool>
-    ClInstrumentReads("instrument-reads",
-        cl::desc("TODO(glider)"),
-        cl::init(true));
-static cl::opt<bool>
-    ClCompactShadow("compact-shadow",
-        cl::desc("Use compact (qword-to-byte) shadow mapping"),
-        cl::init(true));
-static cl::opt<bool>
-    ClInstrumentWrites("instrument-writes",
-        cl::desc("TODO(glider)"),
-        cl::init(true));
-static cl::opt<bool>
-    ClCrOS("cros",
-        cl::desc("CrOS"),
-        cl::init(false));
-static cl::opt<string>
-    IgnoreFile("ignore",
-               cl::desc("File containing the list of functions to ignore "
+static cl::opt<bool> ClInstrumentReads("asan-instrument-reads",
+       cl::desc("instrument read instructions"), cl::init(true));
+static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
+       cl::desc("instrument write instructions"), cl::init(true));
+static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
+       cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
+static cl::opt<bool>  ClCrOS("asan-cros",
+       cl::desc("Instrument for 32-bit ChromeOS"), cl::init(false));
+static cl::opt<string>  IgnoreFile("asan-ignore",
+       cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 
 // }}}
+
+// Define the Printf function used by the ignore machinery.
+void Printf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  vfprintf(stderr, format, args);
+  fflush(stderr);
+  va_end(args);
+}
+
 
 namespace {
 struct AddressSanitizer : public ModulePass {
@@ -180,7 +179,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   Value *ShadowPtr = NULL;
   Value *CmpVal;
-  if (ClCompactShadow) {
+  if (!ClByteToByteShadow) {
     Shadow = irb1.CreateLShr(Shadow, 3);
     uint64_t mask = TD->getPointerSize() == 4
         ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
@@ -217,7 +216,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Value *UpdateShadowIntPtr = irb2.CreateShl(Shadow, ClCrOS ? 2 : 1);
   Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
 
-  if (ClCompactShadow && type_size != 64) {
+  if (!ClByteToByteShadow && type_size != 64) {
     // addr & 7
     Value *Lower3Bits = irb2.CreateAnd(
         AddrLong, ConstantInt::get(LongTy, 7));
@@ -235,7 +234,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
-  if (ClCompactShadow) {
+  if (!ClByteToByteShadow) {
     Value *ShadowLongPtr = irb3.CreateIntToPtr(Shadow, LongPtrTy);
     irb3.CreateStore(AddrLong, ShadowLongPtr);
   }
@@ -255,26 +254,31 @@ bool AddressSanitizer::runOnModule(Module &M) {
   return res;
 }
 
-bool AddressSanitizer::handleFunction(Function &F) {
-#ifdef ASAN_LLVM_USES_IGNORES
-  // ignores. TODO(kcc): clean this up
-  // We use the 'ignore' machinery from ThreadSanitizer.
-  // See http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
-  static bool ignores_inited;
-  static IgnoreLists Ignores;
-  if (ignores_inited == false) {
-    ignores_inited = true;
-    if (IgnoreFile.size()) {
-      string ignore_contents = ReadFileToString(IgnoreFile,
-                                                /*die_if_failed*/true);
-      ReadIgnoresFromString(ignore_contents, &Ignores);
-    }
+static IgnoreLists *ReadIgnores() {
+  IgnoreLists *res = new IgnoreLists;
+  if (IgnoreFile.size()) {
+    string ignore_contents = ReadFileToString(IgnoreFile,
+                                              /*die_if_failed*/true);
+    ReadIgnoresFromString(ignore_contents, res);
   }
+  return res;
+}
 
-  if (TripleVectorMatchKnown(Ignores.ignores, F.getNameStr(), "", "")) {
-    return false;  // Nothing changed.
+// We use the 'ignore' machinery from ThreadSanitizer.
+// See http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
+static bool WantToIgnoreFunction(Function &F) {
+  // Thread-safe static initialization.
+  // TODO(kcc): is this thread-safe on all clang/llvm platforms?
+  static IgnoreLists *Ignores = ReadIgnores();
+
+  if (TripleVectorMatchKnown(Ignores->ignores, F.getNameStr(), "", "")) {
+    return true;
   }
-#endif  // ASAN_LLVM_USES_IGNORES
+  return false;
+}
+
+bool AddressSanitizer::handleFunction(Function &F) {
+  if (WantToIgnoreFunction(F)) return false;
 
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
@@ -282,7 +286,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
 
   if (TD->getPointerSize() == 4) {
     // For 32-bit arch the mapping is always compact.
-    ClCompactShadow = true;
+    ClByteToByteShadow = false;
   }
 
   // Initialize the private fields. No one has accessed them before.
