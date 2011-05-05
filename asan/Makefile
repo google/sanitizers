@@ -18,7 +18,7 @@ CXX=g++
 CLANG_SRC=../clang_src
 CLANG_BUILD=../clang_build
 CLANG_BUILD_TYPE=Debug+Asserts
-CLANG=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang
+CLANG_CXX=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang++
 
 LIBS=-lpthread
 BITS=64
@@ -66,12 +66,12 @@ asan_rtl$(SUFF).a: asan_rtl$(SUFF).o
 #	$(CXX) -m$(BITS) -O3 -shared -fPIC -g $(RTL_SRC) -o $@ -lpthread
 
 asan_test$(SUFF): asan_test.cc asan_rtl$(SUFF).a Makefile asan_test.ignore $(GTEST_LIB)
-	$(CLANG) $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
+	$(CLANG_CXX) $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
 		-mllvm -asan-cros=$(CROS) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
-	$(CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB) asan_rtl$(SUFF).a
+	$(CLANG_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB) asan_rtl$(SUFF).a
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
