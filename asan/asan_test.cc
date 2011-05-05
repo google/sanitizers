@@ -226,8 +226,8 @@ TEST(AddressSanitizer, IgnoreTest) {
 }
 
 TEST(AddressSanitizer, OutOfMemoryTest) {
-  size_t size = __WORDSIZE == 64 ? (1ULL << 40) : (0xf0000000);
-  EXPECT_DEATH(void *p = malloc(size),
+  size_t size = __WORDSIZE == 64 ? (size_t)(1ULL << 40) : (0xf0000000);
+  EXPECT_DEATH(printf("%p\n", malloc(size)),
                "ERROR: AddressSanitizer failed to allocate.*main memory");
 }
 
