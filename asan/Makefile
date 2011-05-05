@@ -48,10 +48,14 @@ t_32:
 
 SUFF=zzz
 
-rtl: asan_rtl$(SUFF).a
+rtl: asan_rtl$(SUFF).a asan_rtl$(SUFF).so
 
 asan_rtl$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) \
+	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
+
+asan_rtl$(SUFF).so: $(RTL_SRC) $(RTL_HDR)
+	$(CXX)  -O3 -o $@ -g $(RTL_SRC) -shared -fPIC -lpthread \
 	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
 
@@ -62,10 +66,7 @@ $(SYMBOL_TABLE_O):
 asan_rtl$(SUFF).a: asan_rtl$(SUFF).o
 	ar ruv $@ $^
 
-#asan_rtl($BITS).so: $(RTL_SRC) $(RTL_HDR)
-#	$(CXX) -m$(BITS) -O3 -shared -fPIC -g $(RTL_SRC) -o $@ -lpthread
-
-asan_test$(SUFF): asan_test.cc asan_rtl$(SUFF).a Makefile asan_test.ignore $(GTEST_LIB)
+asan_test$(SUFF): asan_test.cc asan_rtl$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
 	$(CLANG_CXX) $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
