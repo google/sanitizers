@@ -28,6 +28,7 @@
 #include "llvm/InlineAsm.h"
 #include "llvm/InstrTypes.h"
 #include "llvm/IntrinsicInst.h"
+#include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
@@ -74,10 +75,11 @@ static cl::opt<string>
 // }}}
 
 namespace {
-struct AddressSanitizer : public FunctionPass {
+struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
-  virtual bool runOnFunction(Function &F);
+  bool handleFunction(Function &F);
+  virtual bool runOnModule(Module &M);
   Instruction *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
  private:
@@ -95,14 +97,14 @@ char AddressSanitizer::ID = 0;
 #ifdef ASAN_LLVM_PLUGIN
 // This code is temporary (we build the plugin with some old version of 
 // llvm which comes with ubuntu 10.04)
-AddressSanitizer::AddressSanitizer() : FunctionPass(&ID) { }
+AddressSanitizer::AddressSanitizer() : ModulePass(&ID) { }
 RegisterPass<AddressSanitizer> X("asan",
                                  "AddressSanitizer: detects use-after-free and out-of-bounds bugs.");
 #else
 INITIALIZE_PASS(AddressSanitizer, "asan",
     "AddressSanitizer: detects use-after-free and out-of-bounds bugs.", false, false)
-AddressSanitizer::AddressSanitizer() : FunctionPass(ID) { }
-FunctionPass *llvm::createAddressSanitizerPass() {
+AddressSanitizer::AddressSanitizer() : ModulePass(ID) { }
+ModulePass *llvm::createAddressSanitizerPass() {
   return new AddressSanitizer();
 }
 #endif
@@ -205,7 +207,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   // continue executing the old code.
   Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
   // Split the mop and the successive code into a separate block.
-  // Note that it invalidates the iterators used in runOnFunction(),
+  // Note that it invalidates the iterators used in handleFunction(),
   // but we're ok with that as long as we break from the loop immediately
   // after insrtumentMop().
 
@@ -243,8 +245,17 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   CloneDebugInfo(mop, CheckStoreInst);
 }
 
-// virtual
-bool AddressSanitizer::runOnFunction(Function &F) {
+//virtual
+bool AddressSanitizer::runOnModule(Module &M) {
+  bool res = false;
+  for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
+    if (F->isDeclaration()) continue;
+    res |= handleFunction(*F);
+  }
+  return res;
+}
+
+bool AddressSanitizer::handleFunction(Function &F) {
 #ifdef ASAN_LLVM_USES_IGNORES
   // ignores. TODO(kcc): clean this up
   // We use the 'ignore' machinery from ThreadSanitizer.
@@ -303,6 +314,7 @@ bool AddressSanitizer::runOnFunction(Function &F) {
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
          BI != BE; ++BI) {
       if (!to_instrument.count(BI)) continue;
+      errs() << F.getNameStr() << (isa<StoreInst>(BI) ? " st" : " ld") << "\n";
       // Instrument LOAD or STORE.
       instrumentMop(BI);
       n_instrumented++;
