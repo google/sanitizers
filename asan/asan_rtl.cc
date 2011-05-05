@@ -699,7 +699,7 @@ struct Ptr {
     CompactPoisonRegion(rz1_beg(), rz1_end(), poison_left);
     CompactPoisonRegion(rz2_beg(), rz2_end(), poison_right);
     CompactPoisonRegion(    beg(),     end(), poison_main);
-    if ((size % 8) && poison_right != 0) {
+    if ((size % 8) && poison_right != 0 && poison_main == 0) {
       // one of the shadow bytes should be half-poisoned.
       uintptr_t last_qword = end();
       size_t addressible_bytes = size % 8;

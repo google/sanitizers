@@ -212,6 +212,7 @@ TEST(AddressSanitizer, OOBRightTest) {
 }
 
 TEST(AddressSanitizer, UAF_char) {
+  EXPECT_DEATH(uaf_test<U1>(1, 0), "AddressSanitizer.*freed");
   EXPECT_DEATH(uaf_test<U1>(10, 0), "AddressSanitizer.*freed");
   EXPECT_DEATH(uaf_test<U1>(10, 10), "AddressSanitizer.*freed");
   EXPECT_DEATH(uaf_test<U1>(kLargeMalloc, 0), "AddressSanitizer.*freed");
