@@ -17,7 +17,7 @@ CXX=g++
 
 CLANG_SRC=../clang_src
 CLANG_BUILD=../clang_build
-CLANG_BUILD_TYPE=Debug+Asserts
+CLANG_BUILD_TYPE=Release+Asserts
 CLANG_CXX=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang++
 
 LIBS=-lpthread
