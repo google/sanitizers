@@ -1278,7 +1278,8 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t shadow_addr = BadToShadow(addr);
   uintptr_t real_addr = ShadowToMem(shadow_addr);
   uint8_t *insn = (uint8_t*)pc;
-  int access_size_and_type = 0;;
+  int access_size_and_type = 0;
+  // TODO(kcc): disassemble all variants.
   if (insn[0] == 0xc6 && insn[1] == 0x04 && insn[2] == 0xcd) {
     // c6 04 cd 00 00 00 00 12 movb   $0x12,0x0(,%ecx,8)
     access_size_and_type = insn[7];
