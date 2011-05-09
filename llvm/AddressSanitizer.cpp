@@ -55,6 +55,10 @@ static cl::opt<bool> ClInstrumentReads("asan-instrument-reads",
        cl::desc("instrument read instructions"), cl::init(true));
 static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
        cl::desc("instrument write instructions"), cl::init(true));
+static cl::opt<bool> ClShadow("asan-shadow",
+       cl::desc("Use shadow memory"), cl::init(true));
+static cl::opt<bool> ClCall("asan-call",
+       cl::desc("Use call instead of SEGV"), cl::init(false));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
        cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
 static cl::opt<bool>  ClCrOS("asan-cros",
@@ -79,13 +83,20 @@ namespace {
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
+  void instrumentInMemoryLoad(BasicBlock::iterator &BI, Value *load, Value *Addr, int size, int teltale);
+  Value *getPoisonConst(int size);
   bool handleFunction(Function &F);
   virtual bool runOnModule(Module &M);
-  Instruction *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
+  BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
  private:
+  Value *asan_slow_path;
+  Value *asan_addr;
+  Value *asan_aux;
   LLVMContext *Context;
   TargetData *TD;
+  int         LongSize;
+  const Type *VoidTy;
   const Type *LongTy;
   const Type *LongPtrTy;
   const Type *ByteTy;
@@ -124,7 +135,7 @@ ModulePass *llvm::createAddressSanitizerPass() {
 //   Tail
 //
 // Returns the NewBasicBlock's terminator.
-Instruction *AddressSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp) {
+BranchInst *AddressSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp) {
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
@@ -145,13 +156,91 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
     to->setMetadata("dbg", dbg);
 }
 
+// generate 0xaaaa... constant of appropriate size.
+Value *AddressSanitizer::getPoisonConst(int size) {
+  switch (size) {
+    case 8:  return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaa);
+    case 16: return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaaaa);
+    case 32: return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaaaaaaaa);
+    case 64: return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaaaaaaaaaaaaaaaaLL);
+    default: assert(0); return 0;
+  }
+}
+
+void AddressSanitizer::instrumentInMemoryLoad(
+    BasicBlock::iterator &BI, 
+    Value *load,
+    Value *Addr, int size, int telltale_value) {
+  assert(isa<LoadInst>(load));
+  BasicBlock *bb1 = BI->getParent();
+  BasicBlock *bbT = bb1->splitBasicBlock(BI, "bbT_");
+  BasicBlock *bb2 = bb1->splitBasicBlock(bb1->getTerminator(), "bb2_");
+  BasicBlock *bb3 = bb2->splitBasicBlock(bb2->getTerminator(), "bb3_");
+  BasicBlock *bb4 = bb3->splitBasicBlock(bb3->getTerminator(), "bb4_");
+
+  /*
+        b1
+        |\
+        | \
+        |  b2
+        |  | \
+        |  |  \
+        |  |   \
+        |  b3---b4
+        | /
+        T
+  */
+
+  IRBuilder<> irb1(bb1->getTerminator());
+  if (load->getType()->isPointerTy())
+    load = irb1.CreatePtrToInt(load, LongTy);
+  Value *cmp1 = irb1.CreateICmpEQ(load, getPoisonConst(size));
+  BranchInst *term1 = BranchInst::Create(bb2, bbT, cmp1);
+  ReplaceInstWithInst(bb1->getTerminator(), term1);
+
+  //errs() << *bb1;
+
+  IRBuilder<> irb2(bb2->getTerminator());
+  Value *LongPoison = getPoisonConst(LongSize);
+  Value *Offset = ConstantInt::get(LongTy, LongSize / 8);
+  Value *AddrLong = irb2.CreatePointerCast(Addr, LongTy);
+  Value *LeftAddr = irb2.CreateIntToPtr(irb2.CreateSub(AddrLong, Offset), LongPtrTy);
+  Value *LeftLoad = irb2.CreateLoad(LeftAddr);
+  Value *cmp2 = irb2.CreateICmpEQ(LeftLoad, LongPoison);
+  BranchInst *term2 = BranchInst::Create(bb4, bb3, cmp2);
+  ReplaceInstWithInst(bb2->getTerminator(), term2);
+
+  IRBuilder<> irb3(bb3->getTerminator());
+  Value *RightAddr = irb3.CreateIntToPtr(irb3.CreateAdd(AddrLong, Offset), LongPtrTy);
+  Value *RightLoad = irb3.CreateLoad(RightAddr);
+  Value *cmp3 = irb3.CreateICmpEQ(RightLoad, LongPoison);
+  BranchInst *term3 = BranchInst::Create(bb4, bbT, cmp3);
+  ReplaceInstWithInst(bb3->getTerminator(), term3);
+  
+  IRBuilder<> irb4(bb4->getTerminator());
+  if (ClCall) {
+    irb4.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
+  } else {
+    irb4.CreateStore(AddrLong, asan_addr);
+    irb4.CreateStore(ConstantInt::get(ByteTy, telltale_value), asan_aux);
+    FunctionType *FnTy = FunctionType::get(VoidTy, false);
+    Value *int3_asm = InlineAsm::get(FnTy, StringRef("int3"), StringRef(""), true);
+    irb4.CreateCall(int3_asm);
+    //Value *null_int = ConstantInt::get(LongTy, 0);
+    //Value *null_ptr = irb4.CreateIntToPtr(null_int, LongPtrTy);
+    //irb4.CreateStore(null_int, null_ptr);
+  }
+}
+
 void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
-  Value *Addr = isa<StoreInst>(*mop)
+  int is_store = !!isa<StoreInst>(*mop);
+  Value *Addr = is_store
       ? cast<StoreInst>(*mop).getPointerOperand()
       : cast<LoadInst>(*mop).getPointerOperand();
   const Type *OrigPtrTy = Addr->getType();
   const Type *OrigType = cast<PointerType>(OrigPtrTy)->getElementType();
+  bool in_mem_needs_extra_load = isa<StoreInst>(*mop);
 
   int type_size = 0;  // in bits
   if (OrigType->isSized()) {
@@ -166,16 +255,33 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     // TODO(kcc): do something better.
     return;
   }
+  
+  uint8_t telltale_value = is_store * 16 + (type_size / 8);
 
   if (!(OrigType->isIntOrIntVectorTy() || OrigType->isPointerTy())) {
     // This type is unsupported by the ICMP instruction. Cast it to the int of
     // appropriate size.
     OrigType = IntegerType::get(*Context, type_size);
     OrigPtrTy = PointerType::get(OrigType, 0);
+    in_mem_needs_extra_load = true;
+  }
+
+
+  if (ClShadow == false) {
+    Instruction *load_to_check = mop;
+    if (in_mem_needs_extra_load) {
+      if (OrigPtrTy != Addr->getType())
+        Addr = new BitCastInst(Addr, OrigPtrTy, "", mop);
+      load_to_check = new LoadInst(Addr, "", mop);
+      instrumentInMemoryLoad(BI, load_to_check, Addr, type_size, telltale_value);
+    } else {
+      BI++;
+      instrumentInMemoryLoad(BI, load_to_check, Addr, type_size, telltale_value);
+    }
+    return;
   }
 
   IRBuilder<> irb1(BI->getParent(), BI);
-
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
   Value *Shadow = AddrLong;
 
@@ -236,18 +342,43 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
-  if (!ClByteToByteShadow) {
-    Value *ShadowLongPtr = irb3.CreateIntToPtr(Shadow, LongPtrTy);
-    irb3.CreateStore(AddrLong, ShadowLongPtr);
+  if (ClCall) {
+    irb3.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
+  } else {
+    if (!ClByteToByteShadow) {
+      Value *ShadowLongPtr = irb3.CreateIntToPtr(Shadow, LongPtrTy);
+      irb3.CreateStore(AddrLong, ShadowLongPtr);
+    }
+    Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
+    Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
+    CloneDebugInfo(mop, CheckStoreInst);
   }
-  uint8_t telltale_value = isa<StoreInst>(*mop) * 16 + (type_size / 8);
-  Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
-  Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
-  CloneDebugInfo(mop, CheckStoreInst);
 }
 
 //virtual
 bool AddressSanitizer::runOnModule(Module &M) {
+  // Initialize the private fields. No one has accessed them before.
+  TD = getAnalysisIfAvailable<TargetData>();
+  if (!TD)
+    return false;
+  Context = &(M.getContext());
+  LongSize = TD->getPointerSizeInBits();
+  LongTy = Type::getIntNTy(*Context, LongSize);
+  ByteTy  = Type::getInt8Ty(*Context);
+  BytePtrTy = PointerType::get(ByteTy, 0);
+  LongPtrTy = PointerType::get(LongTy, 0);
+  VoidTy = Type::getVoidTy(*Context);
+  asan_slow_path = M.getOrInsertFunction("asan_slow_path", 
+       VoidTy, LongTy, LongTy, (Type*)0);
+
+  asan_addr = new GlobalVariable(M, LongTy, /*isConstant*/false,
+      GlobalValue::ExternalLinkage, /*Initializer*/0, "asan_addr", 
+      /*InsertBefore*/0, /*ThreadLocal*/false);
+  asan_aux = new GlobalVariable(M, ByteTy, /*isConstant*/false,
+      GlobalValue::ExternalLinkage, /*Initializer*/0, "asan_aux", 
+      /*InsertBefore*/0, /*ThreadLocal*/false);
+
+
   if (!ClAsan) return false;
   bool res = false;
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
@@ -282,24 +413,13 @@ static bool WantToIgnoreFunction(Function &F) {
 
 bool AddressSanitizer::handleFunction(Function &F) {
   if (WantToIgnoreFunction(F)) return false;
+  //errs() << "============" << F.getNameStr() << "\n";
 
-  TD = getAnalysisIfAvailable<TargetData>();
-  if (!TD)
-    return false;
 
   if (TD->getPointerSize() == 4) {
     // For 32-bit arch the mapping is always compact.
     ClByteToByteShadow = false;
   }
-
-  // Initialize the private fields. No one has accessed them before.
-  Context = &(F.getContext());
-  LongTy = TD->getPointerSize() == 4
-      ? Type::getInt32Ty(*Context)
-      : Type::getInt64Ty(*Context);
-  ByteTy  = Type::getInt8Ty(*Context);
-  BytePtrTy = PointerType::get(ByteTy, 0);
-  LongPtrTy = PointerType::get(LongTy, 0);
 
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
@@ -331,5 +451,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
       break;
     }
   }
+  //errs() << "--------------------\n";
+  //errs() << F;
   return n_instrumented > 0;
 }

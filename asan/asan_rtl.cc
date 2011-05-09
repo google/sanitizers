@@ -1233,7 +1233,38 @@ sighandler_t signal(int signum, sighandler_t handler) {
   return 0;
 }
 
+
 // --------------------
+uintptr_t asan_addr;
+uint8_t asan_aux;
+
+extern "C"
+void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
+  size_t size = asan_aux & 15;
+  bool is_w = asan_aux  & 16;
+  Printf("AddressSanitizer: slow path "PP" "PP" %s of size %ld\n", addr, asan_addr, is_w ? "WRITE" : "READ",  size);
+}
+
+static void     OnSIGTRAP(int, siginfo_t *siginfo, void *context) {
+  size_t size = asan_aux & 15;
+  bool is_w = asan_aux  & 16;
+  Printf("AddressSanitizer: SIGTRAP "PP" %s of size %ld\n", asan_addr, is_w ? "WRITE" : "READ",  size);
+  ucontext_t *ucontext = (ucontext_t*)context;
+  // Printf("rcx: %lx\n", ucontext->uc_mcontext.gregs[REG_RCX]);
+#if __WORDSIZE == 64
+  greg_t &pc = ucontext->uc_mcontext.gregs[REG_RIP];
+#else
+  greg_t &pc = ucontext->uc_mcontext.gregs[REG_EIP];
+#endif
+  pc++;
+  //abort();
+}
+static void     OnSIGILL(int, siginfo_t *siginfo, void *context) {
+  size_t size = asan_aux & 15;
+  bool is_w = asan_aux  & 16;
+  Printf("AddressSanitizer: SIGILL "PP" %s of size %ld\n", asan_addr, is_w ? "WRITE" : "READ",  size);
+  abort();
+}
 
 static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
@@ -1409,11 +1440,30 @@ static void asan_init() {
     F_malloc_context_size = F_red_zone_words;
 
   // Set the SEGV handler.
-  struct sigaction sigact;
-  memset(&sigact, 0, sizeof(sigact));
-  sigact.sa_sigaction = OnSIGSEGV;
-  sigact.sa_flags = SA_SIGINFO;
-  sigaction(SIGSEGV, &sigact, 0);
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = OnSIGSEGV;
+    sigact.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sigact, 0);
+  }
+
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = OnSIGILL;
+    sigact.sa_flags = SA_SIGINFO;
+    sigaction(SIGILL, &sigact, 0);
+  }
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = OnSIGTRAP;
+    sigact.sa_flags = SA_SIGINFO;
+    sigaction(SIGTRAP, &sigact, 0);
+  }
+
+
 
   pthread_spin_init(&shadow_lock, 0);
 
