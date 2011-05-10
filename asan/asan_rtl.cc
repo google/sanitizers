@@ -300,6 +300,17 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 #endif
 }
 
+uintptr_t __asan_addr;
+uint8_t __asan_aux;
+
+__attribute__ ((weak))
+extern uintptr_t __asan_flag;
+
+static bool HasFlag(AsanFlag flag) {
+  if (&__asan_flag == NULL) return false;
+  return __asan_flag & (1 << (uintptr_t)flag);
+}
+
 
 //SymbolTable symbol_table(NULL);
 
@@ -713,6 +724,10 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnMalloc() {
     if (!F_poison_shadow) return;
+    if (HasFlag(AsanFlagInMemoryPoison)) {
+      // TODO(kcc)
+      return;
+    }
     uintptr_t red_zone_words = F_red_zone_words;
     uintptr_t size_in_words = this->size_in_words();
 #if !ASAN_BYTE_TO_BYTE_SHADOW
@@ -749,6 +764,10 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnFree(uintptr_t poison) {
     if (!F_poison_shadow) return;
+    if (HasFlag(AsanFlagInMemoryPoison)) {
+      // TODO(kcc)
+      return;
+    }
     uintptr_t real_size_in_words = this->real_size_in_words();
     uintptr_t size_in_words = this->size_in_words();
     CHECK(AddrIsInMem(rz1_beg()));
@@ -1235,17 +1254,6 @@ sighandler_t signal(int signum, sighandler_t handler) {
 
 
 // --------------------
-uintptr_t __asan_addr;
-uint8_t __asan_aux;
-
-__attribute__ ((weak))
-extern uintptr_t __asan_flag;
-
-static bool HasFlag(AsanFlag flag) {
-  if (&__asan_flag == NULL) return false;
-  return __asan_flag & (1 << (uintptr_t)flag);
-}
-
 extern "C"
 void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
   CHECK(HasFlag(AsanFlagUseCall));
@@ -1508,8 +1516,6 @@ static void asan_init() {
   CHECK(HasFlag(AsanFlag32));
 #endif
 #endif  // __WORDSIZE
-
-
 }
 
 void asan_set_shadow_values(void *ptr, size_t size, int value) {

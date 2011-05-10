@@ -156,13 +156,13 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
     to->setMetadata("dbg", dbg);
 }
 
-// generate 0xaaaa... constant of appropriate size.
+// generate 0xabab... constant of appropriate size.
 Value *AddressSanitizer::getPoisonConst(int size) {
   switch (size) {
-    case 8:  return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaa);
-    case 16: return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaaaa);
-    case 32: return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaaaaaaaa);
-    case 64: return ConstantInt::get(Type::getIntNTy(*Context, size), 0xaaaaaaaaaaaaaaaaLL);
+    case 8:  return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison8);
+    case 16: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison16);
+    case 32: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison32);
+    case 64: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison64);
     default: assert(0); return 0;
   }
 }
