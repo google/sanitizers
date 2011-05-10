@@ -1408,6 +1408,7 @@ static void asan_atexit() {
 
 static void asan_init() {
   if (asan_inited) return;
+
   // flags
   const char *options = getenv("ASAN_OPTIONS");
   F_malloc_context_size =
@@ -1492,6 +1493,23 @@ static void asan_init() {
   PRINT_FLAG(AsanFlagUseSegv);
 #undef PRINT_FLAG
   }
+
+#if __WORDSIZE == 64
+  CHECK(HasFlag(AsanFlag64));
+#if ASAN_BYTE_TO_BYTE_SHADOW
+  CHECK(HasFlag(AsanFlagByteToByteShadow));
+#else
+  CHECK(HasFlag(AsanFlagByteToQwordShadow));
+#endif
+#else  // __WORDSIZE == 32
+#if ASAN_CROS
+  CHECK(HasFlag(AsanFlagCrOS));
+#else
+  CHECK(HasFlag(AsanFlag32));
+#endif
+#endif  // __WORDSIZE
+
+
 }
 
 void asan_set_shadow_values(void *ptr, size_t size, int value) {
