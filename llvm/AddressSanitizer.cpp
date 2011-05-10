@@ -178,27 +178,25 @@ void AddressSanitizer::instrumentInMemoryLoad(
   BasicBlock *bb3 = bb2->splitBasicBlock(bb2->getTerminator(), "bb3_");
   BasicBlock *bb4 = bb3->splitBasicBlock(bb3->getTerminator(), "bb4_");
 
-  /*
-        b1
-        |\
-        | \
-        |  b2
-        |  | \
-        |  |  \
-        |  |   \
-        |  b3---b4
-        | /
-        T
-  */
+  //      b1
+  //      |\
+  //      | \
+  //      |  b2
+  //      |  | \
+  //      |  |  \
+  //      |  |   \
+  //      |  b3---b4
+  //      | /
+  //      T
 
   IRBuilder<> irb1(bb1->getTerminator());
   if (load->getType()->isPointerTy())
     load = irb1.CreatePtrToInt(load, LongTy);
-  Value *cmp1 = irb1.CreateICmpEQ(load, getPoisonConst(size));
+  Value *SizedPoison = getPoisonConst(size);
+  assert (load->getType() == SizedPoison->getType());
+  Value *cmp1 = irb1.CreateICmpEQ(load, SizedPoison);
   BranchInst *term1 = BranchInst::Create(bb2, bbT, cmp1);
   ReplaceInstWithInst(bb1->getTerminator(), term1);
-
-  //errs() << *bb1;
 
   IRBuilder<> irb2(bb2->getTerminator());
   Value *LongPoison = getPoisonConst(LongSize);
@@ -255,17 +253,17 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     // TODO(kcc): do something better.
     return;
   }
-  
+
   uint8_t telltale_value = is_store * 16 + (type_size / 8);
 
-  if (!(OrigType->isIntOrIntVectorTy() || OrigType->isPointerTy())) {
+  if (!(OrigType->isIntOrIntVectorTy() || OrigType->isPointerTy()) ||
+      TD->getTypeSizeInBits(OrigType) != type_size) {
     // This type is unsupported by the ICMP instruction. Cast it to the int of
     // appropriate size.
     OrigType = IntegerType::get(*Context, type_size);
     OrigPtrTy = PointerType::get(OrigType, 0);
     in_mem_needs_extra_load = true;
   }
-
 
   if (ClShadow == false) {
     Instruction *load_to_check = mop;
