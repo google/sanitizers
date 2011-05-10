@@ -178,7 +178,7 @@ void AddressSanitizer::instrumentInMemoryLoad(
   BasicBlock *bb3 = bb2->splitBasicBlock(bb2->getTerminator(), "bb3_");
   BasicBlock *bb4 = bb3->splitBasicBlock(bb3->getTerminator(), "bb4_");
 
-  //      b1
+  /*      b1
   //      |\
   //      | \
   //      |  b2
@@ -187,7 +187,7 @@ void AddressSanitizer::instrumentInMemoryLoad(
   //      |  |   \
   //      |  b3---b4
   //      | /
-  //      T
+  //      T */
 
   IRBuilder<> irb1(bb1->getTerminator());
   if (load->getType()->isPointerTy())
@@ -240,7 +240,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   const Type *OrigType = cast<PointerType>(OrigPtrTy)->getElementType();
   bool in_mem_needs_extra_load = isa<StoreInst>(*mop);
 
-  int type_size = 0;  // in bits
+  unsigned type_size = 0;  // in bits
   if (OrigType->isSized()) {
     type_size = TD->getTypeStoreSizeInBits(OrigType);
   } else {
@@ -355,6 +355,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
 //virtual
 bool AddressSanitizer::runOnModule(Module &M) {
+  if (!ClAsan) return false;
   // Initialize the private fields. No one has accessed them before.
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
@@ -366,18 +367,43 @@ bool AddressSanitizer::runOnModule(Module &M) {
   BytePtrTy = PointerType::get(ByteTy, 0);
   LongPtrTy = PointerType::get(LongTy, 0);
   VoidTy = Type::getVoidTy(*Context);
-  asan_slow_path = M.getOrInsertFunction("asan_slow_path", 
+  asan_slow_path = M.getOrInsertFunction("asan_slow_path",
        VoidTy, LongTy, LongTy, (Type*)0);
 
   asan_addr = new GlobalVariable(M, LongTy, /*isConstant*/false,
-      GlobalValue::ExternalLinkage, /*Initializer*/0, "asan_addr", 
+      GlobalValue::ExternalWeakLinkage, /*Initializer*/0, "__asan_addr",
       /*InsertBefore*/0, /*ThreadLocal*/false);
   asan_aux = new GlobalVariable(M, ByteTy, /*isConstant*/false,
-      GlobalValue::ExternalLinkage, /*Initializer*/0, "asan_aux", 
+      GlobalValue::ExternalWeakLinkage, /*Initializer*/0, "__asan_aux",
       /*InsertBefore*/0, /*ThreadLocal*/false);
 
+  uintptr_t flag_value = AsanFlagShouldBePresent;
+  flag_value |= 1 << (LongSize == 64 ? AsanFlag64 : AsanFlag32);
+  if (ClCrOS)
+    flag_value |= 1 << AsanFlagCrOS;
 
-  if (!ClAsan) return false;
+  if (ClShadow) {
+    if (ClByteToByteShadow)
+      flag_value |= 1 << AsanFlagByteToByteShadow;
+    else
+      flag_value |= 1 << AsanFlagByteToQwordShadow;
+  } else {
+    flag_value |= 1<< AsanFlagInMemoryPoison;
+  }
+  if (ClCall)
+    flag_value |= 1 << AsanFlagUseCall;
+  else if (ClShadow) {
+    flag_value |= 1 << AsanFlagUseSegv;
+  } else {
+    flag_value |= 1 << AsanFlagUseTrap;
+  }
+
+  new GlobalVariable(M, LongTy, /*isConstant*/true,
+                     GlobalValue::WeakODRLinkage,
+                     ConstantInt::get(LongTy, flag_value),
+                     "__asan_flag",
+                     0, false);
+
   bool res = false;
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
     if (F->isDeclaration()) continue;

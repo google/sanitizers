@@ -1235,20 +1235,29 @@ sighandler_t signal(int signum, sighandler_t handler) {
 
 
 // --------------------
-uintptr_t asan_addr;
-uint8_t asan_aux;
+uintptr_t __asan_addr;
+uint8_t __asan_aux;
+
+__attribute__ ((weak))
+extern uintptr_t __asan_flag;
+
+static bool HasFlag(AsanFlag flag) {
+  if (&__asan_flag == NULL) return false;
+  return __asan_flag & (1 << (uintptr_t)flag);
+}
 
 extern "C"
 void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
-  size_t size = asan_aux & 15;
-  bool is_w = asan_aux  & 16;
-  Printf("AddressSanitizer: slow path "PP" "PP" %s of size %ld\n", addr, asan_addr, is_w ? "WRITE" : "READ",  size);
+  CHECK(HasFlag(AsanFlagUseCall));
+  size_t size = __asan_aux & 15;
+  bool is_w = __asan_aux  & 16;
+  Printf("AddressSanitizer: slow path "PP" "PP" %s of size %ld\n", addr, __asan_addr, is_w ? "WRITE" : "READ",  size);
 }
 
 static void     OnSIGTRAP(int, siginfo_t *siginfo, void *context) {
-  size_t size = asan_aux & 15;
-  bool is_w = asan_aux  & 16;
-  Printf("AddressSanitizer: SIGTRAP "PP" %s of size %ld\n", asan_addr, is_w ? "WRITE" : "READ",  size);
+  size_t size = __asan_aux & 15;
+  bool is_w = __asan_aux  & 16;
+  Printf("AddressSanitizer: SIGTRAP "PP" %s of size %ld\n", __asan_addr, is_w ? "WRITE" : "READ",  size);
   ucontext_t *ucontext = (ucontext_t*)context;
   // Printf("rcx: %lx\n", ucontext->uc_mcontext.gregs[REG_RCX]);
 #if __WORDSIZE == 64
@@ -1258,12 +1267,6 @@ static void     OnSIGTRAP(int, siginfo_t *siginfo, void *context) {
 #endif
   pc++;
   //abort();
-}
-static void     OnSIGILL(int, siginfo_t *siginfo, void *context) {
-  size_t size = asan_aux & 15;
-  bool is_w = asan_aux  & 16;
-  Printf("AddressSanitizer: SIGILL "PP" %s of size %ld\n", asan_addr, is_w ? "WRITE" : "READ",  size);
-  abort();
 }
 
 static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
@@ -1440,7 +1443,7 @@ static void asan_init() {
     F_malloc_context_size = F_red_zone_words;
 
   // Set the SEGV handler.
-  {
+  if (HasFlag(AsanFlagUseSegv)) {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = OnSIGSEGV;
@@ -1448,14 +1451,7 @@ static void asan_init() {
     sigaction(SIGSEGV, &sigact, 0);
   }
 
-  {
-    struct sigaction sigact;
-    memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = OnSIGILL;
-    sigact.sa_flags = SA_SIGINFO;
-    sigaction(SIGILL, &sigact, 0);
-  }
-  {
+  if (HasFlag(AsanFlagUseTrap)) {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = OnSIGTRAP;
@@ -1482,6 +1478,19 @@ static void asan_init() {
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
     Printf("HighShadow : ["PP","PP")\n", kHighShadowBeg, kHighShadowEnd);
     Printf("HighMem    : ["PP","PP")\n", kHighMemBeg, kHighMemEnd);
+    Printf("__asan_flag: "PP" %lx\n", &__asan_flag,
+           &__asan_flag ? __asan_flag : 0);
+#define PRINT_FLAG(flag) if (HasFlag(flag)) Printf("%s\n", #flag);
+  PRINT_FLAG(AsanFlag32);
+  PRINT_FLAG(AsanFlag64);
+  PRINT_FLAG(AsanFlagCrOS);
+  PRINT_FLAG(AsanFlagByteToByteShadow);
+  PRINT_FLAG(AsanFlagByteToQwordShadow);
+  PRINT_FLAG(AsanFlagInMemoryPoison);
+  PRINT_FLAG(AsanFlagUseCall);
+  PRINT_FLAG(AsanFlagUseTrap);
+  PRINT_FLAG(AsanFlagUseSegv);
+#undef PRINT_FLAG
   }
 }
 

@@ -31,4 +31,19 @@ const size_t   kCROSShadowMask32 = 1UL << 29;
 
 const size_t kBankPadding = 64;
 
+// Bits in __asan_flag
+enum AsanFlag {
+  AsanFlagShouldBePresent,
+  AsanFlag32,
+  AsanFlag64,
+  AsanFlagCrOS,
+  AsanFlagByteToByteShadow,
+  AsanFlagByteToQwordShadow,
+  AsanFlagInMemoryPoison,
+  AsanFlagUseCall,
+  AsanFlagUseTrap,
+  AsanFlagUseSegv,
+  AsanFlagLast
+};
+
 #endif  // ASAN_RTL_H
