@@ -725,7 +725,13 @@ struct Ptr {
   void PoisonOnMalloc() {
     if (!F_poison_shadow) return;
     if (HasFlag(AsanFlagInMemoryPoison)) {
-      // TODO(kcc)
+      uintptr_t beg1 = rz1_beg() + ReservedWords() * kWordSize;
+      uintptr_t end1 = rz1_end();
+      uintptr_t beg2 = rz2_beg();
+      uintptr_t end2 = rz2_end();
+      memset((char*)beg1, kInMemoryPoison8, end1 - beg1);
+      memset((char*)beg2, kInMemoryPoison8, end2 - beg2);
+      // TODO(kcc): inline memset
       return;
     }
     uintptr_t red_zone_words = F_red_zone_words;
@@ -765,7 +771,14 @@ struct Ptr {
   void PoisonOnFree(uintptr_t poison) {
     if (!F_poison_shadow) return;
     if (HasFlag(AsanFlagInMemoryPoison)) {
-      // TODO(kcc)
+      if (poison) {
+        memset((char*)beg(), kInMemoryPoison8, size);
+      } else {
+        uintptr_t beg1 = rz1_beg() + ReservedWords() * kWordSize;
+        uintptr_t end1 = rz2_end();
+        memset((char*)beg1, 0, end1 - beg1);
+      }
+      // TODO(kcc): inline memset
       return;
     }
     uintptr_t real_size_in_words = this->real_size_in_words();
@@ -930,6 +943,11 @@ class MallocInfo {
       if (i->InRange(p)) return i;
     }
     return 0;
+  }
+
+  bool IsKnownAddressSLOW(uintptr_t addr) {
+    ScopedLock lock(&mu_);
+    return find_malloced(addr) || find_freed(addr);
   }
 
   void DescribeAddress(uintptr_t addr, size_t access_size) {
@@ -1257,15 +1275,53 @@ sighandler_t signal(int signum, sighandler_t handler) {
 extern "C"
 void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
   CHECK(HasFlag(AsanFlagUseCall));
-  size_t size = __asan_aux & 15;
-  bool is_w = __asan_aux  & 16;
-  Printf("AddressSanitizer: slow path "PP" "PP" %s of size %ld\n", addr, __asan_addr, is_w ? "WRITE" : "READ",  size);
+  uintptr_t addr_8_aligned = (addr >> 3) << 3;
+  uint64_t *ptr_8_aligned = (uint64_t*)addr_8_aligned;
+  uint64_t this_qword = ptr_8_aligned[0];
+  uint64_t &left_qword = ptr_8_aligned[-1];
+  uint64_t &right_qword = ptr_8_aligned[1];
+
+  if (this_qword != kInMemoryPoison64) {
+    // Only some of the bytes in this qword are poisoned.
+    // All bytes in this qword starting from addr should be poisoned
+    uint8_t *beg = (uint8_t*)addr;
+    uint8_t *end = (uint8_t*)(addr_8_aligned + 8);
+    CHECK(beg < end);
+    for (uint8_t *p8 = beg; p8 < end; p8++) {
+      if (*p8 != kInMemoryPoison8) return;
+    }
+    // and also the memory at the right should be poisoned.
+    if (right_qword != kInMemoryPoison64) return;
+  } else {
+    // All the bytes in this qword are poisoned.
+    // Either left or right qword should be poisoned too.
+    if (left_qword != kInMemoryPoison64 && right_qword != kInMemoryPoison64)
+      return;
+  }
+
+  if (!malloc_info.IsKnownAddressSLOW(addr)) return;
+
+  size_t size = size_and_is_w & 15;
+  bool is_w = size_and_is_w  & 16;
+  Printf("AddressSanitizer: slow path "PP" "PP" %s of size %ld\n",
+         addr, addr, is_w ? "WRITE" : "READ",  size);
+  uint8_t *beg = (uint8_t*)(addr - 16);
+  uint8_t *end = (uint8_t*)(addr + 16);
+  for (uint8_t *p = beg; p <= end; p++) {
+    uint32_t val = *p;
+    if (p == (uint8_t*)addr) {
+      Printf("-- %x -- ", val);
+    } else {
+      Printf("%x", val);
+    }
+  }
+  Printf("\n");
+  malloc_info.DescribeAddress(addr, size);
 }
 
-static void     OnSIGTRAP(int, siginfo_t *siginfo, void *context) {
+static void     OnSIGILL(int, siginfo_t *siginfo, void *context) {
   size_t size = __asan_aux & 15;
   bool is_w = __asan_aux  & 16;
-  Printf("AddressSanitizer: SIGTRAP "PP" %s of size %ld\n", __asan_addr, is_w ? "WRITE" : "READ",  size);
   ucontext_t *ucontext = (ucontext_t*)context;
   // Printf("rcx: %lx\n", ucontext->uc_mcontext.gregs[REG_RCX]);
 #if __WORDSIZE == 64
@@ -1273,7 +1329,9 @@ static void     OnSIGTRAP(int, siginfo_t *siginfo, void *context) {
 #else
   greg_t &pc = ucontext->uc_mcontext.gregs[REG_EIP];
 #endif
-  pc++;
+  Printf("AddressSanitizer: caught SIGILL pc: %lx "PP" %s of size %ld\n",
+         pc, __asan_addr, is_w ? "WRITE" : "READ",  size);
+  pc += 2;
   //abort();
 }
 
@@ -1460,12 +1518,12 @@ static void asan_init() {
     sigaction(SIGSEGV, &sigact, 0);
   }
 
-  if (HasFlag(AsanFlagUseTrap)) {
+  if (HasFlag(AsanFlagUseUd2)) {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = OnSIGTRAP;
+    sigact.sa_sigaction = OnSIGILL;
     sigact.sa_flags = SA_SIGINFO;
-    sigaction(SIGTRAP, &sigact, 0);
+    sigaction(SIGILL, &sigact, 0);
   }
 
 
@@ -1497,7 +1555,7 @@ static void asan_init() {
   PRINT_FLAG(AsanFlagByteToQwordShadow);
   PRINT_FLAG(AsanFlagInMemoryPoison);
   PRINT_FLAG(AsanFlagUseCall);
-  PRINT_FLAG(AsanFlagUseTrap);
+  PRINT_FLAG(AsanFlagUseUd2);
   PRINT_FLAG(AsanFlagUseSegv);
 #undef PRINT_FLAG
   }
@@ -1507,7 +1565,7 @@ static void asan_init() {
 #if ASAN_BYTE_TO_BYTE_SHADOW
   CHECK(HasFlag(AsanFlagByteToByteShadow));
 #else
-  CHECK(HasFlag(AsanFlagByteToQwordShadow));
+  CHECK(HasFlag(AsanFlagInMemoryPoison) || HasFlag(AsanFlagByteToQwordShadow));
 #endif
 #else  // __WORDSIZE == 32
 #if ASAN_CROS

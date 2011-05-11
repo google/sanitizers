@@ -46,7 +46,7 @@ enum AsanFlag {
   AsanFlagByteToQwordShadow,
   AsanFlagInMemoryPoison,
   AsanFlagUseCall,
-  AsanFlagUseTrap,
+  AsanFlagUseUd2,
   AsanFlagUseSegv,
   AsanFlagLast
 };
