@@ -20,7 +20,7 @@ CLANG_BUILD=../clang_build
 CLANG_BUILD_TYPE=Release+Asserts
 CLANG_CXX=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang++
 
-LIBS=-lpthread -ldl
+LIBS=#-lpthread -ldl
 BITS=64
 BYTE_TO_BYTE=0
 CROS=0
@@ -75,7 +75,8 @@ asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(
 		-mllvm -asan-ignore=asan_test.ignore \
 		-mllvm -asan-cros=$(CROS) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
-	$(CLANG_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB) libasan$(SUFF).a
+	ASAN_LIB=`pwd`/libasan$(SUFF).a \
+	$(CLANG_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \

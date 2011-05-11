@@ -1,6 +1,6 @@
 Index: include/llvm/Transforms/Instrumentation.h
 ===================================================================
---- include/llvm/Transforms/Instrumentation.h	(revision 130836)
+--- include/llvm/Transforms/Instrumentation.h	(revision 130919)
 +++ include/llvm/Transforms/Instrumentation.h	(working copy)
 @@ -30,6 +30,9 @@
  // Insert GCOV profiling instrumentation
@@ -14,7 +14,7 @@ Index: include/llvm/Transforms/Instrumentation.h
  #endif
 Index: include/llvm/InitializePasses.h
 ===================================================================
---- include/llvm/InitializePasses.h	(revision 130836)
+--- include/llvm/InitializePasses.h	(revision 130919)
 +++ include/llvm/InitializePasses.h	(working copy)
 @@ -95,6 +95,7 @@
  void initializeEdgeProfilerPass(PassRegistry&);
@@ -26,7 +26,7 @@ Index: include/llvm/InitializePasses.h
  void initializeFindUsedTypesPass(PassRegistry&);
 Index: include/llvm/Support/StandardPasses.h
 ===================================================================
---- include/llvm/Support/StandardPasses.h	(revision 130836)
+--- include/llvm/Support/StandardPasses.h	(revision 130919)
 +++ include/llvm/Support/StandardPasses.h	(working copy)
 @@ -23,6 +23,7 @@
  #include "llvm/Analysis/Passes.h"
@@ -47,7 +47,7 @@ Index: include/llvm/Support/StandardPasses.h
      // opened up by them.
 Index: lib/Transforms/Instrumentation/Instrumentation.cpp
 ===================================================================
---- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 130836)
+--- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 130919)
 +++ lib/Transforms/Instrumentation/Instrumentation.cpp	(working copy)
 @@ -24,6 +24,7 @@
    initializeOptimalEdgeProfilerPass(Registry);
@@ -59,7 +59,7 @@ Index: lib/Transforms/Instrumentation/Instrumentation.cpp
  /// LLVMInitializeInstrumentation - C binding for
 Index: lib/Transforms/Instrumentation/CMakeLists.txt
 ===================================================================
---- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 130836)
+--- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 130919)
 +++ lib/Transforms/Instrumentation/CMakeLists.txt	(working copy)
 @@ -1,4 +1,7 @@
  add_llvm_library(LLVMInstrumentation
@@ -69,3 +69,32 @@ Index: lib/Transforms/Instrumentation/CMakeLists.txt
    EdgeProfiling.cpp
    GCOVProfiling.cpp
    Instrumentation.cpp
+Index: tools/clang/lib/Driver/Tools.cpp
+===================================================================
+--- tools/clang/lib/Driver/Tools.cpp	(revision 130919)
++++ tools/clang/lib/Driver/Tools.cpp	(working copy)
+@@ -940,6 +940,7 @@
+   //
+   // FIXME: Implement custom jobs for internal actions.
+   CmdArgs.push_back("-cc1");
++  CmdArgs.push_back("-DADDRESS_SANITIZER=1");
+ 
+   // Add the "effective" target triple.
+   CmdArgs.push_back("-triple");
+@@ -3868,6 +3869,16 @@
+ 
+   AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
+ 
++  // hack for AddressSanitizer {{{
++  const char *libasan = getenv("ASAN_LIB");
++  if (libasan) {
++    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
++    CmdArgs.push_back("-lpthread");
++    CmdArgs.push_back("-ldl");
++    CmdArgs.push_back(libasan);
++  }
++  // end hack for AddressSanitizer }}}
++
+   if (D.CCCIsCXX && !Args.hasArg(options::OPT_nostdlib)) {
+     ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
+     CmdArgs.push_back("-lm");
