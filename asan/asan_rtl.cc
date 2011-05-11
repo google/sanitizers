@@ -1274,7 +1274,6 @@ sighandler_t signal(int signum, sighandler_t handler) {
 // --------------------
 extern "C"
 void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
-  CHECK(HasFlag(AsanFlagUseCall));
   uintptr_t addr_8_aligned = (addr >> 3) << 3;
   uint64_t *ptr_8_aligned = (uint64_t*)addr_8_aligned;
   uint64_t this_qword = ptr_8_aligned[0];

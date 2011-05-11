@@ -216,7 +216,7 @@ void AddressSanitizer::instrumentInMemoryLoad(
   ReplaceInstWithInst(bb3->getTerminator(), term3);
   
   IRBuilder<> irb4(bb4->getTerminator());
-  if (ClCall) {
+  if (1 /*ClCall*/) {
     irb4.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
   } else {
     irb4.CreateStore(AddrLong, asan_addr);
