@@ -20,7 +20,7 @@ CLANG_BUILD=../clang_build
 CLANG_BUILD_TYPE=Release+Asserts
 CLANG_CXX=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang++
 
-LIBS=-lpthread
+LIBS=-lpthread -ldl
 BITS=64
 BYTE_TO_BYTE=0
 CROS=0

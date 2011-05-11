@@ -102,11 +102,6 @@ TEST(AddressSanitizer, SimpleDeathTest) {
   EXPECT_DEATH(exit(1), "");
 }
 
-void NoOpSignalHandler(int) {
-  fprintf(stderr, "NoOpSignalHandler (should not happen). Aborting\n");
-  abort();
-}
-
 TEST(AddressSanitizer, VariousMallocsTest) {
   // fprintf(stderr, "malloc:\n");
   int *a = (int*)malloc(100 * sizeof(int));
@@ -140,11 +135,30 @@ TEST(AddressSanitizer, VariousMallocsTest) {
   free(ma);
 }
 
+void NoOpSignalHandler(int) {
+  fprintf(stderr, "NoOpSignalHandler (should not happen). Aborting\n");
+  abort();
+}
+
+void NoOpSigaction(int, siginfo_t *siginfo, void *context) {
+  fprintf(stderr, "NoOpSigaction (should not happen). Aborting\n");
+  abort();
+}
+
 TEST(AddressSanitizer, SignalTest) {
   signal(SIGSEGV, NoOpSignalHandler);
-  int *a = new int;
-  *a = 1;
-  delete a;
+  // If asan did not intercept signal,
+  // NoOpSignalHandler will fire later.
+}
+
+TEST(AddressSanitizer, SigactionTest) {
+  struct sigaction sigact;
+  memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = NoOpSigaction;;
+  sigact.sa_flags = SA_SIGINFO;
+  sigaction(SIGSEGV, &sigact, 0);
+  // If asan did not intercept sigaction,
+  // NoOpSigaction will fire later.
 }
 
 template<class T>

@@ -34,6 +34,7 @@
 #include <syscall.h>
 #include <sys/ucontext.h>
 #include <string>
+#include <dlfcn.h>
 
 using std::string;
 
@@ -240,6 +241,13 @@ const size_t kLowShadowEnd   = kFullLowShadowEnd;
 const size_t kHighShadowBeg  = kFullHighShadowBeg;
 const size_t kHighShadowEnd  = kFullHighShadowEnd;
 #endif
+
+typedef int (*sigaction_f)(int signum, const struct sigaction *act,
+                           struct sigaction *oldact);
+typedef sighandler_t (*signal_f)(int signum, sighandler_t handler);
+static sigaction_f real_sigaction;
+static signal_f real_signal;
+
 
 static void Printf(const char *format, ...) {
   va_list args;
@@ -623,6 +631,7 @@ static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
 
 extern "C" void __libc_free(void *ptr);
 extern "C" void *__libc_malloc(size_t size);
+extern "C" void *__libc_calloc(size_t nmemb, size_t size);
 
 struct Ptr {
   uint32_t magic;
@@ -1190,6 +1199,7 @@ void free(void *ptr) {
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  if (!asan_inited) return __libc_calloc(nmemb, size);
   return asan_calloc(nmemb, size, stack);
 }
 
@@ -1264,12 +1274,19 @@ void* mmap(void *start, size_t length,
 
 extern "C"
 sighandler_t signal(int signum, sighandler_t handler) {
-  if (F_v >= 1)
-    Printf("==%d == AddressSanitizer: signal(%d, %p) called, I'll will ignore it...\n",
-           getpid(), signum, handler);
-  return 0;
+  if (signum != SIGSEGV) {
+    return real_signal(signum, handler);
+  }
 }
 
+extern "C"
+int sigaction(int signum, const struct sigaction *act,
+                struct sigaction *oldact) {
+  if (signum != SIGSEGV) {
+    return real_sigaction(signum, act, oldact);
+  }
+  return 0;
+}
 
 // --------------------
 extern "C"
@@ -1508,13 +1525,18 @@ static void asan_init() {
   if (F_malloc_context_size > F_red_zone_words)
     F_malloc_context_size = F_red_zone_words;
 
+  real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction");
+  CHECK(real_sigaction);
+  real_signal = (signal_f)dlsym(RTLD_NEXT, "signal");
+  CHECK(real_signal);
+
   // Set the SEGV handler.
   if (HasFlag(AsanFlagUseSegv)) {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
-    sigaction(SIGSEGV, &sigact, 0);
+    real_sigaction(SIGSEGV, &sigact, 0);
   }
 
   if (HasFlag(AsanFlagUseUd2)) {
@@ -1522,7 +1544,7 @@ static void asan_init() {
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = OnSIGILL;
     sigact.sa_flags = SA_SIGINFO;
-    sigaction(SIGILL, &sigact, 0);
+    real_sigaction(SIGILL, &sigact, 0);
   }
 
 
