@@ -61,6 +61,7 @@ static int    F_atexit;
 static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
 static int    F_stats;
+static int    F_debug;
 static bool   F_fast_unwind;
 
 #ifndef ASAN_BYTE_TO_BYTE_SHADOW
@@ -703,8 +704,10 @@ struct Ptr {
     }
     Printf("["PP","PP") -- allocated memory of 0x%lx (%ld) bytes\n",
            beg(), end(), size, size);
-    Printf("["PP","PP") -- left red zone\n", rz1_beg(), rz1_end());
-    Printf("["PP","PP") -- right red zone\n", rz2_beg(), rz2_end());
+    if (F_debug) {
+      Printf("["PP","PP") -- left red zone\n", rz1_beg(), rz1_end());
+      Printf("["PP","PP") -- right red zone\n", rz2_beg(), rz2_end());
+    }
   }
 
   void CompactPoisonRegion(uintptr_t beg, uintptr_t end, uint8_t poison) {
@@ -1427,8 +1430,10 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   }
 
   uintptr_t real_addr_from_shadow = *(uintptr_t*)shadow_addr;
-  Printf("ShadowToMem:    "PP"\n", real_addr);
-  Printf("AddrFromShadow: "PP"\n", real_addr_from_shadow);
+  if (F_debug) {
+    Printf("ShadowToMem:    "PP"\n", real_addr);
+    Printf("AddrFromShadow: "PP"\n", real_addr_from_shadow);
+  }
   if (real_addr_from_shadow >= real_addr && real_addr_from_shadow < real_addr + 8) {
     real_addr = real_addr_from_shadow;
   }
@@ -1438,10 +1443,12 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
           access_size,
           addr, shadow_addr, real_addr,
           (uint32_t)pthread_self());
-  PrintBytes("PC: ",(uintptr_t*)pc);
+
+  if (F_debug) {
+    PrintBytes("PC: ",(uintptr_t*)pc);
+  }
 
   PrintCurrentStack(pc);
-
 
   CHECK(AddrIsInMem(real_addr));
   CHECK(shadow_addr == MemToShadow(real_addr));
@@ -1512,6 +1519,7 @@ static void asan_init() {
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
+  F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 0);
 
   if (F_atexit) {
