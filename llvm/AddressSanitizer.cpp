@@ -221,12 +221,13 @@ void AddressSanitizer::instrumentInMemoryLoad(
   } else {
     irb4.CreateStore(AddrLong, asan_addr);
     irb4.CreateStore(ConstantInt::get(ByteTy, telltale_value), asan_aux);
-    FunctionType *FnTy = FunctionType::get(VoidTy, false);
-    Value *int3_asm = InlineAsm::get(FnTy, StringRef("int3"), StringRef(""), true);
-    irb4.CreateCall(int3_asm);
-    //Value *null_int = ConstantInt::get(LongTy, 0);
-    //Value *null_ptr = irb4.CreateIntToPtr(null_int, LongPtrTy);
-    //irb4.CreateStore(null_int, null_ptr);
+    // FunctionType *FnTy = FunctionType::get(VoidTy, false);
+    // Value *int3_asm = InlineAsm::get(FnTy, StringRef("int3"), StringRef(""), true);
+    // irb4.CreateCall(int3_asm);
+    // Generates ud2
+    Value *null_int = ConstantInt::get(LongTy, 0);
+    Value *null_ptr = irb4.CreateIntToPtr(null_int, LongPtrTy);
+    irb4.CreateStore(null_int, null_ptr);
   }
 }
 
@@ -395,7 +396,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   else if (ClShadow) {
     flag_value |= 1 << AsanFlagUseSegv;
   } else {
-    flag_value |= 1 << AsanFlagUseTrap;
+    flag_value |= 1 << AsanFlagUseUd2;
   }
 
   new GlobalVariable(M, LongTy, /*isConstant*/true,
