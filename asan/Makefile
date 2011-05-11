@@ -55,11 +55,10 @@ rtl: libasan$(SUFF).a libasan$(SUFF).so
 
 libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) \
-	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
+	   -m$(BITS) -DASAN_CROS=$(CROS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
-libasan$(SUFF).so: $(RTL_SRC) $(RTL_HDR)
-	$(CXX)  -O3 -o $@ -g $(RTL_SRC) -shared -fPIC -lpthread \
-	   -m$(BITS) -DASAN_CROS=$(CROS) -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
+libasan$(SUFF).so: libasan$(SUFF).o
+	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $< -lpthread -ldl
 
 
 $(SYMBOL_TABLE_O):
