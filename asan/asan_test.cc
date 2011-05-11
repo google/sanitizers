@@ -98,6 +98,10 @@ void uaf_test(int size, int off) {
   asan_write((T*)(p + off));
 }
 
+TEST(AddressSanitizer, ADDRESS_SANITIZER_MacroTest) {
+  EXPECT_EQ(1, ADDRESS_SANITIZER);
+}
+
 TEST(AddressSanitizer, SimpleDeathTest) {
   EXPECT_DEATH(exit(1), "");
 }
