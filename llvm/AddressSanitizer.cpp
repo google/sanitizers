@@ -392,12 +392,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
     flag_value |= 1<< AsanFlagInMemoryPoison;
   }
 
-  new GlobalVariable(M, LongTy, /*isConstant*/true,
-                     GlobalValue::WeakODRLinkage,
-                     ConstantInt::get(LongTy, flag_value),
-                     "__asan_flag",
-                     0, false);
-
   bool res = false;
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
     if (F->isDeclaration()) continue;

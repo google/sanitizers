@@ -68,6 +68,10 @@ static bool   F_fast_unwind;
 # error must define ASAN_BYTE_TO_BYTE_SHADOW
 #endif
 
+#ifndef ASAN_IN_MEMORY_POISON
+# define ASAN_IN_MEMORY_POISON 0
+#endif
+
 #ifndef ASAN_CROS
 # define ASAN_CROS 0
 #endif
@@ -321,15 +325,6 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 
 uintptr_t __asan_addr;
 uint8_t __asan_aux;
-
-__attribute__ ((weak))
-extern uintptr_t __asan_flag;
-
-static bool HasFlag(AsanFlag flag) {
-  if (&__asan_flag == NULL) return false;
-  return __asan_flag & (1 << (uintptr_t)flag);
-}
-
 
 //SymbolTable symbol_table(NULL);
 
@@ -744,7 +739,7 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnMalloc() {
     if (!F_poison_shadow) return;
-    if (HasFlag(AsanFlagInMemoryPoison)) {
+    if (ASAN_IN_MEMORY_POISON) {
       uintptr_t beg1 = rz1_beg() + ReservedWords() * kWordSize;
       uintptr_t end1 = rz1_end();
       uintptr_t beg2 = rz2_beg();
@@ -790,7 +785,7 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnFree(uintptr_t poison) {
     if (!F_poison_shadow) return;
-    if (HasFlag(AsanFlagInMemoryPoison)) {
+    if (ASAN_IN_MEMORY_POISON) {
       if (poison) {
         memset((char*)beg(), kInMemoryPoison8, size);
       } else {
@@ -1570,34 +1565,7 @@ static void asan_init() {
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
     Printf("HighShadow : ["PP","PP")\n", kHighShadowBeg, kHighShadowEnd);
     Printf("HighMem    : ["PP","PP")\n", kHighMemBeg, kHighMemEnd);
-    Printf("__asan_flag: "PP" %lx\n", &__asan_flag,
-           &__asan_flag ? __asan_flag : 0);
-#define PRINT_FLAG(flag) if (HasFlag(flag)) Printf("%s\n", #flag);
-  PRINT_FLAG(AsanFlag32);
-  PRINT_FLAG(AsanFlag64);
-  PRINT_FLAG(AsanFlagCrOS);
-  PRINT_FLAG(AsanFlagByteToByteShadow);
-  PRINT_FLAG(AsanFlagByteToQwordShadow);
-  PRINT_FLAG(AsanFlagInMemoryPoison);
-  PRINT_FLAG(AsanFlagUseCall);
-  PRINT_FLAG(AsanFlagUseSegv);
-#undef PRINT_FLAG
   }
-
-#if __WORDSIZE == 64
-  CHECK(HasFlag(AsanFlag64));
-#if ASAN_BYTE_TO_BYTE_SHADOW
-  CHECK(HasFlag(AsanFlagByteToByteShadow));
-#else
-  CHECK(HasFlag(AsanFlagInMemoryPoison) || HasFlag(AsanFlagByteToQwordShadow));
-#endif
-#else  // __WORDSIZE == 32
-#if ASAN_CROS
-  CHECK(HasFlag(AsanFlagCrOS));
-#else
-  CHECK(HasFlag(AsanFlag32));
-#endif
-#endif  // __WORDSIZE
 }
 
 void asan_set_shadow_values(void *ptr, size_t size, int value) {
