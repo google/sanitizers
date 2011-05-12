@@ -676,7 +676,7 @@ struct Ptr {
     return ((uintptr_t*)this)[i];
   }
 
-  void PrintOnLine(const char *before = "", const char *after = "\n") {
+  void PrintOneLine(const char *before = "", const char *after = "\n") {
     Printf(
             "%s["PP","PP"); red zones: ["PP","PP"), ["PP","PP");"
             " size=%ld (0x%lx)%s",
@@ -750,7 +750,7 @@ struct Ptr {
     uintptr_t size_in_words = this->size_in_words();
 #if !ASAN_BYTE_TO_BYTE_SHADOW
       uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
-      // this->PrintOnLine("malloc poison: ", "\n");
+      // this->PrintOneLine("malloc poison: ", "\n");
       // Printf("shadow: %p\n", shadow);
       CompactPoison(0xaa, 0, 0xab);
 #else
@@ -865,14 +865,14 @@ class MallocInfo {
   void print_malloced(const char *where) {
     Printf("%s: malloced:\n", where);
     for (Ptr *i = malloced_items_; i; i = i->next)
-      i->PrintOnLine("  ");
+      i->PrintOneLine("  ");
   }
 
   void print_freed(const char *where) {
     Ptr *i = freed_items_;
     Printf("%s: freed:\n", where);
     if (i) do {
-      i->PrintOnLine("  ");
+      i->PrintOneLine("  ");
       i = i->next;
     } while (i != freed_items_);
   }
@@ -1090,7 +1090,7 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   stats.mallocs++;
 
   if (F_v >= 2)
-    p->PrintOnLine("asan_malloc: ");
+    p->PrintOneLine("asan_malloc: ");
 
   p->CopyStackTraceForMalloc(stack);
   malloc_info.on_malloc(p);
@@ -1125,7 +1125,7 @@ void asan_free(void *addr, StackTrace &stack) {
   check_ptr_on_free(p, addr);
 
   if (F_v >= 2)
-    p->PrintOnLine("asan_free:   ", "\n");
+    p->PrintOneLine("asan_free:   ", "\n");
 
   p->PoisonOnFree(1);
   p->CopyStackTraceForFree(stack);
@@ -1172,7 +1172,7 @@ void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
   Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
   check_ptr_on_free(p, addr);
   if (F_v >= 2)
-    p->PrintOnLine("asan_realloc: ", "\n");
+    p->PrintOneLine("asan_realloc: ", "\n");
   size_t old_size = p->size;
   Ptr *new_p = asan_memalign(size, 0, stack);
   void *new_ptr = new_p->raw_ptr();
