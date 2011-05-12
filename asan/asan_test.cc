@@ -17,6 +17,7 @@
 // Author: Kostya Serebryany
 
 #include <stdio.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <vector>
 #include <pthread.h>
