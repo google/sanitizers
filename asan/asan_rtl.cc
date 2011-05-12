@@ -251,16 +251,12 @@ typedef void* (*mmap_f)(void *start, size_t length,
                             int fd, off_t offset);
 
 typedef void *(*malloc_f)(size_t);
-typedef void *(*calloc_f)(size_t, size_t);
-typedef void *(*realloc_f)(void*, size_t);
 typedef void  (*free_f)(void*);
 
 static sigaction_f real_sigaction;
 static signal_f    real_signal;
 static mmap_f      real_mmap;
 static malloc_f    real_malloc;
-static realloc_f   real_realloc;
-static calloc_f    real_calloc;
 static free_f      real_free;
 
 
@@ -645,10 +641,6 @@ static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
   stats.high_shadow_maps++;
   return mmap_pages(start_page, n_pages, "high shadow memory");
 }
-
-extern "C" void __libc_free(void *ptr);
-extern "C" void *__libc_malloc(size_t size);
-extern "C" void *__libc_calloc(size_t nmemb, size_t size);
 
 struct Ptr {
   uint32_t magic;
@@ -1038,7 +1030,7 @@ class MallocInfo {
     p->PoisonOnFree(0);
     stats.real_frees++;
     stats.really_freed += p->real_size_in_words() * kWordSize;
-    __libc_free((void*)p->orig_libc_ptr());
+    real_free((void*)p->orig_libc_ptr());
   }
 
   size_t max_size_;
@@ -1056,7 +1048,7 @@ static uintptr_t asan_actual_malloc(size_t size) {
     PrintCurrentStack();
   }
 
-  uintptr_t res = (uintptr_t)__libc_malloc(size);
+  uintptr_t res = (uintptr_t)real_malloc(size);
   if (res == 0) {
     OutOfMemoryMessage("main memory", size);
     PrintCurrentStack();
@@ -1218,7 +1210,17 @@ void free(void *ptr) {
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  if (!asan_inited) return __libc_calloc(nmemb, size);
+  if (!asan_inited) {
+    // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
+    const int kCallocPoolSize = 1024;
+    static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
+    static size_t allocated;
+    size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
+    void *mem = (void*)&calloc_memory_for_dlsym[allocated];
+    allocated += size_in_words;
+    CHECK(allocated < kCallocPoolSize);
+    return mem;
+  }
   return asan_calloc(nmemb, size, stack);
 }
 
@@ -1540,8 +1542,6 @@ static void asan_init() {
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_mmap = (mmap_f)dlsym(RTLD_NEXT, "mmap")));
   CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
-  CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
-  CHECK((real_calloc = (calloc_f)dlsym(RTLD_NEXT, "calloc")));
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
 
   // Set the SEGV handler.
