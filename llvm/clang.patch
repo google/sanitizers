@@ -87,7 +87,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
  
 +  // hack for AddressSanitizer {{{
 +  const char *libasan = getenv("ASAN_LIB");
-+  if (libasan) {
++  if (libasan && !Args.hasArg(options::OPT_shared)) {
 +    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 +    CmdArgs.push_back("-lpthread");
 +    CmdArgs.push_back("-ldl");
