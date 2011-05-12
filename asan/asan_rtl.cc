@@ -523,7 +523,9 @@ __attribute__((noinline))
 static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   stack->trace[stack->size++] = GET_CALLER_PC();
   uintptr_t *prev_frame = frame;
-  while (frame - prev_frame < (1 << 16) && stack->size < stack->max_size) {
+  while ((uintptr_t)(frame - prev_frame) < (1 << 16)
+         && stack->size < stack->max_size) {
+    // Printf("  "PP"\n", frame);
     uintptr_t pc = frame[1];
     stack->trace[stack->size++] = pc;
     prev_frame = frame;
@@ -573,7 +575,7 @@ static void PrintStack(uintptr_t *addr, size_t size) {
 
 void PrintCurrentStack(uintptr_t pc = 0) {
   GET_STACK_TRACE_HERE(kStackTraceMax);
-  CHECK(stack.size >= 3);
+  CHECK(stack.size >= 2);
   int skip_frames = 1;
   if (pc) {
     // find this pc, should be somewehre around 3-rd frame
