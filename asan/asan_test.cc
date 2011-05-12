@@ -20,9 +20,12 @@
 #include <stdlib.h>
 #include <vector>
 #include <pthread.h>
-#include <malloc.h>
 #include <stdint.h>
 #include "gtest/gtest.h"
+
+#ifndef __APPLE__
+#include <malloc.h>
+#endif  // __APPLE__
 
 using namespace std;
 
@@ -128,6 +131,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
   *c = 0;
   delete c;
 
+#ifndef __APPLE__
   // fprintf(stderr, "posix_memalign\n");
   int *pm;
   int pm_res = posix_memalign((void**)&pm, 4096, 4096);
@@ -137,6 +141,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
   EXPECT_EQ(0, (uintptr_t)ma % 4096);
   ma[123] = 0;
   free(ma);
+#endif  // __APPLE__
 }
 
 void NoOpSignalHandler(int) {
