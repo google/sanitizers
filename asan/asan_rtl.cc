@@ -31,7 +31,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <algorithm>
-#include <syscall.h>
+#include <sys/syscall.h>
 #include <sys/ucontext.h>
 #include <string>
 #include <dlfcn.h>
@@ -90,7 +90,7 @@ const size_t kPossiblePageClustersBits = 32 - kPageClusterSizeBits - kPageSizeBi
 #endif
 
 static uintptr_t mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
-static pthread_spinlock_t shadow_lock;
+static pthread_mutex_t shadow_lock;
 
 static const size_t kStackTraceMax = 64;
 
@@ -245,9 +245,23 @@ const size_t kHighShadowEnd  = kFullHighShadowEnd;
 
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
                            struct sigaction *oldact);
-typedef sighandler_t (*signal_f)(int signum, sighandler_t handler);
+typedef sig_t (*signal_f)(int signum, sig_t handler);
+typedef void* (*mmap_f)(void *start, size_t length,
+                            int prot, int flags,
+                            int fd, off_t offset);
+
+typedef void *(*malloc_f)(size_t);
+typedef void *(*calloc_f)(size_t, size_t);
+typedef void *(*realloc_f)(void*, size_t);
+typedef void  (*free_f)(void*);
+
 static sigaction_f real_sigaction;
-static signal_f real_signal;
+static signal_f    real_signal;
+static mmap_f      real_mmap;
+static malloc_f    real_malloc;
+static realloc_f   real_realloc;
+static calloc_f    real_calloc;
+static free_f      real_free;
 
 
 static void Printf(const char *format, ...) {
@@ -388,14 +402,14 @@ uintptr_t BadToShadow(uintptr_t bad) {
 
 class ScopedLock {
  public:
-  ScopedLock(pthread_spinlock_t *mu) : mu_(mu) {
-    pthread_spin_lock(mu_);
+  ScopedLock(pthread_mutex_t *mu) : mu_(mu) {
+    pthread_mutex_lock(mu_);
   }
   ~ScopedLock() {
-    pthread_spin_unlock(mu_);
+    pthread_mutex_unlock(mu_);
   }
  private:
-  pthread_spinlock_t *mu_;
+  pthread_mutex_t *mu_;
 };
 
 
@@ -596,20 +610,20 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
          getpid(), size, size, mem_type);
 }
 
-static inline void* my_mmap(void *start, size_t length,
-                            int prot, int flags,
-                            int fd, __off64_t offset) {
-#if __WORDSIZE == 64
-  return (void *)syscall(SYS_mmap, start, length, prot, flags, fd, offset);
-#else
-  return (void *)syscall(SYS_mmap2, start, length, prot, flags, fd, offset);
-#endif
-}
+//static inline void* my_mmap(void *start, size_t length,
+//                            int prot, int flags,
+//                            int fd, off_t offset) {
+//#if __WORDSIZE == 64
+//  return (void *)syscall(SYS_mmap, start, length, prot, flags, fd, offset);
+//#else
+//  return (void *)syscall(SYS_mmap2, start, length, prot, flags, fd, offset);
+//#endif
+//}
 
 static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type) {
-  void *res = my_mmap((void*)start_page, kPageSize * n_pages,
+  void *res = real_mmap((void*)start_page, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, 0, 0);
+                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   // Printf("%p => %p\n", (void*)start_page, res);
   char *ch = (char*)res;
   if (res == (void*)-1L) {
@@ -861,7 +875,7 @@ class MallocInfo {
  public:
   void Init(size_t max_size) {
     max_size_ = max_size;
-    pthread_spin_init(&mu_, 0);
+    pthread_mutex_init(&mu_, 0);
   }
 
   void print_malloced(const char *where) {
@@ -1031,7 +1045,7 @@ class MallocInfo {
   size_t cur_size_;
   Ptr *freed_items_;
   Ptr *malloced_items_;
-  pthread_spinlock_t mu_;
+  pthread_mutex_t mu_;
 };
 
 static MallocInfo malloc_info;
@@ -1264,8 +1278,8 @@ void operator delete [](void *ptr) {
 extern "C"
 void* mmap(void *start, size_t length,
            int prot, int flags,
-           int fd, __off64_t offset) {
-  void *res = my_mmap(start, length, prot, flags, fd, offset);
+           int fd, off_t offset) {
+  void *res = real_mmap(start, length, prot, flags, fd, offset);
   if (F_v >= 2) {
     Printf("==%d== AddressSanitizer: "
             "the program called mmap directly. res: [%p,%p) size=%ld (0x%lx)\n",
@@ -1278,7 +1292,7 @@ void* mmap(void *start, size_t length,
 #endif
 
 extern "C"
-sighandler_t signal(int signum, sighandler_t handler) {
+sig_t signal(int signum, sig_t handler) {
   if (signum != SIGSEGV) {
     return real_signal(signum, handler);
   }
@@ -1340,22 +1354,6 @@ void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
   malloc_info.DescribeAddress(addr, size);
 }
 
-static void     OnSIGILL(int, siginfo_t *siginfo, void *context) {
-  size_t size = __asan_aux & 15;
-  bool is_w = __asan_aux  & 16;
-  ucontext_t *ucontext = (ucontext_t*)context;
-  // Printf("rcx: %lx\n", ucontext->uc_mcontext.gregs[REG_RCX]);
-#if __WORDSIZE == 64
-  greg_t &pc = ucontext->uc_mcontext.gregs[REG_RIP];
-#else
-  greg_t &pc = ucontext->uc_mcontext.gregs[REG_EIP];
-#endif
-  Printf("AddressSanitizer: caught SIGILL pc: %lx "PP" %s of size %ld\n",
-         pc, __asan_addr, is_w ? "WRITE" : "READ",  size);
-  pc += 2;
-  //abort();
-}
-
 static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
   // If we trapped while accessing an address that looks like shadow
@@ -1390,11 +1388,14 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   }
 
   ucontext_t *ucontext = (ucontext_t*)context;
-  // Printf("rcx: %lx\n", ucontext->uc_mcontext.gregs[REG_RCX]);
+#ifdef __APPLE__
+  uintptr_t pc = ucontext->uc_mcontext->__ss.__eip;
+#else // assume linux
 #if __WORDSIZE == 64
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_RIP];
 #else
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_EIP];
+#endif
 #endif
   uintptr_t shadow_addr = BadToShadow(addr);
   uintptr_t real_addr = ShadowToMem(shadow_addr);
@@ -1535,13 +1536,16 @@ static void asan_init() {
   if (F_malloc_context_size > F_red_zone_words)
     F_malloc_context_size = F_red_zone_words;
 
-  real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction");
-  CHECK(real_sigaction);
-  real_signal = (signal_f)dlsym(RTLD_NEXT, "signal");
-  CHECK(real_signal);
+  CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
+  CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
+  CHECK((real_mmap = (mmap_f)dlsym(RTLD_NEXT, "mmap")));
+  CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
+  CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
+  CHECK((real_calloc = (calloc_f)dlsym(RTLD_NEXT, "calloc")));
+  CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
 
   // Set the SEGV handler.
-  if (HasFlag(AsanFlagUseSegv)) {
+  {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = OnSIGSEGV;
@@ -1549,17 +1553,7 @@ static void asan_init() {
     real_sigaction(SIGSEGV, &sigact, 0);
   }
 
-  if (HasFlag(AsanFlagUseUd2)) {
-    struct sigaction sigact;
-    memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = OnSIGILL;
-    sigact.sa_flags = SA_SIGINFO;
-    real_sigaction(SIGILL, &sigact, 0);
-  }
-
-
-
-  pthread_spin_init(&shadow_lock, 0);
+  pthread_mutex_init(&shadow_lock, 0);
 
   proc_self_maps.Init();
 
@@ -1586,7 +1580,6 @@ static void asan_init() {
   PRINT_FLAG(AsanFlagByteToQwordShadow);
   PRINT_FLAG(AsanFlagInMemoryPoison);
   PRINT_FLAG(AsanFlagUseCall);
-  PRINT_FLAG(AsanFlagUseUd2);
   PRINT_FLAG(AsanFlagUseSegv);
 #undef PRINT_FLAG
   }

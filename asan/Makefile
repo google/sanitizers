@@ -49,7 +49,7 @@ t_32:
 SUFF=zzz
 
 clang:
-	cd ../ && llvm/rebuild_clang_and_asan.sh
+	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
 rtl: libasan$(SUFF).a libasan$(SUFF).so
 

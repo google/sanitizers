@@ -391,13 +391,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
   } else {
     flag_value |= 1<< AsanFlagInMemoryPoison;
   }
-  if (ClCall)
-    flag_value |= 1 << AsanFlagUseCall;
-  else if (ClShadow) {
-    flag_value |= 1 << AsanFlagUseSegv;
-  } else {
-    flag_value |= 1 << AsanFlagUseUd2;
-  }
 
   new GlobalVariable(M, LongTy, /*isConstant*/true,
                      GlobalValue::WeakODRLinkage,
