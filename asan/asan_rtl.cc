@@ -472,14 +472,11 @@ class ProcSelfMaps {
     for (size_t i = 0; i < map_size_; i++) {
       Mapping &m = memory_map[i];
       if (pc >= m.beg && pc < m.end) {
-        if (pc > 0x20000000) {
-          char buff[kLen + 1];
-          copy_until_new_line(m.name_beg, buff, kLen);
-          Printf("    #%d 0x%lx (%s+0x%lx)\n", idx, pc, buff, pc - m.beg);
-        } else {
-          Printf("    #%d 0x%lx\n", idx, pc);
-        }
-//        }
+        char buff[kLen + 1];
+        uintptr_t offset = pc - m.beg;
+        if (i == 0) offset = pc;
+        copy_until_new_line(m.name_beg, buff, kLen);
+        Printf("    #%d 0x%lx (%s+0x%lx)\n", idx, pc, buff, offset);
         return;
       }
     }
