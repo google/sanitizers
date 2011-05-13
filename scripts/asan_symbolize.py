@@ -22,6 +22,6 @@ for line in sys.stdin:
     for path_to_cut in sys.argv[1:]:
       file_name = re.sub(".*" + path_to_cut, "", file_name)
 
-    print match.group(1), function_name, file_name
+    print match.group(1), "in", function_name, file_name
   else:
     print line.rstrip()
