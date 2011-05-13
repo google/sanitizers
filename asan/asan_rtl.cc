@@ -40,7 +40,7 @@ using std::string;
 
 #include "unwind.h"
 
-//#include "gdb_symbols/symbol_table.h"
+#include "gdb_symbols/symbol_table.h"
 
 #define CHECK(cond) do { if (!(cond)) { \
   Printf("CHECK failed: %s at %s:%d\n", #cond, __FILE__, __LINE__);\
@@ -62,6 +62,7 @@ static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
 static int    F_stats;
 static int    F_debug;
+static int    F_gdb;  // use gdb to symbolize stacks
 static bool   F_fast_unwind;
 
 #ifndef ASAN_BYTE_TO_BYTE_SHADOW
@@ -326,7 +327,6 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 uintptr_t __asan_addr;
 uint8_t __asan_aux;
 
-//SymbolTable symbol_table(NULL);
 
 void PcToStrings(uintptr_t pc, bool demangle,
                  string *img_name, string *rtn_name,
@@ -457,16 +457,21 @@ class ProcSelfMaps {
   }
 
   void PrintPc(uintptr_t pc, int idx) {
+    const int kLen = 1024;
+    if (F_gdb) {
+      static SymbolTable symbol_table(NULL);
+        char func[kLen+1] = "", 
+             file[kLen+1] = "";
+        int line = 0;
+        symbol_table.GetAddrInfoNocache((void*)pc,
+                                        func, kLen, file, kLen, &line);
+        Printf("  #%d 0x%lx %s %s:%d\n", idx, pc, func, file, line);
+        return;
+    }
+
     for (size_t i = 0; i < map_size_; i++) {
       Mapping &m = memory_map[i];
       if (pc >= m.beg && pc < m.end) {
-        const int kLen = 1024;
-//        char func[kLen+1], file[kLen+1];
-//        int line;
-//        if (symbol_table.GetAddrInfoNocache((void*)pc,
-//                                            func, kLen, file, kLen, &line)) {
-//          Printf("  #%d 0x%lx %s %s:%d\n", idx, pc, func, file, line);
-//        } else {
         if (pc > 0x20000000) {
           char buff[kLen + 1];
           copy_until_new_line(m.name_beg, buff, kLen);
@@ -1519,6 +1524,7 @@ static void asan_init() {
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
+  F_gdb = IntFlagValue(options, "gdb=", 0);
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 0);
 
