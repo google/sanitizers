@@ -264,12 +264,13 @@ static mmap_f      real_mmap;
 static malloc_f    real_malloc;
 static free_f      real_free;
 
+static FILE *asan_out;
 
 static void Printf(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  vfprintf(stderr, format, args);
-  fflush(stderr);
+  vfprintf(asan_out, format, args);
+  fflush(asan_out);
   va_end(args);
 }
 
@@ -305,9 +306,16 @@ struct Stats {
 
 static Stats stats;
 
+static void AsanAbort() {
+  if (asan_out != stderr) {
+    pclose(asan_out);
+  }
+  abort();
+}
+
 static void ShowStatsAndAbort() {
   stats.PrintStats();
-  abort();
+  AsanAbort();
 }
 
 static void PrintBytes(const char *before, uintptr_t *a) {
@@ -1478,7 +1486,7 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
     PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
     PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
-    abort();
+    AsanAbort();
   } else {
     mmap_pages(page, 1, "bad memory");
   }
@@ -1499,6 +1507,7 @@ static void asan_atexit() {
 
 static void asan_init() {
   if (asan_inited) return;
+  asan_out = stderr;
 
   // flags
   const char *options = getenv("ASAN_OPTIONS");
@@ -1562,6 +1571,14 @@ static void asan_init() {
   }
 
   asan_inited = 1;
+
+  const char *asan_filter = getenv("ASAN_FILTER");
+  if (asan_filter) {
+    FILE *p = popen(asan_filter, "w");
+    if (p)
+      asan_out = p;
+  }
+
   if (F_v) {
     Printf("==%d== AddressSanitizer Init done ***\n", getpid());
     Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
