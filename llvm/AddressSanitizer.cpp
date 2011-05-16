@@ -21,6 +21,7 @@
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/DebugInfo.h"
 #include "llvm/CallingConv.h"
 #include "llvm/DerivedTypes.h"
@@ -59,6 +60,8 @@ static cl::opt<bool> ClShadow("asan-shadow",
        cl::desc("Use shadow memory"), cl::init(true));
 static cl::opt<bool> ClCall("asan-call",
        cl::desc("Use call instead of SEGV"), cl::init(false));
+static cl::opt<bool> ClStack("asan-stack",
+       cl::desc("Handle stack memory"), cl::init(false));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
        cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
 static cl::opt<bool>  ClCrOS("asan-cros",
@@ -85,7 +88,9 @@ struct AddressSanitizer : public ModulePass {
   void instrumentMop(BasicBlock::iterator &BI);
   void instrumentInMemoryLoad(BasicBlock::iterator &BI, Value *load, Value *Addr, int size, int teltale);
   Value *getPoisonConst(int size);
+  Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
   bool handleFunction(Function &F);
+  bool poisonStackInFunction(Function &F);
   virtual bool runOnModule(Module &M);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
@@ -100,7 +105,10 @@ struct AddressSanitizer : public ModulePass {
   const Type *LongTy;
   const Type *LongPtrTy;
   const Type *ByteTy;
+  const Type *i32Ty;
+  const Type *i64Ty;
   const Type *BytePtrTy;
+  const Type *i64PtrTy;
   SmallSet<Instruction*, 16> to_instrument;
 };
 }  // namespace
@@ -231,6 +239,24 @@ void AddressSanitizer::instrumentInMemoryLoad(
   }
 }
 
+Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
+  if (ClByteToByteShadow) {
+    // Shadow |= kFullLowShadowMask
+    Shadow = irb.CreateOr(
+        Shadow, ConstantInt::get(LongTy, kFullLowShadowMask));
+    // Shadow &= ~kFullHighShadowMask
+    return irb.CreateAnd(
+        Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask));
+  }
+  // Shadow >> 3
+  Shadow = irb.CreateLShr(Shadow, 3);
+  uint64_t mask = TD->getPointerSize() == 4
+      ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
+      : kCompactShadowMask64;
+  // (Shadow >> 3) | mask
+  return irb.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
+}
+
 void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
   int is_store = !!isa<StoreInst>(*mop);
@@ -238,14 +264,14 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
       ? cast<StoreInst>(*mop).getPointerOperand()
       : cast<LoadInst>(*mop).getPointerOperand();
   const Type *OrigPtrTy = Addr->getType();
-  const Type *OrigType = cast<PointerType>(OrigPtrTy)->getElementType();
+  const Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
   bool in_mem_needs_extra_load = isa<StoreInst>(*mop);
 
   unsigned type_size = 0;  // in bits
-  if (OrigType->isSized()) {
-    type_size = TD->getTypeStoreSizeInBits(OrigType);
+  if (OrigTy->isSized()) {
+    type_size = TD->getTypeStoreSizeInBits(OrigTy);
   } else {
-    errs() << "Type " << *OrigType << " has unknown size!\n";
+    errs() << "Type " << *OrigTy << " has unknown size!\n";
     assert(false);
   }
 
@@ -257,12 +283,12 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   uint8_t telltale_value = is_store * 16 + (type_size / 8);
 
-  if (!(OrigType->isIntOrIntVectorTy() || OrigType->isPointerTy()) ||
-      TD->getTypeSizeInBits(OrigType) != type_size) {
+  if (!(OrigTy->isIntOrIntVectorTy() || OrigTy->isPointerTy()) ||
+      TD->getTypeSizeInBits(OrigTy) != type_size) {
     // This type is unsupported by the ICMP instruction. Cast it to the int of
     // appropriate size.
-    OrigType = IntegerType::get(*Context, type_size);
-    OrigPtrTy = PointerType::get(OrigType, 0);
+    OrigTy = IntegerType::get(*Context, type_size);
+    OrigPtrTy = PointerType::get(OrigTy, 0);
     in_mem_needs_extra_load = true;
   }
 
@@ -282,33 +308,19 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   IRBuilder<> irb1(BI->getParent(), BI);
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
-  Value *Shadow = AddrLong;
 
-  Value *ShadowPtr = NULL;
-  Value *CmpVal;
-  if (!ClByteToByteShadow) {
-    Shadow = irb1.CreateLShr(Shadow, 3);
-    uint64_t mask = TD->getPointerSize() == 4
-        ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
-        : kCompactShadowMask64;
-    Shadow = irb1.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
-    ShadowPtr = irb1.CreateIntToPtr(Shadow, BytePtrTy);
-    CmpVal = ConstantInt::get(ByteTy, 0);
-  } else {
-    // Shadow |= kFullLowShadowMask
-    Shadow = irb1.CreateOr(
-        Shadow, ConstantInt::get(LongTy, kFullLowShadowMask));
-    // Shadow &= ~kFullHighShadowMask
-    Shadow = irb1.CreateAnd(
-        Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask));
+  const Type *ShadowTy    = ClByteToByteShadow ? OrigTy    : ByteTy;
+  const Type *ShadowPtrTy = ClByteToByteShadow ? OrigPtrTy : BytePtrTy;
+  Value *ShadowPtr = memToShadow(AddrLong, irb1);
+  Value *CmpVal = Constant::getNullValue(ShadowTy);
+  Value *PaddedShadowPtr = ShadowPtr;
+  if (ClByteToByteShadow) {
     // ShadowPadded = Shadow + kBankPadding;
-    Value *ShadowPadded = irb1.CreateAdd(
-        Shadow, ConstantInt::get(LongTy, kBankPadding));
-
-    ShadowPtr = irb1.CreateIntToPtr(ShadowPadded, OrigPtrTy);
-    CmpVal = Constant::getNullValue(OrigType);
+    PaddedShadowPtr = irb1.CreateAdd(
+        ShadowPtr, ConstantInt::get(LongTy, kBankPadding));
   }
-  Value *ShadowValue = irb1.CreateLoad(ShadowPtr);
+  Value *ShadowValue = irb1.CreateLoad(
+      irb1.CreateIntToPtr(PaddedShadowPtr, ShadowPtrTy));
   // If the shadow value is non-zero, write to the check address, else
   // continue executing the old code.
   Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
@@ -320,7 +332,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *CheckTerm = splitBlockAndInsertIfThen(BI, Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  Value *UpdateShadowIntPtr = irb2.CreateShl(Shadow, ClCrOS ? 2 : 1);
+  Value *UpdateShadowIntPtr = irb2.CreateShl(ShadowPtr, ClCrOS ? 2 : 1);
   Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
 
   if (!ClByteToByteShadow && type_size != 64) {
@@ -341,17 +353,13 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
-  if (ClCall) {
-    irb3.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
-  } else {
-    if (!ClByteToByteShadow) {
-      Value *ShadowLongPtr = irb3.CreateIntToPtr(Shadow, LongPtrTy);
-      irb3.CreateStore(AddrLong, ShadowLongPtr);
-    }
-    Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
-    Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
-    CloneDebugInfo(mop, CheckStoreInst);
+  if (!ClByteToByteShadow) {
+    Value *ShadowLongPtr = irb3.CreateIntToPtr(ShadowPtr, LongPtrTy);
+    irb3.CreateStore(AddrLong, ShadowLongPtr);
   }
+  Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
+  Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
+  CloneDebugInfo(mop, CheckStoreInst);
 }
 
 //virtual
@@ -364,9 +372,12 @@ bool AddressSanitizer::runOnModule(Module &M) {
   Context = &(M.getContext());
   LongSize = TD->getPointerSizeInBits();
   LongTy = Type::getIntNTy(*Context, LongSize);
+  i32Ty = Type::getIntNTy(*Context, 32);
+  i64Ty = Type::getIntNTy(*Context, 64);
   ByteTy  = Type::getInt8Ty(*Context);
   BytePtrTy = PointerType::get(ByteTy, 0);
   LongPtrTy = PointerType::get(LongTy, 0);
+  i64PtrTy = PointerType::get(i64Ty, 0);
   VoidTy = Type::getVoidTy(*Context);
   asan_slow_path = M.getOrInsertFunction("asan_slow_path",
        VoidTy, LongTy, LongTy, (Type*)0);
@@ -425,7 +436,6 @@ static bool WantToIgnoreFunction(Function &F) {
 
 bool AddressSanitizer::handleFunction(Function &F) {
   if (WantToIgnoreFunction(F)) return false;
-  //errs() << "============" << F.getNameStr() << "\n";
 
 
   if (TD->getPointerSize() == 4) {
@@ -463,7 +473,106 @@ bool AddressSanitizer::handleFunction(Function &F) {
       break;
     }
   }
-  //errs() << "--------------------\n";
+  // errs() << "--------------------\n";
   //errs() << F;
-  return n_instrumented > 0;
+  //
+  //
+
+  bool changed_stack = false;
+  if (ClStack) {
+    changed_stack = poisonStackInFunction(F);
+  }
+
+  return n_instrumented > 0 || changed_stack;
+}
+
+
+bool AddressSanitizer::poisonStackInFunction(Function &F) {
+  //errs() << F << "\n";
+  SmallVector<AllocaInst*, 16> alloca_v;
+  SmallVector<uint64_t, 16> sizes_v;
+
+  // Filter out those Alloca instrument we want (and can) handle.
+  for (Function::iterator FI = F.begin(), FE = F.end();
+       FI != FE; ++FI) {
+    BasicBlock &BB = *FI;
+    for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
+         BI != BE; ++BI) {
+      if (!isa<AllocaInst>(BI)) continue;
+      CHECK(FI == F.begin());  // alloca could be only in the entry block (right?)
+      AllocaInst *a = cast<AllocaInst>(BI);
+      if (a->isArrayAllocation()) continue;
+      if (!a->isStaticAlloca()) continue;
+      if (!a->getAllocatedType()->isSized()) continue;
+      alloca_v.push_back(a);
+    }
+  }
+
+  if (alloca_v.empty()) return false;
+
+  const unsigned kAsanStackAlignment = 64;
+  const unsigned kAsanStackRedzone = 64;
+  uint64_t total_size = 0;
+
+  // Collect sizes of all Alloca instructions.
+  for (size_t i = 0; i < alloca_v.size(); i++) {
+    AllocaInst *a = alloca_v[i];
+    unsigned alignment  = a->getAlignment();
+    CHECK(alignment <= kAsanStackAlignment);
+    const Type *ty = a->getAllocatedType();
+    uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
+    uint64_t aligned_size = ((size_in_bytes + kAsanStackAlignment - 1)
+                             / kAsanStackAlignment) * kAsanStackAlignment;
+    sizes_v.push_back(aligned_size);
+    total_size += aligned_size;
+    errs() << "----- " << *a << " --- isA: " << a->isArrayAllocation()
+           << " al: " << alignment << "\n";
+    errs() << "              " << *ty << "\n";
+    errs() << "              " << *a->getArraySize() << "\n";
+    errs() << "size: " << TD->getTypeStoreSizeInBits(ty) << "\n";
+  }
+
+  uint64_t total_size_with_redzones =
+      total_size + (alloca_v.size() + 1) * kAsanStackRedzone;
+
+  errs() << "total size w/ redzones: " << total_size_with_redzones << "\n";
+
+  Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
+  Instruction *ins_before = alloca_v[0];
+
+  AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);;
+  my_alloca->setAlignment(kAsanStackAlignment);
+  CHECK(my_alloca->isStaticAlloca());
+  Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
+
+  uint64_t size_so_far = kAsanStackRedzone;
+  // Replace Alloca instructions with bas+offset.
+  for (size_t i = 0; i < alloca_v.size(); i++) {
+    AllocaInst *a = alloca_v[i];
+    uint64_t size = sizes_v[i];
+    Value *new_ptr = BinaryOperator::CreateAdd(
+        base, ConstantInt::get(LongTy, size_so_far), "", a);
+    new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
+
+    size_so_far += size + kAsanStackRedzone;
+    a->replaceAllUsesWith(new_ptr);
+  }
+  CHECK(size_so_far == total_size_with_redzones);
+
+  IRBuilder<> irb(ins_before->getParent(), ins_before);
+  Value *shadow_base = memToShadow(base, irb);
+
+  size_so_far = 0;
+  if (1)
+  for (size_t i = 0; i < sizes_v.size(); i++) {
+    Instruction *ptr = BinaryOperator::CreateAdd(
+        shadow_base, ConstantInt::get(LongTy, size_so_far / 8), "", ins_before);
+    ptr = new IntToPtrInst(ptr, i64PtrTy, "shadow", ins_before);
+    new StoreInst(ConstantInt::get(i64Ty, -1LL), ptr, "poison", ins_before);
+    size_so_far += sizes_v[i] + kAsanStackRedzone;
+  }
+
+  errs() << *F.begin() << "\n";
+
+  return true;
 }

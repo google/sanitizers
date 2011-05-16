@@ -36,12 +36,12 @@ GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
-all: t_cros t_64 t_64_full t_32
+all: t_cros t_64 t_64full t_32
 t_cros:
 	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=1 SUFF=32cros   asan_test32cros
 t_64:
 	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 asan_test64
-t_64_full:
+t_64full:
 	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full asan_test64full
 t_32:
 	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   asan_test32
