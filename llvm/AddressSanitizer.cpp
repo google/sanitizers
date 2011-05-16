@@ -83,6 +83,10 @@ void Printf(const char *format, ...) {
 
 
 namespace {
+
+const unsigned kAsanStackAlignment = 64;
+const unsigned kAsanStackRedzone = 64;
+
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
@@ -94,7 +98,24 @@ struct AddressSanitizer : public ModulePass {
   virtual bool runOnModule(Module &M);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
+
  private:
+
+  uint64_t getAllocaSizeInBytes(AllocaInst *a) {
+    const Type *ty = a->getAllocatedType();
+    uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
+    return size_in_bytes;
+  }
+  uint64_t getAlignedAllocaSize(AllocaInst *a) {
+    uint64_t size_in_bytes = getAllocaSizeInBytes(a);
+    uint64_t aligned_size = ((size_in_bytes + kAsanStackAlignment - 1)
+                             / kAsanStackAlignment) * kAsanStackAlignment;
+    return aligned_size;
+  }
+
+  void PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBuilder<> irb,
+                   Value *shadow_base, bool do_poison);
+
   Value *asan_slow_path;
   Value *asan_addr;
   Value *asan_aux;
@@ -486,18 +507,77 @@ bool AddressSanitizer::handleFunction(Function &F) {
   return n_instrumented > 0 || changed_stack;
 }
 
+// given 64 aligned bytes, need to poison last 64-n bytes.
+static uint64_t computeCompactPartialPoisonValue(int n) {
+  union {
+    uint64_t u64;
+    uint8_t  u8[8];
+  } a;
+  CHECK(n > 0 && n < 64);
+  for (int i = 0; i < 8; i++) {
+    if (n >= (i+1) * 8) {
+      a.u8[i] = 0;
+    } else if (n >= i * 8){
+      a.u8[i] = n % 8;
+    } else {
+      a.u8[i] = 0x99;
+    }
+  }
+  // Printf("computeCompactPartialPoisonValue: %d %llx\n", n, a.u64);
+  return a.u64;
+}
+
+
+void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBuilder<> irb,
+                                   Value *shadow_base, bool do_poison) {
+
+  Value *poison_all = ConstantInt::get(i64Ty, do_poison ? -1LL : 0LL);
+
+  // poison the first red zone.
+  irb.CreateStore(poison_all, irb.CreateIntToPtr(shadow_base, i64PtrTy));
+
+  // poison all other red zones.
+  uint64_t size_so_far = kAsanStackRedzone;
+  for (size_t i = 0; i < alloca_v.size(); i++) {
+    AllocaInst *a = alloca_v[i];
+    uint64_t size_in_bytes = getAllocaSizeInBytes(a);
+    uint64_t aligned_size = getAlignedAllocaSize(a);
+    CHECK(aligned_size - size_in_bytes < kAsanStackAlignment);
+    size_so_far += aligned_size;
+    Value *ptr = irb.CreateAdd(
+        shadow_base, ConstantInt::get(LongTy, size_so_far / 8));
+    irb.CreateStore(poison_all, irb.CreateIntToPtr(ptr, i64PtrTy));
+    if (size_in_bytes < aligned_size) {
+      ptr = irb.CreateAdd(
+          shadow_base, ConstantInt::get(LongTy, size_so_far / 8 - 8));
+      size_t addressible_bytes = kAsanStackRedzone - (aligned_size - size_in_bytes);
+      uint64_t poison = do_poison
+          ? computeCompactPartialPoisonValue(addressible_bytes) : 0;
+      Value *partial_poison = ConstantInt::get(i64Ty, poison);
+      irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i64PtrTy));
+
+    }
+    size_so_far += kAsanStackRedzone;
+  }
+
+}
 
 bool AddressSanitizer::poisonStackInFunction(Function &F) {
-  //errs() << F << "\n";
   SmallVector<AllocaInst*, 16> alloca_v;
-  SmallVector<uint64_t, 16> sizes_v;
+  SmallVector<Instruction*, 8> ret_v;
+  uint64_t total_size = 0;
 
-  // Filter out those Alloca instrument we want (and can) handle.
+  // Filter out Alloca instructions we want (and can) handle.
+  // Collect Ret instructions.
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
     BasicBlock &BB = *FI;
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
          BI != BE; ++BI) {
+      if (isa<ReturnInst>(BI)) {
+          ret_v.push_back(BI);
+          continue;
+      }
       if (!isa<AllocaInst>(BI)) continue;
       CHECK(FI == F.begin());  // alloca could be only in the entry block (right?)
       AllocaInst *a = cast<AllocaInst>(BI);
@@ -505,37 +585,19 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
       if (!a->isStaticAlloca()) continue;
       if (!a->getAllocatedType()->isSized()) continue;
       alloca_v.push_back(a);
+      unsigned alignment  = a->getAlignment();
+      CHECK(alignment <= kAsanStackAlignment);
+      uint64_t aligned_size =  getAlignedAllocaSize(a);
+      total_size += aligned_size;
     }
   }
 
   if (alloca_v.empty()) return false;
 
-  const unsigned kAsanStackAlignment = 64;
-  const unsigned kAsanStackRedzone = 64;
-  uint64_t total_size = 0;
-
-  // Collect sizes of all Alloca instructions.
-  for (size_t i = 0; i < alloca_v.size(); i++) {
-    AllocaInst *a = alloca_v[i];
-    unsigned alignment  = a->getAlignment();
-    CHECK(alignment <= kAsanStackAlignment);
-    const Type *ty = a->getAllocatedType();
-    uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
-    uint64_t aligned_size = ((size_in_bytes + kAsanStackAlignment - 1)
-                             / kAsanStackAlignment) * kAsanStackAlignment;
-    sizes_v.push_back(aligned_size);
-    total_size += aligned_size;
-    errs() << "----- " << *a << " --- isA: " << a->isArrayAllocation()
-           << " al: " << alignment << "\n";
-    errs() << "              " << *ty << "\n";
-    errs() << "              " << *a->getArraySize() << "\n";
-    errs() << "size: " << TD->getTypeStoreSizeInBits(ty) << "\n";
-  }
-
   uint64_t total_size_with_redzones =
       total_size + (alloca_v.size() + 1) * kAsanStackRedzone;
 
-  errs() << "total size w/ redzones: " << total_size_with_redzones << "\n";
+  // errs() << "total size w/ redzones: " << total_size_with_redzones << "\n";
 
   Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
   Instruction *ins_before = alloca_v[0];
@@ -546,33 +608,32 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
 
   uint64_t size_so_far = kAsanStackRedzone;
-  // Replace Alloca instructions with bas+offset.
+  // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
-    uint64_t size = sizes_v[i];
+    uint64_t aligned_size = getAlignedAllocaSize(a);
+    CHECK((aligned_size % kAsanStackAlignment) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
         base, ConstantInt::get(LongTy, size_so_far), "", a);
     new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
 
-    size_so_far += size + kAsanStackRedzone;
+    size_so_far += aligned_size + kAsanStackRedzone;
     a->replaceAllUsesWith(new_ptr);
   }
   CHECK(size_so_far == total_size_with_redzones);
 
+  // Poison the stack redzones at the entry.
   IRBuilder<> irb(ins_before->getParent(), ins_before);
   Value *shadow_base = memToShadow(base, irb);
+  PoisonStack(alloca_v, irb, shadow_base, true);
 
-  size_so_far = 0;
-  if (1)
-  for (size_t i = 0; i < sizes_v.size(); i++) {
-    Instruction *ptr = BinaryOperator::CreateAdd(
-        shadow_base, ConstantInt::get(LongTy, size_so_far / 8), "", ins_before);
-    ptr = new IntToPtrInst(ptr, i64PtrTy, "shadow", ins_before);
-    new StoreInst(ConstantInt::get(i64Ty, -1LL), ptr, "poison", ins_before);
-    size_so_far += sizes_v[i] + kAsanStackRedzone;
+  // Unpoison the stack before all ret instructions.
+  for (size_t i = 0; i < ret_v.size(); i++) {
+    Instruction *ret = ret_v[i];
+    IRBuilder<> irb_ret(ret->getParent(), ret);
+    PoisonStack(alloca_v, irb_ret, shadow_base, false);
   }
 
-  errs() << *F.begin() << "\n";
-
+  // errs() << *F.begin() << "\n";
   return true;
 }
