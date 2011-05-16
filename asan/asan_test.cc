@@ -331,6 +331,46 @@ TEST(AddressSanitizer, DoubleFreeTest) {
   EXPECT_DEATH(DoubleFree(), "attempting double-free");
 }
 
+template<class T>
+__attribute__((noinline))
+static T Ident(T t) {
+  return t;
+}
+
+template<int kSize>
+__attribute__((noinline))
+void SizedStackTest() {
+  char a[kSize];
+  char  *A = Ident((char*)&a);
+  for (size_t i = 0; i < kSize; i++)
+    A[i] = i;
+  EXPECT_DEATH(A[-1] = 0, "");
+  EXPECT_DEATH(A[-20] = 0, "");
+  EXPECT_DEATH(A[-32] = 0, "");
+  EXPECT_DEATH(A[kSize] = 0, "");
+  EXPECT_DEATH(A[kSize + 1] = 0, "");
+  EXPECT_DEATH(A[kSize + 10] = 0, "");
+  EXPECT_DEATH(A[kSize + 32] = 0, "");
+}
+
+TEST(AddressSanitizer, DISABLED_SimpleStackTest) {
+  SizedStackTest<1>();
+  SizedStackTest<2>();
+  SizedStackTest<3>();
+  SizedStackTest<4>();
+  SizedStackTest<5>();
+  SizedStackTest<6>();
+  SizedStackTest<7>();
+  SizedStackTest<16>();
+  SizedStackTest<25>();
+  SizedStackTest<34>();
+  SizedStackTest<43>();
+  SizedStackTest<51>();
+  SizedStackTest<62>();
+  SizedStackTest<64>();
+  SizedStackTest<128>();
+}
+
 __attribute__((noinline))
 static void LargeFunction() {
   int *x = new int [100];

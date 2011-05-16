@@ -24,6 +24,7 @@ LIBS=#-lpthread -ldl
 BITS=64
 BYTE_TO_BYTE=0
 CROS=0
+ASAN_STACK=0
 
 SYMBOL_TABLE_O=../third_party/gdb_symbols/symbol_table.o
 
@@ -76,6 +77,7 @@ asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
 		-mllvm -asan-cros=$(CROS) \
+		-mllvm -asan-stack=$(ASAN_STACK) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
 	ASAN_LIB=`pwd`/libasan$(SUFF).a \
 	$(CLANG_CXX) -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
