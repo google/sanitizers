@@ -515,12 +515,12 @@ static uint64_t computeCompactPartialPoisonValue(int n) {
   } a;
   CHECK(n > 0 && n < 64);
   for (int i = 0; i < 8; i++) {
-    if (n >= (i+1) * 8) {
+    if (n > (i+1) * 8) {
       a.u8[i] = 0;
-    } else if (n >= i * 8){
+    } else if (n > i * 8){
       a.u8[i] = n % 8;
     } else {
-      a.u8[i] = 0x99;
+      a.u8[i] = 0x90 + i;
     }
   }
   // Printf("computeCompactPartialPoisonValue: %d %llx\n", n, a.u64);
@@ -634,6 +634,6 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
     PoisonStack(alloca_v, irb_ret, shadow_base, false);
   }
 
-  // errs() << *F.begin() << "\n";
+  // errs() << F.getNameStr() << "\n" << F << "\n";
   return true;
 }
