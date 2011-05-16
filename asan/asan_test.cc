@@ -437,6 +437,10 @@ TEST(AddressSanitizer, DISABLED_DemoOOBRightHigh) {
   oob_test<U1>(kLargeMalloc, kLargeMalloc);
 }
 
+TEST(AddressSanitizer, DISABLED_DemoOOM) {
+  size_t size = __WORDSIZE == 64 ? (size_t)(1ULL << 40) : (0xf0000000);
+  printf("%p\n", malloc(size));
+}
 
 int main(int argc, char **argv) {
   testing::GTEST_FLAG(death_test_style) = "threadsafe";

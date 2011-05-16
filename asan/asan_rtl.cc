@@ -587,6 +587,9 @@ static void PrintStack(uintptr_t *addr, size_t size) {
     if (rtn == "main()") break;
   }
 }
+static void PrintStack(StackTrace &stack) {
+  PrintStack(stack.trace, stack.size);
+}
 
 void PrintCurrentStack(uintptr_t pc = 0) {
   GET_STACK_TRACE_HERE(kStackTraceMax);
@@ -1047,21 +1050,6 @@ class MallocInfo {
 
 static MallocInfo malloc_info;
 
-static uintptr_t asan_actual_malloc(size_t size) {
-  if (size >= F_large_malloc) {
-    Printf("User requested %lu bytes:\n", size);
-    PrintCurrentStack();
-  }
-
-  uintptr_t res = (uintptr_t)real_malloc(size);
-  if (res == 0) {
-    OutOfMemoryMessage("main memory", size);
-    PrintCurrentStack();
-    ShowStatsAndAbort();
-  }
-  return res;
-}
-
 Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   asan_init();
   CHECK(asan_inited);
@@ -1069,7 +1057,19 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   size_t real_size_in_words = Ptr::real_size_in_words(size);
   size_t real_size_with_alignment =
       real_size_in_words * kWordSize + alignment;
-  uintptr_t orig = asan_actual_malloc(real_size_with_alignment);
+
+  if (size >= F_large_malloc) {
+    Printf("User requested %lu bytes:\n", size);
+    PrintStack(stack);
+  }
+  uintptr_t orig = (uintptr_t)real_malloc(real_size_with_alignment);
+
+  if (orig == 0) {
+    OutOfMemoryMessage("main memory", size);
+    PrintStack(stack);
+    ShowStatsAndAbort();
+  }
+
 
   if (!AddrIsInMem(orig) && F_poison_shadow) {
     Printf("==%d== AddressSanitizer failure: malloc returned 0x%lx\n",
