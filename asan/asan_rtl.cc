@@ -570,35 +570,66 @@ static void PrintStack(StackTrace &stack) {
 }
 
 struct AsanThread {
-  void *(*start_routine) (void *);
-  void *arg;
-  StackTrace stack;
-  uintptr_t stack_top;
-  int tid;
-  bool announced;
-  int refcount;
+
+  AsanThread(void *(*start_routine) (void *), void *arg, StackTrace *stack)
+    : start_routine_(start_routine),
+      arg_(arg), 
+      announced_(false),
+      tid_(AtomicInc(&n_threads_) - 1),
+      refcount_(1) {
+    if (stack) {
+      stack_ = *stack;
+    }
+  }
+
+  void *ThreadStart() {
+    int l;
+    stack_top_ = (uintptr_t)&l;
+
+    if (start_routine_) {
+      void *res = start_routine_(arg_);
+      Unref();
+      return res;
+    }
+    return NULL;
+  }
 
   AsanThread *Ref() {
-    AtomicInc(&refcount);
+    AtomicInc(&refcount_);
     return this;
   }
 
   void Unref() {
-    CHECK(refcount > 0);
-    if (AtomicDec(&refcount) == 0)
+    CHECK(refcount_ > 0);
+    if (AtomicDec(&refcount_) == 0)
       real_free(this);
   }
 
   void Announce() {
-    if (tid == 0) return; // no need to announce the main thread.
-    if (!announced) {
-      announced = true;
-      Printf("Thread T%d created here:\n", tid);
-      PrintStack(stack);
+    if (tid_ == 0) return; // no need to announce the main thread.
+    if (!announced_) {
+      announced_ = true;
+      Printf("Thread T%d created here:\n", tid_);
+      PrintStack(stack_);
     }
   }
+
+  uintptr_t stack_top() { return stack_top_; }
+  int tid() { return tid_; }
+
+ private:
+  void *(*start_routine_) (void *);
+  void *arg_;
+  StackTrace stack_;
+  uintptr_t  stack_top_;
+  int        tid_;
+  bool       announced_;
+  int        refcount_;
+
+  static int n_threads_;
 };
 
+int AsanThread::n_threads_;
 static __thread AsanThread *tl_current_thread;
 
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
@@ -619,7 +650,7 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   stack->trace[stack->size++] = GET_CALLER_PC();
   if (!tl_current_thread) return;
   uintptr_t *prev_frame = frame;
-  uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top;
+  uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top();
   while (frame >= prev_frame && 
          frame < top &&
          stack->size < stack->max_size) {
@@ -677,15 +708,8 @@ void PrintCurrentStack(uintptr_t pc = 0) {
 }
 
 static void *asan_thread_start(void *arg) {
-  static int n_threads;
-  AsanThread *t = (AsanThread*)arg;
-  t->stack_top = (uintptr_t)&t;
-  t->tid = AtomicInc(&n_threads);
-  t->refcount = 1;
-  tl_current_thread = t;
-  //Printf("asan_thread_start: stack "PP"\n", t->stack_top);
-  void *res = t->start_routine(t->arg);
-  t->Unref();
+  tl_current_thread = (AsanThread*)arg;
+  return tl_current_thread->ThreadStart();
 }
 
 // ---------------------- AddressSanitizer malloc -------------------- {{{1
@@ -1062,7 +1086,16 @@ class MallocInfo {
   void DescribeAddress(uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
 
-    size_t i, j;
+    // First, check the stack.
+    uintptr_t stack_top = tl_current_thread->stack_top();
+    // TODO(kcc): make this cleaner
+    if (addr < stack_top && addr > stack_top - (1 << 20)) {
+      Printf("Address "PP" is inside T%d's stack\n", 
+             addr, tl_current_thread->tid());
+      tl_current_thread->Announce();
+      return;
+    }
+
     // Check if we have this memory region in delay queue.
     Ptr *freed = find_freed(addr);
     Ptr *malloced = find_malloced(addr);
@@ -1077,10 +1110,10 @@ class MallocInfo {
     if (freed) {
       freed->DescribeAddress(addr, access_size);
       Printf("freed by thread T%d here:\n",
-             freed->free_thread->tid);
+             freed->free_thread->tid());
       freed->PrintFreeStack();
       Printf("previously allocated by thread T%d here:\n",
-             freed->malloc_thread->tid);
+             freed->malloc_thread->tid());
       freed->PrintMallocStack();
       tl_current_thread->Announce();
       freed->free_thread->Announce();
@@ -1094,7 +1127,7 @@ class MallocInfo {
       // uintptr_t stack[kStackSize];
       // size_t stack_size = get_stack_trace_of_malloced_addr(malloced, stack, kStackSize);
       Printf("allocated by thread T%d here:\n",
-             malloced->malloc_thread->tid);
+             malloced->malloc_thread->tid());
       malloced->PrintMallocStack();
       // PrintStack(stack, stack_size);
       tl_current_thread->Announce();
@@ -1390,9 +1423,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax);
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  t->start_routine = start_routine;
-  t->arg = arg;
-  t->stack = stack;
+  new (t) AsanThread(start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
@@ -1567,7 +1598,7 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
           access_size,
           addr, shadow_addr, real_addr,
-          tl_current_thread->tid);
+          tl_current_thread->tid());
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
@@ -1691,9 +1722,9 @@ static void asan_init() {
 
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  memset(t, 0, sizeof(*t));
-  t->stack_top = (uintptr_t)&t;
+  new (t) AsanThread(0, 0, 0);
   tl_current_thread = t;
+  tl_current_thread->ThreadStart();
 
   asan_inited = 1;
 
