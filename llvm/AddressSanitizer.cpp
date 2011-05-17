@@ -88,8 +88,11 @@ void Printf(const char *format, ...) {
 
 namespace {
 
-const unsigned kAsanStackAlignment = 64;
-const unsigned kAsanStackRedzone = 64;
+// We create poisoned rezones of 32 *bytes*
+// With the compact shadow we can poison the entire redzone 
+// with one 4-byte store.
+const unsigned kAsanStackAlignment = 32;
+const unsigned kAsanStackRedzone = 32;
 
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
@@ -129,11 +132,10 @@ struct AddressSanitizer : public ModulePass {
   const Type *VoidTy;
   const Type *LongTy;
   const Type *LongPtrTy;
-  const Type *ByteTy;
   const Type *i32Ty;
-  const Type *i64Ty;
+  const Type *i32PtrTy;
+  const Type *ByteTy;
   const Type *BytePtrTy;
-  const Type *i64PtrTy;
   SmallSet<Instruction*, 16> to_instrument;
 };
 }  // namespace
@@ -324,11 +326,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
   LongSize = TD->getPointerSizeInBits();
   LongTy = Type::getIntNTy(*Context, LongSize);
   i32Ty = Type::getIntNTy(*Context, 32);
-  i64Ty = Type::getIntNTy(*Context, 64);
   ByteTy  = Type::getInt8Ty(*Context);
   BytePtrTy = PointerType::get(ByteTy, 0);
   LongPtrTy = PointerType::get(LongTy, 0);
-  i64PtrTy = PointerType::get(i64Ty, 0);
+  i32PtrTy = PointerType::get(i32Ty, 0);
   VoidTy = Type::getVoidTy(*Context);
   asan_slow_path = M.getOrInsertFunction("asan_slow_path",
        VoidTy, LongTy, LongTy, (Type*)0);
@@ -461,10 +462,11 @@ bool AddressSanitizer::handleFunction(Function &F) {
   return n_instrumented > 0 || changed_stack;
 }
 
-// given 64 aligned bytes, need to poison last 64-n bytes.
+// need to poison last __WORDSIZE - n bytes in word.
 static uint64_t computeCompactPartialPoisonValue(int n) {
   union {
     uint64_t u64;
+    uint32_t u32[2];
     uint8_t  u8[8];
   } a;
   CHECK(n > 0 && n < 64);
@@ -478,17 +480,17 @@ static uint64_t computeCompactPartialPoisonValue(int n) {
     }
   }
   // Printf("computeCompactPartialPoisonValue: %d %llx\n", n, a.u64);
-  return a.u64;
+  return a.u32[0];
 }
 
 
 void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
 
-  Value *poison_all = ConstantInt::get(i64Ty, do_poison ? -1LL : 0LL);
+  Value *poison_all = ConstantInt::get(i32Ty, do_poison ? -1LL : 0LL);
 
   // poison the first red zone.
-  irb.CreateStore(poison_all, irb.CreateIntToPtr(shadow_base, i64PtrTy));
+  irb.CreateStore(poison_all, irb.CreateIntToPtr(shadow_base, i32PtrTy));
 
   // poison all other red zones.
   uint64_t size_so_far = kAsanStackRedzone;
@@ -500,15 +502,15 @@ void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBui
     size_so_far += aligned_size;
     Value *ptr = irb.CreateAdd(
         shadow_base, ConstantInt::get(LongTy, size_so_far / 8));
-    irb.CreateStore(poison_all, irb.CreateIntToPtr(ptr, i64PtrTy));
+    irb.CreateStore(poison_all, irb.CreateIntToPtr(ptr, i32PtrTy));
     if (size_in_bytes < aligned_size) {
       ptr = irb.CreateAdd(
-          shadow_base, ConstantInt::get(LongTy, size_so_far / 8 - 8));
+          shadow_base, ConstantInt::get(LongTy, size_so_far / 8 - 4));
       size_t addressible_bytes = kAsanStackRedzone - (aligned_size - size_in_bytes);
       uint64_t poison = do_poison
           ? computeCompactPartialPoisonValue(addressible_bytes) : 0;
-      Value *partial_poison = ConstantInt::get(i64Ty, poison);
-      irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i64PtrTy));
+      Value *partial_poison = ConstantInt::get(i32Ty, poison);
+      irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i32PtrTy));
 
     }
     size_so_far += kAsanStackRedzone;

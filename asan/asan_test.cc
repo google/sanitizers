@@ -362,11 +362,11 @@ void SizedStackTest() {
     A[i] = i;
   EXPECT_DEATH(A[-1] = 0, "");
   EXPECT_DEATH(A[-20] = 0, "");
-  EXPECT_DEATH(A[-32] = 0, "");
+  EXPECT_DEATH(A[-31] = 0, "");
   EXPECT_DEATH(A[kSize] = 0, "");
   EXPECT_DEATH(A[kSize + 1] = 0, "");
   EXPECT_DEATH(A[kSize + 10] = 0, "");
-  EXPECT_DEATH(A[kSize + 32] = 0, "");
+  EXPECT_DEATH(A[kSize + 31] = 0, "");
 }
 
 TEST(AddressSanitizer, DISABLED_SimpleStackTest) {
