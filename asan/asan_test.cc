@@ -405,6 +405,38 @@ TEST(AddressSanitizer, DISABLED_LargeFunctionTest) {
   LargeFunction();
 }
 
+void *ThreadedTestAlloc(void *a) {
+  int **p = (int**)a;
+  *p = new int;
+  return 0;
+}
+
+void *ThreadedTestFree(void *a) {
+  sleep(1);
+  int **p = (int**)a;
+  delete *p;
+  return 0;
+}
+
+void *ThreadedTestUse(void *a) {
+  sleep(2);
+  int **p = (int**)a;
+  **p = 1;
+  return 0;
+}
+
+TEST(AddressSanitizer, DISABLED_ThreadedTest) {
+  pthread_t t[3];
+  int *x;
+  pthread_create(&t[0], 0, ThreadedTestAlloc, &x);
+  pthread_create(&t[1], 0, ThreadedTestFree, &x);
+  pthread_create(&t[2], 0, ThreadedTestUse, &x);
+  for (int i = 0; i < 3; i++) {
+    pthread_join(t[i], 0);
+  }
+
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoUAFLowIn) {
