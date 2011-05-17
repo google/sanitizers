@@ -189,68 +189,6 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
     to->setMetadata("dbg", dbg);
 }
 
-// generate 0xabab... constant of appropriate size.
-Value *AddressSanitizer::getPoisonConst(int size) {
-  switch (size) {
-    case 8:  return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison8);
-    case 16: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison16);
-    case 32: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison32);
-    case 64: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison64);
-    default: assert(0); return 0;
-  }
-}
-
-void AddressSanitizer::instrumentInMemoryLoad(
-    BasicBlock::iterator &BI, 
-    Value *load,
-    Value *Addr, int size, int telltale_value) {
-  assert(isa<LoadInst>(load));
-  BasicBlock *bb1 = BI->getParent();
-  BasicBlock *bbT = bb1->splitBasicBlock(BI, "bbT_");
-  BasicBlock *bb2 = bb1->splitBasicBlock(bb1->getTerminator(), "bb2_");
-  BasicBlock *bb3 = bb2->splitBasicBlock(bb2->getTerminator(), "bb3_");
-  BasicBlock *bb4 = bb3->splitBasicBlock(bb3->getTerminator(), "bb4_");
-
-  /*      b1
-  //      |\
-  //      | \
-  //      |  b2
-  //      |  | \
-  //      |  |  \
-  //      |  |   \
-  //      |  b3---b4
-  //      | /
-  //      T */
-
-  IRBuilder<> irb1(bb1->getTerminator());
-  if (load->getType()->isPointerTy())
-    load = irb1.CreatePtrToInt(load, LongTy);
-  Value *SizedPoison = getPoisonConst(size);
-  assert (load->getType() == SizedPoison->getType());
-  Value *cmp1 = irb1.CreateICmpEQ(load, SizedPoison);
-  BranchInst *term1 = BranchInst::Create(bb2, bbT, cmp1);
-  ReplaceInstWithInst(bb1->getTerminator(), term1);
-
-  IRBuilder<> irb2(bb2->getTerminator());
-  Value *LongPoison = getPoisonConst(LongSize);
-  Value *Offset = ConstantInt::get(LongTy, LongSize / 8);
-  Value *AddrLong = irb2.CreatePointerCast(Addr, LongTy);
-  Value *LeftAddr = irb2.CreateIntToPtr(irb2.CreateSub(AddrLong, Offset), LongPtrTy);
-  Value *LeftLoad = irb2.CreateLoad(LeftAddr);
-  Value *cmp2 = irb2.CreateICmpEQ(LeftLoad, LongPoison);
-  BranchInst *term2 = BranchInst::Create(bb4, bb3, cmp2);
-  ReplaceInstWithInst(bb2->getTerminator(), term2);
-
-  IRBuilder<> irb3(bb3->getTerminator());
-  Value *RightAddr = irb3.CreateIntToPtr(irb3.CreateAdd(AddrLong, Offset), LongPtrTy);
-  Value *RightLoad = irb3.CreateLoad(RightAddr);
-  Value *cmp3 = irb3.CreateICmpEQ(RightLoad, LongPoison);
-  BranchInst *term3 = BranchInst::Create(bb4, bbT, cmp3);
-  ReplaceInstWithInst(bb3->getTerminator(), term3);
-  
-  IRBuilder<> irb4(bb4->getTerminator());
-  irb4.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
-}
 
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   if (ClByteToByteShadow) {
@@ -648,4 +586,68 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
 
   // errs() << F.getNameStr() << "\n" << F << "\n";
   return true;
+}
+
+// generate 0xabab... constant of appropriate size.
+Value *AddressSanitizer::getPoisonConst(int size) {
+  switch (size) {
+    case 8:  return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison8);
+    case 16: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison16);
+    case 32: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison32);
+    case 64: return ConstantInt::get(Type::getIntNTy(*Context, size), kInMemoryPoison64);
+    default: assert(0); return 0;
+  }
+}
+
+// Instrumentation for the in-memory poisoning. Does not really work yet.
+void AddressSanitizer::instrumentInMemoryLoad(
+    BasicBlock::iterator &BI, 
+    Value *load,
+    Value *Addr, int size, int telltale_value) {
+  assert(isa<LoadInst>(load));
+  BasicBlock *bb1 = BI->getParent();
+  BasicBlock *bbT = bb1->splitBasicBlock(BI, "bbT_");
+  BasicBlock *bb2 = bb1->splitBasicBlock(bb1->getTerminator(), "bb2_");
+  BasicBlock *bb3 = bb2->splitBasicBlock(bb2->getTerminator(), "bb3_");
+  BasicBlock *bb4 = bb3->splitBasicBlock(bb3->getTerminator(), "bb4_");
+
+  /*      b1
+  //      |\
+  //      | \
+  //      |  b2
+  //      |  | \
+  //      |  |  \
+  //      |  |   \
+  //      |  b3---b4
+  //      | /
+  //      T */
+
+  IRBuilder<> irb1(bb1->getTerminator());
+  if (load->getType()->isPointerTy())
+    load = irb1.CreatePtrToInt(load, LongTy);
+  Value *SizedPoison = getPoisonConst(size);
+  assert (load->getType() == SizedPoison->getType());
+  Value *cmp1 = irb1.CreateICmpEQ(load, SizedPoison);
+  BranchInst *term1 = BranchInst::Create(bb2, bbT, cmp1);
+  ReplaceInstWithInst(bb1->getTerminator(), term1);
+
+  IRBuilder<> irb2(bb2->getTerminator());
+  Value *LongPoison = getPoisonConst(LongSize);
+  Value *Offset = ConstantInt::get(LongTy, LongSize / 8);
+  Value *AddrLong = irb2.CreatePointerCast(Addr, LongTy);
+  Value *LeftAddr = irb2.CreateIntToPtr(irb2.CreateSub(AddrLong, Offset), LongPtrTy);
+  Value *LeftLoad = irb2.CreateLoad(LeftAddr);
+  Value *cmp2 = irb2.CreateICmpEQ(LeftLoad, LongPoison);
+  BranchInst *term2 = BranchInst::Create(bb4, bb3, cmp2);
+  ReplaceInstWithInst(bb2->getTerminator(), term2);
+
+  IRBuilder<> irb3(bb3->getTerminator());
+  Value *RightAddr = irb3.CreateIntToPtr(irb3.CreateAdd(AddrLong, Offset), LongPtrTy);
+  Value *RightLoad = irb3.CreateLoad(RightAddr);
+  Value *cmp3 = irb3.CreateICmpEQ(RightLoad, LongPoison);
+  BranchInst *term3 = BranchInst::Create(bb4, bbT, cmp3);
+  ReplaceInstWithInst(bb3->getTerminator(), term3);
+  
+  IRBuilder<> irb4(bb4->getTerminator());
+  irb4.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
 }
