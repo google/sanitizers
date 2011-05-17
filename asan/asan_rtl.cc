@@ -47,7 +47,9 @@ using std::string;
 
 __attribute__((constructor)) static void asan_init();
 
-const size_t  kMallocContextSize = 30;
+// -------------------------- Flags ------------------------- {{{1
+static const size_t kStackTraceMax = 64;
+static const size_t kMallocContextSize = 30;
 static int    F_v;
 static size_t F_malloc_context_size = kMallocContextSize;
 static size_t F_red_zone_words;
@@ -63,6 +65,18 @@ static int    F_debug;
 static int    F_symbolize;  // use in-process symbolizer
 static bool   F_fast_unwind;
 
+// -------------------------- Printf ---------------- {{{1
+static FILE *asan_out;
+
+static void Printf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  vfprintf(asan_out, format, args);
+  fflush(asan_out);
+  va_end(args);
+}
+
+// -------------------------- Build modes --------------------- {{{1
 #ifndef ASAN_BYTE_TO_BYTE_SHADOW
 # error must define ASAN_BYTE_TO_BYTE_SHADOW
 #endif
@@ -75,8 +89,8 @@ static bool   F_fast_unwind;
 # define ASAN_CROS 0
 #endif
 
-static int asan_inited;
 
+// -------------------------- Mapping --------------------- {{{1
 const size_t kWordSize = __WORDSIZE / 8;
 const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;
@@ -92,10 +106,6 @@ const size_t kPageClusterSize = 1UL << kPageClusterSizeBits;
 const size_t kPossiblePageClustersBits = 32 - kPageClusterSizeBits - kPageSizeBits;
 #endif
 
-static uintptr_t mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
-static pthread_mutex_t shadow_lock;
-
-static const size_t kStackTraceMax = 64;
 
 /*
 On 64-bit linux the address space is divided into 6 regions:<br>
@@ -246,6 +256,15 @@ const size_t kHighShadowBeg  = kFullHighShadowBeg;
 const size_t kHighShadowEnd  = kFullHighShadowEnd;
 #endif
 
+// -------------------------- Globals --------------------- {{{1
+static int asan_inited;
+
+static uintptr_t
+  mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
+static pthread_mutex_t shadow_lock;
+
+
+// -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
                            struct sigaction *oldact);
 typedef sig_t (*signal_f)(int signum, sig_t handler);
@@ -267,16 +286,7 @@ static realloc_f        real_realloc;
 static free_f           real_free;
 static pthread_create_f real_pthread_create;
 
-static FILE *asan_out;
-
-static void Printf(const char *format, ...) {
-  va_list args;
-  va_start(args, format);
-  vfprintf(asan_out, format, args);
-  fflush(asan_out);
-  va_end(args);
-}
-
+// -------------------------- Stats ---------------- {{{1
 struct Stats {
   size_t low_shadow_maps;
   size_t high_shadow_maps;
@@ -308,6 +318,21 @@ struct Stats {
 };
 
 static Stats stats;
+
+
+// -------------------------- Misc ---------------- {{{1
+
+class ScopedLock {
+ public:
+  ScopedLock(pthread_mutex_t *mu) : mu_(mu) {
+    pthread_mutex_lock(mu_);
+  }
+  ~ScopedLock() {
+    pthread_mutex_unlock(mu_);
+  }
+ private:
+  pthread_mutex_t *mu_;
+};
 
 static void AsanAbort() {
   if (asan_out != stderr) {
@@ -349,32 +374,33 @@ void PcToStrings(void* xaddr,
 
 static __thread bool need_real_malloc;
 
+// -------------------------- Mapping ---------------- {{{1
 
-bool AddrIsInLowMem(uintptr_t a) {
+static bool AddrIsInLowMem(uintptr_t a) {
   return a < kLowMemEnd;
 }
 
-bool AddrIsInLowShadow(uintptr_t a) {
+static bool AddrIsInLowShadow(uintptr_t a) {
   return a >= kLowShadowBeg && a < kLowShadowEnd;
 }
 
-bool AddrIsInHighMem(uintptr_t a) {
+static bool AddrIsInHighMem(uintptr_t a) {
   return a >= kHighMemBeg && a <= kHighMemEnd;
 }
 
-bool AddrIsInHighShadow(uintptr_t a) {
+static bool AddrIsInHighShadow(uintptr_t a) {
   return a >= kHighShadowBeg && a < kHighShadowEnd;
 }
 
-bool AddrIsInMem(uintptr_t a) {
+static bool AddrIsInMem(uintptr_t a) {
   return AddrIsInLowMem(a) || AddrIsInHighMem(a);
 }
 
-bool AddrIsInShadow(uintptr_t a) {
+static bool AddrIsInShadow(uintptr_t a) {
   return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
-uintptr_t MemToShadow(uintptr_t p) {
+static uintptr_t MemToShadow(uintptr_t p) {
   CHECK(AddrIsInMem(p));
 #if !ASAN_BYTE_TO_BYTE_SHADOW
   return (p >> 3) | kCompactShadowMask;
@@ -384,7 +410,7 @@ uintptr_t MemToShadow(uintptr_t p) {
 #endif
 }
 
-uintptr_t ShadowToMem(uintptr_t shadow) {
+static uintptr_t ShadowToMem(uintptr_t shadow) {
 #if !ASAN_BYTE_TO_BYTE_SHADOW
     return (shadow & ~kCompactShadowMask) << 3;
 #else
@@ -397,7 +423,7 @@ uintptr_t ShadowToMem(uintptr_t shadow) {
 #endif
 }
 
-uintptr_t BadToShadow(uintptr_t bad) {
+static uintptr_t BadToShadow(uintptr_t bad) {
 #if ASAN_CROS
   return bad >> 2;
 #elif !ASAN_BYTE_TO_BYTE_SHADOW
@@ -407,20 +433,7 @@ uintptr_t BadToShadow(uintptr_t bad) {
 #endif
 }
 
-class ScopedLock {
- public:
-  ScopedLock(pthread_mutex_t *mu) : mu_(mu) {
-    pthread_mutex_lock(mu_);
-  }
-  ~ScopedLock() {
-    pthread_mutex_unlock(mu_);
-  }
- private:
-  pthread_mutex_t *mu_;
-};
-
-
-// ----------------------- ProcSelfMaps ------------------------------------
+// ----------------------- ProcSelfMaps ----------------------------- {{{1
 class ProcSelfMaps {
  public:
   void Init() {
@@ -524,7 +537,7 @@ class ProcSelfMaps {
 
 static ProcSelfMaps proc_self_maps;
 
-// ---------------------- Stack Trace  ------------------------------------
+// ---------------------- Stack Trace  -------------------------------- {{{1
 struct StackTrace {
   size_t size;
   size_t max_size;
@@ -617,7 +630,23 @@ void PrintCurrentStack(uintptr_t pc = 0) {
   PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
 }
 
-// ---------------------- AddressSanitizer malloc -------------------------
+// -------------------------- Thread ------------------- {{{1
+struct AsanThread {
+  void *(*start_routine) (void *);
+  void *arg;
+  StackTrace stack;
+  uintptr_t stack_top;
+};
+
+static void *asan_thread_start(void *arg) {
+  AsanThread *t = (AsanThread*)arg;
+  t->stack_top = (uintptr_t)&t;
+  //Printf("asan_thread_start: stack "PP"\n", t->stack_top);
+  void *res = t->start_routine(t->arg);
+  real_free(t);
+}
+
+// ---------------------- AddressSanitizer malloc -------------------- {{{1
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
          "0x%lx (%ld) bytes of %s\n",
@@ -1209,6 +1238,8 @@ void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
   return new_ptr;
 }
 
+// -------------------------- Interceptors ------------------- {{{1
+
 extern "C"
 void *malloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
@@ -1305,21 +1336,6 @@ void operator delete [](void *ptr) {
 }
 #endif
 
-struct AsanThread {
-  void *(*start_routine) (void *);
-  void *arg;
-  StackTrace stack;
-  uintptr_t stack_top;
-};
-
-static void *asan_thread_start(void *arg) {
-  AsanThread *t = (AsanThread*)arg;
-  t->stack_top = (uintptr_t)&t;
-  //Printf("asan_thread_start: stack "PP"\n", t->stack_top);
-  void *res = t->start_routine(t->arg);
-  real_free(t);
-}
-
 extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax);
@@ -1363,7 +1379,7 @@ int sigaction(int signum, const struct sigaction *act,
   return 0;
 }
 
-// --------------------
+// -------------------------- Run-time entry ------------------- {{{1
 extern "C"
 void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
   uintptr_t addr_8_aligned = (addr >> 3) << 3;
@@ -1541,6 +1557,7 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   }
 }
 
+// -------------------------- Init ------------------- {{{1
 static int64_t IntFlagValue(const char *flags, const char *flag,
                             int64_t default_val) {
   if (!flags) return default_val;
@@ -1637,14 +1654,5 @@ static void asan_init() {
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
     Printf("HighShadow : ["PP","PP")\n", kHighShadowBeg, kHighShadowEnd);
     Printf("HighMem    : ["PP","PP")\n", kHighMemBeg, kHighMemEnd);
-  }
-}
-
-void asan_set_shadow_values(void *ptr, size_t size, int value) {
-  CHECK(value == 0 || value == 1);
-  CHECK(AddrIsInMem((uintptr_t)ptr));
-  char *shadow_ptr = (char*)MemToShadow((uintptr_t)ptr);
-  for (size_t i = 0; i < size; i++) {
-    shadow_ptr[i] = value;
   }
 }
