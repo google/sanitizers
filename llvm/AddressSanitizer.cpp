@@ -513,6 +513,8 @@ void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBui
 
 }
 
+// Find all static Alloca instructions and put 
+// poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Function &F) {
   SmallVector<AllocaInst*, 16> alloca_v;
   SmallVector<Instruction*, 8> ret_v;
