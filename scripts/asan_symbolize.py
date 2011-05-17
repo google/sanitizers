@@ -21,6 +21,8 @@ for line in sys.stdin:
     file_name     = p.stdout.readline().rstrip()
     for path_to_cut in sys.argv[1:]:
       file_name = re.sub(".*" + path_to_cut, "", file_name)
+    file_name = re.sub(".*asan_rtl.cc:[0-9]*", "_asan_rtl_", file_name)
+    file_name = re.sub(".*crtstuff.c:0", "???:0", file_name)
 
     print match.group(1), "in", function_name, file_name
   else:
