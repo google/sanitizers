@@ -68,6 +68,12 @@ static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 
+static cl::opt<string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
+static cl::opt<int> ClDebugMin("asan-debug-min", 
+                               cl::desc("Debug min inst"), cl::init(-1));
+static cl::opt<int> ClDebugMax("asan-debug-max", 
+                               cl::desc("Debug man inst"), cl::init(-1));
+
 // }}}
 
 // Define the Printf function used by the ignore machinery.
@@ -444,6 +450,9 @@ static bool WantToIgnoreFunction(Function &F) {
 bool AddressSanitizer::handleFunction(Function &F) {
   if (WantToIgnoreFunction(F)) return false;
 
+  if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
+    return false;
+
 
   if (TD->getPointerSize() == 4) {
     // For 32-bit arch the mapping is always compact.
@@ -459,6 +468,21 @@ bool AddressSanitizer::handleFunction(Function &F) {
           (isa<StoreInst>(BI) && ClInstrumentWrites)) {
         to_instrument.insert(BI);
       }
+
+      // TODO(kcc):
+      // Workaround for a strange compile assertion while building 483.xalancbmk
+      // If we instrument a basic block which calls llvm.eh.exception
+      // llvm later crashes with this:
+      // lib/CodeGen/SelectionDAG/FunctionLoweringInfo.cpp:212: void
+      //   llvm::FunctionLoweringInfo::clear(): Assertion `CatchInfoFound.size()
+      //   == CatchInfoLost.size() && "Not all catch info was assigned to a
+      //   landing pad!"' failed.
+      if (isa<CallInst>(BI)) {
+        CallInst *call = cast<CallInst>(BI);
+        Function *func = call->getCalledFunction();
+        if (func && func->getNameStr() == "llvm.eh.exception")
+          return false;
+      }
     }
   }
 
@@ -472,7 +496,9 @@ bool AddressSanitizer::handleFunction(Function &F) {
       if (!to_instrument.count(BI)) continue;
       // errs() << F.getNameStr() << (isa<StoreInst>(BI) ? " st" : " ld") << "\n";
       // Instrument LOAD or STORE.
-      instrumentMop(BI);
+      if (ClDebugMin < 0 || ClDebugMax < 0 ||
+          (n_instrumented >= ClDebugMin && n_instrumented <= ClDebugMax))
+        instrumentMop(BI);
       n_instrumented++;
       // BI is put into a separate block, so we need to stop processing this
       // one, making sure we don't instrument it twice.
@@ -481,7 +507,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
     }
   }
   // errs() << "--------------------\n";
-  //errs() << F;
+  if (!ClDebugFunc.empty())
+    errs() << F;
   //
   //
 
