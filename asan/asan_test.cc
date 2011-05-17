@@ -287,11 +287,27 @@ TEST(AddressSanitizer, MallocStressTest) {
   MallocStress();
 }
 
+
 TEST(AddressSanitizer, ThreadedMallocStressTest) {
   const int kNumThreads = 4;
   pthread_t t[kNumThreads];
   for (int i = 0; i < kNumThreads; i++) {
     pthread_create(&t[i], 0, (void* (*)(void*))MallocStress, 0);
+  }
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_join(t[i], 0);
+  }
+}
+
+void *EmptyThread(void *a) {
+  return 0;
+}
+
+TEST(AddressSanitizer, ManyThreadsTest) {
+  const int kNumThreads = __WORDSIZE == 64 ? 1000 : 50;
+  pthread_t t[kNumThreads];
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_create(&t[i], 0, (void* (*)(void*))EmptyThread, (void*)i);
   }
   for (int i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
