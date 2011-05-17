@@ -445,6 +445,11 @@ TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
   ThreadedTestSpawn();
 }
 
+TEST(AddressSanitizer, DISABLED_DemoStackTest) {
+  char a[20];
+  Ident(a)[20] = 0;
+}
+
 TEST(AddressSanitizer, DISABLED_DemoUAFLowIn) {
   uaf_test<U1>(10, 0);
 }
