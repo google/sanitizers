@@ -58,8 +58,6 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
        cl::desc("instrument write instructions"), cl::init(true));
 static cl::opt<bool> ClShadow("asan-shadow",
        cl::desc("Use shadow memory"), cl::init(true));
-static cl::opt<bool> ClCall("asan-call",
-       cl::desc("Use call instead of SEGV"), cl::init(false));
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(false));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
@@ -245,19 +243,7 @@ void AddressSanitizer::instrumentInMemoryLoad(
   ReplaceInstWithInst(bb3->getTerminator(), term3);
   
   IRBuilder<> irb4(bb4->getTerminator());
-  if (1 /*ClCall*/) {
-    irb4.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
-  } else {
-    irb4.CreateStore(AddrLong, asan_addr);
-    irb4.CreateStore(ConstantInt::get(ByteTy, telltale_value), asan_aux);
-    // FunctionType *FnTy = FunctionType::get(VoidTy, false);
-    // Value *int3_asm = InlineAsm::get(FnTy, StringRef("int3"), StringRef(""), true);
-    // irb4.CreateCall(int3_asm);
-    // Generates ud2
-    Value *null_int = ConstantInt::get(LongTy, 0);
-    Value *null_ptr = irb4.CreateIntToPtr(null_int, LongPtrTy);
-    irb4.CreateStore(null_int, null_ptr);
-  }
+  irb4.CreateCall2(asan_slow_path, AddrLong, ConstantInt::get(LongTy, telltale_value));
 }
 
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
