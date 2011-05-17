@@ -26,8 +26,6 @@ BYTE_TO_BYTE=0
 CROS=0
 ASAN_STACK=0
 
-SYMBOL_TABLE_O=../third_party/gdb_symbols/symbol_table.o
-
 RTL_SRC=asan_rtl.cc
 RTL_HDR=asan_rtl.h
 
@@ -58,18 +56,11 @@ libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party \
 	   -m$(BITS) -DASAN_CROS=$(CROS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
-symbol_table$(BITS).o: ../third_party/gdb_symbols/symbol_table.cc
-	$(CXX) -O3 -c -o $@ -g $< -I../third_party/gdb_symbols -m$(BITS) -fPIC
-
-libasan$(SUFF).so: libasan$(SUFF).o symbol_table$(BITS).o
+libasan$(SUFF).so: libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 
-$(SYMBOL_TABLE_O):
-	cd ../third_party/gdb_symbols && $(MAKE)
-
-	
-libasan$(SUFF).a: libasan$(SUFF).o symbol_table$(BITS).o
+libasan$(SUFF).a: libasan$(SUFF).o
 	ar ruv $@ $^
 
 asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)

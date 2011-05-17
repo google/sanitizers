@@ -40,8 +40,6 @@ using std::string;
 
 #include "unwind.h"
 
-#include "gdb_symbols/symbol_table.h"
-
 #define CHECK(cond) do { if (!(cond)) { \
   Printf("CHECK failed: %s at %s:%d\n", #cond, __FILE__, __LINE__);\
   ShowStatsAndAbort(); \
@@ -62,7 +60,7 @@ static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
 static int    F_stats;
 static int    F_debug;
-static int    F_gdb;  // use gdb to symbolize stacks
+static int    F_symbolize;  // use in-process symbolizer
 static bool   F_fast_unwind;
 
 #ifndef ASAN_BYTE_TO_BYTE_SHADOW
@@ -256,12 +254,14 @@ typedef void* (*mmap_f)(void *start, size_t length,
                             int fd, off_t offset);
 
 typedef void *(*malloc_f)(size_t);
+typedef void *(*realloc_f)(void*, size_t);
 typedef void  (*free_f)(void*);
 
 static sigaction_f real_sigaction;
 static signal_f    real_signal;
 static mmap_f      real_mmap;
 static malloc_f    real_malloc;
+static realloc_f   real_realloc;
 static free_f      real_free;
 
 static FILE *asan_out;
@@ -332,14 +332,19 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 #endif
 }
 
+#if ASAN_IN_MEMORY_POISON
 uintptr_t __asan_addr;
 uint8_t __asan_aux;
+#endif
 
 
-void PcToStrings(uintptr_t pc, bool demangle,
-                 string *img_name, string *rtn_name,
-                 string *file_name, int *line_no);
-string PcToRtnName(uintptr_t pc, bool demangle);
+__attribute__((weak))
+void PcToStrings(void* xaddr,
+                         char* buf_func, size_t buf_func_len,
+                         char* buf_file, size_t buf_file_len,
+                         int* line);
+
+static __thread bool need_real_malloc;
 
 
 bool AddrIsInLowMem(uintptr_t a) {
@@ -466,15 +471,17 @@ class ProcSelfMaps {
 
   void PrintPc(uintptr_t pc, int idx) {
     const int kLen = 1024;
-    if (F_gdb) {
-      static SymbolTable symbol_table(NULL);
-        char func[kLen+1] = "", 
-             file[kLen+1] = "";
-        int line = 0;
-        symbol_table.GetAddrInfoNocache((void*)pc,
-                                        func, kLen, file, kLen, &line);
-        Printf("  #%d 0x%lx %s %s:%d\n", idx, pc, func, file, line);
-        return;
+    char func[kLen+1] = "",
+         file[kLen+1] = "";
+    int line = 0;
+
+    if (F_symbolize) {
+      CHECK(PcToStrings);
+      need_real_malloc = true;
+      PcToStrings((void*)pc, func, kLen, file, kLen, &line);
+      need_real_malloc = false;
+      Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
+      return;
     }
 
     for (size_t i = 0; i < map_size_; i++) {
@@ -1202,6 +1209,7 @@ void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
 extern "C"
 void *malloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  if (need_real_malloc) return real_malloc(size);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
@@ -1209,12 +1217,18 @@ void *malloc(size_t size) {
 extern "C"
 void free(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+  if (need_real_malloc) return;
   asan_free(ptr, stack);
 }
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  if (need_real_malloc) {
+    void *mem = real_malloc(nmemb * size);
+    memset(mem, 0, nmemb *size);
+    return mem;
+  }
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const int kCallocPoolSize = 1024;
@@ -1232,12 +1246,14 @@ void *calloc(size_t nmemb, size_t size) {
 extern "C"
 void *realloc(void *ptr, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  if (need_real_malloc) return real_realloc(ptr, size);
   return asan_realloc(ptr, size, stack);
 }
 
 extern "C"
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  CHECK(!need_real_malloc);
   Ptr *p = asan_memalign(size, boundary, stack);
   return p->raw_ptr();
 }
@@ -1245,6 +1261,7 @@ void *memalign(size_t boundary, size_t size) {
 extern "C"
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  CHECK(!need_real_malloc);
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
   Ptr *p = asan_memalign(size, alignment, stack);
   *memptr = p->raw_ptr();
@@ -1260,23 +1277,27 @@ void *valloc(size_t size) {
 #if 1
 void *operator new(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  CHECK(!need_real_malloc);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
 
 void *operator new [] (size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
+  CHECK(!need_real_malloc);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
 
 void operator delete(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+  CHECK(!need_real_malloc);
   asan_free(ptr, stack);
 }
 
 void operator delete [](void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+  CHECK(!need_real_malloc);
   asan_free(ptr, stack);
 }
 #endif
@@ -1530,7 +1551,7 @@ static void asan_init() {
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
-  F_gdb = IntFlagValue(options, "gdb=", 0);
+  F_symbolize = IntFlagValue(options, "symbolize=", 0);
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 0);
 
@@ -1549,6 +1570,7 @@ static void asan_init() {
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_mmap = (mmap_f)dlsym(RTLD_NEXT, "mmap")));
   CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
+  CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
 
   // Set the SEGV handler.
