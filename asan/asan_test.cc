@@ -445,9 +445,20 @@ TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
   ThreadedTestSpawn();
 }
 
-TEST(AddressSanitizer, DISABLED_DemoStackTest) {
+void *SimpleBugOnSTack(void *x = 0) {
   char a[20];
   Ident(a)[20] = 0;
+  return 0;
+}
+
+TEST(AddressSanitizer, DISABLED_DemoStackTest) {
+  SimpleBugOnSTack();
+}
+
+TEST(AddressSanitizer, DISABLED_DemoThreadStackTest) {
+  pthread_t t;
+  pthread_create(&t, 0, SimpleBugOnSTack, 0);
+  pthread_join(t, 0);
 }
 
 TEST(AddressSanitizer, DISABLED_DemoUAFLowIn) {

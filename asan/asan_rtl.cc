@@ -580,18 +580,37 @@ struct AsanThread {
     if (stack) {
       stack_ = *stack;
     }
+    if (tid_ == 0) {
+      pthread_mutex_init(&mu_, 0);
+      live_threads_ = next_ = prev_ = this;
+    }
   }
 
   void *ThreadStart() {
     int l;
     stack_top_ = (uintptr_t)&l;
 
-    if (start_routine_) {
-      void *res = start_routine_(arg_);
-      Unref();
-      return res;
+    { // Insert this thread into live_threads_
+      ScopedLock lock(&mu_);
+      this->next_ = live_threads_;
+      this->prev_ = live_threads_->prev_;
+      this->prev_->next_ = this;
+      this->next_->prev_ = this;
     }
-    return NULL;
+
+    if (!start_routine_) return 0;
+
+    void *res = start_routine_(arg_);
+
+    { // Remove this from live_threads_
+      ScopedLock lock(&mu_);
+      AsanThread *prev = this->prev_;
+      AsanThread *next = this->next_;
+      prev->next_ = next_;
+      next->prev_ = prev_;
+    }
+    Unref();
+    return res;
   }
 
   AsanThread *Ref() {
@@ -617,6 +636,25 @@ struct AsanThread {
   uintptr_t stack_top() { return stack_top_; }
   int tid() { return tid_; }
 
+  static AsanThread *FindThreadByStackAddress(uintptr_t addr) {
+    ScopedLock lock(&mu_);
+    AsanThread *t = live_threads_;
+    AsanThread *best_match = NULL;
+    uintptr_t smallest_offset = -1UL;
+    const uintptr_t kMaxStackSize = 16 << 20;  // 16M.
+    do {
+      if (t->stack_top_ > addr) {
+        uintptr_t offset = t->stack_top_ - addr;
+        if (offset < smallest_offset && offset < kMaxStackSize) {
+          smallest_offset = offset;
+          best_match = t;
+        }
+      }
+      t = t->next_;
+    } while (t != live_threads_);
+    return best_match;
+  }
+
  private:
   void *(*start_routine_) (void *);
   void *arg_;
@@ -626,10 +664,17 @@ struct AsanThread {
   bool       announced_;
   int        refcount_;
 
+  AsanThread *next_;
+  AsanThread *prev_;
+
+  static AsanThread *live_threads_;
   static int n_threads_;
+  static pthread_mutex_t mu_;
 };
 
 int AsanThread::n_threads_;
+AsanThread *AsanThread::live_threads_;
+pthread_mutex_t AsanThread::mu_;
 static __thread AsanThread *tl_current_thread;
 
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
@@ -1086,16 +1131,6 @@ class MallocInfo {
   void DescribeAddress(uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
 
-    // First, check the stack.
-    uintptr_t stack_top = tl_current_thread->stack_top();
-    // TODO(kcc): make this cleaner
-    if (addr < stack_top && addr > stack_top - (1 << 20)) {
-      Printf("Address "PP" is inside T%d's stack\n", 
-             addr, tl_current_thread->tid());
-      tl_current_thread->Announce();
-      return;
-    }
-
     // Check if we have this memory region in delay queue.
     Ptr *freed = find_freed(addr);
     Ptr *malloced = find_malloced(addr);
@@ -1103,7 +1138,16 @@ class MallocInfo {
     if (freed && malloced) {
       Printf("ACHTUNG! the address is listed as both freed and malloced\n");
     }
+
     if (!freed && !malloced) {
+      // Check the stack.
+      AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
+      if (t) {
+        Printf("Address "PP" is %ld bytes below T%d's stack\n",
+               addr, t->stack_top() - addr, t->tid());
+        t->Announce();
+        return;
+      }
       Printf("ACHTUNG! the address is listed as neither freed nor malloced\n");
     }
 
@@ -1616,8 +1660,8 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   }
 
   if (F_abort_after_first) {
-    stats.PrintStats();
     Printf("==%d== ABORTING\n", getpid()),
+    stats.PrintStats();
     Printf("Shadow byte and word:\n");
     Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
     uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
