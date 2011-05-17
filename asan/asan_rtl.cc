@@ -272,6 +272,8 @@ static uintptr_t
   mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
 static pthread_mutex_t shadow_lock;
 
+int __asan_byte_to_byte_shadow = ASAN_BYTE_TO_BYTE_SHADOW;
+
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,

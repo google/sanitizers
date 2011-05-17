@@ -24,7 +24,7 @@ LIBS=#-lpthread -ldl
 BITS=64
 BYTE_TO_BYTE=0
 CROS=0
-ASAN_STACK=0
+ASAN_STACK=1
 
 RTL_SRC=asan_rtl.cc
 RTL_HDR=asan_rtl.h

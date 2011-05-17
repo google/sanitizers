@@ -369,7 +369,12 @@ void SizedStackTest() {
   EXPECT_DEATH(A[kSize + 31] = 0, "");
 }
 
-TEST(AddressSanitizer, DISABLED_SimpleStackTest) {
+TEST(AddressSanitizer, SimpleStackTest) {
+  // Currently, stack poisoning is implemented only
+  // for compact shadow, because for byte-to-byte shadow
+  // it would be too slow.
+  extern int __asan_byte_to_byte_shadow;
+  if (__asan_byte_to_byte_shadow) return;
   SizedStackTest<1>();
   SizedStackTest<2>();
   SizedStackTest<3>();

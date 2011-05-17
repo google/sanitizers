@@ -59,7 +59,7 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
 static cl::opt<bool> ClShadow("asan-shadow",
        cl::desc("Use shadow memory"), cl::init(true));
 static cl::opt<bool> ClStack("asan-stack",
-       cl::desc("Handle stack memory"), cl::init(false));
+       cl::desc("Handle stack memory"), cl::init(true));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
        cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
 static cl::opt<bool>  ClCrOS("asan-cros",
@@ -455,7 +455,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
   //
 
   bool changed_stack = false;
-  if (ClStack) {
+  if (ClStack && !ClByteToByteShadow) {
     changed_stack = poisonStackInFunction(F);
   }
 
@@ -515,12 +515,12 @@ void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBui
     }
     size_so_far += kAsanStackRedzone;
   }
-
 }
 
 // Find all static Alloca instructions and put 
 // poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Function &F) {
+  CHECK(!ClByteToByteShadow);
   SmallVector<AllocaInst*, 16> alloca_v;
   SmallVector<Instruction*, 8> ret_v;
   uint64_t total_size = 0;
