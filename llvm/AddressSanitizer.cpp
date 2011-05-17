@@ -579,7 +579,6 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
           continue;
       }
       if (!isa<AllocaInst>(BI)) continue;
-      CHECK(FI == F.begin());  // alloca could be only in the entry block (right?)
       AllocaInst *a = cast<AllocaInst>(BI);
       if (a->isArrayAllocation()) continue;
       if (!a->isStaticAlloca()) continue;
