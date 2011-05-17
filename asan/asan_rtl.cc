@@ -65,6 +65,15 @@ static int    F_debug;
 static int    F_symbolize;  // use in-process symbolizer
 static bool   F_fast_unwind;
 
+// -------------------------- Atomic ---------------- {{{1
+int AtomicInc(int *a) {
+  return __sync_add_and_fetch(a, 1);
+}
+
+int AtomicDec(int *a) {
+  return __sync_add_and_fetch(a, -1);
+}
+
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out;
 
@@ -636,14 +645,44 @@ struct AsanThread {
   void *arg;
   StackTrace stack;
   uintptr_t stack_top;
+  int tid;
+  bool announced;
+  int refcount;
+
+  AsanThread *Ref() {
+    AtomicInc(&refcount);
+    return this;
+  }
+
+  void Unref() {
+    CHECK(refcount > 0);
+    if (AtomicDec(&refcount) == 0)
+      real_free(this);
+  }
+
+  void Announce() {
+    if (tid == 0) return; // no need to announce the main thread.
+    if (!announced) {
+      announced = true;
+      Printf("Thread T%d created here:\n", tid);
+      PrintStack(stack);
+    }
+  }
 };
+
+static int n_threads;
+
+static __thread AsanThread *current_thread;
 
 static void *asan_thread_start(void *arg) {
   AsanThread *t = (AsanThread*)arg;
   t->stack_top = (uintptr_t)&t;
+  t->tid = AtomicInc(&n_threads);
+  t->refcount = 1;
+  current_thread = t;
   //Printf("asan_thread_start: stack "PP"\n", t->stack_top);
   void *res = t->start_routine(t->arg);
-  real_free(t);
+  t->Unref();
 }
 
 // ---------------------- AddressSanitizer malloc -------------------- {{{1
@@ -695,8 +734,8 @@ struct Ptr {
   size_t size;
   Ptr    *next;
   Ptr    *prev;
-  uint32_t malloc_tid;
-  uint32_t free_tid;
+  AsanThread *malloc_thread;
+  AsanThread *free_thread;
 
   static const uint32_t kMallocedMagic   = 0x45DEAA11;
   static const uint32_t kFreedMagic      = 0x94B06185;
@@ -942,8 +981,8 @@ class MallocInfo {
   void on_malloc(Ptr *p) {
     p->prev = 0;
     p->magic = Ptr::kMallocedMagic;
-    p->malloc_tid = (uint32_t)pthread_self();
-    p->free_tid = 0;
+    p->malloc_thread = current_thread->Ref();
+    p->free_thread = 0;
     ScopedLock lock(&mu_);
     if (malloced_items_) {
       malloced_items_->prev = p;
@@ -958,7 +997,7 @@ class MallocInfo {
     size_t real_size_in_words = p->real_size_in_words();
     CHECK(p->magic == Ptr::kMallocedMagic);
     p->magic = Ptr::kFreedMagic;
-    p->free_tid = (uint32_t)pthread_self();
+    p->free_thread = current_thread->Ref();
 
     ScopedLock lock(&mu_);
     // remove from malloced list.
@@ -1034,10 +1073,15 @@ class MallocInfo {
 
     if (freed) {
       freed->DescribeAddress(addr, access_size);
-      Printf("freed by thread 0x%x here:\n", freed->free_tid);
+      Printf("freed by thread T%d here:\n",
+             freed->free_thread->tid);
       freed->PrintFreeStack();
-      Printf("previously allocated by thread 0x%x here:\n", freed->malloc_tid);
+      Printf("previously allocated by thread T%d here:\n",
+             freed->malloc_thread->tid);
       freed->PrintMallocStack();
+      current_thread->Announce();
+      freed->free_thread->Announce();
+      freed->malloc_thread->Announce();
       return;
     }
 
@@ -1046,9 +1090,12 @@ class MallocInfo {
       // size_t kStackSize = 100;
       // uintptr_t stack[kStackSize];
       // size_t stack_size = get_stack_trace_of_malloced_addr(malloced, stack, kStackSize);
-      Printf("allocated by thread 0x%x here:\n", malloced->malloc_tid);
+      Printf("allocated by thread T%d here:\n",
+             malloced->malloc_thread->tid);
       malloced->PrintMallocStack();
       // PrintStack(stack, stack_size);
+      current_thread->Announce();
+      malloced->malloc_thread->Announce();
       return;
     }
     Printf("Address 0x%lx is not malloc-ed or (recently) freed\n", addr);
@@ -1513,11 +1560,11 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     real_addr = real_addr_from_shadow;
   }
 
-  Printf("%s of size %d at "PP"; shadow: "PP"; mem: "PP" thread: 0x%x\n",
+  Printf("%s of size %d at "PP"; shadow: "PP"; mem: "PP" thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
           access_size,
           addr, shadow_addr, real_addr,
-          (uint32_t)pthread_self());
+          current_thread->tid);
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
@@ -1639,6 +1686,12 @@ static void asan_init() {
     mmap_pages(beg, (end - beg) / kPageSize, "CrOS shadow emmory");
   }
 
+
+  AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
+  memset(t, 0, sizeof(*t));
+  t->stack_top = (uintptr_t)&t;
+  current_thread = t;
+
   asan_inited = 1;
 
   const char *asan_filter = getenv("ASAN_FILTER");
@@ -1647,6 +1700,7 @@ static void asan_init() {
     if (p)
       asan_out = p;
   }
+
 
   if (F_v) {
     Printf("==%d== AddressSanitizer Init done ***\n", getpid());
