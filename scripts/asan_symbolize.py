@@ -24,6 +24,6 @@ for line in sys.stdin:
     file_name = re.sub(".*asan_rtl.cc:[0-9]*", "_asan_rtl_", file_name)
     file_name = re.sub(".*crtstuff.c:0", "???:0", file_name)
 
-    print match.group(1), "in", function_name, file_name
+    print >> sys.stderr, match.group(1), "in", function_name, file_name
   else:
-    print line.rstrip()
+    print >> sys.stderr, line.rstrip()
