@@ -381,7 +381,7 @@ void PcToStrings(void* xaddr,
                          char* buf_file, size_t buf_file_len,
                          int* line);
 
-static __thread bool need_real_malloc;
+static __thread bool tl_need_real_malloc;
 
 // -------------------------- Mapping ---------------- {{{1
 
@@ -502,9 +502,9 @@ class ProcSelfMaps {
 
     if (F_symbolize) {
       CHECK(PcToStrings);
-      need_real_malloc = true;
+      tl_need_real_malloc = true;
       PcToStrings((void*)pc, func, kLen, file, kLen, &line);
-      need_real_malloc = false;
+      tl_need_real_malloc = false;
       Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
       return;
     }
@@ -546,12 +546,62 @@ class ProcSelfMaps {
 
 static ProcSelfMaps proc_self_maps;
 
-// ---------------------- Stack Trace  -------------------------------- {{{1
+// ---------------------- Stack Trace and Thread ------------------------- {{{1
 struct StackTrace {
   size_t size;
   size_t max_size;
   uintptr_t trace[kStackTraceMax];
+}; 
+
+static void PrintStack(uintptr_t *addr, size_t size) {
+  for (size_t i = 0; i < size && addr[i]; i++) {
+    uintptr_t pc = addr[i];
+    string img, rtn, file;
+    int line;
+    // PcToStrings(pc, true, &img, &rtn, &file, &line);
+    proc_self_maps.PrintPc(pc, i);
+    // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
+    if (rtn == "main()") break;
+  }
+}
+
+static void PrintStack(StackTrace &stack) {
+  PrintStack(stack.trace, stack.size);
+}
+
+struct AsanThread {
+  void *(*start_routine) (void *);
+  void *arg;
+  StackTrace stack;
+  uintptr_t stack_top;
+  int tid;
+  bool announced;
+  int refcount;
+
+  AsanThread *Ref() {
+    AtomicInc(&refcount);
+    return this;
+  }
+
+  void Unref() {
+    CHECK(refcount > 0);
+    if (AtomicDec(&refcount) == 0)
+      real_free(this);
+  }
+
+  void Announce() {
+    if (tid == 0) return; // no need to announce the main thread.
+    if (!announced) {
+      announced = true;
+      Printf("Thread T%d created here:\n", tid);
+      PrintStack(stack);
+    }
+  }
 };
+
+static __thread AsanThread *tl_current_thread;
+
+
 
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
   StackTrace *b = (StackTrace*)param;
@@ -607,22 +657,6 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   GET_STACK_TRACE_HERE(__stack_size_for_free)
 
 
-
-static void PrintStack(uintptr_t *addr, size_t size) {
-  for (size_t i = 0; i < size && addr[i]; i++) {
-    uintptr_t pc = addr[i];
-    string img, rtn, file;
-    int line;
-    // PcToStrings(pc, true, &img, &rtn, &file, &line);
-    proc_self_maps.PrintPc(pc, i);
-    // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
-    if (rtn == "main()") break;
-  }
-}
-static void PrintStack(StackTrace &stack) {
-  PrintStack(stack.trace, stack.size);
-}
-
 void PrintCurrentStack(uintptr_t pc = 0) {
   GET_STACK_TRACE_HERE(kStackTraceMax);
   CHECK(stack.size >= 2);
@@ -639,47 +673,13 @@ void PrintCurrentStack(uintptr_t pc = 0) {
   PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
 }
 
-// -------------------------- Thread ------------------- {{{1
-struct AsanThread {
-  void *(*start_routine) (void *);
-  void *arg;
-  StackTrace stack;
-  uintptr_t stack_top;
-  int tid;
-  bool announced;
-  int refcount;
-
-  AsanThread *Ref() {
-    AtomicInc(&refcount);
-    return this;
-  }
-
-  void Unref() {
-    CHECK(refcount > 0);
-    if (AtomicDec(&refcount) == 0)
-      real_free(this);
-  }
-
-  void Announce() {
-    if (tid == 0) return; // no need to announce the main thread.
-    if (!announced) {
-      announced = true;
-      Printf("Thread T%d created here:\n", tid);
-      PrintStack(stack);
-    }
-  }
-};
-
-static int n_threads;
-
-static __thread AsanThread *current_thread;
-
 static void *asan_thread_start(void *arg) {
+  static int n_threads;
   AsanThread *t = (AsanThread*)arg;
   t->stack_top = (uintptr_t)&t;
   t->tid = AtomicInc(&n_threads);
   t->refcount = 1;
-  current_thread = t;
+  tl_current_thread = t;
   //Printf("asan_thread_start: stack "PP"\n", t->stack_top);
   void *res = t->start_routine(t->arg);
   t->Unref();
@@ -981,7 +981,7 @@ class MallocInfo {
   void on_malloc(Ptr *p) {
     p->prev = 0;
     p->magic = Ptr::kMallocedMagic;
-    p->malloc_thread = current_thread->Ref();
+    p->malloc_thread = tl_current_thread->Ref();
     p->free_thread = 0;
     ScopedLock lock(&mu_);
     if (malloced_items_) {
@@ -997,7 +997,7 @@ class MallocInfo {
     size_t real_size_in_words = p->real_size_in_words();
     CHECK(p->magic == Ptr::kMallocedMagic);
     p->magic = Ptr::kFreedMagic;
-    p->free_thread = current_thread->Ref();
+    p->free_thread = tl_current_thread->Ref();
 
     ScopedLock lock(&mu_);
     // remove from malloced list.
@@ -1079,7 +1079,7 @@ class MallocInfo {
       Printf("previously allocated by thread T%d here:\n",
              freed->malloc_thread->tid);
       freed->PrintMallocStack();
-      current_thread->Announce();
+      tl_current_thread->Announce();
       freed->free_thread->Announce();
       freed->malloc_thread->Announce();
       return;
@@ -1094,7 +1094,7 @@ class MallocInfo {
              malloced->malloc_thread->tid);
       malloced->PrintMallocStack();
       // PrintStack(stack, stack_size);
-      current_thread->Announce();
+      tl_current_thread->Announce();
       malloced->malloc_thread->Announce();
       return;
     }
@@ -1290,7 +1290,7 @@ void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
 extern "C"
 void *malloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  if (need_real_malloc) return real_malloc(size);
+  if (tl_need_real_malloc) return real_malloc(size);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
@@ -1298,14 +1298,14 @@ void *malloc(size_t size) {
 extern "C"
 void free(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  if (need_real_malloc) return;
+  if (tl_need_real_malloc) return;
   asan_free(ptr, stack);
 }
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  if (need_real_malloc) {
+  if (tl_need_real_malloc) {
     void *mem = real_malloc(nmemb * size);
     memset(mem, 0, nmemb *size);
     return mem;
@@ -1327,14 +1327,14 @@ void *calloc(size_t nmemb, size_t size) {
 extern "C"
 void *realloc(void *ptr, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  if (need_real_malloc) return real_realloc(ptr, size);
+  if (tl_need_real_malloc) return real_realloc(ptr, size);
   return asan_realloc(ptr, size, stack);
 }
 
 extern "C"
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!need_real_malloc);
+  CHECK(!tl_need_real_malloc);
   Ptr *p = asan_memalign(size, boundary, stack);
   return p->raw_ptr();
 }
@@ -1342,7 +1342,7 @@ void *memalign(size_t boundary, size_t size) {
 extern "C"
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!need_real_malloc);
+  CHECK(!tl_need_real_malloc);
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
   Ptr *p = asan_memalign(size, alignment, stack);
   *memptr = p->raw_ptr();
@@ -1358,27 +1358,27 @@ void *valloc(size_t size) {
 #if 1
 void *operator new(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!need_real_malloc);
+  CHECK(!tl_need_real_malloc);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
 
 void *operator new [] (size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!need_real_malloc);
+  CHECK(!tl_need_real_malloc);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
 
 void operator delete(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  CHECK(!need_real_malloc);
+  CHECK(!tl_need_real_malloc);
   asan_free(ptr, stack);
 }
 
 void operator delete [](void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  CHECK(!need_real_malloc);
+  CHECK(!tl_need_real_malloc);
   asan_free(ptr, stack);
 }
 #endif
@@ -1564,7 +1564,7 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
           access_size,
           addr, shadow_addr, real_addr,
-          current_thread->tid);
+          tl_current_thread->tid);
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
@@ -1690,7 +1690,7 @@ static void asan_init() {
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   memset(t, 0, sizeof(*t));
   t->stack_top = (uintptr_t)&t;
-  current_thread = t;
+  tl_current_thread = t;
 
   asan_inited = 1;
 
