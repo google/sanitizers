@@ -415,11 +415,14 @@ bool AddressSanitizer::handleFunction(Function &F) {
       //   llvm::FunctionLoweringInfo::clear(): Assertion `CatchInfoFound.size()
       //   == CatchInfoLost.size() && "Not all catch info was assigned to a
       //   landing pad!"' failed.
-      if (isa<CallInst>(BI)) {
+      if (0 && isa<CallInst>(BI)) {
         CallInst *call = cast<CallInst>(BI);
         Function *func = call->getCalledFunction();
-        if (func && func->getNameStr() == "llvm.eh.exception")
+        if (func && func->getNameStr() == "llvm.eh.exception") {
+          errs() << "AddressSanitizer will ignore this function "
+                 "due to the presence of EH: " << F.getNameStr() << "\n";
           return false;
+        }
       }
     }
   }
