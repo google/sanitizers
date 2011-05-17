@@ -601,8 +601,6 @@ struct AsanThread {
 
 static __thread AsanThread *tl_current_thread;
 
-
-
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
   StackTrace *b = (StackTrace*)param;
   CHECK(b->size < b->max_size);
@@ -619,10 +617,15 @@ static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *para
 __attribute__((noinline))
 static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   stack->trace[stack->size++] = GET_CALLER_PC();
+  if (!tl_current_thread) return;
   uintptr_t *prev_frame = frame;
-  while ((uintptr_t)(frame - prev_frame) < (1 << 16)
-         && stack->size < stack->max_size) {
-    // Printf("  "PP"\n", frame);
+  uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top;
+  while (frame >= prev_frame && 
+         frame < top &&
+         stack->size < stack->max_size) {
+    //Printf("FastUnwindStack[%d]:  "PP" "PP" "PP"\n", 
+    //       (int)stack->size,
+    //       frame, prev_frame, top);
     uintptr_t pc = frame[1];
     stack->trace[stack->size++] = pc;
     prev_frame = frame;
