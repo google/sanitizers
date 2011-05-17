@@ -256,13 +256,16 @@ typedef void* (*mmap_f)(void *start, size_t length,
 typedef void *(*malloc_f)(size_t);
 typedef void *(*realloc_f)(void*, size_t);
 typedef void  (*free_f)(void*);
+typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
+                              void *(*start_routine) (void *), void *arg);
 
-static sigaction_f real_sigaction;
-static signal_f    real_signal;
-static mmap_f      real_mmap;
-static malloc_f    real_malloc;
-static realloc_f   real_realloc;
-static free_f      real_free;
+static sigaction_f      real_sigaction;
+static signal_f         real_signal;
+static mmap_f           real_mmap;
+static malloc_f         real_malloc;
+static realloc_f        real_realloc;
+static free_f           real_free;
+static pthread_create_f real_pthread_create;
 
 static FILE *asan_out;
 
@@ -1302,6 +1305,31 @@ void operator delete [](void *ptr) {
 }
 #endif
 
+struct AsanThread {
+  void *(*start_routine) (void *);
+  void *arg;
+  StackTrace stack;
+  uintptr_t stack_top;
+};
+
+static void *asan_thread_start(void *arg) {
+  AsanThread *t = (AsanThread*)arg;
+  t->stack_top = (uintptr_t)&t;
+  //Printf("asan_thread_start: stack "PP"\n", t->stack_top);
+  void *res = t->start_routine(t->arg);
+  real_free(t);
+}
+
+extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                                void *(*start_routine) (void *), void *arg) {
+  GET_STACK_TRACE_HERE(kStackTraceMax);
+  AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
+  t->start_routine = start_routine;
+  t->arg = arg;
+  t->stack = stack;
+  return real_pthread_create(thread, attr, asan_thread_start, t);
+}
+
 #if __WORDSIZE == 64
 extern "C"
 void* mmap(void *start, size_t length,
@@ -1572,6 +1600,8 @@ static void asan_init() {
   CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
   CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
+  CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
+
 
   // Set the SEGV handler.
   {
