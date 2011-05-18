@@ -1560,6 +1560,13 @@ class ScopeForSignalHandler {
   ~ScopeForSignalHandler() { tl_in_signal_handler = false; }
 };
 
+static void PrintUnwinderHint() {
+  if (F_fast_unwind) {
+    Printf("HINT: if your stack trace looks short or garbled, "
+           "use ASAN_OPTIONS=fast_unwind=0\n");
+  }
+}
+
 static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   ScopeForSignalHandler sig_scope;
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
@@ -1625,7 +1632,8 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   if (F_print_malloc_lists) {
     malloc_info.print_lists("OnSIGSEGV");
   }
-  Printf("==================================================================\n"),
+  Printf("==================================================================\n");
+  PrintUnwinderHint();
   proc_self_maps.Init();
   Printf("==%d== ERROR: AddressSanitizer crashed on address "PP" at pc 0x%lx\n",
          getpid(), addr, pc);
@@ -1717,7 +1725,7 @@ static void asan_init() {
   CHECK(F_malloc_context_size <= kMallocContextSize);
 
   F_v = IntFlagValue(options, "v=", 0);
-  F_red_zone_words = IntFlagValue(options, "red_zone_words=", 10);
+  F_red_zone_words = IntFlagValue(options, "red_zone_words=", 16);
   if (F_red_zone_words < Ptr::ReservedWords()) {
     F_red_zone_words = Ptr::ReservedWords();
   }
@@ -1733,7 +1741,7 @@ static void asan_init() {
   F_stats = IntFlagValue(options, "stats=", 0);
   F_symbolize = IntFlagValue(options, "symbolize=", 0);
   F_debug = IntFlagValue(options, "debug=", 0);
-  F_fast_unwind = IntFlagValue(options, "fast_unwind=", 0);
+  F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
 
   if (F_atexit) {
     atexit(asan_atexit);
