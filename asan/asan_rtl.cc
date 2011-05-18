@@ -881,15 +881,15 @@ struct Ptr {
     }
   }
 
-  void CompactPoisonRegion(uintptr_t beg, uintptr_t end, uint8_t poison) {
+  void CompactPoisonRegion(uintptr_t beg, uintptr_t end, uint64_t poison) {
     uint8_t *beg_ptr = (uint8_t*)MemToShadow(beg);
     uint8_t *end_ptr = (uint8_t*)MemToShadow(end);
     for (; beg_ptr < end_ptr; beg_ptr++)
       *beg_ptr = poison;
   }
 
-  void CompactPoison(uint8_t poison_left,
-                     uint8_t poison_main, uint8_t poison_right) {
+  void CompactPoison(uint64_t poison_left,
+                     uint64_t poison_main, uint64_t poison_right) {
     CompactPoisonRegion(rz1_beg(), rz1_end(), poison_left);
     CompactPoisonRegion(rz2_beg(), rz2_end(), poison_right);
     CompactPoisonRegion(    beg(),     end(), poison_main);
@@ -923,7 +923,8 @@ struct Ptr {
       // this->PrintOneLine("malloc poison: ", "\n");
       uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
       // Printf("shadow: %p\n", shadow);
-      CompactPoison(0xaa, 0, 0xab);
+      CompactPoison(0xa0a1a2a3a4a5a6a7ULL, 0,
+                    0xb0b1b2b3b4b5b6b7ULL);
 #else
     CHECK(AddrIsInMem((uintptr_t)rz1_beg()));
     CHECK(__WORDSIZE == 64);
@@ -969,7 +970,9 @@ struct Ptr {
     CHECK(AddrIsInMem(rz1_beg()));
 #if !ASAN_BYTE_TO_BYTE_SHADOW
     if (poison) {
-      CompactPoison(0xda, 0xd0, 0xdb);
+      CompactPoison(0xc0c1c2c3c4c5c6c7ULL,
+                    0xd0d1d2d3d4d5d6d7ULL,
+                    0xe0e1e2e3e4e5e6e7ULL);
     } else {
       CompactPoison(0, 0, 0);
     }
