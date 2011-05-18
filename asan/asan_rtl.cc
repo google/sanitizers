@@ -55,7 +55,7 @@ static const size_t kStackTraceMax = 64;
 static const size_t kMallocContextSize = 30;
 static int    F_v;
 static size_t F_malloc_context_size = kMallocContextSize;
-static size_t F_red_zone_words;
+static size_t F_red_zone_words;  // multiple of 8
 static size_t F_delay_queue_size;
 static int    F_print_maps;
 static int    F_print_malloc_lists;
@@ -1721,13 +1721,14 @@ static void asan_init() {
   CHECK(F_malloc_context_size <= kMallocContextSize);
 
   F_v = IntFlagValue(options, "v=", 0);
+  CHECK(Ptr::ReservedWords() <= 8);
+
   F_red_zone_words = IntFlagValue(options, "red_zone_words=", 16);
-  if (F_red_zone_words < Ptr::ReservedWords()) {
-    F_red_zone_words = Ptr::ReservedWords();
+  if (F_red_zone_words & 7) {
+    F_red_zone_words = (F_red_zone_words + 7) & ~7;
   }
-  if (F_red_zone_words % 1) {
-    F_red_zone_words++;
-  }
+  CHECK(F_red_zone_words >= 8 && (F_red_zone_words % 8) == 0);
+
   F_print_maps     = IntFlagValue(options, "print_maps=", 0);
   F_print_malloc_lists = IntFlagValue(options, "print_malloc_lists=", 0);
   F_abort_after_first = IntFlagValue(options, "abort_after_first=", 1);
@@ -1801,5 +1802,8 @@ static void asan_init() {
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
     Printf("HighShadow : ["PP","PP")\n", kHighShadowBeg, kHighShadowEnd);
     Printf("HighMem    : ["PP","PP")\n", kHighMemBeg, kHighMemEnd);
+    Printf("red_zone_words=%ld\n", F_red_zone_words);
+    Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
+    Printf("fast_unwind=%d\n", (int)F_fast_unwind);
   }
 }
