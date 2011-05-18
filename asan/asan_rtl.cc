@@ -592,9 +592,27 @@ struct AsanThread {
   }
 
   void *ThreadStart() {
-    int l;
-    stack_top_ = (uintptr_t)&l;
-
+    {
+      tl_need_real_malloc = true;
+      pthread_attr_t attr;
+      CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
+      size_t stacksize = 0;
+      void *stackaddr = NULL;
+      pthread_attr_getstack(&attr, &stackaddr, &stacksize);
+      pthread_attr_destroy(&attr);
+      pthread_attr_destroy(&attr);
+      stack_top_ = (uintptr_t)stackaddr + stacksize;
+      stack_bottom_ = (uintptr_t)stackaddr;
+      CHECK(AddrIsInStack((uintptr_t)&attr));
+      tl_need_real_malloc = false;
+    }
+    if (F_v == 1) {
+      Printf ("T%d: stack ["PP","PP") size 0x%lx\n",
+              tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_);
+    } 
+    CHECK(AddrIsInMem(stack_bottom_));
+    CHECK(AddrIsInMem(stack_top_));
+    
     { // Insert this thread into live_threads_
       ScopedLock lock(&mu_);
       this->next_ = live_threads_;
@@ -639,25 +657,23 @@ struct AsanThread {
   }
 
   uintptr_t stack_top() { return stack_top_; }
+  uintptr_t stack_bottom() { return stack_bottom_; }
   int tid() { return tid_; }
+
+  uintptr_t AddrIsInStack(uintptr_t addr) {
+    return addr >= stack_bottom_ && addr < stack_top_;
+  }
 
   static AsanThread *FindThreadByStackAddress(uintptr_t addr) {
     ScopedLock lock(&mu_);
     AsanThread *t = live_threads_;
-    AsanThread *best_match = NULL;
-    uintptr_t smallest_offset = -1UL;
-    const uintptr_t kMaxStackSize = 16 << 20;  // 16M.
     do {
-      if (t->stack_top_ > addr) {
-        uintptr_t offset = t->stack_top_ - addr;
-        if (offset < smallest_offset && offset < kMaxStackSize) {
-          smallest_offset = offset;
-          best_match = t;
-        }
+      if (t->AddrIsInStack(addr)) {
+        return t;
       }
       t = t->next_;
     } while (t != live_threads_);
-    return best_match;
+    return 0;
   }
 
  private:
@@ -665,6 +681,7 @@ struct AsanThread {
   void *arg_;
   StackTrace stack_;
   uintptr_t  stack_top_;
+  uintptr_t  stack_bottom_;
   int        tid_;
   bool       announced_;
   int        refcount_;
@@ -1153,7 +1170,7 @@ class MallocInfo {
       // Check the stack.
       AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
       if (t) {
-        Printf("Address "PP" is %ld bytes below T%d's stack\n",
+        Printf("Address "PP" is %ld bytes below T%d's stack top\n",
                addr, t->stack_top() - addr, t->tid());
         t->Announce();
         return;
