@@ -68,8 +68,10 @@ static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 
+static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
+static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"), cl::init(0));
 static cl::opt<string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
-static cl::opt<int> ClDebugMin("asan-debug-min", 
+static cl::opt<int> ClDebugMin("asan-debug-min",
                                cl::desc("Debug min inst"), cl::init(-1));
 static cl::opt<int> ClDebugMax("asan-debug-max", 
                                cl::desc("Debug man inst"), cl::init(-1));
@@ -449,7 +451,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
     }
   }
   // errs() << "--------------------\n";
-  if (!ClDebugFunc.empty())
+  if (!ClDebugFunc.empty() || ClDebug)
     errs() << F;
   //
   //
@@ -457,6 +459,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
   bool changed_stack = false;
   if (ClStack && !ClByteToByteShadow) {
     changed_stack = poisonStackInFunction(F);
+    if (changed_stack && ClDebugStack)
+      errs() << F;
   }
 
   return n_instrumented > 0 || changed_stack;
@@ -476,7 +480,7 @@ static uint64_t computeCompactPartialPoisonValue(int n) {
     } else if (n > i * 8){
       a.u8[i] = n % 8;
     } else {
-      a.u8[i] = 0x90 + i;
+      a.u8[i] = 0xe0 + i;
     }
   }
   // Printf("computeCompactPartialPoisonValue: %d %llx\n", n, a.u64);
@@ -487,37 +491,45 @@ static uint64_t computeCompactPartialPoisonValue(int n) {
 void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
 
-  Value *poison_all = ConstantInt::get(i32Ty, do_poison ? -1LL : 0LL);
+  Value *poison_left  = ConstantInt::get(i32Ty, do_poison ? 0xf1f2f3f4 : 0LL);
+  Value *poison_mid   = ConstantInt::get(i32Ty, do_poison ? 0xf5f6f7f8 : 0LL);
+  Value *poison_right = ConstantInt::get(i32Ty, do_poison ? 0xfafbfcfd : 0LL);
 
   // poison the first red zone.
-  irb.CreateStore(poison_all, irb.CreateIntToPtr(shadow_base, i32PtrTy));
+  irb.CreateStore(poison_left, irb.CreateIntToPtr(shadow_base, i32PtrTy));
 
   // poison all other red zones.
-  uint64_t size_so_far = kAsanStackRedzone;
+  uint64_t pos = kAsanStackRedzone;
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
     uint64_t aligned_size = getAlignedAllocaSize(a);
     CHECK(aligned_size - size_in_bytes < kAsanStackAlignment);
-    size_so_far += aligned_size;
-    Value *ptr = irb.CreateAdd(
-        shadow_base, ConstantInt::get(LongTy, size_so_far / 8));
-    irb.CreateStore(poison_all, irb.CreateIntToPtr(ptr, i32PtrTy));
+    Value *ptr;
+
+    pos += aligned_size;
+
     if (size_in_bytes < aligned_size) {
+      // Poison the partial redzone at right
       ptr = irb.CreateAdd(
-          shadow_base, ConstantInt::get(LongTy, size_so_far / 8 - 4));
+          shadow_base, ConstantInt::get(LongTy, pos / 8 - 4));
       size_t addressible_bytes = kAsanStackRedzone - (aligned_size - size_in_bytes);
       uint64_t poison = do_poison
           ? computeCompactPartialPoisonValue(addressible_bytes) : 0;
       Value *partial_poison = ConstantInt::get(i32Ty, poison);
       irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i32PtrTy));
-
     }
-    size_so_far += kAsanStackRedzone;
+
+    // Poison the full redzone at right.
+    ptr = irb.CreateAdd(shadow_base, ConstantInt::get(LongTy, pos / 8));
+    Value *poison = i == alloca_v.size() - 1 ? poison_right : poison_mid;
+    irb.CreateStore(poison, irb.CreateIntToPtr(ptr, i32PtrTy));
+
+    pos += kAsanStackRedzone;
   }
 }
 
-// Find all static Alloca instructions and put 
+// Find all static Alloca instructions and put
 // poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Function &F) {
   CHECK(!ClByteToByteShadow);
@@ -564,20 +576,20 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   CHECK(my_alloca->isStaticAlloca());
   Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
 
-  uint64_t size_so_far = kAsanStackRedzone;
+  uint64_t pos = kAsanStackRedzone;
   // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t aligned_size = getAlignedAllocaSize(a);
     CHECK((aligned_size % kAsanStackAlignment) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
-        base, ConstantInt::get(LongTy, size_so_far), "", a);
+        base, ConstantInt::get(LongTy, pos), "", a);
     new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
 
-    size_so_far += aligned_size + kAsanStackRedzone;
+    pos += aligned_size + kAsanStackRedzone;
     a->replaceAllUsesWith(new_ptr);
   }
-  CHECK(size_so_far == total_size_with_redzones);
+  CHECK(pos == total_size_with_redzones);
 
   // Poison the stack redzones at the entry.
   IRBuilder<> irb(ins_before->getParent(), ins_before);
