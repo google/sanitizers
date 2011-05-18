@@ -40,8 +40,11 @@ using std::string;
 
 #include "unwind.h"
 
+static void PrintCurrentStack(uintptr_t pc = 0);
+
 #define CHECK(cond) do { if (!(cond)) { \
   Printf("CHECK failed: %s at %s:%d\n", #cond, __FILE__, __LINE__);\
+  PrintCurrentStack(); \
   ShowStatsAndAbort(); \
 }}while(0)
 
@@ -384,7 +387,6 @@ void PcToStrings(void* xaddr,
                          int* line);
 
 static __thread bool tl_need_real_malloc;
-static __thread bool tl_in_signal_handler;
 
 // -------------------------- Mapping ---------------- {{{1
 
@@ -712,7 +714,7 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   }
 }
 
-#define GET_STACK_TRACE_HERE(max_s)               \
+#define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
   StackTrace stack;                               \
   if ((max_s) <= 1) {                             \
     stack.size = 1;                               \
@@ -720,7 +722,7 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   } else {                                        \
     stack.max_size = max_s;                       \
     stack.size  = 0;                              \
-    if (F_fast_unwind && !tl_in_signal_handler)   \
+    if (fast_unwind)   \
       FastUnwindStack(GET_CURRENT_FRAME(), &stack); \
     else                                          \
       _Unwind_Backtrace(Unwind_Trace, &stack);    \
@@ -730,17 +732,17 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   }                                               \
 
 #define GET_STACK_TRACE_HERE_FOR_MALLOC         \
-  GET_STACK_TRACE_HERE(F_malloc_context_size)
+  GET_STACK_TRACE_HERE(F_malloc_context_size, F_fast_unwind)
 
 #define GET_STACK_TRACE_HERE_FOR_FREE(ptr) \
   Ptr *__ptr_to_free = (Ptr*)((uintptr_t*)(ptr) - F_red_zone_words); \
   size_t __stack_size_for_free = (ptr)                               \
     ? __ptr_to_free->FreeStackSize() : 0;                            \
-  GET_STACK_TRACE_HERE(__stack_size_for_free)
+  GET_STACK_TRACE_HERE(__stack_size_for_free, F_fast_unwind)
 
 
-void PrintCurrentStack(uintptr_t pc = 0) {
-  GET_STACK_TRACE_HERE(kStackTraceMax);
+void PrintCurrentStack(uintptr_t pc) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast unwind*/false);
   CHECK(stack.size >= 2);
   int skip_frames = 1;
   if (pc) {
@@ -918,8 +920,8 @@ struct Ptr {
     uintptr_t red_zone_words = F_red_zone_words;
     uintptr_t size_in_words = this->size_in_words();
 #if !ASAN_BYTE_TO_BYTE_SHADOW
-      uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
       // this->PrintOneLine("malloc poison: ", "\n");
+      uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
       // Printf("shadow: %p\n", shadow);
       CompactPoison(0xaa, 0, 0xab);
 #else
@@ -1240,9 +1242,10 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   }
 
 
-  if (!AddrIsInMem(orig) && F_poison_shadow) {
-    Printf("==%d== AddressSanitizer failure: malloc returned 0x%lx\n",
-           getpid(), orig);
+  if ((!AddrIsInMem(orig) || !AddrIsInMem(orig + real_size_with_alignment)) && 
+      F_poison_shadow) {
+    Printf("==%d== AddressSanitizer failure: malloc returned ["PP", "PP")\n",
+           getpid(), orig, orig + real_size_with_alignment);
     ShowStatsAndAbort();
   }
 
@@ -1468,7 +1471,7 @@ void operator delete [](void *ptr) {
 
 extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
-  GET_STACK_TRACE_HERE(kStackTraceMax);
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
@@ -1554,12 +1557,6 @@ void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
   malloc_info.DescribeAddress(addr, size);
 }
 
-class ScopeForSignalHandler {
- public:
-  ScopeForSignalHandler()  { tl_in_signal_handler = true; }
-  ~ScopeForSignalHandler() { tl_in_signal_handler = false; }
-};
-
 static void PrintUnwinderHint() {
   if (F_fast_unwind) {
     Printf("HINT: if your stack trace looks short or garbled, "
@@ -1568,7 +1565,6 @@ static void PrintUnwinderHint() {
 }
 
 static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
-  ScopeForSignalHandler sig_scope;
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
   // If we trapped while accessing an address that looks like shadow
   // -- just map that page.
@@ -1776,10 +1772,11 @@ static void asan_init() {
 
   proc_self_maps.Init();
 
-  if (ASAN_CROS) {
+  if (__WORDSIZE == 32) {
+    // Map the entire shadow region.
     uintptr_t beg = kCROSShadowMask32;
     uintptr_t end = kCROSShadowMask32 << 1;
-    mmap_pages(beg, (end - beg) / kPageSize, "CrOS shadow emmory");
+    mmap_pages(beg, (end - beg) / kPageSize, "32-bit shadow memmory");
   }
 
 
