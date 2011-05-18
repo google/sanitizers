@@ -384,6 +384,7 @@ void PcToStrings(void* xaddr,
                          int* line);
 
 static __thread bool tl_need_real_malloc;
+static __thread bool tl_in_signal_handler;
 
 // -------------------------- Mapping ---------------- {{{1
 
@@ -719,7 +720,7 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   } else {                                        \
     stack.max_size = max_s;                       \
     stack.size  = 0;                              \
-    if (F_fast_unwind)                            \
+    if (F_fast_unwind && !tl_in_signal_handler)   \
       FastUnwindStack(GET_CURRENT_FRAME(), &stack); \
     else                                          \
       _Unwind_Backtrace(Unwind_Trace, &stack);    \
@@ -1553,7 +1554,14 @@ void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
   malloc_info.DescribeAddress(addr, size);
 }
 
+class ScopeForSignalHandler {
+ public:
+  ScopeForSignalHandler()  { tl_in_signal_handler = true; }
+  ~ScopeForSignalHandler() { tl_in_signal_handler = false; }
+};
+
 static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
+  ScopeForSignalHandler sig_scope;
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
   // If we trapped while accessing an address that looks like shadow
   // -- just map that page.
