@@ -974,7 +974,9 @@ struct Ptr {
                     0xd0d1d2d3d4d5d6d7ULL,
                     0xe0e1e2e3e4e5e6e7ULL);
     } else {
-      CompactPoison(0, 0, 0);
+      uint8_t *beg = (uint8_t*)MemToShadow(rz1_beg());
+      uint8_t *end = (uint8_t*)MemToShadow(rz2_end());
+      memset(beg, 0, end - beg);
     }
 #else
     CHECK(__WORDSIZE == 64);
