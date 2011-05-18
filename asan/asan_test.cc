@@ -262,9 +262,9 @@ TEST(AddressSanitizer, WildAddressTest) {
                "The failing address is not inside the shadow region");
 }
 
-void MallocStress() {
+void MallocStress(size_t n) {
   vector<void *> vec;
-  for (size_t i = 0; i < 100000; i++) {
+  for (size_t i = 0; i < n; i++) {
     if ((i % 3) == 0) {
       if (vec.empty()) continue;
       size_t idx = rand() % vec.size();
@@ -284,7 +284,7 @@ void MallocStress() {
 }
 
 TEST(AddressSanitizer, MallocStressTest) {
-  MallocStress();
+  MallocStress(2000000);
 }
 
 
@@ -292,7 +292,7 @@ TEST(AddressSanitizer, ThreadedMallocStressTest) {
   const int kNumThreads = 4;
   pthread_t t[kNumThreads];
   for (int i = 0; i < kNumThreads; i++) {
-    pthread_create(&t[i], 0, (void* (*)(void*))MallocStress, 0);
+    pthread_create(&t[i], 0, (void* (*)(void*))MallocStress, (void*)300000);
   }
   for (int i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
