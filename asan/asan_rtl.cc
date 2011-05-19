@@ -889,22 +889,21 @@ struct Ptr {
 
   void DescribeAddress(uintptr_t addr, size_t access_size) {
     CHECK(InRange(addr));
-    Printf(" "PP" is the address located ", addr);
+    Printf(""PP" is located ", addr);
     if (InRz1(addr)) {
-      Printf("%ld bytes to the left of region:\n", rz1_end() - addr);
+      Printf("%ld bytes to the left of", rz1_end() - addr);
     } else if (InRz2(addr) || InRz2(addr + access_size - 1)) {
       uintptr_t offset = addr - rz2_beg();
       if (addr < rz2_beg()) {
         CHECK(addr + access_size > rz2_beg());
         offset = 0;
       }
-      Printf("%ld bytes to the right of region:\n", offset);
+      Printf("%ld bytes to the right of", offset);
     } else {
       CHECK(InAllocated(addr));
-      Printf("%ld bytes inside of region:\n", addr - beg());
+      Printf("%ld bytes inside of", addr - beg());
     }
-    Printf("["PP","PP") -- allocated memory of 0x%lx (%ld) bytes\n",
-           beg(), end(), size, size);
+    Printf(" %ld-byte region ["PP","PP")\n" , size, beg(), end());
     if (F_debug) {
       Printf("["PP","PP") -- left red zone\n", rz1_beg(), rz1_end());
       Printf("["PP","PP") -- right red zone\n", rz2_beg(), rz2_end());

@@ -177,7 +177,7 @@ void OOBTest() {
   for (int size = sizeof(T); size < 20; size += 5) {
     for (int i = -5; i < 0; i++) {
       const char *str =
-          "address located.*%d byte.*to the left";
+          "is located.*%d byte.*to the left";
       sprintf(expected_str, str, abs(i));
       EXPECT_DEATH(oob_test<T>(size, i), expected_str);
     }
@@ -187,7 +187,7 @@ void OOBTest() {
 
     for (int i = size - sizeof(T) + 1; i <= size + 3 * sizeof(T); i++) {
       const char *str =
-          "address located.*%d byte.*to the right";
+          "is located.*%d byte.*to the right";
       int off = i >= size ? (i - size) : 0;
       // we don't catch unaligned partially OOB accesses.
       if (i % sizeof(T)) continue;
@@ -197,9 +197,9 @@ void OOBTest() {
   }
 
   EXPECT_DEATH(oob_test<T>(kLargeMalloc, -1),
-          "address located.*1 byte.*to the left");
+          "is located.*1 byte.*to the left");
   EXPECT_DEATH(oob_test<T>(kLargeMalloc, kLargeMalloc),
-          "address located.*0 byte.*to the right");
+          "is located.*0 byte.*to the right");
 }
 
 TEST(AddressSanitizer, OOB_char) {
@@ -223,7 +223,7 @@ TEST(AddressSanitizer, OOBRightTest) {
         } else {
           int outside_bytes = offset > alloc_size ? (offset - alloc_size) : 0;
           const char *str =
-              "address located.%d *byte.*to the right";
+              "is located.%d *byte.*to the right";
           char expected_str[100];
           sprintf(expected_str, str, outside_bytes);
           EXPECT_DEATH(asan_write_sized_aligned(addr, access_size),
