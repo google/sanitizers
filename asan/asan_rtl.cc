@@ -1784,8 +1784,8 @@ static void asan_init() {
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
-  F_symbolize = IntFlagValue(options, "symbolize=", 0);
-  F_demangle = IntFlagValue(options, "demangle=", 0);
+  F_symbolize = IntFlagValue(options, "symbolize=", 1);
+  F_demangle = IntFlagValue(options, "demangle=", 1);
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
 

@@ -393,7 +393,7 @@ TEST(AddressSanitizer, SimpleStackTest) {
 }
 
 __attribute__((noinline))
-static void LargeFunction() {
+static int LargeFunction(bool do_bad_access) {
   int *x = new int [100];
   x[0]++;
   x[1]++;
@@ -406,7 +406,7 @@ static void LargeFunction() {
   x[8]++;
   x[9]++;
 
-  x[100]++;
+  x[do_bad_access ? 100 : 0]++; int res = __LINE__;
 
   x[10]++;
   x[11]++;
@@ -420,10 +420,25 @@ static void LargeFunction() {
   x[19]++;
 
   delete x;
+  return res;
 }
 
-TEST(AddressSanitizer, DISABLED_LargeFunctionTest) {
-  LargeFunction();
+// Test the we have correct debug info for the failing instruction.
+// This test requires the in-process symbolizer to be enabled by default.
+TEST(AddressSanitizer, LargeFunctionSymbolizeTest) {
+  int failing_line = LargeFunction(false);
+  char expected_warning[128];
+  sprintf(expected_warning, "LargeFunction.*asan_test.cc:%d", failing_line);
+  EXPECT_DEATH(LargeFunction(true), expected_warning);
+}
+
+// Check that we unwind and symbolize correctly.
+TEST(AddressSanitizer, MallocFreeUnwindAndSymbolizeTest) {
+  int *a = (int*)malloc_aaa(sizeof(int));
+  *a = 1;
+  free_aaa(a);
+  EXPECT_DEATH(*a = 1, "free_ccc.*free_bbb.*free_aaa.*"
+               "malloc_fff.*malloc_eee.*malloc_ddd");
 }
 
 void *ThreadedTestAlloc(void *a) {
