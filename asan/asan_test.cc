@@ -517,6 +517,10 @@ TEST(AddressSanitizer, DISABLED_DemoOOM) {
   printf("%p\n", malloc(size));
 }
 
+TEST(AddressSanitizer, DISABLED_DemoDoubleFreeTest) {
+  DoubleFree();
+}
+
 int main(int argc, char **argv) {
   testing::GTEST_FLAG(death_test_style) = "threadsafe";
   testing::InitGoogleTest(&argc, argv);

@@ -60,8 +60,13 @@ libasan$(SUFF).so: libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 
-libasan$(SUFF).a: libasan$(SUFF).o
-	ar ruv $@ $^
+bfds$(BITS):
+	mkdir -p $@
+	cp ../third_party/bin/bfd_symbolizer/linux/bfds$(BITS).a $@
+	cd $@ && ar x bfds$(BITS).a
+
+libasan$(SUFF).a: libasan$(SUFF).o bfds$(BITS)
+	ar ruv $@ $< bfds$(BITS)/*.o
 
 asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
 	$(CLANG_CXX) $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
@@ -79,4 +84,5 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS)"
 
 clean:
-	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*
+	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32* 
+	rm -rf bfds??

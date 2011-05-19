@@ -40,6 +40,8 @@ using std::string;
 
 #include "unwind.h"
 
+#include "bfd_symbolizer/bfd_symbolizer.h"
+
 static void PrintCurrentStack(uintptr_t pc = 0);
 
 #define CHECK(cond) do { if (!(cond)) { \
@@ -66,6 +68,7 @@ static bool   F_poison_shadow;
 static int    F_stats;
 static int    F_debug;
 static int    F_symbolize;  // use in-process symbolizer
+static int    F_demangle;
 static bool   F_fast_unwind;
 
 // -------------------------- Atomic ---------------- {{{1
@@ -380,11 +383,6 @@ uint8_t __asan_aux;
 #endif
 
 
-__attribute__((weak))
-void PcToStrings(void* xaddr,
-                         char* buf_func, size_t buf_func_len,
-                         char* buf_file, size_t buf_file_len,
-                         int* line);
 
 static __thread bool tl_need_real_malloc;
 
@@ -502,16 +500,32 @@ class ProcSelfMaps {
   void PrintPc(uintptr_t pc, int idx) {
     const int kLen = 1024;
     char func[kLen+1] = "",
-         file[kLen+1] = "";
+         file[kLen+1] = "",
+         module[kLen+1] = "";
     int line = 0;
+    int offset = 0;
 
     if (F_symbolize) {
-      CHECK(PcToStrings);
       tl_need_real_malloc = true;
-      PcToStrings((void*)pc, func, kLen, file, kLen, &line);
+      int opt = bfds_opt_none;
+      if (idx == 0)
+        opt |= bfds_opt_update_libs;
+      if (F_demangle == 1) opt |= bfds_opt_demangle;
+      if (F_demangle == 2) opt |= bfds_opt_demangle_params;
+      if (F_demangle == 3) opt |= bfds_opt_demangle_verbose;
+      int res = bfds_symbolize((void*)pc,
+                               (bfds_opts_e)opt,
+                               func, kLen,
+                               module, kLen,
+                               file, kLen,
+                               &line,
+                               &offset);
       tl_need_real_malloc = false;
-      Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
-      return;
+      if (res == 0) {
+        Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
+        return;
+      }
+      // bfd failed
     }
 
     for (size_t i = 0; i < map_size_; i++) {
@@ -600,7 +614,6 @@ struct AsanThread {
       void *stackaddr = NULL;
       pthread_attr_getstack(&attr, &stackaddr, &stacksize);
       pthread_attr_destroy(&attr);
-      pthread_attr_destroy(&attr);
       stack_top_ = (uintptr_t)stackaddr + stacksize;
       stack_bottom_ = (uintptr_t)stackaddr;
       CHECK(AddrIsInStack((uintptr_t)&attr));
@@ -609,10 +622,10 @@ struct AsanThread {
     if (F_v == 1) {
       Printf ("T%d: stack ["PP","PP") size 0x%lx\n",
               tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_);
-    } 
+    }
     CHECK(AddrIsInMem(stack_bottom_));
     CHECK(AddrIsInMem(stack_top_));
-    
+
     { // Insert this thread into live_threads_
       ScopedLock lock(&mu_);
       this->next_ = live_threads_;
@@ -1305,18 +1318,18 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   return p;
 }
 
-static void check_ptr_on_free(Ptr *p, void *addr) {
+static void check_ptr_on_free(Ptr *p, void *addr, StackTrace &stack) {
   CHECK(p->beg() == (uintptr_t)addr);
   if (p->magic != Ptr::kMallocedMagic) {
     if (p->magic == Ptr::kFreedMagic) {
       Printf("attempting double-free on %p:\n", addr);
-      PrintCurrentStack();
+      PrintStack(stack);
       malloc_info.DescribeAddress(p->beg(), 1);
       ShowStatsAndAbort();
     } else {
       Printf("attempting free on address which was not malloc()-ed: %p\n",
              addr);
-      PrintCurrentStack();
+      PrintStack(stack);
       malloc_info.DescribeAddress(p->beg(), 1);
       ShowStatsAndAbort();
     }
@@ -1329,7 +1342,7 @@ void asan_free(void *addr, StackTrace &stack) {
   Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
   size_t real_size_in_words = p->real_size_in_words();
 
-  check_ptr_on_free(p, addr);
+  check_ptr_on_free(p, addr, stack);
 
   if (F_v >= 2)
     p->PrintOneLine("asan_free:   ", "\n");
@@ -1377,7 +1390,7 @@ void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
     return p->raw_ptr();
   }
   Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
-  check_ptr_on_free(p, addr);
+  check_ptr_on_free(p, addr, stack);
   if (F_v >= 2)
     p->PrintOneLine("asan_realloc: ", "\n");
   size_t old_size = p->size;
@@ -1397,27 +1410,36 @@ void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
 
 extern "C"
 void *malloc(size_t size) {
+  if (tl_need_real_malloc) {
+    void *res = real_malloc(size);
+    // Printf("real_malloc: "PP" %ld\n", res, size);
+    return res;
+  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  if (tl_need_real_malloc) return real_malloc(size);
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
 
 extern "C"
 void free(void *ptr) {
+  if (tl_need_real_malloc) {
+    // Printf("real_free "PP"\n", ptr);
+    real_free(ptr);
+    return;
+  };
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  if (tl_need_real_malloc) return;
   asan_free(ptr, stack);
 }
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (tl_need_real_malloc) {
     void *mem = real_malloc(nmemb * size);
     memset(mem, 0, nmemb *size);
+    // Printf("real_calloc: "PP" %ld*%ld\n", mem, nmemb, size);
     return mem;
   }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const int kCallocPoolSize = 1024;
@@ -1434,8 +1456,12 @@ void *calloc(size_t nmemb, size_t size) {
 
 extern "C"
 void *realloc(void *ptr, size_t size) {
+  if (tl_need_real_malloc) {
+    void *res = real_realloc(ptr, size);
+    // Printf("real_malloc: "PP" "PP" %ld\n", res, ptr, size);
+    return res;
+  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  if (tl_need_real_malloc) return real_realloc(ptr, size);
   return asan_realloc(ptr, size, stack);
 }
 
@@ -1759,6 +1785,7 @@ static void asan_init() {
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
   F_symbolize = IntFlagValue(options, "symbolize=", 0);
+  F_demangle = IntFlagValue(options, "demangle=", 0);
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
 
