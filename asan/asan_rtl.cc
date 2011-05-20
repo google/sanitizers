@@ -1496,10 +1496,9 @@ void *valloc(size_t size) {
   return p->raw_ptr();
 
 void *operator new(size_t size) { OPERATOR_NEW_BODY; }
-void *operator new [] (size_t size) { OPERATOR_NEW_BODY; }
-void *operator new(size_t size, std::nothrow_t const&) {
-  OPERATOR_NEW_BODY;
-}
+void *operator new[](size_t size) { OPERATOR_NEW_BODY; }
+void *operator new(size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
+void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 
 #define OPERATOR_DELETE_BODY \
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
@@ -1507,10 +1506,9 @@ void *operator new(size_t size, std::nothrow_t const&) {
   asan_free(ptr, stack);
 
 void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
-void operator delete [](void *ptr) { OPERATOR_DELETE_BODY; }
-void operator delete(void *ptr, std::nothrow_t const&) {
-  OPERATOR_DELETE_BODY;
-}
+void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
+void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
+void operator delete[](void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
 #endif
 
 extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
