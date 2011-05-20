@@ -16,10 +16,11 @@ CC=gcc
 CXX=g++
 
 CLANG_SRC=../clang_src
-CLANG_BUILD=../clang_build
-CLANG_BUILD_TYPE=Release+Asserts
-CLANG_CXX=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/bin/clang++
-CLANG_LIB=$(CLANG_BUILD)/$(CLANG_BUILD_TYPE)/lib
+CLANG_BUILD=../clang_build/Release+Asserts
+CLANG_CXX=$(CLANG_BUILD)/bin/clang++
+CLANG_LIB=$(CLANG_BUILD)/lib
+
+INSTALL_DIR=../asan_clang
 
 LIBS=#-lpthread -ldl
 BITS=64
@@ -51,7 +52,23 @@ SUFF=zzz
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
-rtl: $(CLANG_LIB)/libasan$(SUFF).a libasan$(SUFF).so
+install_cleanup:
+	rm -f $(INSTALL_DIR)/lib/libLLVM*
+	rm -f $(INSTALL_DIR)/lib/libclang*
+	rm -f $(INSTALL_DIR)/bin/llvm-mc
+	rm -f $(INSTALL_DIR)/bin/llvm-objdump
+	rm -f $(INSTALL_DIR)/bin/llc
+	rm -f $(INSTALL_DIR)/bin/lli
+	rm -f $(INSTALL_DIR)/bin/bugpoint
+	rm -f $(INSTALL_DIR)/bin/opt
+	du -sh $(INSTALL_DIR)
+	du -sh `find $(INSTALL_DIR) -size +1000k` | sort -g
+
+
+install: clang all
+	rm -rf $(INSTALL_DIR)
+	mkdir  $(INSTALL_DIR)
+	cp -rf $(CLANG_BUILD)/* $(INSTALL_DIR)
 
 libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party \
@@ -59,7 +76,6 @@ libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 
 libasan$(SUFF).so: libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
-
 
 bfds$(SUFF):
 	mkdir -p $@
@@ -69,7 +85,7 @@ bfds$(SUFF):
 $(CLANG_LIB)/libasan$(SUFF).a: libasan$(SUFF).o bfds$(SUFF)
 	ar ruv $@ $< bfds$(SUFF)/*.o
 
-asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
+asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB)
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
