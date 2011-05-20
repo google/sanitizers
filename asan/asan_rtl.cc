@@ -1489,30 +1489,27 @@ void *valloc(size_t size) {
 
 
 #if 1
-void *operator new(size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!tl_need_real_malloc);
-  Ptr *p = asan_memalign(size, 0, stack);
+#define OPERATOR_NEW_BODY \
+  GET_STACK_TRACE_HERE_FOR_MALLOC;\
+  CHECK(!tl_need_real_malloc);\
+  Ptr *p = asan_memalign(size, 0, stack);\
   return p->raw_ptr();
+
+void *operator new(size_t size) { OPERATOR_NEW_BODY; }
+void *operator new [] (size_t size) { OPERATOR_NEW_BODY; }
+void *operator new(size_t size, std::nothrow_t const&) {
+  OPERATOR_NEW_BODY;
 }
 
-void *operator new [] (size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!tl_need_real_malloc);
-  Ptr *p = asan_memalign(size, 0, stack);
-  return p->raw_ptr();
-}
-
-void operator delete(void *ptr) {
-  GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  CHECK(!tl_need_real_malloc);
+#define OPERATOR_DELETE_BODY \
+  GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
+  CHECK(!tl_need_real_malloc);\
   asan_free(ptr, stack);
-}
 
-void operator delete [](void *ptr) {
-  GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  CHECK(!tl_need_real_malloc);
-  asan_free(ptr, stack);
+void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
+void operator delete [](void *ptr) { OPERATOR_DELETE_BODY; }
+void operator delete(void *ptr, std::nothrow_t const&) {
+  OPERATOR_DELETE_BODY;
 }
 #endif
 
