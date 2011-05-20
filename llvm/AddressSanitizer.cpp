@@ -362,6 +362,29 @@ static bool WantToIgnoreFunction(Function &F) {
   return false;
 }
 
+static bool blockHasException(BasicBlock &bb) {
+  for (BasicBlock::iterator BI = bb.begin(), BE = bb.end();
+       BI != BE; ++BI) {
+    // TODO(kcc):
+    // Workaround for a strange compile assertion while building 483.xalancbmk
+    // If we instrument a basic block which calls llvm.eh.exception
+    // llvm later crashes with this:
+    // lib/CodeGen/SelectionDAG/FunctionLoweringInfo.cpp:212: void
+    //   llvm::FunctionLoweringInfo::clear(): Assertion `CatchInfoFound.size()
+    //   == CatchInfoLost.size() && "Not all catch info was assigned to a
+    //   landing pad!"' failed.
+    if (isa<CallInst>(BI)) {
+      CallInst *call = cast<CallInst>(BI);
+      Function *func = call->getCalledFunction();
+      if (func && func->getNameStr() == "llvm.eh.exception") {
+        return true;
+      }
+    }
+
+  }
+  return false;
+}
+
 bool AddressSanitizer::handleFunction(Function &F) {
   if (WantToIgnoreFunction(F)) return false;
 
@@ -377,6 +400,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
+    if (blockHasException(*FI)) continue;
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
@@ -384,23 +408,6 @@ bool AddressSanitizer::handleFunction(Function &F) {
         to_instrument.insert(BI);
       }
 
-      // TODO(kcc):
-      // Workaround for a strange compile assertion while building 483.xalancbmk
-      // If we instrument a basic block which calls llvm.eh.exception
-      // llvm later crashes with this:
-      // lib/CodeGen/SelectionDAG/FunctionLoweringInfo.cpp:212: void
-      //   llvm::FunctionLoweringInfo::clear(): Assertion `CatchInfoFound.size()
-      //   == CatchInfoLost.size() && "Not all catch info was assigned to a
-      //   landing pad!"' failed.
-      if (0 && isa<CallInst>(BI)) {
-        CallInst *call = cast<CallInst>(BI);
-        Function *func = call->getCalledFunction();
-        if (func && func->getNameStr() == "llvm.eh.exception") {
-          errs() << "AddressSanitizer will ignore this function "
-                 "due to the presence of EH: " << F.getNameStr() << "\n";
-          return false;
-        }
-      }
     }
   }
 
