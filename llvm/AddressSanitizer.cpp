@@ -19,6 +19,7 @@
 
 #define DEBUG_TYPE "AddressSanitizer"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -122,7 +123,7 @@ struct AddressSanitizer : public ModulePass {
     return aligned_size;
   }
 
-  void PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBuilder<> irb,
+  void PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                    Value *shadow_base, bool do_poison);
 
   Value *asan_slow_path;
@@ -488,7 +489,7 @@ static uint64_t computeCompactPartialPoisonValue(int n) {
 }
 
 
-void AddressSanitizer::PoisonStack(SmallVector<AllocaInst*, 16> &alloca_v, IRBuilder<> irb,
+void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
 
   Value *poison_left  = ConstantInt::get(i32Ty, do_poison ? 0xf1f2f3f4 : 0LL);
@@ -594,13 +595,13 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   // Poison the stack redzones at the entry.
   IRBuilder<> irb(ins_before->getParent(), ins_before);
   Value *shadow_base = memToShadow(base, irb);
-  PoisonStack(alloca_v, irb, shadow_base, true);
+  PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb, shadow_base, true);
 
   // Unpoison the stack before all ret instructions.
   for (size_t i = 0; i < ret_v.size(); i++) {
     Instruction *ret = ret_v[i];
     IRBuilder<> irb_ret(ret->getParent(), ret);
-    PoisonStack(alloca_v, irb_ret, shadow_base, false);
+    PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb_ret, shadow_base, false);
   }
 
   // errs() << F.getNameStr() << "\n" << F << "\n";
