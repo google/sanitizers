@@ -69,31 +69,57 @@ Index: lib/Transforms/Instrumentation/CMakeLists.txt
    EdgeProfiling.cpp
    GCOVProfiling.cpp
    Instrumentation.cpp
+Index: tools/clang/include/clang/Driver/Options.td
+===================================================================
+--- tools/clang/include/clang/Driver/Options.td	(revision 130919)
++++ tools/clang/include/clang/Driver/Options.td	(working copy)
+@@ -243,6 +243,7 @@
+ def faccess_control : Flag<"-faccess-control">, Group<f_Group>;
+ def fallow_unsupported : Flag<"-fallow-unsupported">, Group<f_Group>;
+ def fapple_kext : Flag<"-fapple-kext">, Group<f_Group>;
++def fasan : Flag<"-fasan">, Group<f_Group>;
+ def fasm : Flag<"-fasm">, Group<f_Group>;
+ 
+ def fasm_blocks : Flag<"-fasm-blocks">, Group<f_Group>;
 Index: tools/clang/lib/Driver/Tools.cpp
 ===================================================================
 --- tools/clang/lib/Driver/Tools.cpp	(revision 130919)
 +++ tools/clang/lib/Driver/Tools.cpp	(working copy)
-@@ -940,6 +940,7 @@
-   //
+@@ -941,6 +941,12 @@
    // FIXME: Implement custom jobs for internal actions.
    CmdArgs.push_back("-cc1");
-+  CmdArgs.push_back("-DADDRESS_SANITIZER=1");
  
++  if (Args.hasArg(options::OPT_fasan)) {
++    CmdArgs.push_back("-DADDRESS_SANITIZER=1");
++    CmdArgs.push_back("-mllvm");
++    CmdArgs.push_back("-asan=1");
++  }
++
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
-@@ -3868,6 +3869,16 @@
+   std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
+@@ -3868,6 +3874,25 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
-+  // hack for AddressSanitizer {{{
-+  const char *libasan = getenv("ASAN_LIB");
-+  if (libasan && !Args.hasArg(options::OPT_shared)) {
++  // AddressSanitizer Support.
++  if (Args.hasArg(options::OPT_fasan) && !Args.hasArg(options::OPT_shared)) {
++    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
++    std::string libasan;
++    if (libasan_from_env) {
++      libasan = libasan_from_env;
++    } else {
++      libasan = ToolChain.getDriver().Dir + "/../lib/libasan";
++      if (ToolChain.getArch() == llvm::Triple::x86)
++        libasan += "32.a";
++      else
++        libasan += "64.a";
++    }
 +    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 +    CmdArgs.push_back("-lpthread");
 +    CmdArgs.push_back("-ldl");
-+    CmdArgs.push_back(libasan);
++    CmdArgs.push_back(Args.MakeArgString(libasan));
 +  }
-+  // end hack for AddressSanitizer }}}
 +
    if (D.CCCIsCXX && !Args.hasArg(options::OPT_nostdlib)) {
      ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
