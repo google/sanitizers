@@ -61,13 +61,13 @@ libasan$(SUFF).so: libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 
-bfds$(BITS):
+bfds$(SUFF):
 	mkdir -p $@
-	cp ../third_party/bin/bfd_symbolizer/linux/bfds$(BITS).a $@
-	cd $@ && ar x bfds$(BITS).a
+	cp ../third_party/bin/bfd_symbolizer/linux/bfds$(BITS).a $@/bfds$(SUFF).a
+	cd $@ && ar x bfds$(SUFF).a
 
-libasan$(SUFF).a: libasan$(SUFF).o bfds$(BITS)
-	ar ruv $@ $< bfds$(BITS)/*.o
+libasan$(SUFF).a: libasan$(SUFF).o bfds$(SUFF)
+	ar ruv $@ $< bfds$(SUFF)/*.o
 	cp -f $@ $(CLANG_LIB)
 
 asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
@@ -87,4 +87,4 @@ $(GTEST_LIB):
 
 clean:
 	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32* 
-	rm -rf bfds??
+	rm -rf bfds*
