@@ -51,7 +51,7 @@ SUFF=zzz
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
-rtl: libasan$(SUFF).a libasan$(SUFF).so
+rtl: $(CLANG_LIB)/libasan$(SUFF).a libasan$(SUFF).so
 
 libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party \
@@ -66,18 +66,17 @@ bfds$(SUFF):
 	cp ../third_party/bin/bfd_symbolizer/linux/bfds$(BITS).a $@/bfds$(SUFF).a
 	cd $@ && ar x bfds$(SUFF).a
 
-libasan$(SUFF).a: libasan$(SUFF).o bfds$(SUFF)
+$(CLANG_LIB)/libasan$(SUFF).a: libasan$(SUFF).o bfds$(SUFF)
 	ar ruv $@ $< bfds$(SUFF)/*.o
-	cp -f $@ $(CLANG_LIB)
 
-asan_test$(SUFF): asan_test.cc libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
+asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile rtl asan_test.ignore $(GTEST_LIB)
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
 		-mllvm -asan-cros=$(CROS) \
 		-mllvm -asan-stack=$(ASAN_STACK) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
-	ASAN_LIB=`pwd`/libasan$(SUFF).a \
+	ASAN_LIB=$(CLANG_LIB)/libasan$(SUFF).a \
 	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
@@ -86,5 +85,5 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS)"
 
 clean:
-	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32* 
+	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*  a.out perf.data log
 	rm -rf bfds*
