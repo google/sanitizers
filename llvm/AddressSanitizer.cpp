@@ -17,7 +17,7 @@
 // Author: Alexander Potapenko
 // Author: Kostya Serebryany
 
-#define DEBUG_TYPE "AddressSanitizer"
+#define DEBUG_TYPE "asan"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Statistic.h"
@@ -52,7 +52,7 @@ using namespace std;
 
 // Command-line flags. {{{1
 static cl::opt<bool> ClAsan("asan",
-       cl::desc("enable AddressSanitizer"), cl::init(true));
+       cl::desc("enable AddressSanitizer"), cl::init(false));
 static cl::opt<bool> ClInstrumentReads("asan-instrument-reads",
        cl::desc("instrument read instructions"), cl::init(true));
 static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
