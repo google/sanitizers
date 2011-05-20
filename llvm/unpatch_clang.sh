@@ -1,4 +1,5 @@
 #!/bin/bash
 cd clang_src
-files=`(svn status -q ;cd tools/clang/ && svn status -q ) | awk '{print $2}'`
-svn revert $files
+svn revert `svn status -q | awk '{print $2}'`
+cd tools/clang
+svn revert `svn status -q | awk '{print $2}'`
