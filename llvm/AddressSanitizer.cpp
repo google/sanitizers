@@ -283,7 +283,9 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
   if (!ClByteToByteShadow) {
-    Value *ShadowLongPtr = irb3.CreateIntToPtr(ShadowPtr, LongPtrTy);
+    Value *ShadowPlusOffset = irb3.CreateAdd(ShadowPtr,
+      ConstantInt::get(LongTy, kOffsetToStoreEffectiveAddressInShadow));
+    Value *ShadowLongPtr = irb3.CreateIntToPtr(ShadowPlusOffset, LongPtrTy);
     irb3.CreateStore(AddrLong, ShadowLongPtr);
   }
   Value *TellTale = ConstantInt::get(ByteTy, telltale_value);

@@ -1685,7 +1685,8 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     ShowStatsAndAbort();
   }
 
-  uintptr_t real_addr_from_shadow = *(uintptr_t*)shadow_addr;
+  uintptr_t real_addr_from_shadow =
+      *(uintptr_t*)(shadow_addr + kOffsetToStoreEffectiveAddressInShadow);
   if (F_debug) {
     Printf("ShadowToMem:    "PP"\n", real_addr);
     Printf("AddrFromShadow: "PP"\n", real_addr_from_shadow);

@@ -36,6 +36,11 @@ const uint64_t kInMemoryPoison64 = 0xababababababababULL;
 
 const size_t kBankPadding = 64;
 
+// When an illegal address is detected, we need to store it somewhere
+// before causing SEGV (with compact mapping we can not exactly compute the
+// actuall address given the BAD address, because the mapping is 8B-to-1B).
+const size_t kOffsetToStoreEffectiveAddressInShadow = -64;
+
 // Bits in __asan_flag
 enum AsanFlag {
   AsanFlagShouldBePresent,
