@@ -731,10 +731,10 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   if (!tl_current_thread) return;
   uintptr_t *prev_frame = frame;
   uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top();
-  while (frame >= prev_frame && 
+  while (frame >= prev_frame &&
          frame < top &&
          stack->size < stack->max_size) {
-    //Printf("FastUnwindStack[%d]:  "PP" "PP" "PP"\n", 
+    //Printf("FastUnwindStack[%d]:  "PP" "PP" "PP"\n",
     //       (int)stack->size,
     //       frame, prev_frame, top);
     uintptr_t pc = frame[1];
@@ -742,6 +742,28 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
     prev_frame = frame;
     frame = (uintptr_t*)frame[0];
   }
+}
+
+// given sp and bp, find the frame to which addr belongs.
+static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
+                                         uintptr_t addr) {
+  if (bp == 0 || sp == 0)  return -1;
+  if (!tl_current_thread->AddrIsInStack(bp)) return -1;
+  if (!tl_current_thread->AddrIsInStack(sp)) return -1;
+  if (addr < sp) return -1; // Probably, should nto happen.
+  if (addr < bp) return 0;  // current frame.
+  uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top();
+  uintptr_t *frame = (uintptr_t*)bp;
+  uintptr_t *prev_frame = frame;
+  int res = 0;
+  while (frame >= prev_frame && frame < top && frame < (uintptr_t*)addr) {
+    // Printf("%d ZZZ "PP" addr-frame="PP" \n", res, frame, addr-(uintptr_t)frame);
+    CHECK(tl_current_thread->AddrIsInStack((uintptr_t)frame));
+    prev_frame = frame;
+    frame = (uintptr_t*)frame[0];
+    res++;
+  }
+  return res;
 }
 
 #define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
@@ -1167,7 +1189,7 @@ class MallocInfo {
     return find_malloced(addr) || find_freed(addr);
   }
 
-  void DescribeAddress(uintptr_t addr, size_t access_size) {
+  void DescribeAddress(uintptr_t sp, uintptr_t bp, uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
 
     // Check if we have this memory region in delay queue.
@@ -1182,8 +1204,15 @@ class MallocInfo {
       // Check the stack.
       AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
       if (t) {
-        Printf("Address "PP" is %ld bytes below T%d's stack top\n",
+        Printf("Address "PP" is %ld bytes below T%d's stack top",
                addr, t->stack_top() - addr, t->tid());
+        int frame = TryToFindFrameForStackAddress(sp, bp, addr);
+        if (frame >= 0) {
+          Printf(" (allocated in frame #%d)\n", frame);
+        } else {
+          Printf("\n");
+        }
+
         t->Announce();
         return;
       }
@@ -1323,13 +1352,13 @@ static void check_ptr_on_free(Ptr *p, void *addr, StackTrace &stack) {
     if (p->magic == Ptr::kFreedMagic) {
       Printf("attempting double-free on %p:\n", addr);
       PrintStack(stack);
-      malloc_info.DescribeAddress(p->beg(), 1);
+      malloc_info.DescribeAddress(0, 0, p->beg(), 1);
       ShowStatsAndAbort();
     } else {
       Printf("attempting free on address which was not malloc()-ed: %p\n",
              addr);
       PrintStack(stack);
-      malloc_info.DescribeAddress(p->beg(), 1);
+      malloc_info.DescribeAddress(0, 0, p->beg(), 1);
       ShowStatsAndAbort();
     }
   }
@@ -1596,7 +1625,7 @@ void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
     }
   }
   Printf("\n");
-  malloc_info.DescribeAddress(addr, size);
+  malloc_info.DescribeAddress(0, 0, addr, size);
 }
 
 static void PrintUnwinderHint() {
@@ -1642,11 +1671,17 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
 #ifdef __APPLE__
   uintptr_t pc = ucontext->uc_mcontext->__ss.__eip;
+  uintptr_t bp = 0;
+  uintptr_t sp = 0;
 #else // assume linux
 #if __WORDSIZE == 64
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_RIP];
+  uintptr_t bp = ucontext->uc_mcontext.gregs[REG_RBP];
+  uintptr_t sp = ucontext->uc_mcontext.gregs[REG_RSP];
 #else
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_EIP];
+  uintptr_t bp = ucontext->uc_mcontext.gregs[REG_EBP];
+  uintptr_t sp = ucontext->uc_mcontext.gregs[REG_ESP];
 #endif
 #endif
   uintptr_t shadow_addr = BadToShadow(addr);
@@ -1673,8 +1708,9 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   Printf("==================================================================\n");
   PrintUnwinderHint();
   proc_self_maps.Init();
-  Printf("==%d== ERROR: AddressSanitizer crashed on address "PP" at pc 0x%lx\n",
-         getpid(), addr, pc);
+  Printf("==%d== ERROR: AddressSanitizer crashed on address "
+         ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
+         getpid(), addr, pc, bp, sp);
 
   if (!AddrIsInShadow(shadow_addr)) {
     Printf("The failing address is not inside the shadow region.\n"
@@ -1710,7 +1746,7 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   CHECK(AddrIsInMem(real_addr));
   CHECK(shadow_addr == MemToShadow(real_addr));
 
-  malloc_info.DescribeAddress(real_addr, access_size);
+  malloc_info.DescribeAddress(sp, bp, real_addr, access_size);
 
   if (F_print_maps) {
     proc_self_maps.Print();

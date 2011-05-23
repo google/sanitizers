@@ -28,6 +28,11 @@
 #include <malloc.h>
 #endif  // __APPLE__
 
+// Currently, stack poisoning is implemented only
+// for compact shadow, because for byte-to-byte shadow
+// it would be too slow.
+extern int __asan_byte_to_byte_shadow;
+
 using namespace std;
 
 typedef unsigned char        U1;
@@ -370,10 +375,6 @@ void SizedStackTest() {
 }
 
 TEST(AddressSanitizer, SimpleStackTest) {
-  // Currently, stack poisoning is implemented only
-  // for compact shadow, because for byte-to-byte shadow
-  // it would be too slow.
-  extern int __asan_byte_to_byte_shadow;
   if (__asan_byte_to_byte_shadow) return;
   SizedStackTest<1>();
   SizedStackTest<2>();
@@ -390,6 +391,46 @@ TEST(AddressSanitizer, SimpleStackTest) {
   SizedStackTest<62>();
   SizedStackTest<64>();
   SizedStackTest<128>();
+}
+
+__attribute__((noinline)) static void Frame0(int frame, char *a, char *b, char *c) {
+  char d[4];
+  char *D = Ident(d);
+  switch(frame) {
+    case 3: a[5]++; break;
+    case 2: b[5]++; break;
+    case 1: c[5]++; break;
+    case 0: D[5]++; break;
+  }
+}
+__attribute__((noinline)) static void Frame1(int frame, char *a, char *b) {
+  char c[4]; Frame0(frame, a, b, c);
+  break_optimization();
+}
+__attribute__((noinline)) static void Frame2(int frame, char *a) {
+  char b[4]; Frame1(frame, a, b);
+  break_optimization();
+}
+__attribute__((noinline)) static void Frame3(int frame) {
+  char a[4]; Frame2(frame, a);
+  break_optimization();
+}
+
+TEST(AddressSanitizer, GuiltyStackFrame0Test) {
+  if (__asan_byte_to_byte_shadow) return;
+  EXPECT_DEATH(Frame3(0), "#0[ a-z0-9]*Frame0.*allocated in frame #0");
+}
+TEST(AddressSanitizer, GuiltyStackFrame1Test) {
+  if (__asan_byte_to_byte_shadow) return;
+  EXPECT_DEATH(Frame3(1), "#1[ a-z0-9]*Frame1.*allocated in frame #1");
+}
+TEST(AddressSanitizer, GuiltyStackFrame2Test) {
+  if (__asan_byte_to_byte_shadow) return;
+  EXPECT_DEATH(Frame3(2), "#2[ a-z0-9]*Frame2.*allocated in frame #2");
+}
+TEST(AddressSanitizer, GuiltyStackFrame3Test) {
+  if (__asan_byte_to_byte_shadow) return;
+  EXPECT_DEATH(Frame3(3), "#3[ a-z0-9]*Frame3.*allocated in frame #3");
 }
 
 __attribute__((noinline))
