@@ -140,21 +140,12 @@ struct AddressSanitizer : public ModulePass {
 }  // namespace
 
 char AddressSanitizer::ID = 0;
-#ifdef ASAN_LLVM_PLUGIN
-// This code is temporary (we build the plugin with some old version of 
-// llvm which comes with ubuntu 10.04)
-AddressSanitizer::AddressSanitizer() : ModulePass(&ID) { }
-RegisterPass<AddressSanitizer> X("asan",
-                                 "AddressSanitizer: detects use-after-free and out-of-bounds bugs.");
-#else
 INITIALIZE_PASS(AddressSanitizer, "asan",
     "AddressSanitizer: detects use-after-free and out-of-bounds bugs.", false, false)
 AddressSanitizer::AddressSanitizer() : ModulePass(ID) { }
 ModulePass *llvm::createAddressSanitizerPass() {
   return new AddressSanitizer();
 }
-#endif
-
 
 // Split the basic block and insert an if-then code.
 // Before:
