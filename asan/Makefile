@@ -13,6 +13,7 @@
 # limitations under the License.
 
 PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
+SVNVERSION=$(shell svnversion)
 
 CC=gcc
 CXX=g++
@@ -61,8 +62,8 @@ install:
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
-libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
-	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party \
+libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR) Makefile
+	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party -DASAN_REVISION=\"$(SVNVERSION)\" \
 	   -m$(BITS) -DASAN_CROS=$(CROS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
 libasan$(SUFF).so: libasan$(SUFF).o

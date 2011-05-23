@@ -1880,7 +1880,7 @@ static void asan_init() {
 
 
   if (F_v) {
-    Printf("==%d== AddressSanitizer Init done ***\n", getpid());
+    Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
     Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
     Printf("HighShadow : ["PP","PP")\n", kHighShadowBeg, kHighShadowEnd);
