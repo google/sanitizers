@@ -590,8 +590,10 @@ static void PrintStack(StackTrace &stack) {
 
 struct AsanThread {
 
-  AsanThread(void *(*start_routine) (void *), void *arg, StackTrace *stack)
-    : start_routine_(start_routine),
+  AsanThread(AsanThread *parent, void *(*start_routine) (void *),
+             void *arg, StackTrace *stack)
+    : parent_(parent),
+      start_routine_(start_routine),
       arg_(arg), 
       announced_(false),
       tid_(AtomicInc(&n_threads_) - 1),
@@ -664,7 +666,8 @@ struct AsanThread {
     if (tid_ == 0) return; // no need to announce the main thread.
     if (!announced_) {
       announced_ = true;
-      Printf("Thread T%d created here:\n", tid_);
+      CHECK(parent_);
+      Printf("Thread T%d created by T%d here:\n", tid_, parent_->tid_);
       PrintStack(stack_);
     }
   }
@@ -690,6 +693,7 @@ struct AsanThread {
   }
 
  private:
+  AsanThread *parent_;
   void *(*start_routine_) (void *);
   void *arg_;
   StackTrace stack_;
@@ -1544,7 +1548,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(start_routine, arg, &stack);
+  new (t) AsanThread(tl_current_thread, start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
@@ -1861,7 +1865,7 @@ static void asan_init() {
 
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(0, 0, 0);
+  new (t) AsanThread(0, 0, 0, 0);
   tl_current_thread = t;
   tl_current_thread->ThreadStart();
 
