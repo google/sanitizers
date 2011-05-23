@@ -1188,11 +1188,6 @@ class MallocInfo {
     return 0;
   }
 
-  bool IsKnownAddressSLOW(uintptr_t addr) {
-    ScopedLock lock(&mu_);
-    return find_malloced(addr) || find_freed(addr);
-  }
-
   void DescribeAddress(uintptr_t sp, uintptr_t bp, uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
 
@@ -1586,52 +1581,6 @@ int sigaction(int signum, const struct sigaction *act,
 }
 
 // -------------------------- Run-time entry ------------------- {{{1
-extern "C"
-void asan_slow_path(uintptr_t addr, uintptr_t size_and_is_w) {
-  uintptr_t addr_8_aligned = (addr >> 3) << 3;
-  uint64_t *ptr_8_aligned = (uint64_t*)addr_8_aligned;
-  uint64_t this_qword = ptr_8_aligned[0];
-  uint64_t &left_qword = ptr_8_aligned[-1];
-  uint64_t &right_qword = ptr_8_aligned[1];
-
-  if (this_qword != kInMemoryPoison64) {
-    // Only some of the bytes in this qword are poisoned.
-    // All bytes in this qword starting from addr should be poisoned
-    uint8_t *beg = (uint8_t*)addr;
-    uint8_t *end = (uint8_t*)(addr_8_aligned + 8);
-    CHECK(beg < end);
-    for (uint8_t *p8 = beg; p8 < end; p8++) {
-      if (*p8 != kInMemoryPoison8) return;
-    }
-    // and also the memory at the right should be poisoned.
-    if (right_qword != kInMemoryPoison64) return;
-  } else {
-    // All the bytes in this qword are poisoned.
-    // Either left or right qword should be poisoned too.
-    if (left_qword != kInMemoryPoison64 && right_qword != kInMemoryPoison64)
-      return;
-  }
-
-  if (!malloc_info.IsKnownAddressSLOW(addr)) return;
-
-  size_t size = size_and_is_w & 15;
-  bool is_w = size_and_is_w  & 16;
-  Printf("AddressSanitizer: slow path "PP" "PP" %s of size %ld\n",
-         addr, addr, is_w ? "WRITE" : "READ",  size);
-  uint8_t *beg = (uint8_t*)(addr - 16);
-  uint8_t *end = (uint8_t*)(addr + 16);
-  for (uint8_t *p = beg; p <= end; p++) {
-    uint32_t val = *p;
-    if (p == (uint8_t*)addr) {
-      Printf("-- %x -- ", val);
-    } else {
-      Printf("%x", val);
-    }
-  }
-  Printf("\n");
-  malloc_info.DescribeAddress(0, 0, addr, size);
-}
-
 static void PrintUnwinderHint() {
   if (F_fast_unwind) {
     Printf("HINT: if your stack trace looks short or garbled, "
