@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
+
 CC=gcc
 CXX=g++
 
@@ -20,7 +22,7 @@ CLANG_BUILD=../clang_build/Release+Asserts
 CLANG_CXX=$(CLANG_BUILD)/bin/clang++
 CLANG_LIB=$(CLANG_BUILD)/lib
 
-INSTALL_DIR=../asan_clang
+INSTALL_DIR=../asan_clang_$(PLATFORM)
 
 LIBS=#-lpthread -ldl
 BITS=64
