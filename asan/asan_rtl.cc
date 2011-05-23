@@ -1731,11 +1731,10 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     real_addr = real_addr_from_shadow;
   }
 
-  Printf("%s of size %d at "PP"; shadow: "PP"; mem: "PP" thread T%d\n",
+  Printf("%s of size %d at "PP" thread T%d (bad: "PP"; shadow: "PP")\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size,
-          addr, shadow_addr, real_addr,
-          tl_current_thread->tid());
+          access_size, real_addr, tl_current_thread->tid(),
+          addr, shadow_addr);
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
