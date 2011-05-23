@@ -52,23 +52,12 @@ SUFF=zzz
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
-install_cleanup:
-	rm -f $(INSTALL_DIR)/lib/libLLVM*
-	rm -f $(INSTALL_DIR)/lib/libclang*
-	rm -f $(INSTALL_DIR)/bin/llvm-mc
-	rm -f $(INSTALL_DIR)/bin/llvm-objdump
-	rm -f $(INSTALL_DIR)/bin/llc
-	rm -f $(INSTALL_DIR)/bin/lli
-	rm -f $(INSTALL_DIR)/bin/bugpoint
-	rm -f $(INSTALL_DIR)/bin/opt
-	du -sh $(INSTALL_DIR)
-	du -sh `find $(INSTALL_DIR) -size +1000k` | sort -g
-
-
-install: clang all
+install:
 	rm -rf $(INSTALL_DIR)
-	mkdir  $(INSTALL_DIR)
-	cp -rf $(CLANG_BUILD)/* $(INSTALL_DIR)
+	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/bin $(INSTALL_DIR)/lib
+	for f in clang; do cp $(CLANG_BUILD)/bin/$$f $(INSTALL_DIR)/bin/$$f; done
+	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
+	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
 libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR)
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party \
