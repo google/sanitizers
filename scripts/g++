@@ -1,9 +1,0 @@
-#!/usr/bin/env python
-#
-# A wrapper for gcc that detects whether gcc is used as a compiler or linker
-# and either instruments the compiled source files or calls ./ld to link
-# the object files.
-
-from common import *
-gcc(LLVM_GPP, GPP)
-
