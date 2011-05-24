@@ -1217,7 +1217,9 @@ class MallocInfo {
         } else {
           Printf("\n");
         }
-
+        Printf("HINT: this may be a false positive if your program uses "
+               "some custom stack unwind mechanism\n"
+               "      (longjmp and C++ exceptions *are* supported)\n");
         t->Announce();
         return;
       }
