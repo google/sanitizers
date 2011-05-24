@@ -1555,7 +1555,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
-#if __WORDSIZE == 64
+#if 0
 extern "C"
 void* mmap(void *start, size_t length,
            int prot, int flags,
