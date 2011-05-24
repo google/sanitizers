@@ -22,7 +22,9 @@
 #include <vector>
 #include <pthread.h>
 #include <stdint.h>
+#include <setjmp.h>
 #include "gtest/gtest.h"
+
 
 #ifndef __APPLE__
 #include <malloc.h>
@@ -432,6 +434,60 @@ TEST(AddressSanitizer, GuiltyStackFrame3Test) {
   if (__asan_byte_to_byte_shadow) return;
   EXPECT_DEATH(Frame3(3), "#3[ a-z0-9]*Frame3.*allocated in frame #3");
 }
+
+
+__attribute__((noinline))
+void LongJmpFunc1(jmp_buf buf) {
+  // create three red zones for these two stack objects.
+  int a;
+  int b;
+
+  int *A = Ident(&a);
+  int *B = Ident(&b);
+  *A = *B;
+  longjmp(buf, 1);
+}
+
+__attribute__((noinline))
+void SigLongJmpFunc1(sigjmp_buf buf) {
+  // create three red zones for these two stack objects.
+  int a;
+  int b;
+
+  int *A = Ident(&a);
+  int *B = Ident(&b);
+  *A = *B;
+  siglongjmp(buf, 1);
+}
+
+
+__attribute__((noinline))
+void TouchStackFunc() {
+  int a[100]; // long array will intersect with redzones from LongJmpFunc1.
+  int *A = Ident(a);
+  for (int i = 0; i < 100; i++)
+    A[i] = i*i;
+}
+
+// Test that we handle longjmp and do not report fals positives on stack.
+TEST(AddressSanitizer, LongJmpTest) {
+  static jmp_buf buf;
+  if (!setjmp(buf)) {
+    LongJmpFunc1(buf);
+  } else {
+    TouchStackFunc();
+  }
+}
+
+TEST(AddressSanitizer, SigLongJmpTest) {
+  static sigjmp_buf buf;
+  if (!sigsetjmp(buf, 1)) {
+    SigLongJmpFunc1(buf);
+  } else {
+    TouchStackFunc();
+  }
+}
+
 
 __attribute__((noinline))
 static int LargeFunction(bool do_bad_access) {

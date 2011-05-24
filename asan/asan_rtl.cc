@@ -35,6 +35,7 @@
 #include <sys/ucontext.h>
 #include <string>
 #include <dlfcn.h>
+// must not include <setjmp.h>
 
 using std::string;
 
@@ -292,6 +293,7 @@ typedef void* (*mmap_f)(void *start, size_t length,
 typedef void *(*malloc_f)(size_t);
 typedef void *(*realloc_f)(void*, size_t);
 typedef void  (*free_f)(void*);
+typedef void (*longjmp_f)(void *env, int val);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
 
@@ -301,6 +303,8 @@ static mmap_f           real_mmap;
 static malloc_f         real_malloc;
 static realloc_f        real_realloc;
 static free_f           real_free;
+static longjmp_f        real_longjmp;
+static longjmp_f        real_siglongjmp;
 static pthread_create_f real_pthread_create;
 
 // -------------------------- Stats ---------------- {{{1
@@ -1580,6 +1584,26 @@ int sigaction(int signum, const struct sigaction *act,
   return 0;
 }
 
+
+static void UnpoisonStackFromHereToTop() {
+  int local_stack;
+  uintptr_t top = tl_current_thread->stack_top();
+  uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
+  uintptr_t top_shadow = MemToShadow(top);
+  uintptr_t bot_shadow = MemToShadow(bottom);
+  memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
+}
+
+extern "C" void longjmp(void *env, int val) {
+  UnpoisonStackFromHereToTop();
+  real_longjmp(env, val);
+}
+
+extern "C" void siglongjmp(void *env, int val) {
+  UnpoisonStackFromHereToTop();
+  real_siglongjmp(env, val);
+}
+
 // -------------------------- Run-time entry ------------------- {{{1
 static void PrintUnwinderHint() {
   if (F_fast_unwind) {
@@ -1789,6 +1813,8 @@ static void asan_init() {
   CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
   CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
+  CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
+  CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
 
 
