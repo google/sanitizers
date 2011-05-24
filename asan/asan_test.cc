@@ -488,6 +488,25 @@ TEST(AddressSanitizer, SigLongJmpTest) {
   }
 }
 
+__attribute__((noinline))
+void ThrowFunc() {
+  // create three red zones for these two stack objects.
+  int a;
+  int b;
+
+  int *A = Ident(&a);
+  int *B = Ident(&b);
+  *A = *B;
+  throw 1;
+}
+
+TEST(AddressSanitizer, CxxExceptionTest) {
+  try {
+    ThrowFunc();
+  } catch (...) {}
+  TouchStackFunc();
+}
+
 
 __attribute__((noinline))
 static int LargeFunction(bool do_bad_access) {

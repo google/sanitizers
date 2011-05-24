@@ -294,6 +294,7 @@ typedef void *(*malloc_f)(size_t);
 typedef void *(*realloc_f)(void*, size_t);
 typedef void  (*free_f)(void*);
 typedef void (*longjmp_f)(void *env, int val);
+typedef void (*cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
 
@@ -305,6 +306,7 @@ static realloc_f        real_realloc;
 static free_f           real_free;
 static longjmp_f        real_longjmp;
 static longjmp_f        real_siglongjmp;
+static cxa_throw_f      real_cxa_throw;
 static pthread_create_f real_pthread_create;
 
 // -------------------------- Stats ---------------- {{{1
@@ -1604,6 +1606,11 @@ extern "C" void siglongjmp(void *env, int val) {
   real_siglongjmp(env, val);
 }
 
+extern "C" void __cxa_throw(void *a, void *b, void *c) {
+  UnpoisonStackFromHereToTop();
+  real_cxa_throw(a, b, c);
+}
+
 // -------------------------- Run-time entry ------------------- {{{1
 static void PrintUnwinderHint() {
   if (F_fast_unwind) {
@@ -1815,6 +1822,7 @@ static void asan_init() {
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
+  CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
 
 
