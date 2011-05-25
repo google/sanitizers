@@ -226,7 +226,6 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
       : cast<LoadInst>(*mop).getPointerOperand();
   const Type *OrigPtrTy = Addr->getType();
   const Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
-  bool in_mem_needs_extra_load = isa<StoreInst>(*mop);
 
   unsigned type_size = 0;  // in bits
   if (OrigTy->isSized()) {
@@ -250,7 +249,6 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     // appropriate size.
     OrigTy = IntegerType::get(*Context, type_size);
     OrigPtrTy = PointerType::get(OrigTy, 0);
-    in_mem_needs_extra_load = true;
   }
 
   IRBuilder<> irb1(BI->getParent(), BI);
