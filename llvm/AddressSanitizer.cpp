@@ -181,7 +181,6 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
     to->setMetadata("dbg", dbg);
 }
 
-
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   if (ClByteToByteShadow) {
     // Shadow |= kFullLowShadowMask
@@ -373,8 +372,16 @@ static bool blockHasException(BasicBlock &bb) {
         return true;
       }
     }
-
   }
+  return false;
+}
+
+static bool blockOrItsSuccHasException(BasicBlock &bb) {
+  if (blockHasException(bb)) return true;
+  const TerminatorInst *term = bb.getTerminator();
+  if (term->getNumSuccessors() == 1 &&
+      blockHasException(*term->getSuccessor(0)))
+    return true;
   return false;
 }
 
@@ -384,7 +391,6 @@ bool AddressSanitizer::handleFunction(Function &F) {
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
 
-
   if (TD->getPointerSize() == 4) {
     // For 32-bit arch the mapping is always compact.
     ClByteToByteShadow = false;
@@ -393,14 +399,13 @@ bool AddressSanitizer::handleFunction(Function &F) {
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
-    if (blockHasException(*FI)) continue;
+    if (blockOrItsSuccHasException(*FI)) continue;
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
           (isa<StoreInst>(BI) && ClInstrumentWrites)) {
         to_instrument.insert(BI);
       }
-
     }
   }
 

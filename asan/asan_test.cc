@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 #include <vector>
 #include <pthread.h>
 #include <stdint.h>
@@ -507,6 +508,11 @@ TEST(AddressSanitizer, CxxExceptionTest) {
   TouchStackFunc();
 }
 
+TEST(AddressSanitizer, DISABLED_MemsetTest) {
+  char array[100];
+  char *a = Ident(array);
+  memset(a, 0, 101);
+}
 
 __attribute__((noinline))
 static int LargeFunction(bool do_bad_access) {
