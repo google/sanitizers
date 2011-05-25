@@ -98,6 +98,8 @@ const unsigned kAsanStackRedzone = 32;
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
+  void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, 
+                         Value *Addr, size_t type_size, bool is_w);
   void instrumentMemIntrinsic(BasicBlock::iterator &BI);
   void instrumentMemIntrinsicParam(Value *addr, Value *size, 
                                    Instruction *insert_before, bool is_w);
@@ -220,20 +222,15 @@ void AddressSanitizer::instrumentMemIntrinsic(BasicBlock::iterator &BI) {
 
 void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
-  int is_store = !!isa<StoreInst>(*mop);
-  Value *Addr = is_store
+  int is_w = !!isa<StoreInst>(*mop);
+  Value *Addr = is_w
       ? cast<StoreInst>(*mop).getPointerOperand()
       : cast<LoadInst>(*mop).getPointerOperand();
   const Type *OrigPtrTy = Addr->getType();
   const Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
 
-  unsigned type_size = 0;  // in bits
-  if (OrigTy->isSized()) {
-    type_size = TD->getTypeStoreSizeInBits(OrigTy);
-  } else {
-    errs() << "Type " << *OrigTy << " has unknown size!\n";
-    assert(false);
-  }
+  assert(OrigTy->isSized());
+  unsigned type_size = TD->getTypeStoreSizeInBits(OrigTy);
 
   if (type_size != 8  && type_size != 16
       && type_size != 32 && type_size != 64) {
@@ -241,21 +238,19 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     return;
   }
 
-  uint8_t telltale_value = is_store * 16 + (type_size / 8);
-
-  if (!(OrigTy->isIntOrIntVectorTy() || OrigTy->isPointerTy()) ||
-      TD->getTypeSizeInBits(OrigTy) != type_size) {
-    // This type is unsupported by the ICMP instruction. Cast it to the int of
-    // appropriate size.
-    OrigTy = IntegerType::get(*Context, type_size);
-    OrigPtrTy = PointerType::get(OrigTy, 0);
-  }
-
   IRBuilder<> irb1(BI->getParent(), BI);
+  instrumentAddress(mop, irb1, Addr, type_size, is_w);
+}
+
+void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, Value *Addr,
+                                         size_t type_size, bool is_w) {
+  uint8_t telltale_value = is_w * 16 + (type_size / 8);
+
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
-  const Type *ShadowTy    = ClByteToByteShadow ? OrigTy    : ByteTy;
-  const Type *ShadowPtrTy = ClByteToByteShadow ? OrigPtrTy : BytePtrTy;
+  const Type *ShadowTy  = IntegerType::get(
+      *Context, ClByteToByteShadow ? type_size : 8);
+  const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
   Value *PaddedShadowPtr = ShadowPtr;
@@ -274,7 +269,8 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   // but we're ok with that as long as we break from the loop immediately
   // after insrtumentMop().
 
-  Instruction *CheckTerm = splitBlockAndInsertIfThen(BI, Cmp);
+  Instruction *CheckTerm = splitBlockAndInsertIfThen(
+      cast<Instruction>(Cmp)->getNextNode(), Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
   Value *UpdateShadowIntPtr = irb2.CreateShl(ShadowPtr, ClCrOS ? 2 : 1);
@@ -306,7 +302,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   }
   Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
   Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
-  CloneDebugInfo(mop, CheckStoreInst);
+  CloneDebugInfo(orig_mop, CheckStoreInst);
 }
 
 //virtual
