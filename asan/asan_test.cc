@@ -358,7 +358,8 @@ TEST(AddressSanitizer, DoubleFreeTest) {
 template<class T>
 __attribute__((noinline))
 static T Ident(T t) {
-  return t;
+  static volatile int zero = 0;
+  return t + zero;
 }
 
 template<int kSize>
@@ -508,10 +509,15 @@ TEST(AddressSanitizer, CxxExceptionTest) {
   TouchStackFunc();
 }
 
-TEST(AddressSanitizer, DISABLED_MemsetTest) {
-  char array[100];
-  char *a = Ident(array);
-  memset(a, 0, 101);
+TEST(AddressSanitizer, DISABLED_MemIntrinTest) {
+  int n = 100;
+  char *src = (char*)malloc(n);
+  char *dst = (char*)malloc(n);
+  memset(Ident(src), 0, Ident(n) + 1);
+  memcpy(Ident(dst), Ident(src), Ident(n) + 1);
+  memmove(Ident(src), Ident(dst), Ident(n) + 1);
+  free(src);
+  free(dst);
 }
 
 __attribute__((noinline))

@@ -634,6 +634,7 @@ struct AsanThread {
     CHECK(AddrIsInMem(stack_bottom_));
     CHECK(AddrIsInMem(stack_top_));
 
+
     { // Insert this thread into live_threads_
       ScopedLock lock(&mu_);
       this->next_ = live_threads_;

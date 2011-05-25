@@ -98,6 +98,9 @@ const unsigned kAsanStackRedzone = 32;
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
+  void instrumentMemIntrinsic(BasicBlock::iterator &BI);
+  void instrumentMemIntrinsicParam(Value *addr, Value *size, 
+                                   Instruction *insert_before, bool is_w);
   Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
   bool handleFunction(Function &F);
   bool poisonStackInFunction(Function &F);
@@ -198,6 +201,22 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   // (Shadow >> 3) | mask
   return irb.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
 }
+
+void AddressSanitizer::instrumentMemIntrinsicParam(
+    Value *addr, Value *size, Instruction *insert_before, bool is_w) {
+  // errs() << "memintrin: " << *addr << " -- " << *size << "\n";
+}
+
+void AddressSanitizer::instrumentMemIntrinsic(BasicBlock::iterator &BI) {
+  if (MemSetInst *mset = dyn_cast<MemSetInst>(BI)) {
+    instrumentMemIntrinsicParam(mset->getDest(), mset->getLength(), BI, true);
+  } else if (MemTransferInst *mtran = dyn_cast<MemTransferInst>(BI)) {
+    instrumentMemIntrinsicParam(mtran->getSource(), mtran->getLength(), 
+                                BI, false);
+    instrumentMemIntrinsicParam(mtran->getDest(), mtran->getLength(), BI, true);
+  }
+}
+
 
 void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
@@ -403,7 +422,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
-          (isa<StoreInst>(BI) && ClInstrumentWrites)) {
+          (isa<StoreInst>(BI) && ClInstrumentWrites) || 
+          isa<MemIntrinsic>(BI)) {
         to_instrument.insert(BI);
       }
     }
@@ -420,8 +440,12 @@ bool AddressSanitizer::handleFunction(Function &F) {
       // errs() << F.getNameStr() << (isa<StoreInst>(BI) ? " st" : " ld") << "\n";
       // Instrument LOAD or STORE.
       if (ClDebugMin < 0 || ClDebugMax < 0 ||
-          (n_instrumented >= ClDebugMin && n_instrumented <= ClDebugMax))
-        instrumentMop(BI);
+          (n_instrumented >= ClDebugMin && n_instrumented <= ClDebugMax)) {
+        if (isa<StoreInst>(BI) || isa<LoadInst>(BI))
+          instrumentMop(BI);
+        else
+          instrumentMemIntrinsic(BI);
+      }
       n_instrumented++;
       // BI is put into a separate block, so we need to stop processing this
       // one, making sure we don't instrument it twice.
