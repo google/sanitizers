@@ -634,6 +634,10 @@ struct AsanThread {
     CHECK(AddrIsInMem(stack_bottom_));
     CHECK(AddrIsInMem(stack_top_));
 
+    // clear the shadow state for the entire stack.
+    uintptr_t shadow_bot = MemToShadow(stack_bottom_);
+    uintptr_t shadow_top = MemToShadow(stack_top_);
+    memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 
     { // Insert this thread into live_threads_
       ScopedLock lock(&mu_);

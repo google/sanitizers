@@ -509,6 +509,31 @@ TEST(AddressSanitizer, CxxExceptionTest) {
   TouchStackFunc();
 }
 
+void *ThreadStackReuseFunc1(void *) {
+  // create three red zones for these two stack objects.
+  int a;
+  int b;
+
+  int *A = Ident(&a);
+  int *B = Ident(&b);
+  *A = *B;
+  pthread_exit(0);
+  return 0;
+}
+
+void *ThreadStackReuseFunc2(void *) {
+  TouchStackFunc();
+  return 0;
+}
+
+TEST(AddressSanitizer, ThreadStackReuseTest) {
+  pthread_t t;
+  pthread_create(&t, 0, ThreadStackReuseFunc1, 0);
+  pthread_join(t, 0);
+  pthread_create(&t, 0, ThreadStackReuseFunc2, 0);
+  pthread_join(t, 0);
+}
+
 TEST(AddressSanitizer, DISABLED_MemIntrinTest) {
   int n = 100;
   char *src = (char*)malloc(n);
