@@ -312,12 +312,15 @@ void *EmptyThread(void *a) {
 }
 
 TEST(AddressSanitizer, ManyThreadsTest) {
-  const int kNumThreads = __WORDSIZE == 64 ? 1000 : 50;
+  const int kNumThreads = 1000;
   pthread_t t[kNumThreads];
-  for (int i = 0; i < kNumThreads; i++) {
+  int n = kNumThreads;
+  if (__WORDSIZE == 32 || __asan_byte_to_byte_shadow)
+    n = kNumThreads / 10;
+  for (int i = 0; i < n; i++) {
     pthread_create(&t[i], 0, (void* (*)(void*))EmptyThread, (void*)i);
   }
-  for (int i = 0; i < kNumThreads; i++) {
+  for (int i = 0; i < n; i++) {
     pthread_join(t[i], 0);
   }
 }
