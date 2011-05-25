@@ -651,6 +651,10 @@ struct AsanThread {
 
     void *res = start_routine_(arg_);
 
+    if (F_v == 1) {
+      Printf("T%d exited\n", tid_);
+    }
+
     { // Remove this from live_threads_
       ScopedLock lock(&mu_);
       AsanThread *prev = this->prev_;
