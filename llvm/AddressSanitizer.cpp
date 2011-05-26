@@ -59,6 +59,8 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
        cl::desc("instrument write instructions"), cl::init(true));
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
+static cl::opt<bool> ClMemIntrin("asan-memintrin",
+       cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
        cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
 static cl::opt<bool>  ClCrOS("asan-cros",
@@ -72,7 +74,7 @@ static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"), cl
 static cl::opt<string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
 static cl::opt<int> ClDebugMin("asan-debug-min",
                                cl::desc("Debug min inst"), cl::init(-1));
-static cl::opt<int> ClDebugMax("asan-debug-max", 
+static cl::opt<int> ClDebugMax("asan-debug-max",
                                cl::desc("Debug man inst"), cl::init(-1));
 
 // }}}
@@ -446,8 +448,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
-          (isa<StoreInst>(BI) && ClInstrumentWrites) || 
-          isa<MemIntrinsic>(BI)) {
+          (isa<StoreInst>(BI) && ClInstrumentWrites) ||
+          (isa<MemIntrinsic>(BI) && ClMemIntrin)) {
         to_instrument.insert(BI);
       }
     }
