@@ -52,6 +52,7 @@ static void PrintCurrentStack(uintptr_t pc = 0);
 }}while(0)
 
 __attribute__((constructor)) static void asan_init();
+static __thread bool tl_need_real_malloc;
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kStackTraceMax = 64;
@@ -71,6 +72,7 @@ static int    F_debug;
 static int    F_symbolize;  // use in-process symbolizer
 static int    F_demangle;
 static bool   F_fast_unwind;
+static uintptr_t  F_debug_malloc_size;
 
 // -------------------------- Atomic ---------------- {{{1
 int AtomicInc(int *a) {
@@ -85,11 +87,16 @@ int AtomicDec(int *a) {
 static FILE *asan_out;
 
 static void Printf(const char *format, ...) {
+  const int kLen = 1024 * 4;
+  char buffer[kLen];
   va_list args;
+  tl_need_real_malloc = true;  // TODO(kcc): make sure we don't malloc here.
   va_start(args, format);
-  vfprintf(asan_out, format, args);
+  vsnprintf(buffer, kLen, format, args);
+  fwrite(buffer, 1, strlen(buffer), asan_out);
   fflush(asan_out);
   va_end(args);
+  tl_need_real_malloc = false;
 }
 
 // -------------------------- Build modes --------------------- {{{1
@@ -390,7 +397,6 @@ uint8_t __asan_aux;
 
 
 
-static __thread bool tl_need_real_malloc;
 
 // -------------------------- Mapping ---------------- {{{1
 
@@ -902,7 +908,7 @@ struct Ptr {
   uintptr_t rz1_end() { return rz1_beg() + F_red_zone_words * kWordSize; }
   uintptr_t beg()     {
     CHECK((rz1_end() % 8) == 0);
-    return rz1_end(); 
+    return rz1_end();
   }
   uintptr_t end()     { return beg() + size; }
   uintptr_t rz2_beg() { return end(); }
@@ -926,6 +932,13 @@ struct Ptr {
             beg(), end(), rz1_beg(), rz1_end(), rz2_beg(), rz2_end(),
             size, size,
             after);
+  }
+
+  void PrintRaw(int where) {
+    Printf("this=%p magic=%x orig_libc_offset=%x size=%lx "
+           "next=%p prev=%p mt=%p ft=%p where=%d\n",
+           this, magic, orig_libc_offset, size,
+           next, prev, malloc_thread, free_thread, where);
   }
 
   void DescribeAddress(uintptr_t addr, size_t access_size) {
@@ -1236,6 +1249,7 @@ class MallocInfo {
     }
 
     if (freed) {
+      if (F_v) freed->PrintRaw(__LINE__);
       freed->DescribeAddress(addr, access_size);
       Printf("freed by thread T%d here:\n",
              freed->free_thread->tid());
@@ -1250,6 +1264,7 @@ class MallocInfo {
     }
 
     if (malloced) {
+      if (F_v) malloced->PrintRaw(__LINE__);
       malloced->DescribeAddress(addr, access_size);
       // size_t kStackSize = 100;
       // uintptr_t stack[kStackSize];
@@ -1356,6 +1371,13 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   if (F_v >= 2)
     p->PrintOneLine("asan_malloc: ");
 
+  if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
+    p->PrintOneLine("asan_malloc: ");
+    p->PrintRaw(__LINE__);
+    PrintCurrentStack();
+    stats.PrintStats();
+  }
+
   p->CopyStackTraceForMalloc(stack);
   malloc_info.on_malloc(p);
   p->PoisonOnMalloc();
@@ -1390,6 +1412,13 @@ void asan_free(void *addr, StackTrace &stack) {
 
   if (F_v >= 2)
     p->PrintOneLine("asan_free:   ", "\n");
+
+  if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
+    p->PrintOneLine("asan_free:   ");
+    p->PrintRaw(__LINE__);
+    PrintCurrentStack();
+    stats.PrintStats();
+  }
 
   p->PoisonOnFree(1);
   p->CopyStackTraceForFree(stack);
@@ -1813,6 +1842,7 @@ static void asan_init() {
   F_demangle = IntFlagValue(options, "demangle=", 1);
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
+  F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
 
   if (F_atexit) {
     atexit(asan_atexit);
