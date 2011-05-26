@@ -100,7 +100,7 @@ struct AddressSanitizer : public ModulePass {
   void instrumentMop(BasicBlock::iterator &BI);
   void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, 
                          Value *Addr, size_t type_size, bool is_w);
-  void instrumentMemIntrinsic(MemIntrinsic *mem_intr);
+  bool instrumentMemIntrinsic(MemIntrinsic *mem_intr);
   void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr, Value *size,
                                    Instruction *insert_before, bool is_w);
   Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
