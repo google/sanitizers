@@ -538,12 +538,34 @@ TEST(AddressSanitizer, ThreadStackReuseTest) {
 }
 
 TEST(AddressSanitizer, DISABLED_MemIntrinTest) {
-  int n = 100;
-  char *src = (char*)malloc(n);
-  char *dst = (char*)malloc(n);
-  memset(Ident(src), 0, Ident(n) + 1);
-  memcpy(Ident(dst), Ident(src), Ident(n) + 1);
-  memmove(Ident(src), Ident(dst), Ident(n) + 1);
+  size_t size = Ident(100);
+  char *src = Ident((char*)malloc(size));
+  char *dst = Ident((char*)malloc(size));
+  memset(src, 0, size);
+  size_t zero = Ident(0);
+
+  EXPECT_DEATH(memset(src, 0, 101), "located 0 bytes to the right");
+  EXPECT_DEATH(memset(src, 0, 105), "located 4 bytes to the right");
+  EXPECT_DEATH(memset(src - 1, 0, 100), "located 1 bytes to the left");
+  EXPECT_DEATH(memset(src - 5, 0, 100), "located 5 bytes to the left");
+
+  EXPECT_DEATH(memset(src, 0, size + 5), "located 4 bytes to the right");
+  EXPECT_DEATH(memset(src - 5, 0, size), "located 5 bytes to the left");
+
+  memset(src-10, 0, zero);
+  memset(src+104, 0, zero);
+
+  memcpy(dst, src, size);
+  memcpy(src, dst, 100);
+  memmove(dst, src, size);
+  memmove(src, dst, 100);
+
+  EXPECT_DEATH(memcpy(src, dst, 101), "located 0 bytes to the right");
+  EXPECT_DEATH(memcpy(src-1, dst, size), "located 1 bytes to the left");
+  EXPECT_DEATH(memmove(src, dst-1, 5), "located 1 bytes to the left");
+  EXPECT_DEATH(memmove(src, dst+10, 100), "located 9 bytes to the right");
+
+
   free(src);
   free(dst);
 }

@@ -100,8 +100,8 @@ struct AddressSanitizer : public ModulePass {
   void instrumentMop(BasicBlock::iterator &BI);
   void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, 
                          Value *Addr, size_t type_size, bool is_w);
-  void instrumentMemIntrinsic(BasicBlock::iterator &BI);
-  void instrumentMemIntrinsicParam(Value *addr, Value *size, 
+  void instrumentMemIntrinsic(MemIntrinsic *mem_intr);
+  void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr, Value *size,
                                    Instruction *insert_before, bool is_w);
   Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
   bool handleFunction(Function &F);
@@ -204,19 +204,48 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   return irb.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
 }
 
-void AddressSanitizer::instrumentMemIntrinsicParam(
+void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
     Value *addr, Value *size, Instruction *insert_before, bool is_w) {
-  // errs() << "memintrin: " << *addr << " -- " << *size << "\n";
+  // Check the first byte.
+  {
+    IRBuilder<> irb(insert_before->getParent(), insert_before);
+    instrumentAddress(orig_mop, irb, addr, 8, is_w);
+  }
+  // Check the last byte.
+  {
+    IRBuilder<> irb(insert_before->getParent(), insert_before);
+    Value *size_minus_one = irb.CreateSub(
+        size, ConstantInt::get(size->getType(), 1));
+    Value *addr_long = irb.CreatePointerCast(addr, LongTy);
+    Value *addr_plus_size_minus_one = irb.CreateAdd(addr_long, size_minus_one);
+    instrumentAddress(orig_mop, irb, addr_plus_size_minus_one, 8, is_w);
+  }
 }
 
-void AddressSanitizer::instrumentMemIntrinsic(BasicBlock::iterator &BI) {
-  if (MemSetInst *mset = dyn_cast<MemSetInst>(BI)) {
-    instrumentMemIntrinsicParam(mset->getDest(), mset->getLength(), BI, true);
-  } else if (MemTransferInst *mtran = dyn_cast<MemTransferInst>(BI)) {
-    instrumentMemIntrinsicParam(mtran->getSource(), mtran->getLength(), 
-                                BI, false);
-    instrumentMemIntrinsicParam(mtran->getDest(), mtran->getLength(), BI, true);
+// Instrument memset/memmove/memcpy
+void AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *mem_intr) {
+  Value *dst = mem_intr->getDest();
+  MemTransferInst *mtran = dyn_cast<MemTransferInst>(mem_intr);
+  Value *src = mtran ? mtran->getSource() : NULL;
+  Value *length = mem_intr->getLength();
+
+  Constant *const_length = dyn_cast<Constant>(length);
+  Instruction *insert_before = mem_intr->getNextNode();
+  if (const_length) {
+    assert(!const_length->isNullValue());
+  } else {
+    // The size is not a constant so it could be zero -- check at run-time.
+    IRBuilder<> irb(insert_before->getParent(), insert_before);
+
+    Value *cmp = irb.CreateICmpNE(length,
+                                   Constant::getNullValue(length->getType()));
+    BranchInst *term = splitBlockAndInsertIfThen(insert_before, cmp);
+    insert_before = term;
   }
+
+  instrumentMemIntrinsicParam(mem_intr, dst, length, insert_before, true);
+  if (src)
+    instrumentMemIntrinsicParam(mem_intr, src, length, insert_before, false);
 }
 
 
@@ -438,7 +467,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
         if (isa<StoreInst>(BI) || isa<LoadInst>(BI))
           instrumentMop(BI);
         else
-          instrumentMemIntrinsic(BI);
+          instrumentMemIntrinsic(cast<MemIntrinsic>(BI));
       }
       n_instrumented++;
       // BI is put into a separate block, so we need to stop processing this
