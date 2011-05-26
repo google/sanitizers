@@ -223,7 +223,7 @@ void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
 }
 
 // Instrument memset/memmove/memcpy
-void AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *mem_intr) {
+bool AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *mem_intr) {
   Value *dst = mem_intr->getDest();
   MemTransferInst *mtran = dyn_cast<MemTransferInst>(mem_intr);
   Value *src = mtran ? mtran->getSource() : NULL;
@@ -232,7 +232,7 @@ void AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *mem_intr) {
   Constant *const_length = dyn_cast<Constant>(length);
   Instruction *insert_before = mem_intr->getNextNode();
   if (const_length) {
-    assert(!const_length->isNullValue());
+    if (const_length->isNullValue()) return false;
   } else {
     // The size is not a constant so it could be zero -- check at run-time.
     IRBuilder<> irb(insert_before->getParent(), insert_before);
@@ -246,6 +246,7 @@ void AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *mem_intr) {
   instrumentMemIntrinsicParam(mem_intr, dst, length, insert_before, true);
   if (src)
     instrumentMemIntrinsicParam(mem_intr, src, length, insert_before, false);
+  return true;
 }
 
 
