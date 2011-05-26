@@ -551,7 +551,7 @@ TEST(AddressSanitizer, Store128Test) {
   free(a);
 }
 
-TEST(AddressSanitizer, DISABLED_MemIntrinTest) {
+TEST(AddressSanitizer, MemIntrinTest) {
   size_t size = Ident(100);
   char *src = Ident((char*)malloc(size));
   char *dst = Ident((char*)malloc(size));
