@@ -509,6 +509,12 @@ class ProcSelfMaps {
     Printf("%s\n", proc_self_maps);
   }
 
+  void FilterOutAsanRtlFileName(char file_name[]) {
+    if (strstr(file_name, "asan_rtl.cc")) {
+      strcpy(file_name,   "_asan_rtl_");
+    }
+  }
+
   void PrintPc(uintptr_t pc, int idx) {
     const int kLen = 1024;
     char func[kLen+1] = "",
@@ -534,6 +540,7 @@ class ProcSelfMaps {
                                &offset);
       tl_need_real_malloc = false;
       if (res == 0) {
+        FilterOutAsanRtlFileName(file);
         Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
         return;
       }
