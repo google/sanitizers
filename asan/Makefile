@@ -77,7 +77,7 @@ bfds$(SUFF):
 $(CLANG_LIB)/libasan$(SUFF).a: libasan$(SUFF).o bfds$(SUFF)
 	ar ruv $@ $< bfds$(SUFF)/*.o
 
-asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB)
+asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) libasan$(SUFF).so
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
