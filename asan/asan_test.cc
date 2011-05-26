@@ -24,7 +24,9 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <setjmp.h>
+#include <assert.h>
 #include "gtest/gtest.h"
+#include <emmintrin.h>
 
 
 #ifndef __APPLE__
@@ -535,6 +537,18 @@ TEST(AddressSanitizer, ThreadStackReuseTest) {
   pthread_join(t, 0);
   pthread_create(&t, 0, ThreadStackReuseFunc2, 0);
   pthread_join(t, 0);
+}
+
+TEST(AddressSanitizer, Store128Test) {
+  char *a = Ident((char*)malloc(Ident(12)));
+  char *p = a;
+  if (((uintptr_t)a % 16) != 0)
+    p = a + 8;
+  assert(((uintptr_t)p % 16) == 0);
+  __m128i value_wide = _mm_set1_epi16(0x1234);
+  EXPECT_DEATH(_mm_store_si128((__m128i*)p, value_wide),
+               "WRITE of size 16.*located 0 bytes to the right of 12-byte");
+  free(a);
 }
 
 TEST(AddressSanitizer, DISABLED_MemIntrinTest) {

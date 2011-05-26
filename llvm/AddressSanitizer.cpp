@@ -263,7 +263,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   unsigned type_size = TD->getTypeStoreSizeInBits(OrigTy);
 
   if (type_size != 8  && type_size != 16
-      && type_size != 32 && type_size != 64) {
+      && type_size != 32 && type_size != 64 && type_size != 128) {
     // TODO(kcc): do something better.
     return;
   }
@@ -274,12 +274,12 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
 void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, Value *Addr,
                                          size_t type_size, bool is_w) {
-  uint8_t telltale_value = is_w * 16 + (type_size / 8);
+  uint8_t telltale_value = is_w * 64 + (type_size / 8);
 
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
   const Type *ShadowTy  = IntegerType::get(
-      *Context, ClByteToByteShadow ? type_size : 8);
+      *Context, ClByteToByteShadow ? type_size : max(8UL, type_size / 8));
   const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
@@ -306,7 +306,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   Value *UpdateShadowIntPtr = irb2.CreateShl(ShadowPtr, ClCrOS ? 2 : 1);
   Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
 
-  if (!ClByteToByteShadow && type_size != 64) {
+  if (!ClByteToByteShadow && type_size < 64) {
     // addr & 7
     Value *Lower3Bits = irb2.CreateAnd(
         AddrLong, ConstantInt::get(LongTy, 7));

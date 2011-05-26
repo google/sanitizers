@@ -1723,8 +1723,8 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     // 43 c6 04 09 18          movb   $0x18,(%r9,%r9,1)
     access_size_and_type = insn[4];
   }
-  bool is_write = access_size_and_type & 16;
-  int access_size = access_size_and_type & 15;
+  bool is_write = access_size_and_type & 64;
+  int access_size = access_size_and_type & 63;
 
   if (F_print_malloc_lists) {
     malloc_info.print_lists("OnSIGSEGV");
