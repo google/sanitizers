@@ -218,6 +218,7 @@ void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
     IRBuilder<> irb(insert_before->getParent(), insert_before);
     Value *size_minus_one = irb.CreateSub(
         size, ConstantInt::get(size->getType(), 1));
+    size_minus_one = irb.CreateIntCast(size_minus_one, LongTy, false);
     Value *addr_long = irb.CreatePointerCast(addr, LongTy);
     Value *addr_plus_size_minus_one = irb.CreateAdd(addr_long, size_minus_one);
     instrumentAddress(orig_mop, irb, addr_plus_size_minus_one, 8, is_w);
