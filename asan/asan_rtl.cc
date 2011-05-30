@@ -74,6 +74,14 @@ static int    F_demangle;
 static bool   F_fast_unwind;
 static uintptr_t  F_debug_malloc_size;
 
+#if __WORDSIZE == 32
+static int F_vmsplit2g;  // computed in init, not read from flags.
+#else
+const int F_vmsplit2g = 0;
+#endif
+
+
+
 // -------------------------- Atomic ---------------- {{{1
 int AtomicInc(int *a) {
   return __sync_add_and_fetch(a, 1);
@@ -211,7 +219,7 @@ Shadow = (Mem >> 3) | 0x20000000;
 Mem = (Shadow & ~0x20000000) << 3
 Bad = Shadow * 2
 
-CrOS (32-bit):
+CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
 
 || `[0x00000000, 0x1fffffff]` || `LowMem`           ||
 || `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
@@ -231,8 +239,8 @@ const size_t kLowMemEnd     = (1UL << 39);
 const size_t kFullLowShadowBeg = kFullLowShadowMask;
 const size_t kFullLowShadowEnd = kFullLowShadowMask << 1;
 
-const size_t kHighMemBeg     = 0x0000700000000000UL;
-const size_t kHighMemEnd     = 0x00007fffffffffffUL;
+const size_t kHighMemBeg[]     = {0x0000700000000000UL};
+const size_t kHighMemEnd[]     = {0x00007fffffffffffUL};
 
 const size_t kFullHighShadowBeg  = 0x0000100000000000UL;
 const size_t kFullHighShadowEnd  = 0x00001fffffffffffUL;
@@ -252,13 +260,10 @@ const size_t kCompactShadowMask  = kCompactShadowMask64;
 #else  // __WORDSIZE == 32
 
 const size_t kCompactShadowMask  = kCompactShadowMask32;
-#if ASAN_CROS
-const size_t kHighMemBeg     = 0x30000000;
-const size_t kHighMemEnd     = 0x7fffffff;
-#else
-const size_t kHighMemBeg     = 0x80000000;
-const size_t kHighMemEnd     = 0xffffffff;
-#endif
+// These two arrays are indexed by F_vmsplit2g
+const size_t kHighMemBeg[] = {0x80000000, 0x30000000};
+const size_t kHighMemEnd[] = {0xffffffff, 0x7fffffff};
+
 const size_t kLowMemEnd     = kCompactShadowMask;
 
 
@@ -269,13 +274,9 @@ const size_t kLowMemEnd     = kCompactShadowMask;
 #if !ASAN_BYTE_TO_BYTE_SHADOW
 const size_t kLowShadowBeg   = kCompactShadowMask;
 const size_t kLowShadowEnd   = (kLowMemEnd >> 3) | kCompactShadowMask;
-const size_t kHighShadowBeg  = (kHighMemBeg >> 3) | kCompactShadowMask;
-const size_t kHighShadowEnd  = (kHighMemEnd >> 3) | kCompactShadowMask;
 #else
 const size_t kLowShadowBeg   = kFullLowShadowBeg;
 const size_t kLowShadowEnd   = kFullLowShadowEnd;
-const size_t kHighShadowBeg  = kFullHighShadowBeg;
-const size_t kHighShadowEnd  = kFullHighShadowEnd;
 #endif
 
 // -------------------------- Globals --------------------- {{{1
@@ -408,19 +409,11 @@ static bool AddrIsInLowShadow(uintptr_t a) {
 }
 
 static bool AddrIsInHighMem(uintptr_t a) {
-  return a >= kHighMemBeg && a <= kHighMemEnd;
-}
-
-static bool AddrIsInHighShadow(uintptr_t a) {
-  return a >= kHighShadowBeg && a < kHighShadowEnd;
+  return a >= kHighMemBeg[F_vmsplit2g] && a <= kHighMemEnd[F_vmsplit2g];
 }
 
 static bool AddrIsInMem(uintptr_t a) {
   return AddrIsInLowMem(a) || AddrIsInHighMem(a);
-}
-
-static bool AddrIsInShadow(uintptr_t a) {
-  return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
 static uintptr_t MemToShadow(uintptr_t p) {
@@ -431,6 +424,15 @@ static uintptr_t MemToShadow(uintptr_t p) {
   uintptr_t shadow = (p | kFullLowShadowMask) & (~kFullHighShadowMask);
   return shadow + kBankPadding;
 #endif
+}
+
+static bool AddrIsInHighShadow(uintptr_t a) {
+  return a >= MemToShadow(kHighMemBeg[F_vmsplit2g]) 
+      && a <  MemToShadow(kHighMemEnd[F_vmsplit2g]);
+}
+
+static bool AddrIsInShadow(uintptr_t a) {
+  return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
 static uintptr_t ShadowToMem(uintptr_t shadow) {
@@ -862,17 +864,18 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
 //#endif
 //}
 
-static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type) {
+static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
+                        bool abort_on_failure = true) {
   void *res = real_mmap((void*)start_page, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   // Printf("%p => %p\n", (void*)start_page, res);
   char *ch = (char*)res;
-  if (res == (void*)-1L) {
+  if (res == (void*)-1L && abort_on_failure) {
     OutOfMemoryMessage(mem_type, n_pages * kPageSize);
     ShowStatsAndAbort();
   }
-  CHECK(res == (void*)start_page);
+  CHECK(res == (void*)start_page || res == (void*)-1L);
   return ch;
 }
 
@@ -1887,6 +1890,16 @@ static void asan_init() {
   proc_self_maps.Init();
 
   if (__WORDSIZE == 32) {
+    // Compute F_vmsplit2g
+    uintptr_t kTestPageInHigh2G = 0x81234000;
+    void *test_page = mmap_pages(kTestPageInHigh2G, 1, "kTestPageInHigh2G", false);
+    if (test_page == (void*)kTestPageInHigh2G) {
+      if (F_v) Printf("Full 32-bit address space\n");
+      munmap(test_page, kPageSize);
+    } else {
+      if (F_v) Printf("CONFIG_VMSPLIT_2G=y 32-bit address space\n");
+    }
+
     // Map the entire shadow region.
     uintptr_t beg = kCompactShadowMask32;
     uintptr_t end = kCompactShadowMask32 << 1;
@@ -1913,7 +1926,8 @@ static void asan_init() {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
     Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
-    Printf("HighShadow : ["PP","PP")\n", kHighShadowBeg, kHighShadowEnd);
+    Printf("HighShadow : ["PP","PP")\n", MemToShadow(kHighMemBeg[F_vmsplit2g]),
+           MemToShadow(kHighMemEnd[F_vmsplit2g]));
     Printf("HighMem    : ["PP","PP")\n", kHighMemBeg, kHighMemEnd);
     Printf("red_zone_words=%ld\n", F_red_zone_words);
     Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
