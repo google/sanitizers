@@ -1715,17 +1715,20 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t shadow_addr = BadToShadow(addr);
   uintptr_t real_addr = ShadowToMem(shadow_addr);
   uint8_t *insn = (uint8_t*)pc;
+  uint8_t *c604 = insn;
   int access_size_and_type = 0;
-  // TODO(kcc): disassemble all variants.
-  if (insn[0] == 0xc6 && insn[1] == 0x04 && insn[2] == 0xcd) {
-    // c6 04 cd 00 00 00 00 12 movb   $0x12,0x0(,%ecx,8)
-    access_size_and_type = insn[7];
-  } else if (insn[0] == 0xc6 && insn[1] == 0x04) {
-    // c6 04 1b 14             movb   $0x14,(%rbx,%rbx,1)
-    access_size_and_type = insn[3];
-  } else if (insn[0] == 0x43 && insn[1] == 0xc6 && insn[2] == 0x04) {
-    // 43 c6 04 09 18          movb   $0x18,(%r9,%r9,1)
-    access_size_and_type = insn[4];
+  // TODO(kcc): make sure we disassemble all variants.
+  // Examples:
+  //    c6 04 85 00 00 00 00 77 movb   $0x77,0x0(,%eax,4)
+  //    c6 04 cd 00 00 00 00 12 movb   $0x12,0x0(,%ecx,8)
+  //    c6 04 1b 14             movb   $0x14,(%rbx,%rbx,1)
+  // 43 c6 04 09 18             movb   $0x18,(%r9,%r9,1)
+  if (c604[0] == 0x43) c604++;
+  if (c604[0] == 0xc6 && c604[1] == 0x04) {
+    int telltail_pos = 3;
+    while (c604[telltail_pos] == 0)
+      telltail_pos++;
+    access_size_and_type = c604[telltail_pos];
   }
   bool is_write = access_size_and_type & 64;
   int access_size = access_size_and_type & 63;
