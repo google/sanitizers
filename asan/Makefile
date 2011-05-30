@@ -28,7 +28,6 @@ INSTALL_DIR=../asan_clang_$(PLATFORM)
 LIBS=#-lpthread -ldl
 BITS=64
 BYTE_TO_BYTE=0
-CROS=0
 ASAN_STACK=1
 
 RTL_SRC=asan_rtl.cc
@@ -44,11 +43,11 @@ all: t_cros t_64 t_64full t_32
 t_cros:
 	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=1 SUFF=32cros   asan_test32cros
 t_64:
-	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 asan_test64
+	$(MAKE) BITS=64 BYTE_TO_BYTE=0 CROS=0 SUFF=64 asan_test64
 t_64full:
-	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full asan_test64full
+	$(MAKE) BITS=64 BYTE_TO_BYTE=1 CROS=0 SUFF=64full asan_test64full
 t_32:
-	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   asan_test32
+	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=0 SUFF=32   asan_test32
 
 SUFF=zzz
 
@@ -64,7 +63,7 @@ install:
 
 libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR) Makefile
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party -DASAN_REVISION=\"$(SVNVERSION)\" \
-	   -m$(BITS) -DASAN_CROS=$(CROS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
+	   -m$(BITS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
 libasan$(SUFF).so: libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl

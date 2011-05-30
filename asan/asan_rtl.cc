@@ -116,11 +116,6 @@ static void Printf(const char *format, ...) {
 # define ASAN_IN_MEMORY_POISON 0
 #endif
 
-#ifndef ASAN_CROS
-# define ASAN_CROS 0
-#endif
-
-
 // -------------------------- Mapping --------------------- {{{1
 const size_t kWordSize = __WORDSIZE / 8;
 const size_t kWordSizeInBits = 8 * kWordSize;
@@ -449,12 +444,12 @@ static uintptr_t ShadowToMem(uintptr_t shadow) {
 }
 
 static uintptr_t BadToShadow(uintptr_t bad) {
-#if ASAN_CROS
-  return bad >> 2;
-#elif !ASAN_BYTE_TO_BYTE_SHADOW
-  return bad >> 1;
-#else
+  if (F_vmsplit2g)
+    return bad >> 2;
+#if ASAN_BYTE_TO_BYTE_SHADOW
   return (bad >> 1) + kBankPadding;
+#else
+  return bad >> 1;
 #endif
 }
 
@@ -1889,14 +1884,17 @@ static void asan_init() {
 
   proc_self_maps.Init();
 
-  if (__WORDSIZE == 32) {
+#if __WORDSIZE == 32
+  {
     // Compute F_vmsplit2g
     uintptr_t kTestPageInHigh2G = 0x81234000;
     void *test_page = mmap_pages(kTestPageInHigh2G, 1, "kTestPageInHigh2G", false);
     if (test_page == (void*)kTestPageInHigh2G) {
+      F_vmsplit2g = 0;
       if (F_v) Printf("Full 32-bit address space\n");
       munmap(test_page, kPageSize);
     } else {
+      F_vmsplit2g = 1;
       if (F_v) Printf("CONFIG_VMSPLIT_2G=y 32-bit address space\n");
     }
 
@@ -1905,6 +1903,7 @@ static void asan_init() {
     uintptr_t end = kCompactShadowMask32 << 1;
     mmap_pages(beg, (end - beg) / kPageSize, "32-bit shadow memmory");
   }
+#endif  // __WORDSIZE == 32
 
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
@@ -1926,9 +1925,10 @@ static void asan_init() {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
     Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
     Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
-    Printf("HighShadow : ["PP","PP")\n", MemToShadow(kHighMemBeg[F_vmsplit2g]),
+    Printf("HighShadow : ["PP","PP")\n", 
+           MemToShadow(kHighMemBeg[F_vmsplit2g]),
            MemToShadow(kHighMemEnd[F_vmsplit2g]));
-    Printf("HighMem    : ["PP","PP")\n", kHighMemBeg, kHighMemEnd);
+    Printf("HighMem    : ["PP","PP")\n", kHighMemBeg[F_vmsplit2g], kHighMemEnd[F_vmsplit2g]);
     Printf("red_zone_words=%ld\n", F_red_zone_words);
     Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)F_fast_unwind);
