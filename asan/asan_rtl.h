@@ -27,7 +27,6 @@ const uint64_t kFullLowShadowMask = (1ULL << 42);
 
 const uint64_t kCompactShadowMask64 = 1ULL << 44;
 const size_t   kCompactShadowMask32 = 1UL << 29;
-const size_t   kCROSShadowMask32 = 1UL << 29;
 
 const uint8_t  kInMemoryPoison8  = 0xab;
 const uint16_t kInMemoryPoison16 = 0xabab;

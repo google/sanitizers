@@ -200,7 +200,7 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   // Shadow >> 3
   Shadow = irb.CreateLShr(Shadow, 3);
   uint64_t mask = TD->getPointerSize() == 4
-      ? (ClCrOS ? kCROSShadowMask32 : kCompactShadowMask32)
+      ? kCompactShadowMask32
       : kCompactShadowMask64;
   // (Shadow >> 3) | mask
   return irb.CreateOr(Shadow, ConstantInt::get(LongTy, mask));

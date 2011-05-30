@@ -251,12 +251,11 @@ const size_t kCompactShadowMask  = kCompactShadowMask64;
 
 #else  // __WORDSIZE == 32
 
+const size_t kCompactShadowMask  = kCompactShadowMask32;
 #if ASAN_CROS
-const size_t kCompactShadowMask  = kCROSShadowMask32;
 const size_t kHighMemBeg     = 0x30000000;
 const size_t kHighMemEnd     = 0x7fffffff;
 #else
-const size_t kCompactShadowMask  = kCompactShadowMask32;
 const size_t kHighMemBeg     = 0x80000000;
 const size_t kHighMemEnd     = 0xffffffff;
 #endif
@@ -1889,8 +1888,8 @@ static void asan_init() {
 
   if (__WORDSIZE == 32) {
     // Map the entire shadow region.
-    uintptr_t beg = kCROSShadowMask32;
-    uintptr_t end = kCROSShadowMask32 << 1;
+    uintptr_t beg = kCompactShadowMask32;
+    uintptr_t end = kCompactShadowMask32 << 1;
     mmap_pages(beg, (end - beg) / kPageSize, "32-bit shadow memmory");
   }
 
