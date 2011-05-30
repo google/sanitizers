@@ -40,18 +40,4 @@ const size_t kBankPadding = 64;
 // actuall address given the BAD address, because the mapping is 8B-to-1B).
 const size_t kOffsetToStoreEffectiveAddressInShadow = -64;
 
-// Bits in __asan_flag
-enum AsanFlag {
-  AsanFlagShouldBePresent,
-  AsanFlag32,
-  AsanFlag64,
-  AsanFlagCrOS,
-  AsanFlagByteToByteShadow,
-  AsanFlagByteToQwordShadow,
-  AsanFlagInMemoryPoison,
-  AsanFlagUseCall,
-  AsanFlagUseSegv,
-  AsanFlagLast
-};
-
 #endif  // ASAN_RTL_H

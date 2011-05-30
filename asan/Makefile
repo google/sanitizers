@@ -81,7 +81,7 @@ asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LI
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
-		-mllvm -asan-cros=$(CROS) \
+		-mllvm -asan-vmsplit2g=$(CROS) \
 		-mllvm -asan-stack=$(ASAN_STACK) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
 	ASAN_LIB=$(CLANG_LIB)/libasan$(SUFF).a \

@@ -63,8 +63,9 @@ static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
        cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
-static cl::opt<bool>  ClCrOS("asan-cros",
-       cl::desc("Instrument for 32-bit ChromeOS"), cl::init(false));
+static cl::opt<bool>  ClVmSplit2G("asan-vmsplit2g",
+       cl::desc("Instrument for 32-bit kernel configured with "
+                "CONFIG_VMSPLIT_2G=y (ChromeOS)"), cl::init(false));
 static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
@@ -306,7 +307,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  Value *UpdateShadowIntPtr = irb2.CreateShl(ShadowPtr, ClCrOS ? 2 : 1);
+  Value *UpdateShadowIntPtr = irb2.CreateShl(ShadowPtr, ClVmSplit2G ? 2 : 1);
   Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
 
   if (!ClByteToByteShadow && type_size < 64) {
@@ -363,11 +364,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
   asan_aux = new GlobalVariable(M, ByteTy, /*isConstant*/false,
       GlobalValue::ExternalWeakLinkage, /*Initializer*/0, "__asan_aux",
       /*InsertBefore*/0, /*ThreadLocal*/false);
-
-  uintptr_t flag_value = AsanFlagShouldBePresent;
-  flag_value |= 1 << (LongSize == 64 ? AsanFlag64 : AsanFlag32);
-  if (ClCrOS)
-    flag_value |= 1 << AsanFlagCrOS;
 
   bool res = false;
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
