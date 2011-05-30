@@ -73,6 +73,7 @@ static int    F_symbolize;  // use in-process symbolizer
 static int    F_demangle;
 static bool   F_fast_unwind;
 static uintptr_t  F_debug_malloc_size;
+static bool   F_mt;  // set to 0 if you have only one thread.
 
 #if __WORDSIZE == 32
 static int F_vmsplit2g;  // computed in init, not read from flags.
@@ -84,10 +85,12 @@ const int F_vmsplit2g = 0;
 
 // -------------------------- Atomic ---------------- {{{1
 int AtomicInc(int *a) {
+  if (!F_mt) return ++(*a);
   return __sync_add_and_fetch(a, 1);
 }
 
 int AtomicDec(int *a) {
+  if (!F_mt) return --(*a);
   return __sync_add_and_fetch(a, -1);
 }
 
@@ -350,10 +353,12 @@ static Stats stats;
 class ScopedLock {
  public:
   ScopedLock(pthread_mutex_t *mu) : mu_(mu) {
-    pthread_mutex_lock(mu_);
+    if (F_mt)
+      pthread_mutex_lock(mu_);
   }
   ~ScopedLock() {
-    pthread_mutex_unlock(mu_);
+    if (F_mt)
+      pthread_mutex_unlock(mu_);
   }
  private:
   pthread_mutex_t *mu_;
@@ -1850,6 +1855,7 @@ static void asan_init() {
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
+  F_mt = IntFlagValue(options, "mt=", 1);
 
   if (F_atexit) {
     atexit(asan_atexit);
