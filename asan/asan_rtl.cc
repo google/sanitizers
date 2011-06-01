@@ -63,7 +63,6 @@ static size_t F_red_zone_words;  // multiple of 8
 static size_t F_delay_queue_size;
 static int    F_print_maps;
 static int    F_print_malloc_lists;
-static int    F_abort_after_first;
 static int    F_atexit;
 static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
@@ -445,16 +444,6 @@ static uintptr_t ShadowToMem(uintptr_t shadow) {
   else
     mem &= ~(kFullLowShadowMask);
   return mem;
-#endif
-}
-
-static uintptr_t BadToShadow(uintptr_t bad) {
-  if (F_vmsplit2g)
-    return bad >> 2;
-#if ASAN_BYTE_TO_BYTE_SHADOW
-  return (bad >> 1) + kBankPadding;
-#else
-  return bad >> 1;
 #endif
 }
 
@@ -1717,24 +1706,31 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t sp = ucontext->uc_mcontext.gregs[REG_ESP];
 #endif
 #endif
-  uintptr_t shadow_addr = BadToShadow(addr);
-  uintptr_t real_addr = ShadowToMem(shadow_addr);
-  uint8_t *insn = (uint8_t*)pc;
-  uint8_t *c604 = insn;
-  int access_size_and_type = 0;
-  // TODO(kcc): make sure we disassemble all variants.
-  // Examples:
-  //    c6 04 85 00 00 00 00 77 movb   $0x77,0x0(,%eax,4)
-  //    c6 04 cd 00 00 00 00 12 movb   $0x12,0x0(,%ecx,8)
-  //    c6 04 1b 14             movb   $0x14,(%rbx,%rbx,1)
-  // 43 c6 04 09 18             movb   $0x18,(%r9,%r9,1)
-  if (c604[0] == 0x43) c604++;
-  if (c604[0] == 0xc6 && c604[1] == 0x04) {
-    int telltail_pos = 3;
-    while (c604[telltail_pos] == 0)
-      telltail_pos++;
-    access_size_and_type = c604[telltail_pos];
+
+  uintptr_t shadow_beg = ASAN_BYTE_TO_BYTE_SHADOW
+      ? kFullLowShadowMask : kCompactShadowMask;
+  uintptr_t real_addr = *(uintptr_t*)shadow_beg;
+
+  if (addr != kCrashAddr || real_addr == 0) {
+    Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "
+           ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
+           getpid(), addr, pc, bp, sp);
+    Printf("AddressSanitizer can not provide additional info. ABORTING\n");
+    PrintCurrentStack(pc);
+    PrintBytes("PC: ",(uintptr_t*)pc);
+    ShowStatsAndAbort();
   }
+
+  uint8_t *c604 = (uint8_t*)pc;
+  int access_size_and_type = 0;
+  // c6 04 25 ff 0f 00 00 48    movb   $0x48,0xfff
+  // c6 05 ff 0f 00 00 44       movb   $0x44,0xfff
+  if (c604[0] == 0xc6 && c604[1] == 0x04 && c604[2] == 0x25)
+    access_size_and_type = c604[7];
+  if (c604[0] == 0xc6 && c604[1] == 0x05)
+    access_size_and_type = c604[6];
+
+
   bool is_write = access_size_and_type & 64;
   int access_size = access_size_and_type & 63;
 
@@ -1746,31 +1742,11 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   proc_self_maps.Init();
   Printf("==%d== ERROR: AddressSanitizer crashed on address "
          ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
-         getpid(), addr, pc, bp, sp);
+         getpid(), real_addr, pc, bp, sp);
 
-  if (!AddrIsInShadow(shadow_addr)) {
-    Printf("The failing address is not inside the shadow region.\n"
-           "AddressSanitizer can not provide additional info. ABORTING\n");
-    PrintCurrentStack(pc);
-    Printf("shadow: "PP"\n", shadow_addr);
-    PrintBytes("PC: ",(uintptr_t*)pc);
-    ShowStatsAndAbort();
-  }
-
-  uintptr_t real_addr_from_shadow =
-      *(uintptr_t*)(shadow_addr + kOffsetToStoreEffectiveAddressInShadow);
-  if (F_debug) {
-    Printf("ShadowToMem:    "PP"\n", real_addr);
-    Printf("AddrFromShadow: "PP"\n", real_addr_from_shadow);
-  }
-  if (real_addr_from_shadow >= real_addr && real_addr_from_shadow < real_addr + 8) {
-    real_addr = real_addr_from_shadow;
-  }
-
-  Printf("%s of size %d at "PP" thread T%d (bad: "PP"; shadow: "PP")\n",
+  Printf("%s of size %d at "PP" thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size, real_addr, tl_current_thread->tid(),
-          addr, shadow_addr);
+          access_size, real_addr, tl_current_thread->tid());
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
@@ -1779,7 +1755,6 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   PrintCurrentStack(pc);
 
   CHECK(AddrIsInMem(real_addr));
-  CHECK(shadow_addr == MemToShadow(real_addr));
 
   malloc_info.DescribeAddress(sp, bp, real_addr, access_size);
 
@@ -1787,27 +1762,24 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     proc_self_maps.Print();
   }
 
-  if (F_abort_after_first) {
-    Printf("==%d== ABORTING\n", getpid()),
-    stats.PrintStats();
-    Printf("Shadow byte and word:\n");
-    Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
-    uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow));
-    Printf("More shadow bytes:\n");
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow-4*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow-3*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow-2*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow-1*kWordSize));
-    PrintBytes("=>", (uintptr_t*)(aligned_shadow+0*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow+1*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
-    PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
-    AsanAbort();
-  } else {
-    mmap_pages(page, 1, "bad memory");
-  }
+  uintptr_t shadow_addr = MemToShadow(real_addr);
+  Printf("==%d== ABORTING\n", getpid()),
+      stats.PrintStats();
+  Printf("Shadow byte and word:\n");
+  Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
+  uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow));
+  Printf("More shadow bytes:\n");
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-4*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-3*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-2*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-1*kWordSize));
+  PrintBytes("=>", (uintptr_t*)(aligned_shadow+0*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+1*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
+  AsanAbort();
 }
 
 // -------------------------- Init ------------------- {{{1
@@ -1845,7 +1817,6 @@ static void asan_init() {
 
   F_print_maps     = IntFlagValue(options, "print_maps=", 0);
   F_print_malloc_lists = IntFlagValue(options, "print_malloc_lists=", 0);
-  F_abort_after_first = IntFlagValue(options, "abort_after_first=", 1);
   F_atexit = IntFlagValue(options, "atexit=", 0);
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
@@ -1912,7 +1883,13 @@ static void asan_init() {
     uintptr_t end = kCompactShadowMask32 << 1;
     mmap_pages(beg, (end - beg) / kPageSize, "32-bit shadow memmory");
   }
-#endif  // __WORDSIZE == 32
+#else  // __WORDSIZE == 64
+  {
+    uintptr_t first_shadow_page = ASAN_BYTE_TO_BYTE_SHADOW
+        ? kFullLowShadowMask : kCompactShadowMask;
+    mmap_pages(first_shadow_page, 1, "First shadow page");
+  }
+#endif  // __WORDSIZE == 64
 
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));

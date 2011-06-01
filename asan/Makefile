@@ -39,15 +39,13 @@ GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
-all: t_cros t_64 t_64full t_32
-t_cros:
-	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=1 SUFF=32cros   asan_test32cros
+all: t_64 t_64full t_32
 t_64:
-	$(MAKE) BITS=64 BYTE_TO_BYTE=0 CROS=0 SUFF=64 asan_test64
+	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 asan_test64
 t_64full:
-	$(MAKE) BITS=64 BYTE_TO_BYTE=1 CROS=0 SUFF=64full asan_test64full
+	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full asan_test64full
 t_32:
-	$(MAKE) BITS=32 BYTE_TO_BYTE=0 CROS=0 SUFF=32   asan_test32
+	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   asan_test32
 
 SUFF=zzz
 
@@ -80,7 +78,6 @@ asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LI
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
-		-mllvm -asan-vmsplit2g=$(CROS) \
 		-mllvm -asan-stack=$(ASAN_STACK) \
 		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
 	ASAN_LIB=$(CLANG_LIB)/libasan$(SUFF).a \
@@ -89,7 +86,7 @@ asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LI
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS)"
+	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS) -g"
 
 clean:
 	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*  a.out perf.data log

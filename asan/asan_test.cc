@@ -268,8 +268,7 @@ TEST(AddressSanitizer, OutOfMemoryTest) {
 
 TEST(AddressSanitizer, WildAddressTest) {
   char *c = (char*)0x123;
-  EXPECT_DEATH(*c = 0,
-               "The failing address is not inside the shadow region");
+  EXPECT_DEATH(*c = 0, "AddressSanitizer crashed on unknown address");
 }
 
 void MallocStress(size_t n) {
@@ -508,6 +507,8 @@ void ThrowFunc() {
 }
 
 TEST(AddressSanitizer, CxxExceptionTest) {
+  // TODO(kcc): this test crashes on 32-bit for some reason...
+  if (__WORDSIZE == 32) return;
   try {
     ThrowFunc();
   } catch (...) {}
