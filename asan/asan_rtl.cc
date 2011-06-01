@@ -1643,7 +1643,7 @@ static void PrintUnwinderHint() {
   }
 }
 
-static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
+static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
   // If we trapped while accessing an address that looks like shadow
   // -- just map that page.
@@ -1721,7 +1721,7 @@ static void     OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   int access_size = access_size_and_type & 63;
 
   if (F_print_malloc_lists) {
-    malloc_info.print_lists("OnSIGSEGV");
+    malloc_info.print_lists("ASAN_OnSIGSEGV");
   }
   Printf("==================================================================\n");
   PrintUnwinderHint();
@@ -1841,7 +1841,7 @@ static void asan_init() {
   {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = OnSIGSEGV;
+    sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
     real_sigaction(SIGSEGV, &sigact, 0);
   }
