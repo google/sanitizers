@@ -63,9 +63,6 @@ static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
        cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
-static cl::opt<bool>  ClVmSplit2G("asan-vmsplit2g",
-       cl::desc("Instrument for 32-bit kernel configured with "
-                "CONFIG_VMSPLIT_2G=y (ChromeOS)"), cl::init(false));
 static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
@@ -307,9 +304,6 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  Value *UpdateShadowIntPtr = irb2.CreateShl(ShadowPtr, ClVmSplit2G ? 2 : 1);
-  Value *CheckPtr = irb2.CreateIntToPtr(UpdateShadowIntPtr, BytePtrTy);
-
   if (!ClByteToByteShadow && type_size < 64) {
     // addr & 7
     Value *Lower3Bits = irb2.CreateAnd(
@@ -328,15 +322,18 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
-  if (!ClByteToByteShadow) {
-    Value *ShadowPlusOffset = irb3.CreateAdd(ShadowPtr,
-      ConstantInt::get(LongTy, kOffsetToStoreEffectiveAddressInShadow));
-    Value *ShadowLongPtr = irb3.CreateIntToPtr(ShadowPlusOffset, LongPtrTy);
-    irb3.CreateStore(AddrLong, ShadowLongPtr);
-  }
+  uint64_t fixed_addr = ClByteToByteShadow
+      ? kFullLowShadowMask
+      : (LongSize == 32 ? kCompactShadowMask32 : kCompactShadowMask64);
+  Value *FixedAddr = irb3.CreateIntToPtr(
+      ConstantInt::get(LongTy, fixed_addr), LongPtrTy);
+  irb3.CreateStore(AddrLong, FixedAddr);
+
+  Value *CrashAddr = irb3.CreateIntToPtr(
+      ConstantInt::get(LongTy, kCrashAddr), BytePtrTy);
   Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
-  Instruction *CheckStoreInst = irb3.CreateStore(TellTale, CheckPtr);
-  CloneDebugInfo(orig_mop, CheckStoreInst);
+  Instruction *CrashInst = irb3.CreateStore(TellTale, CrashAddr);
+  CloneDebugInfo(orig_mop, CrashInst);
 }
 
 //virtual
