@@ -136,19 +136,16 @@ const size_t kPossiblePageClustersBits = 32 - kPageClusterSizeBits - kPageSizeBi
 
 
 /*
-On 64-bit linux the address space is divided into 6 regions:<br>
+On 64-bit linux the address space is divided into 4 regions:<br>
 The Mem regions, `LowMem` and `HighMem`,
 are the regions where the application memory is mapped.<br>
 The Shadow regions, `LowShadow` and `HighShadow`
 are the shadow memory regions corresponding to
 `LowMem` and `HighMem` respectively. <br>
-The Bad regions, `LowBad` and `HighBad`, are unmapped regions.
 
 || `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
 || `[0x0000040000000000, 0x0000080000000000)` || `LowShadow`  ||
-|| `[0x0000080000000000, 0x0000100000000000)` || `LowBad`     ||
 || `[0x00001f0000000000, 0x0000200000000000)` || `HighShadow` ||
-|| `[0x00003e0000000000, 0x0000400000000000)` || `HighBad`    ||
 || `[0x00007f0000000000, 0x0000800000000000)` || `HighMem`    ||
 
 Transforming between Mem and Shadow addresses:
@@ -159,12 +156,6 @@ Transforming between Mem and Shadow addresses:
   Mem = (Shadow < kLowShadowMask *2)
            ? (Shadow & ~kLowShadowMask)
            : (Shadow | kHighShadowMask)
-}}}
-
-Transforming between Shadow and Bad addresses:
-{{{
-  Bad = Shadow << 1;
-  Shadow = Bad >> 1;
 }}}
 
 Every memory access in the compiled program is instrumented like this:
@@ -183,8 +174,12 @@ void write(int *a) {
   shadow_address &= ~kHighShadowMask;
   shadow_address += 64; // to avoid cache bank conflicts.
   if (*(int*)(shadow_address)) {
-    char *bad_address = (char*)(shadow_address * 4);
-    *bad = 0;
+    // - put the effective address 'a' somewhere
+    // - put the access size and type somwehere
+    // - crash
+    // One way to do all that in two instructions:
+    *(uintptr_t*)kLowShadowMask = a;
+    *(uintptr_t*)0xfff = kAccessIsWrite * 64 + kAccessSize;
   }
   *a = 0;
 }
@@ -194,13 +189,10 @@ Regular Linux 64-bit address space, compact shadow (1 byte per qword).
 
 || `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
 || `[0x0000100000000000, 0x0000101000000000)` || `LowShadow`  ||
-|| `[0x0000200000000000, 0x0000202000000000)` || `LowBad`     ||
 || `[0x00001fe000000000, 0x00001fffffffffff]` || `HighShadow` ||
-|| `[0x00002fc000000000, 0x00003fffffffffff]` || `HighBad`    ||
 || `[0x00007f0000000000, 0x00007fffffffffff]` || `HighMem`    ||
 
 Shadow = (Mem >> 3) | 0x0000100000000000;
-Bad = Shadow * 2
 
 
 Regular Linux 32-bit address space:
@@ -208,13 +200,10 @@ Regular Linux 32-bit address space:
 || `[0x00000000, 0x1fffffff]` || `LowMem`           ||
 || `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
 || `[0x30000000, 0x3fffffff]` || `HighShadow`       ||
-|| `[0x40000000, 0x47ffffff]` || `LowBad`           ||
-|| `[0x60000000, 0x7fffffff]` || `HighBad`          ||
 || `[0x80000000, 0xffffffff]` || `HighMem`          ||
 
 Shadow = (Mem >> 3) | 0x20000000;
 Mem = (Shadow & ~0x20000000) << 3
-Bad = Shadow * 2
 
 CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
 
@@ -222,12 +211,9 @@ CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
 || `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
 || `[0x26000000, 0x2fffffff]` || `HighShadow`       ||
 || `[0x30000000, 0x7fffffff]` || `HighMem`          ||
-|| `[0x80000000, 0xffffffff]` || `Bad`              ||
 
 Shadow = (Mem >> 3) | 0x20000000;
 Mem = (Shadow & ~0x20000000) << 3
-Bad = Shadow * 4;
-
 */
 
 #if __WORDSIZE == 64
