@@ -200,7 +200,7 @@ Regular Linux 32-bit address space:
 || `[0x00000000, 0x1fffffff]` || `LowMem`           ||
 || `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
 || `[0x30000000, 0x3fffffff]` || `HighShadow`       ||
-|| `[0x80000000, 0xffffffff]` || `HighMem`          ||
+|| `[0x40000000, 0xffffffff]` || `HighMem`          ||
 
 Shadow = (Mem >> 3) | 0x20000000;
 Mem = (Shadow & ~0x20000000) << 3
@@ -244,7 +244,7 @@ const size_t kCompactShadowMask  = kCompactShadowMask64;
 
 const size_t kCompactShadowMask  = kCompactShadowMask32;
 // These two arrays are indexed by F_vmsplit2g
-const size_t kHighMemBeg[] = {0x80000000, 0x30000000};
+const size_t kHighMemBeg[] = {0x40000000, 0x30000000};
 const size_t kHighMemEnd[] = {0xffffffff, 0x7fffffff};
 
 const size_t kLowMemEnd     = kCompactShadowMask;
