@@ -153,9 +153,6 @@ Transforming between Mem and Shadow addresses:
   kLowShadowMask  = 0x0000040000000000;
   kHighShadowMask = 0x0000600000000000;
   Shadow = Mem | kLowShadowMask & ~kHighShadowMask;
-  Mem = (Shadow < kLowShadowMask *2)
-           ? (Shadow & ~kLowShadowMask)
-           : (Shadow | kHighShadowMask)
 }}}
 
 Every memory access in the compiled program is instrumented like this:
@@ -200,7 +197,6 @@ Regular Linux 32-bit address space:
 || `[0x40000000, 0xffffffff]` || `HighMem`          ||
 
 Shadow = (Mem >> 3) | 0x20000000;
-Mem = (Shadow & ~0x20000000) << 3
 
 CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
 
@@ -210,7 +206,6 @@ CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
 || `[0x30000000, 0x7fffffff]` || `HighMem`          ||
 
 Shadow = (Mem >> 3) | 0x20000000;
-Mem = (Shadow & ~0x20000000) << 3
 */
 
 #if __WORDSIZE == 64
