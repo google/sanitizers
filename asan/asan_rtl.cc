@@ -177,9 +177,6 @@ void write(int *a) {
     // - put the effective address 'a' somewhere
     // - put the access size and type somwehere
     // - crash
-    // One way to do all that in two instructions:
-    *(uintptr_t*)kLowShadowMask = a;
-    *(uintptr_t*)0xfff = kAccessIsWrite * 64 + kAccessSize;
   }
   *a = 0;
 }
