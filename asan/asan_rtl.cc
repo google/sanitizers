@@ -1676,7 +1676,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     return;
   }
 
-  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP"",
+  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP"\n",
          getpid(), addr);
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   PrintCurrentStack();
