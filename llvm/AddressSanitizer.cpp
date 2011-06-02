@@ -326,6 +326,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
+  // Move the failing address to %rax/%eax
   FunctionType *Fn1Ty = FunctionType::get(
       VoidTy, ArrayRef<const Type*>(LongTy), false);
   const char *mov_str = LongSize == 32
@@ -333,6 +334,9 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   Value *asm_mov = InlineAsm::get(
       Fn1Ty, StringRef(mov_str), StringRef("r"), true);
   irb3.CreateCall(asm_mov, AddrLong);
+
+  // crash with ud2; could use int3, but it is less friendly to gdb.
+  // after ud2 put a 1-byte instruction that encodes the access type and size.
 
   const char *telltale_insns[16] = {
     "push   %eax",  // 0x50
@@ -358,7 +362,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   asm_str += telltale_insns[telltale_value];
   Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
   CallInst *asm_call = irb3.CreateCall(my_asm);
-  asm_call->setDoesNotReturn();
+  asm_call->setDoesNotReturn();  // saves on jump
   CloneDebugInfo(orig_mop, asm_call);
 }
 
