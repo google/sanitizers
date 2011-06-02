@@ -275,7 +275,11 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
 
 void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, Value *Addr,
                                          size_t type_size, bool is_w) {
-  uint8_t telltale_value = is_w * 64 + (type_size / 8);
+  unsigned log_of_size_in_bytes = __builtin_ctz(type_size / 8);
+  assert(8U * (1 << log_of_size_in_bytes) == type_size);
+  uint8_t telltale_value = is_w * 8 + log_of_size_in_bytes;
+  assert(telltale_value < 16);
+
 
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
@@ -322,18 +326,40 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
-  uint64_t fixed_addr = ClByteToByteShadow
-      ? kFullLowShadowMask
-      : (LongSize == 32 ? kCompactShadowMask32 : kCompactShadowMask64);
-  Value *FixedAddr = irb3.CreateIntToPtr(
-      ConstantInt::get(LongTy, fixed_addr), LongPtrTy);
-  irb3.CreateStore(AddrLong, FixedAddr);
+  FunctionType *Fn1Ty = FunctionType::get(
+      VoidTy, ArrayRef<const Type*>(LongTy), false);
+  const char *mov_str = LongSize == 32
+      ? "mov $0, %eax" : "mov $0, %rax";
+  Value *asm_mov = InlineAsm::get(
+      Fn1Ty, StringRef(mov_str), StringRef("r"), true);
+  irb3.CreateCall(asm_mov, AddrLong);
 
-  Value *CrashAddr = irb3.CreateIntToPtr(
-      ConstantInt::get(LongTy, kCrashAddr), BytePtrTy);
-  Value *TellTale = ConstantInt::get(ByteTy, telltale_value);
-  Instruction *CrashInst = irb3.CreateStore(TellTale, CrashAddr);
-  CloneDebugInfo(orig_mop, CrashInst);
+  const char *telltale_insns[16] = {
+    "push   %eax",  // 0x50
+    "push   %ecx",  // 0x51
+    "push   %edx",  // 0x52
+    "push   %ebx",  // 0x53
+    "push   %esp",  // 0x54
+    "push   %ebp",  // 0x55
+    "push   %esi",  // 0x56
+    "push   %edi",  // 0x57
+    "pop    %eax",  // 0x58
+    "pop    %ecx",  // 0x59
+    "pop    %edx",  // 0x5a
+    "pop    %ebx",  // 0x5b
+    "pop    %esp",  // 0x5c
+    "pop    %ebp",  // 0x5d
+    "pop    %esi",  // 0x5e
+    "pop    %edi"   // 0x5f
+  };
+
+  FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
+  std::string asm_str = "ud2;";
+  asm_str += telltale_insns[telltale_value];
+  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
+  CallInst *asm_call = irb3.CreateCall(my_asm);
+  asm_call->setDoesNotReturn();
+  CloneDebugInfo(orig_mop, asm_call);
 }
 
 //virtual

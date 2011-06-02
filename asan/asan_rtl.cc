@@ -1596,7 +1596,7 @@ void* mmap(void *start, size_t length,
 
 extern "C"
 sig_t signal(int signum, sig_t handler) {
-  if (signum != SIGSEGV) {
+  if (signum != SIGSEGV && signum != SIGILL) {
     return real_signal(signum, handler);
   }
 }
@@ -1604,7 +1604,7 @@ sig_t signal(int signum, sig_t handler) {
 extern "C"
 int sigaction(int signum, const struct sigaction *act,
                 struct sigaction *oldact) {
-  if (signum != SIGSEGV) {
+  if (signum != SIGSEGV && signum != SIGILL) {
     return real_sigaction(signum, act, oldact);
   }
   return 0;
@@ -1676,6 +1676,14 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     return;
   }
 
+  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP"",
+         getpid(), addr);
+  Printf("AddressSanitizer can not provide additional info. ABORTING\n");
+  PrintCurrentStack();
+  ShowStatsAndAbort();
+}
+
+static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
 #ifdef __APPLE__
   uintptr_t pc = ucontext->uc_mcontext->__ss.__eip;
@@ -1686,42 +1694,28 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_RIP];
   uintptr_t bp = ucontext->uc_mcontext.gregs[REG_RBP];
   uintptr_t sp = ucontext->uc_mcontext.gregs[REG_RSP];
+  uintptr_t ax = ucontext->uc_mcontext.gregs[REG_RAX];
 #else
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_EIP];
   uintptr_t bp = ucontext->uc_mcontext.gregs[REG_EBP];
   uintptr_t sp = ucontext->uc_mcontext.gregs[REG_ESP];
+  uintptr_t ax = ucontext->uc_mcontext.gregs[REG_EAX];
 #endif
 #endif
 
-  uintptr_t shadow_beg = ASAN_BYTE_TO_BYTE_SHADOW
-      ? kFullLowShadowMask : kCompactShadowMask;
-  uintptr_t real_addr = *(uintptr_t*)shadow_beg;
+  uintptr_t real_addr = ax;
 
-  if (addr != kCrashAddr || real_addr == 0) {
-    Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "
-           ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
-           getpid(), addr, pc, bp, sp);
-    Printf("AddressSanitizer can not provide additional info. ABORTING\n");
-    PrintCurrentStack(pc);
-    PrintBytes("PC: ",(uintptr_t*)pc);
-    ShowStatsAndAbort();
-  }
-
-  uint8_t *c604 = (uint8_t*)pc;
-  int access_size_and_type = 0;
-  // c6 04 25 ff 0f 00 00 48    movb   $0x48,0xfff
-  // c6 05 ff 0f 00 00 44       movb   $0x44,0xfff
-  if (c604[0] == 0xc6 && c604[1] == 0x04 && c604[2] == 0x25)
-    access_size_and_type = c604[7];
-  if (c604[0] == 0xc6 && c604[1] == 0x05)
-    access_size_and_type = c604[6];
+  uint8_t *insn = (uint8_t*)pc;
+  CHECK(insn[0] == 0x0f && insn[1] == 0x0b);  // ud2
+  unsigned access_size_and_type = insn[2] - 0x50;
+  CHECK(access_size_and_type < 16);
 
 
-  bool is_write = access_size_and_type & 64;
-  int access_size = access_size_and_type & 63;
+  bool is_write = access_size_and_type & 8;
+  int access_size = 1 << (access_size_and_type & 7);
 
   if (F_print_malloc_lists) {
-    malloc_info.print_lists("ASAN_OnSIGSEGV");
+    malloc_info.print_lists("ASAN_OnSIGILL");
   }
   Printf("==================================================================\n");
   PrintUnwinderHint();
@@ -1837,7 +1831,7 @@ static void asan_init() {
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
 
 
-  // Set the SEGV handler.
+  // Set the SIGSEGV handler.
   {
     struct sigaction sigact;
     memset(&sigact, 0, sizeof(sigact));
@@ -1845,6 +1839,16 @@ static void asan_init() {
     sigact.sa_flags = SA_SIGINFO;
     real_sigaction(SIGSEGV, &sigact, 0);
   }
+
+  // Set the SIGILL handler.
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = ASAN_OnSIGILL;
+    sigact.sa_flags = SA_SIGINFO;
+    real_sigaction(SIGILL, &sigact, 0);
+  }
+
 
   pthread_mutex_init(&shadow_lock, 0);
 

@@ -49,6 +49,13 @@ const size_t kLargeMalloc = 1 << 24;
 
 template<class T>
 __attribute__((noinline))
+static T Ident(T t) {
+  static volatile int zero = 0;
+  return t + zero;
+}
+
+template<class T>
+__attribute__((noinline))
 void asan_write(T *a) {
   *a = 0;
 }
@@ -167,18 +174,34 @@ void NoOpSigaction(int, siginfo_t *siginfo, void *context) {
 
 TEST(AddressSanitizer, SignalTest) {
   signal(SIGSEGV, NoOpSignalHandler);
-  // If asan did not intercept signal,
-  // NoOpSignalHandler will fire later.
+  signal(SIGILL, NoOpSignalHandler);
+  // If asan did not intercept sigaction NoOpSigaction will fire.
+  char *x = Ident((char*)malloc(5));
+  EXPECT_DEATH(x[6]++, "is located 1 bytes to the right");
+  free(Ident(x));
 }
 
 TEST(AddressSanitizer, SigactionTest) {
-  struct sigaction sigact;
-  memset(&sigact, 0, sizeof(sigact));
-  sigact.sa_sigaction = NoOpSigaction;;
-  sigact.sa_flags = SA_SIGINFO;
-  sigaction(SIGSEGV, &sigact, 0);
-  // If asan did not intercept sigaction,
-  // NoOpSigaction will fire later.
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = NoOpSigaction;;
+    sigact.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sigact, 0);
+  }
+
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = NoOpSigaction;;
+    sigact.sa_flags = SA_SIGINFO;
+    sigaction(SIGILL, &sigact, 0);
+  }
+
+  // If asan did not intercept sigaction NoOpSigaction will fire.
+  char *x = Ident((char*)malloc(5));
+  EXPECT_DEATH(x[6]++, "is located 1 bytes to the right");
+  free(Ident(x));
 }
 
 template<class T>
@@ -357,13 +380,6 @@ void DoubleFree() {
 
 TEST(AddressSanitizer, DoubleFreeTest) {
   EXPECT_DEATH(DoubleFree(), "attempting double-free");
-}
-
-template<class T>
-__attribute__((noinline))
-static T Ident(T t) {
-  static volatile int zero = 0;
-  return t + zero;
 }
 
 template<int kSize>
