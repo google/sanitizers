@@ -417,19 +417,6 @@ static bool AddrIsInShadow(uintptr_t a) {
   return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
-static uintptr_t ShadowToMem(uintptr_t shadow) {
-#if !ASAN_BYTE_TO_BYTE_SHADOW
-    return (shadow & ~kCompactShadowMask) << 3;
-#else
-  uintptr_t mem = shadow - kBankPadding;
-  if (mem > kLowShadowEnd)
-    mem |= kFullHighShadowMask;
-  else
-    mem &= ~(kFullLowShadowMask);
-  return mem;
-#endif
-}
-
 // ----------------------- ProcSelfMaps ----------------------------- {{{1
 class ProcSelfMaps {
  public:
