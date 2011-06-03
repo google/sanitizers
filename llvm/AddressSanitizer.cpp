@@ -520,7 +520,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
         Value *addr = getLDSTOperand(BI);
         if (ClOpt && ClOptSameTemp) {
           if (!temps_to_instrument.insert(addr))
-            continue;
+            continue; // We've seen this temp in the current BB.
         }
       } else if (isa<MemIntrinsic>(BI) && ClMemIntrin) {
 
