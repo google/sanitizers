@@ -376,8 +376,12 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   asm_str += telltale_insns[telltale_value];
   Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
   CallInst *asm_call = irb3.CreateCall(my_asm);
-  asm_call->setDoesNotReturn();  // saves on jump
   CloneDebugInfo(orig_mop, asm_call);
+
+  // This saves us one jump, but triggers a bug in RA (or somewhere else):
+  // while building 483.xalancbmk the compiler goes into infinite loop in
+  // llvm::SpillPlacement::iterate() / RAGreedy::growRegion
+  // asm_call->setDoesNotReturn();
 }
 
 // unfinished
