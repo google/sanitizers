@@ -50,7 +50,9 @@
 using namespace llvm;
 using namespace std;
 
-// Command-line flags. {{{1
+// Command-line flags.
+
+// (potentially) user-visible flags.
 static cl::opt<bool> ClAsan("asan",
        cl::desc("enable AddressSanitizer"), cl::init(false));
 static cl::opt<bool> ClInstrumentReads("asan-instrument-reads",
@@ -69,6 +71,14 @@ static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 
+// Optimization flags. Not user visible, used mostly for testing
+// and benchmarking the tool.
+static cl::opt<bool> ClOpt("asan-opt",
+       cl::desc("Optimize instrumentation"), cl::init(true));
+static cl::opt<bool> ClOptSameTemp("asan-opt-same-temp",
+       cl::desc("Instrument the same temp just once"), cl::init(true));
+
+// Debug flags.
 static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
 static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"), cl::init(0));
 static cl::opt<string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
@@ -76,8 +86,6 @@ static cl::opt<int> ClDebugMin("asan-debug-min",
                                cl::desc("Debug min inst"), cl::init(-1));
 static cl::opt<int> ClDebugMax("asan-debug-max",
                                cl::desc("Debug man inst"), cl::init(-1));
-
-// }}}
 
 // Define the Printf function used by the ignore machinery.
 void Printf(const char *format, ...) {
@@ -88,11 +96,10 @@ void Printf(const char *format, ...) {
   va_end(args);
 }
 
-
 namespace {
 
 // We create poisoned rezones of 32 *bytes*
-// With the compact shadow we can poison the entire redzone 
+// With the compact shadow we can poison the entire redzone
 // with one 4-byte store.
 const unsigned kAsanStackAlignment = 32;
 const unsigned kAsanStackRedzone = 32;
@@ -100,7 +107,7 @@ const unsigned kAsanStackRedzone = 32;
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
-  void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, 
+  void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1,
                          Value *Addr, size_t type_size, bool is_w);
   bool instrumentMemIntrinsic(MemIntrinsic *mem_intr);
   void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr, Value *size,
@@ -252,13 +259,18 @@ bool AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *mem_intr) {
   return true;
 }
 
+static Value *getLDSTOperand(Instruction *inst) {
+  if (LoadInst *ld = dyn_cast<LoadInst>(inst)) {
+    return ld->getPointerOperand();
+  }
+  return cast<StoreInst>(*inst).getPointerOperand();
+}
+
 
 void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
   int is_w = !!isa<StoreInst>(*mop);
-  Value *Addr = is_w
-      ? cast<StoreInst>(*mop).getPointerOperand()
-      : cast<LoadInst>(*mop).getPointerOperand();
+  Value *Addr = getLDSTOperand(mop);
   const Type *OrigPtrTy = Addr->getType();
   const Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
 
@@ -286,7 +298,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
   const Type *ShadowTy  = IntegerType::get(
-      *Context, ClByteToByteShadow ? type_size : max(8UL, type_size / 8));
+      *Context, ClByteToByteShadow ? type_size : max((size_t)8, type_size / 8));
   const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
@@ -489,17 +501,28 @@ bool AddressSanitizer::handleFunction(Function &F) {
     ClByteToByteShadow = false;
   }
 
+  SmallSet<Value*, 16> temps_to_instrument;
+
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
     if (blockOrItsSuccHasException(*FI)) continue;
+    temps_to_instrument.clear();
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
-          (isa<StoreInst>(BI) && ClInstrumentWrites) ||
-          (isa<MemIntrinsic>(BI) && ClMemIntrin)) {
-        to_instrument.insert(BI);
+          (isa<StoreInst>(BI) && ClInstrumentWrites)) {
+        Value *addr = getLDSTOperand(BI);
+        if (ClOpt && ClOptSameTemp) {
+          if (!temps_to_instrument.insert(addr))
+            continue;
+        }
+      } else if (isa<MemIntrinsic>(BI) && ClMemIntrin) {
+
+      } else {
+        continue;
       }
+      to_instrument.insert(BI);
     }
   }
 
