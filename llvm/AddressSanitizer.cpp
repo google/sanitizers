@@ -59,6 +59,8 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
        cl::desc("instrument write instructions"), cl::init(true));
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
+static cl::opt<bool> ClGlobals("asan-globals",
+       cl::desc("Handle global objects"), cl::init(false));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
@@ -107,6 +109,7 @@ struct AddressSanitizer : public ModulePass {
   bool handleFunction(Function &F);
   bool poisonStackInFunction(Function &F);
   virtual bool runOnModule(Module &M);
+  bool insertGlobalRedzones(Module &M);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
 
@@ -117,19 +120,18 @@ struct AddressSanitizer : public ModulePass {
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
     return size_in_bytes;
   }
+  uint64_t getAlignedSize(uint64_t size_in_bytes) {
+    return ((size_in_bytes + kAsanStackAlignment - 1)
+            / kAsanStackAlignment) * kAsanStackAlignment;
+  }
   uint64_t getAlignedAllocaSize(AllocaInst *a) {
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
-    uint64_t aligned_size = ((size_in_bytes + kAsanStackAlignment - 1)
-                             / kAsanStackAlignment) * kAsanStackAlignment;
-    return aligned_size;
+    return getAlignedSize(size_in_bytes);
   }
 
   void PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                    Value *shadow_base, bool do_poison);
 
-  Value *asan_slow_path;
-  Value *asan_addr;
-  Value *asan_aux;
   LLVMContext *Context;
   TargetData *TD;
   int         LongSize;
@@ -366,6 +368,33 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   CloneDebugInfo(orig_mop, asm_call);
 }
 
+// unfinished
+bool AddressSanitizer::insertGlobalRedzones(Module &M) {
+  // errs() << M;
+  Module::GlobalListType &globals = M.getGlobalList();
+  for (Module::GlobalListType::iterator G = globals.begin(),
+       E = globals.end(); G != E; ++G) {
+    GlobalVariable &g = *G;
+    const Type *ty = cast<PointerType>(g.getType())->getElementType();
+    if (!ty->isSized()) continue;
+    if (!g.hasInitializer()) continue;
+    uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
+    uint64_t aligned_size = getAlignedSize(size_in_bytes);
+    uint64_t total_size_with_redzones = aligned_size + kAsanStackRedzone * 2;
+
+    Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
+    GlobalVariable *g_rz = new GlobalVariable(
+        M, ByteArrayTy, g.isConstant(), g.getLinkage(),
+        Constant::getNullValue(ByteArrayTy),
+        g.getName() + "_rz",
+        &g, g.isThreadLocal());
+    g_rz->copyAttributesFrom(&g);
+    errs() << "GLOBAL: " << g;
+    errs() << "   " <<  *ty << " -- size " << size_in_bytes << "\n";
+    errs() << *g_rz << "\n";
+  }
+  return false;
+}
 //virtual
 bool AddressSanitizer::runOnModule(Module &M) {
   if (!ClAsan) return false;
@@ -382,17 +411,12 @@ bool AddressSanitizer::runOnModule(Module &M) {
   LongPtrTy = PointerType::get(LongTy, 0);
   i32PtrTy = PointerType::get(i32Ty, 0);
   VoidTy = Type::getVoidTy(*Context);
-  asan_slow_path = M.getOrInsertFunction("asan_slow_path",
-       VoidTy, LongTy, LongTy, (Type*)0);
-
-  asan_addr = new GlobalVariable(M, LongTy, /*isConstant*/false,
-      GlobalValue::ExternalWeakLinkage, /*Initializer*/0, "__asan_addr",
-      /*InsertBefore*/0, /*ThreadLocal*/false);
-  asan_aux = new GlobalVariable(M, ByteTy, /*isConstant*/false,
-      GlobalValue::ExternalWeakLinkage, /*Initializer*/0, "__asan_aux",
-      /*InsertBefore*/0, /*ThreadLocal*/false);
 
   bool res = false;
+
+  if (ClGlobals)
+    res |= insertGlobalRedzones(M);
+
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
     if (F->isDeclaration()) continue;
     res |= handleFunction(*F);
