@@ -30,6 +30,7 @@
 #include "llvm/InlineAsm.h"
 #include "llvm/InstrTypes.h"
 #include "llvm/IntrinsicInst.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/IRBuilder.h"
@@ -190,7 +191,7 @@ BranchInst *AddressSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore
 }
 
 static void CloneDebugInfo(Instruction *from, Instruction *to) {
-  MDNode *dbg = from->getMetadata("dbg");  // newer versions allow MD_dbg.
+  MDNode *dbg = from->getMetadata(LLVMContext::MD_dbg);
   if (dbg)
     to->setMetadata("dbg", dbg);
 }
