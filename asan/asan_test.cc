@@ -685,10 +685,13 @@ TEST(AddressSanitizer, ThreadedTest) {
 }
 
 TEST(AddressSanitizer, ShadowGapTest) {
+  if (__asan_byte_to_byte_shadow) return;
 #if __WORDSIZE == 32
   char *addr = (char*)0x22000000;
-  EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
+#else
+  char *addr = (char*)0x0000100000080000;
 #endif
+  EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
 }
 
 // ------------------ demo tests; run each one-by-one -------------
