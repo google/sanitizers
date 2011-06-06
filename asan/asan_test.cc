@@ -684,6 +684,13 @@ TEST(AddressSanitizer, ThreadedTest) {
     "Thread T.*created.*Thread T.*created.*Thread T.*created.*");
 }
 
+TEST(AddressSanitizer, ShadowGapTest) {
+#if __WORDSIZE == 32
+  char *addr = (char*)0x22000000;
+  EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
+#endif
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
