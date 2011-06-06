@@ -117,6 +117,8 @@ static void Printf(const char *format, ...) {
 #endif
 
 // -------------------------- Mapping --------------------- {{{1
+// The full explanation of the memory mapping could be found here:
+// http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
 const size_t kWordSize = __WORDSIZE / 8;
 const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;
@@ -131,80 +133,6 @@ const size_t kPageClusterSizeBits = 4;
 const size_t kPageClusterSize = 1UL << kPageClusterSizeBits;
 const size_t kPossiblePageClustersBits = 32 - kPageClusterSizeBits - kPageSizeBits;
 #endif
-
-
-/*
-On 64-bit linux the address space is divided into 4 regions:<br>
-The Mem regions, `LowMem` and `HighMem`,
-are the regions where the application memory is mapped.<br>
-The Shadow regions, `LowShadow` and `HighShadow`
-are the shadow memory regions corresponding to
-`LowMem` and `HighMem` respectively. <br>
-
-|| `[0x00007f0000000000, 0x0000800000000000)` || `HighMem`    ||
-|| `[0x00001f0000000000, 0x0000200000000000)` || `HighShadow` ||
-|| `[0x0000040000000000, 0x0000080000000000)` || `LowShadow`  ||
-|| `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
-
-Transforming between Mem and Shadow addresses:
-{{{
-  kLowShadowMask  = 0x0000040000000000;
-  kHighShadowMask = 0x0000600000000000;
-  Shadow = Mem | kLowShadowMask & ~kHighShadowMask;
-}}}
-
-Every memory access in the compiled program is instrumented like this:
-
-{{{
-// BEFORE
-void write(int *a) {
-  *a = 0;
-}
-}}}
-{{{
-// AFTER
-void write(int *a) {
-  uintptr_t shadow_address = (uintptr_t)a;
-  shadow_address |=  kLowShadowMask;
-  shadow_address &= ~kHighShadowMask;
-  shadow_address += 64; // to avoid cache bank conflicts.
-  if (*(int*)(shadow_address)) {
-    // - put the effective address 'a' somewhere
-    // - put the access size and type somwehere
-    // - crash
-  }
-  *a = 0;
-}
-}}}
-
-Regular Linux 64-bit address space, compact shadow (1 byte per qword).
-
-|| `[0x00007f0000000000, 0x00007fffffffffff]` || `HighMem`    ||
-|| `[0x00001fe000000000, 0x00001fffffffffff]` || `HighShadow` ||
-|| `[0x0000100000000000, 0x0000101000000000)` || `LowShadow`  ||
-|| `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
-
-Shadow = (Mem >> 3) | 0x0000100000000000;
-
-
-Regular Linux 32-bit address space:
-
-|| `[0x40000000, 0xffffffff]` || `HighMem`          ||
-|| `[0x30000000, 0x3fffffff]` || `HighShadow`       ||
-|| `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
-|| `[0x00000000, 0x1fffffff]` || `LowMem`           ||
-
-Shadow = (Mem >> 3) | 0x20000000;
-
-CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
-
-|| `[0x30000000, 0x7fffffff]` || `HighMem`          ||
-|| `[0x26000000, 0x2fffffff]` || `HighShadow`       ||
-|| `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
-|| `[0x00000000, 0x1fffffff]` || `LowMem`           ||
-
-Shadow = (Mem >> 3) | 0x20000000;
-*/
 
 #if __WORDSIZE == 64
 const size_t kLowMemEnd     = (1UL << 39);
