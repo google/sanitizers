@@ -76,8 +76,10 @@ static bool   F_mt;  // set to 0 if you have only one thread.
 
 #if __WORDSIZE == 32
 static int F_vmsplit2g;  // computed in init, not read from flags.
+static const int F_protext_shadow = 1;
 #else
-const int F_vmsplit2g = 0;
+static const int F_vmsplit2g = 0;
+static int F_protext_shadow;
 #endif
 
 
@@ -232,8 +234,8 @@ const size_t kCompactShadowMask  = kCompactShadowMask64;
 
 const size_t kCompactShadowMask  = kCompactShadowMask32;
 // These two arrays are indexed by F_vmsplit2g
-const size_t kHighMemBeg[] = {0x40000000, 0x30000000};
-const size_t kHighMemEnd[] = {0xffffffff, 0x7fffffff};
+const size_t kHighMemBeg[]    = {0x40000000, 0x30000000};
+const size_t kHighMemEnd[]    = {0xffffffff, 0x7fffffff};
 
 const size_t kLowMemEnd     = kCompactShadowMask;
 
@@ -381,8 +383,7 @@ static bool AddrIsInMem(uintptr_t a) {
   return AddrIsInLowMem(a) || AddrIsInHighMem(a);
 }
 
-static uintptr_t MemToShadow(uintptr_t p) {
-  CHECK(AddrIsInMem(p));
+static uintptr_t MemToShadowUnchecked(uintptr_t p) {
 #if !ASAN_BYTE_TO_BYTE_SHADOW
   return (p >> 3) | kCompactShadowMask;
 #else
@@ -390,6 +391,11 @@ static uintptr_t MemToShadow(uintptr_t p) {
   return shadow + kBankPadding;
 #endif
 }
+
+static uintptr_t MemToShadow(uintptr_t p) {
+  CHECK(AddrIsInMem(p));
+  return MemToShadowUnchecked(p);
+}  
 
 static bool AddrIsInHighShadow(uintptr_t a) {
   return a >= MemToShadow(kHighMemBeg[F_vmsplit2g]) 
@@ -819,6 +825,21 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
   }
   CHECK(res == (void*)start_page || res == (void*)-1L);
   return ch;
+}
+
+static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
+  CHECK((beg % kPageSize) == 0);
+  CHECK((end % kPageSize) == 0);
+  return mmap_pages(beg, (end - beg) / kPageSize, mem_type);
+}
+
+static void protect_range(uintptr_t beg, uintptr_t end) {
+  CHECK((beg % kPageSize) == 0);
+  CHECK((end % kPageSize) == 0);
+  void *res = real_mmap((void*)beg, end,
+                   PROT_NONE,
+                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
+  CHECK(res == (void*)beg);
 }
 
 static char *mmap_low_shadow(size_t start_page, size_t n_pages) {
@@ -1753,6 +1774,9 @@ static void asan_init() {
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
   F_mt = IntFlagValue(options, "mt=", 1);
+#if __WORDSIZE == 64
+  F_protext_shadow = IntFlagValue(options, "protect_shadow=", 0);
+#endif
 
   if (F_atexit) {
     atexit(asan_atexit);
@@ -1813,11 +1837,11 @@ static void asan_init() {
       F_vmsplit2g = 1;
       if (F_v) Printf("CONFIG_VMSPLIT_2G=y 32-bit address space\n");
     }
-
-    // Map the entire shadow region.
-    uintptr_t beg = kCompactShadowMask32;
-    uintptr_t end = kCompactShadowMask32 << 1;
-    mmap_pages(beg, (end - beg) / kPageSize, "32-bit shadow memmory");
+    // mmap the low shadow.
+    mmap_range(kLowShadowBeg, kLowShadowEnd, "LowShadow");
+    // mmap the high shadow.
+    mmap_range(MemToShadow(kHighMemBeg[F_vmsplit2g]),
+               kHighMemBeg[F_vmsplit2g], "HighShadow");
   }
 #else  // __WORDSIZE == 64
   {
@@ -1826,6 +1850,11 @@ static void asan_init() {
     mmap_pages(first_shadow_page, 1, "First shadow page");
   }
 #endif  // __WORDSIZE == 64
+
+  if (F_protext_shadow && !ASAN_BYTE_TO_BYTE_SHADOW) {
+    // protect the gap between low and high shadow
+    protect_range(kLowShadowEnd, MemToShadow(kHighMemBeg[F_vmsplit2g]));
+  }
 
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
@@ -1851,6 +1880,11 @@ static void asan_init() {
            MemToShadow(kHighMemBeg[F_vmsplit2g]),
            MemToShadow(kHighMemEnd[F_vmsplit2g]));
     Printf("HighMem    : ["PP","PP")\n", kHighMemBeg[F_vmsplit2g], kHighMemEnd[F_vmsplit2g]);
+    Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
+           MemToShadowUnchecked(kLowShadowBeg), 
+           MemToShadowUnchecked(kLowShadowEnd),
+           MemToShadowUnchecked(MemToShadow(kHighMemBeg[F_vmsplit2g])),
+           MemToShadowUnchecked(MemToShadow(kHighMemEnd[F_vmsplit2g])));
     Printf("red_zone_words=%ld\n", F_red_zone_words);
     Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)F_fast_unwind);
