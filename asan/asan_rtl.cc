@@ -114,10 +114,6 @@ static void Printf(const char *format, ...) {
 # error must define ASAN_BYTE_TO_BYTE_SHADOW
 #endif
 
-#ifndef ASAN_IN_MEMORY_POISON
-# define ASAN_IN_MEMORY_POISON 0
-#endif
-
 // -------------------------- Mapping --------------------- {{{1
 const size_t kWordSize = __WORDSIZE / 8;
 const size_t kWordSizeInBits = 8 * kWordSize;
@@ -366,14 +362,6 @@ static void PrintBytes(const char *before, uintptr_t *a) {
          bytes[0], bytes[1], bytes[2], bytes[3]);
 #endif
 }
-
-#if ASAN_IN_MEMORY_POISON
-uintptr_t __asan_addr;
-uint8_t __asan_aux;
-#endif
-
-
-
 
 // -------------------------- Mapping ---------------- {{{1
 
@@ -953,16 +941,6 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnMalloc() {
     if (!F_poison_shadow) return;
-    if (ASAN_IN_MEMORY_POISON) {
-      uintptr_t beg1 = rz1_beg() + ReservedWords() * kWordSize;
-      uintptr_t end1 = rz1_end();
-      uintptr_t beg2 = rz2_beg();
-      uintptr_t end2 = rz2_end();
-      memset((char*)beg1, kInMemoryPoison8, end1 - beg1);
-      memset((char*)beg2, kInMemoryPoison8, end2 - beg2);
-      // TODO(kcc): inline memset
-      return;
-    }
     uintptr_t red_zone_words = F_red_zone_words;
     uintptr_t size_in_words = this->size_in_words();
 #if !ASAN_BYTE_TO_BYTE_SHADOW
@@ -1000,17 +978,6 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnFree(uintptr_t poison) {
     if (!F_poison_shadow) return;
-    if (ASAN_IN_MEMORY_POISON) {
-      if (poison) {
-        memset((char*)beg(), kInMemoryPoison8, size);
-      } else {
-        uintptr_t beg1 = rz1_beg() + ReservedWords() * kWordSize;
-        uintptr_t end1 = rz2_end();
-        memset((char*)beg1, 0, end1 - beg1);
-      }
-      // TODO(kcc): inline memset
-      return;
-    }
     uintptr_t real_size_in_words = this->real_size_in_words();
     uintptr_t size_in_words = this->size_in_words();
     CHECK(AddrIsInMem(rz1_beg()));

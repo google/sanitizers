@@ -28,11 +28,6 @@ const uint64_t kFullLowShadowMask = (1ULL << 42);
 const uint64_t kCompactShadowMask64 = 1ULL << 44;
 const size_t   kCompactShadowMask32 = 1UL << 29;
 
-const uint8_t  kInMemoryPoison8  = 0xab;
-const uint16_t kInMemoryPoison16 = 0xabab;
-const uint32_t kInMemoryPoison32 = 0xabababab;
-const uint64_t kInMemoryPoison64 = 0xababababababababULL;
-
 const size_t kBankPadding = 64;
 
 const uintptr_t kCrashAddr = 0xfff;
