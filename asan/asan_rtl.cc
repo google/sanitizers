@@ -139,10 +139,10 @@ The Shadow regions, `LowShadow` and `HighShadow`
 are the shadow memory regions corresponding to
 `LowMem` and `HighMem` respectively. <br>
 
-|| `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
-|| `[0x0000040000000000, 0x0000080000000000)` || `LowShadow`  ||
-|| `[0x00001f0000000000, 0x0000200000000000)` || `HighShadow` ||
 || `[0x00007f0000000000, 0x0000800000000000)` || `HighMem`    ||
+|| `[0x00001f0000000000, 0x0000200000000000)` || `HighShadow` ||
+|| `[0x0000040000000000, 0x0000080000000000)` || `LowShadow`  ||
+|| `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
 
 Transforming between Mem and Shadow addresses:
 {{{
@@ -177,29 +177,29 @@ void write(int *a) {
 
 Regular Linux 64-bit address space, compact shadow (1 byte per qword).
 
-|| `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
-|| `[0x0000100000000000, 0x0000101000000000)` || `LowShadow`  ||
-|| `[0x00001fe000000000, 0x00001fffffffffff]` || `HighShadow` ||
 || `[0x00007f0000000000, 0x00007fffffffffff]` || `HighMem`    ||
+|| `[0x00001fe000000000, 0x00001fffffffffff]` || `HighShadow` ||
+|| `[0x0000100000000000, 0x0000101000000000)` || `LowShadow`  ||
+|| `[0x0000000000000000, 0x0000008000000000)` || `LowMem`     ||
 
 Shadow = (Mem >> 3) | 0x0000100000000000;
 
 
 Regular Linux 32-bit address space:
 
-|| `[0x00000000, 0x1fffffff]` || `LowMem`           ||
-|| `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
-|| `[0x30000000, 0x3fffffff]` || `HighShadow`       ||
 || `[0x40000000, 0xffffffff]` || `HighMem`          ||
+|| `[0x30000000, 0x3fffffff]` || `HighShadow`       ||
+|| `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
+|| `[0x00000000, 0x1fffffff]` || `LowMem`           ||
 
 Shadow = (Mem >> 3) | 0x20000000;
 
 CrOS (32-bit, CONFIG_VMSPLIT_2G=y):
 
-|| `[0x00000000, 0x1fffffff]` || `LowMem`           ||
-|| `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
-|| `[0x26000000, 0x2fffffff]` || `HighShadow`       ||
 || `[0x30000000, 0x7fffffff]` || `HighMem`          ||
+|| `[0x26000000, 0x2fffffff]` || `HighShadow`       ||
+|| `[0x20000000, 0x23ffffff]` || `LowShadow`        ||
+|| `[0x00000000, 0x1fffffff]` || `LowMem`           ||
 
 Shadow = (Mem >> 3) | 0x20000000;
 */
