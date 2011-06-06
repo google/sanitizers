@@ -128,10 +128,6 @@ const size_t kPageSize = 1UL << kPageSizeBits;
 const size_t kPageClusterSizeBits = 8;
 const size_t kPageClusterSize = 1UL << kPageClusterSizeBits;
 const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBits;
-#else
-const size_t kPageClusterSizeBits = 4;
-const size_t kPageClusterSize = 1UL << kPageClusterSizeBits;
-const size_t kPossiblePageClustersBits = 32 - kPageClusterSizeBits - kPageSizeBits;
 #endif
 
 #if __WORDSIZE == 64
@@ -183,9 +179,11 @@ const size_t kLowShadowEnd   = kFullLowShadowEnd;
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
 
+#if __WORDSIZE == 64
 static uintptr_t
   mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
 static pthread_mutex_t shadow_lock;
+#endif
 
 int __asan_byte_to_byte_shadow = ASAN_BYTE_TO_BYTE_SHADOW;
 
@@ -239,12 +237,14 @@ struct Stats {
     Printf("Stats: %ldM freed by %ld calls\n", freed>>20, frees);
     Printf("Stats: %ldM really freed by %ld calls\n",
            really_freed>>20, real_frees);
+#if __WORDSIZE == 64
     Printf("Stats: %ldM of shadow memory allocated in %ld clusters\n"
            "             (%ldM each, %ld low and %ld high)\n",
            ((low_shadow_maps + high_shadow_maps) * kPageClusterSize * kPageSize)>>20,
            low_shadow_maps + high_shadow_maps,
            (kPageClusterSize * kPageSize) >> 20,
            low_shadow_maps, high_shadow_maps);
+#endif
   }
 };
 
@@ -758,13 +758,15 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
 static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   CHECK((beg % kPageSize) == 0);
   CHECK((end % kPageSize) == 0);
+  // Printf("mmap_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
   return mmap_pages(beg, (end - beg) / kPageSize, mem_type);
 }
 
 static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK((beg % kPageSize) == 0);
   CHECK((end % kPageSize) == 0);
-  void *res = real_mmap((void*)beg, end,
+  // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
+  void *res = real_mmap((void*)beg, end - beg,
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   CHECK(res == (void*)beg);
@@ -1540,8 +1542,9 @@ static void PrintUnwinderHint() {
 
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
+#if __WORDSIZE == 64
   // If we trapped while accessing an address that looks like shadow
-  // -- just map that page.
+  // -- just map that page. On 32-bits all shadow is pre-mapped.
   uintptr_t page = addr & ~(kPageSize - 1);
   if (AddrIsInShadow(addr)) {
     size_t start_page = page & ~(kPageClusterSize * kPageSize - 1);
@@ -1570,6 +1573,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     }
     return;
   }
+#endif
 
   Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP"\n",
          getpid(), addr);
@@ -1747,9 +1751,6 @@ static void asan_init() {
     real_sigaction(SIGILL, &sigact, 0);
   }
 
-
-  pthread_mutex_init(&shadow_lock, 0);
-
   proc_self_maps.Init();
 
 #if __WORDSIZE == 32
@@ -1773,6 +1774,7 @@ static void asan_init() {
   }
 #else  // __WORDSIZE == 64
   {
+    pthread_mutex_init(&shadow_lock, 0);
     uintptr_t first_shadow_page = ASAN_BYTE_TO_BYTE_SHADOW
         ? kFullLowShadowMask : kCompactShadowMask;
     mmap_pages(first_shadow_page, 1, "First shadow page");
@@ -1783,7 +1785,6 @@ static void asan_init() {
     // protect the gap between low and high shadow
     protect_range(kLowShadowEnd, MemToShadow(kHighMemBeg[F_vmsplit2g]));
   }
-
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0);
