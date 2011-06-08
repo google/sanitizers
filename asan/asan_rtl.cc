@@ -516,7 +516,12 @@ struct AsanThread {
 
   void SetThreadStackTopAndBottom() {
 #ifdef __APPLE__
-    Printf("ZZZZZZZZZZZZZZZZZZZZZZZZZZ\n");
+   size_t stacksize = pthread_get_stacksize_np(pthread_self());
+   void *stackaddr = pthread_get_stackaddr_np(pthread_self());
+   stack_top_ = (uintptr_t)stackaddr;
+   stack_bottom_ = stack_top_ - stacksize;
+   int local;
+   CHECK(AddrIsInStack((uintptr_t)&local));
 #else
     tl_need_real_malloc = true;
     pthread_attr_t attr;
