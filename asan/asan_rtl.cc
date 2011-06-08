@@ -636,13 +636,24 @@ struct AsanThread {
 int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;
 pthread_mutex_t AsanThread::mu_;
+static pthread_key_t g_tls_key;
+#ifndef __APPLE__
 static __thread AsanThread *tl_current_thread;
+#endif
 
 static AsanThread* GetCurrentThread() {
+#ifdef __APPLE__
+  return (AsanThread*)pthread_getspecific(g_tls_key);
+#else
   return tl_current_thread;
+#endif
 }
 static void SetCurrentThread(AsanThread *t) {
+#ifdef __APPLE__
+  CHECK(0 == pthread_setspecific(g_tls_key, t));
+#else
   tl_current_thread = t;
+#endif
 }
 
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
@@ -1813,6 +1824,8 @@ static void asan_init() {
     // protect the gap between low and high shadow
     protect_range(kLowShadowEnd, MemToShadow(kHighMemBeg[F_vmsplit2g]));
   }
+
+  CHECK(0 == pthread_key_create(&g_tls_key, 0));
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0);
