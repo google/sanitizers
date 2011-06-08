@@ -638,6 +638,13 @@ AsanThread *AsanThread::live_threads_;
 pthread_mutex_t AsanThread::mu_;
 static __thread AsanThread *tl_current_thread;
 
+static AsanThread* GetCurrentThread() {
+  return tl_current_thread;
+}
+static void SetCurrentThread(AsanThread *t) {
+  tl_current_thread = t;
+}
+
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
   StackTrace *b = (StackTrace*)param;
   CHECK(b->size < b->max_size);
@@ -654,9 +661,9 @@ static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *para
 __attribute__((noinline))
 static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   stack->trace[stack->size++] = GET_CALLER_PC();
-  if (!tl_current_thread) return;
+  if (!GetCurrentThread()) return;
   uintptr_t *prev_frame = frame;
-  uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top();
+  uintptr_t *top = (uintptr_t*)GetCurrentThread()->stack_top();
   while (frame >= prev_frame &&
          frame < top &&
          stack->size < stack->max_size) {
@@ -674,17 +681,17 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
 static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
                                          uintptr_t addr) {
   if (bp == 0 || sp == 0)  return -1;
-  if (!tl_current_thread->AddrIsInStack(bp)) return -1;
-  if (!tl_current_thread->AddrIsInStack(sp)) return -1;
+  if (!GetCurrentThread()->AddrIsInStack(bp)) return -1;
+  if (!GetCurrentThread()->AddrIsInStack(sp)) return -1;
   if (addr < sp) return -1; // Probably, should nto happen.
   if (addr < bp) return 0;  // current frame.
-  uintptr_t *top = (uintptr_t*)tl_current_thread->stack_top();
+  uintptr_t *top = (uintptr_t*)GetCurrentThread()->stack_top();
   uintptr_t *frame = (uintptr_t*)bp;
   uintptr_t *prev_frame = frame;
   int res = 0;
   while (frame >= prev_frame && frame < top && frame < (uintptr_t*)addr) {
     // Printf("%d ZZZ "PP" addr-frame="PP" \n", res, frame, addr-(uintptr_t)frame);
-    CHECK(tl_current_thread->AddrIsInStack((uintptr_t)frame));
+    CHECK(GetCurrentThread()->AddrIsInStack((uintptr_t)frame));
     prev_frame = frame;
     frame = (uintptr_t*)frame[0];
     res++;
@@ -736,8 +743,9 @@ void PrintCurrentStack(uintptr_t pc) {
 }
 
 static void *asan_thread_start(void *arg) {
-  tl_current_thread = (AsanThread*)arg;
-  return tl_current_thread->ThreadStart();
+  AsanThread *t= (AsanThread*)arg;
+  SetCurrentThread(t);
+  return t->ThreadStart();
 }
 
 // ---------------------- AddressSanitizer malloc -------------------- {{{1
@@ -1044,7 +1052,7 @@ class MallocInfo {
   void on_malloc(Ptr *p) {
     p->prev = 0;
     p->magic = Ptr::kMallocedMagic;
-    p->malloc_thread = tl_current_thread->Ref();
+    p->malloc_thread = GetCurrentThread()->Ref();
     p->free_thread = 0;
     ScopedLock lock(&mu_);
     if (malloced_items_) {
@@ -1060,7 +1068,7 @@ class MallocInfo {
     size_t real_size_in_words = p->real_size_in_words();
     CHECK(p->magic == Ptr::kMallocedMagic);
     p->magic = Ptr::kFreedMagic;
-    p->free_thread = tl_current_thread->Ref();
+    p->free_thread = GetCurrentThread()->Ref();
 
     ScopedLock lock(&mu_);
     // remove from malloced list.
@@ -1155,7 +1163,7 @@ class MallocInfo {
       Printf("previously allocated by thread T%d here:\n",
              freed->malloc_thread->tid());
       freed->PrintMallocStack();
-      tl_current_thread->Announce();
+      GetCurrentThread()->Announce();
       freed->free_thread->Announce();
       freed->malloc_thread->Announce();
       return;
@@ -1171,7 +1179,7 @@ class MallocInfo {
              malloced->malloc_thread->tid());
       malloced->PrintMallocStack();
       // PrintStack(stack, stack_size);
-      tl_current_thread->Announce();
+      GetCurrentThread()->Announce();
       malloced->malloc_thread->Announce();
       return;
     }
@@ -1487,7 +1495,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(tl_current_thread, start_routine, arg, &stack);
+  new (t) AsanThread(GetCurrentThread(), start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
@@ -1527,7 +1535,7 @@ int sigaction(int signum, const struct sigaction *act,
 
 static void UnpoisonStackFromHereToTop() {
   int local_stack;
-  uintptr_t top = tl_current_thread->stack_top();
+  uintptr_t top = GetCurrentThread()->stack_top();
   uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
   uintptr_t top_shadow = MemToShadow(top);
   uintptr_t bot_shadow = MemToShadow(bottom);
@@ -1643,7 +1651,7 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
 
   Printf("%s of size %d at "PP" thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size, real_addr, tl_current_thread->tid());
+          access_size, real_addr, GetCurrentThread()->tid());
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
@@ -1806,8 +1814,8 @@ static void asan_init() {
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0);
-  tl_current_thread = t;
-  tl_current_thread->ThreadStart();
+  SetCurrentThread(t);
+  t->ThreadStart();
 
   asan_inited = 1;
 
