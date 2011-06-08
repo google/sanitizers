@@ -661,9 +661,10 @@ static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *para
 __attribute__((noinline))
 static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
   stack->trace[stack->size++] = GET_CALLER_PC();
-  if (!GetCurrentThread()) return;
+  AsanThread *t = GetCurrentThread();
+  if (!t) return;
   uintptr_t *prev_frame = frame;
-  uintptr_t *top = (uintptr_t*)GetCurrentThread()->stack_top();
+  uintptr_t *top = (uintptr_t*)t->stack_top();
   while (frame >= prev_frame &&
          frame < top &&
          stack->size < stack->max_size) {
@@ -681,17 +682,18 @@ static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
 static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
                                          uintptr_t addr) {
   if (bp == 0 || sp == 0)  return -1;
-  if (!GetCurrentThread()->AddrIsInStack(bp)) return -1;
-  if (!GetCurrentThread()->AddrIsInStack(sp)) return -1;
+  AsanThread *t = GetCurrentThread();
+  if (!t->AddrIsInStack(bp)) return -1;
+  if (!t->AddrIsInStack(sp)) return -1;
   if (addr < sp) return -1; // Probably, should nto happen.
   if (addr < bp) return 0;  // current frame.
-  uintptr_t *top = (uintptr_t*)GetCurrentThread()->stack_top();
+  uintptr_t *top = (uintptr_t*)t->stack_top();
   uintptr_t *frame = (uintptr_t*)bp;
   uintptr_t *prev_frame = frame;
   int res = 0;
   while (frame >= prev_frame && frame < top && frame < (uintptr_t*)addr) {
     // Printf("%d ZZZ "PP" addr-frame="PP" \n", res, frame, addr-(uintptr_t)frame);
-    CHECK(GetCurrentThread()->AddrIsInStack((uintptr_t)frame));
+    CHECK(t->AddrIsInStack((uintptr_t)frame));
     prev_frame = frame;
     frame = (uintptr_t*)frame[0];
     res++;
