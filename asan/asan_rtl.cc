@@ -52,7 +52,12 @@ static void PrintCurrentStack(uintptr_t pc = 0);
 }}while(0)
 
 __attribute__((constructor)) static void asan_init();
+
+#ifndef __APPLE__
 static __thread bool tl_need_real_malloc;
+#else
+static const bool tl_need_real_malloc = false;
+#endif
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kStackTraceMax = 64;
@@ -102,13 +107,17 @@ static void Printf(const char *format, ...) {
   const int kLen = 1024 * 4;
   char buffer[kLen];
   va_list args;
+#ifndef __APPLE__
   tl_need_real_malloc = true;  // TODO(kcc): make sure we don't malloc here.
+#endif
   va_start(args, format);
   vsnprintf(buffer, kLen, format, args);
   fwrite(buffer, 1, strlen(buffer), asan_out);
   fflush(asan_out);
   va_end(args);
+#ifndef __APPLE__
   tl_need_real_malloc = false;
+#endif
 }
 
 // -------------------------- Build modes --------------------- {{{1
@@ -400,6 +409,7 @@ class ProcSelfMaps {
     int line = 0;
     int offset = 0;
 
+#ifndef __APPLE__
     if (F_symbolize) {
       tl_need_real_malloc = true;
       int opt = bfds_opt_none;
@@ -423,6 +433,7 @@ class ProcSelfMaps {
       }
       // bfd failed
     }
+#endif
 
     for (size_t i = 0; i < map_size_; i++) {
       Mapping &m = memory_map[i];
@@ -503,20 +514,26 @@ struct AsanThread {
     }
   }
 
+  void SetThreadStackTopAndBottom() {
+#ifdef __APPLE__
+    Printf("ZZZZZZZZZZZZZZZZZZZZZZZZZZ\n");
+#else
+    tl_need_real_malloc = true;
+    pthread_attr_t attr;
+    CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
+    size_t stacksize = 0;
+    void *stackaddr = NULL;
+    pthread_attr_getstack(&attr, &stackaddr, &stacksize);
+    pthread_attr_destroy(&attr);
+    stack_top_ = (uintptr_t)stackaddr + stacksize;
+    stack_bottom_ = (uintptr_t)stackaddr;
+    CHECK(AddrIsInStack((uintptr_t)&attr));
+    tl_need_real_malloc = false;
+#endif
+  }
+
   void *ThreadStart() {
-    {
-      tl_need_real_malloc = true;
-      pthread_attr_t attr;
-      CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
-      size_t stacksize = 0;
-      void *stackaddr = NULL;
-      pthread_attr_getstack(&attr, &stackaddr, &stacksize);
-      pthread_attr_destroy(&attr);
-      stack_top_ = (uintptr_t)stackaddr + stacksize;
-      stack_bottom_ = (uintptr_t)stackaddr;
-      CHECK(AddrIsInStack((uintptr_t)&attr));
-      tl_need_real_malloc = false;
-    }
+    SetThreadStackTopAndBottom();
     if (F_v == 1) {
       Printf ("T%d: stack ["PP","PP") size 0x%lx\n",
               tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_);
@@ -1586,8 +1603,9 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
 #ifdef __APPLE__
   uintptr_t pc = ucontext->uc_mcontext->__ss.__eip;
-  uintptr_t bp = 0;
-  uintptr_t sp = 0;
+  uintptr_t bp = ucontext->uc_mcontext->__ss.__ebp;
+  uintptr_t sp = ucontext->uc_mcontext->__ss.__esp;
+  uintptr_t ax = ucontext->uc_mcontext->__ss.__eax;
 #else // assume linux
 #if __WORDSIZE == 64
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_RIP];

@@ -1,8 +1,9 @@
 #!/bin/bash
-
-rm -rf clang_build
-mkdir -p clang_build
-cd clang_build
-../clang_src/configure
-make -j ${J:-16} ENABLE_OPTIMIZED=1
+OS=`uname`
+DIR=clang_build_$OS
+rm -rf $DIR
+mkdir -p $DIR
+cd $DIR
+../clang_src/configure --enable-optimized
+make -j ${J:-16}
 

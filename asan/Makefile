@@ -12,18 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
 SVNVERSION=$(shell svnversion)
+OS=$(shell uname)
 
 CC=gcc
 CXX=g++
 
 CLANG_SRC=../clang_src
-CLANG_BUILD=../clang_build/Release+Asserts
+CLANG_BUILD=../clang_build_$(OS)/Release+Asserts
 CLANG_CXX=$(CLANG_BUILD)/bin/clang++
 CLANG_LIB=$(CLANG_BUILD)/lib
 
-INSTALL_DIR=../asan_clang_$(PLATFORM)
+INSTALL_DIR=../asan_clang_$(OS)
+BIN=bin_$(OS)
 
 LIBS=#-lpthread -ldl
 BITS=64
@@ -35,19 +36,22 @@ RTL_HDR=asan_rtl.h
 
 GTEST_ROOT=../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
-GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(BITS)
+GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
 all: t_64 t_64full t_32
-t_64:
-	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 asan_test64
-t_64full:
-	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full asan_test64full
-t_32:
-	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   asan_test32
+t_64: | $(BIN)
+	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 $(BIN)/asan_test64
+t_64full: | $(BIN)
+	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full $(BIN)/asan_test64full
+t_32: | $(BIN)
+	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   $(BIN)/asan_test32
 
 SUFF=zzz
+
+$(BIN):
+	mkdir -p $(BIN)
 
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
@@ -59,11 +63,11 @@ install:
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
-libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR) Makefile
+$(BIN)/libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR) Makefile
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party -DASAN_REVISION=\"$(SVNVERSION)\" \
 	   -m$(BITS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
 
-libasan$(SUFF).so: libasan$(SUFF).o
+$(BIN)/libasan$(SUFF).so: $(BIN)/libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 bfds$(SUFF):
@@ -71,10 +75,10 @@ bfds$(SUFF):
 	cp ../third_party/bin/bfd_symbolizer/linux/bfds$(BITS).a $@/bfds$(SUFF).a
 	cd $@ && ar x bfds$(SUFF).a
 
-$(CLANG_LIB)/libasan$(SUFF).a: libasan$(SUFF).o bfds$(SUFF)
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/libasan$(SUFF).o bfds$(SUFF)
 	ar ruv $@ $< bfds$(SUFF)/*.o
 
-asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) libasan$(SUFF).so
+$(BIN)/asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
