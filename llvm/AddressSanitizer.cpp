@@ -506,6 +506,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
     ClByteToByteShadow = false;
   }
 
+  // We want to instrument every address only once per basic block
+  // (unless there are calls between uses).
   SmallSet<Value*, 16> temps_to_instrument;
 
   // Fill the set of memory operations to instrument.
@@ -523,8 +525,12 @@ bool AddressSanitizer::handleFunction(Function &F) {
             continue; // We've seen this temp in the current BB.
         }
       } else if (isa<MemIntrinsic>(BI) && ClMemIntrin) {
-
+        ; // ok, take it.
       } else {
+        if (isa<CallInst>(BI)) {
+          // A call inside BB.
+          temps_to_instrument.clear();
+        }
         continue;
       }
       to_instrument.insert(BI);
