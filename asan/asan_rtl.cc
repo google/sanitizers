@@ -1308,6 +1308,7 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
   return p;
 }
 
+__attribute__((noinline))
 static void check_ptr_on_free(Ptr *p, void *addr, StackTrace &stack) {
   CHECK(p->beg() == (uintptr_t)addr);
   if (p->magic != Ptr::kMallocedMagic) {
@@ -1849,12 +1850,12 @@ static void asan_init() {
 
   if (F_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
-    Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
-    Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
+    Printf("HighMem    : ["PP","PP")\n", kHighMemBeg[F_vmsplit2g], kHighMemEnd[F_vmsplit2g]);
     Printf("HighShadow : ["PP","PP")\n", 
            MemToShadow(kHighMemBeg[F_vmsplit2g]),
            MemToShadow(kHighMemEnd[F_vmsplit2g]));
-    Printf("HighMem    : ["PP","PP")\n", kHighMemBeg[F_vmsplit2g], kHighMemEnd[F_vmsplit2g]);
+    Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
+    Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
     Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
            MemToShadowUnchecked(kLowShadowBeg), 
            MemToShadowUnchecked(kLowShadowEnd),
