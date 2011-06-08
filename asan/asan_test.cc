@@ -694,11 +694,18 @@ TEST(AddressSanitizer, ShadowGapTest) {
   EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
 }
 
-TEST(AddressSanitizer, UseThenFreeThenUseTest) {
+extern "C" {
+__attribute__((noinline)) 
+static void UseThenFreeThenUse() {
   char *x = Ident((char*)malloc(8));
   *x = 1;
   free_aaa(x);
-  EXPECT_DEATH(*x = 2, "freed by thread");
+  *x = 2;
+}
+}
+
+TEST(AddressSanitizer, UseThenFreeThenUseTest) {
+  EXPECT_DEATH(UseThenFreeThenUse(), "freed by thread");
 }
 
 // ------------------ demo tests; run each one-by-one -------------
