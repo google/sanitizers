@@ -694,6 +694,13 @@ TEST(AddressSanitizer, ShadowGapTest) {
   EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
 }
 
+TEST(AddressSanitizer, UseThenFreeThenUseTest) {
+  char *x = Ident((char*)malloc(8));
+  *x = 1;
+  free_aaa(x);
+  EXPECT_DEATH(*x = 2, "freed by thread");
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
