@@ -708,6 +708,10 @@ TEST(AddressSanitizer, UseThenFreeThenUseTest) {
   EXPECT_DEATH(UseThenFreeThenUse(), "freed by thread");
 }
 
+TEST(AddressSanitizer, StrDupTest) {
+  free(strdup(Ident("123")));
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
