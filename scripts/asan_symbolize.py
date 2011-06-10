@@ -16,9 +16,13 @@ for line in sys.stdin:
       addr2line_pipes[binary] = subprocess.Popen(["addr2line", "-f", "-e", binary],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     p = addr2line_pipes[binary]
-    print >>p.stdin, addr
-    function_name = p.stdout.readline().rstrip()
-    file_name     = p.stdout.readline().rstrip()
+    try:
+      print >>p.stdin, addr
+      function_name = p.stdout.readline().rstrip()
+      file_name     = p.stdout.readline().rstrip()
+    except:
+      function_name = ""
+      file_name = ""
     for path_to_cut in sys.argv[1:]:
       file_name = re.sub(".*" + path_to_cut, "", file_name)
     file_name = re.sub(".*asan_rtl.cc:[0-9]*", "_asan_rtl_", file_name)
