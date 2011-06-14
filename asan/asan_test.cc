@@ -33,17 +33,39 @@
 #include <malloc.h>
 #endif  // __APPLE__
 
-// Currently, stack poisoning is implemented only
-// for compact shadow, because for byte-to-byte shadow
-// it would be too slow.
-extern int __asan_byte_to_byte_shadow;
-
 using namespace std;
 
 typedef unsigned char        U1;
 typedef unsigned short       U2;
 typedef unsigned int         U4;
 typedef unsigned long long   U8;
+
+static const char *progname;
+
+class ObjdumpOfMyself {
+ public:
+  ObjdumpOfMyself(const string &binary) {
+    string prog = "objdump -d " + binary;
+    FILE *pipe = popen(prog.c_str(), "r");
+    if (pipe) {
+      const int kBuffSize = 4096;
+      char buff[kBuffSize+1];
+      int read_bytes;
+      while ((read_bytes = fread(buff, 1, kBuffSize, pipe)) > 0) {
+        buff[read_bytes] = 0;
+        objdump.append(buff);
+      }
+      pclose(pipe);
+    }
+  }
+ private:
+  string objdump;
+};
+
+static ObjdumpOfMyself *objdump_of_myself() {
+  static ObjdumpOfMyself *o = new ObjdumpOfMyself(progname);
+  return o;
+}
 
 const size_t kLargeMalloc = 1 << 24;
 
@@ -706,6 +728,10 @@ TEST(AddressSanitizer, StrDupTest) {
   free(strdup(Ident("123")));
 }
 
+TEST(AddressSanitizer, ObjdumpTest) {
+  objdump_of_myself();
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
@@ -768,6 +794,7 @@ TEST(AddressSanitizer, DISABLED_DemoDoubleFreeTest) {
 }
 
 int main(int argc, char **argv) {
+  progname = argv[0];
   testing::GTEST_FLAG(death_test_style) = "threadsafe";
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
