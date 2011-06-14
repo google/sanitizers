@@ -1769,11 +1769,11 @@ static void asan_init() {
 
   if (F_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
-    Printf("|| `["PP","PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
-    Printf("|| `["PP","PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);
-    Printf("|| `["PP","PP"]` || Shadow Gap ||\n", kShadowGapBeg, kShadowGapEnd);
-    Printf("|| `["PP","PP"]` || LowShadow  ||\n", kLowShadowBeg, kLowShadowEnd);
-    Printf("|| `["PP","PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
+    Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
+    Printf("|| `["PP", "PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);
+    Printf("|| `["PP", "PP"]` || ShadowGap ||\n", kShadowGapBeg, kShadowGapEnd);
+    Printf("|| `["PP", "PP"]` || LowShadow  ||\n", kLowShadowBeg, kLowShadowEnd);
+    Printf("|| `["PP", "PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
     Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
            MEM_TO_SHADOW(kLowShadowBeg),
            MEM_TO_SHADOW(kLowShadowEnd),
