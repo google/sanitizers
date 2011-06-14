@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <map>
 #include <pthread.h>
 #include <stdint.h>
 #include <setjmp.h>
@@ -47,6 +48,7 @@ class ObjdumpOfMyself {
   ObjdumpOfMyself(const string &binary) {
     string prog = "objdump -d " + binary;
     FILE *pipe = popen(prog.c_str(), "r");
+    string objdump;
     if (pipe) {
       const int kBuffSize = 4096;
       char buff[kBuffSize+1];
@@ -57,9 +59,57 @@ class ObjdumpOfMyself {
       }
       pclose(pipe);
     }
+    // cut the objdump into functions
+    size_t start_pos = 0;
+    size_t pos;
+    size_t prev_beg = 0;
+    string fn, next_fn;
+    size_t next_start;
+    for (size_t start = fn_start(objdump, 0, &fn);
+         start != string::npos;
+         start = next_start, fn = next_fn) {
+      next_start = fn_start(objdump, start, &next_fn);
+      //fprintf(stderr, "start: %d next_start = %d fn: %s\n",
+      //        (int)start, (int)next_start, fn.c_str());
+      if (fn.find("Disasm") == string::npos) {
+        prev_beg = pos;
+        continue;
+      }
+      string fn_body = objdump.substr(start, next_start - start);
+      // fprintf(stderr, "%s:\n%s", fn.c_str(), fn_body.c_str());
+      functions_[fn] = fn_body;
+    }
   }
+
+  string &GetFuncDisasm(const string &fn) {
+    return functions_[fn];
+  }
+
+  int CountInsnInFunc(const string &fn, const string &insn) {
+    const string &disasm = GetFuncDisasm(fn);
+    if (disasm.empty()) return -1;
+    size_t pos = 0;
+    size_t counter = 0;
+    while((pos = disasm.find(insn, pos)) != string::npos) {
+      counter++;
+      pos++;
+    }
+    return counter;
+  }
+
  private:
-  string objdump;
+  size_t fn_start(const string &objdump, size_t start_pos, string *fn) {
+    size_t pos = objdump.find(">:\n", start_pos);
+    if (pos == string::npos)
+      return string::npos;
+    size_t beg = pos;
+    while(beg > 0 && objdump[beg - 1] != '<')
+      beg--;
+    *fn = objdump.substr(beg, pos - beg);
+    return pos + 3;
+  }
+  
+  map<string, string> functions_;
 };
 
 static ObjdumpOfMyself *objdump_of_myself() {
@@ -73,7 +123,7 @@ template<class T>
 __attribute__((noinline))
 static T Ident(T t) {
   static volatile int zero = 0;
-  return t + zero;
+  return zero ? (T)0 : t;
 }
 
 template<class T>
@@ -730,6 +780,44 @@ TEST(AddressSanitizer, StrDupTest) {
 
 TEST(AddressSanitizer, ObjdumpTest) {
   objdump_of_myself();
+}
+
+extern "C" {
+__attribute__((noinline))
+static void DisasmSimple() {
+  Ident(0);
+}
+
+__attribute__((noinline))
+static void DisasmParamWrite(int *a) {
+  *a = 1;
+}
+
+__attribute__((noinline))
+static void DisasmParamInc(int *a) {
+  (*a)++;
+}
+
+static int GLOBAL;
+
+__attribute__((noinline))
+static void DisasmWriteGlob() {
+  GLOBAL = 1;
+}
+
+}
+
+TEST(AddressSanitizer, DisasmTest) {
+  int a;
+  DisasmSimple();
+  DisasmParamWrite(&a);
+  DisasmParamInc(&a);
+  Ident(DisasmWriteGlob)();
+  ObjdumpOfMyself *o = objdump_of_myself();
+  EXPECT_EQ(0, o->CountInsnInFunc("DisasmSimple", "ud2"));
+  EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamWrite", "ud2"));
+  EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamInc", "ud2"));
+  EXPECT_EQ(0, o->CountInsnInFunc("DisasmWriteGlob", "ud2"));
 }
 
 // ------------------ demo tests; run each one-by-one -------------
