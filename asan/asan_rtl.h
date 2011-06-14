@@ -30,6 +30,4 @@ const size_t   kCompactShadowMask32 = 1UL << 29;
 
 const size_t kBankPadding = 64;
 
-const uintptr_t kCrashAddr = 0xfff;
-
 #endif  // ASAN_RTL_H
