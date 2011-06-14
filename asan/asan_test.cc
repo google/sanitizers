@@ -798,12 +798,28 @@ static void DisasmParamInc(int *a) {
   (*a)++;
 }
 
+__attribute__((noinline))
+static void DisasmParamReadIfWrite(int *a) {
+  if (*a)
+    *a = 1;
+}
+
+__attribute__((noinline))
+static int DisasmParamIfReadWrite(int *a, int cond) {
+  int res = 0;
+  if (cond)
+    res = *a;
+  *a = 0;
+  return res;
+}
+
 static int GLOBAL;
 
 __attribute__((noinline))
 static void DisasmWriteGlob() {
   GLOBAL = 1;
 }
+
 
 }
 
@@ -813,11 +829,21 @@ TEST(AddressSanitizer, DisasmTest) {
   DisasmParamWrite(&a);
   DisasmParamInc(&a);
   Ident(DisasmWriteGlob)();
+  DisasmParamReadIfWrite(&a);
+
+  a = 7;
+  EXPECT_EQ(7, DisasmParamIfReadWrite(&a, Ident(1)));
+  EXPECT_EQ(0, a);
+
   ObjdumpOfMyself *o = objdump_of_myself();
   EXPECT_EQ(0, o->CountInsnInFunc("DisasmSimple", "ud2"));
   EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamWrite", "ud2"));
   EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamInc", "ud2"));
   EXPECT_EQ(0, o->CountInsnInFunc("DisasmWriteGlob", "ud2"));
+
+  // TODO: implement these (needs just one ud2).
+  EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamReadIfWrite", "ud2"));
+  EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", "ud2"));
 }
 
 // ------------------ demo tests; run each one-by-one -------------
