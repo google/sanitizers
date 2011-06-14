@@ -76,6 +76,8 @@ static cl::opt<bool> ClOpt("asan-opt",
        cl::desc("Optimize instrumentation"), cl::init(true));
 static cl::opt<bool> ClOptSameTemp("asan-opt-same-temp",
        cl::desc("Instrument the same temp just once"), cl::init(true));
+static cl::opt<bool> ClOptGlobals("asan-opt-globals",
+       cl::desc("Don't instrument scalar globals"), cl::init(true));
 
 // Debug flags.
 static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
@@ -262,7 +264,7 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
   int is_w = !!isa<StoreInst>(*mop);
   Value *Addr = getLDSTOperand(mop);
-  if (isa<GlobalVariable>(Addr)) {
+  if (ClOpt && ClOptGlobals && isa<GlobalVariable>(Addr)) {
     // We are accessing a global scalar variable. Nothing to catch here.
     return;
   }
