@@ -262,6 +262,10 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
   int is_w = !!isa<StoreInst>(*mop);
   Value *Addr = getLDSTOperand(mop);
+  if (isa<GlobalVariable>(Addr)) {
+    // We are accessing a global scalar variable. Nothing to catch here.
+    return;
+  }
   const Type *OrigPtrTy = Addr->getType();
   const Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
 
