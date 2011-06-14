@@ -493,18 +493,28 @@ struct AsanThread {
     void *stackaddr = NULL;
     pthread_attr_getstack(&attr, &stackaddr, &stacksize);
     pthread_attr_destroy(&attr);
+    tl_need_real_malloc = false;
+
+    const int kMaxStackSize = 8 * (1 << 20);  // 8M
     stack_top_ = (uintptr_t)stackaddr + stacksize;
     stack_bottom_ = (uintptr_t)stackaddr;
+    // When running under the GNU make command, pthread_attr_getstack
+    // returns garbage for a stacksize.
+    if (stacksize > kMaxStackSize) {
+      Printf("WARNING: pthread_attr_getstack returned "PP" as stacksize\n",
+             stacksize);
+      stack_bottom_ = stack_top_ - kMaxStackSize;
+    }
     CHECK(AddrIsInStack((uintptr_t)&attr));
-    tl_need_real_malloc = false;
 #endif
   }
 
   void *ThreadStart() {
     SetThreadStackTopAndBottom();
     if (F_v == 1) {
-      Printf ("T%d: stack ["PP","PP") size 0x%lx\n",
-              tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_);
+      int local = 0;
+      Printf ("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
+              tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_, &local);
     }
     CHECK(AddrIsInMem(stack_bottom_));
     CHECK(AddrIsInMem(stack_top_));
