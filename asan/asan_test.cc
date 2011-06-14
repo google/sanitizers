@@ -339,7 +339,7 @@ TEST(AddressSanitizer, ManyThreadsTest) {
   const int kNumThreads = 1000;
   pthread_t t[kNumThreads];
   int n = kNumThreads;
-  if (__WORDSIZE == 32 || __asan_byte_to_byte_shadow)
+  if (__WORDSIZE == 32)
     n = kNumThreads / 10;
   for (int i = 0; i < n; i++) {
     pthread_create(&t[i], 0, (void* (*)(void*))EmptyThread, (void*)i);
@@ -399,7 +399,6 @@ void SizedStackTest() {
 }
 
 TEST(AddressSanitizer, SimpleStackTest) {
-  if (__asan_byte_to_byte_shadow) return;
   SizedStackTest<1>();
   SizedStackTest<2>();
   SizedStackTest<3>();
@@ -441,19 +440,15 @@ __attribute__((noinline)) static void Frame3(int frame) {
 }
 
 TEST(AddressSanitizer, GuiltyStackFrame0Test) {
-  if (__asan_byte_to_byte_shadow) return;
   EXPECT_DEATH(Frame3(0), "#0[ a-z0-9]*Frame0.*allocated in frame #0");
 }
 TEST(AddressSanitizer, GuiltyStackFrame1Test) {
-  if (__asan_byte_to_byte_shadow) return;
   EXPECT_DEATH(Frame3(1), "#1[ a-z0-9]*Frame1.*allocated in frame #1");
 }
 TEST(AddressSanitizer, GuiltyStackFrame2Test) {
-  if (__asan_byte_to_byte_shadow) return;
   EXPECT_DEATH(Frame3(2), "#2[ a-z0-9]*Frame2.*allocated in frame #2");
 }
 TEST(AddressSanitizer, GuiltyStackFrame3Test) {
-  if (__asan_byte_to_byte_shadow) return;
   EXPECT_DEATH(Frame3(3), "#3[ a-z0-9]*Frame3.*allocated in frame #3");
 }
 
@@ -685,7 +680,6 @@ TEST(AddressSanitizer, ThreadedTest) {
 }
 
 TEST(AddressSanitizer, ShadowGapTest) {
-  if (__asan_byte_to_byte_shadow) return;
 #if __WORDSIZE == 32
   char *addr = (char*)0x22000000;
 #else

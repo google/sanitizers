@@ -81,10 +81,10 @@ static bool   F_mt;  // set to 0 if you have only one thread.
 
 #if __WORDSIZE == 32
 static int F_vmsplit2g;  // computed in init, not read from flags.
-static const int F_protext_shadow = 1;
+static const int F_protect_shadow = 1;
 #else
 static const int F_vmsplit2g = 0;
-static int F_protext_shadow;
+static int F_protect_shadow;
 #endif
 
 
@@ -120,11 +120,6 @@ static void Printf(const char *format, ...) {
 #endif
 }
 
-// -------------------------- Build modes --------------------- {{{1
-#ifndef ASAN_BYTE_TO_BYTE_SHADOW
-# error must define ASAN_BYTE_TO_BYTE_SHADOW
-#endif
-
 // -------------------------- Mapping --------------------- {{{1
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
@@ -145,14 +140,8 @@ const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBi
 const size_t kCompactShadowMask  = kCompactShadowMask64;
 const size_t kLowMemEnd     = (1UL << 39);
 
-const size_t kFullLowShadowBeg = kFullLowShadowMask;
-const size_t kFullLowShadowEnd = kFullLowShadowMask << 1;
-
 const size_t kHighMemBeg[]     = {0x0000700000000000UL};
 const size_t kHighMemEnd[]     = {0x00007fffffffffffUL};
-
-const size_t kFullHighShadowBeg  = 0x0000100000000000UL;
-const size_t kFullHighShadowEnd  = 0x00001fffffffffffUL;
 
 const size_t kPoisonedByte = 0xb8;
 #define BYTE_TO_WORD(b) \
@@ -178,13 +167,8 @@ const size_t kLowMemEnd     = kCompactShadowMask;
 
 #endif  // __WORDSIZE
 
-#if !ASAN_BYTE_TO_BYTE_SHADOW
 const size_t kLowShadowBeg   = kCompactShadowMask;
 const size_t kLowShadowEnd   = (kLowMemEnd >> 3) | kCompactShadowMask;
-#else
-const size_t kLowShadowBeg   = kFullLowShadowBeg;
-const size_t kLowShadowEnd   = kFullLowShadowEnd;
-#endif
 
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
@@ -194,9 +178,6 @@ static uintptr_t
   mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
 static pthread_mutex_t shadow_lock;
 #endif
-
-int __asan_byte_to_byte_shadow = ASAN_BYTE_TO_BYTE_SHADOW;
-
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
@@ -322,12 +303,7 @@ static bool AddrIsInMem(uintptr_t a) {
 }
 
 static uintptr_t MemToShadowUnchecked(uintptr_t p) {
-#if ASAN_BYTE_TO_BYTE_SHADOW
-  uintptr_t shadow = (p | kFullLowShadowMask) & (~kFullHighShadowMask);
-  return shadow + kBankPadding;
-#else
   return COMPACT_MEM_TO_SHADOW(p);
-#endif
 }
 
 static uintptr_t MemToShadow(uintptr_t p) {
@@ -938,35 +914,11 @@ struct Ptr {
     if (!F_poison_shadow) return;
     uintptr_t red_zone_words = F_red_zone_words;
     uintptr_t size_in_words = this->size_in_words();
-#if !ASAN_BYTE_TO_BYTE_SHADOW
-      // this->PrintOneLine("malloc poison: ", "\n");
-      uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
-      // Printf("shadow: %p\n", shadow);
-      CompactPoison(0xa0a1a2a3a4a5a6a7ULL, 0,
-                    0xb0b1b2b3b4b5b6b7ULL);
-#else
-    CHECK(AddrIsInMem((uintptr_t)rz1_beg()));
-    CHECK(__WORDSIZE == 64);
-    uintptr_t *shadow = (uintptr_t*)MemToShadow(rz1_beg());
-    CHECK(AddrIsInShadow((uintptr_t)shadow));
-    uintptr_t *x = shadow;
-    for (; x < shadow + red_zone_words; x++) {
-      *x = kPoisonedWordLeftRedZone;
-    }
-    CHECK(x == shadow + red_zone_words);
-    for (; x < shadow + red_zone_words + size_in_words; x++) {
-      *x = 0;
-    }
-    CHECK(x == shadow + red_zone_words + size_in_words);
-    for (; x < shadow + real_size_in_words(); x++) {
-      *x = kPoisonedWordRightRedZone;
-    }
-    char *ch_beg = (char*)(shadow + red_zone_words) + size;
-    char *ch_end = (char*)(shadow + red_zone_words) + size_in_words * kWordSize;
-    for (char *c = ch_beg; c < ch_end; c++) {
-      *c = kPoisonedByte + (c - ch_beg);
-    }
-#endif
+    // this->PrintOneLine("malloc poison: ", "\n");
+    uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
+    // Printf("shadow: %p\n", shadow);
+    CompactPoison(0xa0a1a2a3a4a5a6a7ULL, 0,
+                  0xb0b1b2b3b4b5b6b7ULL);
   }
 
 
@@ -976,7 +928,6 @@ struct Ptr {
     uintptr_t real_size_in_words = this->real_size_in_words();
     uintptr_t size_in_words = this->size_in_words();
     CHECK(AddrIsInMem(rz1_beg()));
-#if !ASAN_BYTE_TO_BYTE_SHADOW
     if (poison) {
       CompactPoison(0xc0c1c2c3c4c5c6c7ULL,
                     0xd0d1d2d3d4d5d6d7ULL,
@@ -986,14 +937,6 @@ struct Ptr {
       uint8_t *end = (uint8_t*)MemToShadow(rz2_end());
       memset(beg, 0, end - beg);
     }
-#else
-    CHECK(__WORDSIZE == 64);
-    uintptr_t *shadow = (uintptr_t*)MemToShadow(rz1_beg());
-    uintptr_t *x = shadow;
-    for (x = shadow; x < shadow + real_size_in_words; x++) {
-      *x = poison ? kPoisonedWordOnFree : 0;
-    }
-#endif
   }
 
   void CopyStackTrace(StackTrace &stack, uintptr_t *dest, size_t max_size) {
@@ -1753,7 +1696,7 @@ static void asan_init() {
   F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
   F_mt = IntFlagValue(options, "mt=", 1);
 #if __WORDSIZE == 64
-  F_protext_shadow = IntFlagValue(options, "protect_shadow=", 0);
+  F_protect_shadow = IntFlagValue(options, "protect_shadow=", 0);
 #endif
 
   if (F_atexit) {
@@ -1821,13 +1764,12 @@ static void asan_init() {
 #else  // __WORDSIZE == 64
   {
     pthread_mutex_init(&shadow_lock, 0);
-    uintptr_t first_shadow_page = ASAN_BYTE_TO_BYTE_SHADOW
-        ? kFullLowShadowMask : kCompactShadowMask;
+    uintptr_t first_shadow_page = kCompactShadowMask;
     mmap_pages(first_shadow_page, 1, "First shadow page");
   }
 #endif  // __WORDSIZE == 64
 
-  if (F_protext_shadow && !ASAN_BYTE_TO_BYTE_SHADOW) {
+  if (F_protect_shadow) {
     // protect the gap between low and high shadow
     protect_range(kLowShadowEnd, MemToShadow(kHighMemBeg[F_vmsplit2g]));
   }

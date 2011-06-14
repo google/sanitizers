@@ -28,7 +28,6 @@ BIN=bin_$(OS)
 
 LIBS=#-lpthread -ldl
 BITS=64
-BYTE_TO_BYTE=0
 ASAN_STACK=1
 
 RTL_SRC=asan_rtl.cc
@@ -40,13 +39,11 @@ GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
-all: t_64 t_64full t_32
+all: t_64 t_32
 t_64: | $(BIN)
-	$(MAKE) BITS=64 BYTE_TO_BYTE=0 SUFF=64 $(BIN)/asan_test64
-t_64full: | $(BIN)
-	$(MAKE) BITS=64 BYTE_TO_BYTE=1 SUFF=64full $(BIN)/asan_test64full
+	$(MAKE) BITS=64 SUFF=64 $(BIN)/asan_test64
 t_32: | $(BIN)
-	$(MAKE) BITS=32 BYTE_TO_BYTE=0 SUFF=32   $(BIN)/asan_test32
+	$(MAKE) BITS=32 SUFF=32   $(BIN)/asan_test32
 
 SUFF=zzz
 
@@ -65,7 +62,7 @@ install:
 
 $(BIN)/libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR) Makefile
 	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party -DASAN_REVISION=\"$(SVNVERSION)\" \
-	   -m$(BITS) -fPIC -DASAN_BYTE_TO_BYTE_SHADOW=$(BYTE_TO_BYTE)
+	   -m$(BITS) -fPIC
 
 $(BIN)/libasan$(SUFF).so: $(BIN)/libasan$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
@@ -82,9 +79,7 @@ $(BIN)/asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(C
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
-		-mllvm -asan-stack=$(ASAN_STACK) \
-		-mllvm -asan-byte-to-byte-shadow=$(BYTE_TO_BYTE)
-	ASAN_LIB=$(CLANG_LIB)/libasan$(SUFF).a \
+		-mllvm -asan-stack=$(ASAN_STACK)
 	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
@@ -94,4 +89,5 @@ $(GTEST_LIB):
 
 clean:
 	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*  a.out perf.data log
+	rm -f $(CLANG_LIB)/libasan*
 	rm -rf bfds*

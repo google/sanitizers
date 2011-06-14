@@ -66,8 +66,6 @@ static cl::opt<bool> ClGlobals("asan-globals",
        cl::desc("Handle global objects"), cl::init(false));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
-static cl::opt<bool> ClByteToByteShadow("asan-byte-to-byte-shadow",
-       cl::desc("Use full (byte-to-byte) shadow mapping"), cl::init(false));
 static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
@@ -197,14 +195,6 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
 }
 
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
-  if (ClByteToByteShadow) {
-    // Shadow |= kFullLowShadowMask
-    Shadow = irb.CreateOr(
-        Shadow, ConstantInt::get(LongTy, kFullLowShadowMask));
-    // Shadow &= ~kFullHighShadowMask
-    return irb.CreateAnd(
-        Shadow, ConstantInt::get(LongTy, ~kFullHighShadowMask));
-  }
   // Shadow >> 3
   Shadow = irb.CreateLShr(Shadow, 3);
   uint64_t mask = TD->getPointerSize() == 4
@@ -299,18 +289,12 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
   const Type *ShadowTy  = IntegerType::get(
-      *Context, ClByteToByteShadow ? type_size : max((size_t)8, type_size / 8));
+      *Context, max((size_t)8, type_size / 8));
   const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
-  Value *PaddedShadowPtr = ShadowPtr;
-  if (ClByteToByteShadow) {
-    // ShadowPadded = Shadow + kBankPadding;
-    PaddedShadowPtr = irb1.CreateAdd(
-        ShadowPtr, ConstantInt::get(LongTy, kBankPadding));
-  }
   Value *ShadowValue = irb1.CreateLoad(
-      irb1.CreateIntToPtr(PaddedShadowPtr, ShadowPtrTy));
+      irb1.CreateIntToPtr(ShadowPtr, ShadowPtrTy));
   // If the shadow value is non-zero, write to the check address, else
   // continue executing the old code.
   Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
@@ -323,7 +307,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  if (!ClByteToByteShadow && type_size < 64) {
+  if (type_size < 64) {
     // addr & 7
     Value *Lower3Bits = irb2.CreateAnd(
         AddrLong, ConstantInt::get(LongTy, 7));
@@ -501,11 +485,6 @@ bool AddressSanitizer::handleFunction(Function &F) {
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
 
-  if (TD->getPointerSize() == 4) {
-    // For 32-bit arch the mapping is always compact.
-    ClByteToByteShadow = false;
-  }
-
   // We want to instrument every address only once per basic block
   // (unless there are calls between uses).
   SmallSet<Value*, 16> temps_to_instrument;
@@ -568,7 +547,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
   //
 
   bool changed_stack = false;
-  if (ClStack && !ClByteToByteShadow) {
+  if (ClStack) {
     changed_stack = poisonStackInFunction(F);
     if (changed_stack && ClDebugStack)
       errs() << F;
@@ -643,7 +622,6 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
 // Find all static Alloca instructions and put
 // poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Function &F) {
-  CHECK(!ClByteToByteShadow);
   SmallVector<AllocaInst*, 16> alloca_v;
   SmallVector<Instruction*, 8> ret_v;
   uint64_t total_size = 0;

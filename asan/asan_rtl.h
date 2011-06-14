@@ -19,15 +19,7 @@
 #ifndef ASAN_RTL_H
 #define ASAN_RTL_H
 
-#include <stdlib.h>
-#include <stdint.h>
-
-const uint64_t kFullHighShadowMask = 0x0000600000000000ULL;
-const uint64_t kFullLowShadowMask = (1ULL << 42);
-
-const uint64_t kCompactShadowMask64 = 1ULL << 44;
-const size_t   kCompactShadowMask32 = 1UL << 29;
-
-const size_t kBankPadding = 64;
+const unsigned long long kCompactShadowMask64 = 1ULL << 44;
+const unsigned long      kCompactShadowMask32 = 1UL << 29;
 
 #endif  // ASAN_RTL_H
