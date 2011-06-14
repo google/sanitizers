@@ -39,19 +39,21 @@ GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
-all: t_64 t_32
+all: b64 b32
 
-# broken
-test_all: all
+test: t64 t32
+
+t64: b64
 	$(BIN)/asan_test64
+t32: b32
 	$(BIN)/asan_test32
 
-t_64: | $(BIN)
-	$(MAKE) BITS=64 SUFF=64 $(BIN)/asan_test64
-t_32: | $(BIN)
-	$(MAKE) BITS=32 SUFF=32   $(BIN)/asan_test32
+b64: | $(BIN)
+	$(MAKE) BITS=64 $(BIN)/asan_test64
+b32: | $(BIN)
+	$(MAKE) BITS=32 $(BIN)/asan_test32
 
-SUFF=zzz
+SUFF=$(BITS)
 
 $(BIN):
 	mkdir -p $(BIN)
