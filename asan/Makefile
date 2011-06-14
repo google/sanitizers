@@ -40,6 +40,12 @@ GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 
 all: t_64 t_32
+
+# broken
+test_all: all
+	$(BIN)/asan_test64
+	$(BIN)/asan_test32
+
 t_64: | $(BIN)
 	$(MAKE) BITS=64 SUFF=64 $(BIN)/asan_test64
 t_32: | $(BIN)

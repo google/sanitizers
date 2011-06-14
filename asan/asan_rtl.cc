@@ -80,10 +80,8 @@ static uintptr_t  F_debug_malloc_size;
 static bool   F_mt;  // set to 0 if you have only one thread.
 
 #if __WORDSIZE == 32
-static int F_vmsplit2g;  // computed in init, not read from flags.
 static const int F_protect_shadow = 1;
 #else
-static const int F_vmsplit2g = 0;
 static int F_protect_shadow;
 #endif
 
@@ -128,7 +126,7 @@ const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;
 const size_t kPageSize = 1UL << kPageSizeBits;
 
-#define COMPACT_MEM_TO_SHADOW(mem) (((mem) >> 3) | kCompactShadowMask)
+#define MEM_TO_SHADOW(mem) (((mem) >> 3) | kCompactShadowMask)
 
 #if __WORDSIZE == 64
 const size_t kPageClusterSizeBits = 8;
@@ -137,38 +135,30 @@ const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBi
 #endif
 
 #if __WORDSIZE == 64
-const size_t kCompactShadowMask  = kCompactShadowMask64;
-const size_t kLowMemEnd     = (1UL << 39);
-
-const size_t kHighMemBeg[]     = {0x0000700000000000UL};
-const size_t kHighMemEnd[]     = {0x00007fffffffffffUL};
-
-const size_t kPoisonedByte = 0xb8;
-#define BYTE_TO_WORD(b) \
-    ((b+0))|((b+1)<<8)|((b+2)<<16)|((b+3)<<24)|\
-     ((b+4)<<32)|((b+5)<<40)|((b+6)<<48)|((b+7)<<56)
-const size_t kPoisonedWordLeftRedZone =  BYTE_TO_WORD(0xa0UL);
-const size_t kPoisonedWordRightRedZone = BYTE_TO_WORD(0xb0UL);
-const size_t kPoisonedWordOnFree =       BYTE_TO_WORD(0xd0UL);
-
-
-#define PP "0x%016lx"
-
+  static const size_t kCompactShadowMask  = kCompactShadowMask64;
+  static const size_t kHighMemEnd = 0x00007fffffffffffUL;
+  #define PP "0x%016lx"
 #else  // __WORDSIZE == 32
-const size_t kCompactShadowMask  = kCompactShadowMask32;
-// These two arrays are indexed by F_vmsplit2g
-const size_t kHighMemBeg[]    = {0x40000000, 0x30000000};
-const size_t kHighMemEnd[]    = {0xffffffff, 0x7fffffff};
-
-const size_t kLowMemEnd     = kCompactShadowMask;
-
-
-#define PP "0x%08lx"
-
+  const size_t kCompactShadowMask  = kCompactShadowMask32;
+  static const size_t kHighMemEnd = 0xffffffff;
+  #define PP "0x%08lx"
 #endif  // __WORDSIZE
 
-const size_t kLowShadowBeg   = kCompactShadowMask;
-const size_t kLowShadowEnd   = (kLowMemEnd >> 3) | kCompactShadowMask;
+
+static const size_t kLowMemBeg      = 0;
+static const size_t kLowMemEnd      = kCompactShadowMask - 1;
+
+static const size_t kLowShadowBeg   = kCompactShadowMask;
+static const size_t kLowShadowEnd   = MEM_TO_SHADOW(kLowMemEnd);
+
+static const size_t kHighMemBeg     = MEM_TO_SHADOW(kHighMemEnd) + 1;
+
+static const size_t kHighShadowBeg  = MEM_TO_SHADOW(kHighMemBeg);
+static const size_t kHighShadowEnd  = MEM_TO_SHADOW(kHighMemEnd);
+
+static const size_t kShadowGapBeg   = kLowShadowEnd + 1;
+static const size_t kShadowGapEnd   = kHighShadowBeg - 1;
+
 
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
@@ -295,25 +285,21 @@ static bool AddrIsInLowShadow(uintptr_t a) {
 }
 
 static bool AddrIsInHighMem(uintptr_t a) {
-  return a >= kHighMemBeg[F_vmsplit2g] && a <= kHighMemEnd[F_vmsplit2g];
+  return a >= kHighMemBeg && a <= kHighMemEnd;
 }
 
 static bool AddrIsInMem(uintptr_t a) {
   return AddrIsInLowMem(a) || AddrIsInHighMem(a);
 }
 
-static uintptr_t MemToShadowUnchecked(uintptr_t p) {
-  return COMPACT_MEM_TO_SHADOW(p);
-}
-
 static uintptr_t MemToShadow(uintptr_t p) {
   CHECK(AddrIsInMem(p));
-  return MemToShadowUnchecked(p);
+  return MEM_TO_SHADOW(p);
 }  
 
 static bool AddrIsInHighShadow(uintptr_t a) {
-  return a >= MemToShadow(kHighMemBeg[F_vmsplit2g]) 
-      && a <  MemToShadow(kHighMemEnd[F_vmsplit2g]);
+  return a >= MemToShadow(kHighMemBeg) 
+      && a <  MemToShadow(kHighMemEnd);
 }
 
 static bool AddrIsInShadow(uintptr_t a) {
@@ -775,18 +761,20 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
   return ch;
 }
 
+// mmap range [beg, end]
 static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   CHECK((beg % kPageSize) == 0);
-  CHECK((end % kPageSize) == 0);
+  CHECK(((end + 1) % kPageSize) == 0);
   // Printf("mmap_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
-  return mmap_pages(beg, (end - beg) / kPageSize, mem_type);
+  return mmap_pages(beg, (end - beg + 1) / kPageSize, mem_type);
 }
 
+// protect range [beg, end]
 static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK((beg % kPageSize) == 0);
-  CHECK((end % kPageSize) == 0);
+  CHECK(((end+1) % kPageSize) == 0);
   // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
-  void *res = real_mmap((void*)beg, end - beg,
+  void *res = real_mmap((void*)beg, end - beg + 1,
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   CHECK(res == (void*)beg);
@@ -1744,22 +1732,10 @@ static void asan_init() {
 
 #if __WORDSIZE == 32
   {
-    // Compute F_vmsplit2g
-    uintptr_t kTestPageInHigh2G = 0x81234000;
-    void *test_page = mmap_pages(kTestPageInHigh2G, 1, "kTestPageInHigh2G", false);
-    if (test_page == (void*)kTestPageInHigh2G) {
-      F_vmsplit2g = 0;
-      if (F_v) Printf("Full 32-bit address space\n");
-      munmap(test_page, kPageSize);
-    } else {
-      F_vmsplit2g = 1;
-      if (F_v) Printf("CONFIG_VMSPLIT_2G=y 32-bit address space\n");
-    }
     // mmap the low shadow.
     mmap_range(kLowShadowBeg, kLowShadowEnd, "LowShadow");
     // mmap the high shadow.
-    mmap_range(MemToShadow(kHighMemBeg[F_vmsplit2g]),
-               kHighMemBeg[F_vmsplit2g], "HighShadow");
+    mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
   }
 #else  // __WORDSIZE == 64
   {
@@ -1771,7 +1747,7 @@ static void asan_init() {
 
   if (F_protect_shadow) {
     // protect the gap between low and high shadow
-    protect_range(kLowShadowEnd, MemToShadow(kHighMemBeg[F_vmsplit2g]));
+    protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
   CHECK(0 == pthread_key_create(&g_tls_key, 0));
@@ -1793,17 +1769,16 @@ static void asan_init() {
 
   if (F_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
-    Printf("HighMem    : ["PP","PP")\n", kHighMemBeg[F_vmsplit2g], kHighMemEnd[F_vmsplit2g]);
-    Printf("HighShadow : ["PP","PP")\n", 
-           MemToShadow(kHighMemBeg[F_vmsplit2g]),
-           MemToShadow(kHighMemEnd[F_vmsplit2g]));
-    Printf("LowShadow  : ["PP","PP")\n", kLowShadowBeg, kLowShadowEnd);
-    Printf("LowMem     : ["PP","PP")\n", 0, kLowMemEnd);
+    Printf("|| `["PP","PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
+    Printf("|| `["PP","PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);
+    Printf("|| `["PP","PP"]` || Shadow Gap ||\n", kShadowGapBeg, kShadowGapEnd);
+    Printf("|| `["PP","PP"]` || LowShadow  ||\n", kLowShadowBeg, kLowShadowEnd);
+    Printf("|| `["PP","PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
     Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
-           MemToShadowUnchecked(kLowShadowBeg), 
-           MemToShadowUnchecked(kLowShadowEnd),
-           MemToShadowUnchecked(MemToShadow(kHighMemBeg[F_vmsplit2g])),
-           MemToShadowUnchecked(MemToShadow(kHighMemEnd[F_vmsplit2g])));
+           MEM_TO_SHADOW(kLowShadowBeg),
+           MEM_TO_SHADOW(kLowShadowEnd),
+           MEM_TO_SHADOW(kHighShadowBeg),
+           MEM_TO_SHADOW(kHighShadowEnd));
     Printf("red_zone_words=%ld\n", F_red_zone_words);
     Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)F_fast_unwind);
