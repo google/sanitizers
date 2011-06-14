@@ -133,6 +133,8 @@ const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;
 const size_t kPageSize = 1UL << kPageSizeBits;
 
+#define COMPACT_MEM_TO_SHADOW(mem) (((mem) >> 3) | kCompactShadowMask)
+
 #if __WORDSIZE == 64
 const size_t kPageClusterSizeBits = 8;
 const size_t kPageClusterSize = 1UL << kPageClusterSizeBits;
@@ -140,6 +142,7 @@ const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBi
 #endif
 
 #if __WORDSIZE == 64
+const size_t kCompactShadowMask  = kCompactShadowMask64;
 const size_t kLowMemEnd     = (1UL << 39);
 
 const size_t kFullLowShadowBeg = kFullLowShadowMask;
@@ -159,12 +162,10 @@ const size_t kPoisonedWordLeftRedZone =  BYTE_TO_WORD(0xa0UL);
 const size_t kPoisonedWordRightRedZone = BYTE_TO_WORD(0xb0UL);
 const size_t kPoisonedWordOnFree =       BYTE_TO_WORD(0xd0UL);
 
-const size_t kCompactShadowMask  = kCompactShadowMask64;
 
 #define PP "0x%016lx"
 
 #else  // __WORDSIZE == 32
-
 const size_t kCompactShadowMask  = kCompactShadowMask32;
 // These two arrays are indexed by F_vmsplit2g
 const size_t kHighMemBeg[]    = {0x40000000, 0x30000000};
@@ -321,11 +322,11 @@ static bool AddrIsInMem(uintptr_t a) {
 }
 
 static uintptr_t MemToShadowUnchecked(uintptr_t p) {
-#if !ASAN_BYTE_TO_BYTE_SHADOW
-  return (p >> 3) | kCompactShadowMask;
-#else
+#if ASAN_BYTE_TO_BYTE_SHADOW
   uintptr_t shadow = (p | kFullLowShadowMask) & (~kFullHighShadowMask);
   return shadow + kBankPadding;
+#else
+  return COMPACT_MEM_TO_SHADOW(p);
 #endif
 }
 
