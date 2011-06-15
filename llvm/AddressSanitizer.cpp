@@ -27,6 +27,7 @@
 #include "llvm/CallingConv.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
+#include "llvm/GlobalAlias.h"
 #include "llvm/InlineAsm.h"
 #include "llvm/InstrTypes.h"
 #include "llvm/IntrinsicInst.h"
@@ -375,30 +376,58 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   // asm_call->setDoesNotReturn();
 }
 
-// unfinished
+// ***unfinished***
+// This function replaces all global variables with new variables that have
+// trainling redzones.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
-  // errs() << M;
   Module::GlobalListType &globals = M.getGlobalList();
   for (Module::GlobalListType::iterator G = globals.begin(),
        E = globals.end(); G != E; ++G) {
-    GlobalVariable &g = *G;
-    const Type *ty = cast<PointerType>(g.getType())->getElementType();
+    GlobalVariable &orig_global = *G;
+    const PointerType *ptrty = cast<PointerType>(orig_global.getType());
+    const Type *ty = ptrty->getElementType();
     if (!ty->isSized()) continue;
-    if (!g.hasInitializer()) continue;
+    if (!orig_global.hasInitializer()) continue;
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
-    uint64_t aligned_size = getAlignedSize(size_in_bytes);
-    uint64_t total_size_with_redzones = aligned_size + kAsanStackRedzone * 2;
+    uint64_t total_size_with_redzones = size_in_bytes + kAsanStackRedzone;
 
+    // Create a new global variable with enough space for a redzone.
     Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
-    GlobalVariable *g_rz = new GlobalVariable(
-        M, ByteArrayTy, g.isConstant(), g.getLinkage(),
+    GlobalVariable *global_with_redzone = new GlobalVariable(
+        M, ByteArrayTy, orig_global.isConstant(), orig_global.getLinkage(),
         Constant::getNullValue(ByteArrayTy),
-        g.getName() + "_rz",
-        &g, g.isThreadLocal());
-    g_rz->copyAttributesFrom(&g);
-    errs() << "GLOBAL: " << g;
+        orig_global.getName() + "_asan_redzone",
+        &orig_global, orig_global.isThreadLocal());
+    global_with_redzone->copyAttributesFrom(&orig_global);
+
+    // Q: how do we initialize global_with_redzone if
+    // orig_global has a non-zero intializer?
+
+    // Q: do we need to erase the old global, and create the alias with the same
+    // name, or we need to replace all uses of the old global with the alias
+    // (how?)
+
+    // Q: it does not seem possible to create an alias to a GEP. 
+    // Trying this we get:
+    // "Aliasee should be either GlobalValue or bitcast of GlobalValue"
+    // This is not fatal, we will just have only the trailing redzones and 
+    // no leading redzones.
+    
+    // Q: We need to poison the shadow values corresponding to redzones.
+    // How do we communicate the addresses of redzones to the run-time library?
+
+    // Q: If omit this GlobalAlias machinery and simply create a new global 
+    // and insert it after the orig_global it is placed in the right position 
+    // for a redzone (at least for non-static globals).
+    // At least seems like. Can we rely on this? I guess no :(
+
+    Constant *alias_const = ConstantExpr::getBitCast(global_with_redzone, ptrty);
+    GlobalAlias *alias = new GlobalAlias(
+        ptrty, orig_global.getLinkage(), orig_global.getName(), alias_const, &M);
+
+    errs() << "GLOBAL: " << orig_global;
     errs() << "   " <<  *ty << " -- size " << size_in_bytes << "\n";
-    errs() << *g_rz << "\n";
+    errs() << *global_with_redzone << *alias << "\n";
   }
   return false;
 }
