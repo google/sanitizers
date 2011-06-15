@@ -381,6 +381,9 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
 // trainling redzones.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
+
+  Type *RedZoneTy = ArrayType::get(ByteTy, kAsanStackRedzone);
+
   for (Module::GlobalListType::iterator G = globals.begin(),
        E = globals.end(); G != E; ++G) {
     GlobalVariable &orig_global = *G;
@@ -388,46 +391,48 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     const Type *ty = ptrty->getElementType();
     if (!ty->isSized()) continue;
     if (!orig_global.hasInitializer()) continue;
-    uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
-    uint64_t total_size_with_redzones = size_in_bytes + kAsanStackRedzone;
+
+    const Type *new_ty = StructType::get(*Context,
+                                         RedZoneTy, ty, RedZoneTy, NULL);
+    Constant *new_initializer = ConstantStruct::get(
+        *Context, /*packed=*/false,
+        Constant::getNullValue(RedZoneTy),
+        orig_global.getInitializer(),
+        Constant::getNullValue(RedZoneTy),
+        NULL);
 
     // Create a new global variable with enough space for a redzone.
-    Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
-    GlobalVariable *global_with_redzone = new GlobalVariable(
-        M, ByteArrayTy, orig_global.isConstant(), orig_global.getLinkage(),
-        Constant::getNullValue(ByteArrayTy),
+    GlobalVariable *new_global = new GlobalVariable(
+        M, new_ty, orig_global.isConstant(), orig_global.getLinkage(),
+        new_initializer,
         orig_global.getName() + "_asan_redzone",
         &orig_global, orig_global.isThreadLocal());
-    global_with_redzone->copyAttributesFrom(&orig_global);
+    new_global->copyAttributesFrom(&orig_global);
 
-    // Q: how do we initialize global_with_redzone if
-    // orig_global has a non-zero intializer?
-
-    // Q: do we need to erase the old global, and create the alias with the same
-    // name, or we need to replace all uses of the old global with the alias
-    // (how?)
-
-    // Q: it does not seem possible to create an alias to a GEP. 
-    // Trying this we get:
-    // "Aliasee should be either GlobalValue or bitcast of GlobalValue"
-    // This is not fatal, we will just have only the trailing redzones and 
-    // no leading redzones.
-    
     // Q: We need to poison the shadow values corresponding to redzones.
-    // How do we communicate the addresses of redzones to the run-time library?
+    // Not redzones themselves (their values are irrelevant), but the 
+    // memory starting from ((redzone_addr >> 3) + offset).
+    // One way is to create a new function with attribute constructor 
+    // and construct the function body such that it poisons the redzones.
+    // Is there a simpler way?
 
-    // Q: If omit this GlobalAlias machinery and simply create a new global 
-    // and insert it after the orig_global it is placed in the right position 
-    // for a redzone (at least for non-static globals).
-    // At least seems like. Can we rely on this? I guess no :(
-
-    Constant *alias_const = ConstantExpr::getBitCast(global_with_redzone, ptrty);
+    Constant *Indices[2];
+    Indices[0] = ConstantInt::get(i32Ty, 0);
+    Indices[1] = ConstantInt::get(i32Ty, 1);
     GlobalAlias *alias = new GlobalAlias(
-        ptrty, orig_global.getLinkage(), orig_global.getName(), alias_const, &M);
+        ptrty, GlobalValue::ExternalLinkage, "",
+        ConstantExpr::getGetElementPtr(new_global, Indices, 2),
+        new_global->getParent());
+
+    orig_global.replaceAllUsesWith(alias);
+    alias->takeName(&orig_global);
 
     errs() << "GLOBAL: " << orig_global;
-    errs() << "   " <<  *ty << " -- size " << size_in_bytes << "\n";
-    errs() << *global_with_redzone << *alias << "\n";
+    errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
+    errs() << *new_initializer << "\n";
+    errs() << *new_global << "\n";
+    errs() << *alias << "\n";
+//    errs() << *global_with_redzone << *alias << "\n";
   }
   return false;
 }
