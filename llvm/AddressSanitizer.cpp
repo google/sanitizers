@@ -378,7 +378,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
 
 // ***unfinished***
 // This function replaces all global variables with new variables that have
-// trainling redzones.
+// leading and trailing redzones.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
 
@@ -391,6 +391,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     const Type *ty = ptrty->getElementType();
     if (!ty->isSized()) continue;
     if (!orig_global.hasInitializer()) continue;
+    // TODO(kcc): do something smart if the alignment is large.
 
     const Type *new_ty = StructType::get(*Context,
                                          RedZoneTy, ty, RedZoneTy, NULL);
@@ -677,8 +678,9 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
           ret_v.push_back(BI);
           continue;
       }
-      if (!isa<AllocaInst>(BI)) continue;
-      AllocaInst *a = cast<AllocaInst>(BI);
+
+      AllocaInst *a = dyn_cast<AllocaInst>(BI);
+      if (!a) continue;
       if (a->isArrayAllocation()) continue;
       if (!a->isStaticAlloca()) continue;
       if (!a->getAllocatedType()->isSized()) continue;
@@ -700,7 +702,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
   Instruction *ins_before = alloca_v[0];
 
-  AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);;
+  AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
   my_alloca->setAlignment(kAsanStackAlignment);
   CHECK(my_alloca->isStaticAlloca());
   Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
