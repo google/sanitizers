@@ -98,7 +98,43 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3868,6 +3874,25 @@
+@@ -3064,6 +3070,26 @@
+ 
+   Args.AddAllArgs(CmdArgs, options::OPT_L);
+ 
++  // AddressSanitizer Support.
++  if (Args.hasArg(options::OPT_fasan) && !Args.hasArg(options::OPT_shared)) {
++    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
++    std::string libasan;
++    if (libasan_from_env) {
++      libasan = libasan_from_env;
++    } else {
++      libasan = getToolChain().getDriver().Dir + "/../lib/libasan";
++      if (getToolChain().getArch() == llvm::Triple::x86)
++        libasan += "32.a";
++      else
++        libasan += "64.a";
++    }
++    CmdArgs.push_back(Args.MakeArgString(libasan));
++    CmdArgs.push_back("-lpthread");
++    CmdArgs.push_back("-ldl");
++    getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
++  }
++
++
+   if (Args.hasArg(options::OPT_fopenmp))
+     // This is more complicated in gcc...
+     CmdArgs.push_back("-lgomp");
+@@ -3098,6 +3124,8 @@
+     getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
+   }
+ 
++
++
+   if (!Args.hasArg(options::OPT_A) &&
+       !Args.hasArg(options::OPT_nostdlib) &&
+       !Args.hasArg(options::OPT_nostartfiles)) {
+@@ -3868,6 +3896,25 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
@@ -115,10 +151,10 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +      else
 +        libasan += "64.a";
 +    }
-+    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
++    CmdArgs.push_back(Args.MakeArgString(libasan));
 +    CmdArgs.push_back("-lpthread");
 +    CmdArgs.push_back("-ldl");
-+    CmdArgs.push_back(Args.MakeArgString(libasan));
++    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 +  }
 +
    if (D.CCCIsCXX && !Args.hasArg(options::OPT_nostdlib)) {
