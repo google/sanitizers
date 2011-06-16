@@ -802,6 +802,69 @@ static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
   return mmap_pages(start_page, n_pages, "high shadow memory");
 }
 
+struct Global {
+  Global *next;
+  size_t size;
+
+  void PoisonRedZones() {
+    uintptr_t shadow = MemToShadow((uintptr_t)this);
+    // left red zone
+    *(uint32_t*)shadow = 0xbabababa;
+    // right full redzone
+    uintptr_t right_rz2_offset = 4 * (1 + (size + kAsanRedzone - 1)
+                                     / kAsanRedzone);
+    *(uint32_t*)(shadow + right_rz2_offset) = 0xcacacaca;
+    if ((size % kAsanRedzone) != 0) {
+      uint64_t right_rz1_offset = 4 * (1 + size / kAsanRedzone);
+      CHECK(right_rz1_offset == right_rz2_offset - 4);
+      *(uint32_t*)(shadow + right_rz1_offset) =
+          kPartialRedzonePoisonValues[size % kAsanRedzone];
+    }
+  }
+
+  size_t GetAlignedSize() {
+    return ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
+  }
+
+  bool DescribeAddrIfMyRedZone(uintptr_t addr) {
+    uintptr_t me = (uintptr_t)this;
+    if (addr < me) return false;
+    if (addr >= me + GetAlignedSize() + 2 * kAsanRedzone) return false;
+    Printf(""PP" is located ", addr);
+    if (addr < me + kAsanRedzone) {
+      Printf("%d bytes to the left", me + kAsanRedzone - addr);
+    } else if (addr >= me + kAsanRedzone + size) {
+      Printf("%d bytes to the right", addr - (me + kAsanRedzone + size));
+    } else {
+      Printf("%d bytes inside", addr - (me + kAsanRedzone));  // Can it happen?
+    }
+    Printf(" of global variable "PP"\n", me + kAsanRedzone);
+    return true;
+  }
+};
+
+static Global *g_globals_list;
+
+static bool DescribeAddrIfGlobal(uintptr_t addr) {
+  for (Global *g = g_globals_list; g; g = g->next) {
+    if (g->DescribeAddrIfMyRedZone(addr)) return true;
+  }
+  return false;
+}
+
+// exported function
+extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
+  asan_init();
+  CHECK(AddrIsInMem(addr));
+  uintptr_t shadow = MemToShadow(addr);
+  Printf("global: "PP" "PP" %ld \n", addr, shadow, size);
+  Global *g = (Global*)addr;
+  g->next = g_globals_list;
+  g->size = size;
+  g_globals_list = g;
+  g->PoisonRedZones();
+}
+
 struct Ptr {
   uint32_t magic;
   uint32_t orig_libc_offset;
@@ -1084,6 +1147,10 @@ class MallocInfo {
 
   void DescribeAddress(uintptr_t sp, uintptr_t bp, uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
+
+    // Check if this is a global.
+    if (DescribeAddrIfGlobal(addr))
+      return;
 
     // Check if we have this memory region in delay queue.
     Ptr *freed = find_freed(addr);

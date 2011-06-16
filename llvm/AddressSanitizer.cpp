@@ -100,11 +100,7 @@ void Printf(const char *format, ...) {
 
 namespace {
 
-// We create poisoned rezones of 32 *bytes*
-// With the compact shadow we can poison the entire redzone
-// with one 4-byte store.
-const unsigned kAsanStackAlignment = 32;
-const unsigned kAsanStackRedzone = 32;
+static const char *kAsanGlobalPoisonerName = "asan.poison_globals";
 
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
@@ -119,6 +115,7 @@ struct AddressSanitizer : public ModulePass {
   bool poisonStackInFunction(Function &F);
   virtual bool runOnModule(Module &M);
   bool insertGlobalRedzones(Module &M);
+  void appendToGlobalCtors(Module &M, Function *f);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
   static char ID; // Pass identification, replacement for typeid
 
@@ -130,8 +127,8 @@ struct AddressSanitizer : public ModulePass {
     return size_in_bytes;
   }
   uint64_t getAlignedSize(uint64_t size_in_bytes) {
-    return ((size_in_bytes + kAsanStackAlignment - 1)
-            / kAsanStackAlignment) * kAsanStackAlignment;
+    return ((size_in_bytes + kAsanRedzone - 1)
+            / kAsanRedzone) * kAsanRedzone;
   }
   uint64_t getAlignedAllocaSize(AllocaInst *a) {
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
@@ -376,13 +373,61 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   // asm_call->setDoesNotReturn();
 }
 
+// Append 'f' to the list of global ctors.
+void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
+  // The code is shamelessly stolen from
+  // RegisterRuntimeInitializer::insertInitializerIntoGlobalCtorList().
+  // LLVM may need a general API function for this.
+
+  // Insert the run-time ctor into the ctor list.
+  std::vector<Constant *> CtorInits;
+  CtorInits.push_back (ConstantInt::get (i32Ty, 65535));
+  CtorInits.push_back (f);
+  Constant * RuntimeCtorInit=ConstantStruct::get(getGlobalContext(),CtorInits, false);
+
+  // Get the current set of static global constructors and add the new ctor
+  // to the list.
+  std::vector<Constant *> CurrentCtors;
+  GlobalVariable * GVCtor = M.getNamedGlobal ("llvm.global_ctors");
+  if (GVCtor) {
+    if (Constant * C = GVCtor->getInitializer()) {
+      for (unsigned index = 0; index < C->getNumOperands(); ++index) {
+        CurrentCtors.push_back (cast<Constant>(C->getOperand (index)));
+      }
+    }
+    // Rename the global variable so that we can name our global
+    // llvm.global_ctors.
+    GVCtor->setName ("removed");
+  }
+
+  CurrentCtors.push_back(RuntimeCtorInit);
+
+  // Create a new initializer.
+  const ArrayType * AT = ArrayType::get (RuntimeCtorInit-> getType(),
+                                         CurrentCtors.size());
+  Constant * NewInit = ConstantArray::get (AT, CurrentCtors);
+
+  // Create the new llvm.global_ctors global variable and replace all uses of
+  // the old global variable with the new one.
+  new GlobalVariable (M,
+                      NewInit->getType(),
+                      false,
+                      GlobalValue::AppendingLinkage,
+                      NewInit,
+                      "llvm.global_ctors");
+}
+
 // ***unfinished***
 // This function replaces all global variables with new variables that have
 // leading and trailing redzones.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
 
-  Type *RedZoneTy = ArrayType::get(ByteTy, kAsanStackRedzone);
+  Type *LeftRedZoneTy = ArrayType::get(ByteTy, kAsanRedzone);
+
+  // We will create a new function that poisons all readzones.
+  Function *poisoner = NULL;
+  Instruction *insert_before = 0;
 
   for (Module::GlobalListType::iterator G = globals.begin(),
        E = globals.end(); G != E; ++G) {
@@ -391,15 +436,21 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     const Type *ty = ptrty->getElementType();
     if (!ty->isSized()) continue;
     if (!orig_global.hasInitializer()) continue;
+    if (orig_global.isConstant()) continue;  // do we care about constants?
     // TODO(kcc): do something smart if the alignment is large.
 
-    const Type *new_ty = StructType::get(*Context,
-                                         RedZoneTy, ty, RedZoneTy, NULL);
+    uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
+    uint64_t right_redzone_size = kAsanRedzone +
+        (kAsanRedzone - (size_in_bytes % kAsanRedzone));
+    Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
+
+    const Type *new_ty = StructType::get(
+        *Context, LeftRedZoneTy, ty, RightRedZoneTy, NULL);
     Constant *new_initializer = ConstantStruct::get(
         *Context, /*packed=*/false,
-        Constant::getNullValue(RedZoneTy),
+        Constant::getNullValue(LeftRedZoneTy),
         orig_global.getInitializer(),
-        Constant::getNullValue(RedZoneTy),
+        Constant::getNullValue(RightRedZoneTy),
         NULL);
 
     // Create a new global variable with enough space for a redzone.
@@ -411,9 +462,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     new_global->copyAttributesFrom(&orig_global);
 
     // Q: We need to poison the shadow values corresponding to redzones.
-    // Not redzones themselves (their values are irrelevant), but the 
+    // Not redzones themselves (their values are irrelevant), but the
     // memory starting from ((redzone_addr >> 3) + offset).
-    // One way is to create a new function with attribute constructor 
+    // One way is to create a new function with attribute constructor
     // and construct the function body such that it poisons the redzones.
     // Is there a simpler way?
 
@@ -428,13 +479,35 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     orig_global.replaceAllUsesWith(alias);
     alias->takeName(&orig_global);
 
+    if (!poisoner) {
+      FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
+      poisoner = Function::Create(Fn0Ty, GlobalValue::PrivateLinkage,
+                                  kAsanGlobalPoisonerName,
+                                  &M);
+      BasicBlock *bb = BasicBlock::Create(*Context, "", poisoner);
+      insert_before = ReturnInst::Create(*Context, bb);
+    }
+
+    IRBuilder<> irb(insert_before->getParent(), insert_before);
+    Value *asan_register_global = M.getOrInsertFunction(
+        "__asan_register_global", VoidTy, LongTy, LongTy, NULL);
+    irb.CreateCall2(asan_register_global,
+                   irb.CreatePointerCast(new_global, LongTy),
+                   ConstantInt::get(LongTy, size_in_bytes));
+
     errs() << "GLOBAL: " << orig_global;
     errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
     errs() << *new_initializer << "\n";
     errs() << *new_global << "\n";
     errs() << *alias << "\n";
-//    errs() << *global_with_redzone << *alias << "\n";
   }
+
+
+  if (poisoner) {
+    errs() << *poisoner;
+    appendToGlobalCtors(M, poisoner);
+  }
+
   return false;
 }
 //virtual
@@ -522,6 +595,7 @@ static bool blockOrItsSuccHasException(BasicBlock &bb) {
 
 bool AddressSanitizer::handleFunction(Function &F) {
   if (WantToIgnoreFunction(F)) return false;
+  if (F.getNameStr() == kAsanGlobalPoisonerName) return false;
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
@@ -597,27 +671,6 @@ bool AddressSanitizer::handleFunction(Function &F) {
   return n_instrumented > 0 || changed_stack;
 }
 
-// need to poison last __WORDSIZE - n bytes in word.
-static uint64_t computeCompactPartialPoisonValue(int n) {
-  union {
-    uint64_t u64;
-    uint32_t u32[2];
-    uint8_t  u8[8];
-  } a;
-  CHECK(n > 0 && n < 64);
-  for (int i = 0; i < 8; i++) {
-    if (n > (i+1) * 8) {
-      a.u8[i] = 0;
-    } else if (n > i * 8){
-      a.u8[i] = n % 8;
-    } else {
-      a.u8[i] = 0xe0 + i;
-    }
-  }
-  // Printf("computeCompactPartialPoisonValue: %d %llx\n", n, a.u64);
-  return a.u32[0];
-}
-
 
 void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
@@ -630,12 +683,12 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
   irb.CreateStore(poison_left, irb.CreateIntToPtr(shadow_base, i32PtrTy));
 
   // poison all other red zones.
-  uint64_t pos = kAsanStackRedzone;
+  uint64_t pos = kAsanRedzone;
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
     uint64_t aligned_size = getAlignedAllocaSize(a);
-    CHECK(aligned_size - size_in_bytes < kAsanStackAlignment);
+    CHECK(aligned_size - size_in_bytes < kAsanRedzone);
     Value *ptr;
 
     pos += aligned_size;
@@ -644,9 +697,9 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
       // Poison the partial redzone at right
       ptr = irb.CreateAdd(
           shadow_base, ConstantInt::get(LongTy, pos / 8 - 4));
-      size_t addressible_bytes = kAsanStackRedzone - (aligned_size - size_in_bytes);
+      size_t addressible_bytes = kAsanRedzone - (aligned_size - size_in_bytes);
       uint64_t poison = do_poison
-          ? computeCompactPartialPoisonValue(addressible_bytes) : 0;
+          ? kPartialRedzonePoisonValues[addressible_bytes] : 0;
       Value *partial_poison = ConstantInt::get(i32Ty, poison);
       irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i32PtrTy));
     }
@@ -656,7 +709,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
     Value *poison = i == alloca_v.size() - 1 ? poison_right : poison_mid;
     irb.CreateStore(poison, irb.CreateIntToPtr(ptr, i32PtrTy));
 
-    pos += kAsanStackRedzone;
+    pos += kAsanRedzone;
   }
 }
 
@@ -686,7 +739,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
       if (!a->getAllocatedType()->isSized()) continue;
       alloca_v.push_back(a);
       unsigned alignment  = a->getAlignment();
-      CHECK(alignment <= kAsanStackAlignment);
+      CHECK(alignment <= kAsanRedzone);
       uint64_t aligned_size =  getAlignedAllocaSize(a);
       total_size += aligned_size;
     }
@@ -695,7 +748,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   if (alloca_v.empty()) return false;
 
   uint64_t total_size_with_redzones =
-      total_size + (alloca_v.size() + 1) * kAsanStackRedzone;
+      total_size + (alloca_v.size() + 1) * kAsanRedzone;
 
   // errs() << "total size w/ redzones: " << total_size_with_redzones << "\n";
 
@@ -703,21 +756,21 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   Instruction *ins_before = alloca_v[0];
 
   AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
-  my_alloca->setAlignment(kAsanStackAlignment);
+  my_alloca->setAlignment(kAsanRedzone);
   CHECK(my_alloca->isStaticAlloca());
   Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
 
-  uint64_t pos = kAsanStackRedzone;
+  uint64_t pos = kAsanRedzone;
   // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t aligned_size = getAlignedAllocaSize(a);
-    CHECK((aligned_size % kAsanStackAlignment) == 0);
+    CHECK((aligned_size % kAsanRedzone) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
         base, ConstantInt::get(LongTy, pos), "", a);
     new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
 
-    pos += aligned_size + kAsanStackRedzone;
+    pos += aligned_size + kAsanRedzone;
     a->replaceAllUsesWith(new_ptr);
   }
   CHECK(pos == total_size_with_redzones);
