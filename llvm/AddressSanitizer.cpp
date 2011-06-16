@@ -383,7 +383,8 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   std::vector<Constant *> CtorInits;
   CtorInits.push_back (ConstantInt::get (i32Ty, 65535));
   CtorInits.push_back (f);
-  Constant * RuntimeCtorInit=ConstantStruct::get(getGlobalContext(),CtorInits, false);
+  Constant *RuntimeCtorInit = ConstantStruct::get(
+      getGlobalContext(), CtorInits, false);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
@@ -403,9 +404,9 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   CurrentCtors.push_back(RuntimeCtorInit);
 
   // Create a new initializer.
-  const ArrayType * AT = ArrayType::get (RuntimeCtorInit-> getType(),
+  const ArrayType * AT = ArrayType::get (RuntimeCtorInit->getType(),
                                          CurrentCtors.size());
-  Constant * NewInit = ConstantArray::get (AT, CurrentCtors);
+  Constant *NewInit = ConstantArray::get (AT, CurrentCtors);
 
   // Create the new llvm.global_ctors global variable and replace all uses of
   // the old global variable with the new one.
@@ -437,6 +438,11 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     if (!ty->isSized()) continue;
     if (!orig_global.hasInitializer()) continue;
     if (orig_global.isConstant()) continue;  // do we care about constants?
+    if (orig_global.getLinkage() != GlobalVariable::ExternalLinkage &&
+        orig_global.getLinkage() != GlobalVariable::PrivateLinkage) {
+      // do we care about other linkages?
+      continue;
+    }
     // TODO(kcc): do something smart if the alignment is large.
 
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;

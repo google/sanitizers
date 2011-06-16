@@ -846,6 +846,18 @@ TEST(AddressSanitizer, DisasmTest) {
   EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", "ud2"));
 }
 
+char glob5[5];
+
+TEST(AddressSanitizer, GlobalTest) {
+  glob5[Ident(0)] = 0;
+  glob5[Ident(1)] = 0;
+  glob5[Ident(2)] = 0;
+  glob5[Ident(3)] = 0;
+  glob5[Ident(4)] = 0;
+
+  glob5[Ident(5)] = 0;
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {

@@ -29,6 +29,7 @@ BIN=bin_$(OS)
 LIBS=#-lpthread -ldl
 BITS=64
 ASAN_STACK=1
+ASAN_GLOBALS=0
 
 RTL_SRC=asan_rtl.cc
 RTL_HDR=asan_rtl.h
@@ -87,7 +88,8 @@ $(BIN)/asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(C
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
 		-m$(BITS) \
 		-mllvm -asan-ignore=asan_test.ignore \
-		-mllvm -asan-stack=$(ASAN_STACK)
+		-mllvm -asan-stack=$(ASAN_STACK) \
+		-mllvm -asan-globals=$(ASAN_GLOBALS)
 	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
