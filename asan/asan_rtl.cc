@@ -1571,22 +1571,29 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
 #ifdef __APPLE__
+# if __WORDSIZE == 64
+  uintptr_t pc = ucontext->uc_mcontext->__ss.__rip;
+  uintptr_t bp = ucontext->uc_mcontext->__ss.__rbp;
+  uintptr_t sp = ucontext->uc_mcontext->__ss.__rsp;
+  uintptr_t ax = ucontext->uc_mcontext->__ss.__rax;
+# else
   uintptr_t pc = ucontext->uc_mcontext->__ss.__eip;
   uintptr_t bp = ucontext->uc_mcontext->__ss.__ebp;
   uintptr_t sp = ucontext->uc_mcontext->__ss.__esp;
   uintptr_t ax = ucontext->uc_mcontext->__ss.__eax;
-#else // assume linux
-#if __WORDSIZE == 64
+# endif  // __WORDSIZE
+#else  // assume linux
+# if __WORDSIZE == 64
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_RIP];
   uintptr_t bp = ucontext->uc_mcontext.gregs[REG_RBP];
   uintptr_t sp = ucontext->uc_mcontext.gregs[REG_RSP];
   uintptr_t ax = ucontext->uc_mcontext.gregs[REG_RAX];
-#else
+# else
   uintptr_t pc = ucontext->uc_mcontext.gregs[REG_EIP];
   uintptr_t bp = ucontext->uc_mcontext.gregs[REG_EBP];
   uintptr_t sp = ucontext->uc_mcontext.gregs[REG_ESP];
   uintptr_t ax = ucontext->uc_mcontext.gregs[REG_EAX];
-#endif
+# endif  // __WORDSIZE
 #endif
 
   uintptr_t real_addr = ax;
