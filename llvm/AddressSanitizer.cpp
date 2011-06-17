@@ -70,6 +70,9 @@ static cl::opt<bool> ClMemIntrin("asan-memintrin",
 static cl::opt<string>  IgnoreFile("asan-ignore",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
+static cl::opt<bool> ClUseCall("asan-use-call",
+       cl::desc("Use function call to generate a crash"), cl::init(false));
+
 
 // Optimization flags. Not user visible, used mostly for testing
 // and benchmarking the tool.
@@ -138,6 +141,7 @@ struct AddressSanitizer : public ModulePass {
   void PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                    Value *shadow_base, bool do_poison);
 
+  Module      *CurrentModule;
   LLVMContext *C;
   TargetData *TD;
   int         LongSize;
@@ -329,6 +333,18 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
+  if (ClUseCall) {
+    // This will generate a generic code that uses no
+    // arch-specific assembly (just generates a call).
+    // This is almost always slower and generates more code.
+    Value *asan_report_warning = CurrentModule->getOrInsertFunction(
+        "__asan_report_error", VoidTy, LongTy, LongTy, NULL);
+    irb3.CreateCall2(asan_report_warning,
+                     AddrLong,
+                     ConstantInt::get(LongTy, telltale_value));
+    return;
+  }
+
   // Move the failing address to %rax/%eax
   FunctionType *Fn1Ty = FunctionType::get(
       VoidTy, ArrayRef<const Type*>(LongTy), false);
@@ -390,9 +406,9 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   std::vector<Constant *> CurrentCtors;
   GlobalVariable * GVCtor = M.getNamedGlobal ("llvm.global_ctors");
   if (GVCtor) {
-    if (Constant * C = GVCtor->getInitializer()) {
-      for (unsigned index = 0; index < C->getNumOperands(); ++index) {
-        CurrentCtors.push_back (cast<Constant>(C->getOperand (index)));
+    if (Constant *Const = GVCtor->getInitializer()) {
+      for (unsigned index = 0; index < Const->getNumOperands(); ++index) {
+        CurrentCtors.push_back (cast<Constant>(Const->getOperand (index)));
       }
     }
     // Rename the global variable so that we can name our global
@@ -529,6 +545,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
+  CurrentModule = &M;
   C = &(M.getContext());
   LongSize = TD->getPointerSizeInBits();
   LongTy = Type::getIntNTy(*C, LongSize);
