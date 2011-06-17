@@ -53,8 +53,7 @@ class ObjdumpOfMyself {
  public:
   ObjdumpOfMyself(const string &binary) {
     is_correct = true;
-    string objdump_name = "objdump";
-    if (APPLE) objdump_name = "gobjdump";
+    string objdump_name = APPLE ? "gobjdump" : "objdump";
     string prog = objdump_name + " -d " + binary;
     // TODO(glider): popen() succeeds even if the file does not exist.
     FILE *pipe = popen(prog.c_str(), "r");
@@ -83,7 +82,8 @@ class ObjdumpOfMyself {
       next_start = fn_start(objdump, start, &next_fn);
       //fprintf(stderr, "start: %d next_start = %d fn: %s\n",
       //        (int)start, (int)next_start, fn.c_str());
-      if (fn.find("Disasm") == string::npos) {
+      // Mac OS adds the "_" prefix to function names.
+      if (fn.find(APPLE ? "_Disasm" : "Disasm") == string::npos) {
         prev_beg = pos;
         continue;
       }
@@ -98,7 +98,9 @@ class ObjdumpOfMyself {
   }
 
   int CountInsnInFunc(const string &fn, const string &insn) {
-    const string &disasm = GetFuncDisasm(fn);
+    // Mac OS adds the "_" prefix to function names.
+    string fn_ref = APPLE ? "_" + fn : fn;
+    const string &disasm = GetFuncDisasm(fn_ref);
     if (disasm.empty()) return -1;
     size_t pos = 0;
     size_t counter = 0;
