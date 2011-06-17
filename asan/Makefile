@@ -40,6 +40,7 @@ GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
+PLATFORM=$(shell uname | tr "[A-Z]" "[a-z]")
 
 all: b64 b32
 
@@ -79,11 +80,17 @@ $(BIN)/libasan$(SUFF).so: $(BIN)/libasan$(SUFF).o
 
 bfds$(SUFF):
 	mkdir -p $@
-	cp ../third_party/bin/bfd_symbolizer/linux/bfds$(BITS).a $@/bfds$(SUFF).a
+	cp ../third_party/bin/bfd_symbolizer/$(PLATFORM)/bfds$(BITS).a $@/bfds$(SUFF).a
 	cd $@ && ar x bfds$(SUFF).a
 
+ifeq ($(PLATFORM), linux)
 $(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/libasan$(SUFF).o bfds$(SUFF)
 	ar ruv $@ $< bfds$(SUFF)/*.o
+else
+# Do not use the BFD symbolizer outside Linux.
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/libasan$(SUFF).o
+	ar ruv $@ $<
+endif
 
 $(BIN)/asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
