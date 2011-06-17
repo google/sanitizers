@@ -334,9 +334,13 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
 
   if (ClUseCall) {
-    // This will generate a generic code that uses no
-    // arch-specific assembly (just generates a call).
-    // This is almost always slower and generates more code.
+    // Here we use a call instead of arch-specific asm to report an error.
+    // This is almost always slower (because the codegen needs to generate
+    // prologue/epilogue for otherwise leaf functions) and generates more code.
+    // This mode could be useful if we can not use SIGILL for some reason.
+    //
+    // TODO(kcc): if we realy need to use the call, use
+    // 10 different functions instead of passing the second parameter.
     Value *asan_report_warning = CurrentModule->getOrInsertFunction(
         "__asan_report_error", VoidTy, LongTy, LongTy, NULL);
     CallInst *call = irb3.CreateCall2(asan_report_warning,
