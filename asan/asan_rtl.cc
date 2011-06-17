@@ -1635,6 +1635,61 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   ShowStatsAndAbort();
 }
 
+static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
+                              uintptr_t addr, unsigned access_size_and_type) {
+
+
+  bool is_write = access_size_and_type & 8;
+  int access_size = 1 << (access_size_and_type & 7);
+
+  if (F_print_malloc_lists) {
+    malloc_info.print_lists("ASAN_OnSIGILL");
+  }
+  Printf("==================================================================\n");
+  PrintUnwinderHint();
+  proc_self_maps.Init();
+  Printf("==%d== ERROR: AddressSanitizer crashed on address "
+         ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
+         getpid(), addr, pc, bp, sp);
+
+  Printf("%s of size %d at "PP" thread T%d\n",
+          access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
+          access_size, addr, GetCurrentThread()->tid());
+
+  if (F_debug) {
+    PrintBytes("PC: ",(uintptr_t*)pc);
+  }
+
+  PrintCurrentStack(pc);
+
+  CHECK(AddrIsInMem(addr));
+
+  malloc_info.DescribeAddress(sp, bp, addr, access_size);
+
+  if (F_print_maps) {
+    proc_self_maps.Print();
+  }
+
+  uintptr_t shadow_addr = MemToShadow(addr);
+  Printf("==%d== ABORTING\n", getpid()),
+      stats.PrintStats();
+  Printf("Shadow byte and word:\n");
+  Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
+  uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow));
+  Printf("More shadow bytes:\n");
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-4*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-3*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-2*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow-1*kWordSize));
+  PrintBytes("=>", (uintptr_t*)(aligned_shadow+0*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+1*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
+  PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
+  AsanAbort();
+}
+
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
 #ifdef __APPLE__
@@ -1663,64 +1718,16 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
 # endif  // __WORDSIZE
 #endif
 
-  uintptr_t real_addr = ax;
+  uintptr_t addr = ax;
 
   uint8_t *insn = (uint8_t*)pc;
   CHECK(insn[0] == 0x0f && insn[1] == 0x0b);  // ud2
   unsigned access_size_and_type = insn[2] - 0x50;
   CHECK(access_size_and_type < 16);
-
-
-  bool is_write = access_size_and_type & 8;
-  int access_size = 1 << (access_size_and_type & 7);
-
-  if (F_print_malloc_lists) {
-    malloc_info.print_lists("ASAN_OnSIGILL");
-  }
-  Printf("==================================================================\n");
-  PrintUnwinderHint();
-  proc_self_maps.Init();
-  Printf("==%d== ERROR: AddressSanitizer crashed on address "
-         ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
-         getpid(), real_addr, pc, bp, sp);
-
-  Printf("%s of size %d at "PP" thread T%d\n",
-          access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size, real_addr, GetCurrentThread()->tid());
-
-  if (F_debug) {
-    PrintBytes("PC: ",(uintptr_t*)pc);
-  }
-
-  PrintCurrentStack(pc);
-
-  CHECK(AddrIsInMem(real_addr));
-
-  malloc_info.DescribeAddress(sp, bp, real_addr, access_size);
-
-  if (F_print_maps) {
-    proc_self_maps.Print();
-  }
-
-  uintptr_t shadow_addr = MemToShadow(real_addr);
-  Printf("==%d== ABORTING\n", getpid()),
-      stats.PrintStats();
-  Printf("Shadow byte and word:\n");
-  Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
-  uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow));
-  Printf("More shadow bytes:\n");
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow-4*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow-3*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow-2*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow-1*kWordSize));
-  PrintBytes("=>", (uintptr_t*)(aligned_shadow+0*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow+1*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
-  PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
-  AsanAbort();
+  asan_report_error(pc, bp, sp, addr, access_size_and_type);
 }
+
+
 
 // -------------------------- Init ------------------- {{{1
 static int64_t IntFlagValue(const char *flags, const char *flag,
