@@ -1637,13 +1637,11 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 
 static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
                               uintptr_t addr, unsigned access_size_and_type) {
-
-
   bool is_write = access_size_and_type & 8;
   int access_size = 1 << (access_size_and_type & 7);
 
   if (F_print_malloc_lists) {
-    malloc_info.print_lists("ASAN_OnSIGILL");
+    malloc_info.print_lists("OnReport");
   }
   Printf("==================================================================\n");
   PrintUnwinderHint();

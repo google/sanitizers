@@ -339,9 +339,10 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
     // This is almost always slower and generates more code.
     Value *asan_report_warning = CurrentModule->getOrInsertFunction(
         "__asan_report_error", VoidTy, LongTy, LongTy, NULL);
-    irb3.CreateCall2(asan_report_warning,
-                     AddrLong,
-                     ConstantInt::get(LongTy, telltale_value));
+    CallInst *call = irb3.CreateCall2(asan_report_warning,
+                                      AddrLong,
+                                      ConstantInt::get(LongTy, telltale_value));
+    CloneDebugInfo(orig_mop, call);
     return;
   }
 
