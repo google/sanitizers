@@ -97,16 +97,18 @@ class ObjdumpOfMyself {
     return functions_[fn];
   }
 
-  int CountInsnInFunc(const string &fn, const string &insn) {
+  int CountInsnInFunc(const string &fn, const vector<string> &insns) {
     // Mac OS adds the "_" prefix to function names.
     string fn_ref = APPLE ? "_" + fn : fn;
     const string &disasm = GetFuncDisasm(fn_ref);
     if (disasm.empty()) return -1;
-    size_t pos = 0;
     size_t counter = 0;
-    while((pos = disasm.find(insn, pos)) != string::npos) {
-      counter++;
-      pos++;
+    for (size_t i = 0; i < insns.size(); i++) {
+      size_t pos = 0;
+      while((pos = disasm.find(insns[i], pos)) != string::npos) {
+        counter++;
+        pos++;
+      }
     }
     return counter;
   }
@@ -124,7 +126,7 @@ class ObjdumpOfMyself {
     *fn = objdump.substr(beg, pos - beg);
     return pos + 3;
   }
-  
+
   map<string, string> functions_;
   bool is_correct;
 };
@@ -854,14 +856,17 @@ TEST(AddressSanitizer, DisasmTest) {
   EXPECT_EQ(0, a);
 
   ObjdumpOfMyself *o = objdump_of_myself();
-  EXPECT_EQ(0, o->CountInsnInFunc("DisasmSimple", "ud2"));
-  EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamWrite", "ud2"));
-  EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamInc", "ud2"));
-  EXPECT_EQ(0, o->CountInsnInFunc("DisasmWriteGlob", "ud2"));
+  vector<string> insns;
+  insns.push_back("ud2");
+  insns.push_back("__asan_report_error");
+  EXPECT_EQ(0, o->CountInsnInFunc("DisasmSimple", insns));
+  EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamWrite", insns));
+  EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamInc", insns));
+  EXPECT_EQ(0, o->CountInsnInFunc("DisasmWriteGlob", insns));
 
   // TODO: implement these (needs just one ud2).
-  EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamReadIfWrite", "ud2"));
-  EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", "ud2"));
+  EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamReadIfWrite", insns));
+  EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", insns));
 }
 
 char glob5[5];

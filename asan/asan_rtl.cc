@@ -495,7 +495,7 @@ struct AsanThread {
     pthread_attr_destroy(&attr);
     tl_need_real_malloc = false;
 
-    const int kMaxStackSize = 8 * (1 << 20);  // 8M
+    const int kMaxStackSize = 16 * (1 << 20);  // 16M
     stack_top_ = (uintptr_t)stackaddr + stacksize;
     stack_bottom_ = (uintptr_t)stackaddr;
     // When running under the GNU make command, pthread_attr_getstack
@@ -1727,7 +1727,7 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
 
 // exported function
 extern "C" void __asan_report_error(uintptr_t addr, uintptr_t access_size_and_type) {
-  uintptr_t bp = (uintptr_t)GET_CURRENT_FRAME();
+  uintptr_t bp = *GET_CURRENT_FRAME();
   uintptr_t pc = GET_CALLER_PC();
   uintptr_t local_stack;
   uintptr_t sp = (uintptr_t)&local_stack;
