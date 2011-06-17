@@ -22,9 +22,6 @@
 const unsigned long long kCompactShadowMask64 = 1ULL << 44;
 const unsigned long      kCompactShadowMask32 = 1UL << 29;
 
-static void AsanAbort();
-static void ShowStatsAndAbort();
-
 // We create poisoned rezones of 32 *bytes* around stack objects and globals.
 // We can poison the entire redzone with one 4-byte store.
 // For objects with ((size % 32) != 0) we create left redzone of 32 bytes
