@@ -434,10 +434,15 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     GlobalVariable &orig_global = *G;
     const PointerType *ptrty = cast<PointerType>(orig_global.getType());
     const Type *ty = ptrty->getElementType();
+    if (ClDebug) {
+      errs() << "GLOBAL: " << orig_global;
+    }
+
     if (!ty->isSized()) continue;
     if (!orig_global.hasInitializer()) continue;
     if (orig_global.isConstant()) continue;  // do we care about constants?
     if (orig_global.getLinkage() != GlobalVariable::ExternalLinkage &&
+        orig_global.getLinkage() != GlobalVariable::CommonLinkage  &&
         orig_global.getLinkage() != GlobalVariable::PrivateLinkage  &&
         orig_global.getLinkage() != GlobalVariable::InternalLinkage
         ) {
@@ -503,7 +508,6 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
                    ConstantInt::get(LongTy, size_in_bytes));
 
     if (ClDebug) {
-      errs() << "GLOBAL: " << orig_global;
       errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
       errs() << *new_initializer << "\n";
       errs() << *new_global << "\n";
