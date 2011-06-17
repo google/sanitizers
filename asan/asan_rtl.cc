@@ -2161,7 +2161,9 @@ static void asan_init() {
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0);
   SetCurrentThread(t);
+#ifdef __APPLE__
   g_thread_0 = GetCurrentThread();
+#endif  
   t->ThreadStart();
 
   asan_inited = 1;
