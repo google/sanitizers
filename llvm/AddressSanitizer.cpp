@@ -379,12 +379,11 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   // RegisterRuntimeInitializer::insertInitializerIntoGlobalCtorList().
   // LLVM may need a general API function for this.
 
-  // Insert the run-time ctor into the ctor list.
   std::vector<Constant *> CtorInits;
   CtorInits.push_back (ConstantInt::get (i32Ty, 65535));
   CtorInits.push_back (f);
   Constant *RuntimeCtorInit = ConstantStruct::get(
-      getGlobalContext(), CtorInits, false);
+      *Context, CtorInits, false);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
@@ -501,16 +500,17 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
                    irb.CreatePointerCast(new_global, LongTy),
                    ConstantInt::get(LongTy, size_in_bytes));
 
-    errs() << "GLOBAL: " << orig_global;
-    errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
-    errs() << *new_initializer << "\n";
-    errs() << *new_global << "\n";
-    errs() << *alias << "\n";
+    if (ClDebug) {
+      errs() << "GLOBAL: " << orig_global;
+      errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
+      errs() << *new_initializer << "\n";
+      errs() << *new_global << "\n";
+      errs() << *alias << "\n";
+    }
   }
 
 
   if (poisoner) {
-    errs() << *poisoner;
     appendToGlobalCtors(M, poisoner);
   }
 
