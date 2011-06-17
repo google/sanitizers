@@ -44,12 +44,15 @@ using std::string;
 #include "bfd_symbolizer/bfd_symbolizer.h"
 
 static void PrintCurrentStack(uintptr_t pc = 0);
+static void ShowStatsAndAbort();
 
 #define CHECK(cond) do { if (!(cond)) { \
   Printf("CHECK failed: %s at %s:%d\n", #cond, __FILE__, __LINE__);\
   PrintCurrentStack(); \
   ShowStatsAndAbort(); \
 }}while(0)
+
+#define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
 __attribute__((constructor)) static void asan_init();
 
@@ -88,6 +91,7 @@ static int F_protect_shadow;
 
 
 // -------------------------- Atomic ---------------- {{{1
+int AtomicInc(int *a) __attribute__((noinline));
 int AtomicInc(int *a) {
   if (!F_mt) return ++(*a);
   return __sync_add_and_fetch(a, 1);
@@ -188,13 +192,37 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
 static sigaction_f      real_sigaction;
 static signal_f         real_signal;
 static mmap_f           real_mmap;
+#ifndef __APPLE__
 static malloc_f         real_malloc;
 static realloc_f        real_realloc;
 static free_f           real_free;
+#endif  // __APPLE__
 static longjmp_f        real_longjmp;
 static longjmp_f        real_siglongjmp;
 static cxa_throw_f      real_cxa_throw;
 static pthread_create_f real_pthread_create;
+
+#ifdef __APPLE__
+#include <malloc/malloc.h>
+
+static malloc_zone_t *system_malloc_zone = NULL;
+
+void *real_malloc(size_t size) {
+  CHECK(system_malloc_zone);
+  return malloc_zone_malloc(system_malloc_zone, size);
+}
+
+void real_free(void *ptr) {
+  CHECK(system_malloc_zone);
+  return malloc_zone_free(system_malloc_zone, ptr);
+}
+
+void *real_realloc(void *ptr, size_t size) {
+  CHECK(system_malloc_zone);
+  return malloc_zone_realloc(system_malloc_zone, ptr, size);
+}
+
+#endif  // __APPLE__
 
 // -------------------------- Stats ---------------- {{{1
 struct Stats {
@@ -311,7 +339,7 @@ class ProcSelfMaps {
  public:
   void Init() {
     int maps = open("/proc/self/maps", O_RDONLY);
-    if (maps) {
+    if (maps != -1) {
       size_t size = read(maps, proc_self_maps, kMaxProcSelfMapsSize);
       if (F_v >= 1) {
         Printf("read %ld bytes from /proc/self/maps\n", size);
@@ -448,7 +476,12 @@ static void PrintStack(uintptr_t *addr, size_t size) {
     string img, rtn, file;
     int line;
     // PcToStrings(pc, true, &img, &rtn, &file, &line);
+#ifndef __APPLE__
     proc_self_maps.PrintPc(pc, i);
+#else 
+    // TODO(glider): emulate /proc/self/maps on Darwin.
+    Printf("  #%ld 0x%lx\n", i, pc);
+#endif    
     // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
     if (rtn == "main()") break;
   }
@@ -614,14 +647,28 @@ struct AsanThread {
 int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;
 pthread_mutex_t AsanThread::mu_;
-static pthread_key_t g_tls_key;
 #ifndef __APPLE__
 static __thread AsanThread *tl_current_thread;
+#else
+static pthread_key_t g_tls_key;
+static AsanThread *g_thread_0 = NULL;
+// This flag is updated only once at program startup, and then read
+// by concurrent threads.
+static bool tls_key_created = false;
 #endif
 
 static AsanThread* GetCurrentThread() {
 #ifdef __APPLE__
-  return (AsanThread*)pthread_getspecific(g_tls_key);
+  CHECK(tls_key_created);
+  AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
+  // After the thread calls _pthread_exit() the TSD is unavailable
+  // and pthread_getspecific() may return NULL. Thus we associate the further
+  // allocations (originating from the guts of libpthread) with thread 0.
+  if (thread) {
+    return thread;
+  } else {
+    return g_thread_0;
+  }
 #else
   return tl_current_thread;
 #endif
@@ -629,6 +676,7 @@ static AsanThread* GetCurrentThread() {
 static void SetCurrentThread(AsanThread *t) {
 #ifdef __APPLE__
   CHECK(0 == pthread_setspecific(g_tls_key, t));
+  CHECK(pthread_getspecific(g_tls_key));
 #else
   tl_current_thread = t;
 #endif
@@ -1546,7 +1594,11 @@ void* mmap(void *start, size_t length,
 
 extern "C"
 sig_t signal(int signum, sig_t handler) {
+#ifdef __APPLE__
+  if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
+#else
   if (signum != SIGSEGV && signum != SIGILL) {
+#endif
     return real_signal(signum, handler);
   }
 }
@@ -1554,7 +1606,11 @@ sig_t signal(int signum, sig_t handler) {
 extern "C"
 int sigaction(int signum, const struct sigaction *act,
                 struct sigaction *oldact) {
+#ifdef __APPLE__
+  if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
+#else
   if (signum != SIGSEGV && signum != SIGILL) {
+#endif
     return real_sigaction(signum, act, oldact);
   }
   return 0;
@@ -1584,6 +1640,231 @@ extern "C" void __cxa_throw(void *a, void *b, void *c) {
   UnpoisonStackFromHereToTop();
   real_cxa_throw(a, b, c);
 }
+
+// -------------------------- Mac OS X memory interception-------- {{{1
+// The following code was partially taken from Google Perftools,
+// http://code.google.com/p/google-perftools.
+#ifdef __APPLE__
+#include <AvailabilityMacros.h>
+
+// We need to provide wrappers around all the libc functions.
+namespace {
+// TODO(glider): the mz_* functions should be united with the Linux wrappers,
+// as they are basically copied from there.
+size_t mz_size(malloc_zone_t* zone, const void* ptr) {
+  // Check whether this pointer belongs to the original malloc zone.
+  // We cannot just call malloc_zone_from_ptr(), because it in turn calls our mz_size().
+  if (system_malloc_zone) {
+    if ((system_malloc_zone->size)(system_malloc_zone, ptr)) return 0;
+  }
+  // We cross our fingers, because |p| may belong to unmapped memory.
+  Ptr *p = (Ptr*)((uintptr_t*)(ptr) - F_red_zone_words);
+  if (p->magic == Ptr::kMallocedMagic) {
+    return p->size;
+  } else {
+    return 0;
+  }
+}
+
+void* mz_malloc(malloc_zone_t* zone, size_t size) {
+  if (!asan_inited) {
+    CHECK(system_malloc_zone);
+    return malloc_zone_malloc(system_malloc_zone, size);
+  }
+  if (tl_need_real_malloc) {
+    void *res = real_malloc(size);
+    // Printf("real_malloc: "PP" %ld\n", res, size);
+    return res;
+  }
+  StackTrace stack;                               
+  if ((F_malloc_context_size) <= 1) {
+    stack.size = 1;                               
+    stack.trace[0] = GET_CALLER_PC();             
+  } else {                                        
+    stack.max_size = F_malloc_context_size;
+    stack.size  = 0;
+    if (F_fast_unwind)   
+      FastUnwindStack(GET_CURRENT_FRAME(), &stack); 
+    else                                          
+      _Unwind_Backtrace(Unwind_Trace, &stack);    
+    if (stack.size >= 2) {                        
+      CHECK(stack.trace[1] == GET_CALLER_PC());   
+    }                                             
+  }                                               
+  Ptr *p = asan_memalign(size, 0, stack);
+  return p->raw_ptr();
+}
+
+void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
+  if (tl_need_real_malloc) {
+    void *mem = real_malloc(nmemb * size);
+    memset(mem, 0, nmemb *size);
+    // Printf("real_calloc: "PP" %ld*%ld\n", mem, nmemb, size);
+    return mem;
+  }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  if (!asan_inited) {
+    // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
+    const int kCallocPoolSize = 1024;
+    static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
+    static size_t allocated;
+    size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
+    void *mem = (void*)&calloc_memory_for_dlsym[allocated];
+    allocated += size_in_words;
+    CHECK(allocated < kCallocPoolSize);
+    return mem;
+  }
+  return asan_calloc(nmemb, size, stack);
+}
+
+void* mz_valloc(malloc_zone_t* zone, size_t size) {
+  UNIMPLEMENTED();
+  return NULL;
+}
+
+void mz_free(malloc_zone_t* zone, void* ptr) {
+  if (tl_need_real_malloc) {
+    // Printf("real_free "PP"\n", ptr);
+    real_free(ptr);
+    return;
+  };
+  GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+  asan_free(ptr, stack);
+}
+
+void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
+  if (tl_need_real_malloc) {
+    void *res = real_realloc(ptr, size);
+    // Printf("real_malloc: "PP" "PP" %ld\n", res, ptr, size);
+    return res;
+  }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  return asan_realloc(ptr, size, stack);
+}
+
+void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
+  UNIMPLEMENTED();
+  return NULL;
+}
+
+void mz_destroy(malloc_zone_t* zone) {
+  // A no-op -- we will not be destroyed!
+}
+
+// malloc_introspection callbacks.  I'm not clear on what all of these do.
+kern_return_t mi_enumerator(task_t task, void *,
+                            unsigned type_mask, vm_address_t zone_address,
+                            memory_reader_t reader,
+                            vm_range_recorder_t recorder) {
+  // Should enumerate all the pointers we have.  Seems like a lot of work.
+  return KERN_FAILURE;
+}
+
+size_t mi_good_size(malloc_zone_t *zone, size_t size) {
+  // I think it's always safe to return size, but we maybe could do better.
+  return size;
+}
+
+boolean_t mi_check(malloc_zone_t *zone) {
+  UNIMPLEMENTED();
+  return true;
+}
+
+void mi_print(malloc_zone_t *zone, boolean_t verbose) {
+  UNIMPLEMENTED();
+  return;
+}
+
+void mi_log(malloc_zone_t *zone, void *address) {
+  // I don't think we support anything like this
+}
+
+void mi_force_lock(malloc_zone_t *zone) {
+  // Hopefully unneeded by us!
+}
+
+void mi_force_unlock(malloc_zone_t *zone) {
+  // Hopefully unneeded by us!
+}
+
+void mi_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {
+  // TODO(csilvers): figure out how to fill these out
+  // TODO(glider): port this from tcmalloc when ready.
+  stats->blocks_in_use = 0;
+  stats->size_in_use = 0;
+  stats->max_size_in_use = 0;
+  stats->size_allocated = 0;
+}
+
+boolean_t mi_zone_locked(malloc_zone_t *zone) {
+  return false;  // Hopefully unneeded by us!
+}
+
+}  // unnamed namespace
+
+static void ReplaceSystemAlloc() {
+  static malloc_introspection_t asan_introspection;
+  memset(&asan_introspection, 0, sizeof(asan_introspection));
+
+  asan_introspection.enumerator = &mi_enumerator;
+  asan_introspection.good_size = &mi_good_size;
+  asan_introspection.check = &mi_check;
+  asan_introspection.print = &mi_print;
+  asan_introspection.log = &mi_log;
+  asan_introspection.force_lock = &mi_force_lock;
+  asan_introspection.force_unlock = &mi_force_unlock;
+
+  static malloc_zone_t asan_zone;
+  memset(&asan_zone, 0, sizeof(malloc_zone_t));
+
+  // Start with a version 4 zone which is used for OS X 10.4 and 10.5.
+  asan_zone.version = 4;
+  asan_zone.zone_name = "asan";
+  asan_zone.size = &mz_size;
+  asan_zone.malloc = &mz_malloc;
+  asan_zone.calloc = &mz_calloc;
+  asan_zone.valloc = &mz_valloc;
+  asan_zone.free = &mz_free;
+  asan_zone.realloc = &mz_realloc;
+  asan_zone.destroy = &mz_destroy;
+  asan_zone.batch_malloc = NULL;
+  asan_zone.batch_free = NULL;
+  asan_zone.introspect = &asan_introspection;
+
+  // from AvailabilityMacros.h
+#if defined(MAC_OS_X_VERSION_10_6) && \
+    MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+  // Switch to version 6 on OSX 10.6 to support memalign.
+  asan_zone.version = 6;
+  asan_zone.free_definite_size = NULL;
+  asan_zone.memalign = &mz_memalign;
+  asan_introspection.zone_locked = &mi_zone_locked;
+
+  // Request the default purgable zone to force its creation. The
+  // current default zone is registered with the purgable zone for
+  // doing tiny and small allocs.  Sadly, it assumes that the default
+  // zone is the szone implementation from OS X and will crash if it
+  // isn't.  By creating the zone now, this will be true and changing
+  // the default zone won't cause a problem.  (OS X 10.6 and higher.)
+  malloc_default_purgeable_zone();
+#endif
+
+  // Register the ASan zone. At this point, it will not be the
+  // default zone.
+  malloc_zone_register(&asan_zone);
+
+  // Unregister and reregister the default zone.  Unregistering swaps
+  // the specified zone with the last one registered which for the
+  // default zone makes the more recently registered zone the default
+  // zone.  The default zone is then re-registered to ensure that
+  // allocations made from it earlier will be handled correctly.
+  // Things are not guaranteed to work that way, but it's how they work now.
+  system_malloc_zone = malloc_default_zone();
+  malloc_zone_unregister(system_malloc_zone);
+  malloc_zone_register(system_malloc_zone);
+}
+
+#endif
 
 // -------------------------- Run-time entry ------------------- {{{1
 static void PrintUnwinderHint() {
@@ -1767,6 +2048,10 @@ static void asan_init() {
   if (asan_inited) return;
   asan_out = stderr;
 
+#ifdef __APPLE__
+  ReplaceSystemAlloc();
+#endif
+
   // flags
   const char *options = getenv("ASAN_OPTIONS");
   F_malloc_context_size =
@@ -1808,18 +2093,18 @@ static void asan_init() {
 
   if (F_malloc_context_size > F_red_zone_words)
     F_malloc_context_size = F_red_zone_words;
-
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_mmap = (mmap_f)dlsym(RTLD_NEXT, "mmap")));
-  CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
-  CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
-  CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
-
+#ifndef __APPLE__
+  CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
+  CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
+  CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
+#endif
 
   // Set the SIGSEGV handler.
   {
@@ -1827,8 +2112,19 @@ static void asan_init() {
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
-    real_sigaction(SIGSEGV, &sigact, 0);
+    CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
   }
+
+#ifdef __APPLE__
+  // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
+  {
+    struct sigaction sigact;
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = ASAN_OnSIGSEGV;
+    sigact.sa_flags = SA_SIGINFO;
+    CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
+  }
+#endif
 
   // Set the SIGILL handler.
   {
@@ -1836,10 +2132,10 @@ static void asan_init() {
     memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGILL;
     sigact.sa_flags = SA_SIGINFO;
-    real_sigaction(SIGILL, &sigact, 0);
+    CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
   }
 
-  proc_self_maps.Init();
+  //proc_self_maps.Init();
 
 #if __WORDSIZE == 32
   {
@@ -1862,10 +2158,12 @@ static void asan_init() {
   }
 
   CHECK(0 == pthread_key_create(&g_tls_key, 0));
+  tls_key_created = true;
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0);
   SetCurrentThread(t);
+  g_thread_0 = GetCurrentThread();
   t->ThreadStart();
 
   asan_inited = 1;
