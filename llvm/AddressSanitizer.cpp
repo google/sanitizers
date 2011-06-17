@@ -138,7 +138,7 @@ struct AddressSanitizer : public ModulePass {
   void PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                    Value *shadow_base, bool do_poison);
 
-  LLVMContext *Context;
+  LLVMContext *C;
   TargetData *TD;
   int         LongSize;
   const Type *VoidTy;
@@ -178,7 +178,7 @@ BranchInst *AddressSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
   BasicBlock *NewBasicBlock =
-      BasicBlock::Create(*Context, "", Head->getParent());
+      BasicBlock::Create(*C, "", Head->getParent());
   BranchInst *HeadNewTerm = BranchInst::Create(/*ifTrue*/NewBasicBlock,
                                                /*ifFalse*/Tail,
                                                Cmp);
@@ -293,7 +293,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
   const Type *ShadowTy  = IntegerType::get(
-      *Context, max((size_t)8, type_size / 8));
+      *C, max((size_t)8, type_size / 8));
   const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
@@ -383,7 +383,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   CtorInits.push_back (ConstantInt::get (i32Ty, 65535));
   CtorInits.push_back (f);
   Constant *RuntimeCtorInit = ConstantStruct::get(
-      *Context, CtorInits, false);
+      *C, CtorInits, false);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
@@ -450,9 +450,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
 
     const Type *new_ty = StructType::get(
-        *Context, LeftRedZoneTy, ty, RightRedZoneTy, NULL);
+        *C, LeftRedZoneTy, ty, RightRedZoneTy, NULL);
     Constant *new_initializer = ConstantStruct::get(
-        *Context, /*packed=*/false,
+        *C, /*packed=*/false,
         Constant::getNullValue(LeftRedZoneTy),
         orig_global.getInitializer(),
         Constant::getNullValue(RightRedZoneTy),
@@ -489,8 +489,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       poisoner = Function::Create(Fn0Ty, GlobalValue::PrivateLinkage,
                                   kAsanGlobalPoisonerName,
                                   &M);
-      BasicBlock *bb = BasicBlock::Create(*Context, "", poisoner);
-      insert_before = ReturnInst::Create(*Context, bb);
+      BasicBlock *bb = BasicBlock::Create(*C, "", poisoner);
+      insert_before = ReturnInst::Create(*C, bb);
     }
 
     IRBuilder<> irb(insert_before->getParent(), insert_before);
@@ -523,15 +523,15 @@ bool AddressSanitizer::runOnModule(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
-  Context = &(M.getContext());
+  C = &(M.getContext());
   LongSize = TD->getPointerSizeInBits();
-  LongTy = Type::getIntNTy(*Context, LongSize);
-  i32Ty = Type::getIntNTy(*Context, 32);
-  ByteTy  = Type::getInt8Ty(*Context);
+  LongTy = Type::getIntNTy(*C, LongSize);
+  i32Ty = Type::getIntNTy(*C, 32);
+  ByteTy  = Type::getInt8Ty(*C);
   BytePtrTy = PointerType::get(ByteTy, 0);
   LongPtrTy = PointerType::get(LongTy, 0);
   i32PtrTy = PointerType::get(i32Ty, 0);
-  VoidTy = Type::getVoidTy(*Context);
+  VoidTy = Type::getVoidTy(*C);
 
   bool res = false;
 
