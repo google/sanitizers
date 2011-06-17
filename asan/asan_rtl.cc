@@ -2153,8 +2153,10 @@ static void asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
+#ifdef __APPLE__
   CHECK(0 == pthread_key_create(&g_tls_key, 0));
   tls_key_created = true;
+#endif  // __APPLE__
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0);
