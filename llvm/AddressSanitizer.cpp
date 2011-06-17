@@ -201,7 +201,7 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   // Shadow >> 3
   Shadow = irb.CreateLShr(Shadow, 3);
-  uint64_t mask = TD->getPointerSize() == 4
+  uint64_t mask = LongSize == 32
       ? kCompactShadowMask32
       : kCompactShadowMask64;
   // (Shadow >> 3) | mask
@@ -261,7 +261,6 @@ static Value *getLDSTOperand(Instruction *inst) {
   return cast<StoreInst>(*inst).getPointerOperand();
 }
 
-
 void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   Instruction *mop = BI;
   int is_w = !!isa<StoreInst>(*mop);
@@ -286,13 +285,13 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   instrumentAddress(mop, irb1, Addr, type_size, is_w);
 }
 
-void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1, Value *Addr,
+void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
+                                         IRBuilder<> &irb1, Value *Addr,
                                          size_t type_size, bool is_w) {
   unsigned log_of_size_in_bytes = __builtin_ctz(type_size / 8);
   assert(8U * (1 << log_of_size_in_bytes) == type_size);
   uint8_t telltale_value = is_w * 8 + log_of_size_in_bytes;
   assert(telltale_value < 16);
-
 
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
@@ -303,8 +302,8 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
   Value *CmpVal = Constant::getNullValue(ShadowTy);
   Value *ShadowValue = irb1.CreateLoad(
       irb1.CreateIntToPtr(ShadowPtr, ShadowPtrTy));
-  // If the shadow value is non-zero, write to the check address, else
-  // continue executing the old code.
+  // If the shadow value is non-zero, crash.
+  // Otherwise continue executing the old code.
   Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
   // Split the mop and the successive code into a separate block.
   // Note that it invalidates the iterators used in handleFunction(),
@@ -439,7 +438,8 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
 
 // ***unfinished***
 // This function replaces all global variables with new variables that have
-// leading and trailing redzones.
+// leading and trailing redzones. It also creates a function that poisons
+// redzones and inserts this function into llvm.global_ctors.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
 
@@ -493,13 +493,6 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         &orig_global, orig_global.isThreadLocal());
     new_global->copyAttributesFrom(&orig_global);
 
-    // Q: We need to poison the shadow values corresponding to redzones.
-    // Not redzones themselves (their values are irrelevant), but the
-    // memory starting from ((redzone_addr >> 3) + offset).
-    // One way is to create a new function with attribute constructor
-    // and construct the function body such that it poisons the redzones.
-    // Is there a simpler way?
-
     Constant *Indices[2];
     Indices[0] = ConstantInt::get(i32Ty, 0);
     Indices[1] = ConstantInt::get(i32Ty, 1);
@@ -538,6 +531,10 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
   if (poisoner) {
     appendToGlobalCtors(M, poisoner);
+  }
+
+  if (ClDebug >= 2) {
+    errs() << M;
   }
 
   return false;
@@ -688,11 +685,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
       break;
     }
   }
-  // errs() << "--------------------\n";
   if (!ClDebugFunc.empty() || ClDebug)
     errs() << F;
-  //
-  //
 
   bool changed_stack = false;
   if (ClStack) {
