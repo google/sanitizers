@@ -438,7 +438,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     if (!orig_global.hasInitializer()) continue;
     if (orig_global.isConstant()) continue;  // do we care about constants?
     if (orig_global.getLinkage() != GlobalVariable::ExternalLinkage &&
-        orig_global.getLinkage() != GlobalVariable::PrivateLinkage) {
+        orig_global.getLinkage() != GlobalVariable::PrivateLinkage  &&
+        orig_global.getLinkage() != GlobalVariable::InternalLinkage
+        ) {
       // do we care about other linkages?
       continue;
     }
@@ -508,7 +510,6 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       errs() << *alias << "\n";
     }
   }
-
 
   if (poisoner) {
     appendToGlobalCtors(M, poisoner);
