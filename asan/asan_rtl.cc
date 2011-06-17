@@ -1725,14 +1725,29 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   asan_report_error(pc, bp, sp, addr, access_size_and_type);
 }
 
-// exported function
-extern "C" void __asan_report_error(uintptr_t addr, uintptr_t access_size_and_type) {
-  uintptr_t bp = *GET_CURRENT_FRAME();
-  uintptr_t pc = GET_CALLER_PC();
-  uintptr_t local_stack;
-  uintptr_t sp = (uintptr_t)&local_stack;
-  asan_report_error(pc, bp, sp, addr, access_size_and_type);
+// exported functions
+#define ASAN_REPORT_ERROR(size_and_type) \
+extern "C" void __asan_report_error_ ## size_and_type(uintptr_t addr) { \
+  uintptr_t bp = *GET_CURRENT_FRAME();                               \
+  uintptr_t pc = GET_CALLER_PC();                                    \
+  uintptr_t local_stack;                                             \
+  uintptr_t sp = (uintptr_t)&local_stack;                            \
+  asan_report_error(pc, bp, sp, addr, size_and_type);                \
 }
+
+// handle reads of sizes 1..16
+ASAN_REPORT_ERROR(0)
+ASAN_REPORT_ERROR(1)
+ASAN_REPORT_ERROR(2)
+ASAN_REPORT_ERROR(3)
+ASAN_REPORT_ERROR(4)
+// handle writes of sizes 1..16
+ASAN_REPORT_ERROR(8)
+ASAN_REPORT_ERROR(9)
+ASAN_REPORT_ERROR(10)
+ASAN_REPORT_ERROR(11)
+ASAN_REPORT_ERROR(12)
+
 
 // -------------------------- Init ------------------- {{{1
 static int64_t IntFlagValue(const char *flags, const char *flag,

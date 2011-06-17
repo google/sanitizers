@@ -339,13 +339,12 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb
     // prologue/epilogue for otherwise leaf functions) and generates more code.
     // This mode could be useful if we can not use SIGILL for some reason.
     //
-    // TODO(kcc): if we realy need to use the call, use
-    // 10 different functions instead of passing the second parameter.
+    // The telltale_value (is_write and size) is encoded in the function name.
+    char function_name[100];
+    sprintf(function_name, "__asan_report_error_%d", telltale_value);
     Value *asan_report_warning = CurrentModule->getOrInsertFunction(
-        "__asan_report_error", VoidTy, LongTy, LongTy, NULL);
-    CallInst *call = irb3.CreateCall2(asan_report_warning,
-                                      AddrLong,
-                                      ConstantInt::get(LongTy, telltale_value));
+        function_name, VoidTy, LongTy, NULL);
+    CallInst *call = irb3.CreateCall(asan_report_warning, AddrLong);
     CloneDebugInfo(orig_mop, call);
     return;
   }
