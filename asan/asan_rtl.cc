@@ -1727,7 +1727,14 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   asan_report_error(pc, bp, sp, addr, access_size_and_type);
 }
 
-
+// exported function
+extern "C" void __asan_report_error(uintptr_t addr, uintptr_t access_size_and_type) {
+  uintptr_t bp = (uintptr_t)GET_CURRENT_FRAME();
+  uintptr_t pc = GET_CALLER_PC();
+  uintptr_t local_stack;
+  uintptr_t sp = (uintptr_t)&local_stack;
+  asan_report_error(pc, bp, sp, addr, access_size_and_type);
+}
 
 // -------------------------- Init ------------------- {{{1
 static int64_t IntFlagValue(const char *flags, const char *flag,
