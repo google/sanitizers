@@ -34,6 +34,12 @@
 #include <malloc.h>
 #endif  // __APPLE__
 
+#ifdef __APPLE__
+static bool APPLE = true;
+#else
+static bool APPLE = false;
+#endif
+
 using namespace std;
 
 typedef unsigned char        U1;
@@ -46,7 +52,11 @@ static const char *progname;
 class ObjdumpOfMyself {
  public:
   ObjdumpOfMyself(const string &binary) {
-    string prog = "objdump -d " + binary;
+    is_correct = true;
+    string objdump_name = "objdump";
+    if (APPLE) objdump_name = "gobjdump";
+    string prog = objdump_name + " -d " + binary;
+    // TODO(glider): popen() succeeds even if the file does not exist.
     FILE *pipe = popen(prog.c_str(), "r");
     string objdump;
     if (pipe) {
@@ -58,6 +68,8 @@ class ObjdumpOfMyself {
         objdump.append(buff);
       }
       pclose(pipe);
+    } else {
+      is_correct = false;
     }
     // cut the objdump into functions
     size_t start_pos = 0;
@@ -97,6 +109,8 @@ class ObjdumpOfMyself {
     return counter;
   }
 
+  bool IsCorrect() { return is_correct; }
+
  private:
   size_t fn_start(const string &objdump, size_t start_pos, string *fn) {
     size_t pos = objdump.find(">:\n", start_pos);
@@ -110,6 +124,7 @@ class ObjdumpOfMyself {
   }
   
   map<string, string> functions_;
+  bool is_correct;
 };
 
 static ObjdumpOfMyself *objdump_of_myself() {
@@ -779,7 +794,8 @@ TEST(AddressSanitizer, StrDupTest) {
 }
 
 TEST(AddressSanitizer, ObjdumpTest) {
-  objdump_of_myself();
+  ObjdumpOfMyself *o = objdump_of_myself();
+  EXPECT_TRUE(o->IsCorrect());
 }
 
 extern "C" {
