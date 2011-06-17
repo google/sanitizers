@@ -853,11 +853,11 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 }
 
 // exported function
-extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
+extern "C" void __asan_register_global(uintptr_t addr, uintptr_t alias, size_t size) {
   asan_init();
   CHECK(AddrIsInMem(addr));
   uintptr_t shadow = MemToShadow(addr);
-  Printf("global: "PP" "PP" %ld \n", addr, shadow, size);
+  Printf("global: "PP" "PP" "PP" %ld \n", addr, alias, shadow, size);
   Global *g = (Global*)addr;
   g->next = g_globals_list;
   g->size = size;

@@ -502,9 +502,10 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
     IRBuilder<> irb(insert_before->getParent(), insert_before);
     Value *asan_register_global = M.getOrInsertFunction(
-        "__asan_register_global", VoidTy, LongTy, LongTy, NULL);
-    irb.CreateCall2(asan_register_global,
+        "__asan_register_global", VoidTy, LongTy, LongTy, LongTy, NULL);
+    irb.CreateCall3(asan_register_global,
                    irb.CreatePointerCast(new_global, LongTy),
+                   irb.CreatePointerCast(alias, LongTy),
                    ConstantInt::get(LongTy, size_in_bytes));
 
     if (ClDebug) {
