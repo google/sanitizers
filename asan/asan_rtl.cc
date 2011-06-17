@@ -91,7 +91,6 @@ static int F_protect_shadow;
 
 
 // -------------------------- Atomic ---------------- {{{1
-int AtomicInc(int *a) __attribute__((noinline));
 int AtomicInc(int *a) {
   if (!F_mt) return ++(*a);
   return __sync_add_and_fetch(a, 1);
@@ -1672,21 +1671,7 @@ void* mz_malloc(malloc_zone_t* zone, size_t size) {
     // Printf("real_malloc: "PP" %ld\n", res, size);
     return res;
   }
-  StackTrace stack;                               
-  if ((F_malloc_context_size) <= 1) {
-    stack.size = 1;                               
-    stack.trace[0] = GET_CALLER_PC();             
-  } else {                                        
-    stack.max_size = F_malloc_context_size;
-    stack.size  = 0;
-    if (F_fast_unwind)   
-      FastUnwindStack(GET_CURRENT_FRAME(), &stack); 
-    else                                          
-      _Unwind_Backtrace(Unwind_Trace, &stack);    
-    if (stack.size >= 2) {                        
-      CHECK(stack.trace[1] == GET_CALLER_PC());   
-    }                                             
-  }                                               
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
   Ptr *p = asan_memalign(size, 0, stack);
   return p->raw_ptr();
 }
