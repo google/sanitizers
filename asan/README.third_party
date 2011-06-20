@@ -1,0 +1,5 @@
+basictypes.h, sysinfo.cc and sysinfo.h were taken with minor modifications from Google Perftools,
+http://code.google.com/p/google-perftools
+
+We don't need most of that stuff, so it'll be nice to clean those files up,
+retaining the license notice.

@@ -15,8 +15,10 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-#include "asan_rtl.h"
 #include "asan_int.h"
+#include "asan_rtl.h"
+#include "sysinfo.h"
+
 #include <stdint.h>
 #include <pthread.h>
 #include <string.h>
@@ -117,6 +119,38 @@ void __asan_printf(const char *format, ...) {
 #endif
 }
 
+// -------------------------- Locking ---------------- {{{1
+#ifndef __APPLE__
+typedef pthread_mutex_t Mutex;
+#else
+#include <libkern/OSAtomic.h>
+// Using pthread_mutex_lock in a signal handler on Mac leads to deadlocks
+// on a spinlock within libpthread, so we use OSSpinLock instead of pthread_mutex_t.
+typedef OSSpinLock Mutex;
+#endif
+
+class ScopedLock {
+ public:
+  ScopedLock(Mutex *mu) : mu_(mu) {
+    if (F_mt)
+#ifndef __APPLE__
+      pthread_mutex_lock(mu_);
+#else
+      OSSpinLockLock(mu_);
+#endif
+  }
+  ~ScopedLock() {
+    if (F_mt)
+#ifndef __APPLE__    
+      pthread_mutex_unlock(mu_);
+#else
+      OSSpinLockUnlock(mu_);
+#endif
+  }
+ private:
+  Mutex *mu_;
+};
+
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
 size_t __asan_quarantine_size;
@@ -124,7 +158,7 @@ size_t __asan_quarantine_size;
 #if __WORDSIZE == 64
 static uintptr_t
   mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
-static pthread_mutex_t shadow_lock;
+static Mutex shadow_lock;
 #endif
 
 // -------------------------- Interceptors ---------------- {{{1
@@ -214,20 +248,6 @@ struct Stats {
 static Stats stats;
 
 // -------------------------- Misc ---------------- {{{1
-class ScopedLock {
- public:
-  ScopedLock(pthread_mutex_t *mu) : mu_(mu) {
-    if (F_mt)
-      pthread_mutex_lock(mu_);
-  }
-  ~ScopedLock() {
-    if (F_mt)
-      pthread_mutex_unlock(mu_);
-  }
- private:
-  pthread_mutex_t *mu_;
-};
-
 static void AsanAbort() {
   if (asan_out != stderr) {
     pclose(asan_out);
@@ -288,52 +308,24 @@ static bool AddrIsInShadow(uintptr_t a) {
 class ProcSelfMaps {
  public:
   void Init() {
-    int maps = open("/proc/self/maps", O_RDONLY);
-    if (maps != -1) {
-      size_t size = read(maps, proc_self_maps, kMaxProcSelfMapsSize);
-      if (F_v >= 1) {
-        Printf("read %ld bytes from /proc/self/maps\n", size);
-      }
-      proc_self_maps[size] = 0;
-      close(maps);
-    }
-    const char *line_beg = proc_self_maps;
+    ProcMapsIterator it(0, &proc_self_maps_);   // 0 means "current pid"
 
+    uint64 start, end, offset;
+    int64 inode;
+    char *flags, *filename;
     map_size_ = 0;
-    while (line_beg && *line_beg) {
+    while (it.Next(&start, &end, &flags, &offset, &inode, &filename)) {
       CHECK(map_size_ < kMaxProcSelfMapsSize);
       Mapping &mapping = memory_map[map_size_];
-      if (F_v >= 2) {
-        char buff[1024];
-        copy_until_new_line(line_beg, buff, sizeof(buff));
-        Printf("*** |%s|\n", buff);
-      }
-      char r = 0, w = 0, x = 0, p = 0;
-      sscanf(line_beg, "%lx-%lx %c%c%c%c",
-             (unsigned long*)&mapping.beg, (unsigned long*)&mapping.end,
-             &r, &w, &x, &p);
-      for (const char *s = line_beg; *s && *s != '\n'; s++) {
-        if (*s == '/') {
-          mapping.name_beg = s;
-          break;
-        }
-      }
-      if (mapping.name_beg && x == 'x') {
-        map_size_++;
-        if (F_v >= 1) {
-          char buff[1024];
-          copy_until_new_line(mapping.name_beg, buff, sizeof(buff));
-          Printf("[%lx-%lx) %s\n", mapping.beg, mapping.end, buff);
-        }
-      }
-      line_beg = strchr(line_beg, '\n');
-      if (line_beg) line_beg++;
+      mapping.beg = start;
+      mapping.end = end;
+      mapping.name_beg = filename;
+      map_size_++;
     }
-
   }
 
   void Print() {
-    Printf("%s\n", proc_self_maps);
+    Printf("%s\n", proc_self_maps_);
   }
 
   void FilterOutAsanRtlFileName(char file_name[]) {
@@ -344,13 +336,13 @@ class ProcSelfMaps {
 
   void PrintPc(uintptr_t pc, int idx) {
     const int kLen = 1024;
+#ifndef __APPLE__
     char func[kLen+1] = "",
          file[kLen+1] = "",
          module[kLen+1] = "";
     int line = 0;
     int offset = 0;
 
-#ifndef __APPLE__
     if (F_symbolize) {
       tl_need_real_malloc = true;
       int opt = bfds_opt_none;
@@ -406,7 +398,7 @@ class ProcSelfMaps {
   };
   static const size_t kMaxNumMapEntries = 4096;
   static const size_t kMaxProcSelfMapsSize = 1 << 20;
-  char proc_self_maps[kMaxProcSelfMapsSize];
+  ProcMapsIterator::Buffer proc_self_maps_;
   size_t map_size_;
   Mapping memory_map[kMaxNumMapEntries];
 };
@@ -426,12 +418,7 @@ static void PrintStack(uintptr_t *addr, size_t size) {
     string img, rtn, file;
     // int line;
     // PcToStrings(pc, true, &img, &rtn, &file, &line);
-#ifndef __APPLE__
     proc_self_maps.PrintPc(pc, i);
-#else 
-    // TODO(glider): emulate /proc/self/maps on Darwin.
-    Printf("  #%ld 0x%lx\n", i, pc);
-#endif    
     // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
     if (rtn == "main()") break;
   }
@@ -455,7 +442,9 @@ struct AsanThread {
       stack_ = *stack;
     }
     if (tid_ == 0) {
+#ifndef __APPLE__    
       pthread_mutex_init(&mu_, 0);
+#endif      
       live_threads_ = next_ = prev_ = this;
     }
   }
@@ -591,12 +580,12 @@ struct AsanThread {
 
   static AsanThread *live_threads_;
   static int n_threads_;
-  static pthread_mutex_t mu_;
+  static Mutex mu_;
 };
 
 int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;
-pthread_mutex_t AsanThread::mu_;
+Mutex AsanThread::mu_;
 #ifndef __APPLE__
 static __thread AsanThread *tl_current_thread;
 #else
@@ -1049,7 +1038,9 @@ class MallocInfo {
  public:
   void Init(size_t max_size) {
     max_size_ = max_size;
+#ifndef __APPLE__    
     pthread_mutex_init(&mu_, 0);
+#endif    
   }
 
   void print_malloced(const char *where) {
@@ -1245,7 +1236,7 @@ class MallocInfo {
   size_t cur_size_;
   Ptr *freed_items_;
   Ptr *malloced_items_;
-  pthread_mutex_t mu_;
+  Mutex mu_;
 };
 
 static MallocInfo malloc_info;
@@ -1495,6 +1486,7 @@ int posix_memalign(void **memptr, size_t alignment, size_t size) {
 extern "C"
 void *valloc(size_t size) {
   CHECK(0);
+  return NULL;
 }
 
 
@@ -2087,7 +2079,9 @@ static void asan_init() {
   }
 #else  // __WORDSIZE == 64
   {
+#ifndef __APPLE__  
     pthread_mutex_init(&shadow_lock, 0);
+#endif    
     uintptr_t first_shadow_page = kCompactShadowMask;
     mmap_pages(first_shadow_page, 1, "First shadow page");
   }

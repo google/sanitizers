@@ -33,6 +33,8 @@ ASAN_USE_CALL=0
 
 RTL_SRC=asan_rtl.cc asan_allocator.cc
 RTL_HDR=asan_rtl.h asan_int.h
+SYSINFO_SRC=sysinfo.cc
+SYSINFO_HDR=sysinfo.h
 
 GTEST_ROOT=../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -74,11 +76,15 @@ $(BIN)/asan_rtl$(SUFF).o: asan_rtl.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\"
 
+$(BIN)/sysinfo$(SUFF).o: $(SYSINFO_SRC) $(SYSINFO_HDR) Makefile
+	$(CXX)  -O3 -c -o $@ -g $(SYSINFO_SRC)  -DASAN_REVISION=\"$(SVNVERSION)\" \
+	   -m$(BITS) -fPIC
+
 $(BIN)/asan_allocator$(SUFF).o: asan_allocator.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party
 	   
 
-$(BIN)/libasan$(SUFF).so: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o
+$(BIN)/libasan$(SUFF).so: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o $(BIN)/sysinfo$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 bfds$(SUFF):
@@ -87,12 +93,12 @@ bfds$(SUFF):
 	cd $@ && ar x bfds$(SUFF).a
 
 ifeq ($(PLATFORM), linux)
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)
-	ar ruv $@ $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)/*.o
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)  $(BIN)/sysinfo$(SUFF).o
+	ar ruv $@ $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)/*.o $(BIN)/sysinfo$(SUFF).o
 else
 # Do not use the BFD symbolizer outside Linux.
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o
-	ar ruv $@ $<
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o $(BIN)/sysinfo$(SUFF).o
+	ar ruv $@ $^
 endif
 
 $(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) $(RTL_SRC)
