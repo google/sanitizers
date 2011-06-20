@@ -19,7 +19,7 @@ CXX=g++ -Wall
 
 CLANG_SRC=../clang_src
 CLANG_BUILD=../clang_build_$(OS)/Release+Asserts
-CLANG_CXX=$(CLANG_BUILD)/bin/clang++ -Wall
+CLANG_CXX=$(CLANG_BUILD)/bin/clang++
 CLANG_LIB=$(CLANG_BUILD)/lib
 
 INSTALL_DIR=../asan_clang_$(OS)

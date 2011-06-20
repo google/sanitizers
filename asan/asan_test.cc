@@ -71,7 +71,6 @@ class ObjdumpOfMyself {
       is_correct = false;
     }
     // cut the objdump into functions
-    size_t start_pos = 0;
     size_t pos;
     size_t prev_beg = 0;
     string fn, next_fn;
@@ -385,7 +384,7 @@ TEST(AddressSanitizer, WildAddressTest) {
   EXPECT_DEATH(*c = 0, "AddressSanitizer crashed on unknown address");
 }
 
-void MallocStress(size_t n) {
+static void MallocStress(size_t n) {
   vector<void *> vec;
   for (size_t i = 0; i < n; i++) {
     if ((i % 3) == 0) {

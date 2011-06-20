@@ -424,7 +424,7 @@ static void PrintStack(uintptr_t *addr, size_t size) {
   for (size_t i = 0; i < size && addr[i]; i++) {
     uintptr_t pc = addr[i];
     string img, rtn, file;
-    int line;
+    // int line;
     // PcToStrings(pc, true, &img, &rtn, &file, &line);
 #ifndef __APPLE__
     proc_self_maps.PrintPc(pc, i);
