@@ -18,6 +18,15 @@
 #include "asan_rtl.h"
 #include "asan_int.h"
 
+#include <sys/mman.h>
+
+static void MmapNewPages(size_t n_pages) {
+  void *res = mmap(0, kPageSize * n_pages,
+                   PROT_READ | PROT_WRITE,
+                   0, 0, 0);
+  Printf("res "PP"\n");
+}
+
 
 void *__asan_memalign(size_t size, size_t alignment) {
 
