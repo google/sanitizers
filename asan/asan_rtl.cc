@@ -119,6 +119,7 @@ void __asan_printf(const char *format, ...) {
 
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
+size_t __asan_quarantine_size;
 
 #if __WORDSIZE == 64
 static uintptr_t
@@ -2028,6 +2029,7 @@ static void asan_init() {
 
   size_t F_delay_queue_size =
       IntFlagValue(options, "delay_queue_size=", 1UL << 28);
+  __asan_quarantine_size = F_delay_queue_size;
   malloc_info.Init(F_delay_queue_size);
 
   if (F_malloc_context_size > F_red_zone_words)

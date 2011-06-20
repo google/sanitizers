@@ -21,12 +21,17 @@
 #include "asan_rtl.h"
 #include <stdlib.h>  // for size_t
 
+static const int kMinRedzone = 128;
+
 extern "C" {
 void *__asan_memalign(size_t size, size_t alignment);
 void __asan_free(void *ptr);
 
 void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
+
+extern size_t __asan_quarantine_size;
+
 }  // extern "C"
 
 #define Printf __asan_printf
