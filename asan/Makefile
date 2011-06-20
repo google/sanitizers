@@ -15,12 +15,11 @@
 SVNVERSION=$(shell svnversion)
 OS=$(shell uname)
 
-CC=gcc
-CXX=g++
+CXX=g++ -Wall
 
 CLANG_SRC=../clang_src
 CLANG_BUILD=../clang_build_$(OS)/Release+Asserts
-CLANG_CXX=$(CLANG_BUILD)/bin/clang++
+CLANG_CXX=$(CLANG_BUILD)/bin/clang++ -Wall
 CLANG_LIB=$(CLANG_BUILD)/lib
 
 INSTALL_DIR=../asan_clang_$(OS)
@@ -29,7 +28,7 @@ BIN=bin_$(OS)
 LIBS=#-lpthread -ldl
 BITS=64
 ASAN_STACK=1
-ASAN_GLOBALS=1
+ASAN_GLOBALS=0
 ASAN_USE_CALL=0
 
 RTL_SRC=asan_rtl.cc asan_allocator.cc
