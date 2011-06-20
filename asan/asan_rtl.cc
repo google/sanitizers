@@ -845,20 +845,21 @@ static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
   return mmap_pages(start_page, n_pages, "high shadow memory");
 }
 
+// We create right redzones for globals and keep the gobals in a linked list.
 struct Global {
-  Global *next;
-  size_t size;
+  Global *next;   // Next in the list.
+  uintptr_t beg;  // Address of the global.
+  size_t size;    // Size of the global.
 
   void PoisonRedZones() {
-    uintptr_t shadow = MemToShadow((uintptr_t)this);
-    // left red zone
-    *(uint32_t*)shadow = 0xbabababa;
-    // right full redzone
-    uintptr_t right_rz2_offset = 4 * (1 + (size + kAsanRedzone - 1)
+    uintptr_t shadow = MemToShadow(beg);
+    // full right redzone
+    uintptr_t right_rz2_offset = 4 * ((size + kAsanRedzone - 1)
                                      / kAsanRedzone);
     *(uint32_t*)(shadow + right_rz2_offset) = 0xcacacaca;
     if ((size % kAsanRedzone) != 0) {
-      uint64_t right_rz1_offset = 4 * (1 + size / kAsanRedzone);
+      // partial right redzone
+      uint64_t right_rz1_offset = 4 * (size / kAsanRedzone);
       CHECK(right_rz1_offset == right_rz2_offset - 4);
       *(uint32_t*)(shadow + right_rz1_offset) =
           kPartialRedzonePoisonValues[size % kAsanRedzone];
@@ -870,18 +871,17 @@ struct Global {
   }
 
   bool DescribeAddrIfMyRedZone(uintptr_t addr) {
-    uintptr_t me = (uintptr_t)this;
-    if (addr < me) return false;
-    if (addr >= me + GetAlignedSize() + 2 * kAsanRedzone) return false;
+    if (addr < beg - kAsanRedzone) return false;
+    if (addr >= beg + GetAlignedSize() + kAsanRedzone) return false;
     Printf(""PP" is located ", addr);
-    if (addr < me + kAsanRedzone) {
-      Printf("%d bytes to the left", me + kAsanRedzone - addr);
-    } else if (addr >= me + kAsanRedzone + size) {
-      Printf("%d bytes to the right", addr - (me + kAsanRedzone + size));
+    if (addr < beg) {
+      Printf("%d bytes to the left", beg - addr) ;
+    } else if (addr >= beg + size) {
+      Printf("%d bytes to the right", addr - (beg + size));
     } else {
-      Printf("%d bytes inside", addr - (me + kAsanRedzone));  // Can it happen?
+      Printf("%d bytes inside", addr - beg);  // Can it happen?
     }
-    Printf(" of global variable "PP"\n", me + kAsanRedzone);
+    Printf(" of global variable "PP"\n", beg + kAsanRedzone);
     return true;
   }
 };
@@ -889,21 +889,25 @@ struct Global {
 static Global *g_globals_list;
 
 static bool DescribeAddrIfGlobal(uintptr_t addr) {
+  bool res = false;
   for (Global *g = g_globals_list; g; g = g->next) {
-    if (g->DescribeAddrIfMyRedZone(addr)) return true;
+    res |= g->DescribeAddrIfMyRedZone(addr);
   }
-  return false;
+  return res;
 }
 
 // exported function
-extern "C" void __asan_register_global(uintptr_t addr, uintptr_t alias, size_t size) {
+extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
   asan_init();
   CHECK(AddrIsInMem(addr));
   uintptr_t shadow = MemToShadow(addr);
-  Printf("global: "PP" "PP" "PP" %ld \n", addr, alias, shadow, size);
-  Global *g = (Global*)addr;
+  //Printf("global: "PP" "PP" %ld \n", addr, shadow, size);
+  uintptr_t aligned_size =
+      ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
+  Global *g = (Global*)(addr + aligned_size);
   g->next = g_globals_list;
   g->size = size;
+  g->beg = addr;
   g_globals_list = g;
   g->PoisonRedZones();
 }

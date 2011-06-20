@@ -29,7 +29,7 @@ BIN=bin_$(OS)
 LIBS=#-lpthread -ldl
 BITS=64
 ASAN_STACK=1
-ASAN_GLOBALS=0
+ASAN_GLOBALS=1
 ASAN_USE_CALL=0
 
 RTL_SRC=asan_rtl.cc

@@ -64,7 +64,7 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
 static cl::opt<bool> ClGlobals("asan-globals",
-       cl::desc("Handle global objects"), cl::init(false));
+       cl::desc("Handle global objects"), cl::init(true));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<string>  IgnoreFile("asan-ignore",
@@ -438,12 +438,10 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
 
 // ***unfinished***
 // This function replaces all global variables with new variables that have
-// leading and trailing redzones. It also creates a function that poisons
+// trailing redzones. It also creates a function that poisons
 // redzones and inserts this function into llvm.global_ctors.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
-
-  Type *LeftRedZoneTy = ArrayType::get(ByteTy, kAsanRedzone);
 
   // We will create a new function that poisons all readzones.
   Function *poisoner = NULL;
@@ -470,6 +468,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       continue;
     }
     // TODO(kcc): do something smart if the alignment is large.
+    if (orig_global.getAlignment() > kAsanRedzone) continue;
 
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
     uint64_t right_redzone_size = kAsanRedzone +
@@ -477,10 +476,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
 
     const Type *new_ty = StructType::get(
-        *C, LeftRedZoneTy, ty, RightRedZoneTy, NULL);
+        *C, ty, RightRedZoneTy, NULL);
     Constant *new_initializer = ConstantStruct::get(
         *C, /*packed=*/false,
-        Constant::getNullValue(LeftRedZoneTy),
         orig_global.getInitializer(),
         Constant::getNullValue(RightRedZoneTy),
         NULL);
@@ -492,10 +490,11 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         orig_global.getName() + "_asan_redzone",
         &orig_global, orig_global.isThreadLocal());
     new_global->copyAttributesFrom(&orig_global);
+    new_global->setAlignment(kAsanRedzone);
 
     Constant *Indices[2];
     Indices[0] = ConstantInt::get(i32Ty, 0);
-    Indices[1] = ConstantInt::get(i32Ty, 1);
+    Indices[1] = ConstantInt::get(i32Ty, 0);
     GlobalAlias *alias = new GlobalAlias(
         ptrty, GlobalValue::ExternalLinkage, "",
         ConstantExpr::getGetElementPtr(new_global, Indices, 2),
@@ -515,10 +514,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
     IRBuilder<> irb(insert_before->getParent(), insert_before);
     Value *asan_register_global = M.getOrInsertFunction(
-        "__asan_register_global", VoidTy, LongTy, LongTy, LongTy, NULL);
-    irb.CreateCall3(asan_register_global,
+        "__asan_register_global", VoidTy, LongTy, LongTy, NULL);
+    irb.CreateCall2(asan_register_global,
                    irb.CreatePointerCast(new_global, LongTy),
-                   irb.CreatePointerCast(alias, LongTy),
                    ConstantInt::get(LongTy, size_in_bytes));
 
     if (ClDebug) {

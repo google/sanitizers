@@ -869,16 +869,46 @@ TEST(AddressSanitizer, DisasmTest) {
   EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", insns));
 }
 
+// Currently we create and poison redzone at right of global variables.
 char glob5[5];
+char static10[10];
 
 TEST(AddressSanitizer, GlobalTest) {
+  static char func_static15[15];
+
+  static char fs1[10];
+  static char fs2[10];
+  static char fs3[10];
+
   glob5[Ident(0)] = 0;
   glob5[Ident(1)] = 0;
   glob5[Ident(2)] = 0;
   glob5[Ident(3)] = 0;
   glob5[Ident(4)] = 0;
 
-  glob5[Ident(5)] = 0;
+  EXPECT_DEATH(glob5[Ident(5)] = 0, "0 bytes to the right of global variable");
+  EXPECT_DEATH(glob5[Ident(5+6)] = 0, "6 bytes to the right of global variable");
+  static10[Ident(0)] = 0;
+  static10[Ident(9)] = 0;
+  EXPECT_DEATH(static10[Ident(10)] = 0,
+               "0 bytes to the right of global variable");
+  EXPECT_DEATH(static10[Ident(10+7)] = 0,
+               "7 bytes to the right of global variable");
+
+  Ident(func_static15); // avoid optimizations
+  func_static15[Ident(0)] = 0;
+  EXPECT_DEATH(func_static15[Ident(15)] = 0,
+               "0 bytes to the right of global variable");
+  EXPECT_DEATH(func_static15[Ident(15 + 9)] = 0,
+               "9 bytes to the right of global variable");
+
+  Ident(fs1);
+  Ident(fs2);
+  Ident(fs3);
+
+  // We don't create left redzones, so this is not 100% guaranteed to fail.
+  // But most likely will.
+  EXPECT_DEATH(fs2[Ident(-1)] = 0, "is located.*of global variable");
 }
 
 // ------------------ demo tests; run each one-by-one -------------
