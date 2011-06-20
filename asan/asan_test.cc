@@ -403,6 +403,8 @@ static void MallocStress(size_t n) {
       }
     }
   }
+  for (size_t i = 0; i < vec.size(); i++)
+    free_aaa(vec[i]);
 }
 
 TEST(AddressSanitizer, MallocStressTest) {

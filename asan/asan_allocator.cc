@@ -54,8 +54,11 @@ static uint8_t *MmapNewPages(size_t size) {
   CHECK((size % kPageSize) == 0);
   uint8_t *res = (uint8_t*)mmap(0, size,
                    PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANON, 0, 0);
-  CHECK(res != (uint8_t*)-1L);
+                   MAP_PRIVATE | MAP_ANON, -1, 0);
+  if (res == (uint8_t*)-1) {
+    Printf("failed to mmap %ld bytes\n", size);
+    abort();
+  }
   return res;
 }
 
@@ -101,15 +104,26 @@ class FreeList {
     return res;
   }
 
+  void TakeChunkBack(Chunk *chunk) {
+    CHECK(chunk);
+    CHECK(chunk->chunk_state == CHUNK_QUARANTINE);
+    CHECK(IsPowerOfTwo(chunk->allocated_size));
+    size_t idx = Log2(chunk->allocated_size);
+    chunk->next = chunks[idx];
+    chunk->chunk_state = CHUNK_AVAILABLE;
+    chunks[idx] = chunk;
+  }
+
   void GetNewChunks(size_t size) {
+    size_t idx = Log2(size);
+    CHECK(chunks[idx] == NULL);
     CHECK(IsPowerOfTwo(size));
     CHECK(IsPowerOfTwo(kMinMmapSize));
     size_t mmap_size = std::max(size, kMinMmapSize);
     CHECK(IsPowerOfTwo(mmap_size));
     uint8_t *mem = MmapNewPages(mmap_size);
-    size_t idx = Log2(size);
     for (size_t i = 0; i < mmap_size / size; i++) {
-      Chunk *chunk = (Chunk*)(mem + i);
+      Chunk *chunk = (Chunk*)(mem + i * size);
       chunk->chunk_state = CHUNK_AVAILABLE;
       chunk->allocated_size = size;
       chunk->next = chunks[idx];
@@ -123,7 +137,22 @@ class FreeList {
 
 static FreeList g_free_list;
 
+struct Quarantine {
+  size_t total_size;
+  Chunk *first;
+
+  void Put(Chunk *chunk) {
+    CHECK(chunk);
+    CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
+    chunk->chunk_state = CHUNK_QUARANTINE;
+    g_free_list.TakeChunkBack(chunk);
+  }
+};
+
+static Quarantine g_quarantine;
+
 static uint8_t *Allocate(size_t size, size_t alignment) {
+  // Printf("Allocate %ld %ld\n", size, alignment);
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUptoRedzone(size);
   if (alignment > kRedzone) {
@@ -141,16 +170,31 @@ static uint8_t *Allocate(size_t size, size_t alignment) {
   CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
   chunk->used_size = size;
   uintptr_t addr = (uintptr_t)chunk + kRedzone;
-  if (alignment <= kRedzone ||
-      (addr & (alignment - 1)) == 0)
-    return (uint8_t*)addr;
-  size_t alignment_log = Log2(alignment);
-  addr = ((addr + alignment - 1) >> alignment_log) << alignment_log;
-  CHECK((addr & (alignment - 1)) == 0);
-  uintptr_t *p = (uintptr_t*)addr;
-  p[0] = CHUNK_MEMALIGN;
-  p[1] = (uintptr_t)chunk;
-  return (uint8_t*)p;
+
+  if (alignment > kRedzone && (addr & (alignment - 1))) {
+    size_t alignment_log = Log2(alignment);
+    // Printf("xx1 "PP"\n", addr);
+    addr = ((addr + alignment - 1) >> alignment_log) << alignment_log;
+    CHECK((addr & (alignment - 1)) == 0);
+    uintptr_t *p = (uintptr_t*)(addr - kRedzone);
+    p[0] = CHUNK_MEMALIGN;
+    p[1] = (uintptr_t)chunk;
+  }
+  // Printf("ret "PP"\n", addr);
+  return (uint8_t*)addr;
+}
+
+static void Deallocate(uint8_t *ptr) {
+  if (!ptr) return;
+  // Printf("dl0 "PP"\n", ptr);
+  Chunk *chunk = (Chunk*)(ptr - kRedzone);
+  // Printf("dl1 "PP"\n", chunk);
+  if (chunk->chunk_state == CHUNK_MEMALIGN) {
+    chunk = (Chunk*)((uintptr_t*)chunk)[1];
+    // Printf("dl2 "PP"\n", chunk);
+  }
+  CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
+  g_quarantine.Put(chunk);
 }
 
 }  // namespace
@@ -160,5 +204,5 @@ void *__asan_memalign(size_t size, size_t alignment) {
 }
 
 void __asan_free(void *ptr) {
-
+  Deallocate((uint8_t*)ptr);
 }
