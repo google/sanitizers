@@ -124,7 +124,7 @@ class FreeList {
 static FreeList g_free_list;
 
 static uint8_t *Allocate(size_t size, size_t alignment) {
-  CHECK((alignment & (alignment - 1)) == 0);
+  CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUptoRedzone(size);
   if (alignment > kRedzone) {
     rounded_size += alignment;
@@ -139,6 +139,18 @@ static uint8_t *Allocate(size_t size, size_t alignment) {
   CHECK(chunk);
   CHECK(chunk->allocated_size == size_to_allocate);
   CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
+  chunk->used_size = size;
+  uintptr_t addr = (uintptr_t)chunk + kRedzone;
+  if (alignment <= kRedzone ||
+      (addr & (alignment - 1)) == 0)
+    return (uint8_t*)addr;
+  size_t alignment_log = Log2(alignment);
+  addr = ((addr + alignment - 1) >> alignment_log) << alignment_log;
+  CHECK((addr & (alignment - 1)) == 0);
+  uintptr_t *p = (uintptr_t*)addr;
+  p[0] = CHUNK_MEMALIGN;
+  p[1] = (uintptr_t)chunk;
+  return (uint8_t*)p;
 }
 
 }  // namespace
