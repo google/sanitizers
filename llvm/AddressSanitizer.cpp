@@ -62,7 +62,7 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
 static cl::opt<bool> ClGlobals("asan-globals",
-       cl::desc("Handle global objects"), cl::init(true));
+       cl::desc("Handle global objects"), cl::init(false));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<string>  IgnoreFile("asan-ignore",

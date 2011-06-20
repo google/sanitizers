@@ -873,7 +873,7 @@ TEST(AddressSanitizer, DisasmTest) {
 char glob5[5];
 char static10[10];
 
-TEST(AddressSanitizer, GlobalTest) {
+TEST(AddressSanitizer, DISABLED_GlobalTest) {
   static char func_static15[15];
 
   static char fs1[10];
