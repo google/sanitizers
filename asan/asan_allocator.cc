@@ -87,7 +87,7 @@ struct Chunk {
   Chunk       *prev;
 };
 
-class FreeList {
+class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
     CHECK(IsPowerOfTwo(size));
@@ -114,6 +114,13 @@ class FreeList {
     chunks[idx] = chunk;
   }
 
+  void Deallocate(Chunk *chunk) {
+    CHECK(chunk);
+    CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
+    chunk->chunk_state = CHUNK_QUARANTINE;
+    TakeChunkBack(chunk);
+  }
+
   void GetNewChunks(size_t size) {
     size_t idx = Log2(size);
     CHECK(chunks[idx] == NULL);
@@ -135,21 +142,7 @@ class FreeList {
   Chunk *chunks[__WORDSIZE];
 };
 
-static FreeList g_free_list;
-
-struct Quarantine {
-  size_t total_size;
-  Chunk *first;
-
-  void Put(Chunk *chunk) {
-    CHECK(chunk);
-    CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
-    chunk->chunk_state = CHUNK_QUARANTINE;
-    g_free_list.TakeChunkBack(chunk);
-  }
-};
-
-static Quarantine g_quarantine;
+static MallocInfo malloc_info;
 
 static uint8_t *Allocate(size_t size, size_t alignment) {
   // Printf("Allocate %ld %ld\n", size, alignment);
@@ -164,7 +157,7 @@ static uint8_t *Allocate(size_t size, size_t alignment) {
   CHECK(size_to_allocate >= kMinAllocSize);
   CHECK((size_to_allocate % kRedzone) == 0);
 
-  Chunk *chunk = g_free_list.AllocateChunk(size_to_allocate);
+  Chunk *chunk = malloc_info.AllocateChunk(size_to_allocate);
   CHECK(chunk);
   CHECK(chunk->allocated_size == size_to_allocate);
   CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
@@ -194,7 +187,7 @@ static void Deallocate(uint8_t *ptr) {
     // Printf("dl2 "PP"\n", chunk);
   }
   CHECK(chunk->chunk_state == CHUNK_ALLOCATED);
-  g_quarantine.Put(chunk);
+  malloc_info.Deallocate(chunk);
 }
 
 }  // namespace
