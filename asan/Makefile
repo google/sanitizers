@@ -32,8 +32,8 @@ ASAN_STACK=1
 ASAN_GLOBALS=1
 ASAN_USE_CALL=0
 
-RTL_SRC=asan_rtl.cc
-RTL_HDR=asan_rtl.h
+RTL_SRC=asan_rtl.cc asan_allocator.cc
+RTL_HDR=asan_rtl.h asan_int.h
 
 GTEST_ROOT=../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -71,11 +71,15 @@ install:
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
-$(BIN)/libasan$(SUFF).o: $(RTL_SRC) $(RTL_HDR) Makefile
-	$(CXX)  -O3 -c -o $@ -g $(RTL_SRC) -I../third_party -DASAN_REVISION=\"$(SVNVERSION)\" \
-	   -m$(BITS) -fPIC
+$(BIN)/asan_rtl$(SUFF).o: asan_rtl.cc $(RTL_HDR) Makefile
+	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
+		-DASAN_REVISION=\"$(SVNVERSION)\"
 
-$(BIN)/libasan$(SUFF).so: $(BIN)/libasan$(SUFF).o
+$(BIN)/asan_allocator$(SUFF).o: asan_allocator.cc $(RTL_HDR) Makefile
+	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party
+	   
+
+$(BIN)/libasan$(SUFF).so: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 bfds$(SUFF):
@@ -84,22 +88,30 @@ bfds$(SUFF):
 	cd $@ && ar x bfds$(SUFF).a
 
 ifeq ($(PLATFORM), linux)
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/libasan$(SUFF).o bfds$(SUFF)
-	ar ruv $@ $< bfds$(SUFF)/*.o
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)
+	ar ruv $@ $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)/*.o
 else
 # Do not use the BFD symbolizer outside Linux.
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/libasan$(SUFF).o
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o
 	ar ruv $@ $<
 endif
 
-$(BIN)/asan_test$(SUFF): asan_test.cc $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
-	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@.o \
+$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) $(RTL_SRC)
+	$(CLANG_CXX) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
+
+$(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR) $(RTL_SRC)
+	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \
 		-m$(BITS)                             \
 		-mllvm -asan-ignore=asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL)
-	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $@.o -o $@ $(LIBS) $(GTEST_LIB)
+
+$(BIN)/asan_test$(SUFF): $(BIN)/asan_test$(SUFF).o $(BIN)/asan_noinst_test$(SUFF).o $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
+	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 \
+		$(BIN)/asan_test$(SUFF).o \
+		$(BIN)/asan_noinst_test$(SUFF).o   \
+		-o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
