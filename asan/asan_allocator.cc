@@ -20,11 +20,17 @@
 
 #include <sys/mman.h>
 
-static void MmapNewPages(size_t n_pages) {
+static void *MmapNewPages(size_t n_pages) {
   void *res = mmap(0, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
-                   0, 0, 0);
-  Printf("res "PP"\n");
+                   MAP_PRIVATE | MAP_ANON, 0, 0);
+  CHECK(res != (void*)-1L);
+  Printf("res "PP"\n", res);
+  return res;
+}
+
+static void *Allocate(size_t size, size_t alignment) {
+  return MmapNewPages(1);
 }
 
 

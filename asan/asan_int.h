@@ -26,9 +26,16 @@ void *__asan_memalign(size_t size, size_t alignment);
 void __asan_free(void *ptr);
 
 void __asan_printf(const char *format, ...);
+void __asan_check_failed(const char *cond, const char *file, int line);
 }  // extern "C"
 
 #define Printf __asan_printf
+
+#define CHECK(cond) do { if (!(cond)) { \
+  __asan_check_failed(#cond, __FILE__, __LINE__); \
+}}while(0)
+
+
 
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm

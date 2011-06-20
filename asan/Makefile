@@ -97,7 +97,7 @@ $(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(S
 endif
 
 $(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) $(RTL_SRC)
-	$(CLANG_CXX) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
+	$(CLANG_CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
 
 $(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR) $(RTL_SRC)
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \

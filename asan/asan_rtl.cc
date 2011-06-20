@@ -46,11 +46,7 @@ using std::string;
 static void PrintCurrentStack(uintptr_t pc = 0);
 static void ShowStatsAndAbort();
 
-#define CHECK(cond) do { if (!(cond)) { \
-  Printf("CHECK failed: %s at %s:%d\n", #cond, __FILE__, __LINE__);\
-  PrintCurrentStack(); \
-  ShowStatsAndAbort(); \
-}}while(0)
+
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
@@ -2139,4 +2135,10 @@ static void asan_init() {
     Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)F_fast_unwind);
   }
+}
+
+void __asan_check_failed(const char *cond, const char *file, int line) {
+  Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
+  PrintCurrentStack();
+  ShowStatsAndAbort();
 }
