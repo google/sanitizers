@@ -14,7 +14,6 @@
 */
 
 // This file is a part of AddressSanitizer, an address sanity checker.
-// Author: Kostya Serebryany
 
 #include "asan_rtl.h"
 #include <stdint.h>

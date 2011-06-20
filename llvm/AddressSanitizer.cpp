@@ -14,8 +14,6 @@
 */
 
 // This file is a part of AddressSanitizer, an address sanity checker.
-// Author: Alexander Potapenko
-// Author: Kostya Serebryany
 
 #define DEBUG_TYPE "asan"
 
