@@ -613,6 +613,14 @@ class MallocInfo {
     print_freed(where);
   }
 
+  void lock() {
+    mu_.Lock();
+  }
+
+  void unlock() {
+    mu_.Unlock();
+  }
+
   void on_malloc(Ptr *p) {
     p->prev = 0;
     p->magic = Ptr::kMallocedMagic;
@@ -1136,12 +1144,27 @@ size_t mz_size(malloc_zone_t* zone, const void* ptr) {
   // We cannot just call malloc_zone_from_ptr(), because it in turn calls our mz_size().
   if (system_malloc_zone) {
     if ((system_malloc_zone->size)(system_malloc_zone, ptr)) return 0;
+    // Memory regions owned by ASan are in fact allocated by the system allocator.
+    // If this was done using malloc() rather than memalign(), we can find the first
+    // byte of the allocation and make sure it's accessible.
+    if ((system_malloc_zone->size)(system_malloc_zone, (char*)ptr - F_red_zone_words)) {
+      // TODO(glider): check that the size returned by the system_malloc_zone->size
+      // matches our zone size + overhead.
+      Ptr *p = (Ptr*)((uintptr_t*)(ptr) - F_red_zone_words);
+      CHECK(p->magic == Ptr::kMallocedMagic);
+      return p->size;
+    }
   }
-  // We cross our fingers, because |p| may belong to unmapped memory.
-  Ptr *p = (Ptr*)((uintptr_t*)(ptr) - F_red_zone_words);
-  if (p->magic == Ptr::kMallocedMagic) {
+  // If we get here, either |ptr| is unaccessible, or it was returned by
+  // memalign(), and we can't guess where our own malloc header begins.
+  malloc_info.lock();
+  Ptr *p = malloc_info.find_malloced((uintptr_t)ptr);
+  malloc_info.unlock();
+  if (p) {
+    CHECK(p->magic == Ptr::kMallocedMagic);
     return p->size;
   } else {
+    // |ptr| doesn't belong to our malloc list.
     return 0;
   }
 }
