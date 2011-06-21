@@ -406,8 +406,8 @@ struct AsanThread {
     : parent_(parent),
       start_routine_(start_routine),
       arg_(arg),
-      announced_(false),
       tid_(AtomicInc(&n_threads_) - 1),
+      announced_(false),
       refcount_(1) {
     if (stack) {
       stack_ = *stack;
@@ -435,7 +435,7 @@ struct AsanThread {
     pthread_attr_destroy(&attr);
     tl_need_real_malloc = false;
 
-    const int kMaxStackSize = 16 * (1 << 20);  // 16M
+    const size_t kMaxStackSize = 16 * (1 << 20);  // 16M
     stack_top_ = (uintptr_t)stackaddr + stacksize;
     stack_bottom_ = (uintptr_t)stackaddr;
     // When running under the GNU make command, pthread_attr_getstack
@@ -675,10 +675,10 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
 void PrintCurrentStack(uintptr_t pc) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast unwind*/false);
   CHECK(stack.size >= 2);
-  int skip_frames = 1;
+  size_t skip_frames = 1;
   if (pc) {
     // find this pc, should be somewehre around 3-rd frame
-    for (int i = skip_frames; i < stack.size; i++) {
+    for (size_t i = skip_frames; i < stack.size; i++) {
       if (stack.trace[i] == pc) {
         skip_frames = i;
         break;
@@ -726,6 +726,7 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
   return ch;
 }
 
+#if __WORDSIZE == 32
 // mmap range [beg, end]
 static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   CHECK((beg % kPageSize) == 0);
@@ -733,18 +734,7 @@ static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   // Printf("mmap_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
   return mmap_pages(beg, (end - beg + 1) / kPageSize, mem_type);
 }
-
-// protect range [beg, end]
-static void protect_range(uintptr_t beg, uintptr_t end) {
-  CHECK((beg % kPageSize) == 0);
-  CHECK(((end+1) % kPageSize) == 0);
-  // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
-  void *res = real_mmap((void*)beg, end - beg + 1,
-                   PROT_NONE,
-                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
-  CHECK(res == (void*)beg);
-}
-
+#else  // __WORDSIZE == 64
 static char *mmap_low_shadow(size_t start_page, size_t n_pages) {
   CHECK(AddrIsInLowShadow(start_page));
   stats.low_shadow_maps++;
@@ -755,6 +745,18 @@ static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
   CHECK(AddrIsInHighShadow(start_page));
   stats.high_shadow_maps++;
   return mmap_pages(start_page, n_pages, "high shadow memory");
+}
+#endif
+
+// protect range [beg, end]
+static void protect_range(uintptr_t beg, uintptr_t end) {
+  CHECK((beg % kPageSize) == 0);
+  CHECK(((end+1) % kPageSize) == 0);
+  // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
+  void *res = real_mmap((void*)beg, end - beg + 1,
+                   PROT_NONE,
+                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
+  CHECK(res == (void*)beg);
 }
 
 // We create right redzones for globals and keep the gobals in a linked list.
@@ -812,7 +814,7 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
   asan_init();
   CHECK(AddrIsInMem(addr));
-  uintptr_t shadow = MemToShadow(addr);
+  // uintptr_t shadow = MemToShadow(addr);
   //Printf("global: "PP" "PP" %ld \n", addr, shadow, size);
   uintptr_t aligned_size =
       ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
@@ -932,11 +934,6 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnMalloc() {
     if (!F_poison_shadow) return;
-    uintptr_t red_zone_words = F_red_zone_words;
-    uintptr_t size_in_words = this->size_in_words();
-    // this->PrintOneLine("malloc poison: ", "\n");
-    uint8_t *shadow = (uint8_t*)MemToShadow(rz1_beg());
-    // Printf("shadow: %p\n", shadow);
     CompactPoison(0xa0a1a2a3a4a5a6a7ULL, 0,
                   0xb0b1b2b3b4b5b6b7ULL);
   }
@@ -945,8 +942,6 @@ struct Ptr {
   __attribute__((noinline))
   void PoisonOnFree(uintptr_t poison) {
     if (!F_poison_shadow) return;
-    uintptr_t real_size_in_words = this->real_size_in_words();
-    uintptr_t size_in_words = this->size_in_words();
     CHECK(AddrIsInMem(rz1_beg()));
     if (poison) {
       CompactPoison(0xc0c1c2c3c4c5c6c7ULL,
@@ -1321,7 +1316,7 @@ void asan_free(void *addr, StackTrace &stack) {
   stats.freed_since_last_stats += real_size_in_words * kWordSize;
 
 
-  if (F_stats && stats.freed_since_last_stats > (1 << F_stats)) {
+  if (F_stats && stats.freed_since_last_stats > (1U << F_stats)) {
     stats.freed_since_last_stats = 0;
     stats.PrintStats();
   }
@@ -1407,7 +1402,7 @@ void *calloc(size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
-    const int kCallocPoolSize = 1024;
+    const size_t kCallocPoolSize = 1024;
     static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
     static size_t allocated;
     size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
@@ -1486,23 +1481,6 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
-#if 0
-extern "C"
-void* mmap(void *start, size_t length,
-           int prot, int flags,
-           int fd, off_t offset) {
-  void *res = real_mmap(start, length, prot, flags, fd, offset);
-  if (F_v >= 2) {
-    Printf("==%d== AddressSanitizer: "
-            "the program called mmap directly. res: [%p,%p) size=%ld (0x%lx)\n",
-            getpid(), res, (char*)res + length, length, length);
-
-    PrintCurrentStack();
-  }
-  return res;
-}
-#endif
-
 extern "C"
 sig_t signal(int signum, sig_t handler) {
 #ifdef __APPLE__
@@ -1512,6 +1490,7 @@ sig_t signal(int signum, sig_t handler) {
 #endif
     return real_signal(signum, handler);
   }
+  return NULL;
 }
 
 extern "C"
