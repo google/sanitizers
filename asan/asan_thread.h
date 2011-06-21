@@ -21,12 +21,11 @@
 #include "asan_lock.h"
 #include "asan_stack.h"
 
-struct AsanThread {
+class AsanThread {
+ public:
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
              void *arg, AsanStackTrace *stack,
              void (*delete_func)(void*));
-
-
 
   void *ThreadStart();
 
