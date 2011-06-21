@@ -19,6 +19,7 @@
 #include "asan_rtl.h"
 #include "asan_lock.h"
 #include "asan_stack.h"
+#include "asan_stats.h"
 
 
 #include <stdint.h>
@@ -180,40 +181,25 @@ void *real_realloc(void *ptr, size_t size) {
 
 #endif  // __APPLE__
 
-// -------------------------- Stats ---------------- {{{1
-struct Stats {
-  size_t low_shadow_maps;
-  size_t high_shadow_maps;
-  size_t mallocs;
-  size_t malloced;
-  size_t malloced_redzones;
-  size_t frees;
-  size_t freed;
-  size_t real_frees;
-  size_t really_freed;
-  size_t reallocs;
-  size_t realloced;
-  size_t freed_since_last_stats;
-
-  void PrintStats() {
-    Printf("Stats: %ldM malloced (%ldM for red zones) by %ld calls\n",
-           malloced>>20, malloced_redzones>>20, mallocs);
-    Printf("Stats: %ldM realloced by %ld calls\n", realloced>>20, reallocs);
-    Printf("Stats: %ldM freed by %ld calls\n", freed>>20, frees);
-    Printf("Stats: %ldM really freed by %ld calls\n",
-           really_freed>>20, real_frees);
+// -------------------------- AsanStats ---------------- {{{1
+void AsanStats::PrintStats() {
+  Printf("Stats: %ldM malloced (%ldM for red zones) by %ld calls\n",
+         malloced>>20, malloced_redzones>>20, mallocs);
+  Printf("Stats: %ldM realloced by %ld calls\n", realloced>>20, reallocs);
+  Printf("Stats: %ldM freed by %ld calls\n", freed>>20, frees);
+  Printf("Stats: %ldM really freed by %ld calls\n",
+         really_freed>>20, real_frees);
 #if __WORDSIZE == 64
-    Printf("Stats: %ldM of shadow memory allocated in %ld clusters\n"
-           "             (%ldM each, %ld low and %ld high)\n",
-           ((low_shadow_maps + high_shadow_maps) * kPageClusterSize * kPageSize)>>20,
-           low_shadow_maps + high_shadow_maps,
-           (kPageClusterSize * kPageSize) >> 20,
-           low_shadow_maps, high_shadow_maps);
+  Printf("Stats: %ldM of shadow memory allocated in %ld clusters\n"
+         "             (%ldM each, %ld low and %ld high)\n",
+         ((low_shadow_maps + high_shadow_maps) * kPageClusterSize * kPageSize)>>20,
+         low_shadow_maps + high_shadow_maps,
+         (kPageClusterSize * kPageSize) >> 20,
+         low_shadow_maps, high_shadow_maps);
 #endif
-  }
-};
+}
 
-static Stats stats;
+AsanStats __asan_stats;
 
 // -------------------------- Misc ---------------- {{{1
 static void AsanAbort() {
@@ -224,7 +210,7 @@ static void AsanAbort() {
 }
 
 static void ShowStatsAndAbort() {
-  stats.PrintStats();
+  __asan_stats.PrintStats();
   AsanAbort();
 }
 
@@ -600,13 +586,13 @@ static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
 #else  // __WORDSIZE == 64
 static char *mmap_low_shadow(size_t start_page, size_t n_pages) {
   CHECK(AddrIsInLowShadow(start_page));
-  stats.low_shadow_maps++;
+  __asan_stats.low_shadow_maps++;
   return mmap_pages(start_page, n_pages, "low shadow memory");
 }
 
 static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
   CHECK(AddrIsInHighShadow(start_page));
-  stats.high_shadow_maps++;
+  __asan_stats.high_shadow_maps++;
   return mmap_pages(start_page, n_pages, "high shadow memory");
 }
 #endif
@@ -1050,8 +1036,8 @@ class MallocInfo {
     if (F_v >= 2) Printf("MallocInfo::pop %p\n", p);
     p->magic = Ptr::kRealyFreedMagic;
     p->PoisonOnFree(0);
-    stats.real_frees++;
-    stats.really_freed += p->real_size_in_words() * kWordSize;
+    __asan_stats.real_frees++;
+    __asan_stats.really_freed += p->real_size_in_words() * kWordSize;
     real_free((void*)p->orig_libc_ptr());
   }
 
@@ -1113,9 +1099,9 @@ Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
   CHECK(p->beg() == beg);
   CHECK(p->rz2_end() <= orig + real_size_with_alignment);
 
-  stats.malloced += real_size_with_alignment;
-  stats.malloced_redzones += F_red_zone_words * 2 * kWordSize;
-  stats.mallocs++;
+  __asan_stats.malloced += real_size_with_alignment;
+  __asan_stats.malloced_redzones += F_red_zone_words * 2 * kWordSize;
+  __asan_stats.mallocs++;
 
   if (F_v >= 2)
     p->PrintOneLine("asan_malloc: ");
@@ -1124,7 +1110,7 @@ Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
     p->PrintOneLine("asan_malloc: ");
     p->PrintRaw(__LINE__);
     PrintCurrentStack();
-    stats.PrintStats();
+    __asan_stats.PrintStats();
   }
 
   p->CopyStackTraceForMalloc(stack);
@@ -1167,21 +1153,21 @@ void asan_free(void *addr, AsanStackTrace &stack) {
     p->PrintOneLine("asan_free:   ");
     p->PrintRaw(__LINE__);
     PrintCurrentStack();
-    stats.PrintStats();
+    __asan_stats.PrintStats();
   }
 
   p->PoisonOnFree(1);
   p->CopyStackTraceForFree(stack);
   malloc_info.on_free(p);
 
-  stats.frees++;
-  stats.freed += real_size_in_words * kWordSize;
-  stats.freed_since_last_stats += real_size_in_words * kWordSize;
+  __asan_stats.frees++;
+  __asan_stats.freed += real_size_in_words * kWordSize;
+  __asan_stats.freed_since_last_stats += real_size_in_words * kWordSize;
 
 
-  if (F_stats && stats.freed_since_last_stats > (1U << F_stats)) {
-    stats.freed_since_last_stats = 0;
-    stats.PrintStats();
+  if (F_stats && __asan_stats.freed_since_last_stats > (1U << F_stats)) {
+    __asan_stats.freed_since_last_stats = 0;
+    __asan_stats.PrintStats();
   }
 }
 
@@ -1224,8 +1210,8 @@ void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
   asan_copy_mem((uintptr_t*)new_ptr, (uintptr_t*)addr,
                 (memcpy_size + kWordSize - 1) / kWordSize);
   asan_free(addr, stack);
-  stats.reallocs++;
-  stats.realloced += memcpy_size;
+  __asan_stats.reallocs++;
+  __asan_stats.realloced += memcpy_size;
   return new_ptr;
 }
 
@@ -1685,8 +1671,8 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   malloc_info.DescribeAddress(sp, bp, addr, access_size);
 
   uintptr_t shadow_addr = MemToShadow(addr);
-  Printf("==%d== ABORTING\n", getpid()),
-      stats.PrintStats();
+  Printf("==%d== ABORTING\n", getpid());
+  __asan_stats.PrintStats();
   Printf("Shadow byte and word:\n");
   Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
   uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
@@ -1776,7 +1762,7 @@ static int64_t IntFlagValue(const char *flags, const char *flag,
 
 static void asan_atexit() {
   Printf("AddressSanitizer exit stats:\n");
-  stats.PrintStats();
+  __asan_stats.PrintStats();
 }
 
 static void asan_init() {
