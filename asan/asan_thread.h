@@ -70,6 +70,8 @@ class AsanThread {
     return 0;
   }
 
+  static AsanThread *GetCurrent();
+
  private:
 
   void SetThreadStackTopAndBottom();

@@ -19,6 +19,7 @@
 #define ASAN_STACK_H
 
 #include "asan_int.h"
+#include "unwind.h"
 
 static const size_t kStackTraceMax = 64;
 
@@ -31,6 +32,30 @@ struct AsanStackTrace {
   void PrintStack() {
     PrintStack(this->trace, this->size);
   }
+  void FastUnwindStack(uintptr_t *frame);
+  static _Unwind_Reason_Code Unwind_Trace(
+      struct _Unwind_Context *ctx, void *param);
 };
+
+#define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
+  AsanStackTrace stack;                           \
+  if ((max_s) <= 1) {                             \
+    stack.size = 1;                               \
+    stack.trace[0] = GET_CALLER_PC();             \
+  } else {                                        \
+    stack.max_size = max_s;                       \
+    stack.size = 0;                               \
+    if (fast_unwind) {   \
+      stack.FastUnwindStack(GET_CURRENT_FRAME()); \
+    } else {                                      \
+      _Unwind_Backtrace(AsanStackTrace::Unwind_Trace, &stack);      \
+    }                                             \
+    if (stack.size >= 2 && stack.trace[1] != GET_CALLER_PC()) {   \
+      Printf("Stack: %d %d pc="PP" : "PP" "PP" "PP" \n", \
+             (int)fast_unwind, (int)stack.size, GET_CALLER_PC(), \
+             stack.trace[0], stack.trace[1], stack.trace[2]);                          \
+    }                                             \
+  }                                               \
+
 
 #endif  // ASAN_STACK_H

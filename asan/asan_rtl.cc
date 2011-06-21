@@ -46,13 +46,9 @@
 
 using std::string;
 
-#include "unwind.h"
-
 
 static void PrintCurrentStack(uintptr_t pc = 0);
 static void ShowStatsAndAbort();
-
-
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
@@ -232,7 +228,7 @@ static AsanThread *g_thread_0 = NULL;
 static bool tls_key_created = false;
 #endif
 
-static AsanThread* GetCurrentThread() {
+AsanThread* AsanThread::GetCurrent() {
 #ifdef __APPLE__
   CHECK(tls_key_created);
   AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
@@ -257,44 +253,12 @@ static void SetCurrentThread(AsanThread *t) {
 #endif
 }
 
-static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
-  AsanStackTrace *b = (AsanStackTrace*)param;
-  CHECK(b->size < b->max_size);
-  b->trace[b->size] = _Unwind_GetIP(ctx);
-  // Printf("ctx: %p ip: %lx\n", ctx, b->buff[b->cur]);
-  b->size++;
-  if (b->size == b->max_size) return _URC_NORMAL_STOP;
-  return _URC_NO_REASON;
-}
-
-#define GET_CALLER_PC() (uintptr_t)__builtin_return_address(0)
-#define GET_CURRENT_FRAME() (uintptr_t*)__builtin_frame_address(0)
-
-__attribute__((noinline))
-static void FastUnwindStack(uintptr_t *frame, AsanStackTrace *stack) {
-  stack->trace[stack->size++] = GET_CALLER_PC();
-  AsanThread *t = GetCurrentThread();
-  if (!t) return;
-  uintptr_t *prev_frame = frame;
-  uintptr_t *top = (uintptr_t*)t->stack_top();
-  while (frame >= prev_frame &&
-         frame < top &&
-         stack->size < stack->max_size) {
-    //Printf("FastUnwindStack[%d]:  "PP" "PP" "PP"\n",
-    //       (int)stack->size,
-    //       frame, prev_frame, top);
-    uintptr_t pc = frame[1];
-    stack->trace[stack->size++] = pc;
-    prev_frame = frame;
-    frame = (uintptr_t*)frame[0];
-  }
-}
 
 // given sp and bp, find the frame to which addr belongs.
 static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
                                          uintptr_t addr) {
   if (bp == 0 || sp == 0)  return -1;
-  AsanThread *t = GetCurrentThread();
+  AsanThread *t = AsanThread::GetCurrent();
   if (!t->AddrIsInStack(bp)) return -1;
   if (!t->AddrIsInStack(sp)) return -1;
   if (addr < sp) return -1; // Probably, should nto happen.
@@ -312,23 +276,6 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
   }
   return res;
 }
-
-#define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
-  AsanStackTrace stack;                               \
-  if ((max_s) <= 1) {                             \
-    stack.size = 1;                               \
-    stack.trace[0] = GET_CALLER_PC();             \
-  } else {                                        \
-    stack.max_size = max_s;                       \
-    stack.size  = 0;                              \
-    if (fast_unwind)   \
-      FastUnwindStack(GET_CURRENT_FRAME(), &stack); \
-    else                                          \
-      _Unwind_Backtrace(Unwind_Trace, &stack);    \
-    if (stack.size >= 2) {                        \
-      CHECK(stack.trace[1] == GET_CALLER_PC());   \
-    }                                             \
-  }                                               \
 
 #define GET_STACK_TRACE_HERE_FOR_MALLOC         \
   GET_STACK_TRACE_HERE(F_malloc_context_size, F_fast_unwind)
@@ -686,7 +633,7 @@ class MallocInfo {
   void on_malloc(Ptr *p) {
     p->prev = 0;
     p->magic = Ptr::kMallocedMagic;
-    p->malloc_thread = GetCurrentThread()->Ref();
+    p->malloc_thread = AsanThread::GetCurrent()->Ref();
     p->free_thread = 0;
     ScopedLock lock(&mu_);
     if (malloced_items_) {
@@ -702,7 +649,7 @@ class MallocInfo {
     size_t real_size_in_words = p->real_size_in_words();
     CHECK(p->magic == Ptr::kMallocedMagic);
     p->magic = Ptr::kFreedMagic;
-    p->free_thread = GetCurrentThread()->Ref();
+    p->free_thread = AsanThread::GetCurrent()->Ref();
 
     ScopedLock lock(&mu_);
     // remove from malloced list.
@@ -801,7 +748,7 @@ class MallocInfo {
       Printf("previously allocated by thread T%d here:\n",
              freed->malloc_thread->tid());
       freed->PrintMallocStack();
-      GetCurrentThread()->Announce();
+      AsanThread::GetCurrent()->Announce();
       freed->free_thread->Announce();
       freed->malloc_thread->Announce();
       return;
@@ -817,7 +764,7 @@ class MallocInfo {
              malloced->malloc_thread->tid());
       malloced->PrintMallocStack();
       // PrintStack(stack, stack_size);
-      GetCurrentThread()->Announce();
+      AsanThread::GetCurrent()->Announce();
       malloced->malloc_thread->Announce();
       return;
     }
@@ -1137,7 +1084,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(GetCurrentThread(), start_routine, arg, &stack, real_free);
+  new (t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack, real_free);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
@@ -1169,7 +1116,7 @@ int sigaction(int signum, const struct sigaction *act,
 
 static void UnpoisonStackFromHereToTop() {
   int local_stack;
-  uintptr_t top = GetCurrentThread()->stack_top();
+  uintptr_t top = AsanThread::GetCurrent()->stack_top();
   uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
   uintptr_t top_shadow = MemToShadow(top);
   uintptr_t bot_shadow = MemToShadow(bottom);
@@ -1479,7 +1426,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   Printf("%s of size %d at "PP" thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size, addr, GetCurrentThread()->tid());
+          access_size, addr, AsanThread::GetCurrent()->tid());
 
   if (F_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
@@ -1704,8 +1651,8 @@ static void asan_init() {
   new (t) AsanThread(0, 0, 0, 0, 0);
   SetCurrentThread(t);
 #ifdef __APPLE__
-  g_thread_0 = GetCurrentThread();
-#endif  
+  g_thread_0 = AsanThread::GetCurrent();
+#endif
   t->ThreadStart();
 
   asan_inited = 1;

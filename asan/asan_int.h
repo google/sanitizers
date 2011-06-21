@@ -67,6 +67,8 @@ const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;
 const size_t kPageSize = 1UL << kPageSizeBits;
 
+#define GET_CALLER_PC() (uintptr_t)__builtin_return_address(0)
+#define GET_CURRENT_FRAME() (uintptr_t*)__builtin_frame_address(0)
 
 // -------------------------- Atomic ---------------- {{{1
 static inline int AtomicInc(int *a) {

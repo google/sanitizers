@@ -115,6 +115,5 @@ void AsanThread::SetThreadStackTopAndBottom() {
 }
 
 
-
 int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;

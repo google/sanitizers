@@ -18,6 +18,8 @@
 // This file is a part of AddressSanitizer, an address sanity checker.
 
 #include "asan_stack.h"
+
+#include "asan_thread.h"
 #include "sysinfo.h"
 #include "bfd_symbolizer/bfd_symbolizer.h"
 
@@ -143,4 +145,32 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
 
 void AsanStackTrace::Init() {
   proc_self_maps.Init();
+}
+
+_Unwind_Reason_Code AsanStackTrace::Unwind_Trace(
+    struct _Unwind_Context *ctx, void *param) {
+  AsanStackTrace *b = (AsanStackTrace*)param;
+  CHECK(b->size < b->max_size);
+  b->trace[b->size] = _Unwind_GetIP(ctx);
+  // Printf("ctx: %p ip: %lx\n", ctx, b->buff[b->cur]);
+  b->size++;
+  if (b->size == b->max_size) return _URC_NORMAL_STOP;
+  return _URC_NO_REASON;
+}
+
+void AsanStackTrace::FastUnwindStack(uintptr_t *frame) {
+  size = 0;
+  trace[size++] = GET_CALLER_PC();
+  AsanThread *t = AsanThread::GetCurrent();
+  if (!t) return;
+  uintptr_t *prev_frame = frame;
+  uintptr_t *top = (uintptr_t*)t->stack_top();
+  while (frame >= prev_frame &&
+         frame < top &&
+         size < max_size) {
+    uintptr_t pc = frame[1];
+    trace[size++] = pc;
+    prev_frame = frame;
+    frame = (uintptr_t*)frame[0];
+  }
 }
