@@ -1,3 +1,0 @@
-digraph x {
- a->b;
-}
