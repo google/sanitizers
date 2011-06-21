@@ -93,7 +93,7 @@ class MallocInfo {
     CHECK(IsPowerOfTwo(size));
     size_t idx = Log2(size);
     if (!chunks[idx]) {
-      GetNewChunks(size); 
+      GetNewChunks(size);
     }
     Chunk *res = chunks[idx];
     CHECK(res);

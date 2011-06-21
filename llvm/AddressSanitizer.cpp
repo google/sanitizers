@@ -366,6 +366,23 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
   Value *CmpVal = Constant::getNullValue(ShadowTy);
   Value *ShadowValue = irb1.CreateLoad(
       irb1.CreateIntToPtr(ShadowPtr, ShadowPtrTy));
+
+  if (ClExperimental) {
+    // Experimental code.
+    Value *Lower3Bits = irb1.CreateAnd(
+        AddrLong, ConstantInt::get(LongTy, 7));
+    Lower3Bits = irb1.CreateIntCast(Lower3Bits, ByteTy, false);
+    Value *X = irb1.CreateSub(
+        ConstantInt::get(ByteTy, 256 - type_size / 8), Lower3Bits);
+    Value *Cmp = irb1.CreateICmpUGE(ShadowValue, X);
+    Instruction *CheckTerm = splitBlockAndInsertIfThen(
+        cast<Instruction>(Cmp)->getNextNode(), Cmp);
+    IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
+    Instruction *crash = generateCrashCode(irb3, AddrLong, telltale_value);
+    CloneDebugInfo(orig_mop, crash);
+    return;
+  }
+
   // If the shadow value is non-zero, crash.
   // Otherwise continue executing the old code.
   Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
