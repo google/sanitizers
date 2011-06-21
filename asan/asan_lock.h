@@ -25,7 +25,7 @@
 class AsanLock {
  public:
   AsanLock() {
-    mu_ = OS_SPINLOCK_INIT
+    mu_ = OS_SPINLOCK_INIT;
   }
   ~AsanLock() {}
   void Lock() {
