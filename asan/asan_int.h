@@ -39,10 +39,18 @@ void __asan_check_failed(const char *cond, const char *file, int line);
 extern size_t __asan_flag_quarantine_size;
 extern int    __asan_flag_demangle;
 extern bool   __asan_flag_symbolize;
+extern int    __asan_flag_v;
+extern bool   __asan_flag_mt;
 
 }  // extern "C"
 
 #define Printf __asan_printf
+
+#if __WORDSIZE == 64
+  #define PP "0x%016lx"
+#else
+  #define PP "0x%08lx"
+#endif
 
 #define CHECK(cond) do { if (!(cond)) { \
   __asan_check_failed(#cond, __FILE__, __LINE__); \
@@ -58,6 +66,19 @@ const size_t kWordSize = __WORDSIZE / 8;
 const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;
 const size_t kPageSize = 1UL << kPageSizeBits;
+
+
+// -------------------------- Atomic ---------------- {{{1
+static inline int AtomicInc(int *a) {
+  if (!__asan_flag_mt) return ++(*a);
+  return __sync_add_and_fetch(a, 1);
+}
+
+static inline int AtomicDec(int *a) {
+  if (!__asan_flag_mt) return --(*a);
+  return __sync_add_and_fetch(a, -1);
+}
+
 
 
 #endif  // ASAN_INT_H

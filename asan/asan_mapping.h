@@ -34,11 +34,9 @@ const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBi
 #if __WORDSIZE == 64
   static const size_t kCompactShadowMask  = kCompactShadowMask64;
   static const size_t kHighMemEnd = 0x00007fffffffffffUL;
-  #define PP "0x%016lx"
 #else  // __WORDSIZE == 32
   const size_t kCompactShadowMask  = kCompactShadowMask32;
   static const size_t kHighMemEnd = 0xffffffff;
-  #define PP "0x%08lx"
 #endif  // __WORDSIZE
 
 

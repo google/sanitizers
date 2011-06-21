@@ -18,9 +18,10 @@
 #include "asan_int.h"
 #include "asan_rtl.h"
 #include "asan_lock.h"
+#include "asan_mapping.h"
 #include "asan_stack.h"
 #include "asan_stats.h"
-#include "asan_mapping.h"
+#include "asan_thread.h"
 
 
 #include <stdint.h>
@@ -64,7 +65,6 @@ __thread bool __asan_need_real_malloc;
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
-static int    F_v;
 static size_t F_malloc_context_size = kMallocContextSize;
 static size_t F_red_zone_words;  // multiple of 8
 static int    F_print_malloc_lists;
@@ -75,11 +75,12 @@ static int    F_stats;
 static int    F_debug;
 static bool   F_fast_unwind;
 static uintptr_t  F_debug_malloc_size;
-static bool   F_mt;  // set to 0 if you have only one thread.
 
+bool   __asan_flag_mt;  // set to 0 if you have only one thread.
 size_t __asan_flag_quarantine_size;
 int    __asan_flag_demangle;
 bool   __asan_flag_symbolize;
+int    __asan_flag_v;
 
 
 #if __WORDSIZE == 32
@@ -89,17 +90,6 @@ static int F_protect_shadow;
 #endif
 
 
-
-// -------------------------- Atomic ---------------- {{{1
-int AtomicInc(int *a) {
-  if (!F_mt) return ++(*a);
-  return __sync_add_and_fetch(a, 1);
-}
-
-int AtomicDec(int *a) {
-  if (!F_mt) return --(*a);
-  return __sync_add_and_fetch(a, -1);
-}
 
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out;
@@ -230,159 +220,7 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 }
 
 // ---------------------- Thread ------------------------- {{{1
-struct AsanThread {
-  AsanThread(AsanThread *parent, void *(*start_routine) (void *),
-             void *arg, AsanStackTrace *stack)
-    : parent_(parent),
-      start_routine_(start_routine),
-      arg_(arg),
-      tid_(AtomicInc(&n_threads_) - 1),
-      announced_(false),
-      refcount_(1) {
-    if (stack) {
-      stack_ = *stack;
-    }
-    if (tid_ == 0) {
-      live_threads_ = next_ = prev_ = this;
-    }
-  }
 
-  void SetThreadStackTopAndBottom() {
-#ifdef __APPLE__
-   size_t stacksize = pthread_get_stacksize_np(pthread_self());
-   void *stackaddr = pthread_get_stackaddr_np(pthread_self());
-   stack_top_ = (uintptr_t)stackaddr;
-   stack_bottom_ = stack_top_ - stacksize;
-   int local;
-   CHECK(AddrIsInStack((uintptr_t)&local));
-#else
-    __asan_need_real_malloc = true;
-    pthread_attr_t attr;
-    CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
-    size_t stacksize = 0;
-    void *stackaddr = NULL;
-    pthread_attr_getstack(&attr, &stackaddr, &stacksize);
-    pthread_attr_destroy(&attr);
-    __asan_need_real_malloc = false;
-
-    const size_t kMaxStackSize = 16 * (1 << 20);  // 16M
-    stack_top_ = (uintptr_t)stackaddr + stacksize;
-    stack_bottom_ = (uintptr_t)stackaddr;
-    // When running under the GNU make command, pthread_attr_getstack
-    // returns garbage for a stacksize.
-    if (stacksize > kMaxStackSize) {
-      Printf("WARNING: pthread_attr_getstack returned "PP" as stacksize\n",
-             stacksize);
-      stack_bottom_ = stack_top_ - kMaxStackSize;
-    }
-    CHECK(AddrIsInStack((uintptr_t)&attr));
-#endif
-  }
-
-  void *ThreadStart() {
-    SetThreadStackTopAndBottom();
-    if (F_v == 1) {
-      int local = 0;
-      Printf ("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
-              tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_, &local);
-    }
-    CHECK(AddrIsInMem(stack_bottom_));
-    CHECK(AddrIsInMem(stack_top_));
-
-    // clear the shadow state for the entire stack.
-    uintptr_t shadow_bot = MemToShadow(stack_bottom_);
-    uintptr_t shadow_top = MemToShadow(stack_top_);
-    memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
-
-    { // Insert this thread into live_threads_
-      ScopedLock lock(&mu_);
-      this->next_ = live_threads_;
-      this->prev_ = live_threads_->prev_;
-      this->prev_->next_ = this;
-      this->next_->prev_ = this;
-    }
-
-    if (!start_routine_) return 0;
-
-    void *res = start_routine_(arg_);
-
-    if (F_v == 1) {
-      Printf("T%d exited\n", tid_);
-    }
-
-    { // Remove this from live_threads_
-      ScopedLock lock(&mu_);
-      AsanThread *prev = this->prev_;
-      AsanThread *next = this->next_;
-      prev->next_ = next_;
-      next->prev_ = prev_;
-    }
-    Unref();
-    return res;
-  }
-
-  AsanThread *Ref() {
-    AtomicInc(&refcount_);
-    return this;
-  }
-
-  void Unref() {
-    CHECK(refcount_ > 0);
-    if (AtomicDec(&refcount_) == 0)
-      real_free(this);
-  }
-
-  void Announce() {
-    if (tid_ == 0) return; // no need to announce the main thread.
-    if (!announced_) {
-      announced_ = true;
-      CHECK(parent_);
-      Printf("Thread T%d created by T%d here:\n", tid_, parent_->tid_);
-      stack_.PrintStack();
-    }
-  }
-
-  uintptr_t stack_top() { return stack_top_; }
-  uintptr_t stack_bottom() { return stack_bottom_; }
-  int tid() { return tid_; }
-
-  uintptr_t AddrIsInStack(uintptr_t addr) {
-    return addr >= stack_bottom_ && addr < stack_top_;
-  }
-
-  static AsanThread *FindThreadByStackAddress(uintptr_t addr) {
-    ScopedLock lock(&mu_);
-    AsanThread *t = live_threads_;
-    do {
-      if (t->AddrIsInStack(addr)) {
-        return t;
-      }
-      t = t->next_;
-    } while (t != live_threads_);
-    return 0;
-  }
-
- private:
-  AsanThread *parent_;
-  void *(*start_routine_) (void *);
-  void *arg_;
-  AsanStackTrace stack_;
-  uintptr_t  stack_top_;
-  uintptr_t  stack_bottom_;
-  int        tid_;
-  bool       announced_;
-  int        refcount_;
-
-  AsanThread *next_;
-  AsanThread *prev_;
-
-  static AsanThread *live_threads_;
-  static int n_threads_;
-  static AsanLock mu_;
-};
-
-int AsanThread::n_threads_;
-AsanThread *AsanThread::live_threads_;
 AsanLock AsanThread::mu_;
 #ifndef __APPLE__
 static __thread AsanThread *tl_current_thread;
@@ -955,7 +793,7 @@ class MallocInfo {
     }
 
     if (freed) {
-      if (F_v) freed->PrintRaw(__LINE__);
+      if (__asan_flag_v) freed->PrintRaw(__LINE__);
       freed->DescribeAddress(addr, access_size);
       Printf("freed by thread T%d here:\n",
              freed->free_thread->tid());
@@ -970,7 +808,7 @@ class MallocInfo {
     }
 
     if (malloced) {
-      if (F_v) malloced->PrintRaw(__LINE__);
+      if (__asan_flag_v) malloced->PrintRaw(__LINE__);
       malloced->DescribeAddress(addr, access_size);
       // size_t kStackSize = 100;
       // uintptr_t stack[kStackSize];
@@ -1004,7 +842,7 @@ class MallocInfo {
       prev->next = next;
     }
     cur_size_ -= p->real_size_in_words() * kWordSize;
-    if (F_v >= 2) Printf("MallocInfo::pop %p\n", p);
+    if (__asan_flag_v >= 2) Printf("MallocInfo::pop %p\n", p);
     p->magic = Ptr::kRealyFreedMagic;
     p->PoisonOnFree(0);
     __asan_stats.real_frees++;
@@ -1074,7 +912,7 @@ Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
   __asan_stats.malloced_redzones += F_red_zone_words * 2 * kWordSize;
   __asan_stats.mallocs++;
 
-  if (F_v >= 2)
+  if (__asan_flag_v >= 2)
     p->PrintOneLine("asan_malloc: ");
 
   if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
@@ -1117,7 +955,7 @@ void asan_free(void *addr, AsanStackTrace &stack) {
 
   check_ptr_on_free(p, addr, stack);
 
-  if (F_v >= 2)
+  if (__asan_flag_v >= 2)
     p->PrintOneLine("asan_free:   ", "\n");
 
   if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
@@ -1171,7 +1009,7 @@ void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
   }
   Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
   check_ptr_on_free(p, addr, stack);
-  if (F_v >= 2)
+  if (__asan_flag_v >= 2)
     p->PrintOneLine("asan_realloc: ", "\n");
   size_t old_size = p->size;
   Ptr *new_p = asan_memalign(size, 0, stack);
@@ -1299,7 +1137,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(GetCurrentThread(), start_routine, arg, &stack);
+  new (t) AsanThread(GetCurrentThread(), start_routine, arg, &stack, real_free);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
@@ -1604,7 +1442,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     }
     mapped_clusters[cluster_word_idx] |= cluster_bits_mask;
 
-    if (F_v >= 2)
+    if (__asan_flag_v >= 2)
       Printf("==%d==mapping shadow: [0x%lx, 0x%lx); %ld pages\n",
              getpid(), start_page, end_page, kPageClusterSize);
     if(AddrIsInHighShadow(addr)) {
@@ -1762,7 +1600,7 @@ static void asan_init() {
       IntFlagValue(options, "malloc_context_size=", kMallocContextSize);
   CHECK(F_malloc_context_size <= kMallocContextSize);
 
-  F_v = IntFlagValue(options, "v=", 0);
+  __asan_flag_v = IntFlagValue(options, "v=", 0);
   CHECK(Ptr::ReservedWords() <= 8);
 
   F_red_zone_words = IntFlagValue(options, "red_zone_words=", 16);
@@ -1781,7 +1619,7 @@ static void asan_init() {
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
-  F_mt = IntFlagValue(options, "mt=", 1);
+  __asan_flag_mt = IntFlagValue(options, "mt=", 1);
 #if __WORDSIZE == 64
   F_protect_shadow = IntFlagValue(options, "protect_shadow=", 0);
 #endif
@@ -1863,7 +1701,7 @@ static void asan_init() {
 #endif  // __APPLE__
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(0, 0, 0, 0);
+  new (t) AsanThread(0, 0, 0, 0, 0);
   SetCurrentThread(t);
 #ifdef __APPLE__
   g_thread_0 = GetCurrentThread();
@@ -1872,7 +1710,7 @@ static void asan_init() {
 
   asan_inited = 1;
 
-  if (F_v) {
+  if (__asan_flag_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
     Printf("|| `["PP", "PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);

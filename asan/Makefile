@@ -38,6 +38,7 @@ RTL_HDR=asan_rtl.h \
 	asan_mapping.h \
 	asan_stack.h \
 	asan_stats.h \
+	asan_thread.h \
 	sysinfo.h \
 	basictypes.h \
 
@@ -46,6 +47,7 @@ SUFF=$(BITS)
 LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
+	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
 
 
