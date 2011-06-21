@@ -17,6 +17,8 @@
 
 #include "asan_int.h"
 #include "asan_rtl.h"
+#include "asan_lock.h"
+
 #include "sysinfo.h"
 
 #include <stdint.h>
@@ -119,37 +121,6 @@ void __asan_printf(const char *format, ...) {
 #endif
 }
 
-// -------------------------- Locking ---------------- {{{1
-#ifndef __APPLE__
-typedef pthread_mutex_t Mutex;
-#else
-#include <libkern/OSAtomic.h>
-// Using pthread_mutex_lock in a signal handler on Mac leads to deadlocks
-// on a spinlock within libpthread, so we use OSSpinLock instead of pthread_mutex_t.
-typedef OSSpinLock Mutex;
-#endif
-
-class ScopedLock {
- public:
-  ScopedLock(Mutex *mu) : mu_(mu) {
-    if (F_mt)
-#ifndef __APPLE__
-      pthread_mutex_lock(mu_);
-#else
-      OSSpinLockLock(mu_);
-#endif
-  }
-  ~ScopedLock() {
-    if (F_mt)
-#ifndef __APPLE__    
-      pthread_mutex_unlock(mu_);
-#else
-      OSSpinLockUnlock(mu_);
-#endif
-  }
- private:
-  Mutex *mu_;
-};
 
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
@@ -158,7 +129,7 @@ size_t __asan_quarantine_size;
 #if __WORDSIZE == 64
 static uintptr_t
   mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
-static Mutex shadow_lock;
+static AsanLock shadow_lock;
 #endif
 
 // -------------------------- Interceptors ---------------- {{{1
@@ -442,9 +413,6 @@ struct AsanThread {
       stack_ = *stack;
     }
     if (tid_ == 0) {
-#ifndef __APPLE__    
-      pthread_mutex_init(&mu_, 0);
-#endif      
       live_threads_ = next_ = prev_ = this;
     }
   }
@@ -580,12 +548,12 @@ struct AsanThread {
 
   static AsanThread *live_threads_;
   static int n_threads_;
-  static Mutex mu_;
+  static AsanLock mu_;
 };
 
 int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;
-Mutex AsanThread::mu_;
+AsanLock AsanThread::mu_;
 #ifndef __APPLE__
 static __thread AsanThread *tl_current_thread;
 #else
@@ -1038,9 +1006,6 @@ class MallocInfo {
  public:
   void Init(size_t max_size) {
     max_size_ = max_size;
-#ifndef __APPLE__    
-    pthread_mutex_init(&mu_, 0);
-#endif    
   }
 
   void print_malloced(const char *where) {
@@ -1236,7 +1201,7 @@ class MallocInfo {
   size_t cur_size_;
   Ptr *freed_items_;
   Ptr *malloced_items_;
-  Mutex mu_;
+  AsanLock mu_;
 };
 
 static MallocInfo malloc_info;
@@ -2079,9 +2044,6 @@ static void asan_init() {
   }
 #else  // __WORDSIZE == 64
   {
-#ifndef __APPLE__  
-    pthread_mutex_init(&shadow_lock, 0);
-#endif    
     uintptr_t first_shadow_page = kCompactShadowMask;
     mmap_pages(first_shadow_page, 1, "First shadow page");
   }
