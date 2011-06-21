@@ -71,7 +71,6 @@ static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
 static int    F_stats;
 static int    F_debug;
-static int    F_demangle;
 static bool   F_fast_unwind;
 static uintptr_t  F_debug_malloc_size;
 static bool   F_mt;  // set to 0 if you have only one thread.
