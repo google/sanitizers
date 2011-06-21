@@ -35,6 +35,7 @@ struct AsanStackTrace {
   void FastUnwindStack(uintptr_t *frame);
   static _Unwind_Reason_Code Unwind_Trace(
       struct _Unwind_Context *ctx, void *param);
+  static void PrintCurrent(uintptr_t pc = 0);
 };
 
 #define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \

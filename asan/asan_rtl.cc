@@ -46,8 +46,6 @@
 
 using std::string;
 
-
-static void PrintCurrentStack(uintptr_t pc = 0);
 static void ShowStatsAndAbort();
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
@@ -287,21 +285,6 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
   GET_STACK_TRACE_HERE(__stack_size_for_free, F_fast_unwind)
 
 
-void PrintCurrentStack(uintptr_t pc) {
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast unwind*/false);
-  CHECK(stack.size >= 2);
-  size_t skip_frames = 1;
-  if (pc) {
-    // find this pc, should be somewehre around 3-rd frame
-    for (size_t i = skip_frames; i < stack.size; i++) {
-      if (stack.trace[i] == pc) {
-        skip_frames = i;
-        break;
-      }
-    }
-  }
-  AsanStackTrace::PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
-}
 
 static void *asan_thread_start(void *arg) {
   AsanThread *t= (AsanThread*)arg;
@@ -865,7 +848,7 @@ Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
   if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
     p->PrintOneLine("asan_malloc: ");
     p->PrintRaw(__LINE__);
-    PrintCurrentStack();
+    AsanStackTrace::PrintCurrent();
     __asan_stats.PrintStats();
   }
 
@@ -908,7 +891,7 @@ void asan_free(void *addr, AsanStackTrace &stack) {
   if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
     p->PrintOneLine("asan_free:   ");
     p->PrintRaw(__LINE__);
-    PrintCurrentStack();
+    AsanStackTrace::PrintCurrent();
     __asan_stats.PrintStats();
   }
 
@@ -1405,7 +1388,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP"\n",
          getpid(), addr);
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
-  PrintCurrentStack();
+  AsanStackTrace::PrintCurrent();
   ShowStatsAndAbort();
 }
 
@@ -1432,7 +1415,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
     PrintBytes("PC: ",(uintptr_t*)pc);
   }
 
-  PrintCurrentStack(pc);
+  AsanStackTrace::PrintCurrent(pc);
 
   CHECK(AddrIsInMem(addr));
 
@@ -1677,6 +1660,6 @@ static void asan_init() {
 
 void __asan_check_failed(const char *cond, const char *file, int line) {
   Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
-  PrintCurrentStack();
+  AsanStackTrace::PrintCurrent();
   ShowStatsAndAbort();
 }

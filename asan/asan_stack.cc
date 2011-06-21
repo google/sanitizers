@@ -174,3 +174,19 @@ void AsanStackTrace::FastUnwindStack(uintptr_t *frame) {
     frame = (uintptr_t*)frame[0];
   }
 }
+
+void AsanStackTrace::PrintCurrent(uintptr_t pc) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast unwind*/false);
+  CHECK(stack.size >= 2);
+  size_t skip_frames = 1;
+  if (pc) {
+    // find this pc, should be somewehre around 3-rd frame
+    for (size_t i = skip_frames; i < stack.size; i++) {
+      if (stack.trace[i] == pc) {
+        skip_frames = i;
+        break;
+      }
+    }
+  }
+  PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
+}
