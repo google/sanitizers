@@ -1265,8 +1265,10 @@ int posix_memalign(void **memptr, size_t alignment, size_t size) {
 }
 extern "C"
 void *valloc(size_t size) {
-  CHECK(0);
-  return NULL;
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  CHECK(!tl_need_real_malloc);
+  Ptr *p = asan_memalign(size, kPageSize, stack);
+  return p->raw_ptr();
 }
 
 
@@ -1414,8 +1416,13 @@ void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
 }
 
 void* mz_valloc(malloc_zone_t* zone, size_t size) {
-  UNIMPLEMENTED();
-  return NULL;
+  if (!asan_inited) {
+    CHECK(system_malloc_zone);
+    return malloc_zone_valloc(system_malloc_zone, size);
+  }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  Ptr *p = asan_memalign(size, kPageSize, stack);
+  return p->raw_ptr();
 }
 
 void mz_free(malloc_zone_t* zone, void* ptr) {
@@ -1439,8 +1446,13 @@ void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
 }
 
 void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
-  UNIMPLEMENTED();
-  return NULL;
+  if (!asan_inited) {
+    CHECK(system_malloc_zone);
+    return malloc_zone_memalign(system_malloc_zone, align, size);
+  }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  Ptr *p = asan_memalign(size, align, stack);
+  return p->raw_ptr();
 }
 
 void mz_destroy(malloc_zone_t* zone) {
