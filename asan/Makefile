@@ -31,7 +31,14 @@ ASAN_STACK=1
 ASAN_GLOBALS=0
 ASAN_USE_CALL=0
 
-RTL_HDR=asan_rtl.h asan_int.h sysinfo.h
+RTL_HDR=asan_rtl.h \
+	asan_int.h \
+	sysinfo.h \
+	asan_lock.h \
+	asan_stack.h \
+	asan_stats.h \
+	sysinfo.h \
+	basictypes.h \
 
 SUFF=$(BITS)
 
