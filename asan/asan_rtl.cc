@@ -69,7 +69,6 @@ static int    F_v;
 static size_t F_malloc_context_size = kMallocContextSize;
 static size_t F_red_zone_words;  // multiple of 8
 static size_t F_delay_queue_size;
-static int    F_print_maps;
 static int    F_print_malloc_lists;
 static int    F_atexit;
 static uintptr_t F_large_malloc;
@@ -1815,10 +1814,6 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   malloc_info.DescribeAddress(sp, bp, addr, access_size);
 
-  if (F_print_maps) {
-    proc_self_maps.Print();
-  }
-
   uintptr_t shadow_addr = MemToShadow(addr);
   Printf("==%d== ABORTING\n", getpid()),
       stats.PrintStats();
@@ -1937,7 +1932,6 @@ static void asan_init() {
   }
   CHECK(F_red_zone_words >= 8 && (F_red_zone_words % 8) == 0);
 
-  F_print_maps     = IntFlagValue(options, "print_maps=", 0);
   F_print_malloc_lists = IntFlagValue(options, "print_malloc_lists=", 0);
   F_atexit = IntFlagValue(options, "atexit=", 0);
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
@@ -2005,8 +1999,6 @@ static void asan_init() {
     sigact.sa_flags = SA_SIGINFO;
     CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
   }
-
-  //proc_self_maps.Init();
 
 #if __WORDSIZE == 32
   {
