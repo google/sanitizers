@@ -24,9 +24,14 @@
 
 static const int kMinRedzone = 128;
 
+class AsanThread;
+class AsanStackTrace;
+
 extern "C" {
-void *__asan_memalign(size_t size, size_t alignment);
-void __asan_free(void *ptr);
+void *__asan_memalign(size_t size, size_t alignment,
+                      AsanThread *thread, AsanStackTrace *stack);
+void __asan_free(void *ptr, AsanThread *thread, AsanStackTrace *stack);
+
 
 void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
