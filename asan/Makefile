@@ -31,7 +31,6 @@ ASAN_STACK=1
 ASAN_GLOBALS=0
 ASAN_USE_CALL=0
 
-RTL_SRC=asan_rtl.cc asan_allocator.cc sysinfo.cc
 RTL_HDR=asan_rtl.h asan_int.h sysinfo.h
 
 SUFF=$(BITS)
@@ -100,10 +99,10 @@ endif
 $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF)
 	ar ruv $@ $^ $(BFDS_OBJECTS)
 
-$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) $(RTL_SRC)
+$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR)
 	$(CLANG_CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
 
-$(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR) $(RTL_SRC)
+$(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR)
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \
 		-m$(BITS)                             \
 		-mllvm -asan-ignore=asan_test.ignore  \
