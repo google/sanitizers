@@ -71,7 +71,6 @@ static cl::opt<string>  IgnoreFile("asan-ignore",
 static cl::opt<bool> ClUseCall("asan-use-call",
        cl::desc("Use function call to generate a crash"), cl::init(false));
 
-
 // Optimization flags. Not user visible, used mostly for testing
 // and benchmarking the tool.
 static cl::opt<bool> ClOpt("asan-opt",
@@ -80,6 +79,10 @@ static cl::opt<bool> ClOptSameTemp("asan-opt-same-temp",
        cl::desc("Instrument the same temp just once"), cl::init(true));
 static cl::opt<bool> ClOptGlobals("asan-opt-globals",
        cl::desc("Don't instrument scalar globals"), cl::init(true));
+
+
+static cl::opt<bool> ClExperimental("asan-experiment",
+       cl::desc("Experimental flag"), cl::init(false));
 
 // Debug flags.
 static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
@@ -106,8 +109,10 @@ static const char *kAsanGlobalPoisonerName = "asan.poison_globals";
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(BasicBlock::iterator &BI);
-  void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb1,
+  void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb,
                          Value *Addr, size_t type_size, bool is_w);
+  Instruction *generateCrashCode(IRBuilder<> &irb, Value *Addr,
+                                 int telltale_value);
   bool instrumentMemIntrinsic(MemIntrinsic *mem_intr);
   void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr, Value *size,
                                    Instruction *insert_before, bool is_w);
@@ -283,6 +288,67 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
   instrumentAddress(mop, irb1, Addr, type_size, is_w);
 }
 
+Instruction *AddressSanitizer::generateCrashCode(
+    IRBuilder<> &irb, Value *Addr, int telltale_value) {
+  if (ClUseCall) {
+    // Here we use a call instead of arch-specific asm to report an error.
+    // This is almost always slower (because the codegen needs to generate
+    // prologue/epilogue for otherwise leaf functions) and generates more code.
+    // This mode could be useful if we can not use SIGILL for some reason.
+    //
+    // The telltale_value (is_write and size) is encoded in the function name.
+    char function_name[100];
+    sprintf(function_name, "__asan_report_error_%d", telltale_value);
+    Value *asan_report_warning = CurrentModule->getOrInsertFunction(
+        function_name, VoidTy, LongTy, NULL);
+    CallInst *call = irb.CreateCall(asan_report_warning, Addr);
+    return call;
+  }
+
+  // Move the failing address to %rax/%eax
+  FunctionType *Fn1Ty = FunctionType::get(
+      VoidTy, ArrayRef<const Type*>(LongTy), false);
+  const char *mov_str = LongSize == 32
+      ? "mov $0, %eax" : "mov $0, %rax";
+  Value *asm_mov = InlineAsm::get(
+      Fn1Ty, StringRef(mov_str), StringRef("r"), true);
+  irb.CreateCall(asm_mov, Addr);
+
+  // crash with ud2; could use int3, but it is less friendly to gdb.
+  // after ud2 put a 1-byte instruction that encodes the access type and size.
+
+  const char *telltale_insns[16] = {
+    "push   %eax",  // 0x50
+    "push   %ecx",  // 0x51
+    "push   %edx",  // 0x52
+    "push   %ebx",  // 0x53
+    "push   %esp",  // 0x54
+    "push   %ebp",  // 0x55
+    "push   %esi",  // 0x56
+    "push   %edi",  // 0x57
+    "pop    %eax",  // 0x58
+    "pop    %ecx",  // 0x59
+    "pop    %edx",  // 0x5a
+    "pop    %ebx",  // 0x5b
+    "pop    %esp",  // 0x5c
+    "pop    %ebp",  // 0x5d
+    "pop    %esi",  // 0x5e
+    "pop    %edi"   // 0x5f
+  };
+
+  FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
+  std::string asm_str = "ud2;";
+  asm_str += telltale_insns[telltale_value];
+  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
+  CallInst *asm_call = irb.CreateCall(my_asm);
+
+  // This saves us one jump, but triggers a bug in RA (or somewhere else):
+  // while building 483.xalancbmk the compiler goes into infinite loop in
+  // llvm::SpillPlacement::iterate() / RAGreedy::growRegion
+  // asm_call->setDoesNotReturn();
+  return asm_call;
+}
+
 void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
                                          IRBuilder<> &irb1, Value *Addr,
                                          size_t type_size, bool is_w) {
@@ -329,65 +395,8 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
   }
 
   IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
-
-  if (ClUseCall) {
-    // Here we use a call instead of arch-specific asm to report an error.
-    // This is almost always slower (because the codegen needs to generate
-    // prologue/epilogue for otherwise leaf functions) and generates more code.
-    // This mode could be useful if we can not use SIGILL for some reason.
-    //
-    // The telltale_value (is_write and size) is encoded in the function name.
-    char function_name[100];
-    sprintf(function_name, "__asan_report_error_%d", telltale_value);
-    Value *asan_report_warning = CurrentModule->getOrInsertFunction(
-        function_name, VoidTy, LongTy, NULL);
-    CallInst *call = irb3.CreateCall(asan_report_warning, AddrLong);
-    CloneDebugInfo(orig_mop, call);
-    return;
-  }
-
-  // Move the failing address to %rax/%eax
-  FunctionType *Fn1Ty = FunctionType::get(
-      VoidTy, ArrayRef<const Type*>(LongTy), false);
-  const char *mov_str = LongSize == 32
-      ? "mov $0, %eax" : "mov $0, %rax";
-  Value *asm_mov = InlineAsm::get(
-      Fn1Ty, StringRef(mov_str), StringRef("r"), true);
-  irb3.CreateCall(asm_mov, AddrLong);
-
-  // crash with ud2; could use int3, but it is less friendly to gdb.
-  // after ud2 put a 1-byte instruction that encodes the access type and size.
-
-  const char *telltale_insns[16] = {
-    "push   %eax",  // 0x50
-    "push   %ecx",  // 0x51
-    "push   %edx",  // 0x52
-    "push   %ebx",  // 0x53
-    "push   %esp",  // 0x54
-    "push   %ebp",  // 0x55
-    "push   %esi",  // 0x56
-    "push   %edi",  // 0x57
-    "pop    %eax",  // 0x58
-    "pop    %ecx",  // 0x59
-    "pop    %edx",  // 0x5a
-    "pop    %ebx",  // 0x5b
-    "pop    %esp",  // 0x5c
-    "pop    %ebp",  // 0x5d
-    "pop    %esi",  // 0x5e
-    "pop    %edi"   // 0x5f
-  };
-
-  FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
-  std::string asm_str = "ud2;";
-  asm_str += telltale_insns[telltale_value];
-  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
-  CallInst *asm_call = irb3.CreateCall(my_asm);
-  CloneDebugInfo(orig_mop, asm_call);
-
-  // This saves us one jump, but triggers a bug in RA (or somewhere else):
-  // while building 483.xalancbmk the compiler goes into infinite loop in
-  // llvm::SpillPlacement::iterate() / RAGreedy::growRegion
-  // asm_call->setDoesNotReturn();
+  Instruction *crash = generateCrashCode(irb3, AddrLong, telltale_value);
+  CloneDebugInfo(orig_mop, crash);
 }
 
 // Append 'f' to the list of global ctors.
