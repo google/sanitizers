@@ -20,6 +20,7 @@
 #include "asan_lock.h"
 #include "asan_stack.h"
 #include "asan_stats.h"
+#include "asan_mapping.h"
 
 
 #include <stdint.h>

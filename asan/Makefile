@@ -35,6 +35,7 @@ RTL_HDR=asan_rtl.h \
 	asan_int.h \
 	sysinfo.h \
 	asan_lock.h \
+	asan_mapping.h \
 	asan_stack.h \
 	asan_stats.h \
 	sysinfo.h \
