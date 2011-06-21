@@ -422,11 +422,17 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   // RegisterRuntimeInitializer::insertInitializerIntoGlobalCtorList().
   // LLVM may need a general API function for this.
 
+  assert(0);
+#if 0
+  // TODO(kcc) this code got broken after we bumpped to llvm r133511
   std::vector<Constant *> CtorInits;
   CtorInits.push_back (ConstantInt::get (i32Ty, 65535));
   CtorInits.push_back (f);
   Constant *RuntimeCtorInit = ConstantStruct::get(
       *C, CtorInits, false);
+#else
+  Constant *RuntimeCtorInit = NULL;
+#endif
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
@@ -499,10 +505,10 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         (kAsanRedzone - (size_in_bytes % kAsanRedzone));
     Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
 
-    const Type *new_ty = StructType::get(
-        *C, ty, RightRedZoneTy, NULL);
+    const StructType *new_ty = StructType::get(
+        ty, RightRedZoneTy, NULL);
     Constant *new_initializer = ConstantStruct::get(
-        *C, /*packed=*/false,
+        new_ty,
         orig_global.getInitializer(),
         Constant::getNullValue(RightRedZoneTy),
         NULL);
