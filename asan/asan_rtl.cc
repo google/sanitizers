@@ -613,14 +613,6 @@ class MallocInfo {
     print_freed(where);
   }
 
-  void lock() {
-    mu_.Lock();
-  }
-
-  void unlock() {
-    mu_.Unlock();
-  }
-
   void on_malloc(Ptr *p) {
     p->prev = 0;
     p->magic = Ptr::kMallocedMagic;
@@ -692,6 +684,11 @@ class MallocInfo {
       if (i->InRange(p)) return i;
     }
     return 0;
+  }
+
+  Ptr *safe_find_malloced(uintptr_t p) {
+    ScopedLock lock(&mu_);
+    return find_malloced(p);
   }
 
   void DescribeAddress(uintptr_t sp, uintptr_t bp, uintptr_t addr, size_t access_size) {
@@ -1157,9 +1154,7 @@ size_t mz_size(malloc_zone_t* zone, const void* ptr) {
   }
   // If we get here, either |ptr| is unaccessible, or it was returned by
   // memalign(), and we can't guess where our own malloc header begins.
-  malloc_info.lock();
-  Ptr *p = malloc_info.find_malloced((uintptr_t)ptr);
-  malloc_info.unlock();
+  Ptr *p = malloc_info.safe_find_malloced((uintptr_t)ptr);
   if (p) {
     CHECK(p->magic == Ptr::kMallocedMagic);
     return p->size;
