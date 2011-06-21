@@ -122,7 +122,6 @@ void __asan_printf(const char *format, ...) {
 
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
-size_t __asan_quarantine_size;
 
 #if __WORDSIZE == 64
 static uintptr_t
@@ -273,8 +272,7 @@ static bool AddrIsInShadow(uintptr_t a) {
   return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
-// ---------------------- Stack Trace and Thread ------------------------- {{{1
-
+// ---------------------- Thread ------------------------- {{{1
 struct AsanThread {
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
              void *arg, AsanStackTrace *stack)
@@ -575,16 +573,6 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
          "0x%lx (%ld) bytes of %s\n",
          getpid(), size, size, mem_type);
 }
-
-//static inline void* my_mmap(void *start, size_t length,
-//                            int prot, int flags,
-//                            int fd, off_t offset) {
-//#if __WORDSIZE == 64
-//  return (void *)syscall(SYS_mmap, start, length, prot, flags, fd, offset);
-//#else
-//  return (void *)syscall(SYS_mmap2, start, length, prot, flags, fd, offset);
-//#endif
-//}
 
 static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
                         bool abort_on_failure = true) {
