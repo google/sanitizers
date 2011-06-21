@@ -47,7 +47,6 @@ extern size_t __asan_quarantine_size;
 }}while(0)
 
 
-
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
 const size_t kWordSize = __WORDSIZE / 8;

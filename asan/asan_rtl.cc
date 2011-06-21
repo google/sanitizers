@@ -18,6 +18,7 @@
 #include "asan_int.h"
 #include "asan_rtl.h"
 #include "asan_lock.h"
+#include "asan_stack.h"
 
 #include "sysinfo.h"
 
@@ -63,7 +64,6 @@ static const bool tl_need_real_malloc = false;
 #endif
 
 // -------------------------- Flags ------------------------- {{{1
-static const size_t kStackTraceMax = 64;
 static const size_t kMallocContextSize = 30;
 static int    F_v;
 static size_t F_malloc_context_size = kMallocContextSize;
@@ -377,12 +377,6 @@ class ProcSelfMaps {
 static ProcSelfMaps proc_self_maps;
 
 // ---------------------- Stack Trace and Thread ------------------------- {{{1
-struct StackTrace {
-  size_t size;
-  size_t max_size;
-  uintptr_t trace[kStackTraceMax];
-};
-
 static void PrintStack(uintptr_t *addr, size_t size) {
   for (size_t i = 0; i < size && addr[i]; i++) {
     uintptr_t pc = addr[i];
@@ -395,14 +389,14 @@ static void PrintStack(uintptr_t *addr, size_t size) {
   }
 }
 
-static void PrintStack(StackTrace &stack) {
+static void PrintStack(AsanStackTrace &stack) {
   PrintStack(stack.trace, stack.size);
 }
 
 struct AsanThread {
 
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
-             void *arg, StackTrace *stack)
+             void *arg, AsanStackTrace *stack)
     : parent_(parent),
       start_routine_(start_routine),
       arg_(arg),
@@ -536,7 +530,7 @@ struct AsanThread {
   AsanThread *parent_;
   void *(*start_routine_) (void *);
   void *arg_;
-  StackTrace stack_;
+  AsanStackTrace stack_;
   uintptr_t  stack_top_;
   uintptr_t  stack_bottom_;
   int        tid_;
@@ -590,7 +584,7 @@ static void SetCurrentThread(AsanThread *t) {
 }
 
 static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *param) {
-  StackTrace *b = (StackTrace*)param;
+  AsanStackTrace *b = (AsanStackTrace*)param;
   CHECK(b->size < b->max_size);
   b->trace[b->size] = _Unwind_GetIP(ctx);
   // Printf("ctx: %p ip: %lx\n", ctx, b->buff[b->cur]);
@@ -603,7 +597,7 @@ static _Unwind_Reason_Code Unwind_Trace (struct _Unwind_Context *ctx, void *para
 #define GET_CURRENT_FRAME() (uintptr_t*)__builtin_frame_address(0)
 
 __attribute__((noinline))
-static void FastUnwindStack(uintptr_t *frame, StackTrace *stack) {
+static void FastUnwindStack(uintptr_t *frame, AsanStackTrace *stack) {
   stack->trace[stack->size++] = GET_CALLER_PC();
   AsanThread *t = GetCurrentThread();
   if (!t) return;
@@ -646,7 +640,7 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
 }
 
 #define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
-  StackTrace stack;                               \
+  AsanStackTrace stack;                               \
   if ((max_s) <= 1) {                             \
     stack.size = 1;                               \
     stack.trace[0] = GET_CALLER_PC();             \
@@ -954,7 +948,7 @@ struct Ptr {
     }
   }
 
-  void CopyStackTrace(StackTrace &stack, uintptr_t *dest, size_t max_size) {
+  void CopyStackTrace(AsanStackTrace &stack, uintptr_t *dest, size_t max_size) {
     size_t i;
     for (i = 0; i < std::min(max_size, stack.size); i++)
       dest[i] = stack.trace[i];
@@ -973,11 +967,11 @@ struct Ptr {
     return std::min(available, F_malloc_context_size);
   }
 
-  void CopyStackTraceForMalloc(StackTrace &stack) {
+  void CopyStackTraceForMalloc(AsanStackTrace &stack) {
     CopyStackTrace(stack, MallocStack(), MallocStackSize());
   }
 
-  void CopyStackTraceForFree(StackTrace &stack) {
+  void CopyStackTraceForFree(AsanStackTrace &stack) {
     CopyStackTrace(stack, FreeStack(), FreeStackSize());
   }
 
@@ -1201,7 +1195,7 @@ class MallocInfo {
 
 static MallocInfo malloc_info;
 
-Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
+Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
   asan_init();
   CHECK(asan_inited);
   CHECK(F_red_zone_words >= Ptr::ReservedWords());
@@ -1271,7 +1265,7 @@ Ptr *asan_memalign(size_t size, size_t alignment, StackTrace &stack) {
 }
 
 __attribute__((noinline))
-static void check_ptr_on_free(Ptr *p, void *addr, StackTrace &stack) {
+static void check_ptr_on_free(Ptr *p, void *addr, AsanStackTrace &stack) {
   CHECK(p->beg() == (uintptr_t)addr);
   if (p->magic != Ptr::kMallocedMagic) {
     if (p->magic == Ptr::kFreedMagic) {
@@ -1289,7 +1283,7 @@ static void check_ptr_on_free(Ptr *p, void *addr, StackTrace &stack) {
   }
 }
 
-void asan_free(void *addr, StackTrace &stack) {
+void asan_free(void *addr, AsanStackTrace &stack) {
   CHECK(asan_inited);
   if (!addr) return;
   Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
@@ -1328,7 +1322,7 @@ static void asan_clear_mem(uintptr_t *mem, size_t n_words) {
     mem[i] = 0;
 }
 
-void *asan_calloc(size_t nmemb, size_t size, StackTrace &stack) {
+void *asan_calloc(size_t nmemb, size_t size, AsanStackTrace &stack) {
   CHECK(asan_inited);
   Ptr *p = asan_memalign(nmemb * size, 0, stack);
   void *ptr = p->raw_ptr();
@@ -1343,7 +1337,7 @@ static void asan_copy_mem(uintptr_t *dst, uintptr_t *src, size_t n_words) {
   }
 }
 
-void *asan_realloc(void *addr, size_t size, StackTrace &stack) {
+void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
   CHECK(asan_inited);
   if (!addr) {
     Ptr *p = asan_memalign(size, 0, stack);
