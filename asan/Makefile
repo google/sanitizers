@@ -92,14 +92,14 @@ bfds$(SUFF):
 	cp ../third_party/bin/bfd_symbolizer/$(PLATFORM)/bfds$(BITS).a $@/bfds$(SUFF).a
 	cd $@ && ar x bfds$(SUFF).a
 
+BFDS_OBJECTS=
 ifeq ($(PLATFORM), linux)
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)  $(BIN)/sysinfo$(SUFF).o
-	ar ruv $@ $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o bfds$(SUFF)/*.o $(BIN)/sysinfo$(SUFF).o
-else
 # Do not use the BFD symbolizer outside Linux.
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o $(BIN)/sysinfo$(SUFF).o
-	ar ruv $@ $^
+BFDS_OBJECTS=bfds$(SUFF)/*.o
 endif
+
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o  $(BIN)/sysinfo$(SUFF).o | bfds$(SUFF)
+	ar ruv $@ $^ $(BFDS_OBJECTS)
 
 $(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) $(RTL_SRC)
 	$(CLANG_CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
