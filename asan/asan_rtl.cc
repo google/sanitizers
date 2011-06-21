@@ -2069,14 +2069,6 @@ static void asan_init() {
 
   asan_inited = 1;
 
-  const char *asan_filter = getenv("ASAN_FILTER");
-  if (asan_filter) {
-    FILE *p = popen(asan_filter, "w");
-    if (p)
-      asan_out = p;
-  }
-
-
   if (F_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
