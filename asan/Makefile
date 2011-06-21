@@ -31,8 +31,15 @@ ASAN_STACK=1
 ASAN_GLOBALS=0
 ASAN_USE_CALL=0
 
-RTL_SRC=asan_rtl.cc asan_allocator.cc
-RTL_HDR=asan_rtl.h asan_int.h
+RTL_SRC=asan_rtl.cc asan_allocator.cc sysinfo.cc
+RTL_HDR=asan_rtl.h asan_int.h sysinfo.h
+
+SUFF=$(BITS)
+
+LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
+	    $(BIN)/asan_allocator$(SUFF).o  \
+	    $(BIN)/sysinfo$(SUFF).o
+
 
 GTEST_ROOT=../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -55,7 +62,6 @@ b64: | $(BIN)
 b32: | $(BIN)
 	$(MAKE) BITS=32 $(BIN)/asan_test32
 
-SUFF=$(BITS)
 
 $(BIN):
 	mkdir -p $(BIN)
@@ -74,14 +80,10 @@ $(BIN)/asan_rtl$(SUFF).o: asan_rtl.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\"
 
-$(BIN)/sysinfo$(SUFF).o: sysinfo.cc sysinfo.h Makefile
+$(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party
 
-$(BIN)/asan_allocator$(SUFF).o: asan_allocator.cc $(RTL_HDR) Makefile
-	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party
-	   
-
-$(BIN)/libasan$(SUFF).so: $(BIN)/asan_rtl$(SUFF).o $(BIN)/asan_allocator$(SUFF).o $(BIN)/sysinfo$(SUFF).o
+$(BIN)/libasan$(SUFF).so: $(LIBASAN_OBJ)
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 bfds$(SUFF):
@@ -95,9 +97,6 @@ ifeq ($(PLATFORM), linux)
 BFDS_OBJECTS=bfds$(SUFF)/*.o
 endif
 
-LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
-	    $(BIN)/asan_allocator$(SUFF).o  \
-	    $(BIN)/sysinfo$(SUFF).o
 $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF)
 	ar ruv $@ $^ $(BFDS_OBJECTS)
 
