@@ -1266,7 +1266,7 @@ int posix_memalign(void **memptr, size_t alignment, size_t size) {
 extern "C"
 void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!tl_need_real_malloc);
+  CHECK(!__asan_need_real_malloc);
   Ptr *p = asan_memalign(size, kPageSize, stack);
   return p->raw_ptr();
 }
