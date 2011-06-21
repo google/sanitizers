@@ -37,6 +37,7 @@ SUFF=$(BITS)
 
 LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
+	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
 
 

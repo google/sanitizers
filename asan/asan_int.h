@@ -36,7 +36,9 @@ void __asan_free(void *ptr, AsanThread *thread, AsanStackTrace *stack);
 void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
 
-extern size_t __asan_quarantine_size;
+extern size_t __asan_flag_quarantine_size;
+extern int    __asan_flag_demangle;
+extern bool   __asan_flag_symbolize;
 
 }  // extern "C"
 
@@ -46,6 +48,11 @@ extern size_t __asan_quarantine_size;
   __asan_check_failed(#cond, __FILE__, __LINE__); \
 }}while(0)
 
+#ifdef __APPLE__
+static const bool __asan_need_real_malloc = false;
+#else
+extern __thread bool __asan_need_real_malloc;
+#endif
 
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm

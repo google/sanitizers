@@ -114,7 +114,7 @@ class MallocInfo {
     CHECK(m);
     CHECK(m->chunk_state == CHUNK_ALLOCATED);
     CHECK(IsPowerOfTwo(m->allocated_size));
-    CHECK(__asan_quarantine_size > 0);
+    CHECK(__asan_flag_quarantine_size > 0);
 
     // remove from malloced list.
     {
@@ -143,7 +143,8 @@ class MallocInfo {
     quarantine_ = m;
     quarantine_size_ += m->allocated_size;
     m->chunk_state = CHUNK_QUARANTINE;
-    while (quarantine_size_ && (quarantine_size_ > __asan_quarantine_size)) {
+    while (quarantine_size_ &&
+           (quarantine_size_ > __asan_flag_quarantine_size)) {
       pop();
     }
   }

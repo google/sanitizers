@@ -20,7 +20,6 @@
 #include "asan_lock.h"
 #include "asan_stack.h"
 
-#include "sysinfo.h"
 
 #include <stdint.h>
 #include <pthread.h>
@@ -46,7 +45,6 @@ using std::string;
 
 #include "unwind.h"
 
-#include "bfd_symbolizer/bfd_symbolizer.h"
 
 static void PrintCurrentStack(uintptr_t pc = 0);
 static void ShowStatsAndAbort();
@@ -58,28 +56,30 @@ static void ShowStatsAndAbort();
 __attribute__((constructor)) static void asan_init();
 
 #ifndef __APPLE__
-static __thread bool tl_need_real_malloc;
-#else
-static const bool tl_need_real_malloc = false;
+__thread bool __asan_need_real_malloc;
 #endif
+
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
 static int    F_v;
 static size_t F_malloc_context_size = kMallocContextSize;
 static size_t F_red_zone_words;  // multiple of 8
-static size_t F_delay_queue_size;
 static int    F_print_malloc_lists;
 static int    F_atexit;
 static uintptr_t F_large_malloc;
 static bool   F_poison_shadow;
 static int    F_stats;
 static int    F_debug;
-static int    F_symbolize;  // use in-process symbolizer
 static int    F_demangle;
 static bool   F_fast_unwind;
 static uintptr_t  F_debug_malloc_size;
 static bool   F_mt;  // set to 0 if you have only one thread.
+
+size_t __asan_flag_quarantine_size;
+int    __asan_flag_demangle;
+bool   __asan_flag_symbolize;
+
 
 #if __WORDSIZE == 32
 static const int F_protect_shadow = 1;
@@ -108,7 +108,7 @@ void __asan_printf(const char *format, ...) {
   char buffer[kLen];
   va_list args;
 #ifndef __APPLE__
-  tl_need_real_malloc = true;  // TODO(kcc): make sure we don't malloc here.
+  __asan_need_real_malloc = true;  // TODO(kcc): make sure we don't malloc here.
 #endif
   va_start(args, format);
   vsnprintf(buffer, kLen, format, args);
@@ -116,7 +116,7 @@ void __asan_printf(const char *format, ...) {
   fflush(asan_out);
   va_end(args);
 #ifndef __APPLE__
-  tl_need_real_malloc = false;
+  __asan_need_real_malloc = false;
 #endif
 }
 
@@ -274,126 +274,9 @@ static bool AddrIsInShadow(uintptr_t a) {
   return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
-// ----------------------- ProcSelfMaps ----------------------------- {{{1
-class ProcSelfMaps {
- public:
-  void Init() {
-    ProcMapsIterator it(0, &proc_self_maps_);   // 0 means "current pid"
-
-    uint64 start, end, offset;
-    int64 inode;
-    char *flags, *filename;
-    map_size_ = 0;
-    while (it.Next(&start, &end, &flags, &offset, &inode, &filename)) {
-      CHECK(map_size_ < kMaxProcSelfMapsSize);
-      Mapping &mapping = memory_map[map_size_];
-      mapping.beg = start;
-      mapping.end = end;
-      mapping.name_beg = filename;
-      map_size_++;
-    }
-  }
-
-  void Print() {
-    Printf("%s\n", proc_self_maps_);
-  }
-
-  void FilterOutAsanRtlFileName(char file_name[]) {
-    if (strstr(file_name, "asan_rtl.cc")) {
-      strcpy(file_name,   "_asan_rtl_");
-    }
-  }
-
-  void PrintPc(uintptr_t pc, int idx) {
-    const int kLen = 1024;
-#ifndef __APPLE__
-    char func[kLen+1] = "",
-         file[kLen+1] = "",
-         module[kLen+1] = "";
-    int line = 0;
-    int offset = 0;
-
-    if (F_symbolize) {
-      tl_need_real_malloc = true;
-      int opt = bfds_opt_none;
-      if (idx == 0)
-        opt |= bfds_opt_update_libs;
-      if (F_demangle == 1) opt |= bfds_opt_demangle;
-      if (F_demangle == 2) opt |= bfds_opt_demangle_params;
-      if (F_demangle == 3) opt |= bfds_opt_demangle_verbose;
-      int res = bfds_symbolize((void*)pc,
-                               (bfds_opts_e)opt,
-                               func, kLen,
-                               module, kLen,
-                               file, kLen,
-                               &line,
-                               &offset);
-      tl_need_real_malloc = false;
-      if (res == 0) {
-        FilterOutAsanRtlFileName(file);
-        Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
-        return;
-      }
-      // bfd failed
-    }
-#endif
-
-    for (size_t i = 0; i < map_size_; i++) {
-      Mapping &m = memory_map[i];
-      if (pc >= m.beg && pc < m.end) {
-        char buff[kLen + 1];
-        uintptr_t offset = pc - m.beg;
-        if (i == 0) offset = pc;
-        copy_until_new_line(m.name_beg, buff, kLen);
-        Printf("    #%d 0x%lx (%s+0x%lx)\n", idx, pc, buff, offset);
-        return;
-      }
-    }
-    Printf("  #%d 0x%lx\n", idx, pc);
-  }
-
- private:
-  void copy_until_new_line(const char *str, char *dest, size_t max_size) {
-    size_t i = 0;
-    for (; str[i] && str[i] != '\n' && i < max_size - 1; i++){
-      dest[i] = str[i];
-    }
-    dest[i] = 0;
-  }
-
-
-  struct Mapping {
-    uintptr_t beg, end;
-    const char *name_beg;
-  };
-  static const size_t kMaxNumMapEntries = 4096;
-  static const size_t kMaxProcSelfMapsSize = 1 << 20;
-  ProcMapsIterator::Buffer proc_self_maps_;
-  size_t map_size_;
-  Mapping memory_map[kMaxNumMapEntries];
-};
-
-static ProcSelfMaps proc_self_maps;
-
 // ---------------------- Stack Trace and Thread ------------------------- {{{1
-static void PrintStack(uintptr_t *addr, size_t size) {
-  for (size_t i = 0; i < size && addr[i]; i++) {
-    uintptr_t pc = addr[i];
-    string img, rtn, file;
-    // int line;
-    // PcToStrings(pc, true, &img, &rtn, &file, &line);
-    proc_self_maps.PrintPc(pc, i);
-    // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
-    if (rtn == "main()") break;
-  }
-}
-
-static void PrintStack(AsanStackTrace &stack) {
-  PrintStack(stack.trace, stack.size);
-}
 
 struct AsanThread {
-
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
              void *arg, AsanStackTrace *stack)
     : parent_(parent),
@@ -419,14 +302,14 @@ struct AsanThread {
    int local;
    CHECK(AddrIsInStack((uintptr_t)&local));
 #else
-    tl_need_real_malloc = true;
+    __asan_need_real_malloc = true;
     pthread_attr_t attr;
     CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
     size_t stacksize = 0;
     void *stackaddr = NULL;
     pthread_attr_getstack(&attr, &stackaddr, &stacksize);
     pthread_attr_destroy(&attr);
-    tl_need_real_malloc = false;
+    __asan_need_real_malloc = false;
 
     const size_t kMaxStackSize = 16 * (1 << 20);  // 16M
     stack_top_ = (uintptr_t)stackaddr + stacksize;
@@ -501,7 +384,7 @@ struct AsanThread {
       announced_ = true;
       CHECK(parent_);
       Printf("Thread T%d created by T%d here:\n", tid_, parent_->tid_);
-      PrintStack(stack_);
+      stack_.PrintStack();
     }
   }
 
@@ -678,7 +561,7 @@ void PrintCurrentStack(uintptr_t pc) {
       }
     }
   }
-  PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
+  AsanStackTrace::PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
 }
 
 static void *asan_thread_start(void *arg) {
@@ -975,11 +858,11 @@ struct Ptr {
   }
 
   void PrintMallocStack() {
-    PrintStack(MallocStack(), MallocStackSize());
+    AsanStackTrace::PrintStack(MallocStack(), MallocStackSize());
   }
 
   void PrintFreeStack() {
-    PrintStack(FreeStack(), FreeStackSize());
+    AsanStackTrace::PrintStack(FreeStack(), FreeStackSize());
   }
 
   static size_t size_in_words(size_t size) {
@@ -1204,13 +1087,13 @@ Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
 
   if (size >= F_large_malloc) {
     Printf("User requested %lu bytes:\n", size);
-    PrintStack(stack);
+    stack.PrintStack();
   }
   uintptr_t orig = (uintptr_t)real_malloc(real_size_with_alignment);
 
   if (orig == 0) {
     OutOfMemoryMessage("main memory", size);
-    PrintStack(stack);
+    stack.PrintStack();
     ShowStatsAndAbort();
   }
 
@@ -1269,13 +1152,13 @@ static void check_ptr_on_free(Ptr *p, void *addr, AsanStackTrace &stack) {
   if (p->magic != Ptr::kMallocedMagic) {
     if (p->magic == Ptr::kFreedMagic) {
       Printf("attempting double-free on %p:\n", addr);
-      PrintStack(stack);
+      stack.PrintStack();
       malloc_info.DescribeAddress(0, 0, p->beg(), 1);
       ShowStatsAndAbort();
     } else {
       Printf("attempting free on address which was not malloc()-ed: %p\n",
              addr);
-      PrintStack(stack);
+      stack.PrintStack();
       malloc_info.DescribeAddress(0, 0, p->beg(), 1);
       ShowStatsAndAbort();
     }
@@ -1363,7 +1246,7 @@ void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
 
 extern "C"
 void *malloc(size_t size) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     void *res = real_malloc(size);
     // Printf("real_malloc: "PP" %ld\n", res, size);
     return res;
@@ -1375,7 +1258,7 @@ void *malloc(size_t size) {
 
 extern "C"
 void free(void *ptr) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     // Printf("real_free "PP"\n", ptr);
     real_free(ptr);
     return;
@@ -1386,7 +1269,7 @@ void free(void *ptr) {
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     void *mem = real_malloc(nmemb * size);
     memset(mem, 0, nmemb *size);
     // Printf("real_calloc: "PP" %ld*%ld\n", mem, nmemb, size);
@@ -1409,7 +1292,7 @@ void *calloc(size_t nmemb, size_t size) {
 
 extern "C"
 void *realloc(void *ptr, size_t size) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     void *res = real_realloc(ptr, size);
     // Printf("real_malloc: "PP" "PP" %ld\n", res, ptr, size);
     return res;
@@ -1421,7 +1304,7 @@ void *realloc(void *ptr, size_t size) {
 extern "C"
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!tl_need_real_malloc);
+  CHECK(!__asan_need_real_malloc);
   Ptr *p = asan_memalign(size, boundary, stack);
   return p->raw_ptr();
 }
@@ -1429,7 +1312,7 @@ void *memalign(size_t boundary, size_t size) {
 extern "C"
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!tl_need_real_malloc);
+  CHECK(!__asan_need_real_malloc);
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
   Ptr *p = asan_memalign(size, alignment, stack);
   *memptr = p->raw_ptr();
@@ -1446,7 +1329,7 @@ void *valloc(size_t size) {
 #if 1
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
-  CHECK(!tl_need_real_malloc);\
+  CHECK(!__asan_need_real_malloc);\
   Ptr *p = asan_memalign(size, 0, stack);\
   return p->raw_ptr();
 
@@ -1457,7 +1340,7 @@ void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 
 #define OPERATOR_DELETE_BODY \
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
-  CHECK(!tl_need_real_malloc);\
+  CHECK(!__asan_need_real_malloc);\
   asan_free(ptr, stack);
 
 void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
@@ -1554,7 +1437,7 @@ void* mz_malloc(malloc_zone_t* zone, size_t size) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     void *res = real_malloc(size);
     // Printf("real_malloc: "PP" %ld\n", res, size);
     return res;
@@ -1565,7 +1448,7 @@ void* mz_malloc(malloc_zone_t* zone, size_t size) {
 }
 
 void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     void *mem = real_malloc(nmemb * size);
     memset(mem, 0, nmemb *size);
     // Printf("real_calloc: "PP" %ld*%ld\n", mem, nmemb, size);
@@ -1592,7 +1475,7 @@ void* mz_valloc(malloc_zone_t* zone, size_t size) {
 }
 
 void mz_free(malloc_zone_t* zone, void* ptr) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     // Printf("real_free "PP"\n", ptr);
     real_free(ptr);
     return;
@@ -1602,7 +1485,7 @@ void mz_free(malloc_zone_t* zone, void* ptr) {
 }
 
 void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
-  if (tl_need_real_malloc) {
+  if (__asan_need_real_malloc) {
     void *res = real_realloc(ptr, size);
     // Printf("real_malloc: "PP" "PP" %ld\n", res, ptr, size);
     return res;
@@ -1795,7 +1678,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   }
   Printf("==================================================================\n");
   PrintUnwinderHint();
-  proc_self_maps.Init();
+  AsanStackTrace::Init();
   Printf("==%d== ERROR: AddressSanitizer crashed on address "
          ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
          getpid(), addr, pc, bp, sp);
@@ -1937,8 +1820,8 @@ static void asan_init() {
   F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   F_stats = IntFlagValue(options, "stats=", 0);
-  F_symbolize = IntFlagValue(options, "symbolize=", 1);
-  F_demangle = IntFlagValue(options, "demangle=", 1);
+  __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
+  __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
   F_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
@@ -1951,10 +1834,9 @@ static void asan_init() {
     atexit(asan_atexit);
   }
 
-  size_t F_delay_queue_size =
-      IntFlagValue(options, "delay_queue_size=", 1UL << 28);
-  __asan_quarantine_size = F_delay_queue_size;
-  malloc_info.Init(F_delay_queue_size);
+  __asan_flag_quarantine_size =
+      IntFlagValue(options, "quarantine_size=", 1UL << 28);
+  malloc_info.Init(__asan_flag_quarantine_size);
 
   if (F_malloc_context_size > F_red_zone_words)
     F_malloc_context_size = F_red_zone_words;
