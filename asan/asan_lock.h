@@ -24,8 +24,10 @@
 #include <libkern/OSAtomic.h>
 class AsanLock {
  public:
-  AsanLock() {}  // TODO(glider)
-  ~AsanLock() {} // TODO(glider)
+  AsanLock() {
+    mu_ = OS_SPINLOCK_INIT
+  }
+  ~AsanLock() {}
   void Lock() {
     OSSpinLockLock(&mu_);
   }
