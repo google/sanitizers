@@ -107,13 +107,14 @@ bfds$(SUFF):
 
 endif
 
-$(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF)
+$(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF) Makefile
+	rm -f $@
 	ar ruv $@ $^ $(BFDS_OBJECTS)
 
-$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR)
+$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
 
-$(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR)
+$(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \
 		-m$(BITS)                             \
 		-mllvm -asan-ignore=asan_test.ignore  \

@@ -20,11 +20,13 @@
 
 #include "asan_allocator.h"
 #include "asan_int.h"
+#include "asan_mapping.h"
 #include "asan_rtl.h"
 #include "asan_stats.h"
 
 #include <sys/mman.h>
 #include <stdint.h>
+#include <string.h>
 #include <algorithm>
 
 void *(*__asan_real_malloc)(size_t);
@@ -67,6 +69,14 @@ static inline size_t RoundUptoPowerOfTwo(size_t size) {
   return 1UL << up;
 }
 
+static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
+  CHECK(IsAligned(mem,        1 << kShadowShift));
+  CHECK(IsAligned(mem + size, 1 << kShadowShift));
+  uintptr_t shadow_beg = MemToShadow(mem);
+  uintptr_t shadow_end = MemToShadow(mem + size);
+  memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
+}
+
 static uint8_t *MmapNewPages(size_t size) {
   CHECK((size % kPageSize) == 0);
   uint8_t *res = (uint8_t*)mmap(0, size,
@@ -76,6 +86,7 @@ static uint8_t *MmapNewPages(size_t size) {
     Printf("failed to mmap %ld bytes\n", size);
     abort();
   }
+  PoisonShadow((uintptr_t)res, size, -1);
   return res;
 }
 
@@ -229,10 +240,10 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   if (size == 0) return NULL;
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUptoRedzone(size);
-  if (alignment > kRedzone) {
-    rounded_size += alignment;
-  }
   size_t needed_size = rounded_size + kRedzone;
+  if (alignment > kRedzone) {
+    needed_size += alignment;
+  }
   CHECK((needed_size % kRedzone) == 0);
   size_t size_to_allocate = RoundUptoPowerOfTwo(needed_size);
   CHECK(size_to_allocate >= kMinAllocSize);
@@ -254,6 +265,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     p[0] = CHUNK_MEMALIGN;
     p[1] = (uintptr_t)m;
   }
+  PoisonShadow(addr, rounded_size, 0);
   // Printf("ret "PP"\n", addr);
   return (uint8_t*)addr;
 }
@@ -285,6 +297,8 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   Chunk *m = PtrToChunk(ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
+  size_t rounded_size = RoundUptoRedzone(m->used_size);
+  PoisonShadow((uintptr_t)ptr, rounded_size, -1);
   malloc_info.Deallocate(m);
 }
 

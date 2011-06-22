@@ -18,6 +18,7 @@
 #ifndef ASAN_RTL_H
 #define ASAN_RTL_H
 
+const int kShadowShift = 3;
 const unsigned long long kCompactShadowMask64 = 1ULL << 44;
 const unsigned long      kCompactShadowMask32 = 1UL << 29;
 

@@ -16,9 +16,10 @@
 // This file is a part of AddressSanitizer, an address sanity checker.
 
 
-#include "asan_int.h"
-#include "asan_stack.h"
 #include "asan_allocator.h"
+#include "asan_int.h"
+#include "asan_mapping.h"
+#include "asan_stack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,4 +70,28 @@ static void MallocStress(size_t n) {
 
 TEST(AddressSanitizer, InternalMallocTest) {
   MallocStress(2000000);
+}
+
+static void PrintShadow(uintptr_t ptr, size_t size) {
+  fprintf(stderr, "shadow: %lx size % 3ld: ", (long)ptr, (long)size);
+  uintptr_t prev_shadow = 0;
+  for (long i = -32; i < (long)size + 32; i++) {
+    uintptr_t shadow = MemToShadow(ptr + i);
+    if (i == 0 || i == size)
+      fprintf(stderr, ".");
+    if (shadow != prev_shadow) {
+      prev_shadow = shadow;
+      fprintf(stderr, "%02x", (int)*(uint8_t*)shadow);
+    }
+  }
+  fprintf(stderr, "\n");
+}
+
+TEST(AddressSanitizer, DISABLED_InternalPrintShadow) {
+  for (size_t size = 1; size <= 256; size++) {
+    char *ptr = new char[size];
+    PrintShadow((uintptr_t)ptr, size);
+    delete [] ptr;
+    PrintShadow((uintptr_t)ptr, size);
+  }
 }
