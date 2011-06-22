@@ -77,7 +77,7 @@ static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
   memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
 }
 
-static uint8_t *MmapNewPages(size_t size) {
+static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   CHECK((size % kPageSize) == 0);
   uint8_t *res = (uint8_t*)mmap(0, size,
                    PROT_READ | PROT_WRITE,
@@ -190,7 +190,7 @@ class MallocInfo {
     CHECK(IsPowerOfTwo(kMinMmapSize));
     size_t mmap_size = std::max(size, kMinMmapSize);
     CHECK(IsPowerOfTwo(mmap_size));
-    uint8_t *mem = MmapNewPages(mmap_size);
+    uint8_t *mem = MmapNewPagesAndPoisonShadow(mmap_size);
     for (size_t i = 0; i < mmap_size / size; i++) {
       Chunk *m = (Chunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
