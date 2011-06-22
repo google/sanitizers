@@ -28,15 +28,23 @@ class AsanThread;
 class AsanStackTrace;
 
 
-
+extern "C" {
+void __asan_init();
 void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
+}  // extern "C"
 
 extern size_t __asan_flag_quarantine_size;
 extern int    __asan_flag_demangle;
 extern bool   __asan_flag_symbolize;
 extern int    __asan_flag_v;
 extern bool   __asan_flag_mt;
+extern size_t __asan_flag_redzone_words;
+extern int    __asan_flag_debug;
+extern bool   __asan_flag_poison_shadow;
+extern size_t __asan_flag_malloc_context_size;
+extern int    __asan_flag_stats;
+extern uintptr_t __asan_flag_large_malloc;
 
 
 #define Printf __asan_printf

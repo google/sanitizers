@@ -15,6 +15,7 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+#include "asan_allocator.h"
 #include "asan_int.h"
 #include "asan_rtl.h"
 #include "asan_lock.h"
@@ -46,11 +47,8 @@
 
 using std::string;
 
-static void ShowStatsAndAbort();
-
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
-__attribute__((constructor)) static void asan_init();
 
 #ifndef __APPLE__
 __thread bool __asan_need_real_malloc;
@@ -59,22 +57,20 @@ __thread bool __asan_need_real_malloc;
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
-static size_t F_malloc_context_size = kMallocContextSize;
-static size_t F_red_zone_words;  // multiple of 8
-static int    F_print_malloc_lists;
 static int    F_atexit;
-static uintptr_t F_large_malloc;
-static bool   F_poison_shadow;
-static int    F_stats;
-static int    F_debug;
 static bool   F_fast_unwind;
-static uintptr_t  F_debug_malloc_size;
 
+size_t __asan_flag_redzone_words;  // multiple of 8
 bool   __asan_flag_mt;  // set to 0 if you have only one thread.
 size_t __asan_flag_quarantine_size;
 int    __asan_flag_demangle;
 bool   __asan_flag_symbolize;
 int    __asan_flag_v;
+int    __asan_flag_debug;
+bool   __asan_flag_poison_shadow;
+size_t __asan_flag_malloc_context_size = kMallocContextSize;
+int    __asan_flag_stats;
+uintptr_t __asan_flag_large_malloc;
 
 
 #if __WORDSIZE == 32
@@ -134,11 +130,9 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
 static sigaction_f      real_sigaction;
 static signal_f         real_signal;
 static mmap_f           real_mmap;
-#ifndef __APPLE__
 static malloc_f         real_malloc;
 static realloc_f        real_realloc;
 static free_f           real_free;
-#endif  // __APPLE__
 static longjmp_f        real_longjmp;
 static longjmp_f        real_siglongjmp;
 static cxa_throw_f      real_cxa_throw;
@@ -149,17 +143,17 @@ static pthread_create_f real_pthread_create;
 
 static malloc_zone_t *system_malloc_zone = NULL;
 
-void *real_malloc(size_t size) {
+static void *apple_real_malloc(size_t size) {
   CHECK(system_malloc_zone);
   return malloc_zone_malloc(system_malloc_zone, size);
 }
 
-void real_free(void *ptr) {
+static void apple_real_free(void *ptr) {
   CHECK(system_malloc_zone);
   return malloc_zone_free(system_malloc_zone, ptr);
 }
 
-void *real_realloc(void *ptr, size_t size) {
+static void *apple_real_realloc(void *ptr, size_t size) {
   CHECK(system_malloc_zone);
   return malloc_zone_realloc(system_malloc_zone, ptr, size);
 }
@@ -187,13 +181,9 @@ void AsanStats::PrintStats() {
 AsanStats __asan_stats;
 
 // -------------------------- Misc ---------------- {{{1
-static void AsanAbort() {
-  abort();
-}
-
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
-  AsanAbort();
+  abort();
 }
 
 static void PrintBytes(const char *before, uintptr_t *a) {
@@ -235,13 +225,10 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
 }
 
 #define GET_STACK_TRACE_HERE_FOR_MALLOC         \
-  GET_STACK_TRACE_HERE(F_malloc_context_size, F_fast_unwind)
+  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, F_fast_unwind)
 
 #define GET_STACK_TRACE_HERE_FOR_FREE(ptr) \
-  Ptr *__ptr_to_free = (Ptr*)((uintptr_t*)(ptr) - F_red_zone_words); \
-  size_t __stack_size_for_free = (ptr)                               \
-    ? __ptr_to_free->FreeStackSize() : 0;                            \
-  GET_STACK_TRACE_HERE(__stack_size_for_free, F_fast_unwind)
+  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, F_fast_unwind)
 
 
 
@@ -359,7 +346,7 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 
 // exported function
 extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
-  asan_init();
+  __asan_init();
   CHECK(AddrIsInMem(addr));
   // uintptr_t shadow = MemToShadow(addr);
   //Printf("global: "PP" "PP" %ld \n", addr, shadow, size);
@@ -373,550 +360,34 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
   g->PoisonRedZones();
 }
 
-struct Ptr {
-  uint32_t magic;
-  uint32_t orig_libc_offset;
-  size_t size;
-  Ptr    *next;
-  Ptr    *prev;
-  AsanThread *malloc_thread;
-  AsanThread *free_thread;
+static void DescribeAddress(uintptr_t sp, uintptr_t bp,
+                            uintptr_t addr, uintptr_t access_size) {
+  // Check if this is a global.
+  if (DescribeAddrIfGlobal(addr))
+    return;
 
-  static const uint32_t kMallocedMagic   = 0x45DEAA11;
-  static const uint32_t kFreedMagic      = 0x94B06185;
-  static const uint32_t kRealyFreedMagic = 0xDEAD1234;
-
-  uintptr_t orig_libc_ptr() {
-    return (uintptr_t)(this) - (uintptr_t)orig_libc_offset;
-  }
-
-  static size_t ReservedWords() { return sizeof(Ptr) / kWordSize; }
-
-  size_t size_in_words() { return size_in_words(size); }
-  size_t real_size_in_words() { return real_size_in_words(size); }
-
-  uintptr_t rz1_beg() { return (uintptr_t)this; }
-  uintptr_t rz1_end() { return rz1_beg() + F_red_zone_words * kWordSize; }
-  uintptr_t beg()     {
-    CHECK((rz1_end() % 8) == 0);
-    return rz1_end();
-  }
-  uintptr_t end()     { return beg() + size; }
-  uintptr_t rz2_beg() { return end(); }
-  uintptr_t rz2_end() { return end() + F_red_zone_words * kWordSize; }
-  void     *raw_ptr() { return (void*)beg(); }
-
-  bool InRange(uintptr_t p) { return p >= rz1_beg() && p < rz2_end(); }
-  bool InRz1(uintptr_t p)   { return p >= rz1_beg() && p < rz1_end(); }
-  bool InRz2(uintptr_t p)   { return p >= rz2_beg() && p < rz2_end(); }
-  bool InAllocated(uintptr_t p) { return p >= beg() && p < end(); }
-
-  uintptr_t &at(size_t i) {
-    return ((uintptr_t*)this)[i];
-  }
-
-  void PrintOneLine(const char *before = "", const char *after = "\n") {
-    Printf(
-            "%s["PP","PP"); red zones: ["PP","PP"), ["PP","PP");"
-            " size=%ld (0x%lx)%s",
-            before,
-            beg(), end(), rz1_beg(), rz1_end(), rz2_beg(), rz2_end(),
-            size, size,
-            after);
-  }
-
-  void PrintRaw(int where) {
-    Printf("this=%p magic=%x orig_libc_offset=%x size=%lx "
-           "next=%p prev=%p mt=%p ft=%p where=%d\n",
-           this, magic, orig_libc_offset, size,
-           next, prev, malloc_thread, free_thread, where);
-  }
-
-  void DescribeAddress(uintptr_t addr, size_t access_size) {
-    CHECK(InRange(addr));
-    Printf(""PP" is located ", addr);
-    if (InRz1(addr)) {
-      Printf("%ld bytes to the left of", rz1_end() - addr);
-    } else if (InRz2(addr) || InRz2(addr + access_size - 1)) {
-      uintptr_t offset = addr - rz2_beg();
-      if (addr < rz2_beg()) {
-        CHECK(addr + access_size > rz2_beg());
-        offset = 0;
-      }
-      Printf("%ld bytes to the right of", offset);
+  // Check the stack.
+  AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
+  if (t) {
+    Printf("Address "PP" is %ld bytes below T%d's stack top",
+           addr, t->stack_top() - addr, t->tid());
+    int frame = TryToFindFrameForStackAddress(sp, bp, addr);
+    if (frame >= 0) {
+      Printf(" (allocated in frame #%d)\n", frame);
     } else {
-      CHECK(InAllocated(addr));
-      Printf("%ld bytes inside of", addr - beg());
+      Printf("\n");
     }
-    Printf(" %ld-byte region ["PP","PP")\n" , size, beg(), end());
-    if (F_debug) {
-      Printf("["PP","PP") -- left red zone\n", rz1_beg(), rz1_end());
-      Printf("["PP","PP") -- right red zone\n", rz2_beg(), rz2_end());
-    }
+    Printf("HINT: this may be a false positive if your program uses "
+           "some custom stack unwind mechanism\n"
+           "      (longjmp and C++ exceptions *are* supported)\n");
+    t->Announce();
+    return;
   }
-
-  void CompactPoisonRegion(uintptr_t beg, uintptr_t end, uint64_t poison) {
-    uint8_t *beg_ptr = (uint8_t*)MemToShadow(beg);
-    uint8_t *end_ptr = (uint8_t*)MemToShadow(end);
-    for (; beg_ptr < end_ptr; beg_ptr++)
-      *beg_ptr = poison;
-  }
-
-  void CompactPoison(uint64_t poison_left,
-                     uint64_t poison_main, uint64_t poison_right) {
-    CompactPoisonRegion(rz1_beg(), rz1_end(), poison_left);
-    CompactPoisonRegion(rz2_beg(), rz2_end(), poison_right);
-    CompactPoisonRegion(    beg(),     end(), poison_main);
-    if ((size % 8) && poison_right != 0 && poison_main == 0) {
-      // one of the shadow bytes should be half-poisoned.
-      uintptr_t last_qword = end();
-      size_t addressible_bytes = size % 8;
-      CHECK(addressible_bytes == (last_qword % 8));
-      CHECK(addressible_bytes > 0 && addressible_bytes < 8);
-      uint8_t *last_shadow = (uint8_t*)MemToShadow(last_qword);
-      *last_shadow = addressible_bytes;
-    }
-  }
-
-  __attribute__((noinline))
-  void PoisonOnMalloc() {
-    if (!F_poison_shadow) return;
-    CompactPoison(0xa0a1a2a3a4a5a6a7ULL, 0,
-                  0xb0b1b2b3b4b5b6b7ULL);
-  }
-
-
-  __attribute__((noinline))
-  void PoisonOnFree(uintptr_t poison) {
-    if (!F_poison_shadow) return;
-    CHECK(AddrIsInMem(rz1_beg()));
-    if (poison) {
-      CompactPoison(0xc0c1c2c3c4c5c6c7ULL,
-                    0xd0d1d2d3d4d5d6d7ULL,
-                    0xe0e1e2e3e4e5e6e7ULL);
-    } else {
-      uint8_t *beg = (uint8_t*)MemToShadow(rz1_beg());
-      uint8_t *end = (uint8_t*)MemToShadow(rz2_end());
-      memset(beg, 0, end - beg);
-    }
-  }
-
-  void CopyStackTrace(AsanStackTrace &stack, uintptr_t *dest, size_t max_size) {
-    size_t i;
-    for (i = 0; i < std::min(max_size, stack.size); i++)
-      dest[i] = stack.trace[i];
-    if (i < max_size)
-      dest[i] = 0;
-  }
-
-  uintptr_t *MallocStack() { return  (uintptr_t*)beg() + size_in_words(); }
-  size_t MallocStackSize() {
-    CHECK(F_malloc_context_size <= F_red_zone_words);
-    return F_malloc_context_size;
-  }
-  uintptr_t *FreeStack()    { return (uintptr_t*)rz1_beg() + ReservedWords(); }
-  size_t FreeStackSize()   {
-    size_t available = size_in_words() + F_red_zone_words - ReservedWords();
-    return std::min(available, F_malloc_context_size);
-  }
-
-  void CopyStackTraceForMalloc(AsanStackTrace &stack) {
-    CopyStackTrace(stack, MallocStack(), MallocStackSize());
-  }
-
-  void CopyStackTraceForFree(AsanStackTrace &stack) {
-    CopyStackTrace(stack, FreeStack(), FreeStackSize());
-  }
-
-  void PrintMallocStack() {
-    AsanStackTrace::PrintStack(MallocStack(), MallocStackSize());
-  }
-
-  void PrintFreeStack() {
-    AsanStackTrace::PrintStack(FreeStack(), FreeStackSize());
-  }
-
-  static size_t size_in_words(size_t size) {
-    return (size + kWordSize - 1) / kWordSize;
-  }
-  static size_t real_size_in_words(size_t size) {
-    return size_in_words(size) + F_red_zone_words * 2;
-  }
-};
-
-class MallocInfo {
- public:
-  void Init(size_t max_size) {
-    max_size_ = max_size;
-  }
-
-  void print_malloced(const char *where) {
-    Printf("%s: malloced:\n", where);
-    for (Ptr *i = malloced_items_; i; i = i->next)
-      i->PrintOneLine("  ");
-  }
-
-  void print_freed(const char *where) {
-    Ptr *i = freed_items_;
-    Printf("%s: freed:\n", where);
-    if (i) do {
-      i->PrintOneLine("  ");
-      i = i->next;
-    } while (i != freed_items_);
-  }
-
-  void print_lists(const char *where) {
-    ScopedLock lock(&mu_);
-    Printf("%s: lists: %p %p\n", where, malloced_items_, freed_items_);
-    print_malloced(where);
-    print_freed(where);
-  }
-
-  void on_malloc(Ptr *p) {
-    p->prev = 0;
-    p->magic = Ptr::kMallocedMagic;
-    p->malloc_thread = AsanThread::GetCurrent()->Ref();
-    p->free_thread = 0;
-    ScopedLock lock(&mu_);
-    if (malloced_items_) {
-      malloced_items_->prev = p;
-    }
-    p->next = malloced_items_;
-    malloced_items_ = p;
-  }
-
-  void on_free(Ptr *p) {
-    CHECK(max_size_ > 0);
-    CHECK(p);
-    size_t real_size_in_words = p->real_size_in_words();
-    CHECK(p->magic == Ptr::kMallocedMagic);
-    p->magic = Ptr::kFreedMagic;
-    p->free_thread = AsanThread::GetCurrent()->Ref();
-
-    ScopedLock lock(&mu_);
-    // remove from malloced list.
-    {
-      if (p == malloced_items_) {
-        malloced_items_ = p->next;
-        if (malloced_items_)
-          malloced_items_->prev = 0;
-      } else {
-        Ptr *prev = p->prev;
-        Ptr *next = p->next;
-        if (prev) prev->next = next;
-        if (next) next->prev = prev;
-      }
-    }
-
-    if (!freed_items_) {
-      p->next = p->prev = p;
-    } else {
-      Ptr *prev = freed_items_->prev;
-      Ptr *next = freed_items_;
-      p->next = next;
-      p->prev = prev;
-      prev->next = p;
-      next->prev = p;
-    }
-    freed_items_ = p;
-    cur_size_ += real_size_in_words * kWordSize;;
-    while (cur_size_ && (cur_size_ > max_size_)) {
-      pop();
-    }
-  }
-
-  Ptr *find_freed(uintptr_t p) {
-    Ptr *i = freed_items_;
-    if (!i) return 0;
-    do {
-      // Printf("MallocInfo::find %lx in [%lx,%lx)\n",
-      //        p, (uintptr_t)i, (uintptr_t)i + i->size);
-      if (i->InRange(p))
-        return i;
-      i = i->next;
-    } while (i != freed_items_);
-    return 0;
-  }
-
-  Ptr *find_malloced(uintptr_t p) {
-    for (Ptr *i = malloced_items_; i; i = i->next) {
-      if (i->InRange(p)) return i;
-    }
-    return 0;
-  }
-
-  Ptr *safe_find_malloced(uintptr_t p) {
-    ScopedLock lock(&mu_);
-    return find_malloced(p);
-  }
-
-  void DescribeAddress(uintptr_t sp, uintptr_t bp, uintptr_t addr, size_t access_size) {
-    ScopedLock lock(&mu_);
-
-    // Check if this is a global.
-    if (DescribeAddrIfGlobal(addr))
-      return;
-
-    // Check if we have this memory region in delay queue.
-    Ptr *freed = find_freed(addr);
-    Ptr *malloced = find_malloced(addr);
-
-    if (freed && malloced) {
-      Printf("ACHTUNG! the address is listed as both freed and malloced\n");
-    }
-
-    if (!freed && !malloced) {
-      // Check the stack.
-      AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
-      if (t) {
-        Printf("Address "PP" is %ld bytes below T%d's stack top",
-               addr, t->stack_top() - addr, t->tid());
-        int frame = TryToFindFrameForStackAddress(sp, bp, addr);
-        if (frame >= 0) {
-          Printf(" (allocated in frame #%d)\n", frame);
-        } else {
-          Printf("\n");
-        }
-        Printf("HINT: this may be a false positive if your program uses "
-               "some custom stack unwind mechanism\n"
-               "      (longjmp and C++ exceptions *are* supported)\n");
-        t->Announce();
-        return;
-      }
-      Printf("ACHTUNG! the address is listed as neither freed nor malloced\n");
-    }
-
-    if (freed) {
-      if (__asan_flag_v) freed->PrintRaw(__LINE__);
-      freed->DescribeAddress(addr, access_size);
-      Printf("freed by thread T%d here:\n",
-             freed->free_thread->tid());
-      freed->PrintFreeStack();
-      Printf("previously allocated by thread T%d here:\n",
-             freed->malloc_thread->tid());
-      freed->PrintMallocStack();
-      AsanThread::GetCurrent()->Announce();
-      freed->free_thread->Announce();
-      freed->malloc_thread->Announce();
-      return;
-    }
-
-    if (malloced) {
-      if (__asan_flag_v) malloced->PrintRaw(__LINE__);
-      malloced->DescribeAddress(addr, access_size);
-      // size_t kStackSize = 100;
-      // uintptr_t stack[kStackSize];
-      // size_t stack_size = get_stack_trace_of_malloced_addr(malloced, stack, kStackSize);
-      Printf("allocated by thread T%d here:\n",
-             malloced->malloc_thread->tid());
-      malloced->PrintMallocStack();
-      // PrintStack(stack, stack_size);
-      AsanThread::GetCurrent()->Announce();
-      malloced->malloc_thread->Announce();
-      return;
-    }
-    Printf("Address 0x%lx is not malloc-ed or (recently) freed\n", addr);
-  }
-
-
- private:
-  void pop() {
-    CHECK(freed_items_);
-    CHECK(cur_size_ > 0);
-    Ptr *p = freed_items_->prev;
-    CHECK(p);
-    // Printf("pop  : %p cur_size_ = %ld; size = %ld\n", p, cur_size_, p->size);
-    Ptr *next = p->next;
-    Ptr *prev = p->prev;
-    CHECK(next && prev);
-    if (next == p) {
-      freed_items_ = NULL;
-    } else {
-      next->prev = prev;
-      prev->next = next;
-    }
-    cur_size_ -= p->real_size_in_words() * kWordSize;
-    if (__asan_flag_v >= 2) Printf("MallocInfo::pop %p\n", p);
-    p->magic = Ptr::kRealyFreedMagic;
-    p->PoisonOnFree(0);
-    __asan_stats.real_frees++;
-    __asan_stats.really_freed += p->real_size_in_words() * kWordSize;
-    real_free((void*)p->orig_libc_ptr());
-  }
-
-  size_t max_size_;
-  size_t cur_size_;
-  Ptr *freed_items_;
-  Ptr *malloced_items_;
-  AsanLock mu_;
-};
-
-static MallocInfo malloc_info;
-
-Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
-  asan_init();
-  CHECK(asan_inited);
-  CHECK(F_red_zone_words >= Ptr::ReservedWords());
-  size_t real_size_in_words = Ptr::real_size_in_words(size);
-  size_t real_size_with_alignment =
-      real_size_in_words * kWordSize + alignment;
-
-  if (size >= F_large_malloc) {
-    Printf("User requested %lu bytes:\n", size);
-    stack.PrintStack();
-  }
-  uintptr_t orig = (uintptr_t)real_malloc(real_size_with_alignment);
-
-  if (orig == 0) {
-    OutOfMemoryMessage("main memory", size);
-    stack.PrintStack();
-    ShowStatsAndAbort();
-  }
-
-
-  if ((!AddrIsInMem(orig) || !AddrIsInMem(orig + real_size_with_alignment)) && 
-      F_poison_shadow) {
-    Printf("==%d== AddressSanitizer failure: malloc returned ["PP", "PP")\n",
-           getpid(), orig, orig + real_size_with_alignment);
-    ShowStatsAndAbort();
-  }
-
-  uintptr_t orig_beg = orig + F_red_zone_words * kWordSize;
-  uintptr_t beg = orig_beg;
-
-  if (alignment && (beg % alignment) != 0) {
-    CHECK((alignment & (alignment - 1)) == 0);
-    CHECK(alignment >= kWordSize);
-    uintptr_t mod = beg % alignment;
-    CHECK(alignment > mod);
-    beg += alignment - mod;
-    CHECK((beg % alignment) == 0);
-  }
-  uintptr_t rz1_beg = beg - F_red_zone_words * kWordSize;
-
-  Ptr *p = (Ptr*)rz1_beg;
-  p->size = size;
-  p->orig_libc_offset = (uint32_t)(rz1_beg - orig);
-  CHECK(p->orig_libc_ptr() == orig);
-  CHECK(p->rz1_beg() == rz1_beg);
-  CHECK(p->beg() == beg);
-  CHECK(p->rz2_end() <= orig + real_size_with_alignment);
-
-  __asan_stats.malloced += real_size_with_alignment;
-  __asan_stats.malloced_redzones += F_red_zone_words * 2 * kWordSize;
-  __asan_stats.mallocs++;
-
-  if (__asan_flag_v >= 2)
-    p->PrintOneLine("asan_malloc: ");
-
-  if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
-    p->PrintOneLine("asan_malloc: ");
-    p->PrintRaw(__LINE__);
-    AsanStackTrace::PrintCurrent();
-    __asan_stats.PrintStats();
-  }
-
-  p->CopyStackTraceForMalloc(stack);
-  malloc_info.on_malloc(p);
-  p->PoisonOnMalloc();
-  return p;
+  // finally, check if this is a heap.
+  __asan_describe_heap_address(addr, access_size);
 }
 
-__attribute__((noinline))
-static void check_ptr_on_free(Ptr *p, void *addr, AsanStackTrace &stack) {
-  CHECK(p->beg() == (uintptr_t)addr);
-  if (p->magic != Ptr::kMallocedMagic) {
-    if (p->magic == Ptr::kFreedMagic) {
-      Printf("attempting double-free on %p:\n", addr);
-      stack.PrintStack();
-      malloc_info.DescribeAddress(0, 0, p->beg(), 1);
-      ShowStatsAndAbort();
-    } else {
-      Printf("attempting free on address which was not malloc()-ed: %p\n",
-             addr);
-      stack.PrintStack();
-      malloc_info.DescribeAddress(0, 0, p->beg(), 1);
-      ShowStatsAndAbort();
-    }
-  }
-}
 
-void asan_free(void *addr, AsanStackTrace &stack) {
-  CHECK(asan_inited);
-  if (!addr) return;
-  Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
-  size_t real_size_in_words = p->real_size_in_words();
-
-  check_ptr_on_free(p, addr, stack);
-
-  if (__asan_flag_v >= 2)
-    p->PrintOneLine("asan_free:   ", "\n");
-
-  if (F_debug_malloc_size && (F_debug_malloc_size == p->size)) {
-    p->PrintOneLine("asan_free:   ");
-    p->PrintRaw(__LINE__);
-    AsanStackTrace::PrintCurrent();
-    __asan_stats.PrintStats();
-  }
-
-  p->PoisonOnFree(1);
-  p->CopyStackTraceForFree(stack);
-  malloc_info.on_free(p);
-
-  __asan_stats.frees++;
-  __asan_stats.freed += real_size_in_words * kWordSize;
-  __asan_stats.freed_since_last_stats += real_size_in_words * kWordSize;
-
-
-  if (F_stats && __asan_stats.freed_since_last_stats > (1U << F_stats)) {
-    __asan_stats.freed_since_last_stats = 0;
-    __asan_stats.PrintStats();
-  }
-}
-
-__attribute__((noinline))
-static void asan_clear_mem(uintptr_t *mem, size_t n_words) {
-  for (size_t i = 0; i < n_words; i++)
-    mem[i] = 0;
-}
-
-void *asan_calloc(size_t nmemb, size_t size, AsanStackTrace &stack) {
-  CHECK(asan_inited);
-  Ptr *p = asan_memalign(nmemb * size, 0, stack);
-  void *ptr = p->raw_ptr();
-  asan_clear_mem((uintptr_t*)ptr, (nmemb * size + kWordSize - 1) / kWordSize);
-  return ptr;
-}
-
-__attribute__((noinline))
-static void asan_copy_mem(uintptr_t *dst, uintptr_t *src, size_t n_words) {
-  for (size_t i = 0; i < n_words; i++) {
-    dst[i] = src[i];
-  }
-}
-
-void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
-  CHECK(asan_inited);
-  if (!addr) {
-    Ptr *p = asan_memalign(size, 0, stack);
-    return p->raw_ptr();
-  }
-  Ptr *p = (Ptr*)((uintptr_t*)addr - F_red_zone_words);
-  check_ptr_on_free(p, addr, stack);
-  if (__asan_flag_v >= 2)
-    p->PrintOneLine("asan_realloc: ", "\n");
-  size_t old_size = p->size;
-  Ptr *new_p = asan_memalign(size, 0, stack);
-  void *new_ptr = new_p->raw_ptr();
-  size_t memcpy_size = std::min(size, old_size);
-  // memcpy(new_ptr, addr, memcpy_size);
-  asan_copy_mem((uintptr_t*)new_ptr, (uintptr_t*)addr,
-                (memcpy_size + kWordSize - 1) / kWordSize);
-  asan_free(addr, stack);
-  __asan_stats.reallocs++;
-  __asan_stats.realloced += memcpy_size;
-  return new_ptr;
-}
 
 // -------------------------- Interceptors ------------------- {{{1
 
@@ -928,8 +399,7 @@ void *malloc(size_t size) {
     return res;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  Ptr *p = asan_memalign(size, 0, stack);
-  return p->raw_ptr();
+  return __asan_malloc(size, &stack);
 }
 
 extern "C"
@@ -940,7 +410,7 @@ void free(void *ptr) {
     return;
   };
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  asan_free(ptr, stack);
+  __asan_free(ptr, &stack);
 }
 
 extern "C"
@@ -963,7 +433,7 @@ void *calloc(size_t nmemb, size_t size) {
     CHECK(allocated < kCallocPoolSize);
     return mem;
   }
-  return asan_calloc(nmemb, size, stack);
+  return __asan_calloc(nmemb, size, &stack);
 }
 
 extern "C"
@@ -974,15 +444,14 @@ void *realloc(void *ptr, size_t size) {
     return res;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return asan_realloc(ptr, size, stack);
+  return __asan_realloc(ptr, size, &stack);
 }
 
 extern "C"
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   CHECK(!__asan_need_real_malloc);
-  Ptr *p = asan_memalign(size, boundary, stack);
-  return p->raw_ptr();
+  return __asan_memalign(size, boundary, &stack);
 }
 
 extern "C"
@@ -990,17 +459,13 @@ int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   CHECK(!__asan_need_real_malloc);
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
-  Ptr *p = asan_memalign(size, alignment, stack);
-  *memptr = p->raw_ptr();
-  CHECK(((uintptr_t)*memptr % alignment) == 0);
-  return 0;
+  return __asan_posix_memalign(memptr, alignment, size, &stack);
 }
 extern "C"
 void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   CHECK(!__asan_need_real_malloc);
-  Ptr *p = asan_memalign(size, kPageSize, stack);
-  return p->raw_ptr();
+  return __asan_valloc(size, &stack);
 }
 
 
@@ -1008,8 +473,7 @@ void *valloc(size_t size) {
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
   CHECK(!__asan_need_real_malloc);\
-  Ptr *p = asan_memalign(size, 0, stack);\
-  return p->raw_ptr();
+  return __asan_memalign(size, 0, &stack);
 
 void *operator new(size_t size) { OPERATOR_NEW_BODY; }
 void *operator new[](size_t size) { OPERATOR_NEW_BODY; }
@@ -1019,7 +483,7 @@ void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 #define OPERATOR_DELETE_BODY \
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
   CHECK(!__asan_need_real_malloc);\
-  asan_free(ptr, stack);
+  __asan_free(ptr, &stack);
 
 void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
@@ -1103,24 +567,17 @@ size_t mz_size(malloc_zone_t* zone, const void* ptr) {
     // Memory regions owned by ASan are in fact allocated by the system allocator.
     // If this was done using malloc() rather than memalign(), we can find the first
     // byte of the allocation and make sure it's accessible.
-    if ((system_malloc_zone->size)(system_malloc_zone, (char*)ptr - F_red_zone_words)) {
+    if ((system_malloc_zone->size)(system_malloc_zone, (char*)ptr - __asan_flag_redzone_words)) {
       // TODO(glider): check that the size returned by the system_malloc_zone->size
       // matches our zone size + overhead.
-      Ptr *p = (Ptr*)((uintptr_t*)(ptr) - F_red_zone_words);
+      Ptr *p = (Ptr*)((uintptr_t*)(ptr) - __asan_flag_redzone_words);
       CHECK(p->magic == Ptr::kMallocedMagic);
       return p->size;
     }
   }
   // If we get here, either |ptr| is unaccessible, or it was returned by
   // memalign(), and we can't guess where our own malloc header begins.
-  Ptr *p = malloc_info.safe_find_malloced((uintptr_t)ptr);
-  if (p) {
-    CHECK(p->magic == Ptr::kMallocedMagic);
-    return p->size;
-  } else {
-    // |ptr| doesn't belong to our malloc list.
-    return 0;
-  }
+  __asan_mz_size(ptr);
 }
 
 void* mz_malloc(malloc_zone_t* zone, size_t size) {
@@ -1134,8 +591,7 @@ void* mz_malloc(malloc_zone_t* zone, size_t size) {
     return res;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  Ptr *p = asan_memalign(size, 0, stack);
-  return p->raw_ptr();
+  return __asan_memalign(size, 0, &stack);
 }
 
 void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
@@ -1157,7 +613,7 @@ void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
     CHECK(allocated < kCallocPoolSize);
     return mem;
   }
-  return asan_calloc(nmemb, size, stack);
+  return asan_calloc(nmemb, size, &stack);
 }
 
 void* mz_valloc(malloc_zone_t* zone, size_t size) {
@@ -1166,8 +622,7 @@ void* mz_valloc(malloc_zone_t* zone, size_t size) {
     return malloc_zone_valloc(system_malloc_zone, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  Ptr *p = asan_memalign(size, kPageSize, stack);
-  return p->raw_ptr();
+  return __asan_memalign(size, kPageSize, &stack);
 }
 
 void mz_free(malloc_zone_t* zone, void* ptr) {
@@ -1177,7 +632,7 @@ void mz_free(malloc_zone_t* zone, void* ptr) {
     return;
   };
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  asan_free(ptr, stack);
+  asan_free(ptr, &stack);
 }
 
 void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
@@ -1187,7 +642,7 @@ void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
     return res;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return asan_realloc(ptr, size, stack);
+  return asan_realloc(ptr, size, &stack);
 }
 
 void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
@@ -1196,8 +651,7 @@ void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
     return malloc_zone_memalign(system_malloc_zone, align, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  Ptr *p = asan_memalign(size, align, stack);
-  return p->raw_ptr();
+  return __asan_memalign(size, align, &stack);
 }
 
 void mz_destroy(malloc_zone_t* zone) {
@@ -1374,9 +828,6 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   bool is_write = access_size_and_type & 8;
   int access_size = 1 << (access_size_and_type & 7);
 
-  if (F_print_malloc_lists) {
-    malloc_info.print_lists("OnReport");
-  }
   Printf("==================================================================\n");
   PrintUnwinderHint();
   AsanStackTrace::Init();
@@ -1388,7 +839,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
           access_size, addr, AsanThread::GetCurrent()->tid());
 
-  if (F_debug) {
+  if (__asan_flag_debug) {
     PrintBytes("PC: ",(uintptr_t*)pc);
   }
 
@@ -1396,7 +847,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   CHECK(AddrIsInMem(addr));
 
-  malloc_info.DescribeAddress(sp, bp, addr, access_size);
+  DescribeAddress(sp, bp, addr, access_size);
 
   uintptr_t shadow_addr = MemToShadow(addr);
   Printf("==%d== ABORTING\n", getpid());
@@ -1415,7 +866,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
   PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
   PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
-  AsanAbort();
+  abort();
 }
 
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
@@ -1493,7 +944,8 @@ static void asan_atexit() {
   __asan_stats.PrintStats();
 }
 
-static void asan_init() {
+__attribute__((constructor))
+void __asan_init() {
   if (asan_inited) return;
   asan_out = stderr;
 
@@ -1503,29 +955,26 @@ static void asan_init() {
 
   // flags
   const char *options = getenv("ASAN_OPTIONS");
-  F_malloc_context_size =
+  __asan_flag_malloc_context_size =
       IntFlagValue(options, "malloc_context_size=", kMallocContextSize);
-  CHECK(F_malloc_context_size <= kMallocContextSize);
+  CHECK(__asan_flag_malloc_context_size <= kMallocContextSize);
 
   __asan_flag_v = IntFlagValue(options, "v=", 0);
-  CHECK(Ptr::ReservedWords() <= 8);
 
-  F_red_zone_words = IntFlagValue(options, "red_zone_words=", 16);
-  if (F_red_zone_words & 7) {
-    F_red_zone_words = (F_red_zone_words + 7) & ~7;
+  __asan_flag_redzone_words = IntFlagValue(options, "red_zone_words=", 16);
+  if (__asan_flag_redzone_words & 7) {
+    __asan_flag_redzone_words = (__asan_flag_redzone_words + 7) & ~7;
   }
-  CHECK(F_red_zone_words >= 8 && (F_red_zone_words % 8) == 0);
+  CHECK(__asan_flag_redzone_words >= 8 && (__asan_flag_redzone_words % 8) == 0);
 
-  F_print_malloc_lists = IntFlagValue(options, "print_malloc_lists=", 0);
   F_atexit = IntFlagValue(options, "atexit=", 0);
-  F_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
-  F_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
-  F_stats = IntFlagValue(options, "stats=", 0);
+  __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
+  __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
+  __asan_flag_stats = IntFlagValue(options, "stats=", 0);
   __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
   __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
-  F_debug = IntFlagValue(options, "debug=", 0);
+  __asan_flag_debug = IntFlagValue(options, "debug=", 0);
   F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
-  F_debug_malloc_size = IntFlagValue(options, "debug_malloc_size=", 0);
   __asan_flag_mt = IntFlagValue(options, "mt=", 1);
 #if __WORDSIZE == 64
   F_protect_shadow = IntFlagValue(options, "protect_shadow=", 0);
@@ -1537,10 +986,9 @@ static void asan_init() {
 
   __asan_flag_quarantine_size =
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
-  malloc_info.Init(__asan_flag_quarantine_size);
 
-  if (F_malloc_context_size > F_red_zone_words)
-    F_malloc_context_size = F_red_zone_words;
+  if (__asan_flag_malloc_context_size > __asan_flag_redzone_words)
+    __asan_flag_malloc_context_size = __asan_flag_redzone_words;
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_mmap = (mmap_f)dlsym(RTLD_NEXT, "mmap")));
@@ -1548,11 +996,17 @@ static void asan_init() {
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
-#ifndef __APPLE__
+#ifdef __APPLE__
+  real_malloc = apple_real_malloc;
+  real_realloc = apple_real_realloc;
+  real_free = apple_real_free;
+#else
   CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
   CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
 #endif
+  __asan_real_malloc = real_malloc;
+  __asan_real_free   = real_free;
 
   // Set the SIGSEGV handler.
   {
@@ -1622,8 +1076,8 @@ static void asan_init() {
            MEM_TO_SHADOW(kLowShadowEnd),
            MEM_TO_SHADOW(kHighShadowBeg),
            MEM_TO_SHADOW(kHighShadowEnd));
-    Printf("red_zone_words=%ld\n", F_red_zone_words);
-    Printf("malloc_context_size=%ld\n", (int)F_malloc_context_size);
+    Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
+    Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)F_fast_unwind);
   }
 }

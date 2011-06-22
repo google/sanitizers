@@ -45,7 +45,7 @@ RTL_HDR=asan_allocator.h \
 SUFF=$(BITS)
 
 LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
-	    $(BIN)/asan_allocator$(SUFF).o  \
+	    $(BIN)/asan_allocator_to_deprecate$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
@@ -135,4 +135,4 @@ $(GTEST_LIB):
 clean:
 	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*  a.out perf.data log
 	rm -f $(CLANG_LIB)/libasan*
-	rm -rf bfds*
+	rm -rf bfds* $(BIN)

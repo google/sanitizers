@@ -36,6 +36,6 @@ static void MallocStress(size_t n) {
 }
 
 
-TEST(AddressSanitizer, InternalMallocTest) {
+TEST(AddressSanitizer, DISABLED_InternalMallocTest) {
   MallocStress(2000000);
 }
