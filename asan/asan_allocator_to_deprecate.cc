@@ -56,6 +56,7 @@ struct Ptr {
   AsanThread *free_thread;
 
   static const uint32_t kMallocedMagic   = 0x45DEAA11;
+  static const uint32_t kAsanPtrMagic    = 0xA5A4A5A4;
   static const uint32_t kFreedMagic      = 0x94B06185;
   static const uint32_t kRealyFreedMagic = 0xDEAD1234;
 
@@ -457,6 +458,7 @@ Ptr *asan_memalign(size_t alignment, size_t size, AsanStackTrace &stack) {
   p->CopyStackTraceForMalloc(stack);
   malloc_info.on_malloc(p);
   p->PoisonOnMalloc();
+  *((uint32_t*)beg - 1) = Ptr::kAsanPtrMagic;
   return p;
 }
 
@@ -484,6 +486,10 @@ void asan_free(void *addr, AsanStackTrace &stack) {
   if (!addr) return;
   Ptr *p = (Ptr*)((uintptr_t*)addr - __asan_flag_redzone_words);
   size_t real_size_in_words = p->real_size_in_words();
+  if (*((uint32_t*)addr - 1) == Ptr::kAsanPtrMagic) {
+    // We can't CHECK for kAsanPtrMagic, because it will fail in the double-free case.
+    *((uint32_t*)addr - 1) = 0;
+  }
 
   check_ptr_on_free(p, addr, stack);
 
@@ -586,6 +592,17 @@ int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
 }
 
 size_t __asan_mz_size(const void *ptr) {
+  // If |ptr| was returned by asan_memalign(), then ptr[-1] is kAsanPtrMagic.
+  // The previous four bytes may possibly hit an unmapped page, but this is
+  // very unlikely.
+  if (*((uint32_t*)ptr-1) == Ptr::kAsanPtrMagic) {
+    Ptr *p = (Ptr*)((uintptr_t*)ptr - __asan_flag_redzone_words);
+    CHECK(p->magic == Ptr::kMallocedMagic);
+    return p->size;
+  } else {
+    return 0;
+  }
+#if 0  
   Ptr *p = malloc_info.safe_find_malloced((uintptr_t)ptr);
   if (p) {
     CHECK(p->magic == Ptr::kMallocedMagic);
@@ -594,6 +611,7 @@ size_t __asan_mz_size(const void *ptr) {
     // |ptr| doesn't belong to our malloc list.
     return 0;
   }
+#endif  
 }
 
 void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {

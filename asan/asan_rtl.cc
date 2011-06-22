@@ -468,7 +468,6 @@ void *valloc(size_t size) {
   return __asan_valloc(size, &stack);
 }
 
-
 #if 1
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
@@ -560,26 +559,22 @@ namespace {
 // TODO(glider): the mz_* functions should be united with the Linux wrappers,
 // as they are basically copied from there.
 size_t mz_size(malloc_zone_t* zone, const void* ptr) {
-#if 0
   // Check whether this pointer belongs to the original malloc zone.
   // We cannot just call malloc_zone_from_ptr(), because it in turn calls our mz_size().
   if (system_malloc_zone) {
     if ((system_malloc_zone->size)(system_malloc_zone, ptr)) return 0;
+#if 0
     // Memory regions owned by ASan are in fact allocated by the system allocator.
     // If this was done using malloc() rather than memalign(), we can find the first
     // byte of the allocation and make sure it's accessible.
     if ((system_malloc_zone->size)(system_malloc_zone, (char*)ptr - __asan_flag_redzone_words)) {
       // TODO(glider): check that the size returned by the system_malloc_zone->size
       // matches our zone size + overhead.
-      Ptr *p = (Ptr*)((uintptr_t*)(ptr) - __asan_flag_redzone_words);
-      CHECK(p->magic == Ptr::kMallocedMagic);
-      return p->size;
+      return __asan_get_allocation_size((char*)ptr - __asan_flag_redzone_words);
     }
+#endif  
   }
-  // If we get here, either |ptr| is unaccessible, or it was returned by
-  // memalign(), and we can't guess where our own malloc header begins.
-#endif
-  __asan_mz_size(ptr);
+  return __asan_mz_size(ptr);
 }
 
 void* mz_malloc(malloc_zone_t* zone, size_t size) {
