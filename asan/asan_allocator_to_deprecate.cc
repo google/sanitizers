@@ -400,8 +400,9 @@ class MallocInfo {
 
 static MallocInfo malloc_info;
 
-Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
+Ptr *asan_memalign(size_t alignment, size_t size, AsanStackTrace &stack) {
   __asan_init();
+  CHECK((alignment & (alignment - 1)) == 0);
   CHECK(__asan_flag_redzone_words >= Ptr::ReservedWords());
   size_t real_size_in_words = Ptr::real_size_in_words(size);
   size_t real_size_with_alignment =
@@ -431,7 +432,6 @@ Ptr *asan_memalign(size_t size, size_t alignment, AsanStackTrace &stack) {
   uintptr_t beg = orig_beg;
 
   if (alignment && (beg % alignment) != 0) {
-    CHECK((alignment & (alignment - 1)) == 0);
     CHECK(alignment >= kWordSize);
     uintptr_t mod = beg % alignment;
     CHECK(alignment > mod);
@@ -513,7 +513,7 @@ static void asan_clear_mem(uintptr_t *mem, size_t n_words) {
 }
 
 void *asan_calloc(size_t nmemb, size_t size, AsanStackTrace &stack) {
-  Ptr *p = asan_memalign(nmemb * size, 0, stack);
+  Ptr *p = asan_memalign(0, nmemb * size, stack);
   void *ptr = p->raw_ptr();
   asan_clear_mem((uintptr_t*)ptr, (nmemb * size + kWordSize - 1) / kWordSize);
   return ptr;
@@ -528,7 +528,7 @@ static void asan_copy_mem(uintptr_t *dst, uintptr_t *src, size_t n_words) {
 
 void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
   if (!addr) {
-    Ptr *p = asan_memalign(size, 0, stack);
+    Ptr *p = asan_memalign(0, size, stack);
     return p->raw_ptr();
   }
   Ptr *p = (Ptr*)((uintptr_t*)addr - __asan_flag_redzone_words);
@@ -536,7 +536,7 @@ void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
   if (__asan_flag_v >= 2)
     p->PrintOneLine("asan_realloc: ", "\n");
   size_t old_size = p->size;
-  Ptr *new_p = asan_memalign(size, 0, stack);
+  Ptr *new_p = asan_memalign(0, size, stack);
   void *new_ptr = new_p->raw_ptr();
   size_t memcpy_size = std::min(size, old_size);
   // memcpy(new_ptr, addr, memcpy_size);
@@ -550,8 +550,9 @@ void *asan_realloc(void *addr, size_t size, AsanStackTrace &stack) {
 
 }  // namespace
 
-void *__asan_memalign(size_t size, size_t alignment, AsanStackTrace *stack) {
-  Ptr *p = asan_memalign(size, alignment, *stack);
+void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack) {
+  CHECK((alignment & (alignment - 1)) == 0);
+  Ptr *p = asan_memalign(alignment, size, *stack);
   return p->raw_ptr();
 }
 
@@ -560,7 +561,7 @@ void __asan_free(void *ptr, AsanStackTrace *stack) {
 }
 
 void *__asan_malloc(size_t size, AsanStackTrace *stack) {
-  Ptr *p = asan_memalign(size, 0, *stack);
+  Ptr *p = asan_memalign(0, size, *stack);
   return p->raw_ptr();
 }
 
@@ -572,13 +573,13 @@ void *__asan_realloc(void *p, size_t size, AsanStackTrace *stack) {
 }
 
 void *__asan_valloc(size_t size, AsanStackTrace *stack) {
-  Ptr *p = asan_memalign(size, kPageSize, *stack);
+  Ptr *p = asan_memalign(kPageSize, size, *stack);
   return p->raw_ptr();
 }
 
 int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
                           AsanStackTrace *stack) {
-  Ptr *p = asan_memalign(size, alignment, *stack);
+  Ptr *p = asan_memalign(alignment, size, *stack);
   *memptr = p->raw_ptr();
   CHECK(((uintptr_t)*memptr % alignment) == 0);
   return 0;

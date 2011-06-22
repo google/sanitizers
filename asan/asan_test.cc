@@ -178,6 +178,20 @@ __attribute__((noinline)) void *malloc_bbb(size_t size) {
 __attribute__((noinline)) void *malloc_aaa(size_t size) {
   void *res = malloc_bbb(size); break_optimization(); return res;}
 
+__attribute__((noinline)) void *memalign_fff(size_t alignment, size_t size) {
+  void *res = memalign/**/(alignment, size); break_optimization(); return res;}
+__attribute__((noinline)) void *memalign_eee(size_t alignment, size_t size) {
+  void *res = memalign_fff(alignment, size); break_optimization(); return res;}
+__attribute__((noinline)) void *memalign_ddd(size_t alignment, size_t size) {
+  void *res = memalign_eee(alignment, size); break_optimization(); return res;}
+__attribute__((noinline)) void *memalign_ccc(size_t alignment, size_t size) {
+  void *res = memalign_ddd(alignment, size); break_optimization(); return res;}
+__attribute__((noinline)) void *memalign_bbb(size_t alignment, size_t size) {
+  void *res = memalign_ccc(alignment, size); break_optimization(); return res;}
+__attribute__((noinline)) void *memalign_aaa(size_t alignment, size_t size) {
+  void *res = memalign_bbb(alignment, size); break_optimization(); return res;}
+
+
 __attribute__((noinline))
   void free_ccc(void *p) { free(p); break_optimization();}
 __attribute__((noinline))
@@ -395,7 +409,8 @@ static void MallocStress(size_t n) {
       free_aaa(ptr);
     } else {
       size_t size = rand() % 1000 + 1;
-      void *ptr = malloc_aaa(size);
+      size_t alignment = 1 << (rand() % 7 + 3);
+      void *ptr = memalign_aaa(alignment, size);
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
         *((char*)ptr) = 0;

@@ -451,7 +451,7 @@ extern "C"
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   CHECK(!__asan_need_real_malloc);
-  return __asan_memalign(size, boundary, &stack);
+  return __asan_memalign(boundary, size, &stack);
 }
 
 extern "C"
@@ -473,7 +473,7 @@ void *valloc(size_t size) {
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
   CHECK(!__asan_need_real_malloc);\
-  return __asan_memalign(size, 0, &stack);
+  return __asan_memalign(0, size, &stack);
 
 void *operator new(size_t size) { OPERATOR_NEW_BODY; }
 void *operator new[](size_t size) { OPERATOR_NEW_BODY; }
@@ -593,7 +593,7 @@ void* mz_malloc(malloc_zone_t* zone, size_t size) {
     return res;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(size, 0, &stack);
+  return __asan_memalign(0, size, &stack);
 }
 
 void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
@@ -624,7 +624,7 @@ void* mz_valloc(malloc_zone_t* zone, size_t size) {
     return malloc_zone_valloc(system_malloc_zone, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(size, kPageSize, &stack);
+  return __asan_memalign(kPageSize, size, &stack);
 }
 
 void mz_free(malloc_zone_t* zone, void* ptr) {
@@ -653,7 +653,7 @@ void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
     return malloc_zone_memalign(system_malloc_zone, align, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(size, align, &stack);
+  return __asan_memalign(align, size, &stack);
 }
 
 void mz_destroy(malloc_zone_t* zone) {
