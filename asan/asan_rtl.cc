@@ -57,8 +57,8 @@ __thread bool __asan_need_real_malloc;
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
-static int    F_atexit;
-static bool   F_fast_unwind;
+static int    __asan_flag_atexit;
+static bool   __asan_flag_fast_unwind;
 
 size_t __asan_flag_redzone_words;  // multiple of 8
 bool   __asan_flag_mt;  // set to 0 if you have only one thread.
@@ -74,9 +74,9 @@ uintptr_t __asan_flag_large_malloc;
 
 
 #if __WORDSIZE == 32
-static const int F_protect_shadow = 1;
+static const int __asan_flag_protect_shadow = 1;
 #else
-static int F_protect_shadow;
+static int __asan_flag_protect_shadow;
 #endif
 
 
@@ -225,10 +225,10 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
 }
 
 #define GET_STACK_TRACE_HERE_FOR_MALLOC         \
-  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, F_fast_unwind)
+  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, __asan_flag_fast_unwind)
 
 #define GET_STACK_TRACE_HERE_FOR_FREE(ptr) \
-  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, F_fast_unwind)
+  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, __asan_flag_fast_unwind)
 
 
 
@@ -777,7 +777,7 @@ static void ReplaceSystemAlloc() {
 
 // -------------------------- Run-time entry ------------------- {{{1
 static void PrintUnwinderHint() {
-  if (F_fast_unwind) {
+  if (__asan_flag_fast_unwind) {
     Printf("HINT: if your stack trace looks short or garbled, "
            "use ASAN_OPTIONS=fast_unwind=0\n");
   }
@@ -969,20 +969,20 @@ void __asan_init() {
   }
   CHECK(__asan_flag_redzone_words >= 8 && (__asan_flag_redzone_words % 8) == 0);
 
-  F_atexit = IntFlagValue(options, "atexit=", 0);
+  __asan_flag_atexit = IntFlagValue(options, "atexit=", 0);
   __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   __asan_flag_stats = IntFlagValue(options, "stats=", 0);
   __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
   __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
   __asan_flag_debug = IntFlagValue(options, "debug=", 0);
-  F_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
+  __asan_flag_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   __asan_flag_mt = IntFlagValue(options, "mt=", 1);
 #if __WORDSIZE == 64
-  F_protect_shadow = IntFlagValue(options, "protect_shadow=", 0);
+  __asan_flag_protect_shadow = IntFlagValue(options, "protect_shadow=", 0);
 #endif
 
-  if (F_atexit) {
+  if (__asan_flag_atexit) {
     atexit(asan_atexit);
   }
 
@@ -1053,7 +1053,7 @@ void __asan_init() {
   }
 #endif  // __WORDSIZE == 64
 
-  if (F_protect_shadow) {
+  if (__asan_flag_protect_shadow) {
     // protect the gap between low and high shadow
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
@@ -1080,7 +1080,7 @@ void __asan_init() {
            MEM_TO_SHADOW(kHighShadowEnd));
     Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
     Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
-    Printf("fast_unwind=%d\n", (int)F_fast_unwind);
+    Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
   }
 }
 
