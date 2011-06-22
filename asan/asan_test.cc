@@ -14,7 +14,6 @@
 */
 
 // This file is a part of AddressSanitizer, an address sanity checker.
-// Author: Kostya Serebryany
 
 #include <stdio.h>
 #include <signal.h>
