@@ -584,7 +584,7 @@ int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
   return 0;
 }
 
-size_t __asan_mz_size(void *ptr) {
+size_t __asan_mz_size(const void *ptr) {
   Ptr *p = malloc_info.safe_find_malloced((uintptr_t)ptr);
   if (p) {
     CHECK(p->magic == Ptr::kMallocedMagic);

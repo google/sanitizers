@@ -560,6 +560,7 @@ namespace {
 // TODO(glider): the mz_* functions should be united with the Linux wrappers,
 // as they are basically copied from there.
 size_t mz_size(malloc_zone_t* zone, const void* ptr) {
+#if 0
   // Check whether this pointer belongs to the original malloc zone.
   // We cannot just call malloc_zone_from_ptr(), because it in turn calls our mz_size().
   if (system_malloc_zone) {
@@ -577,6 +578,7 @@ size_t mz_size(malloc_zone_t* zone, const void* ptr) {
   }
   // If we get here, either |ptr| is unaccessible, or it was returned by
   // memalign(), and we can't guess where our own malloc header begins.
+#endif
   __asan_mz_size(ptr);
 }
 
@@ -604,7 +606,7 @@ void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
-    const int kCallocPoolSize = 1024;
+    const size_t kCallocPoolSize = 1024;
     static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
     static size_t allocated;
     size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
@@ -613,7 +615,7 @@ void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
     CHECK(allocated < kCallocPoolSize);
     return mem;
   }
-  return asan_calloc(nmemb, size, &stack);
+  return __asan_calloc(nmemb, size, &stack);
 }
 
 void* mz_valloc(malloc_zone_t* zone, size_t size) {
@@ -632,7 +634,7 @@ void mz_free(malloc_zone_t* zone, void* ptr) {
     return;
   };
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  asan_free(ptr, &stack);
+  __asan_free(ptr, &stack);
 }
 
 void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
@@ -642,7 +644,7 @@ void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
     return res;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return asan_realloc(ptr, size, &stack);
+  return __asan_realloc(ptr, size, &stack);
 }
 
 void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {

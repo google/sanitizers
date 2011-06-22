@@ -29,7 +29,7 @@ void *__asan_valloc(size_t size, AsanStackTrace *stack);
 int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
                           AsanStackTrace *stack);
 
-size_t __asan_mz_size(void *ptr);
+size_t __asan_mz_size(const void *ptr);
 void __asan_describe_heap_address(uintptr_t addr, size_t access_size);
 
 // to be deprecated
