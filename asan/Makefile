@@ -86,12 +86,9 @@ install:
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
-$(BIN)/asan_rtl$(SUFF).o: asan_rtl.cc $(RTL_HDR) Makefile
+$(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\"
-
-$(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
-	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party
 
 $(BIN)/libasan$(SUFF).so: $(LIBASAN_OBJ)
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
