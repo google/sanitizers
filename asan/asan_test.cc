@@ -178,6 +178,7 @@ __attribute__((noinline)) void *malloc_bbb(size_t size) {
 __attribute__((noinline)) void *malloc_aaa(size_t size) {
   void *res = malloc_bbb(size); break_optimization(); return res;}
 
+#ifndef __APPLE__
 __attribute__((noinline)) void *memalign_fff(size_t alignment, size_t size) {
   void *res = memalign/**/(alignment, size); break_optimization(); return res;}
 __attribute__((noinline)) void *memalign_eee(size_t alignment, size_t size) {
@@ -190,6 +191,7 @@ __attribute__((noinline)) void *memalign_bbb(size_t alignment, size_t size) {
   void *res = memalign_ccc(alignment, size); break_optimization(); return res;}
 __attribute__((noinline)) void *memalign_aaa(size_t alignment, size_t size) {
   void *res = memalign_bbb(alignment, size); break_optimization(); return res;}
+#endif  // __APPLE__  
 
 
 __attribute__((noinline))
@@ -409,8 +411,12 @@ static void MallocStress(size_t n) {
       free_aaa(ptr);
     } else {
       size_t size = rand() % 1000 + 1;
+#ifndef __APPLE__
       size_t alignment = 1 << (rand() % 7 + 3);
       void *ptr = memalign_aaa(alignment, size);
+#else      
+      void *ptr = malloc_aaa(size);
+#endif
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
         *((char*)ptr) = 0;
