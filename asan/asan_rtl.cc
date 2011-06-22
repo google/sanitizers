@@ -86,7 +86,7 @@ static int F_protect_shadow;
 
 
 // -------------------------- Printf ---------------- {{{1
-static FILE *asan_out;
+static FILE *asan_out = NULL;
 
 void __asan_printf(const char *format, ...) {
   const int kLen = 1024 * 4;
@@ -188,9 +188,6 @@ AsanStats __asan_stats;
 
 // -------------------------- Misc ---------------- {{{1
 static void AsanAbort() {
-  if (asan_out != stderr) {
-    pclose(asan_out);
-  }
   abort();
 }
 
