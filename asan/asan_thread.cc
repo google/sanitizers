@@ -22,6 +22,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __APPLE__
+static pthread_key_t g_tls_key;
+static AsanThread *g_thread_0 = NULL;
+// This flag is updated only once at program startup, and then read
+// by concurrent threads.
+static bool tls_key_created = false;
+#else
+static __thread AsanThread *tl_current_thread;
+#endif
+
 AsanThread::AsanThread(AsanThread *parent, void *(*start_routine) (void *),
                        void *arg, AsanStackTrace *stack,
                        void (*delete_func)(void*))
@@ -114,6 +124,42 @@ void AsanThread::SetThreadStackTopAndBottom() {
 #endif
 }
 
+AsanThread* AsanThread::GetCurrent() {
+#ifdef __APPLE__
+  CHECK(tls_key_created);
+  AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
+  // After the thread calls _pthread_exit() the TSD is unavailable
+  // and pthread_getspecific() may return NULL. Thus we associate the further
+  // allocations (originating from the guts of libpthread) with thread 0.
+  if (thread) {
+    return thread;
+  } else {
+    return g_thread_0;
+  }
+#else
+  return tl_current_thread;
+#endif
+}
+
+void AsanThread::SetCurrent(AsanThread *t) {
+  if (!inited_) {
+    // This is the main thread.
+#ifdef __APPLE__
+    CHECK(0 == pthread_key_create(&g_tls_key, 0));
+    tls_key_created = true;
+    g_thread_0 = t;
+#endif  // __APPLE__
+    inited_ = true;
+  }
+#ifdef __APPLE__
+  CHECK(0 == pthread_setspecific(g_tls_key, t));
+  CHECK(pthread_getspecific(g_tls_key));
+#else
+  tl_current_thread = t;
+#endif
+}
 
 int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;
+AsanLock AsanThread::mu_;
+bool AsanThread::inited_;

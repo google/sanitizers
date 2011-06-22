@@ -211,44 +211,6 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 }
 
 // ---------------------- Thread ------------------------- {{{1
-
-AsanLock AsanThread::mu_;
-#ifndef __APPLE__
-static __thread AsanThread *tl_current_thread;
-#else
-static pthread_key_t g_tls_key;
-static AsanThread *g_thread_0 = NULL;
-// This flag is updated only once at program startup, and then read
-// by concurrent threads.
-static bool tls_key_created = false;
-#endif
-
-AsanThread* AsanThread::GetCurrent() {
-#ifdef __APPLE__
-  CHECK(tls_key_created);
-  AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
-  // After the thread calls _pthread_exit() the TSD is unavailable
-  // and pthread_getspecific() may return NULL. Thus we associate the further
-  // allocations (originating from the guts of libpthread) with thread 0.
-  if (thread) {
-    return thread;
-  } else {
-    return g_thread_0;
-  }
-#else
-  return tl_current_thread;
-#endif
-}
-static void SetCurrentThread(AsanThread *t) {
-#ifdef __APPLE__
-  CHECK(0 == pthread_setspecific(g_tls_key, t));
-  CHECK(pthread_getspecific(g_tls_key));
-#else
-  tl_current_thread = t;
-#endif
-}
-
-
 // given sp and bp, find the frame to which addr belongs.
 static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
                                          uintptr_t addr) {
@@ -285,7 +247,7 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
 
 static void *asan_thread_start(void *arg) {
   AsanThread *t= (AsanThread*)arg;
-  SetCurrentThread(t);
+  AsanThread::SetCurrent(t);
   return t->ThreadStart();
 }
 
@@ -1640,17 +1602,10 @@ static void asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
-#ifdef __APPLE__
-  CHECK(0 == pthread_key_create(&g_tls_key, 0));
-  tls_key_created = true;
-#endif  // __APPLE__
 
   AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
   new (t) AsanThread(0, 0, 0, 0, 0);
-  SetCurrentThread(t);
-#ifdef __APPLE__
-  g_thread_0 = AsanThread::GetCurrent();
-#endif
+  AsanThread::SetCurrent(t);
   t->ThreadStart();
 
   asan_inited = 1;

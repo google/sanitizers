@@ -71,6 +71,7 @@ class AsanThread {
   }
 
   static AsanThread *GetCurrent();
+  static void SetCurrent(AsanThread *t);
 
  private:
 
@@ -93,6 +94,7 @@ class AsanThread {
   static AsanThread *live_threads_;
   static int n_threads_;
   static AsanLock mu_;
+  static bool inited_;
 };
 
 #endif  // ASAN_THREAD_H
