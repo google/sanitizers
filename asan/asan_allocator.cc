@@ -18,19 +18,32 @@
 //  NOTE: this file is not used by the rtl yet
 // *************
 
-#include "asan_rtl.h"
-#include "asan_int.h"
 #include "asan_allocator.h"
+#include "asan_int.h"
+#include "asan_rtl.h"
+#include "asan_stats.h"
 
 #include <sys/mman.h>
 #include <stdint.h>
 #include <algorithm>
+
+void *(*__asan_real_malloc)(size_t);
+void (*__asan_real_free)(void *ptr);
 
 namespace {
 
 static const size_t kRedzone      = kMinRedzone * 2;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 128;
+
+
+static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
+  return (a & (alignment - 1)) == 0;
+}
+
+static inline bool IsWordAligned(uintptr_t a) {
+  return IsAligned(a, kWordSize);
+}
 
 static inline bool IsPowerOfTwo(size_t x) {
   return (x & (x - 1)) == 0;
@@ -211,8 +224,9 @@ class MallocInfo {
 
 static MallocInfo malloc_info;
 
-static uint8_t *Allocate(size_t size, size_t alignment, AsanStackTrace *stack) {
-  // Printf("Allocate %ld %ld\n", size, alignment);
+static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
+  // Printf("Allocate align: %ld size: %ld\n", alignment, size);
+  if (size == 0) return NULL;
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUptoRedzone(size);
   if (alignment > kRedzone) {
@@ -243,26 +257,96 @@ static uint8_t *Allocate(size_t size, size_t alignment, AsanStackTrace *stack) {
   // Printf("ret "PP"\n", addr);
   return (uint8_t*)addr;
 }
+__attribute__((noinline))
+static void asan_clear_mem(uintptr_t *mem, size_t n_words) {
+  CHECK(IsWordAligned((uintptr_t)mem));
+  for (size_t i = 0; i < n_words; i++)
+    mem[i] = 0;
+}
+
+__attribute__((noinline))
+static void asan_copy_mem(uintptr_t *dst, uintptr_t *src, size_t n_words) {
+  CHECK(IsWordAligned((uintptr_t)dst));
+  CHECK(IsWordAligned((uintptr_t)src));
+  for (size_t i = 0; i < n_words; i++) {
+    dst[i] = src[i];
+  }
+}
+
+static Chunk *PtrToChunk(uint8_t *ptr) {
+  Chunk *m = (Chunk*)(ptr - kRedzone);
+  if (m->chunk_state == CHUNK_MEMALIGN) {
+    m = (Chunk*)((uintptr_t*)m)[1];
+  }
+  return m;
+}
 
 static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
-  // Printf("dl0 "PP"\n", ptr);
-  Chunk *m = (Chunk*)(ptr - kRedzone);
-  // Printf("dl1 "PP"\n", m);
-  if (m->chunk_state == CHUNK_MEMALIGN) {
-    m = (Chunk*)((uintptr_t*)m)[1];
-    // Printf("dl2 "PP"\n", m);
-  }
+  Chunk *m = PtrToChunk(ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   malloc_info.Deallocate(m);
 }
 
+static uint8_t *Reallocate(uint8_t *ptr, size_t size, AsanStackTrace *stack) {
+  if (!ptr) {
+    return Allocate(0, size, stack);
+  }
+  if (size == 0) {
+    return NULL;
+  }
+  Chunk *m = PtrToChunk(ptr);
+  CHECK(m->chunk_state == CHUNK_ALLOCATED);
+  size_t old_size = m->used_size;
+  size_t memcpy_size = std::min(size, old_size);
+  uint8_t *new_ptr = Allocate(0, size, stack);
+  asan_copy_mem((uintptr_t*)new_ptr, (uintptr_t*)ptr,
+                (memcpy_size + kWordSize - 1) / kWordSize);
+  Deallocate(ptr, stack);
+  __asan_stats.reallocs++;
+  __asan_stats.realloced += memcpy_size;
+  return new_ptr;
+}
+
 }  // namespace
 
-void *__asan_memalign(size_t size, size_t alignment, AsanStackTrace *stack) {
-  return (void*)Allocate(size, alignment, stack);
+void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack) {
+  return (void*)Allocate(alignment, size, stack);
 }
 
 void __asan_free(void *ptr, AsanStackTrace *stack) {
   Deallocate((uint8_t*)ptr, stack);
+}
+
+void *__asan_malloc(size_t size, AsanStackTrace *stack) {
+  return (void*)Allocate(0, size, stack);
+}
+
+void *__asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
+  uint8_t *res = Allocate(0, nmemb * size, stack);
+  asan_clear_mem((uintptr_t*)res, (nmemb * size + kWordSize - 1) / kWordSize);
+  return (void*)res;
+}
+void *__asan_realloc(void *p, size_t size, AsanStackTrace *stack) {
+  return Reallocate((uint8_t*)p, size, stack);
+}
+
+void *__asan_valloc(size_t size, AsanStackTrace *stack) {
+  return Allocate(kPageSize, size, stack);
+}
+
+int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
+                          AsanStackTrace *stack) {
+  *memptr = Allocate(alignment, size, stack);
+  CHECK(((uintptr_t)*memptr % alignment) == 0);
+  return 0;
+}
+
+size_t __asan_mz_size(const void *ptr) {
+  CHECK(0);
+  return 0;
+}
+
+void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {
+  CHECK(0);
 }
