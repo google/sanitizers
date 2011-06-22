@@ -27,10 +27,6 @@ static const int kMinRedzone = 128;
 class AsanThread;
 class AsanStackTrace;
 
-extern "C" {
-void *__asan_memalign(size_t size, size_t alignment,
-                      AsanThread *thread, AsanStackTrace *stack);
-void __asan_free(void *ptr, AsanThread *thread, AsanStackTrace *stack);
 
 
 void __asan_printf(const char *format, ...);
@@ -42,7 +38,6 @@ extern bool   __asan_flag_symbolize;
 extern int    __asan_flag_v;
 extern bool   __asan_flag_mt;
 
-}  // extern "C"
 
 #define Printf __asan_printf
 

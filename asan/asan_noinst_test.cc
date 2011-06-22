@@ -2,6 +2,7 @@
 // Author: kcc@google.com (Kostya Serebryany)
 
 #include "asan_int.h"
+#include "asan_allocator.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,11 +20,11 @@ static void MallocStress(size_t n) {
       void *ptr = vec[idx];
       vec[idx] = vec.back();
       vec.pop_back();
-      __asan_free(ptr, 0, 0);
+      __asan_free(ptr, 0);
     } else {
       size_t size = rand() % 1000 + 1;
       size_t alignment = 1 << (rand() % 10 + 1);
-      void *ptr = __asan_memalign(size, alignment, 0, 0);
+      void *ptr = __asan_memalign(size, alignment, 0);
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
         *((char*)ptr) = 0;
@@ -31,7 +32,7 @@ static void MallocStress(size_t n) {
     }
   }
   for (size_t i = 0; i < vec.size(); i++)
-    __asan_free(vec[i], 0, 0);
+    __asan_free(vec[i], 0);
 }
 
 

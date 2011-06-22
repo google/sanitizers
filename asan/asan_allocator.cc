@@ -20,6 +20,7 @@
 
 #include "asan_rtl.h"
 #include "asan_int.h"
+#include "asan_allocator.h"
 
 #include <sys/mman.h>
 #include <stdint.h>
@@ -210,8 +211,7 @@ class MallocInfo {
 
 static MallocInfo malloc_info;
 
-static uint8_t *Allocate(size_t size, size_t alignment,
-                         AsanThread *thread, AsanStackTrace *stack) {
+static uint8_t *Allocate(size_t size, size_t alignment, AsanStackTrace *stack) {
   // Printf("Allocate %ld %ld\n", size, alignment);
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUptoRedzone(size);
@@ -244,8 +244,7 @@ static uint8_t *Allocate(size_t size, size_t alignment,
   return (uint8_t*)addr;
 }
 
-static void Deallocate(uint8_t *ptr,
-                       AsanThread *thread, AsanStackTrace *stack) {
+static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   // Printf("dl0 "PP"\n", ptr);
   Chunk *m = (Chunk*)(ptr - kRedzone);
@@ -260,11 +259,10 @@ static void Deallocate(uint8_t *ptr,
 
 }  // namespace
 
-void *__asan_memalign(size_t size, size_t alignment,
-                      AsanThread *thread, AsanStackTrace *stack) {
-  return (void*)Allocate(size, alignment, thread, stack);
+void *__asan_memalign(size_t size, size_t alignment, AsanStackTrace *stack) {
+  return (void*)Allocate(size, alignment, stack);
 }
 
-void __asan_free(void *ptr, AsanThread *thread, AsanStackTrace *stack) {
-  Deallocate((uint8_t*)ptr, thread, stack);
+void __asan_free(void *ptr, AsanStackTrace *stack) {
+  Deallocate((uint8_t*)ptr, stack);
 }
