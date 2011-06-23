@@ -474,21 +474,6 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
   return (uint8_t*)addr;
 }
-__attribute__((noinline))
-static void asan_clear_mem(uintptr_t *mem, size_t n_words) {
-  CHECK(IsWordAligned((uintptr_t)mem));
-  for (size_t i = 0; i < n_words; i++)
-    mem[i] = 0;
-}
-
-__attribute__((noinline))
-static void asan_copy_mem(uintptr_t *dst, uintptr_t *src, size_t n_words) {
-  CHECK(IsWordAligned((uintptr_t)dst));
-  CHECK(IsWordAligned((uintptr_t)src));
-  for (size_t i = 0; i < n_words; i++) {
-    dst[i] = src[i];
-  }
-}
 
 static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
@@ -528,8 +513,6 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
   size_t memcpy_size = std::min(new_size, old_size);
   uint8_t *new_ptr = Allocate(0, new_size, stack);
   memcpy(new_ptr, old_ptr, memcpy_size);
-//  asan_copy_mem((uintptr_t*)new_ptr, (uintptr_t*)old_ptr,
-//                (memcpy_size + kWordSize - 1) / kWordSize);
   Deallocate(old_ptr, stack);
   __asan_stats.reallocs++;
   __asan_stats.realloced += memcpy_size;
@@ -555,7 +538,6 @@ void *__asan_malloc(size_t size, AsanStackTrace *stack) {
 void *__asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
   uint8_t *res = Allocate(0, nmemb * size, stack);
   memset(res, 0, nmemb * size);
-  //asan_clear_mem((uintptr_t*)res, (nmemb * size + kWordSize - 1) / kWordSize);
   return (void*)res;
 }
 void *__asan_realloc(void *p, size_t size, AsanStackTrace *stack) {
