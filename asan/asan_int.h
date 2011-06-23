@@ -61,12 +61,6 @@ extern uintptr_t __asan_flag_large_malloc;
 
 #define ASAN_ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
-#ifdef __APPLE__
-static const bool __asan_need_real_malloc = false;
-#else
-extern __thread bool __asan_need_real_malloc;
-#endif
-
 const size_t kWordSize = __WORDSIZE / 8;
 const size_t kWordSizeInBits = 8 * kWordSize;
 const size_t kPageSizeBits = 12;

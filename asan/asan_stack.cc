@@ -65,7 +65,6 @@ class ProcSelfMaps {
     int offset = 0;
 
     if (__asan_flag_symbolize) {
-      __asan_need_real_malloc = true;
       int opt = bfds_opt_none;
       if (idx == 0)
         opt |= bfds_opt_update_libs;
@@ -80,7 +79,6 @@ class ProcSelfMaps {
                                file, kLen,
                                &line,
                                &offset);
-      __asan_need_real_malloc = false;
       if (res == 0) {
         FilterOutAsanRtlFileName(file);
         Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);

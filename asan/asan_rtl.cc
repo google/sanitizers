@@ -49,12 +49,6 @@ using std::string;
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
-
-#ifndef __APPLE__
-__thread bool __asan_need_real_malloc;
-#endif
-
-
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
 static int    __asan_flag_atexit;
@@ -88,17 +82,11 @@ void __asan_printf(const char *format, ...) {
   const int kLen = 1024 * 4;
   char buffer[kLen];
   va_list args;
-#ifndef __APPLE__
-  __asan_need_real_malloc = true;  // TODO(kcc): make sure we don't malloc here.
-#endif
   va_start(args, format);
   vsnprintf(buffer, kLen, format, args);
   fwrite(buffer, 1, strlen(buffer), asan_out);
   fflush(asan_out);
   va_end(args);
-#ifndef __APPLE__
-  __asan_need_real_malloc = false;
-#endif
 }
 
 
@@ -393,34 +381,18 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
 
 extern "C"
 void *malloc(size_t size) {
-  if (__asan_need_real_malloc) {
-    void *res = real_malloc(size);
-    // Printf("real_malloc: "PP" %ld\n", res, size);
-    return res;
-  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_malloc(size, &stack);
 }
 
 extern "C"
 void free(void *ptr) {
-  if (__asan_need_real_malloc) {
-    // Printf("real_free "PP"\n", ptr);
-    real_free(ptr);
-    return;
-  };
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
   __asan_free(ptr, &stack);
 }
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
-  if (__asan_need_real_malloc) {
-    void *mem = real_malloc(nmemb * size);
-    memset(mem, 0, nmemb *size);
-    // Printf("real_calloc: "PP" %ld*%ld\n", mem, nmemb, size);
-    return mem;
-  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
@@ -438,11 +410,6 @@ void *calloc(size_t nmemb, size_t size) {
 
 extern "C"
 void *realloc(void *ptr, size_t size) {
-  if (__asan_need_real_malloc) {
-    void *res = real_realloc(ptr, size);
-    // Printf("real_malloc: "PP" "PP" %ld\n", res, ptr, size);
-    return res;
-  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_realloc(ptr, size, &stack);
 }
@@ -450,28 +417,24 @@ void *realloc(void *ptr, size_t size) {
 extern "C"
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!__asan_need_real_malloc);
   return __asan_memalign(boundary, size, &stack);
 }
 
 extern "C"
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!__asan_need_real_malloc);
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
   return __asan_posix_memalign(memptr, alignment, size, &stack);
 }
 extern "C"
 void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  CHECK(!__asan_need_real_malloc);
   return __asan_valloc(size, &stack);
 }
 
 #if 1
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
-  CHECK(!__asan_need_real_malloc);\
   return __asan_memalign(0, size, &stack);
 
 void *operator new(size_t size) { OPERATOR_NEW_BODY; }
@@ -481,7 +444,6 @@ void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 
 #define OPERATOR_DELETE_BODY \
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
-  CHECK(!__asan_need_real_malloc);\
   __asan_free(ptr, &stack);
 
 void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
@@ -582,22 +544,11 @@ void* mz_malloc(malloc_zone_t* zone, size_t size) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
-  if (__asan_need_real_malloc) {
-    void *res = real_malloc(size);
-    // Printf("real_malloc: "PP" %ld\n", res, size);
-    return res;
-  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_memalign(0, size, &stack);
 }
 
 void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
-  if (__asan_need_real_malloc) {
-    void *mem = real_malloc(nmemb * size);
-    memset(mem, 0, nmemb *size);
-    // Printf("real_calloc: "PP" %ld*%ld\n", mem, nmemb, size);
-    return mem;
-  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
@@ -623,21 +574,11 @@ void* mz_valloc(malloc_zone_t* zone, size_t size) {
 }
 
 void mz_free(malloc_zone_t* zone, void* ptr) {
-  if (__asan_need_real_malloc) {
-    // Printf("real_free "PP"\n", ptr);
-    real_free(ptr);
-    return;
-  };
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
   __asan_free(ptr, &stack);
 }
 
 void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
-  if (__asan_need_real_malloc) {
-    void *res = real_realloc(ptr, size);
-    // Printf("real_malloc: "PP" "PP" %ld\n", res, ptr, size);
-    return res;
-  }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_realloc(ptr, size, &stack);
 }

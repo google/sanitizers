@@ -98,14 +98,12 @@ void AsanThread::SetThreadStackTopAndBottom() {
   int local;
   CHECK(AddrIsInStack((uintptr_t)&local));
 #else
-  __asan_need_real_malloc = true;
   pthread_attr_t attr;
   CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
   size_t stacksize = 0;
   void *stackaddr = NULL;
   pthread_attr_getstack(&attr, &stackaddr, &stacksize);
   pthread_attr_destroy(&attr);
-  __asan_need_real_malloc = false;
 
   const size_t kMaxStackSize = 16 * (1 << 20);  // 16M
   stack_top_ = (uintptr_t)stackaddr + stacksize;
