@@ -484,6 +484,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
 
 static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
+
   //Printf("Deallocate "PP"\n", ptr);
   Chunk *m = PtrToChunk((uintptr_t)ptr);
   if (m->chunk_state == CHUNK_QUARANTINE) {
@@ -504,6 +505,12 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   stack->CopyTo(m->free_stack, ASAN_ARRAY_SIZE(m->free_stack));
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
   PoisonShadow((uintptr_t)ptr, rounded_size, -1);
+
+  if (__asan_flag_stats) {
+    __asan_stats.frees++;
+    __asan_stats.freed += m->used_size;
+  }
+
   malloc_info.DeallocateChunk(m);
 }
 
