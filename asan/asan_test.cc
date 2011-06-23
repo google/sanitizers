@@ -414,7 +414,7 @@ static void MallocStress(size_t n) {
 #ifndef __APPLE__
       size_t alignment = 1 << (rand() % 7 + 3);
       char *ptr = (char*)memalign_aaa(alignment, size);
-#else      
+#else
       void *ptr = malloc_aaa(size);
 #endif
       vec.push_back(ptr);

@@ -39,6 +39,10 @@ static const size_t kRedzone      = kMinRedzone * 2;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 128;
 
+static void ShowStatsAndAbort() {
+  __asan_stats.PrintStats();
+  abort();
+}
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
   return (a & (alignment - 1)) == 0;
@@ -106,7 +110,8 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
   if (res == (uint8_t*)-1) {
-    Printf("failed to mmap %ld bytes\n", size);
+    Printf("ERROR: AddressSanitizer failed to allocate"
+           " %ld bytes of main memory\n", size);
     abort();
   }
   PoisonShadow((uintptr_t)res, size, -1);
@@ -169,7 +174,7 @@ struct Chunk: public ChunkBase {
       if (addr <= beg + used_size)
         *offset = 0;
       else
-        *offset = beg + used_size - addr;
+        *offset = addr - (beg + used_size);
       return true;
     }
     return false;
@@ -194,6 +199,8 @@ struct Chunk: public ChunkBase {
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
+    ScopedLock lock(&mu_);
+
     CHECK(IsPowerOfTwo(size));
     size_t idx = Log2(size);
     if (!chunks[idx]) {
@@ -214,7 +221,9 @@ class MallocInfo {
     return m;
   }
 
-  void TakeChunkBack(Chunk *m) {
+  void DeallocateChunk(Chunk *m) {
+    ScopedLock lock(&mu_);
+
     CHECK(m);
     CHECK(m->chunk_state == CHUNK_ALLOCATED);
     CHECK(IsPowerOfTwo(m->allocated_size));
@@ -249,48 +258,14 @@ class MallocInfo {
     m->chunk_state = CHUNK_QUARANTINE;
     while (quarantine_size_ &&
            (quarantine_size_ > __asan_flag_quarantine_size)) {
-      pop();
+      Pop();
     }
-  }
 
-  void Deallocate(Chunk *m) {
-    CHECK(m);
-    CHECK(m->chunk_state == CHUNK_ALLOCATED);
-    TakeChunkBack(m);
-  }
-
-  void GetNewChunks(size_t size) {
-    size_t idx = Log2(size);
-    CHECK(chunks[idx] == NULL);
-    CHECK(IsPowerOfTwo(size));
-    CHECK(IsPowerOfTwo(kMinMmapSize));
-    size_t mmap_size = std::max(size, kMinMmapSize);
-    size_t n_chunks = mmap_size / size;
-    if (size < kPageSize) {
-      // Size is small, just poison the last chunk.
-      n_chunks--;
-    } else {
-      // Size is large, allocate an extra page at right and poison it.
-      mmap_size += kPageSize;
-    }
-    CHECK(n_chunks > 0);
-    uint8_t *mem = MmapNewPagesAndPoisonShadow(mmap_size);
-    for (size_t i = 0; i < n_chunks; i++) {
-      Chunk *m = (Chunk*)(mem + i * size);
-      m->chunk_state = CHUNK_AVAILABLE;
-      m->allocated_size = size;
-      m->next = chunks[idx];
-      chunks[idx] = m;
-    }
-    PageGroup *pg = (PageGroup*)(mem + n_chunks * size);
-    // This memory is already poisoned, no need to poison it again.
-    pg->beg = (uintptr_t)mem;
-    pg->end = pg->beg + mmap_size;
-    pg->next = page_groups_;
-    page_groups_ = pg;
   }
 
   Chunk *FindMallocedOrFreed(uintptr_t addr, size_t access_size) {
+    ScopedLock lock(&mu_);
+
     Chunk *i = quarantine_;
     if (!i) return NULL;
     size_t offset;
@@ -328,7 +303,7 @@ class MallocInfo {
   }
 
  private:
-  void pop() {
+  void Pop() {
     CHECK(quarantine_);
     CHECK(quarantine_size_ > 0);
     Chunk *m = quarantine_->prev;
@@ -354,10 +329,43 @@ class MallocInfo {
     chunks[idx] = m;
   }
 
+  void GetNewChunks(size_t size) {
+    size_t idx = Log2(size);
+    CHECK(chunks[idx] == NULL);
+    CHECK(IsPowerOfTwo(size));
+    CHECK(IsPowerOfTwo(kMinMmapSize));
+    size_t mmap_size = std::max(size, kMinMmapSize);
+    size_t n_chunks = mmap_size / size;
+    if (size < kPageSize) {
+      // Size is small, just poison the last chunk.
+      n_chunks--;
+    } else {
+      // Size is large, allocate an extra page at right and poison it.
+      mmap_size += kPageSize;
+    }
+    CHECK(n_chunks > 0);
+    uint8_t *mem = MmapNewPagesAndPoisonShadow(mmap_size);
+    for (size_t i = 0; i < n_chunks; i++) {
+      Chunk *m = (Chunk*)(mem + i * size);
+      m->chunk_state = CHUNK_AVAILABLE;
+      m->allocated_size = size;
+      m->next = chunks[idx];
+      chunks[idx] = m;
+    }
+    PageGroup *pg = (PageGroup*)(mem + n_chunks * size);
+    // This memory is already poisoned, no need to poison it again.
+    pg->beg = (uintptr_t)mem;
+    pg->end = pg->beg + mmap_size;
+    pg->next = page_groups_;
+    page_groups_ = pg;
+  }
+
+
   Chunk *chunks[__WORDSIZE];
   Chunk *quarantine_;
   size_t quarantine_size_;
   Chunk *malloced_items_;
+  AsanLock mu_;
 
   // All pages we ever allocated.
   struct PageGroup {
@@ -394,7 +402,9 @@ static void Describe(uintptr_t addr, size_t access_size) {
 
 static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   // Printf("Allocate align: %ld size: %ld\n", alignment, size);
-  if (size == 0) return NULL;
+  if (size == 0) {
+    size = 1;  // TODO(kcc): do something smarter
+  }
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUpTo(size, kRedzone);
   size_t needed_size = rounded_size + kRedzone;
@@ -411,6 +421,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   CHECK(m->allocated_size == size_to_allocate);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   uintptr_t addr = (uintptr_t)m + kRedzone;
+  CHECK(addr == (uintptr_t)m->free_stack);
 
   if (alignment > kRedzone && (addr & (alignment - 1))) {
     addr = RoundUpTo(addr, alignment);
@@ -458,6 +469,12 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   //Printf("Deallocate "PP"\n", ptr);
   Chunk *m = PtrToChunk(ptr);
+  if (m->chunk_state == CHUNK_QUARANTINE) {
+    Printf("attempting double-free on %p:\n", ptr);
+    stack->PrintStack();
+    m->DescribeAddress((uintptr_t)ptr, 1);
+    ShowStatsAndAbort();
+  }
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   CHECK(m->free_thread == NULL);
   CHECK(m->alloc_thread != NULL);
@@ -465,27 +482,29 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   stack->CopyTo(m->free_stack, ASAN_ARRAY_SIZE(m->free_stack));
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
   PoisonShadow((uintptr_t)ptr, rounded_size, -1);
-  malloc_info.Deallocate(m);
+  malloc_info.DeallocateChunk(m);
 }
 
-static uint8_t *Reallocate(uint8_t *ptr, size_t size, AsanStackTrace *stack) {
-  if (!ptr) {
-    return Allocate(0, size, stack);
+static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *stack) {
+  if (!old_ptr) {
+    return Allocate(0, new_size, stack);
   }
-  if (size == 0) {
+  if (new_size == 0) {
     return NULL;
   }
-  Chunk *m = PtrToChunk(ptr);
+  Chunk *m = PtrToChunk(old_ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   size_t old_size = m->used_size;
-  size_t memcpy_size = std::min(size, old_size);
-  uint8_t *new_ptr = Allocate(0, size, stack);
-  memcpy(new_ptr, ptr, memcpy_size);
-//  asan_copy_mem((uintptr_t*)new_ptr, (uintptr_t*)ptr,
+  size_t memcpy_size = std::min(new_size, old_size);
+  uint8_t *new_ptr = Allocate(0, new_size, stack);
+  memcpy(new_ptr, old_ptr, memcpy_size);
+//  asan_copy_mem((uintptr_t*)new_ptr, (uintptr_t*)old_ptr,
 //                (memcpy_size + kWordSize - 1) / kWordSize);
-  Deallocate(ptr, stack);
+  Deallocate(old_ptr, stack);
   __asan_stats.reallocs++;
   __asan_stats.realloced += memcpy_size;
+//  Printf("Reallocate "PP" (%ld) => "PP" (%ld)\n", old_ptr, old_size, new_ptr, new_size);
+//  stack->PrintStack();
   return new_ptr;
 }
 

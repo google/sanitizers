@@ -28,6 +28,10 @@
 
 using namespace std;
 
+TEST(AddressSanitizer, InternalSimpleDeathTest) {
+  EXPECT_DEATH(exit(1), "");
+}
+
 static void MallocStress(size_t n) {
   AsanStackTrace stack1;
   stack1.trace[0] = 0xa123;
@@ -76,6 +80,7 @@ static void MallocStress(size_t n) {
 TEST(AddressSanitizer, InternalMallocTest) {
   MallocStress(1000000);
 }
+
 
 static void PrintShadow(const char *tag, uintptr_t ptr, size_t size) {
   fprintf(stderr, "%s shadow: %lx size % 3ld: ", tag, (long)ptr, (long)size);
