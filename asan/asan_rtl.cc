@@ -118,35 +118,10 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
 static sigaction_f      real_sigaction;
 static signal_f         real_signal;
 static mmap_f           real_mmap;
-static malloc_f         real_malloc;
-static realloc_f        real_realloc;
-static free_f           real_free;
 static longjmp_f        real_longjmp;
 static longjmp_f        real_siglongjmp;
 static cxa_throw_f      real_cxa_throw;
 static pthread_create_f real_pthread_create;
-
-#ifdef __APPLE__
-#include <malloc/malloc.h>
-
-static malloc_zone_t *system_malloc_zone = NULL;
-
-static void *apple_real_malloc(size_t size) {
-  CHECK(system_malloc_zone);
-  return malloc_zone_malloc(system_malloc_zone, size);
-}
-
-static void apple_real_free(void *ptr) {
-  CHECK(system_malloc_zone);
-  return malloc_zone_free(system_malloc_zone, ptr);
-}
-
-static void *apple_real_realloc(void *ptr, size_t size) {
-  CHECK(system_malloc_zone);
-  return malloc_zone_realloc(system_malloc_zone, ptr, size);
-}
-
-#endif  // __APPLE__
 
 // -------------------------- AsanStats ---------------- {{{1
 void AsanStats::PrintStats() {
@@ -923,15 +898,6 @@ void __asan_init() {
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
-#ifdef __APPLE__
-  real_malloc = apple_real_malloc;
-  real_realloc = apple_real_realloc;
-  real_free = apple_real_free;
-#else
-  CHECK((real_malloc = (malloc_f)dlsym(RTLD_NEXT, "malloc")));
-  CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
-  CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
-#endif
 
   // Set the SIGSEGV handler.
   {
