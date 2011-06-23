@@ -240,7 +240,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
 
   // fprintf(stderr, "realloc:\n");
   int *r = (int*)malloc(10);
-  r = (int*)realloc(r, 2000);
+  r = (int*)realloc(r, 2000 * sizeof(int));
   r[1000] = 0;
   free(r);
 
@@ -413,13 +413,13 @@ static void MallocStress(size_t n) {
       size_t size = rand() % 1000 + 1;
 #ifndef __APPLE__
       size_t alignment = 1 << (rand() % 7 + 3);
-      void *ptr = memalign_aaa(alignment, size);
+      char *ptr = (char*)memalign_aaa(alignment, size);
 #else      
       void *ptr = malloc_aaa(size);
 #endif
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
-        *((char*)ptr) = 0;
+        ptr[i] = 0;
       }
     }
   }

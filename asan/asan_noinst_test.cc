@@ -55,11 +55,16 @@ static void MallocStress(size_t n) {
       __asan_free(ptr, &stack1);
     } else {
       size_t size = rand() % 1000 + 1;
+      switch ((rand() % 128)) {
+        case 0: size += 1024; break;
+        case 1: size += 2048; break;
+        case 2: size += 4096; break;
+      }
       size_t alignment = 1 << (rand() % 10 + 1);
-      void *ptr = __asan_memalign(alignment, size, &stack2);
+      char *ptr = (char*)__asan_memalign(alignment, size, &stack2);
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
-        *((char*)ptr) = 0;
+        ptr[i] = 0;
       }
     }
   }
@@ -69,15 +74,15 @@ static void MallocStress(size_t n) {
 
 
 TEST(AddressSanitizer, InternalMallocTest) {
-  MallocStress(2000000);
+  MallocStress(1000000);
 }
 
-static void PrintShadow(uintptr_t ptr, size_t size) {
-  fprintf(stderr, "shadow: %lx size % 3ld: ", (long)ptr, (long)size);
+static void PrintShadow(const char *tag, uintptr_t ptr, size_t size) {
+  fprintf(stderr, "%s shadow: %lx size % 3ld: ", tag, (long)ptr, (long)size);
   uintptr_t prev_shadow = 0;
   for (long i = -32; i < (long)size + 32; i++) {
     uintptr_t shadow = MemToShadow(ptr + i);
-    if (i == 0 || i == size)
+    if (i == 0 || i == (long)size)
       fprintf(stderr, ".");
     if (shadow != prev_shadow) {
       prev_shadow = shadow;
@@ -88,10 +93,10 @@ static void PrintShadow(uintptr_t ptr, size_t size) {
 }
 
 TEST(AddressSanitizer, DISABLED_InternalPrintShadow) {
-  for (size_t size = 1; size <= 256; size++) {
+  for (size_t size = 1; size <= 513; size++) {
     char *ptr = new char[size];
-    PrintShadow((uintptr_t)ptr, size);
+    PrintShadow("m", (uintptr_t)ptr, size);
     delete [] ptr;
-    PrintShadow((uintptr_t)ptr, size);
+    PrintShadow("f", (uintptr_t)ptr, size);
   }
 }

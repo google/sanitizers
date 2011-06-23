@@ -59,6 +59,8 @@ extern uintptr_t __asan_flag_large_malloc;
   __asan_check_failed(#cond, __FILE__, __LINE__); \
 }}while(0)
 
+#define ASAN_ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+
 #ifdef __APPLE__
 static const bool __asan_need_real_malloc = false;
 #else

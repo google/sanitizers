@@ -54,32 +54,32 @@ static const size_t kHighShadowEnd  = MEM_TO_SHADOW(kHighMemEnd);
 static const size_t kShadowGapBeg   = kLowShadowEnd + 1;
 static const size_t kShadowGapEnd   = kHighShadowBeg - 1;
 
-static bool AddrIsInLowMem(uintptr_t a) {
+static inline bool AddrIsInLowMem(uintptr_t a) {
   return a < kLowMemEnd;
 }
 
-static bool AddrIsInLowShadow(uintptr_t a) {
+static inline bool AddrIsInLowShadow(uintptr_t a) {
   return a >= kLowShadowBeg && a <= kLowShadowEnd;
 }
 
-static bool AddrIsInHighMem(uintptr_t a) {
+static inline bool AddrIsInHighMem(uintptr_t a) {
   return a >= kHighMemBeg && a <= kHighMemEnd;
 }
 
-static bool AddrIsInMem(uintptr_t a) {
+static inline bool AddrIsInMem(uintptr_t a) {
   return AddrIsInLowMem(a) || AddrIsInHighMem(a);
 }
 
-static uintptr_t MemToShadow(uintptr_t p) {
+static inline uintptr_t MemToShadow(uintptr_t p) {
   CHECK(AddrIsInMem(p));
   return MEM_TO_SHADOW(p);
 }
 
-static bool AddrIsInHighShadow(uintptr_t a) {
+static inline bool AddrIsInHighShadow(uintptr_t a) {
   return a >= kHighShadowBeg && a <=  kHighMemEnd;
 }
 
-static bool AddrIsInShadow(uintptr_t a) {
+static inline bool AddrIsInShadow(uintptr_t a) {
   return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 

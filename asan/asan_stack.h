@@ -32,6 +32,13 @@ struct AsanStackTrace {
   void PrintStack() {
     PrintStack(this->trace, this->size);
   }
+  void CopyTo(uintptr_t *dst, size_t dst_size) {
+    for (size_t i = 0; i < size && i < dst_size; i++)
+      dst[i] = trace[i];
+    for (size_t i = size; i < dst_size; i++)
+      dst[i] = 0;
+  }
+
   void FastUnwindStack(uintptr_t *frame);
   static _Unwind_Reason_Code Unwind_Trace(
       struct _Unwind_Context *ctx, void *param);

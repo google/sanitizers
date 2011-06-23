@@ -18,7 +18,9 @@
 #ifndef ASAN_RTL_H
 #define ASAN_RTL_H
 
-const int kShadowShift = 3;
+const unsigned long kShadowScale = 3;
+// One byte of shadow corresponds to so many aligned bytes of app memory.
+const unsigned long kShadowGranularity = 1UL << kShadowScale;
 const unsigned long long kCompactShadowMask64 = 1ULL << 44;
 const unsigned long      kCompactShadowMask32 = 1UL << 29;
 
