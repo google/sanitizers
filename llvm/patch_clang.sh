@@ -1,13 +1,14 @@
 #!/bin/bash
-ROOT=`pwd`
 cd clang_src
+ROOT=..
 patch -p 0 < $ROOT/llvm/clang.patch
 cd lib/Transforms/Instrumentation
-ln -s $ROOT/llvm/AddressSanitizer.cpp
-ln -s $ROOT/asan/asan_rtl.h
-ln -s $ROOT/third_party/tsan/common_util.cc
-ln -s $ROOT/third_party/tsan/common_util.h
-ln -s $ROOT/third_party/tsan/ignore.cc
-ln -s $ROOT/third_party/tsan/ignore.h
-ln -s $ROOT/third_party/tsan/ts_util.h
+ROOT=../../../..
+ln -fs $ROOT/llvm/AddressSanitizer.cpp
+ln -fs $ROOT/asan/asan_rtl.h
+ln -fs $ROOT/third_party/tsan/common_util.cc
+ln -fs $ROOT/third_party/tsan/common_util.h
+ln -fs $ROOT/third_party/tsan/ignore.cc
+ln -fs $ROOT/third_party/tsan/ignore.h
+ln -fs $ROOT/third_party/tsan/ts_util.h
 
