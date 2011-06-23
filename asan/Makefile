@@ -129,8 +129,8 @@ TEST_OBJECTS=\
 	     $(BIN)/asan_globals_test$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o
 
-$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS) | $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
-	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $^ -o $@ $(LIBS) $(GTEST_LIB)
+$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
+	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $(TEST_OBJECTS) -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
