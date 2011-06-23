@@ -321,6 +321,8 @@ class MallocInfo {
   }
 
   size_t AllocationSize(uintptr_t ptr) {
+    ScopedLock lock(&mu_);
+
     // first, check if this is our memory
     PageGroup *g = NULL;
     for (g = page_groups_; g; g = g->next) {
