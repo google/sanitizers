@@ -21,7 +21,7 @@
 #include "asan_int.h"
 
 extern "C" {
-void *__asan_memalign(size_t size, size_t alignment, AsanStackTrace *stack);
+void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack);
 void __asan_free(void *ptr, AsanStackTrace *stack);
 
 void *__asan_malloc(size_t size, AsanStackTrace *stack);
