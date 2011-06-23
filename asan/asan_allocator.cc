@@ -28,6 +28,7 @@
 #include <sys/mman.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 #include <algorithm>
 
 void *(*__asan_real_malloc)(size_t);
@@ -38,10 +39,19 @@ namespace {
 static const size_t kRedzone      = kMinRedzone * 2;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 128;
+static const uint64_t kMaxAllowedMalloc =
+    __WORDSIZE == 32 ? 0x7fffffffULL : (1ULL << 40);
+
 
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
   abort();
+}
+
+static void OutOfMemoryMessage(const char *mem_type, size_t size) {
+  Printf("==%d== ERROR: AddressSanitizer failed to allocate "
+         "0x%lx (%ld) bytes of %s\n",
+         getpid(), size, size, mem_type);
 }
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
@@ -66,12 +76,12 @@ static inline size_t RoundUpTo(size_t size, size_t boundary) {
   return (size + boundary - 1) & ~(boundary - 1);
 }
 
-static inline size_t RoundUptoPowerOfTwo(size_t size) {
+static inline size_t RoundUpToPowerOfTwo(size_t size) {
   CHECK(size);
   if (IsPowerOfTwo(size)) return size;
   size_t up = __WORDSIZE - __builtin_clzl(size);
-  CHECK(size < (1UL << up));
-  CHECK(size > (1UL << (up - 1)));
+  CHECK(size < (1ULL << up));
+  CHECK(size > (1ULL << (up - 1)));
   return 1UL << up;
 }
 
@@ -110,8 +120,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
   if (res == (uint8_t*)-1) {
-    Printf("ERROR: AddressSanitizer failed to allocate"
-           " %ld bytes of main memory\n", size);
+    OutOfMemoryMessage("main memory", size);
     abort();
   }
   PoisonShadow((uintptr_t)res, size, -1);
@@ -202,6 +211,7 @@ class MallocInfo {
     ScopedLock lock(&mu_);
 
     CHECK(IsPowerOfTwo(size));
+
     size_t idx = Log2(size);
     if (!chunks[idx]) {
       GetNewChunks(size);
@@ -412,7 +422,11 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     needed_size += alignment;
   }
   CHECK((needed_size % kRedzone) == 0);
-  size_t size_to_allocate = RoundUptoPowerOfTwo(needed_size);
+  if (needed_size > kMaxAllowedMalloc) {
+    OutOfMemoryMessage("main memory", size);
+    abort();
+  }
+  size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
   CHECK(size_to_allocate >= kMinAllocSize);
   CHECK((size_to_allocate % kRedzone) == 0);
 
@@ -471,6 +485,11 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   Chunk *m = PtrToChunk(ptr);
   if (m->chunk_state == CHUNK_QUARANTINE) {
     Printf("attempting double-free on %p:\n", ptr);
+    stack->PrintStack();
+    m->DescribeAddress((uintptr_t)ptr, 1);
+    ShowStatsAndAbort();
+  } else if (m->chunk_state != CHUNK_ALLOCATED) {
+    Printf("attempting free on address which was not malloc()-ed: %p\n", ptr);
     stack->PrintStack();
     m->DescribeAddress((uintptr_t)ptr, 1);
     ShowStatsAndAbort();

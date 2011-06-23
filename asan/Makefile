@@ -45,7 +45,7 @@ RTL_HDR=asan_allocator.h \
 SUFF=$(BITS)
 
 LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
-	    $(BIN)/asan_allocator_to_deprecate$(SUFF).o  \
+	    $(BIN)/asan_allocator$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o

@@ -477,8 +477,7 @@ void WrongFree() {
 }
 
 TEST(AddressSanitizer, DISABLED_WrongFreeTest) {
-  WrongFree();
-  //EXPECT_DEATH(WrongFree, "attempting free.*not malloc");
+  EXPECT_DEATH(WrongFree(), "attempting free.*not malloc");
 }
 
 void DoubleFree() {
