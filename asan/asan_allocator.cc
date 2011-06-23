@@ -205,6 +205,14 @@ struct Chunk: public ChunkBase {
   }
 };
 
+static Chunk *PtrToChunk(uintptr_t ptr) {
+  Chunk *m = (Chunk*)(ptr - kRedzone);
+  if (m->chunk_state == CHUNK_MEMALIGN) {
+    m = (Chunk*)((uintptr_t*)m)[1];
+  }
+  return m;
+}
+
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
@@ -310,6 +318,18 @@ class MallocInfo {
       }
     }
     return best_match;
+  }
+
+  size_t AllocationSize(uintptr_t ptr) {
+    // first, check if this is our memory
+    PageGroup *g = NULL;
+    for (g = page_groups_; g; g = g->next) {
+      if (ptr >= g->beg && ptr < g->end) break;
+    }
+    if (!g) return 0;
+    Chunk *m = PtrToChunk(ptr);
+    CHECK(m->chunk_state == CHUNK_ALLOCATED);
+    return m->used_size;
   }
 
  private:
@@ -471,18 +491,10 @@ static void asan_copy_mem(uintptr_t *dst, uintptr_t *src, size_t n_words) {
   }
 }
 
-static Chunk *PtrToChunk(uint8_t *ptr) {
-  Chunk *m = (Chunk*)(ptr - kRedzone);
-  if (m->chunk_state == CHUNK_MEMALIGN) {
-    m = (Chunk*)((uintptr_t*)m)[1];
-  }
-  return m;
-}
-
 static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   //Printf("Deallocate "PP"\n", ptr);
-  Chunk *m = PtrToChunk(ptr);
+  Chunk *m = PtrToChunk((uintptr_t)ptr);
   if (m->chunk_state == CHUNK_QUARANTINE) {
     Printf("attempting double-free on %p:\n", ptr);
     stack->PrintStack();
@@ -511,7 +523,7 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
   if (new_size == 0) {
     return NULL;
   }
-  Chunk *m = PtrToChunk(old_ptr);
+  Chunk *m = PtrToChunk((uintptr_t)old_ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   size_t old_size = m->used_size;
   size_t memcpy_size = std::min(new_size, old_size);
@@ -563,7 +575,7 @@ int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
 }
 
 size_t __asan_mz_size(const void *ptr) {
-  CHECK(0);
+  malloc_info.AllocationSize((uintptr_t)ptr);
   return 0;
 }
 
