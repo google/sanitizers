@@ -103,13 +103,6 @@ static AsanLock shadow_lock;
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
                            struct sigaction *oldact);
 typedef sig_t (*signal_f)(int signum, sig_t handler);
-typedef void* (*mmap_f)(void *start, size_t length,
-                            int prot, int flags,
-                            int fd, off_t offset);
-
-typedef void *(*malloc_f)(size_t);
-typedef void *(*realloc_f)(void*, size_t);
-typedef void  (*free_f)(void*);
 typedef void (*longjmp_f)(void *env, int val);
 typedef void (*cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
@@ -117,7 +110,6 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
 
 static sigaction_f      real_sigaction;
 static signal_f         real_signal;
-static mmap_f           real_mmap;
 static longjmp_f        real_longjmp;
 static longjmp_f        real_siglongjmp;
 static cxa_throw_f      real_cxa_throw;
@@ -212,7 +204,7 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
 
 static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
                         bool abort_on_failure = true) {
-  void *res = real_mmap((void*)start_page, kPageSize * n_pages,
+  void *res = mmap((void*)start_page, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   // Printf("%p => %p\n", (void*)start_page, res);
@@ -252,7 +244,7 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK((beg % kPageSize) == 0);
   CHECK(((end+1) % kPageSize) == 0);
   // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
-  void *res = real_mmap((void*)beg, end - beg + 1,
+  void *res = mmap((void*)beg, end - beg + 1,
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   CHECK(res == (void*)beg);
@@ -906,7 +898,6 @@ void __asan_init() {
     __asan_flag_malloc_context_size = __asan_flag_redzone_words;
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
-  CHECK((real_mmap = (mmap_f)dlsym(RTLD_NEXT, "mmap")));
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
