@@ -1002,8 +1002,6 @@ void __asan_init() {
   CHECK((real_realloc = (realloc_f)dlsym(RTLD_NEXT, "realloc")));
   CHECK((real_free = (free_f)dlsym(RTLD_NEXT, "free")));
 #endif
-  __asan_real_malloc = real_malloc;
-  __asan_real_free   = real_free;
 
   // Set the SIGSEGV handler.
   {

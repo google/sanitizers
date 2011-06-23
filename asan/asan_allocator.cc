@@ -28,9 +28,6 @@
 #include <unistd.h>
 #include <algorithm>
 
-void *(*__asan_real_malloc)(size_t);
-void (*__asan_real_free)(void *ptr);
-
 namespace {
 
 static const size_t kRedzone      = kMinRedzone * 2;

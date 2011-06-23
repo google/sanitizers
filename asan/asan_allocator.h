@@ -15,6 +15,9 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+#ifndef ASAN_ALLOCATOR_H
+#define ASAN_ALLOCATOR_H
+
 #include "asan_int.h"
 
 extern "C" {
@@ -32,8 +35,5 @@ int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
 size_t __asan_mz_size(const void *ptr);
 void __asan_describe_heap_address(uintptr_t addr, size_t access_size);
 
-// to be deprecated
-extern void *(*__asan_real_malloc)(size_t);
-extern void (*__asan_real_free)(void *ptr);
-
 }  // extern "C"
+#endif  // ASAN_ALLOCATOR_H
