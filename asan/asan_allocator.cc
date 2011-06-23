@@ -521,6 +521,10 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
   if (new_size == 0) {
     return NULL;
   }
+  if (__asan_flag_stats) {
+    __asan_stats.reallocs++;
+    __asan_stats.realloced += new_size;
+  }
   Chunk *m = PtrToChunk((uintptr_t)old_ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   size_t old_size = m->used_size;
