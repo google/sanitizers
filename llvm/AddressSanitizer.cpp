@@ -422,17 +422,12 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   // RegisterRuntimeInitializer::insertInitializerIntoGlobalCtorList().
   // LLVM may need a general API function for this.
 
-  assert(0);
-#if 0
-  // TODO(kcc) this code got broken after we bumpped to llvm r133511
-  std::vector<Constant *> CtorInits;
-  CtorInits.push_back (ConstantInt::get (i32Ty, 65535));
-  CtorInits.push_back (f);
+  FunctionType *FnTy = FunctionType::get(VoidTy, false);
+  StructType *ty = StructType::get(
+      i32Ty, PointerType::getUnqual(FnTy), NULL);
+
   Constant *RuntimeCtorInit = ConstantStruct::get(
-      *C, CtorInits, false);
-#else
-  Constant *RuntimeCtorInit = NULL;
-#endif
+      ty, ConstantInt::get (i32Ty, 65535), f, NULL);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
@@ -441,6 +436,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   if (GVCtor) {
     if (Constant *Const = GVCtor->getInitializer()) {
       for (unsigned index = 0; index < Const->getNumOperands(); ++index) {
+        errs() << *Const->getOperand (index) << "\n";
         CurrentCtors.push_back (cast<Constant>(Const->getOperand (index)));
       }
     }
