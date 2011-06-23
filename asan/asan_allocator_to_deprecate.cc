@@ -15,8 +15,7 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-// This is the current ASAN's allocator which we want to deprecate
-// in favor of asan_allocator.cc
+// This file is deprecated and will be deleted soon.
 
 #include "asan_allocator.h"
 #include "asan_int.h"

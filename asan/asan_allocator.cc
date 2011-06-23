@@ -14,9 +14,6 @@
 */
 
 // This file is a part of AddressSanitizer, an address sanity checker.
-// *************
-//  NOTE: this file is not used by the rtl yet
-// *************
 
 #include "asan_allocator.h"
 #include "asan_int.h"
