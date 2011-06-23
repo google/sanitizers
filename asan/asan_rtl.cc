@@ -493,8 +493,8 @@ void operator delete[](void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY;
 extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
                                 void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
-  AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack, real_free);
+  AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
+  new (t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 

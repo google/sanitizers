@@ -25,8 +25,7 @@ class AsanThread {
  public:
   AsanThread(){}
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
-             void *arg, AsanStackTrace *stack,
-             void (*delete_func)(void*));
+             void *arg, AsanStackTrace *stack);
 
   void *ThreadStart();
 
@@ -35,11 +34,7 @@ class AsanThread {
     return this;
   }
 
-  void Unref() {
-    CHECK(refcount_ > 0);
-    if (AtomicDec(&refcount_) == 0)
-      delete_func_(this);
-  }
+  void Unref();
 
   void Announce() {
     if (tid_ == 0) return; // no need to announce the main thread.
@@ -93,7 +88,6 @@ class AsanThread {
 
   AsanThread *next_;
   AsanThread *prev_;
-  void (*delete_func_)(void*);
 
   static AsanThread *live_threads_;
   static AsanThread main_thread_;

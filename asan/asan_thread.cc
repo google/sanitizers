@@ -15,6 +15,7 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+#include "asan_allocator.h"
 #include "asan_thread.h"
 #include "asan_mapping.h"
 
@@ -32,15 +33,13 @@ static __thread AsanThread *tl_current_thread;
 #endif
 
 AsanThread::AsanThread(AsanThread *parent, void *(*start_routine) (void *),
-                       void *arg, AsanStackTrace *stack,
-                       void (*delete_func)(void*))
+                       void *arg, AsanStackTrace *stack)
   : parent_(parent),
   start_routine_(start_routine),
   arg_(arg),
   tid_(AtomicInc(&n_threads_)),
   announced_(false),
-  refcount_(1),
-  delete_func_(delete_func) {
+  refcount_(1) {
   if (stack) {
     stack_ = *stack;
   }
@@ -130,6 +129,16 @@ void AsanThread::Init() {
   live_threads_ = GetMain();
   live_threads_->next_ = live_threads_->prev_ = live_threads_;
   SetCurrent(GetMain());
+}
+
+void AsanThread::Unref() {
+  CHECK(refcount_ > 0);
+  if (AtomicDec(&refcount_) == 0) {
+    CHECK(tid() > 0);
+    AsanStackTrace stack;
+    stack.size = 0;
+    __asan_free(this, &stack);
+  }
 }
 
 AsanThread* AsanThread::GetCurrent() {
