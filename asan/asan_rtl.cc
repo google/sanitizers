@@ -1053,11 +1053,8 @@ void __asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
-
-  AsanThread *t = (AsanThread*)real_malloc(sizeof(AsanThread));
-  new (t) AsanThread(0, 0, 0, 0, 0);
-  AsanThread::SetCurrent(t);
-  t->ThreadStart();
+  AsanThread::Init();
+  AsanThread::GetMain()->ThreadStart();
 
   asan_inited = 1;
 

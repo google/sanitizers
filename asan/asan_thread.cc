@@ -24,7 +24,6 @@
 
 #ifdef __APPLE__
 static pthread_key_t g_tls_key;
-static AsanThread *g_thread_0 = NULL;
 // This flag is updated only once at program startup, and then read
 // by concurrent threads.
 static bool tls_key_created = false;
@@ -38,15 +37,12 @@ AsanThread::AsanThread(AsanThread *parent, void *(*start_routine) (void *),
   : parent_(parent),
   start_routine_(start_routine),
   arg_(arg),
-  tid_(AtomicInc(&n_threads_) - 1),
+  tid_(AtomicInc(&n_threads_)),
   announced_(false),
   refcount_(1),
   delete_func_(delete_func) {
   if (stack) {
     stack_ = *stack;
-  }
-  if (tid_ == 0) {
-    live_threads_ = next_ = prev_ = this;
   }
 }
 
@@ -64,6 +60,8 @@ void *AsanThread::ThreadStart() {
   uintptr_t shadow_bot = MemToShadow(stack_bottom_);
   uintptr_t shadow_top = MemToShadow(stack_top_);
   memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
+
+  CHECK(live_threads_);
 
   { // Insert this thread into live_threads_
     ScopedLock lock(&mu_);
@@ -124,6 +122,16 @@ void AsanThread::SetThreadStackTopAndBottom() {
 #endif
 }
 
+void AsanThread::Init() {
+#ifdef __APPLE__
+    CHECK(0 == pthread_key_create(&g_tls_key, 0));
+    tls_key_created = true;
+#endif
+  live_threads_ = GetMain();
+  live_threads_->next_ = live_threads_->prev_ = live_threads_;
+  SetCurrent(GetMain());
+}
+
 AsanThread* AsanThread::GetCurrent() {
 #ifdef __APPLE__
   CHECK(tls_key_created);
@@ -134,7 +142,7 @@ AsanThread* AsanThread::GetCurrent() {
   if (thread) {
     return thread;
   } else {
-    return g_thread_0;
+    return GetMain();
   }
 #else
   return tl_current_thread;
@@ -142,15 +150,6 @@ AsanThread* AsanThread::GetCurrent() {
 }
 
 void AsanThread::SetCurrent(AsanThread *t) {
-  if (!inited_) {
-    // This is the main thread.
-#ifdef __APPLE__
-    CHECK(0 == pthread_key_create(&g_tls_key, 0));
-    tls_key_created = true;
-    g_thread_0 = t;
-#endif  // __APPLE__
-    inited_ = true;
-  }
 #ifdef __APPLE__
   CHECK(0 == pthread_setspecific(g_tls_key, t));
   CHECK(pthread_getspecific(g_tls_key));
@@ -163,3 +162,4 @@ int AsanThread::n_threads_;
 AsanThread *AsanThread::live_threads_;
 AsanLock AsanThread::mu_;
 bool AsanThread::inited_;
+AsanThread AsanThread::main_thread_;

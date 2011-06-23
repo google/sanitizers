@@ -23,6 +23,7 @@
 
 class AsanThread {
  public:
+  AsanThread(){}
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
              void *arg, AsanStackTrace *stack,
              void (*delete_func)(void*));
@@ -73,6 +74,9 @@ class AsanThread {
   static AsanThread *GetCurrent();
   static void SetCurrent(AsanThread *t);
 
+  static AsanThread *GetMain() { return &main_thread_; }
+  static void Init();
+
  private:
 
   void SetThreadStackTopAndBottom();
@@ -92,6 +96,7 @@ class AsanThread {
   void (*delete_func_)(void*);
 
   static AsanThread *live_threads_;
+  static AsanThread main_thread_;
   static int n_threads_;
   static AsanLock mu_;
   static bool inited_;
