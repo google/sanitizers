@@ -86,6 +86,17 @@ install:
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
+$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) Makefile
+	$(CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
+
+$(BIN)/%_test$(SUFF).o: %_test.cc $(RTL_HDR) Makefile
+	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \
+		-m$(BITS)                             \
+		-mllvm -asan-ignore=asan_test.ignore  \
+		-mllvm -asan-stack=$(ASAN_STACK)      \
+		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
+		-mllvm -asan-use-call=$(ASAN_USE_CALL)
+
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\"
@@ -111,22 +122,15 @@ $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF) Makefile
 	rm -f $@
 	ar ruv $@ $^ $(BFDS_OBJECTS)
 
-$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) Makefile
-	$(CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
 
-$(BIN)/asan_test$(SUFF).o: asan_test.cc $(RTL_HDR) Makefile
-	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \
-		-m$(BITS)                             \
-		-mllvm -asan-ignore=asan_test.ignore  \
-		-mllvm -asan-stack=$(ASAN_STACK)      \
-		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
-		-mllvm -asan-use-call=$(ASAN_USE_CALL)
 
-$(BIN)/asan_test$(SUFF): $(BIN)/asan_test$(SUFF).o $(BIN)/asan_noinst_test$(SUFF).o $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
-	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 \
-		$(BIN)/asan_test$(SUFF).o \
-		$(BIN)/asan_noinst_test$(SUFF).o   \
-		-o $@ $(LIBS) $(GTEST_LIB)
+TEST_OBJECTS=\
+	     $(BIN)/asan_test$(SUFF).o \
+	     $(BIN)/asan_globals_test$(SUFF).o \
+	     $(BIN)/asan_noinst_test$(SUFF).o
+
+$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS) | $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
+	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $^ -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \

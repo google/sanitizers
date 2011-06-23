@@ -891,7 +891,8 @@ TEST(AddressSanitizer, DisasmTest) {
 
 // Currently we create and poison redzone at right of global variables.
 char glob5[5];
-char static10[10];
+static char static10[10];
+extern int GlobalsTest(int);
 
 TEST(AddressSanitizer, DISABLED_GlobalTest) {
   static char func_static15[15];
@@ -908,6 +909,7 @@ TEST(AddressSanitizer, DISABLED_GlobalTest) {
 
   EXPECT_DEATH(glob5[Ident(5)] = 0, "0 bytes to the right of global variable");
   EXPECT_DEATH(glob5[Ident(5+6)] = 0, "6 bytes to the right of global variable");
+  Ident(static10);  // avoid optimizations
   static10[Ident(0)] = 0;
   static10[Ident(9)] = 0;
   EXPECT_DEATH(static10[Ident(10)] = 0,
@@ -929,6 +931,9 @@ TEST(AddressSanitizer, DISABLED_GlobalTest) {
   // We don't create left redzones, so this is not 100% guaranteed to fail.
   // But most likely will.
   EXPECT_DEATH(fs2[Ident(-1)] = 0, "is located.*of global variable");
+
+  // call stuff from another file.
+  GlobalsTest(0);
 }
 
 // ------------------ demo tests; run each one-by-one -------------

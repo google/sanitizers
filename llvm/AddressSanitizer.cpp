@@ -436,7 +436,6 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   if (GVCtor) {
     if (Constant *Const = GVCtor->getInitializer()) {
       for (unsigned index = 0; index < Const->getNumOperands(); ++index) {
-        errs() << *Const->getOperand (index) << "\n";
         CurrentCtors.push_back (cast<Constant>(Const->getOperand (index)));
       }
     }
