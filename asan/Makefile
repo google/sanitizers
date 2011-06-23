@@ -120,7 +120,7 @@ endif
 
 $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF) Makefile
 	rm -f $@
-	ar ruv $@ $^ $(BFDS_OBJECTS)
+	ar ru $@ $^ $(BFDS_OBJECTS)
 
 
 

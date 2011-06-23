@@ -427,6 +427,16 @@ static void Describe(uintptr_t addr, size_t access_size) {
 }
 
 static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
+  if (__asan_flag_stats) {
+    __asan_stats.allocated_since_last_stats += size;
+    __asan_stats.mallocs++;
+    __asan_stats.malloced += size;
+    if (__asan_stats.allocated_since_last_stats > (1U << __asan_flag_stats)) {
+      __asan_stats.PrintStats();
+      __asan_stats.allocated_since_last_stats = 0;
+    }
+  }
+
   // Printf("Allocate align: %ld size: %ld\n", alignment, size);
   if (size == 0) {
     size = 1;  // TODO(kcc): do something smarter

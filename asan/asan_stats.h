@@ -29,7 +29,7 @@ struct AsanStats {
   size_t really_freed;
   size_t reallocs;
   size_t realloced;
-  size_t freed_since_last_stats;
+  size_t allocated_since_last_stats;
 
   void PrintStats();
 };
