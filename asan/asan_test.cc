@@ -415,7 +415,7 @@ static void MallocStress(size_t n) {
       size_t alignment = 1 << (rand() % 7 + 3);
       char *ptr = (char*)memalign_aaa(alignment, size);
 #else
-      void *ptr = malloc_aaa(size);
+      char *ptr = (char*) malloc_aaa(size);
 #endif
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
