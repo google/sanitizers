@@ -574,8 +574,7 @@ int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
 }
 
 size_t __asan_mz_size(const void *ptr) {
-  malloc_info.AllocationSize((uintptr_t)ptr);
-  return 0;
+  return malloc_info.AllocationSize((uintptr_t)ptr);
 }
 
 void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {
