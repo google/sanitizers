@@ -131,6 +131,8 @@ void AsanStats::PrintStats() {
   Printf("Stats: %ldM freed by %ld calls\n", freed>>20, frees);
   Printf("Stats: %ldM really freed by %ld calls\n",
          really_freed>>20, real_frees);
+  Printf("Stats: %ldM (%ld pages) mmaped in %ld calls\n",
+         mmaped>>20, mmaped / kPageSize, mmaps);
 #if __WORDSIZE == 64
   Printf("Stats: %ldM of shadow memory allocated in %ld clusters\n"
          "             (%ldM each, %ld low and %ld high)\n",

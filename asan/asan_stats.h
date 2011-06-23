@@ -30,6 +30,8 @@ struct AsanStats {
   size_t reallocs;
   size_t realloced;
   size_t allocated_since_last_stats;
+  size_t mmaps;
+  size_t mmaped;
 
   void PrintStats();
 };

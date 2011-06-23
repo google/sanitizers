@@ -118,6 +118,10 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
     abort();
   }
   PoisonShadow((uintptr_t)res, size, -1);
+  if (__asan_flag_stats) {
+    __asan_stats.mmaps++;
+    __asan_stats.mmaped += size;
+  } 
   return res;
 }
 
@@ -353,6 +357,11 @@ class MallocInfo {
     size_t idx = Log2(m->allocated_size);
     m->next = chunks[idx];
     chunks[idx] = m;
+
+    if (__asan_flag_stats) {
+      __asan_stats.real_frees++;
+      __asan_stats.really_freed += m->used_size;
+    }
   }
 
   void GetNewChunks(size_t size) {
