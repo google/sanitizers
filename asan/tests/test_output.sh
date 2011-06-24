@@ -9,7 +9,7 @@ for t in  *.tmpl; do
     c=`basename $t .tmpl`
     echo $b $c
     $CXX -g -m$b -fasan -O2 $c.cc
-    ./a.out 2>&1 | $SYMBOLIZER | ./match_output.py $t || exit 1
+    ./a.out 2>&1 | $SYMBOLIZER | c++filt | ./match_output.py $t || exit 1
     rm ./a.out
   done
 done
