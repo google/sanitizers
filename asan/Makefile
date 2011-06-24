@@ -14,6 +14,7 @@
 
 SVNVERSION=$(shell svnversion)
 OS=$(shell uname)
+ROOT=$(shell pwd)
 
 CXX=g++ -Wall
 
@@ -51,7 +52,7 @@ LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/sysinfo$(SUFF).o
 
 
-GTEST_ROOT=../third_party/googletest
+GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
@@ -86,13 +87,13 @@ install:
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
-$(BIN)/asan_noinst_test$(SUFF).o: asan_noinst_test.cc $(RTL_HDR) Makefile
-	$(CXX) -m$(BITS) $(GTEST_INCLUDE) -g -c $< -O2 -o $@
+$(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
+	$(CXX) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
 
-$(BIN)/%_test$(SUFF).o: %_test.cc $(RTL_HDR) Makefile
-	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -g -c $< -O2 -o $@ \
+$(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
+	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
 		-m$(BITS)                             \
-		-mllvm -asan-ignore=asan_test.ignore  \
+		-mllvm -asan-ignore=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL)
@@ -128,7 +129,7 @@ TEST_OBJECTS=\
 	     $(BIN)/asan_globals_test$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o
 
-$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
+$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
 	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $(TEST_OBJECTS) -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
