@@ -29,23 +29,29 @@ using std::string;
 class ProcSelfMaps {
  public:
   void Init() {
+    if (map_size_ != 0) return; // already inited
+    if (__asan_flag_v) {
+      Printf("ProcSelfMaps::Init()\n");
+    }
     ProcMapsIterator it(0, &proc_self_maps_);   // 0 means "current pid"
 
     uint64 start, end, offset;
     int64 inode;
     char *flags, *filename;
-    map_size_ = 0;
+    CHECK(map_size_ == 0);
     while (it.Next(&start, &end, &flags, &offset, &inode, &filename)) {
       CHECK(map_size_ < kMaxProcSelfMapsSize);
       Mapping &mapping = memory_map[map_size_];
       mapping.beg = start;
       mapping.end = end;
+      mapping.offset = offset;
       strncpy(mapping.name, filename, ASAN_ARRAY_SIZE(mapping.name));
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
-      map_size_++;
       if (__asan_flag_v) {
-        Printf(""PP"-"PP" %s\n", mapping.beg, mapping.end, mapping.name);
+        Printf("[%ld] ["PP","PP"] off "PP" %s\n", map_size_,
+               mapping.beg, mapping.end, mapping.offset, mapping.name);
       }
+      map_size_++;
     }
   }
 
@@ -114,7 +120,7 @@ class ProcSelfMaps {
 
 
   struct Mapping {
-    uintptr_t beg, end;
+    uintptr_t beg, end, offset;
     char name[1000];
   };
   static const size_t kMaxNumMapEntries = 4096;
@@ -129,6 +135,7 @@ static ProcSelfMaps proc_self_maps;
 // ----------------------- AsanStackTrace ----------------------------- {{{1
 
 void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
+  proc_self_maps.Init();
   for (size_t i = 0; i < size && addr[i]; i++) {
     uintptr_t pc = addr[i];
     string img, rtn, file;
@@ -138,10 +145,6 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
     // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
     if (rtn == "main()") break;
   }
-}
-
-void AsanStackTrace::Init() {
-  proc_self_maps.Init();
 }
 
 _Unwind_Reason_Code AsanStackTrace::Unwind_Trace(

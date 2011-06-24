@@ -28,7 +28,6 @@ struct AsanStackTrace {
   size_t max_size;
   uintptr_t trace[kStackTraceMax];
   static void PrintStack(uintptr_t *addr, size_t size);
-  static void Init();
   void PrintStack() {
     PrintStack(this->trace, this->size);
   }

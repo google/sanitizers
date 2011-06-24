@@ -740,7 +740,6 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   Printf("==================================================================\n");
   PrintUnwinderHint();
-  AsanStackTrace::Init();
   Printf("==%d== ERROR: AddressSanitizer crashed on address "
          ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
          getpid(), addr, pc, bp, sp);

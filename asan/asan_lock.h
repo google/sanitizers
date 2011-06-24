@@ -44,16 +44,16 @@ class AsanLock {
 class AsanLock {
  public:
   AsanLock() {
-    CHECK(0 == pthread_mutex_init(&mu_, NULL));
+    pthread_mutex_init(&mu_, NULL);
   }
   ~AsanLock() {
-    CHECK(0 == pthread_mutex_destroy(&mu_));
+    pthread_mutex_destroy(&mu_);
   }
   void Lock() {
-    CHECK(0 == pthread_mutex_lock(&mu_));
+    pthread_mutex_lock(&mu_);
   }
   void Unlock() {
-    CHECK(0 == pthread_mutex_unlock(&mu_));
+    pthread_mutex_unlock(&mu_);
   }
  private:
   pthread_mutex_t mu_;
