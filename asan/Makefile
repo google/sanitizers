@@ -61,7 +61,10 @@ PLATFORM=$(shell uname | tr "[A-Z]" "[a-z]")
 
 all: b64 b32
 
-test: t64 t32
+test: t64 t32 output_tests
+
+output_tests: b32 b64
+	cd tests && ./test_output.sh
 
 t64: b64
 	$(BIN)/asan_test64
