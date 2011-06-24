@@ -60,7 +60,6 @@ class ProcSelfMaps {
   }
 
   void PrintPc(uintptr_t pc, int idx) {
-    const int kLen = 1024;
 #if 0 // In-process symbolizer is disabled for now, too cranky
     char func[kLen+1] = "",
          file[kLen+1] = "",
