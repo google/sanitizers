@@ -71,6 +71,14 @@ static cl::opt<string>  IgnoreFile("asan-ignore",
 static cl::opt<bool> ClUseCall("asan-use-call",
        cl::desc("Use function call to generate a crash"), cl::init(false));
 
+// These flags *will* allow to change the shadow mapping. Not usable yet.
+// The shadow mapping looks like
+//    Shadow = (Mem >> scale) + (1 << offset)
+static cl::opt<int> ClMappingScale("asan-mapping-scale",
+       cl::desc("scale of asan shadow mapping"), cl::init(kShadowScale));
+static cl::opt<int> ClMappingOffset("asan-mapping-offset",
+       cl::desc("offset of asan shadow mapping"), cl::init(0));
+
 // Optimization flags. Not user visible, used mostly for testing
 // and benchmarking the tool.
 static cl::opt<bool> ClOpt("asan-opt",
@@ -147,6 +155,7 @@ struct AddressSanitizer : public ModulePass {
   Module      *CurrentModule;
   LLVMContext *C;
   TargetData *TD;
+  uint64_t    MappingOffset;
   int         LongSize;
   const Type *VoidTy;
   const Type *LongTy;
@@ -202,13 +211,10 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
 }
 
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
-  // Shadow >> 3
-  Shadow = irb.CreateLShr(Shadow, 3);
-  uint64_t mask = LongSize == 32
-      ? kCompactShadowMask32
-      : kCompactShadowMask64;
-  // (Shadow >> 3) | mask
-  return irb.CreateOr(Shadow, ConstantInt::get(LongTy, mask));
+  // Shadow >> scale
+  Shadow = irb.CreateLShr(Shadow, ClMappingScale);
+  // (Shadow >> scale) | offset
+  return irb.CreateOr(Shadow, ConstantInt::get(LongTy, MappingOffset));
 }
 
 void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
@@ -395,17 +401,18 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  if (type_size < 64) {
-    // addr & 7
+  size_t granularity = 1 << ClMappingScale;
+  if (type_size < 8 * granularity) {
+    // addr & (granularity - 1)
     Value *Lower3Bits = irb2.CreateAnd(
-        AddrLong, ConstantInt::get(LongTy, 7));
-    // (addr & 7) + size
+        AddrLong, ConstantInt::get(LongTy, granularity - 1));
+    // (addr & (granularity - 1)) + size
     Value *LastAccessedByte = irb2.CreateAdd(
         Lower3Bits, ConstantInt::get(LongTy, type_size / 8));
-    // (uint8_t) ((addr & 7) + size)
+    // (uint8_t) ((addr & (granularity-1)) + size)
     LastAccessedByte = irb2.CreateIntCast(
         LastAccessedByte, ByteTy, false);
-    // ((uint8_t) ((addr & 7) + size)) > ShadowValue
+    // ((uint8_t) ((addr & (granularity-1)) + size)) > ShadowValue
     Value *cmp2 = irb2.CreateICmpSGT(LastAccessedByte, ShadowValue);
 
     CheckTerm = splitBlockAndInsertIfThen(CheckTerm, cmp2);
@@ -579,6 +586,18 @@ bool AddressSanitizer::runOnModule(Module &M) {
   LongPtrTy = PointerType::get(LongTy, 0);
   i32PtrTy = PointerType::get(i32Ty, 0);
   VoidTy = Type::getVoidTy(*C);
+
+  MappingOffset = LongSize == 32
+      ? kCompactShadowMask32 : kCompactShadowMask64;
+  if (ClMappingOffset) {
+    MappingOffset = 1ULL << ClMappingOffset;
+  }
+  new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
+                     ConstantInt::get(LongTy, MappingOffset),
+                     "__asan_mapping_offset");
+  new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
+                     ConstantInt::get(LongTy, ClMappingScale),
+                     "__asan_mapping_scale");
 
   bool res = false;
 

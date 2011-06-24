@@ -93,6 +93,10 @@ void __asan_printf(const char *format, ...) {
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
 
+__attribute__((weak)) uintptr_t __asan_mapping_scale;
+__attribute__((weak)) uintptr_t __asan_mapping_offset;
+
+
 #if __WORDSIZE == 64
 static uintptr_t
   mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
@@ -974,6 +978,12 @@ void __asan_init() {
     Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
     Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
+    if (&__asan_mapping_scale) {
+      Printf("__asan_mapping_scale: %lx\n", __asan_mapping_scale);
+    }
+    if (&__asan_mapping_offset) {
+      Printf("__asan_mapping_offset: %lx\n", __asan_mapping_offset);
+    }
   }
 }
 
