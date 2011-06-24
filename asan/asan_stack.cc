@@ -44,7 +44,7 @@ class ProcSelfMaps {
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
       map_size_++;
       if (__asan_flag_v) {
-        Printf(""PP"-"PP" %s\n", mapping.name);
+        Printf(""PP"-"PP" %s\n", mapping.beg, mapping.end, mapping.name);
       }
     }
   }
