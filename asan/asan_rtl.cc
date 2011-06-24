@@ -954,10 +954,11 @@ void __asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
+  asan_inited = 1;
+
   AsanThread::Init();
   AsanThread::GetMain()->ThreadStart();
 
-  asan_inited = 1;
 
   if (__asan_flag_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);

@@ -214,6 +214,7 @@ static Chunk *PtrToChunk(uintptr_t ptr) {
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
+    __asan_init();
     ScopedLock lock(&mu_);
 
     CHECK(IsPowerOfTwo(size));

@@ -105,22 +105,21 @@ $(BIN)/libasan$(SUFF).so: $(LIBASAN_OBJ)
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
 
 
-ifeq ($(PLATFORM), linux)
-BFDS_OBJECTS=bfds$(SUFF)/*.o
-bfds$(SUFF):
-	mkdir -p $@
-	cp ../third_party/bin/bfd_symbolizer/$(PLATFORM)/bfds$(BITS).a $@/bfds$(SUFF).a
-	cd $@ && ar x bfds$(SUFF).a
-else
-# Do not use the BFD symbolizer outside Linux.
-BFDS_OBJECTS=
-bfds$(SUFF):
+#ifeq ($(PLATFORM), linux)
+#BFDS_OBJECTS=bfds$(SUFF)/*.o
+#bfds$(SUFF):
+#	mkdir -p $@
+#	cp ../third_party/bin/bfd_symbolizer/$(PLATFORM)/bfds$(BITS).a $@/bfds$(SUFF).a
+#	cd $@ && ar x bfds$(SUFF).a
+#else
+## Do not use the BFD symbolizer outside Linux.
+#BFDS_OBJECTS=
+#bfds$(SUFF):
+#
+#endif
 
-endif
-
-$(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | bfds$(SUFF) Makefile
-	rm -f $@
-	ar ru $@ $^ $(BFDS_OBJECTS)
+$(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | Makefile
+	ar ru $@ $^
 
 
 

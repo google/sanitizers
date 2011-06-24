@@ -551,16 +551,16 @@ __attribute__((noinline)) static void Frame3(int frame) {
 }
 
 TEST(AddressSanitizer, GuiltyStackFrame0Test) {
-  EXPECT_DEATH(Frame3(0), "#0[ a-z0-9]*Frame0.*allocated in frame #0");
+  EXPECT_DEATH(Frame3(0), "allocated in frame #0");
 }
 TEST(AddressSanitizer, GuiltyStackFrame1Test) {
-  EXPECT_DEATH(Frame3(1), "#1[ a-z0-9]*Frame1.*allocated in frame #1");
+  EXPECT_DEATH(Frame3(1), "allocated in frame #1");
 }
 TEST(AddressSanitizer, GuiltyStackFrame2Test) {
-  EXPECT_DEATH(Frame3(2), "#2[ a-z0-9]*Frame2.*allocated in frame #2");
+  EXPECT_DEATH(Frame3(2), "allocated in frame #2");
 }
 TEST(AddressSanitizer, GuiltyStackFrame3Test) {
-  EXPECT_DEATH(Frame3(3), "#3[ a-z0-9]*Frame3.*allocated in frame #3");
+  EXPECT_DEATH(Frame3(3), "allocated in frame #3");
 }
 
 
@@ -740,7 +740,7 @@ static int LargeFunction(bool do_bad_access) {
 
 // Test the we have correct debug info for the failing instruction.
 // This test requires the in-process symbolizer to be enabled by default.
-TEST(AddressSanitizer, LargeFunctionSymbolizeTest) {
+TEST(AddressSanitizer, DISABLED_LargeFunctionSymbolizeTest) {
   int failing_line = LargeFunction(false);
   char expected_warning[128];
   sprintf(expected_warning, "LargeFunction.*asan_test.cc:%d", failing_line);
@@ -748,7 +748,7 @@ TEST(AddressSanitizer, LargeFunctionSymbolizeTest) {
 }
 
 // Check that we unwind and symbolize correctly.
-TEST(AddressSanitizer, MallocFreeUnwindAndSymbolizeTest) {
+TEST(AddressSanitizer, DISABLED_MallocFreeUnwindAndSymbolizeTest) {
   int *a = (int*)malloc_aaa(sizeof(int));
   *a = 1;
   free_aaa(a);

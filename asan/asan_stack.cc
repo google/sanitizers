@@ -19,7 +19,7 @@
 
 #include "asan_thread.h"
 #include "sysinfo.h"
-#include "bfd_symbolizer/bfd_symbolizer.h"
+//#include "bfd_symbolizer/bfd_symbolizer.h"
 
 #include <string.h>
 #include <string>
@@ -43,6 +43,9 @@ class ProcSelfMaps {
       strncpy(mapping.name, filename, ASAN_ARRAY_SIZE(mapping.name));
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
       map_size_++;
+      if (__asan_flag_v) {
+        Printf(""PP"-"PP" %s\n", mapping.name);
+      }
     }
   }
 
@@ -58,7 +61,7 @@ class ProcSelfMaps {
 
   void PrintPc(uintptr_t pc, int idx) {
     const int kLen = 1024;
-#ifndef __APPLE__
+#if 0 // In-process symbolizer is disabled for now, too cranky
     char func[kLen+1] = "",
          file[kLen+1] = "",
          module[kLen+1] = "";
