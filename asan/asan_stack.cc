@@ -40,7 +40,8 @@ class ProcSelfMaps {
       Mapping &mapping = memory_map[map_size_];
       mapping.beg = start;
       mapping.end = end;
-      mapping.name_beg = filename;
+      strncpy(mapping.name, filename, ASAN_ARRAY_SIZE(mapping.name));
+      mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
       map_size_++;
     }
   }
@@ -64,7 +65,7 @@ class ProcSelfMaps {
     int line = 0;
     int offset = 0;
 
-    if (__asan_flag_symbolize) {
+    if (0 && __asan_flag_symbolize) {
       int opt = bfds_opt_none;
       if (idx == 0)
         opt |= bfds_opt_update_libs;
@@ -91,11 +92,9 @@ class ProcSelfMaps {
     for (size_t i = 0; i < map_size_; i++) {
       Mapping &m = memory_map[i];
       if (pc >= m.beg && pc < m.end) {
-        char buff[kLen + 1];
         uintptr_t offset = pc - m.beg;
         if (i == 0) offset = pc;
-        copy_until_new_line(m.name_beg, buff, kLen);
-        Printf("    #%d 0x%lx (%s+0x%lx)\n", idx, pc, buff, offset);
+        Printf("    #%d 0x%lx (%s+0x%lx)\n", idx, pc, m.name, offset);
         return;
       }
     }
@@ -114,7 +113,7 @@ class ProcSelfMaps {
 
   struct Mapping {
     uintptr_t beg, end;
-    const char *name_beg;
+    char name[1000];
   };
   static const size_t kMaxNumMapEntries = 4096;
   static const size_t kMaxProcSelfMapsSize = 1 << 20;
