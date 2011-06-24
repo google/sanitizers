@@ -484,6 +484,9 @@ extern "C" void __cxa_throw(void *a, void *b, void *c) {
 // http://code.google.com/p/google-perftools.
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
+#include <malloc/malloc.h>
+
+static malloc_zone_t *system_malloc_zone = NULL;
 
 // We need to provide wrappers around all the libc functions.
 namespace {
