@@ -100,7 +100,7 @@ static void PoisonPartialRightRedzone(uintptr_t mem, size_t size) {
     if (i + kShadowGranularity <= size) {
       *shadow = 0;  // fully addressable
     } else if (i >= size) {
-      *shadow = 0xff;  // fully unaddressable
+      *shadow = 0xfa;  // fully unaddressable
     } else {
       size_t n_addressable_bytes = size - i;
       *shadow = n_addressable_bytes;
@@ -117,11 +117,11 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
     OutOfMemoryMessage("main memory", size);
     abort();
   }
-  PoisonShadow((uintptr_t)res, size, -1);
+  PoisonShadow((uintptr_t)res, size, 0xff);
   if (__asan_flag_stats) {
     __asan_stats.mmaps++;
     __asan_stats.mmaped += size;
-  } 
+  }
   return res;
 }
 
@@ -513,7 +513,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   m->free_thread = AsanThread::GetCurrent()->Ref();
   stack->CopyTo(m->free_stack, ASAN_ARRAY_SIZE(m->free_stack));
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
-  PoisonShadow((uintptr_t)ptr, rounded_size, -1);
+  PoisonShadow((uintptr_t)ptr, rounded_size, 0xfb);
 
   if (__asan_flag_stats) {
     __asan_stats.frees++;
