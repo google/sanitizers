@@ -48,7 +48,6 @@
 #include "asan_rtl.h"
 
 using namespace llvm;
-using namespace std;
 
 // Command-line flags.
 
