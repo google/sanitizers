@@ -52,7 +52,6 @@
 
 #include "asan_rtl.h"
 
-using std::string;
 using std::vector;
 using std::max;
 
@@ -73,7 +72,7 @@ static cl::opt<bool> ClGlobals("asan-globals",
        cl::desc("Handle global objects"), cl::init(false));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
-static cl::opt<string>  ClBlackListFile("asan-black-list",
+static cl::opt<std::string>  ClBlackListFile("asan-black-list",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 static cl::opt<bool> ClUseCall("asan-use-call",
@@ -103,7 +102,7 @@ static cl::opt<bool> ClExperimental("asan-experiment",
 // Debug flags.
 static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
 static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"), cl::init(0));
-static cl::opt<string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
+static cl::opt<std::string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
 static cl::opt<int> ClDebugMin("asan-debug-min",
                                cl::desc("Debug min inst"), cl::init(-1));
 static cl::opt<int> ClDebugMax("asan-debug-max",
@@ -122,7 +121,7 @@ static const char *kAsanGlobalPoisonerName = "asan.poison_globals";
 // http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
 class BlackList {
  public:
-  BlackList(const string &path);
+  BlackList(const std::string &path);
   bool IsIn(const Function &F);
  private:
   Regex *functions;
@@ -854,11 +853,11 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   return true;
 }
 
-BlackList::BlackList(const string &path) {
+BlackList::BlackList(const std::string &path) {
   functions = NULL;
   const char *kFunPrefix = "fun:";
   if (!ClBlackListFile.size()) return;
-  string fun;
+  std::string fun;
 
   OwningPtr<MemoryBuffer> File;
   if (error_code ec = MemoryBuffer::getFile(ClBlackListFile.c_str(), File)) {
@@ -872,7 +871,7 @@ BlackList::BlackList(const string &path) {
   SplitString(StringRef(data, data_len), lines, "\n\r");
   for (size_t i = 0; i < lines.size(); i++) {
     if (lines[i].startswith(kFunPrefix)) {
-      string this_fun = lines[i].substr(strlen(kFunPrefix));
+      std::string this_fun = lines[i].substr(strlen(kFunPrefix));
       if (fun.size()) {
         fun += "|";
       }
