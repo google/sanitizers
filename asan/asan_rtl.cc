@@ -206,10 +206,16 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
 
 void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset) {
-#if __WORDSIZE == 64
+#ifndef __APPLE__
+// Generally we don't want our mmap() to be wrapped by anyone.
+// On Linux we use syscall(), on Mac we don't care for now.
+# if __WORDSIZE == 64
   return (void *)syscall(SYS_mmap, addr, length, prot, flags, fd, offset);
-#else
+# else
   return (void *)syscall(SYS_mmap2, addr, length, prot, flags, fd, offset);
+# endif
+#else
+  return mmap(addr, length, prot, flags, fd, offset);
 #endif
 }
 
