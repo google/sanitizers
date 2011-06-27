@@ -103,7 +103,8 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
-		-DASAN_REVISION=\"$(SVNVERSION)\"
+		-DASAN_REVISION=\"$(SVNVERSION)\" \
+		-DASAN_USE_SYSINFO=1
 
 $(BIN)/libasan$(SUFF).so: $(LIBASAN_OBJ)
 	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl

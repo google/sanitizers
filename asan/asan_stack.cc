@@ -16,13 +16,13 @@
 // This file is a part of AddressSanitizer, an address sanity checker.
 
 #include "asan_stack.h"
-
 #include "asan_thread.h"
-#include "sysinfo.h"
 
 #include <string.h>
 
 // ----------------------- ProcSelfMaps ----------------------------- {{{1
+#ifdef ASAN_USE_SYSINFO
+#include "sysinfo.h"
 class ProcSelfMaps {
  public:
   void Init() {
@@ -98,7 +98,6 @@ class ProcSelfMaps {
 
 static ProcSelfMaps proc_self_maps;
 
-// ----------------------- AsanStackTrace ----------------------------- {{{1
 
 void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
   proc_self_maps.Init();
@@ -109,7 +108,29 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
     // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
   }
 }
+#elif defined(ASAN_USE_EXTERNAL_SYMBOLIZER)
+extern bool 
+ASAN_USE_EXTERNAL_SYMBOLIZER(const void *pc, char *out, int out_size);
 
+void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
+  for (size_t i = 0; i < size && addr[i]; i++) {
+    uintptr_t pc = addr[i];
+    char buff[4096];
+    ASAN_USE_EXTERNAL_SYMBOLIZER((void*)pc, buff, sizeof(buff));
+    Printf("  #%ld 0x%lx %s\n", i, pc, buff);
+  }
+}
+
+#else  // ASAN_USE_SYSINFO
+void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
+  for (size_t i = 0; i < size && addr[i]; i++) {
+    uintptr_t pc = addr[i];
+    Printf("  #%ld 0x%lx\n", i, pc);
+  }
+}
+#endif  // ASAN_USE_SYSINFO
+
+// ----------------------- AsanStackTrace ----------------------------- {{{1
 _Unwind_Reason_Code AsanStackTrace::Unwind_Trace(
     struct _Unwind_Context *ctx, void *param) {
   AsanStackTrace *b = (AsanStackTrace*)param;
