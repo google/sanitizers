@@ -18,9 +18,10 @@
 #define DEBUG_TYPE "asan"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/DebugInfo.h"
 #include "llvm/CallingConv.h"
 #include "llvm/DerivedTypes.h"
@@ -33,7 +34,10 @@
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/IRBuilder.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/system_error.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Instrumentation.h"
@@ -42,10 +46,15 @@
 
 #include <stdint.h>
 #include <stdio.h>
-
-#include "ignore.h"  // From ThreadSanitizer.
+#include <string>
+#include <vector>
+#include <algorithm>
 
 #include "asan_rtl.h"
+
+using std::string;
+using std::vector;
+using std::max;
 
 using namespace llvm;
 
@@ -64,7 +73,7 @@ static cl::opt<bool> ClGlobals("asan-globals",
        cl::desc("Handle global objects"), cl::init(false));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
-static cl::opt<string>  IgnoreFile("asan-ignore",
+static cl::opt<string>  ClBlackListFile("asan-black-list",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 static cl::opt<bool> ClUseCall("asan-use-call",
@@ -100,18 +109,24 @@ static cl::opt<int> ClDebugMin("asan-debug-min",
 static cl::opt<int> ClDebugMax("asan-debug-max",
                                cl::desc("Debug man inst"), cl::init(-1));
 
-// Define the Printf function used by the ignore machinery.
-void Printf(const char *format, ...) {
-  va_list args;
-  va_start(args, format);
-  vfprintf(stderr, format, args);
-  fflush(stderr);
-  va_end(args);
-}
-
 namespace {
 
 static const char *kAsanGlobalPoisonerName = "asan.poison_globals";
+
+// Blacklisted functions are not instrumented.
+// The blacklist file contains one or more lines like this:
+// ---
+// fun:FunctionWildCard
+// ---
+// This is similar to the "ignore" feature of ThreadSanitizer.
+// http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
+class BlackList {
+ public:
+  BlackList(const string &path);
+  bool IsIn(const Function &F);
+ private:
+  Regex *functions;
+};
 
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
@@ -164,6 +179,7 @@ struct AddressSanitizer : public ModulePass {
   const Type *ByteTy;
   const Type *BytePtrTy;
   SmallSet<Instruction*, 16> to_instrument;
+  BlackList *black_list;
 };
 }  // namespace
 
@@ -575,6 +591,8 @@ bool AddressSanitizer::runOnModule(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
+  black_list = new BlackList(ClBlackListFile);
+
   CurrentModule = &M;
   C = &(M.getContext());
   LongSize = TD->getPointerSizeInBits();
@@ -610,29 +628,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
   return res;
 }
 
-static IgnoreLists *ReadIgnores() {
-  IgnoreLists *res = new IgnoreLists;
-  if (IgnoreFile.size()) {
-    string ignore_contents = ReadFileToString(IgnoreFile,
-                                              /*die_if_failed*/true);
-    ReadIgnoresFromString(ignore_contents, res);
-  }
-  return res;
-}
-
-// We use the 'ignore' machinery from ThreadSanitizer.
-// See http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
-static bool WantToIgnoreFunction(Function &F) {
-  // Thread-safe static initialization.
-  // TODO(kcc): is this thread-safe on all clang/llvm platforms?
-  static IgnoreLists *Ignores = ReadIgnores();
-
-  if (TripleVectorMatchKnown(Ignores->ignores, F.getNameStr(), "", "")) {
-    return true;
-  }
-  return false;
-}
-
 static bool blockHasException(BasicBlock &bb) {
   for (BasicBlock::iterator BI = bb.begin(), BE = bb.end();
        BI != BE; ++BI) {
@@ -665,7 +660,7 @@ static bool blockOrItsSuccHasException(BasicBlock &bb) {
 }
 
 bool AddressSanitizer::handleFunction(Function &F) {
-  if (WantToIgnoreFunction(F)) return false;
+  if (black_list->IsIn(F)) return false;
   if (F.getNameStr() == kAsanGlobalPoisonerName) return false;
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
@@ -857,4 +852,49 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
 
   // errs() << F.getNameStr() << "\n" << F << "\n";
   return true;
+}
+
+BlackList::BlackList(const string &path) {
+  functions = NULL;
+  const char *kFunPrefix = "fun:";
+  if (!ClBlackListFile.size()) return;
+  string fun;
+
+  OwningPtr<MemoryBuffer> File;
+  if (error_code ec = MemoryBuffer::getFile(ClBlackListFile.c_str(), File)) {
+    errs() << ec.message();
+    exit(1);
+  }
+  MemoryBuffer *buff = File.take();
+  const char *data = buff->getBufferStart();
+  size_t data_len = buff->getBufferSize();
+  SmallVector<StringRef, 16> lines;
+  SplitString(StringRef(data, data_len), lines, "\n\r");
+  for (size_t i = 0; i < lines.size(); i++) {
+    if (lines[i].startswith(kFunPrefix)) {
+      string this_fun = lines[i].substr(strlen(kFunPrefix));
+      if (fun.size()) {
+        fun += "|";
+      }
+      // add this_fun replacing * with .*
+      for (size_t j = 0; j < this_fun.size(); j++) {
+        if (this_fun[j] == '*')
+          fun += '.';
+        fun += this_fun[j];
+      }
+    }
+  }
+  if (fun.size()) {
+    // errs() << fun << "\n";
+    functions = new Regex(fun);
+  }
+}
+
+bool BlackList::IsIn(const Function &F) {
+  if (functions) {
+    bool res = functions->match(F.getNameStr());
+    // errs() << "IsIn: " << res << " " << F.getNameStr() << "\n";
+    return res;
+  }
+  return false;
 }

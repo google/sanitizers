@@ -383,8 +383,8 @@ TEST(AddressSanitizer, UAF_char) {
 }
 
 TEST(AddressSanitizer, IgnoreTest) {
-  int *x = new int;
-  delete x;
+  int *x = Ident(new int);
+  delete Ident(x);
   *x = 0;
 }
 
