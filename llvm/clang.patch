@@ -64,8 +64,6 @@ Index: lib/Transforms/Instrumentation/CMakeLists.txt
 @@ -1,4 +1,7 @@
  add_llvm_library(LLVMInstrumentation
 +  AddressSanitizer.cpp
-+  ignore.cc
-+  common_util.cc
    EdgeProfiling.cpp
    GCOVProfiling.cpp
    Instrumentation.cpp
