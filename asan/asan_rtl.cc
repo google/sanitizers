@@ -118,6 +118,15 @@ static cxa_throw_f      real_cxa_throw;
 static pthread_create_f real_pthread_create;
 
 // -------------------------- AsanStats ---------------- {{{1
+static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
+  Printf("%s", name);
+  for (size_t i = 0; i < __WORDSIZE; i++) {
+    if (!array[i]) continue;
+    Printf("%ld:%06ld; ", i, array[i]);
+  }
+  Printf("\n");
+}
+
 void AsanStats::PrintStats() {
   Printf("Stats: %ldM malloced (%ldM for red zones) by %ld calls\n",
          malloced>>20, malloced_redzones>>20, mallocs);
@@ -127,13 +136,17 @@ void AsanStats::PrintStats() {
          really_freed>>20, real_frees);
   Printf("Stats: %ldM (%ld pages) mmaped in %ld calls\n",
          mmaped>>20, mmaped / kPageSize, mmaps);
+
+  PrintMallocStatsArray(" mmaps   by size: ", mmaped_by_size);
+  PrintMallocStatsArray(" mallocs by size: ", malloced_by_size);
+  PrintMallocStatsArray(" frees   by size: ", freed_by_size);
+  PrintMallocStatsArray(" rfrees  by size: ", really_freed_by_size);
+
 #if __WORDSIZE == 64
-  Printf("Stats: %ldM of shadow memory allocated in %ld clusters\n"
-         "             (%ldM each, %ld low and %ld high)\n",
+  Printf("Stats: %ldM of shadow memory allocated in %ld clusters (%ldM each)\n",
          ((low_shadow_maps + high_shadow_maps) * kPageClusterSize * kPageSize)>>20,
          low_shadow_maps + high_shadow_maps,
-         (kPageClusterSize * kPageSize) >> 20,
-         low_shadow_maps, high_shadow_maps);
+         (kPageClusterSize * kPageSize) >> 20);
 #endif
 }
 

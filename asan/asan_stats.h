@@ -32,6 +32,10 @@ struct AsanStats {
   size_t allocated_since_last_stats;
   size_t mmaps;
   size_t mmaped;
+  size_t mmaped_by_size[__WORDSIZE];
+  size_t malloced_by_size[__WORDSIZE];
+  size_t freed_by_size[__WORDSIZE];
+  size_t really_freed_by_size[__WORDSIZE];
 
   void PrintStats();
 };

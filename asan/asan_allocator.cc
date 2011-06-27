@@ -118,10 +118,6 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
     abort();
   }
   PoisonShadow((uintptr_t)res, size, 0xff);
-  if (__asan_flag_stats) {
-    __asan_stats.mmaps++;
-    __asan_stats.mmaped += size;
-  }
   return res;
 }
 
@@ -362,6 +358,7 @@ class MallocInfo {
     if (__asan_flag_stats) {
       __asan_stats.real_frees++;
       __asan_stats.really_freed += m->used_size;
+      __asan_stats.really_freed_by_size[Log2(m->allocated_size)]++;
     }
   }
 
@@ -381,6 +378,11 @@ class MallocInfo {
     }
     CHECK(n_chunks > 0);
     uint8_t *mem = MmapNewPagesAndPoisonShadow(mmap_size);
+    if (__asan_flag_stats) {
+      __asan_stats.mmaps++;
+      __asan_stats.mmaped += mmap_size;
+      __asan_stats.mmaped_by_size[Log2(size)] += n_chunks;
+    }
     for (size_t i = 0; i < n_chunks; i++) {
       Chunk *m = (Chunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
@@ -437,16 +439,6 @@ static void Describe(uintptr_t addr, size_t access_size) {
 }
 
 static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
-  if (__asan_flag_stats) {
-    __asan_stats.allocated_since_last_stats += size;
-    __asan_stats.mallocs++;
-    __asan_stats.malloced += size;
-    if (__asan_stats.allocated_since_last_stats > (1U << __asan_flag_stats)) {
-      __asan_stats.PrintStats();
-      __asan_stats.allocated_since_last_stats = 0;
-    }
-  }
-
   // Printf("Allocate align: %ld size: %ld\n", alignment, size);
   if (size == 0) {
     size = 1;  // TODO(kcc): do something smarter
@@ -465,6 +457,17 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
   CHECK(size_to_allocate >= kMinAllocSize);
   CHECK((size_to_allocate % kRedzone) == 0);
+
+  if (__asan_flag_stats) {
+    __asan_stats.allocated_since_last_stats += size;
+    __asan_stats.mallocs++;
+    __asan_stats.malloced += size;
+    __asan_stats.malloced_by_size[Log2(size_to_allocate)]++;
+    if (__asan_stats.allocated_since_last_stats > (1U << __asan_flag_stats)) {
+      __asan_stats.PrintStats();
+      __asan_stats.allocated_since_last_stats = 0;
+    }
+  }
 
   Chunk *m = malloc_info.AllocateChunk(size_to_allocate);
   CHECK(m);
@@ -519,6 +522,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (__asan_flag_stats) {
     __asan_stats.frees++;
     __asan_stats.freed += m->used_size;
+    __asan_stats.freed_by_size[Log2(m->allocated_size)]++;
   }
 
   malloc_info.DeallocateChunk(m);
