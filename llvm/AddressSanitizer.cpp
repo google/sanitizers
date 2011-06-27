@@ -756,7 +756,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
     AllocaInst *a = alloca_v[i];
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
     uint64_t aligned_size = getAlignedAllocaSize(a);
-    CHECK(aligned_size - size_in_bytes < kAsanRedzone);
+    assert(aligned_size - size_in_bytes < kAsanRedzone);
     Value *ptr;
 
     pos += aligned_size;
@@ -807,7 +807,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
       if (!a->getAllocatedType()->isSized()) continue;
       alloca_v.push_back(a);
       unsigned alignment  = a->getAlignment();
-      CHECK(alignment <= kAsanRedzone);
+      assert(alignment <= kAsanRedzone);
       uint64_t aligned_size =  getAlignedAllocaSize(a);
       total_size += aligned_size;
     }
@@ -825,7 +825,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
 
   AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
   my_alloca->setAlignment(kAsanRedzone);
-  CHECK(my_alloca->isStaticAlloca());
+  assert(my_alloca->isStaticAlloca());
   Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
 
   uint64_t pos = kAsanRedzone;
@@ -833,7 +833,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t aligned_size = getAlignedAllocaSize(a);
-    CHECK((aligned_size % kAsanRedzone) == 0);
+    assert((aligned_size % kAsanRedzone) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
         base, ConstantInt::get(LongTy, pos), "", a);
     new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
@@ -841,7 +841,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
     pos += aligned_size + kAsanRedzone;
     a->replaceAllUsesWith(new_ptr);
   }
-  CHECK(pos == total_size_with_redzones);
+  assert(pos == total_size_with_redzones);
 
   // Poison the stack redzones at the entry.
   IRBuilder<> irb(ins_before->getParent(), ins_before);
