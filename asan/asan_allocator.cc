@@ -30,7 +30,7 @@
 
 namespace {
 
-static const size_t kRedzone      = kMinRedzone * 2;
+static const size_t kRedzone      = kMinRedzone;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 128;
 static const uint64_t kMaxAllowedMalloc =
@@ -329,6 +329,35 @@ class MallocInfo {
     return m->used_size;
   }
 
+  void PrintStatus() {
+    ScopedLock lock(&mu_);
+    size_t in_quarantine = 0;
+    size_t malloced = 0;
+
+    Chunk *i = quarantine_;
+    if (i) do {
+      in_quarantine += i->allocated_size;
+      i = i->next;
+    } while (i != quarantine_);
+
+    for (i = malloced_items_; i; i = i->next) {
+      malloced += i->allocated_size;
+    }
+    CHECK(in_quarantine == quarantine_size_);
+    Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
+           in_quarantine >> 20, malloced >> 20);
+    for (size_t j = 1; j < __WORDSIZE; j++) {
+      Chunk *i = chunks[j];
+      if (!i) continue;
+      size_t t = 0;
+      for (; i; i = i->next) {
+        t += i->allocated_size;
+      }
+      Printf("%ld:%ld ", j, t >> 20);
+    }
+    Printf("\n");
+  }
+
  private:
   void Pop() {
     CHECK(quarantine_);
@@ -462,9 +491,11 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     __asan_stats.allocated_since_last_stats += size;
     __asan_stats.mallocs++;
     __asan_stats.malloced += size;
+    __asan_stats.malloced_redzones += size_to_allocate - size;
     __asan_stats.malloced_by_size[Log2(size_to_allocate)]++;
     if (__asan_stats.allocated_since_last_stats > (1U << __asan_flag_stats)) {
       __asan_stats.PrintStats();
+      malloc_info.PrintStatus();
       __asan_stats.allocated_since_last_stats = 0;
     }
   }

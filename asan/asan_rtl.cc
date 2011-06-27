@@ -119,12 +119,19 @@ static pthread_create_f real_pthread_create;
 
 // -------------------------- AsanStats ---------------- {{{1
 static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
+//  Printf("%s", name);
+//  for (size_t i = 0; i < __WORDSIZE; i++) {
+//    if (!array[i]) continue;
+//    Printf("%ld:%06ld; ", i, array[i]);
+//  }
+//  Printf("\n");
   Printf("%s", name);
   for (size_t i = 0; i < __WORDSIZE; i++) {
     if (!array[i]) continue;
-    Printf("%ld:%06ld; ", i, array[i]);
+    Printf("%ld:%03ld; ", i, (array[i] << i) >> 20);
   }
   Printf("\n");
+
 }
 
 void AsanStats::PrintStats() {
