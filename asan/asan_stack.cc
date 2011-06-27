@@ -21,9 +21,7 @@
 #include "sysinfo.h"
 
 #include <string.h>
-#include <string>
 
-using std::string;
 // ----------------------- ProcSelfMaps ----------------------------- {{{1
 class ProcSelfMaps {
  public:
@@ -106,12 +104,9 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
   proc_self_maps.Init();
   for (size_t i = 0; i < size && addr[i]; i++) {
     uintptr_t pc = addr[i];
-    string img, rtn, file;
     // int line;
-    // PcToStrings(pc, true, &img, &rtn, &file, &line);
     proc_self_maps.PrintPc(pc, i);
     // Printf("  #%ld 0x%lx %s\n", i, pc, rtn.c_str());
-    if (rtn == "main()") break;
   }
 }
 

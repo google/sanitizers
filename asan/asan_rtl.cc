@@ -41,11 +41,9 @@
 #include <algorithm>
 #include <sys/syscall.h>
 #include <sys/ucontext.h>
-#include <string>
 #include <dlfcn.h>
 // must not include <setjmp.h>
 
-using std::string;
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
