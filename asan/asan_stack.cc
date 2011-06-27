@@ -19,7 +19,6 @@
 
 #include "asan_thread.h"
 #include "sysinfo.h"
-//#include "bfd_symbolizer/bfd_symbolizer.h"
 
 #include <string.h>
 #include <string>
@@ -66,37 +65,6 @@ class ProcSelfMaps {
   }
 
   void PrintPc(uintptr_t pc, int idx) {
-#if 0 // In-process symbolizer is disabled for now, too cranky
-    char func[kLen+1] = "",
-         file[kLen+1] = "",
-         module[kLen+1] = "";
-    int line = 0;
-    int offset = 0;
-
-    if (0 && __asan_flag_symbolize) {
-      int opt = bfds_opt_none;
-      if (idx == 0)
-        opt |= bfds_opt_update_libs;
-      int demangle = __asan_flag_demangle;
-      if (demangle == 1) opt |= bfds_opt_demangle;
-      if (demangle == 2) opt |= bfds_opt_demangle_params;
-      if (demangle == 3) opt |= bfds_opt_demangle_verbose;
-      int res = bfds_symbolize((void*)pc,
-                               (bfds_opts_e)opt,
-                               func, kLen,
-                               module, kLen,
-                               file, kLen,
-                               &line,
-                               &offset);
-      if (res == 0) {
-        FilterOutAsanRtlFileName(file);
-        Printf("    #%d 0x%lx in %s %s:%d\n", idx, pc, func, file, line);
-        return;
-      }
-      // bfd failed
-    }
-#endif
-
     for (size_t i = 0; i < map_size_; i++) {
       Mapping &m = memory_map[i];
       if (pc >= m.beg && pc < m.end) {
