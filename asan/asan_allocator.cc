@@ -110,7 +110,7 @@ static void PoisonPartialRightRedzone(uintptr_t mem, size_t size) {
 
 static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   CHECK((size % kPageSize) == 0);
-  uint8_t *res = (uint8_t*)mmap(0, size,
+  uint8_t *res = (uint8_t*)__asan_mmap(0, size,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
   if (res == (uint8_t*)-1) {

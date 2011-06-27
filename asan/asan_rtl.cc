@@ -204,9 +204,19 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
          getpid(), size, size, mem_type);
 }
 
+void *__asan_mmap(void *addr, size_t length, int prot, int flags,
+                                    int fd, uint64_t offset) {
+#if __WORDSIZE == 64
+  return (void *)syscall(SYS_mmap, addr, length, prot, flags, fd, offset);
+#else
+  return (void *)syscall(SYS_mmap2, addr, length, prot, flags, fd, offset);
+#endif
+}
+
+
 static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
                         bool abort_on_failure = true) {
-  void *res = mmap((void*)start_page, kPageSize * n_pages,
+  void *res = __asan_mmap((void*)start_page, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   // Printf("%p => %p\n", (void*)start_page, res);
@@ -246,7 +256,7 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK((beg % kPageSize) == 0);
   CHECK(((end+1) % kPageSize) == 0);
   // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
-  void *res = mmap((void*)beg, end - beg + 1,
+  void *res = __asan_mmap((void*)beg, end - beg + 1,
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
   CHECK(res == (void*)beg);
