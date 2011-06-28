@@ -178,6 +178,7 @@ struct AddressSanitizer : public ModulePass {
   const Type *ByteTy;
   const Type *BytePtrTy;
   const FunctionType *Fn0Ty;
+  Instruction *asan_ctor_insert_before;
   SmallSet<Instruction*, 16> to_instrument;
   BlackList *black_list;
 };
@@ -489,10 +490,6 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
 
-  // We will create a new function that poisons all readzones.
-  Function *poisoner = NULL;
-  Instruction *insert_before = 0;
-
   SmallVector<GlobalVariable *, 16> old_globals;
 
   for (Module::GlobalListType::iterator G = globals.begin(),
@@ -554,15 +551,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     new_global->takeName(&orig_global);
     old_globals.push_back(&orig_global);
 
-    if (!poisoner) {
-      poisoner = Function::Create(Fn0Ty, GlobalValue::PrivateLinkage,
-                                  kAsanGlobalPoisonerName,
-                                  &M);
-      BasicBlock *bb = BasicBlock::Create(*C, "", poisoner);
-      insert_before = ReturnInst::Create(*C, bb);
-    }
-
-    IRBuilder<> irb(insert_before->getParent(), insert_before);
+    IRBuilder<> irb(asan_ctor_insert_before->getParent(),
+                    asan_ctor_insert_before);
     Value *asan_register_global = M.getOrInsertFunction(
         "__asan_register_global", VoidTy, LongTy, LongTy, NULL);
     irb.CreateCall2(asan_register_global,
@@ -577,13 +567,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     }
   }
 
-  // Now delete all old globals which are replaces with new ones.
+  // Now delete all old globals which are replaced with new ones.
   for (size_t i = 0; i < old_globals.size(); i++) {
     old_globals[i]->eraseFromParent();
-  }
-
-  if (poisoner) {
-    appendToGlobalCtors(M, poisoner);
   }
 
   if (ClDebug >= 2) {
@@ -613,6 +599,11 @@ bool AddressSanitizer::runOnModule(Module &M) {
   VoidTy = Type::getVoidTy(*C);
   Fn0Ty = FunctionType::get(VoidTy, false);
 
+  Function *asan_ctor = Function::Create(
+      Fn0Ty, GlobalValue::PrivateLinkage, kAsanGlobalPoisonerName, &M);
+  BasicBlock *asan_ctor_bb = BasicBlock::Create(*C, "", asan_ctor);
+  asan_ctor_insert_before = ReturnInst::Create(*C, asan_ctor_bb);
+
   MappingOffset = LongSize == 32
       ? kCompactShadowMask32 : kCompactShadowMask64;
   if (ClMappingOffset) {
@@ -634,6 +625,9 @@ bool AddressSanitizer::runOnModule(Module &M) {
     if (F->isDeclaration()) continue;
     res |= handleFunction(*F);
   }
+
+  appendToGlobalCtors(M, asan_ctor);
+
   return res;
 }
 
