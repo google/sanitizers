@@ -177,6 +177,7 @@ struct AddressSanitizer : public ModulePass {
   const Type *i32PtrTy;
   const Type *ByteTy;
   const Type *BytePtrTy;
+  const FunctionType *Fn0Ty;
   SmallSet<Instruction*, 16> to_instrument;
   BlackList *black_list;
 };
@@ -356,7 +357,6 @@ Instruction *AddressSanitizer::generateCrashCode(
     "pop    %edi"   // 0x5f
   };
 
-  FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
   std::string asm_str = "ud2;";
   asm_str += telltale_insns[telltale_value];
   Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
@@ -555,7 +555,6 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     old_globals.push_back(&orig_global);
 
     if (!poisoner) {
-      FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
       poisoner = Function::Create(Fn0Ty, GlobalValue::PrivateLinkage,
                                   kAsanGlobalPoisonerName,
                                   &M);
@@ -612,6 +611,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   LongPtrTy = PointerType::get(LongTy, 0);
   i32PtrTy = PointerType::get(i32Ty, 0);
   VoidTy = Type::getVoidTy(*C);
+  Fn0Ty = FunctionType::get(VoidTy, false);
 
   MappingOffset = LongSize == 32
       ? kCompactShadowMask32 : kCompactShadowMask64;
