@@ -603,7 +603,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   Fn0Ty = FunctionType::get(VoidTy, false);
 
   Function *asan_ctor = Function::Create(
-      Fn0Ty, GlobalValue::PrivateLinkage, kAsanGlobalPoisonerName, &M);
+      Fn0Ty, GlobalValue::InternalLinkage, kAsanGlobalPoisonerName, &M);
   BasicBlock *asan_ctor_bb = BasicBlock::Create(*C, "", asan_ctor);
   asan_ctor_insert_before = ReturnInst::Create(*C, asan_ctor_bb);
 
