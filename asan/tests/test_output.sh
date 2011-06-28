@@ -1,7 +1,7 @@
 #!/bin/bash
 
 OS=`uname`
-CXX=../../asan_clang_$OS/bin/clang++
+CXX=../../clang_build_$OS/Release+Asserts/bin/clang++
 SYMBOLIZER=../../scripts/asan_symbolize.py
 
 for t in  *.tmpl; do
