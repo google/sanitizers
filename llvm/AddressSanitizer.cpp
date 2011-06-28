@@ -493,6 +493,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Function *poisoner = NULL;
   Instruction *insert_before = 0;
 
+  SmallVector<GlobalVariable *, 16> old_globals;
+
   for (Module::GlobalListType::iterator G = globals.begin(),
        E = globals.end(); G != E; ++G) {
     GlobalVariable &orig_global = *G;
@@ -533,7 +535,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     GlobalVariable *new_global = new GlobalVariable(
         M, new_ty, orig_global.isConstant(), orig_global.getLinkage(),
         new_initializer,
-        orig_global.getName() + "_asan_redzone",
+        "",
         &orig_global, orig_global.isThreadLocal());
     new_global->copyAttributesFrom(&orig_global);
     new_global->setAlignment(kAsanRedzone);
@@ -541,13 +543,16 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     Constant *Indices[2];
     Indices[0] = ConstantInt::get(i32Ty, 0);
     Indices[1] = ConstantInt::get(i32Ty, 0);
+
     GlobalAlias *alias = new GlobalAlias(
-        ptrty, GlobalValue::ExternalLinkage, "",
+        ptrty, GlobalValue::InternalLinkage,
+        orig_global.getName() + "_asanRZ",
         ConstantExpr::getGetElementPtr(new_global, Indices, 2),
         new_global->getParent());
 
     orig_global.replaceAllUsesWith(alias);
-    alias->takeName(&orig_global);
+    new_global->takeName(&orig_global);
+    old_globals.push_back(&orig_global);
 
     if (!poisoner) {
       FunctionType *Fn0Ty = FunctionType::get(VoidTy, false);
@@ -571,6 +576,11 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       errs() << *new_global << "\n";
       errs() << *alias << "\n";
     }
+  }
+
+  // Now delete all old globals which are replaces with new ones.
+  for (size_t i = 0; i < old_globals.size(); i++) {
+    old_globals[i]->eraseFromParent();
   }
 
   if (poisoner) {
