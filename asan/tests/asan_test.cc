@@ -894,7 +894,7 @@ char glob5[5];
 static char static10[10];
 extern int GlobalsTest(int);
 
-TEST(AddressSanitizer, DISABLED_GlobalTest) {
+TEST(AddressSanitizer, GlobalTest) {
   static char func_static15[15];
 
   static char fs1[10];
