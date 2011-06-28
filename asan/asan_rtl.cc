@@ -730,6 +730,37 @@ static void PrintUnwinderHint() {
   }
 }
 
+void GetPcSpBpAx(void *context,
+                 uintptr_t *pc, uintptr_t *sp, uintptr_t *bp, uintptr_t *ax) {
+  ucontext_t *ucontext = (ucontext_t*)context;
+#ifdef __APPLE__
+# if __WORDSIZE == 64
+  *pc = ucontext->uc_mcontext->__ss.__rip;
+  *bp = ucontext->uc_mcontext->__ss.__rbp;
+  *sp = ucontext->uc_mcontext->__ss.__rsp;
+  *ax = ucontext->uc_mcontext->__ss.__rax;
+# else
+  *pc = ucontext->uc_mcontext->__ss.__eip;
+  *bp = ucontext->uc_mcontext->__ss.__ebp;
+  *sp = ucontext->uc_mcontext->__ss.__esp;
+  *ax = ucontext->uc_mcontext->__ss.__eax;
+# endif  // __WORDSIZE
+#else  // assume linux
+# if __WORDSIZE == 64
+  *pc = ucontext->uc_mcontext.gregs[REG_RIP];
+  *bp = ucontext->uc_mcontext.gregs[REG_RBP];
+  *sp = ucontext->uc_mcontext.gregs[REG_RSP];
+  *ax = ucontext->uc_mcontext.gregs[REG_RAX];
+# else
+  *pc = ucontext->uc_mcontext.gregs[REG_EIP];
+  *bp = ucontext->uc_mcontext.gregs[REG_EBP];
+  *sp = ucontext->uc_mcontext.gregs[REG_ESP];
+  *ax = ucontext->uc_mcontext.gregs[REG_EAX];
+# endif  // __WORDSIZE
+#endif
+
+}
+
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
 #if __WORDSIZE == 64
@@ -764,11 +795,13 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     return;
   }
 #endif
+  uintptr_t pc, sp, bp, ax;
+  GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
-  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP"\n",
-         getpid(), addr);
+  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP" at pc %p\n",
+         getpid(), addr, pc);
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
-  AsanStackTrace::PrintCurrent();
+  AsanStackTrace::PrintCurrent(pc);
   ShowStatsAndAbort();
 }
 
@@ -818,32 +851,8 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 }
 
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
-  ucontext_t *ucontext = (ucontext_t*)context;
-#ifdef __APPLE__
-# if __WORDSIZE == 64
-  uintptr_t pc = ucontext->uc_mcontext->__ss.__rip;
-  uintptr_t bp = ucontext->uc_mcontext->__ss.__rbp;
-  uintptr_t sp = ucontext->uc_mcontext->__ss.__rsp;
-  uintptr_t ax = ucontext->uc_mcontext->__ss.__rax;
-# else
-  uintptr_t pc = ucontext->uc_mcontext->__ss.__eip;
-  uintptr_t bp = ucontext->uc_mcontext->__ss.__ebp;
-  uintptr_t sp = ucontext->uc_mcontext->__ss.__esp;
-  uintptr_t ax = ucontext->uc_mcontext->__ss.__eax;
-# endif  // __WORDSIZE
-#else  // assume linux
-# if __WORDSIZE == 64
-  uintptr_t pc = ucontext->uc_mcontext.gregs[REG_RIP];
-  uintptr_t bp = ucontext->uc_mcontext.gregs[REG_RBP];
-  uintptr_t sp = ucontext->uc_mcontext.gregs[REG_RSP];
-  uintptr_t ax = ucontext->uc_mcontext.gregs[REG_RAX];
-# else
-  uintptr_t pc = ucontext->uc_mcontext.gregs[REG_EIP];
-  uintptr_t bp = ucontext->uc_mcontext.gregs[REG_EBP];
-  uintptr_t sp = ucontext->uc_mcontext.gregs[REG_ESP];
-  uintptr_t ax = ucontext->uc_mcontext.gregs[REG_EAX];
-# endif  // __WORDSIZE
-#endif
+  uintptr_t pc, sp, bp, ax;
+  GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
   uintptr_t addr = ax;
 

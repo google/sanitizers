@@ -997,6 +997,11 @@ TEST(AddressSanitizer, DISABLED_DemoDoubleFreeTest) {
   DoubleFree();
 }
 
+TEST(AddressSanitizer, DISABLED_NullDerefTest) {
+  int *a = 0;
+  Ident(a)[10] = 0;
+}
+
 TEST(AddressSanitizer, DISABLED_DemoFunctionStaticTest) {
   static char a[100];
   static char b[100];
