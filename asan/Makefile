@@ -16,7 +16,8 @@ SVNVERSION=$(shell svnversion)
 OS=$(shell uname)
 ROOT=$(shell pwd)
 
-CXX=g++ -Wall
+CXX=g++ -Wall -fvisibility=hidden
+CLEANROOM_CXX=g++ -Wall
 
 CLANG_SRC=../clang_src
 CLANG_BUILD=../clang_build_$(OS)/Release+Asserts
@@ -91,7 +92,7 @@ install:
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
-	$(CXX) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
+	$(CLEANROOM_CXX) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
