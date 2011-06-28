@@ -33,9 +33,6 @@ namespace {
 static const size_t kRedzone      = kMinRedzone;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 128;
-static const uint64_t kMaxAllowedMalloc =
-    __WORDSIZE == 32 ? 0x7fffffffULL : (1ULL << 40);
-
 
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
@@ -210,7 +207,6 @@ static Chunk *PtrToChunk(uintptr_t ptr) {
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
-    __asan_init();
     ScopedLock lock(&mu_);
 
     CHECK(IsPowerOfTwo(size));
@@ -468,6 +464,7 @@ static void Describe(uintptr_t addr, size_t access_size) {
 }
 
 static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
+  __asan_init();
   // Printf("Allocate align: %ld size: %ld\n", alignment, size);
   if (size == 0) {
     size = 1;  // TODO(kcc): do something smarter
@@ -479,7 +476,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     needed_size += alignment;
   }
   CHECK((needed_size % kRedzone) == 0);
-  if (needed_size > kMaxAllowedMalloc) {
+  if (needed_size > __asan_flag_large_malloc) {
     OutOfMemoryMessage("main memory", size);
     abort();
   }
