@@ -997,6 +997,18 @@ TEST(AddressSanitizer, DISABLED_DemoDoubleFreeTest) {
   DoubleFree();
 }
 
+TEST(AddressSanitizer, DISABLED_DemoFunctionStaticTest) {
+  static char a[100];
+  static char b[100];
+  static char c[100];
+  Ident(a);
+  Ident(b);
+  Ident(c);
+  Ident(a)[5] = 0;
+  Ident(b)[105] = 0;
+  Ident(a)[5] = 0;
+}
+
 int main(int argc, char **argv) {
   progname = argv[0];
   testing::GTEST_FLAG(death_test_style) = "threadsafe";

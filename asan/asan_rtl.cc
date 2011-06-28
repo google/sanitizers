@@ -344,10 +344,11 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
   __asan_init();
   CHECK(AddrIsInMem(addr));
   // uintptr_t shadow = MemToShadow(addr);
-  //Printf("global: "PP" "PP" %ld \n", addr, shadow, size);
+  // Printf("global: "PP"  %ld \n", addr, size);
   uintptr_t aligned_size =
       ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
   Global *g = (Global*)(addr + aligned_size);
+  if (g->next) return;  // we already inserted this one.
   g->next = g_globals_list;
   g->size = size;
   g->beg = addr;
@@ -891,7 +892,6 @@ static void asan_atexit() {
   __asan_stats.PrintStats();
 }
 
-__attribute__((constructor))
 void __asan_init() {
   if (asan_inited) return;
   asan_out = stderr;

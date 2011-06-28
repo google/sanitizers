@@ -456,6 +456,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   std::vector<Constant *> CurrentCtors;
   GlobalVariable * GVCtor = M.getNamedGlobal ("llvm.global_ctors");
   if (GVCtor) {
+    CurrentCtors.push_back(RuntimeCtorInit);
     if (Constant *Const = GVCtor->getInitializer()) {
       for (unsigned index = 0; index < Const->getNumOperands(); ++index) {
         CurrentCtors.push_back (cast<Constant>(Const->getOperand (index)));
@@ -466,6 +467,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
     GVCtor->setName ("removed");
   }
 
+  // We insert this twice, in the beginning and at the end. Just in case.
   CurrentCtors.push_back(RuntimeCtorInit);
 
   // Create a new initializer.
@@ -603,6 +605,11 @@ bool AddressSanitizer::runOnModule(Module &M) {
       Fn0Ty, GlobalValue::PrivateLinkage, kAsanGlobalPoisonerName, &M);
   BasicBlock *asan_ctor_bb = BasicBlock::Create(*C, "", asan_ctor);
   asan_ctor_insert_before = ReturnInst::Create(*C, asan_ctor_bb);
+
+  // call __asan_init in the module ctor.
+  IRBuilder<> irb(asan_ctor_bb, asan_ctor_insert_before);
+  Value *asan_init = M.getOrInsertFunction("__asan_init", VoidTy, NULL);
+  irb.CreateCall(asan_init);
 
   MappingOffset = LongSize == 32
       ? kCompactShadowMask32 : kCompactShadowMask64;
