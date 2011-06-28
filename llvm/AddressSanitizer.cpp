@@ -465,6 +465,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
     // Rename the global variable so that we can name our global
     // llvm.global_ctors.
     GVCtor->setName ("removed");
+    GVCtor->eraseFromParent();
   }
 
   // We insert this twice, in the beginning and at the end. Just in case.
