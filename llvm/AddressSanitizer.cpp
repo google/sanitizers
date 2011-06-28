@@ -110,7 +110,7 @@ static cl::opt<int> ClDebugMax("asan-debug-max",
 
 namespace {
 
-static const char *kAsanGlobalPoisonerName = "asan.poison_globals";
+static const char *kAsanModuleCtorName = "asan.module_ctor";
 
 // Blacklisted functions are not instrumented.
 // The blacklist file contains one or more lines like this:
@@ -603,7 +603,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   Fn0Ty = FunctionType::get(VoidTy, false);
 
   Function *asan_ctor = Function::Create(
-      Fn0Ty, GlobalValue::InternalLinkage, kAsanGlobalPoisonerName, &M);
+      Fn0Ty, GlobalValue::InternalLinkage, kAsanModuleCtorName, &M);
   BasicBlock *asan_ctor_bb = BasicBlock::Create(*C, "", asan_ctor);
   asan_ctor_insert_before = ReturnInst::Create(*C, asan_ctor_bb);
 
@@ -672,7 +672,7 @@ static bool blockOrItsSuccHasException(BasicBlock &bb) {
 
 bool AddressSanitizer::handleFunction(Function &F) {
   if (black_list->IsIn(F)) return false;
-  if (F.getNameStr() == kAsanGlobalPoisonerName) return false;
+  if (F.getNameStr() == kAsanModuleCtorName) return false;
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
