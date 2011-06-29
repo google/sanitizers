@@ -907,8 +907,10 @@ TEST(AddressSanitizer, GlobalTest) {
   glob5[Ident(3)] = 0;
   glob5[Ident(4)] = 0;
 
-  EXPECT_DEATH(glob5[Ident(5)] = 0, "0 bytes to the right of global variable");
-  EXPECT_DEATH(glob5[Ident(5+6)] = 0, "6 bytes to the right of global variable");
+  EXPECT_DEATH(glob5[Ident(5)] = 0,
+               "0 bytes to the right of global variable.*glob5");
+  EXPECT_DEATH(glob5[Ident(5+6)] = 0,
+               "6 bytes to the right of global variable.*glob5");
   Ident(static10);  // avoid optimizations
   static10[Ident(0)] = 0;
   static10[Ident(9)] = 0;

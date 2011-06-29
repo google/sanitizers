@@ -69,7 +69,7 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
 static cl::opt<bool> ClGlobals("asan-globals",
-       cl::desc("Handle global objects"), cl::init(false));
+       cl::desc("Handle global objects"), cl::init(true));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<std::string>  ClBlackListFile("asan-black-list",
@@ -531,6 +531,13 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         Constant::getNullValue(RightRedZoneTy),
         NULL);
 
+    // Create a constant object for the name so that we can pass it to
+    // the run-time lib.
+    Constant *orig_name_const = ConstantArray::get(*C, orig_global.getName());
+    GlobalVariable *orig_name_glob = new GlobalVariable(
+        M, orig_name_const->getType(), true, GlobalValue::PrivateLinkage,
+        orig_name_const, "");
+
     // Create a new global variable with enough space for a redzone.
     GlobalVariable *new_global = new GlobalVariable(
         M, new_ty, orig_global.isConstant(), orig_global.getLinkage(),
@@ -557,10 +564,13 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     IRBuilder<> irb(asan_ctor_insert_before->getParent(),
                     asan_ctor_insert_before);
     Value *asan_register_global = M.getOrInsertFunction(
-        "__asan_register_global", VoidTy, LongTy, LongTy, NULL);
-    irb.CreateCall2(asan_register_global,
+        "__asan_register_global", VoidTy, LongTy, LongTy, LongTy, NULL);
+
+    irb.CreateCall3(asan_register_global,
                    irb.CreatePointerCast(new_global, LongTy),
-                   ConstantInt::get(LongTy, size_in_bytes));
+                   ConstantInt::get(LongTy, size_in_bytes),
+                   irb.CreatePointerCast(orig_name_glob, LongTy)
+                   );
 
     if (ClDebug) {
       errs() << "   " <<  *ty << " --- " << *new_ty << "\n";

@@ -293,6 +293,7 @@ struct Global {
   Global *next;   // Next in the list.
   uintptr_t beg;  // Address of the global.
   size_t size;    // Size of the global.
+  const char *name;
 
   void PoisonRedZones() {
     uintptr_t shadow = MemToShadow(beg);
@@ -324,7 +325,7 @@ struct Global {
     } else {
       Printf("%d bytes inside", addr - beg);  // Can it happen?
     }
-    Printf(" of global variable "PP" of size %ld\n", beg, size);
+    Printf(" of global variable '%s' (%lx) of size %ld\n", name, beg, size);
     return true;
   }
 
@@ -345,7 +346,7 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 }
 
 // exported function
-extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
+extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *name) {
   __asan_init();
   ScopedLock lock(&Global::mu_);
   CHECK(AddrIsInMem(addr));
@@ -358,6 +359,7 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
   g->next = g_globals_list;
   g->size = size;
   g->beg = addr;
+  g->name = name;
   g_globals_list = g;
   g->PoisonRedZones();
 }
