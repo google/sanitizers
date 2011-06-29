@@ -210,17 +210,19 @@ static Chunk *PtrToChunk(uintptr_t ptr) {
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
-    ScopedLock lock(&mu_);
-
     CHECK(IsPowerOfTwo(size));
-
     size_t idx = Log2(size);
-    if (!chunks[idx]) {
-      GetNewChunks(size);
+    Chunk *m = NULL;
+    {
+      ScopedLock lock(&mu_);
+
+      if (!chunks[idx]) {
+        GetNewChunks(size);
+      }
+      m = chunks[idx];
+      CHECK(m);
+      chunks[idx] = m->next;
     }
-    Chunk *m = chunks[idx];
-    CHECK(m);
-    chunks[idx] = m->next;
     m->next = m->prev = 0;
     CHECK(m->chunk_state == CHUNK_AVAILABLE);
     m->chunk_state = CHUNK_ALLOCATED;
@@ -229,12 +231,13 @@ class MallocInfo {
   }
 
   void DeallocateChunk(Chunk *m) {
-    ScopedLock lock(&mu_);
 
     CHECK(m);
     CHECK(m->chunk_state == CHUNK_ALLOCATED);
     CHECK(IsPowerOfTwo(m->allocated_size));
     CHECK(__asan_flag_quarantine_size > 0);
+
+    ScopedLock lock(&mu_);
 
     if (!quarantine_) {
       m->next = m->prev = m;
