@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
+#include <algorithm>
 #include "gtest/gtest.h"
 
 using namespace std;
@@ -103,5 +104,117 @@ TEST(AddressSanitizer, DISABLED_InternalPrintShadow) {
     PrintShadow("m", (uintptr_t)ptr, size);
     delete [] ptr;
     PrintShadow("f", (uintptr_t)ptr, size);
+  }
+}
+
+static uintptr_t pc_array[] = {
+#if __WORDSIZE == 64
+  0x7effbf756068ULL,
+  0x7effbf75e5abULL,
+  0x7effc0625b7cULL,
+  0x7effc05b8997ULL,
+  0x7effbf990577ULL,
+  0x7effbf990c56ULL,
+  0x7effbf992f3cULL,
+  0x7effbf950c22ULL,
+  0x7effc036dba0ULL,
+  0x7effc03638a3ULL,
+  0x7effc035be4aULL,
+  0x7effc0539c45ULL,
+  0x7effc0539a65ULL,
+  0x7effc03db9b3ULL,
+  0x7effc03db100ULL,
+  0x7effc037c7b8ULL,
+  0x7effc037bfffULL,
+  0x7effc038b777ULL,
+  0x7effc038021cULL,
+  0x7effc037c7d1ULL,
+  0x7effc037bfffULL,
+  0x7effc038b777ULL,
+  0x7effc038021cULL,
+  0x7effc037c7d1ULL,
+  0x7effc037bfffULL,
+  0x7effc038b777ULL,
+  0x7effc038021cULL,
+  0x7effc037c7d1ULL,
+  0x7effc037bfffULL,
+  0x7effc0520d26ULL,
+  0x7effc009ddffULL,
+  0x7effbf90bb50ULL,
+  0x7effbdddfa69ULL,
+  0x7effbdde1fe2ULL,
+  0x7effbdde2424ULL,
+  0x7effbdde27b3ULL,
+  0x7effbddee53bULL,
+  0x7effbdde1988ULL,
+  0x7effbdde0904ULL,
+  0x7effc106ce0dULL,
+  0x7effbcc3fa04ULL,
+  0x7effbcc3f6a4ULL,
+  0x7effbcc3e726ULL,
+  0x7effbcc40852ULL,
+  0x7effb681ec4dULL,
+#endif  // __WORDSIZE
+  0xB0B5E768,
+  0x7B682EC1,
+  0x367F9918,
+  0xAE34E13,
+  0xBA0C6C6,
+  0x13250F46,
+  0xA0D6A8AB,
+  0x2B07C1A8,
+  0x6C844F4A,
+  0x2321B53,
+  0x1F3D4F8F,
+  0x3FE2924B,
+  0xB7A2F568,
+  0xBD23950A,
+  0x61020930,
+  0x33E7970C,
+  0x405998A1,
+  0x59F3551D,
+  0x350E3028,
+  0xBC55A28D,
+  0x361F3AED,
+  0xBEAD0F73,
+  0xAEF28479,
+  0x757E971F,
+  0xAEBA450,
+  0x43AD22F5,
+  0x8C2C50C4,
+  0x7AD8A2E1,
+  0x69EE4EE8,
+  0xC08DFF,
+  0x4BA6538,
+  0x3708AB2,
+  0xC24B6475,
+  0x7C8890D7,
+  0x6662495F,
+  0x9B641689,
+  0xD3596B,
+  0xA1049569,
+  0x44CBC16,
+  0x4D39C39F
+};
+
+TEST(AddressSanitizer, CompressStackTraceTest) {
+  const size_t n = ASAN_ARRAY_SIZE(pc_array);
+  uint32_t compressed[2 * n];
+
+  for (int iter = 0; iter < 10000; iter++) {
+    random_shuffle(pc_array, pc_array + n);
+    AsanStackTrace stack0, stack1;
+    stack0.CopyFrom(pc_array, n);
+    stack0.size = std::max((size_t)1, (size_t)rand() % stack0.size);
+    size_t compress_size = std::max((size_t)2, (size_t)rand() % (2 * n));
+    size_t n_frames = AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+    CHECK(n_frames <= stack0.size);
+    AsanStackTrace::UncompressStack(&stack1, compressed, compress_size);
+    //fprintf(stderr, "Compressed %ld frames to %ld words; uncompressed to %ld\n",
+    //       (long)n_frames, (long)compress_size, (long)stack1.size);
+    CHECK(stack1.size == n_frames);
+    for (size_t i = 0; i < stack1.size; i++) {
+      CHECK(stack0.trace[i] == stack1.trace[i]);
+    }
   }
 }

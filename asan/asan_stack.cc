@@ -174,3 +174,97 @@ void AsanStackTrace::PrintCurrent(uintptr_t pc) {
   }
   PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
 }
+
+// On 32-bits we don't compres stack traces.
+// On 64-bits we compress stack traces: if a given pc differes slightly from
+// the previous one, we record a 31-bit offset instead of the full pc.
+size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
+                                   uint32_t *compressed, size_t size) {
+#if __WORDSIZE == 32
+  // Don't compress, just copy.
+  size_t res = 0;
+  for (size_t i = 0; i < stack->size && i < size; i++) {
+    compressed[i] = stack->trace[i];
+    res++;
+  }
+  for (size_t i = stack->size; i < size; i++) {
+    compressed[i] = 0;
+  }
+#else // 64 bits, compress.
+  CHECK(size >= 2);
+  uintptr_t prev_pc = 0;
+  const uintptr_t kMaxOffset = (1ULL << 30) - 1;
+  uintptr_t c_index = 0;
+  size_t res = 0;
+  for (size_t i = 0; i < stack->size; i++) {
+    uintptr_t pc = stack->trace[i];
+    // Printf("C pc[%ld] %lx\n", i, pc);
+    if (prev_pc - pc < kMaxOffset || pc - prev_pc < kMaxOffset) {
+      uintptr_t offset = (int64_t)(pc - prev_pc);
+      offset |= (1U << 31);
+      if (c_index >= size) break;
+      // Printf("C co[%ld] offset %lx\n", i, offset);
+      compressed[c_index++] = offset;
+    } else {
+      uintptr_t hi = pc >> 32;
+      uintptr_t lo = (pc << 32) >> 32;
+      CHECK((hi & (1 << 31)) == 0);
+      if (c_index + 1 >= size) break;
+      // Printf("C co[%ld] hi/lo: %lx %lx\n", c_index, hi, lo);
+      compressed[c_index++] = hi;
+      compressed[c_index++] = lo;
+    }
+    res++;
+    prev_pc = pc;
+  }
+  for (size_t i = c_index; i < size; i++) {
+    compressed[i] = 0;
+  }
+#endif  // __WORDSIZE
+  AsanStackTrace check_stack;
+  UncompressStack(&check_stack, compressed, size);
+  CHECK(check_stack.size == res);
+  CHECK(0 == memcmp(check_stack.trace, stack->trace, res * sizeof(uintptr_t)));
+
+  return res;
+}
+
+void AsanStackTrace::UncompressStack(AsanStackTrace *stack,
+                                     uint32_t *compressed, size_t size) {
+#if __WORDSIZE == 32
+  // Don't uncompress, just copy.
+  stack->size = 0;
+  for (size_t i = 0; i < size && i < kStackTraceMax; i++) {
+    if (!compressed[i]) break;
+    stack->size++;
+    stack->trace[i] = compressed[i];
+  }
+#else  // 64 bits, uncompress
+  uintptr_t prev_pc = 0;
+  stack->size = 0;
+  for (size_t i = 0; i < size && stack->size < kStackTraceMax; i++) {
+    uint32_t x = compressed[i];
+    uintptr_t pc = 0;
+    if (x & (1U << 31)) {
+      // Printf("U co[%ld] offset: %x\n", i, x);
+      // this is an offset
+      int32_t offset = x;
+      offset = (offset << 1) >> 1;  // remove the 31-byte and sign-extend.
+      pc = prev_pc + offset;
+      CHECK(pc);
+    } else {
+      // CHECK(i + 1 < size);
+      if (i + 1 >= size) break;
+      uintptr_t hi = x;
+      uintptr_t lo = compressed[i+1];
+      // Printf("U co[%ld] hi/lo: %lx %lx\n", i, hi, lo);
+      i++;
+      pc = (hi << 32) | lo;
+      if (!pc) break;
+    }
+    // Printf("U pc[%ld] %lx\n", stack->size, pc);
+    stack->trace[stack->size++] = pc;
+    prev_pc = pc;
+  }
+#endif  // __WORDSIZE
+}

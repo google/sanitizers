@@ -38,10 +38,24 @@ struct AsanStackTrace {
       dst[i] = 0;
   }
 
+  void CopyFrom(uintptr_t *src, size_t src_size) {
+    size = src_size;
+    if (size > kStackTraceMax) size = kStackTraceMax;
+    for (size_t i = 0; i < size; i++) {
+      trace[i] = src[i];
+    }
+  }
+
   void FastUnwindStack(uintptr_t *frame);
   static _Unwind_Reason_Code Unwind_Trace(
       struct _Unwind_Context *ctx, void *param);
   static void PrintCurrent(uintptr_t pc = 0);
+
+  static size_t CompressStack(AsanStackTrace *stack,
+                            uint32_t *compressed, size_t size);
+  static void UncompressStack(AsanStackTrace *stack,
+                              uint32_t *compressed, size_t size);
+
 };
 
 #define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
