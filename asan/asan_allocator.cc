@@ -497,7 +497,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   CHECK((needed_size % kRedzone) == 0);
   if (needed_size > __asan_flag_large_malloc) {
     OutOfMemoryMessage(__FUNCTION__, size);
-    AsanStackTrace::PrintCurrent();
+    stack->PrintStack();
     abort();
   }
   size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
