@@ -198,19 +198,21 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
   size_t res = 0;
   for (size_t i = 0; i < stack->size; i++) {
     uintptr_t pc = stack->trace[i];
-    // Printf("C pc[%ld] %lx\n", i, pc);
+    if (!pc) break;
+    if ((int64_t)pc < 0) break;
+    //Printf("C pc[%ld] %lx\n", i, pc);
     if (prev_pc - pc < kMaxOffset || pc - prev_pc < kMaxOffset) {
       uintptr_t offset = (int64_t)(pc - prev_pc);
       offset |= (1U << 31);
       if (c_index >= size) break;
-      // Printf("C co[%ld] offset %lx\n", i, offset);
+      //Printf("C co[%ld] offset %lx\n", i, offset);
       compressed[c_index++] = offset;
     } else {
       uintptr_t hi = pc >> 32;
       uintptr_t lo = (pc << 32) >> 32;
       CHECK((hi & (1 << 31)) == 0);
       if (c_index + 1 >= size) break;
-      // Printf("C co[%ld] hi/lo: %lx %lx\n", c_index, hi, lo);
+      //Printf("C co[%ld] hi/lo: %lx %lx\n", c_index, hi, lo);
       compressed[c_index++] = hi;
       compressed[c_index++] = lo;
     }
@@ -223,7 +225,10 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
 #endif  // __WORDSIZE
   AsanStackTrace check_stack;
   UncompressStack(&check_stack, compressed, size);
-  CHECK(check_stack.size == res);
+  if (res != check_stack.size) {
+    Printf("res %ld check_stack.size %ld; c_size %ld\n", res, check_stack.size, size);
+  }
+  CHECK(res == check_stack.size);
   CHECK(0 == memcmp(check_stack.trace, stack->trace, res * sizeof(uintptr_t)));
 
   return res;

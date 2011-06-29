@@ -962,8 +962,6 @@ void __asan_init() {
   __asan_flag_quarantine_size =
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
 
-  if (__asan_flag_malloc_context_size > __asan_flag_redzone_words)
-    __asan_flag_malloc_context_size = __asan_flag_redzone_words;
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
