@@ -557,7 +557,6 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   } else if (m->chunk_state != CHUNK_ALLOCATED) {
     Printf("attempting free on address which was not malloc()-ed: %p\n", ptr);
     stack->PrintStack();
-    m->DescribeAddress((uintptr_t)ptr, 1);
     ShowStatsAndAbort();
   }
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
