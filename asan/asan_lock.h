@@ -44,24 +44,24 @@ class AsanLock {
 class AsanLock {
  public:
   AsanLock() {
-    //pthread_mutex_init(&mu_, NULL);
-    pthread_spin_init(&mu_, NULL);
+    pthread_mutex_init(&mu_, NULL);
+    //pthread_spin_init(&mu_, NULL);
   }
   ~AsanLock() {
-    //pthread_mutex_destroy(&mu_);
-    pthread_spin_destroy(&mu_);
+    pthread_mutex_destroy(&mu_);
+    //pthread_spin_destroy(&mu_);
   }
   void Lock() {
-    //pthread_mutex_lock(&mu_);
-    pthread_spin_lock(&mu_);
+    pthread_mutex_lock(&mu_);
+    //pthread_spin_lock(&mu_);
   }
   void Unlock() {
-    //pthread_mutex_unlock(&mu_);
-    pthread_spin_unlock(&mu_);
+    pthread_mutex_unlock(&mu_);
+    //pthread_spin_unlock(&mu_);
   }
  private:
-  //pthread_mutex_t mu_;
-  pthread_spinlock_t mu_;
+  pthread_mutex_t mu_;
+  //pthread_spinlock_t mu_;
 };
 
 #endif
