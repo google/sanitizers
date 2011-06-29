@@ -112,6 +112,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
                    MAP_PRIVATE | MAP_ANON, -1, 0);
   if (res == (uint8_t*)-1) {
     OutOfMemoryMessage("main memory", size);
+    AsanStackTrace::PrintCurrent();
     abort();
   }
   PoisonShadow((uintptr_t)res, size, 0xff);
@@ -496,6 +497,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   CHECK((needed_size % kRedzone) == 0);
   if (needed_size > __asan_flag_large_malloc) {
     OutOfMemoryMessage("main memory", size);
+    AsanStackTrace::PrintCurrent();
     abort();
   }
   size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
