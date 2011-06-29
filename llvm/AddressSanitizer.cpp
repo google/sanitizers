@@ -69,7 +69,12 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
 static cl::opt<bool> ClGlobals("asan-globals",
+#ifndef __APPLE__
        cl::desc("Handle global objects"), cl::init(true));
+#else       
+       // TODO(glider): fix -asan-globals on Mac OS.
+       cl::desc("-asan-globals is not supported on Mac yet"), cl::init(false));
+#endif       
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<std::string>  ClBlackListFile("asan-black-list",
