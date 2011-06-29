@@ -60,6 +60,7 @@ bool   __asan_flag_symbolize;
 int    __asan_flag_v;
 int    __asan_flag_debug;
 bool   __asan_flag_poison_shadow;
+int    __asan_flag_report_globals;
 size_t __asan_flag_malloc_context_size = kMallocContextSize;
 int    __asan_flag_stats;
 uintptr_t __asan_flag_large_malloc;
@@ -336,11 +337,16 @@ AsanLock Global::mu_;
 
 static Global *g_globals_list;
 
+__attribute__((noinline))
 static bool DescribeAddrIfGlobal(uintptr_t addr) {
+  if (!__asan_flag_report_globals) return false;
   ScopedLock lock(&Global::mu_);
   bool res = false;
   for (Global *g = g_globals_list; g; g = g->next) {
+    if (__asan_flag_report_globals >= 2)
+      Printf("Search Global: "PP" beg="PP" size=%ld name=%s\n", g, g->beg, g->size, g->name);
     res |= g->DescribeAddrIfMyRedZone(addr);
+    CHECK(g != g->next);
   }
   return res;
 }
@@ -348,6 +354,7 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 // exported function
 extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *name) {
   __asan_init();
+  if (!__asan_flag_report_globals) return;
   ScopedLock lock(&Global::mu_);
   CHECK(AddrIsInMem(addr));
   // uintptr_t shadow = MemToShadow(addr);
@@ -355,15 +362,18 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *
   uintptr_t aligned_size =
       ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
   Global *g = (Global*)(addr + aligned_size);
-  if (g->next) return;  // we already inserted this one.
+  if (g->beg || g->size || g->name) return;  // we already inserted this one.
   g->next = g_globals_list;
   g->size = size;
   g->beg = addr;
   g->name = name;
   g_globals_list = g;
+  if (__asan_flag_report_globals >= 2)
+    Printf("Added Global: "PP" beg="PP" size=%ld name=%s\n", g, g->beg, g->size, g->name);
   g->PoisonRedZones();
 }
 
+__attribute__((noinline))
 static void DescribeAddress(uintptr_t sp, uintptr_t bp,
                             uintptr_t addr, uintptr_t access_size) {
   // Check if this is a global.
@@ -933,6 +943,7 @@ void __asan_init() {
 
   __asan_flag_atexit = IntFlagValue(options, "atexit=", 0);
   __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
+  __asan_flag_report_globals = IntFlagValue(options, "report_globals=", 1);
   __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
   __asan_flag_stats = IntFlagValue(options, "stats=", 0);
   __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
