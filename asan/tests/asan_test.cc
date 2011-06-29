@@ -999,7 +999,7 @@ TEST(AddressSanitizer, DISABLED_DemoDoubleFreeTest) {
   DoubleFree();
 }
 
-TEST(AddressSanitizer, DISABLED_NullDerefTest) {
+TEST(AddressSanitizer, DISABLED_DemoNullDerefTest) {
   int *a = 0;
   Ident(a)[10] = 0;
 }

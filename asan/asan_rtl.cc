@@ -817,8 +817,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
   Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP""
-         " at pc %p in T%d\n",
-         getpid(), addr, pc, AsanThread::GetCurrent()->tid());
+         " (pc %p sp %p bp %p ax %p T%d)\n",
+         getpid(), addr, pc, sp, bp, ax, AsanThread::GetCurrent()->tid());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   AsanStackTrace::PrintCurrent(pc);
   ShowStatsAndAbort();
