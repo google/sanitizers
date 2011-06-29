@@ -277,48 +277,7 @@ class MallocInfo {
 
   Chunk *FindMallocedOrFreed(uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
-
-    Chunk *i = quarantine_;
-    if (!i) return NULL;
-    size_t offset;
-    size_t best_offset = -1;
-    Chunk *best_match = NULL;
-    // search in the freed chunks.
-    do {
-      if (i->AddrIsInside(addr, access_size, &offset)) {
-        return i; // found exact match
-      }
-      if (i->AddrIsAtLeft(addr, access_size, &offset) ||
-          i->AddrIsAtRight(addr, access_size, &offset)) {
-        if (offset < best_offset) {
-          best_match = i;
-          best_offset = offset;
-        }
-      }
-      i = i->next;
-    } while (i != quarantine_);
-
-    // search in the malloced chunks.
-    for (i = malloced_items_; i; i = i->next) {
-      if (i->AddrIsInside(addr, access_size, &offset)) {
-        return i; // found exact match
-      }
-      if (i->AddrIsAtLeft(addr, access_size, &offset) ||
-          i->AddrIsAtRight(addr, access_size, &offset)) {
-        if (offset < best_offset) {
-          best_match = i;
-          best_offset = offset;
-        }
-      }
-    }
-
-    Chunk *ch = FindChunkByAddr(addr);
-    if (ch != best_match) {
-      Printf("ZZZZZZZZZ "PP" "PP"\n", ch, best_match);
-      abort();
-    }
-
-    return best_match;
+    return FindChunkByAddr(addr);
   }
 
   size_t AllocationSize(uintptr_t ptr) {
