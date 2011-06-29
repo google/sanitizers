@@ -816,6 +816,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     return;
   }
 #endif
+  // Write the first message using the bullet-proof write.
+  if (13 != write(2, "ASAN:SIGSEGV\n", 13)) abort();
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
@@ -873,6 +875,8 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 }
 
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
+  // Write the first message using the bullet-proof write.
+  if (12 != write(2, "ASAN:SIGILL\n", 12)) abort();
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
