@@ -378,6 +378,11 @@ class MallocInfo {
 
     CHECK(m->chunk_state == CHUNK_QUARANTINE);
     m->chunk_state = CHUNK_AVAILABLE;
+    CHECK(m->alloc_thread);
+    CHECK(m->free_thread);
+    m->alloc_thread->Unref();
+    m->free_thread->Unref();
+
     size_t idx = Log2(m->allocated_size);
     m->next = chunks[idx];
     chunks[idx] = m;
