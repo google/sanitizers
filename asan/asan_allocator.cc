@@ -123,8 +123,8 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
 // CHUNK_ALLOCATED: the chunk is allocated and not yet freed.
 // CHUNK_QUARANTINE: the chunk was freed and put into quarantine zone.
 //
-// The pseudo state CHUNK_MEMALIGN is used to mark that the address is not 
-// the beginning of a Chunk (in which case the next work contains the address
+// The pseudo state CHUNK_MEMALIGN is used to mark that the address is not
+// the beginning of a Chunk (in which case 'prev' contains the address
 // of the Chunk).
 //
 // The magic numbers for the enum values are taken randomly.
@@ -138,14 +138,16 @@ enum {
 struct Chunk;
 
 struct ChunkBase {
-  uintptr_t    chunk_state;     // Should be the first field.
-  size_t       allocated_size;  // Must be power of two
-  uintptr_t    beg;
-  size_t       used_size;
+  uint32_t     chunk_state;
+  uint32_t     allocated_size;  // Must be power of two
+  uint32_t     used_size;
+  uint32_t     offset;  // User-visible memory starts at this+offset (beg()).
   Chunk       *next;
   Chunk       *prev;
   AsanThread  *alloc_thread;
   AsanThread  *free_thread;
+
+  uintptr_t   beg() { return (uintptr_t)this + offset; }
 };
 
 struct Chunk: public ChunkBase {
@@ -153,28 +155,28 @@ struct Chunk: public ChunkBase {
   uintptr_t free_stack[kRedzone / kWordSize];
 
   bool AddrIsInside(uintptr_t addr, size_t access_size, size_t *offset) {
-    if (addr >= beg && (addr + access_size) <= (beg + used_size)) {
-      *offset = addr - beg;
+    if (addr >= beg() && (addr + access_size) <= (beg() + used_size)) {
+      *offset = addr - beg();
       return true;
     }
     return false;
   }
 
   bool AddrIsAtLeft(uintptr_t addr, size_t access_size, size_t *offset) {
-    if (addr >= (uintptr_t)this && addr < beg) {
-      *offset = beg - addr;
+    if (addr >= (uintptr_t)this && addr < beg()) {
+      *offset = beg() - addr;
       return true;
     }
     return false;
   }
 
   bool AddrIsAtRight(uintptr_t addr, size_t access_size, size_t *offset) {
-    if (addr + access_size >= beg + used_size &&
+    if (addr + access_size >= beg() + used_size &&
         addr < (uintptr_t)this + allocated_size + kRedzone) {
-      if (addr <= beg + used_size)
+      if (addr <= beg() + used_size)
         *offset = 0;
       else
-        *offset = addr - (beg + used_size);
+        *offset = addr - (beg() + used_size);
       return true;
     }
     return false;
@@ -192,14 +194,14 @@ struct Chunk: public ChunkBase {
     } else {
       Printf(" somewhere around (this is AddressSanitizer bug!)");
     }
-    Printf(" %ld-byte region ["PP","PP")\n" , used_size, beg, beg + used_size);
+    Printf(" %ld-byte region ["PP","PP")\n" , used_size, beg(), beg() + used_size);
   }
 };
 
 static Chunk *PtrToChunk(uintptr_t ptr) {
   Chunk *m = (Chunk*)(ptr - kRedzone);
   if (m->chunk_state == CHUNK_MEMALIGN) {
-    m = (Chunk*)((uintptr_t*)m)[1];
+    m = m->prev;
   }
   return m;
 }
@@ -388,6 +390,7 @@ class MallocInfo {
   }
 
   void GetNewChunks(size_t size) {
+    CHECK(size <= (1UL << 31));
     size_t idx = Log2(size);
     CHECK(chunks[idx] == NULL);
     CHECK(IsPowerOfTwo(size));
@@ -507,12 +510,14 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   if (alignment > kRedzone && (addr & (alignment - 1))) {
     addr = RoundUpTo(addr, alignment);
     CHECK((addr & (alignment - 1)) == 0);
-    uintptr_t *p = (uintptr_t*)(addr - kRedzone);
-    p[0] = CHUNK_MEMALIGN;
-    p[1] = (uintptr_t)m;
+    Chunk *p = (Chunk*)(addr - kRedzone);
+    p->chunk_state = CHUNK_MEMALIGN;
+    p->prev = m;
   }
+  CHECK(m == PtrToChunk(addr));
   m->used_size = size;
-  m->beg = addr;
+  m->offset = addr - (uintptr_t)m;
+  CHECK(m->beg() == addr);
   m->alloc_thread = AsanThread::GetCurrent()->Ref();
   m->free_thread   = NULL;
   stack->CopyTo(m->alloc_stack, ASAN_ARRAY_SIZE(m->alloc_stack));
