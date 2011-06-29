@@ -813,6 +813,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 #endif
   // Write the first message using the bullet-proof write.
   if (13 != write(2, "ASAN:SIGSEGV\n", 13)) abort();
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/true);
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
@@ -821,6 +822,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
          getpid(), addr, pc, sp, bp, ax, AsanThread::GetCurrent()->tid());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   AsanStackTrace::PrintCurrent(pc);
+  Printf("\n");
+  stack.PrintStack();  // try fast unwind too.
   ShowStatsAndAbort();
 }
 
