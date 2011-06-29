@@ -41,7 +41,7 @@ static void ShowStatsAndAbort() {
 
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
-         "0x%lx (%ld) bytes of %s\n",
+         "0x%lx (%ld) bytes (%s)\n",
          getpid(), size, size, mem_type);
 }
 
@@ -111,7 +111,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
   if (res == (uint8_t*)-1) {
-    OutOfMemoryMessage("main memory", size);
+    OutOfMemoryMessage(__FUNCTION__, size);
     AsanStackTrace::PrintCurrent();
     abort();
   }
@@ -496,7 +496,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
   CHECK((needed_size % kRedzone) == 0);
   if (needed_size > __asan_flag_large_malloc) {
-    OutOfMemoryMessage("main memory", size);
+    OutOfMemoryMessage(__FUNCTION__, size);
     AsanStackTrace::PrintCurrent();
     abort();
   }
