@@ -225,11 +225,6 @@ class MallocInfo {
     CHECK(m->chunk_state == CHUNK_AVAILABLE);
     m->chunk_state = CHUNK_ALLOCATED;
 
-    if (malloced_items_) {
-      malloced_items_->prev = m;
-    }
-    m->next = malloced_items_;
-    malloced_items_ = m;
     return m;
   }
 
@@ -240,20 +235,6 @@ class MallocInfo {
     CHECK(m->chunk_state == CHUNK_ALLOCATED);
     CHECK(IsPowerOfTwo(m->allocated_size));
     CHECK(__asan_flag_quarantine_size > 0);
-
-    // remove from malloced list.
-    {
-      if (m == malloced_items_) {
-        malloced_items_ = m->next;
-        if (malloced_items_)
-          malloced_items_->prev = 0;
-      } else {
-        Chunk *prev = m->prev;
-        Chunk *next = m->next;
-        if (prev) prev->next = next;
-        if (next) next->prev = prev;
-      }
-    }
 
     if (!quarantine_) {
       m->next = m->prev = m;
@@ -305,9 +286,6 @@ class MallocInfo {
       i = i->next;
     } while (i != quarantine_);
 
-    for (i = malloced_items_; i; i = i->next) {
-      malloced += i->allocated_size;
-    }
     CHECK(in_quarantine == quarantine_size_);
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
            in_quarantine >> 20, malloced >> 20);
@@ -442,7 +420,6 @@ class MallocInfo {
   Chunk *chunks[__WORDSIZE];
   Chunk *quarantine_;
   size_t quarantine_size_;
-  Chunk *malloced_items_;
   AsanLock mu_;
 
   // All pages we ever allocated.
