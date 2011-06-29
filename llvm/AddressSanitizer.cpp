@@ -691,12 +691,6 @@ bool AddressSanitizer::handleFunction(Function &F) {
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
-#ifdef __APPLE__
-  // TODO(glider): in order to handle the +load methods correctly,
-  // we need to insert a call to __asan_init() before each of them.
-  if (F.getNameStr().find(" load]") != std::string::npos)
-    return false;
-#endif    
   // We want to instrument every address only once per basic block
   // (unless there are calls between uses).
   SmallSet<Value*, 16> temps_to_instrument;
@@ -761,6 +755,18 @@ bool AddressSanitizer::handleFunction(Function &F) {
     if (changed_stack && ClDebugStack)
       errs() << F;
   }
+#ifdef __APPLE__
+  // In order to handle the +load methods correctly,
+  // we need to insert a call to __asan_init() before each of them.
+  // TODO(glider): write a test for it.
+  if (F.getNameStr().find(" load]") != std::string::npos) {
+    BasicBlock *BB = F.begin();
+    Instruction *Before = BB->begin();
+    Value *asan_init = F.getParent()->getOrInsertFunction("__asan_init", VoidTy, NULL);
+    CallInst::Create(asan_init, "", Before);
+    F.dump();
+  }
+#endif    
 
   return n_instrumented > 0 || changed_stack;
 }
