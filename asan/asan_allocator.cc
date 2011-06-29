@@ -41,8 +41,8 @@ static void ShowStatsAndAbort() {
 
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
-         "0x%lx (%ld) bytes (%s)\n",
-         getpid(), size, size, mem_type);
+         "0x%lx (%ld) bytes (%s) in T%d\n",
+         getpid(), size, size, mem_type, AsanThread::GetCurrent()->tid());
 }
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
@@ -484,6 +484,7 @@ static void Describe(uintptr_t addr, size_t access_size) {
 
 static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   __asan_init();
+  CHECK(stack);
   // Printf("Allocate align: %ld size: %ld\n", alignment, size);
   if (size == 0) {
     size = 1;  // TODO(kcc): do something smarter
@@ -548,6 +549,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
 
 static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
+  CHECK(stack);
 
   //Printf("Deallocate "PP"\n", ptr);
   Chunk *m = PtrToChunk((uintptr_t)ptr);

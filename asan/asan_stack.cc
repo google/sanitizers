@@ -15,6 +15,7 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+#include "asan_lock.h"
 #include "asan_stack.h"
 #include "asan_thread.h"
 
@@ -26,6 +27,7 @@
 class ProcSelfMaps {
  public:
   void Init() {
+    ScopedLock lock(&mu_);
     if (map_size_ != 0) return; // already inited
     if (__asan_flag_v) {
       Printf("ProcSelfMaps::Init()\n");
@@ -94,9 +96,12 @@ class ProcSelfMaps {
   ProcMapsIterator::Buffer proc_self_maps_;
   size_t map_size_;
   Mapping memory_map[kMaxNumMapEntries];
+
+  static AsanLock mu_;
 };
 
 static ProcSelfMaps proc_self_maps;
+AsanLock ProcSelfMaps::mu_;
 
 
 void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
