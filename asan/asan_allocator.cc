@@ -210,7 +210,6 @@ static Chunk *PtrToChunk(uintptr_t ptr) {
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
-    CHECK(!__asan_cannot_use_allocator);
     ScopedLock lock(&mu_);
 
     CHECK(IsPowerOfTwo(size));
@@ -235,7 +234,6 @@ class MallocInfo {
   }
 
   void DeallocateChunk(Chunk *m) {
-    CHECK(!__asan_cannot_use_allocator);
     ScopedLock lock(&mu_);
 
     CHECK(m);

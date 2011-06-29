@@ -72,14 +72,10 @@ static const int __asan_flag_protect_shadow = 1;
 static int __asan_flag_protect_shadow;
 #endif
 
-bool __asan_cannot_use_allocator;
-
-
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out = NULL;
 
 void __asan_printf(const char *format, ...) {
-  __asan_cannot_use_allocator = true;
   const int kLen = 1024 * 4;
   char buffer[kLen];
   va_list args;
@@ -88,7 +84,6 @@ void __asan_printf(const char *format, ...) {
   fwrite(buffer, 1, strlen(buffer), asan_out);
   fflush(asan_out);
   va_end(args);
-  __asan_cannot_use_allocator = false;
 }
 
 
