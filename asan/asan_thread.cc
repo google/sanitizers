@@ -32,6 +32,17 @@ static bool tls_key_created = false;
 static __thread AsanThread *tl_current_thread;
 #endif
 
+static const int kMaxTid = (1 << 16) - 1;
+
+static AsanThread *threads[kMaxTid + 1];
+
+AsanThread::AsanThread() {
+  CHECK(tid_ == 0);
+  CHECK(this == &main_thread_);
+  CHECK(threads[0] == 0);
+  threads[0] = &main_thread_;
+}
+
 AsanThread::AsanThread(AsanThread *parent, void *(*start_routine) (void *),
                        void *arg, AsanStackTrace *stack)
   : parent_(parent),
@@ -43,6 +54,17 @@ AsanThread::AsanThread(AsanThread *parent, void *(*start_routine) (void *),
   if (stack) {
     stack_ = *stack;
   }
+  CHECK(tid_ <= kMaxTid);
+  threads[tid_] = this;
+}
+
+AsanThread *AsanThread::FindByTid(int tid) {
+  CHECK(tid >= 0);
+  CHECK(tid <= kMaxTid);
+  AsanThread *res = threads[tid];
+  CHECK(res);
+  CHECK(res->tid_ == tid);
+  return res;
 }
 
 void *AsanThread::ThreadStart() {

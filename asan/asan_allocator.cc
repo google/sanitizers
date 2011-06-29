@@ -142,10 +142,10 @@ struct ChunkBase {
   uint32_t     allocated_size;  // Must be power of two
   uint32_t     used_size;
   uint32_t     offset;  // User-visible memory starts at this+offset (beg()).
+  int32_t      alloc_tid;
+  int32_t      free_tid;
   Chunk       *next;
   Chunk       *prev;
-  AsanThread  *alloc_thread;
-  AsanThread  *free_thread;
 
   uintptr_t   beg() { return (uintptr_t)this + offset; }
 };
@@ -378,10 +378,10 @@ class MallocInfo {
 
     CHECK(m->chunk_state == CHUNK_QUARANTINE);
     m->chunk_state = CHUNK_AVAILABLE;
-    CHECK(m->alloc_thread);
-    CHECK(m->free_thread);
-    m->alloc_thread->Unref();
-    m->free_thread->Unref();
+    CHECK(m->alloc_tid >= 0);
+    CHECK(m->free_tid >= 0);
+    AsanThread::FindByTid(m->alloc_tid)->Unref();
+    AsanThread::FindByTid(m->free_tid)->Unref();
 
     size_t idx = Log2(m->allocated_size);
     m->next = chunks[idx];
@@ -453,21 +453,23 @@ static void Describe(uintptr_t addr, size_t access_size) {
   Chunk *m = malloc_info.FindMallocedOrFreed(addr, access_size);
   if (!m) return;
   m->DescribeAddress(addr, access_size);
-  CHECK(m->alloc_thread);
-  if (m->free_thread) {
-    Printf("freed by thread T%d here:\n", m->free_thread->tid());
+  CHECK(m->alloc_tid >= 0);
+  AsanThread *alloc_thread = AsanThread::FindByTid(m->alloc_tid);
+  if (m->free_tid >= 0) {
+    AsanThread *free_thread = AsanThread::FindByTid(m->free_tid);
+    Printf("freed by thread T%d here:\n", free_thread->tid());
     AsanStackTrace::PrintStack(m->free_stack, ASAN_ARRAY_SIZE(m->free_stack));
     Printf("previously allocated by thread T%d here:\n",
-           m->alloc_thread->tid());
+           alloc_thread->tid());
     AsanStackTrace::PrintStack(m->alloc_stack, ASAN_ARRAY_SIZE(m->alloc_stack));
     AsanThread::GetCurrent()->Announce();
-    m->free_thread->Announce();
-    m->alloc_thread->Announce();
+    free_thread->Announce();
+    alloc_thread->Announce();
   } else {
-    Printf("allocated by thread T%d here:\n", m->alloc_thread->tid());
+    Printf("allocated by thread T%d here:\n", alloc_thread->tid());
     AsanStackTrace::PrintStack(m->alloc_stack, ASAN_ARRAY_SIZE(m->alloc_stack));
     AsanThread::GetCurrent()->Announce();
-    m->alloc_thread->Announce();
+    alloc_thread->Announce();
   }
 }
 
@@ -523,8 +525,8 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->used_size = size;
   m->offset = addr - (uintptr_t)m;
   CHECK(m->beg() == addr);
-  m->alloc_thread = AsanThread::GetCurrent()->Ref();
-  m->free_thread   = NULL;
+  m->alloc_tid = AsanThread::GetCurrent()->Ref()->tid();
+  m->free_tid   = -1;
   stack->CopyTo(m->alloc_stack, ASAN_ARRAY_SIZE(m->alloc_stack));
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
@@ -550,9 +552,9 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     ShowStatsAndAbort();
   }
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
-  CHECK(m->free_thread == NULL);
-  CHECK(m->alloc_thread != NULL);
-  m->free_thread = AsanThread::GetCurrent()->Ref();
+  CHECK(m->free_tid == -1);
+  CHECK(m->alloc_tid >= 0);
+  m->free_tid = AsanThread::GetCurrent()->Ref()->tid();
   stack->CopyTo(m->free_stack, ASAN_ARRAY_SIZE(m->free_stack));
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
   PoisonShadow((uintptr_t)ptr, rounded_size, 0xfb);

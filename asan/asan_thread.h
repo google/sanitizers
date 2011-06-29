@@ -23,11 +23,13 @@
 
 class AsanThread {
  public:
-  AsanThread(){}
+  AsanThread();  // for T0.
   AsanThread(AsanThread *parent, void *(*start_routine) (void *),
              void *arg, AsanStackTrace *stack);
 
   void *ThreadStart();
+
+  static AsanThread *FindByTid(int tid);
 
   AsanThread *Ref() {
     AtomicInc(&refcount_);
