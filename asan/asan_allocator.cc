@@ -381,8 +381,9 @@ class MallocInfo {
     m->chunk_state = CHUNK_AVAILABLE;
     CHECK(m->alloc_tid >= 0);
     CHECK(m->free_tid >= 0);
-    AsanThread::FindByTid(m->alloc_tid)->Unref();
-    AsanThread::FindByTid(m->free_tid)->Unref();
+    // TODO(kcc): doing Unref will lead to deadlock.
+    // AsanThread::FindByTid(m->alloc_tid)->Unref();
+    // AsanThread::FindByTid(m->free_tid)->Unref();
 
     size_t idx = Log2(m->allocated_size);
     m->next = chunks[idx];
