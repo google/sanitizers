@@ -311,6 +311,13 @@ class MallocInfo {
         }
       }
     }
+
+    Chunk *ch = FindChunkByAddr(addr);
+    if (ch != best_match) {
+      Printf("ZZZZZZZZZ "PP" "PP"\n", ch, best_match);
+      abort();
+    }
+
     return best_match;
   }
 
@@ -358,6 +365,44 @@ class MallocInfo {
   }
 
  private:
+  Chunk *FindChunkByAddr(uintptr_t addr) {
+    PageGroup *g = NULL;
+    for (g = page_groups_; g; g = g->next) {
+      if (g->InRange(addr)) break;
+    }
+    if (!g) return 0;
+    CHECK(g->size_of_chunk);
+    CHECK(IsPowerOfTwo(g->size_of_chunk));
+    uintptr_t offset_from_beg = addr - g->beg;
+    uintptr_t this_chunk_addr = g->beg +
+        (offset_from_beg / g->size_of_chunk) * g->size_of_chunk;
+    CHECK(g->InRange(this_chunk_addr));
+    Chunk *m = (Chunk*)this_chunk_addr;
+    CHECK(m->chunk_state == CHUNK_ALLOCATED ||
+          m->chunk_state == CHUNK_AVAILABLE ||
+          m->chunk_state == CHUNK_QUARANTINE);
+    uintptr_t offset;
+    if (m->AddrIsInside(addr, 1, &offset) ||
+        m->AddrIsAtRight(addr, 1, &offset))
+      return m;
+    bool is_at_left = m->AddrIsAtLeft(addr, 1, &offset);
+    CHECK(is_at_left);
+    if (this_chunk_addr == g->beg) {
+      // leftmost chunk
+      return m;
+    }
+    uintptr_t left_chunk_addr = this_chunk_addr - g->size_of_chunk;
+    CHECK(g->InRange(left_chunk_addr));
+    Chunk *l = (Chunk*)left_chunk_addr;
+    uintptr_t l_offset;
+    bool is_at_right = l->AddrIsAtRight(addr, 1, &l_offset);
+    CHECK(is_at_right);
+    if (l_offset < offset) {
+      return l;
+    }
+    return m;
+  }
+
   void Pop() {
     CHECK(quarantine_);
     CHECK(quarantine_size_ > 0);
@@ -430,6 +475,7 @@ class MallocInfo {
     pg->beg = (uintptr_t)mem;
     pg->end = pg->beg + mmap_size;
     pg->next = page_groups_;
+    pg->size_of_chunk = size;
     page_groups_ = pg;
   }
 
@@ -444,7 +490,11 @@ class MallocInfo {
   struct PageGroup {
     uintptr_t beg;
     uintptr_t end;
+    size_t size_of_chunk;
     PageGroup *next;
+    bool InRange(uintptr_t addr) {
+      return addr >= beg && addr < end;
+    }
   };
   PageGroup *page_groups_;
 };
