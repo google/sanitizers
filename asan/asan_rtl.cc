@@ -324,14 +324,19 @@ struct Global {
     } else {
       Printf("%d bytes inside", addr - beg);  // Can it happen?
     }
-    Printf(" of global variable "PP"\n", beg + kAsanRedzone);
+    Printf(" of global variable "PP" of size %ld\n", beg, size);
     return true;
   }
+
+  static AsanLock mu_;
 };
+
+AsanLock Global::mu_;
 
 static Global *g_globals_list;
 
 static bool DescribeAddrIfGlobal(uintptr_t addr) {
+  ScopedLock lock(&Global::mu_);
   bool res = false;
   for (Global *g = g_globals_list; g; g = g->next) {
     res |= g->DescribeAddrIfMyRedZone(addr);
@@ -342,6 +347,7 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 // exported function
 extern "C" void __asan_register_global(uintptr_t addr, size_t size) {
   __asan_init();
+  ScopedLock lock(&Global::mu_);
   CHECK(AddrIsInMem(addr));
   // uintptr_t shadow = MemToShadow(addr);
   // Printf("global: "PP"  %ld \n", addr, size);
