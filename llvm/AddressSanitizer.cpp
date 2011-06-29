@@ -691,7 +691,12 @@ bool AddressSanitizer::handleFunction(Function &F) {
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
-
+#ifdef __APPLE__
+  // TODO(glider): in order to handle the +load methods correctly,
+  // we need to insert a call to __asan_init() before each of them.
+  if (F.getNameStr().find(" load]") != std::string::npos)
+    return false;
+#endif    
   // We want to instrument every address only once per basic block
   // (unless there are calls between uses).
   SmallSet<Value*, 16> temps_to_instrument;
