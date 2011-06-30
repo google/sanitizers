@@ -29,7 +29,7 @@ class AsanStackTrace;
 
 
 extern "C" {
-void __asan_init();
+void __asan_init() __attribute__((visibility("default")));
 void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
 void *__asan_mmap(void *addr, size_t length, int prot, int flags,
