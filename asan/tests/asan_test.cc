@@ -891,7 +891,7 @@ TEST(AddressSanitizer, DisasmTest) {
 
 // Currently we create and poison redzone at right of global variables.
 char glob5[5];
-static char static10[10];
+static char static110[110];
 extern int GlobalsTest(int);
 
 TEST(AddressSanitizer, GlobalTest) {
@@ -911,12 +911,12 @@ TEST(AddressSanitizer, GlobalTest) {
                "0 bytes to the right of global variable.*glob5.* size 5");
   EXPECT_DEATH(glob5[Ident(5+6)] = 0,
                "6 bytes to the right of global variable.*glob5.* size 5");
-  Ident(static10);  // avoid optimizations
-  static10[Ident(0)] = 0;
-  static10[Ident(9)] = 0;
-  EXPECT_DEATH(static10[Ident(10)] = 0,
+  Ident(static110);  // avoid optimizations
+  static110[Ident(0)] = 0;
+  static110[Ident(109)] = 0;
+  EXPECT_DEATH(static110[Ident(110)] = 0,
                "0 bytes to the right of global variable");
-  EXPECT_DEATH(static10[Ident(10+7)] = 0,
+  EXPECT_DEATH(static110[Ident(110+7)] = 0,
                "7 bytes to the right of global variable");
 
   Ident(func_static15); // avoid optimizations

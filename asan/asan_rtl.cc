@@ -304,8 +304,9 @@ struct Global {
       // partial right redzone
       uint64_t right_rz1_offset = 4 * (size / kAsanRedzone);
       CHECK(right_rz1_offset == right_rz2_offset - 4);
-      *(uint32_t*)(shadow + right_rz1_offset) =
-          kPartialRedzonePoisonValues[size % kAsanRedzone];
+      PoisonShadowPartialRightRedzone((uint8_t*)(shadow + right_rz1_offset),
+                                      size % kAsanRedzone, kAsanRedzone,
+                                      kShadowGranularity, 0xfb);
     }
   }
 

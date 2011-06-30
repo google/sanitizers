@@ -31,21 +31,24 @@ const unsigned long      kCompactShadowMask32 = 1UL << 29;
 // The size of the heap redzone is different and is not a constant.
 const unsigned kAsanRedzone = 32;
 
-// These magic numbers represent the poison values for partial 32-byte redzones.
-// kPartialRedzonePoisonValues[i] (i = 1..31) is the value with which we should
-// poison a partial redzone at the right of a stack/global object of size i.
-const unsigned kPartialRedzonePoisonValues [32] = {
-  0x00000000, 0xa3a2a101, 0xa3a2a102, 0xa3a2a103,  // 0 - 3
-  0xa3a2a104, 0xa3a2a105, 0xa3a2a106, 0xa3a2a107,  // 4 - 7
-
-  0xa3a2a100, 0xa3a20100, 0xa3a20200, 0xa3a20300,  // 8 - 11
-  0xa3a20400, 0xa3a20500, 0xa3a20600, 0xa3a20700,  // 12 - 15
-
-  0xa3a20000, 0xa3010000, 0xa3020000, 0xa3030000,  // 16 - 19
-  0xa3040000, 0xa3050000, 0xa3060000, 0xa3070000,  // 20 - 23
-
-  0xa3000000, 0x01000000, 0x02000000, 0x03000000,  // 24 - 27
-  0x04000000, 0x05000000, 0x06000000, 0x07000000,  // 28 - 31
-};
+// Poison the shadow memory which corresponds to 'redzone_size' bytes
+// of the original memory, where first 'size' bytes are addressable.
+static inline void
+PoisonShadowPartialRightRedzone(unsigned char *shadow,
+                                unsigned long size,
+                                unsigned long redzone_size,
+                                unsigned long shadow_granularity,
+                                unsigned char magic) {
+  for (unsigned long i = 0; i < redzone_size;
+       i+= shadow_granularity, shadow++) {
+    if (i + shadow_granularity <= size) {
+      *shadow = 0;  // fully addressable
+    } else if (i >= size) {
+      *shadow = shadow_granularity == 128 ? 0xff : magic;  // unaddressable
+    } else {
+      *shadow = size - i;  // first size-i bytes are addressable
+    }
+  }
+}
 
 #endif  // ASAN_RTL_H
