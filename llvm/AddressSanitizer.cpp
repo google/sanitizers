@@ -837,9 +837,8 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
       if (a->isArrayAllocation()) continue;
       if (!a->isStaticAlloca()) continue;
       if (!a->getAllocatedType()->isSized()) continue;
+      if (a->getAlignment() > kAsanRedzone) continue;  // TODO(kcc)
       alloca_v.push_back(a);
-      unsigned alignment  = a->getAlignment();
-      assert(alignment <= kAsanRedzone);
       uint64_t aligned_size =  getAlignedAllocaSize(a);
       total_size += aligned_size;
     }
