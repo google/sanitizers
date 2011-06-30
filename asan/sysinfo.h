@@ -228,9 +228,7 @@ RawFD RawOpenForWriting(const char* filename);   // uses default permissions
 void RawWrite(RawFD fd, const char* buf, size_t len);
 void RawClose(RawFD fd);
 
-namespace tcmalloc {
 int FillProcSelfMaps(char buf[], int size, bool* wrote_all);
 void DumpProcSelfMaps(RawFD fd);
-}
 
 #endif   /* #ifndef _SYSINFO_H_ */
