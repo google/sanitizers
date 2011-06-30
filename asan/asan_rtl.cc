@@ -1006,8 +1006,8 @@ void __asan_init() {
 
 #if __WORDSIZE == 32
   {
-    // mmap the low shadow.
-    mmap_range(kLowShadowBeg, kLowShadowEnd, "LowShadow");
+    // mmap the low shadow plus one page just to make sure it's not taken by our allocator.
+    mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
     // mmap the high shadow.
     mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
   }
