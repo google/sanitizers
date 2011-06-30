@@ -180,7 +180,7 @@ void AsanStackTrace::PrintCurrent(uintptr_t pc) {
   PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
 }
 
-// On 32-bits we don't compres stack traces.
+// On 32-bits we don't compress stack traces.
 // On 64-bits we compress stack traces: if a given pc differes slightly from
 // the previous one, we record a 31-bit offset instead of the full pc.
 size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
@@ -230,10 +230,12 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
 #endif  // __WORDSIZE
   AsanStackTrace check_stack;
   UncompressStack(&check_stack, compressed, size);
-  if (res != check_stack.size) {
+  if (res < check_stack.size) {
     Printf("res %ld check_stack.size %ld; c_size %ld\n", res, check_stack.size, size);
   }
-  CHECK(res == check_stack.size);
+  // |res| may be greater than check_stack.size, because
+  // UncompressStack(CompressStack(stack)) eliminates the 0x0 frames.
+  CHECK(res >= check_stack.size);
   CHECK(0 == memcmp(check_stack.trace, stack->trace, res * sizeof(uintptr_t)));
 
   return res;
