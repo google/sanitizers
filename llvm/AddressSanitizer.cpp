@@ -802,7 +802,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
       if (do_poison) {
         PoisonShadowPartialRightRedzone((uint8_t*)&poison, addressible_bytes,
                                         kAsanRedzone,
-                                        kShadowGranularity, 0xf8);
+                                        kShadowGranularity, 0xfc);
       }
       Value *partial_poison = ConstantInt::get(i32Ty, poison);
       irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i32PtrTy));
