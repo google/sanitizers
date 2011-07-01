@@ -42,6 +42,10 @@
 #include <sys/syscall.h>
 #include <sys/ucontext.h>
 #include <dlfcn.h>
+#ifdef __APPLE__
+#include <AvailabilityMacros.h>
+#include <malloc/malloc.h>
+#endif
 // must not include <setjmp.h>
 
 
@@ -403,17 +407,35 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
 
 
 // -------------------------- Interceptors ------------------- {{{1
-
-extern "C"
-void *malloc(size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_malloc(size, &stack);
-}
-
+#ifndef __APPLE__
 extern "C"
 void free(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
   __asan_free(ptr, &stack);
+}
+#else
+// The free() implementation provided by OS X calls malloc_zone_from_ptr()
+// to find the owner of |ptr|. If the result is NULL, an invalid free() is
+// reported. Our implementation falls back to __asan_free() in this case
+// in order to print an ASan-style report.
+extern "C"
+void free(void *ptr) {
+  malloc_zone_t *zone = malloc_zone_from_ptr(ptr);
+  if (zone) {
+    malloc_zone_free(zone, ptr);
+  } else {
+    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+    __asan_free(ptr, &stack);
+  }
+}
+#endif
+
+#ifndef __APPLE__
+// Neither of libc-style allocation routines is needed to be replaced on Mac.
+extern "C"
+void *malloc(size_t size) {
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  return __asan_malloc(size, &stack);
 }
 
 extern "C"
@@ -456,6 +478,7 @@ void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_valloc(size, &stack);
 }
+#endif
 
 #if 1
 #define OPERATOR_NEW_BODY \
@@ -539,8 +562,6 @@ extern "C" void __cxa_throw(void *a, void *b, void *c) {
 // The following code was partially taken from Google Perftools,
 // http://code.google.com/p/google-perftools.
 #ifdef __APPLE__
-#include <AvailabilityMacros.h>
-#include <malloc/malloc.h>
 
 static malloc_zone_t *system_malloc_zone = NULL;
 
@@ -602,8 +623,21 @@ void* mz_valloc(malloc_zone_t* zone, size_t size) {
 }
 
 void mz_free(malloc_zone_t* zone, void* ptr) {
-  GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  __asan_free(ptr, &stack);
+  // TODO(glider): for some reason Chromium calls mz_free() for pointers that belong to
+  // DefaultPurgeableMallocZone instead of asan_zone. We might want to fix this someday.
+  if (!ptr) return;
+  malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
+  if (orig_zone != zone) {
+    Printf("WARNING: trying to mz_free() a pointer allocated by another zone!\n");
+    Printf("ptr: %p, asan_zone: %p, orig_zone: %p\n", ptr,  zone, orig_zone);
+    if (orig_zone) {
+      Printf("orig_zone->name: %s\n", orig_zone->zone_name);
+      malloc_zone_free(orig_zone, ptr);
+    }
+  } else {
+    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+    __asan_free(ptr, &stack);
+  }
 }
 
 void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
