@@ -266,8 +266,11 @@ class MallocInfo {
     }
     if (!g) return 0;
     Chunk *m = PtrToChunk(ptr);
-    CHECK(m->chunk_state == CHUNK_ALLOCATED);
-    return m->used_size;
+    if (m->chunk_state == CHUNK_ALLOCATED) {
+      return m->used_size;
+    } else {
+      return 0;
+    }
   }
 
   void PrintStatus() {
