@@ -32,7 +32,7 @@ namespace {
 
 static const size_t kRedzone      = kMinRedzone;
 static const size_t kMinAllocSize = kRedzone * 2;
-static const size_t kMinMmapSize  = kPageSize * 128;
+static const size_t kMinMmapSize  = kPageSize * 1024;
 
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
@@ -256,6 +256,9 @@ class MallocInfo {
     return FindChunkByAddr(addr);
   }
 
+  // TODO(glider): AllocationSize() may become very slow if the size of
+  // page_groups_ grows. This can be fixed by increasing kMinMmapSize,
+  // but a better solution is to speed up the search somehow.
   size_t AllocationSize(uintptr_t ptr) {
     ScopedLock lock(&mu_);
 
