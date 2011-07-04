@@ -71,10 +71,10 @@ static cl::opt<bool> ClStack("asan-stack",
 static cl::opt<bool> ClGlobals("asan-globals",
 #ifndef __APPLE__
        cl::desc("Handle global objects"), cl::init(true));
-#else       
+#else
        // TODO(glider): fix -asan-globals on Mac OS.
        cl::desc("-asan-globals is not supported on Mac yet"), cl::init(false));
-#endif       
+#endif
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<std::string>  ClBlackListFile("asan-black-list",
@@ -87,7 +87,7 @@ static cl::opt<bool> ClUseCall("asan-use-call",
 // The shadow mapping looks like
 //    Shadow = (Mem >> scale) + (1 << offset)
 static cl::opt<int> ClMappingScale("asan-mapping-scale",
-       cl::desc("scale of asan shadow mapping"), cl::init(kShadowScale));
+       cl::desc("scale of asan shadow mapping"), cl::init(0));
 static cl::opt<int> ClMappingOffset("asan-mapping-offset",
        cl::desc("offset of asan shadow mapping"), cl::init(0));
 
@@ -174,6 +174,7 @@ struct AddressSanitizer : public ModulePass {
   LLVMContext *C;
   TargetData *TD;
   uint64_t    MappingOffset;
+  int         MappingScale;
   int         LongSize;
   const Type *VoidTy;
   const Type *LongTy;
@@ -233,7 +234,7 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
 
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   // Shadow >> scale
-  Shadow = irb.CreateLShr(Shadow, ClMappingScale);
+  Shadow = irb.CreateLShr(Shadow, MappingScale);
   // (Shadow >> scale) | offset
   return irb.CreateOr(Shadow, ConstantInt::get(LongTy, MappingOffset));
 }
@@ -421,7 +422,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
   IRBuilder<> irb2(CheckTerm->getParent(), CheckTerm);
 
-  size_t granularity = 1 << ClMappingScale;
+  size_t granularity = 1 << MappingScale;
   if (type_size < 8 * granularity) {
     // addr & (granularity - 1)
     Value *Lower3Bits = irb2.CreateAnd(
@@ -632,11 +633,15 @@ bool AddressSanitizer::runOnModule(Module &M) {
   if (ClMappingOffset) {
     MappingOffset = 1ULL << ClMappingOffset;
   }
+  MappingScale = kShadowScale;
+  if (ClMappingScale) {
+    MappingScale = ClMappingScale;
+  }
   new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(LongTy, MappingOffset),
                      "__asan_mapping_offset");
   new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
-                     ConstantInt::get(LongTy, ClMappingScale),
+                     ConstantInt::get(LongTy, MappingScale),
                      "__asan_mapping_scale");
 
   bool res = false;
