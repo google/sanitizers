@@ -392,7 +392,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
   const Type *ShadowTy  = IntegerType::get(
-      *C, max((size_t)8, type_size / 8));
+      *C, max((size_t)8, type_size >> MappingScale));
   const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
@@ -405,7 +405,8 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
         AddrLong, ConstantInt::get(LongTy, 7));
     Lower3Bits = irb1.CreateIntCast(Lower3Bits, ByteTy, false);
     Value *X = irb1.CreateSub(
-        ConstantInt::get(ByteTy, 256 - type_size / 8), Lower3Bits);
+        ConstantInt::get(ByteTy, 256 - (type_size >> MappingScale)),
+        Lower3Bits);
     Value *Cmp = irb1.CreateICmpUGE(ShadowValue, X);
     Instruction *CheckTerm = splitBlockAndInsertIfThen(
         cast<Instruction>(Cmp)->getNextNode(), Cmp);
