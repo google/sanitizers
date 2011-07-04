@@ -81,6 +81,8 @@ static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
   CHECK(IsAligned(mem + size, SHADOW_GRANULARITY));
   uintptr_t shadow_beg = MemToShadow(mem);
   uintptr_t shadow_end = MemToShadow(mem + size);
+  if (poison && SHADOW_GRANULARITY == 128)
+    poison = 0xff;
   memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
 }
 

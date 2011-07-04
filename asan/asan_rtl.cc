@@ -1079,12 +1079,10 @@ void __asan_init() {
     Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
     Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
-    if (&__asan_mapping_scale) {
-      Printf("__asan_mapping_scale: %lx\n", __asan_mapping_scale);
-    }
-    if (&__asan_mapping_offset) {
-      Printf("__asan_mapping_offset: %lx\n", __asan_mapping_offset);
-    }
+
+    Printf("SHADOW_SCALE: %lx\n", SHADOW_SCALE);
+    Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
+    Printf("SHADOW_OFFSET: %lx\n", SHADOW_OFFSET);
   }
 }
 

@@ -38,7 +38,7 @@ PoisonShadowPartialRightRedzone(unsigned char *shadow,
     if (i + shadow_granularity <= size) {
       *shadow = 0;  // fully addressable
     } else if (i >= size) {
-      *shadow = shadow_granularity == 128 ? 0xff : magic;  // unaddressable
+      *shadow = (shadow_granularity == 128) ? 0xff : magic;  // unaddressable
     } else {
       *shadow = size - i;  // first size-i bytes are addressable
     }
