@@ -57,6 +57,10 @@ using std::max;
 
 using namespace llvm;
 
+static const uint64_t kDefaultShadowScale = 3;
+static const uint64_t kDefaultShadowOffset32 = 1ULL << 29;
+static const uint64_t kDefaultShadowOffset64 = 1ULL << 44;
+
 // Command-line flags.
 
 // (potentially) user-visible flags.
@@ -629,11 +633,11 @@ bool AddressSanitizer::runOnModule(Module &M) {
   irb.CreateCall(asan_init);
 
   MappingOffset = LongSize == 32
-      ? kCompactShadowMask32 : kCompactShadowMask64;
+      ? kDefaultShadowOffset32 : kDefaultShadowOffset64;
   if (ClMappingOffset) {
     MappingOffset = 1ULL << ClMappingOffset;
   }
-  MappingScale = kShadowScale;
+  MappingScale = kDefaultShadowScale;
   if (ClMappingScale) {
     MappingScale = ClMappingScale;
   }
@@ -807,7 +811,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuil
       if (do_poison) {
         PoisonShadowPartialRightRedzone((uint8_t*)&poison, addressible_bytes,
                                         kAsanRedzone,
-                                        kShadowGranularity, 0xfc);
+                                        1ULL << MappingScale, 0xfc);
       }
       Value *partial_poison = ConstantInt::get(i32Ty, poison);
       irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i32PtrTy));

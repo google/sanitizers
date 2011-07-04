@@ -23,7 +23,14 @@
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
 
-#define MEM_TO_SHADOW(mem) (((mem) >> 3) | kCompactShadowMask)
+extern uintptr_t __asan_mapping_scale;
+extern uintptr_t __asan_mapping_offset;
+
+#define SHADOW_SCALE __asan_mapping_scale
+#define SHADOW_GRANULARITY (1ULL << SHADOW_SCALE)
+#define SHADOW_OFFSET __asan_mapping_offset
+
+#define MEM_TO_SHADOW(mem) (((mem) >> SHADOW_SCALE) | (__asan_mapping_offset))
 
 #if __WORDSIZE == 64
 const size_t kPageClusterSizeBits = 8;
@@ -32,27 +39,25 @@ const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBi
 #endif
 
 #if __WORDSIZE == 64
-  static const size_t kCompactShadowMask  = kCompactShadowMask64;
   static const size_t kHighMemEnd = 0x00007fffffffffffUL;
 #else  // __WORDSIZE == 32
-  const size_t kCompactShadowMask  = kCompactShadowMask32;
   static const size_t kHighMemEnd = 0xffffffff;
 #endif  // __WORDSIZE
 
 
-static const size_t kLowMemBeg      = 0;
-static const size_t kLowMemEnd      = kCompactShadowMask - 1;
+#define kLowMemBeg      0
+#define kLowMemEnd      (SHADOW_OFFSET - 1)
 
-static const size_t kLowShadowBeg   = kCompactShadowMask;
-static const size_t kLowShadowEnd   = MEM_TO_SHADOW(kLowMemEnd);
+#define kLowShadowBeg   SHADOW_OFFSET
+#define kLowShadowEnd   MEM_TO_SHADOW(kLowMemEnd)
 
-static const size_t kHighMemBeg     = MEM_TO_SHADOW(kHighMemEnd) + 1;
+#define kHighMemBeg     (MEM_TO_SHADOW(kHighMemEnd) + 1)
 
-static const size_t kHighShadowBeg  = MEM_TO_SHADOW(kHighMemBeg);
-static const size_t kHighShadowEnd  = MEM_TO_SHADOW(kHighMemEnd);
+#define kHighShadowBeg  MEM_TO_SHADOW(kHighMemBeg)
+#define kHighShadowEnd  MEM_TO_SHADOW(kHighMemEnd)
 
-static const size_t kShadowGapBeg   = kLowShadowEnd + 1;
-static const size_t kShadowGapEnd   = kHighShadowBeg - 1;
+#define kShadowGapBeg   (kLowShadowEnd + 1)
+#define kShadowGapEnd   (kHighShadowBeg - 1)
 
 static inline bool AddrIsInLowMem(uintptr_t a) {
   return a < kLowMemEnd;

@@ -77,8 +77,8 @@ static inline size_t RoundUpToPowerOfTwo(size_t size) {
 }
 
 static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
-  CHECK(IsAligned(mem,        kShadowGranularity));
-  CHECK(IsAligned(mem + size, kShadowGranularity));
+  CHECK(IsAligned(mem,        SHADOW_GRANULARITY));
+  CHECK(IsAligned(mem + size, SHADOW_GRANULARITY));
   uintptr_t shadow_beg = MemToShadow(mem);
   uintptr_t shadow_end = MemToShadow(mem + size);
   memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
@@ -89,12 +89,12 @@ static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
 static void PoisonMemoryPartialRightRedzone(uintptr_t mem, size_t size) {
   CHECK(size <= kRedzone);
   CHECK(IsAligned(mem, kRedzone));
-  CHECK(IsPowerOfTwo(kShadowGranularity));
+  CHECK(IsPowerOfTwo(SHADOW_GRANULARITY));
   CHECK(IsPowerOfTwo(kRedzone));
-  CHECK(kRedzone >= kShadowGranularity);
+  CHECK(kRedzone >= SHADOW_GRANULARITY);
   uint8_t *shadow = (uint8_t*)MemToShadow(mem);
   PoisonShadowPartialRightRedzone(shadow, size,
-                                  kRedzone, kShadowGranularity, 0xfa);
+                                  kRedzone, SHADOW_GRANULARITY, 0xfa);
 }
 
 static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {

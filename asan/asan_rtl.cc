@@ -310,7 +310,7 @@ struct Global {
       CHECK(right_rz1_offset == right_rz2_offset - 4);
       PoisonShadowPartialRightRedzone((uint8_t*)(shadow + right_rz1_offset),
                                       size % kAsanRedzone, kAsanRedzone,
-                                      kShadowGranularity, 0xfb);
+                                      SHADOW_GRANULARITY, 0xfb);
     }
   }
 
@@ -1048,7 +1048,7 @@ void __asan_init() {
   }
 #else  // __WORDSIZE == 64
   {
-    uintptr_t first_shadow_page = kCompactShadowMask;
+    uintptr_t first_shadow_page = SHADOW_OFFSET;
     mmap_pages(first_shadow_page, 1, "First shadow page");
   }
 #endif  // __WORDSIZE == 64
