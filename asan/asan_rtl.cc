@@ -300,14 +300,17 @@ struct Global {
 
   void PoisonRedZones() {
     uintptr_t shadow = MemToShadow(beg);
+    size_t ShadowRZSize = kGlobalAndStackRedzone >> SHADOW_SCALE;
+    CHECK(ShadowRZSize == 1 || ShadowRZSize == 2 || ShadowRZSize == 4);
     // full right redzone
-    uintptr_t right_rz2_offset = 4 * ((size + kGlobalAndStackRedzone - 1)
-                                     / kGlobalAndStackRedzone);
-    *(uint32_t*)(shadow + right_rz2_offset) = 0xcacacaca;
+    uintptr_t right_rz2_offset = ShadowRZSize *
+        ((size + kGlobalAndStackRedzone - 1) / kGlobalAndStackRedzone);
+    memset((uint8_t*)shadow + right_rz2_offset, 
+           SHADOW_SCALE == 7 ? 0xff : 0xfc, ShadowRZSize);
     if ((size % kGlobalAndStackRedzone) != 0) {
       // partial right redzone
-      uint64_t right_rz1_offset = 4 * (size / kGlobalAndStackRedzone);
-      CHECK(right_rz1_offset == right_rz2_offset - 4);
+      uint64_t right_rz1_offset = ShadowRZSize * (size / kGlobalAndStackRedzone);
+      CHECK(right_rz1_offset == right_rz2_offset - ShadowRZSize);
       PoisonShadowPartialRightRedzone((uint8_t*)(shadow + right_rz1_offset),
                                       size % kGlobalAndStackRedzone,
                                       kGlobalAndStackRedzone,
@@ -1088,6 +1091,7 @@ void __asan_init() {
     Printf("SHADOW_SCALE: %lx\n", SHADOW_SCALE);
     Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
     Printf("SHADOW_OFFSET: %lx\n", SHADOW_OFFSET);
+    CHECK(SHADOW_SCALE >= 3 && SHADOW_SCALE <= 7);
   }
 }
 
