@@ -433,14 +433,14 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
     // addr & (granularity - 1)
     Value *Lower3Bits = irb2.CreateAnd(
         AddrLong, ConstantInt::get(LongTy, granularity - 1));
-    // (addr & (granularity - 1)) + size
+    // (addr & (granularity - 1)) + size - 1
     Value *LastAccessedByte = irb2.CreateAdd(
-        Lower3Bits, ConstantInt::get(LongTy, type_size / 8));
-    // (uint8_t) ((addr & (granularity-1)) + size)
+        Lower3Bits, ConstantInt::get(LongTy, type_size / 8 - 1));
+    // (uint8_t) ((addr & (granularity-1)) + size - 1)
     LastAccessedByte = irb2.CreateIntCast(
         LastAccessedByte, ByteTy, false);
-    // ((uint8_t) ((addr & (granularity-1)) + size)) > ShadowValue
-    Value *cmp2 = irb2.CreateICmpSGT(LastAccessedByte, ShadowValue);
+    // ((uint8_t) ((addr & (granularity-1)) + size - 1)) >= ShadowValue
+    Value *cmp2 = irb2.CreateICmpSGE(LastAccessedByte, ShadowValue);
 
     CheckTerm = splitBlockAndInsertIfThen(CheckTerm, cmp2);
   }
