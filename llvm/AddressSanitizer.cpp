@@ -163,8 +163,8 @@ struct AddressSanitizer : public ModulePass {
     return size_in_bytes;
   }
   uint64_t getAlignedSize(uint64_t size_in_bytes) {
-    return ((size_in_bytes + kAsanRedzone - 1)
-            / kAsanRedzone) * kAsanRedzone;
+    return ((size_in_bytes + RedzoneSize - 1)
+            / RedzoneSize) * RedzoneSize;
   }
   uint64_t getAlignedAllocaSize(AllocaInst *a) {
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
@@ -179,6 +179,7 @@ struct AddressSanitizer : public ModulePass {
   TargetData *TD;
   uint64_t    MappingOffset;
   int         MappingScale;
+  size_t      RedzoneSize;
   int         LongSize;
   const Type *VoidTy;
   const Type *LongTy;
@@ -526,11 +527,11 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       continue;
     }
     // TODO(kcc): do something smart if the alignment is large.
-    if (orig_global.getAlignment() > kAsanRedzone) continue;
+    if (orig_global.getAlignment() > RedzoneSize) continue;
 
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
-    uint64_t right_redzone_size = kAsanRedzone +
-        (kAsanRedzone - (size_in_bytes % kAsanRedzone));
+    uint64_t right_redzone_size = RedzoneSize +
+        (RedzoneSize - (size_in_bytes % RedzoneSize));
     Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
 
     const StructType *new_ty = StructType::get(
@@ -555,7 +556,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         "",
         &orig_global, orig_global.isThreadLocal());
     new_global->copyAttributesFrom(&orig_global);
-    new_global->setAlignment(kAsanRedzone);
+    new_global->setAlignment(RedzoneSize);
 
     Constant *Indices[2];
     Indices[0] = ConstantInt::get(i32Ty, 0);
@@ -641,6 +642,9 @@ bool AddressSanitizer::runOnModule(Module &M) {
   if (ClMappingScale) {
     MappingScale = ClMappingScale;
   }
+  // Redzone used for stack and globals is at least 32 bytes.
+  // For scales 6 and 7, the redzone has to be 64 and 128 bytes respectively.
+  RedzoneSize = max(32, (int)(1 << MappingScale));
   new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(LongTy, MappingOffset),
                      "__asan_mapping_offset");
@@ -775,54 +779,76 @@ bool AddressSanitizer::handleFunction(Function &F) {
     CallInst::Create(asan_init, "", Before);
     F.dump();
   }
-#endif    
+#endif
 
   return n_instrumented > 0 || changed_stack;
 }
 
+static uint64_t ValueForPoison(uint64_t poison_byte, size_t ShadowRedzoneSize) {
+  if (ShadowRedzoneSize == 1) return poison_byte;
+  if (ShadowRedzoneSize == 2) return (poison_byte << 8) + poison_byte;
+  if (ShadowRedzoneSize == 4)
+    return (poison_byte << 24) + (poison_byte << 16) +
+        (poison_byte << 8) + (poison_byte);
+  assert(0 && "ShadowRedzoneSize is either 1, 2 or 4");
+}
 
 void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
+  uint8_t poison_left_byte  = MappingScale == 7 ? 0xff : 0xf1;
+  uint8_t poison_mid_byte   = MappingScale == 7 ? 0xff : 0xf2;
+  uint8_t poison_right_byte = MappingScale == 7 ? 0xff : 0xf3;
 
-  Value *poison_left  = ConstantInt::get(i32Ty, do_poison ? 0xf1f2f3f4 : 0LL);
-  Value *poison_mid   = ConstantInt::get(i32Ty, do_poison ? 0xf5f6f7f8 : 0LL);
-  Value *poison_right = ConstantInt::get(i32Ty, do_poison ? 0xfafbfcfd : 0LL);
+  size_t ShadowRZSize = RedzoneSize >> MappingScale;
+  assert(ShadowRZSize >= 1 && ShadowRZSize <= 4);
+  const Type *RZTy = Type::getIntNTy(*C, ShadowRZSize * 8);
+  const Type *RZPtrTy = PointerType::get(RZTy, 0);
+
+  Value *poison_left  = ConstantInt::get(RZTy,
+    ValueForPoison(do_poison ? poison_left_byte : 0LL, ShadowRZSize));
+  Value *poison_mid   = ConstantInt::get(RZTy,
+    ValueForPoison(do_poison ? poison_mid_byte : 0LL, ShadowRZSize));
+  Value *poison_right = ConstantInt::get(RZTy,
+    ValueForPoison(do_poison ? poison_right_byte : 0LL, ShadowRZSize));
 
   // poison the first red zone.
-  irb.CreateStore(poison_left, irb.CreateIntToPtr(shadow_base, i32PtrTy));
+  irb.CreateStore(poison_left, irb.CreateIntToPtr(shadow_base, RZPtrTy));
 
   // poison all other red zones.
-  uint64_t pos = kAsanRedzone;
+  uint64_t pos = RedzoneSize;
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t size_in_bytes = getAllocaSizeInBytes(a);
     uint64_t aligned_size = getAlignedAllocaSize(a);
-    assert(aligned_size - size_in_bytes < kAsanRedzone);
+    assert(aligned_size - size_in_bytes < RedzoneSize);
     Value *ptr;
 
     pos += aligned_size;
 
+    assert(shadow_base->getType() == LongTy);
     if (size_in_bytes < aligned_size) {
       // Poison the partial redzone at right
       ptr = irb.CreateAdd(
-          shadow_base, ConstantInt::get(LongTy, pos / 8 - 4));
-      size_t addressible_bytes = kAsanRedzone - (aligned_size - size_in_bytes);
+          shadow_base, ConstantInt::get(LongTy,
+                                        (pos >> MappingScale) - ShadowRZSize));
+      size_t addressible_bytes = RedzoneSize - (aligned_size - size_in_bytes);
       uint32_t poison = 0;
       if (do_poison) {
         PoisonShadowPartialRightRedzone((uint8_t*)&poison, addressible_bytes,
-                                        kAsanRedzone,
-                                        1ULL << MappingScale, 0xfc);
+                                        RedzoneSize,
+                                        1ULL << MappingScale, 0xf4);
       }
-      Value *partial_poison = ConstantInt::get(i32Ty, poison);
-      irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, i32PtrTy));
+      Value *partial_poison = ConstantInt::get(RZTy, poison);
+      irb.CreateStore(partial_poison, irb.CreateIntToPtr(ptr, RZPtrTy));
     }
 
     // Poison the full redzone at right.
-    ptr = irb.CreateAdd(shadow_base, ConstantInt::get(LongTy, pos / 8));
+    ptr = irb.CreateAdd(shadow_base,
+                        ConstantInt::get(LongTy, pos >> MappingScale));
     Value *poison = i == alloca_v.size() - 1 ? poison_right : poison_mid;
-    irb.CreateStore(poison, irb.CreateIntToPtr(ptr, i32PtrTy));
+    irb.CreateStore(poison, irb.CreateIntToPtr(ptr, RZPtrTy));
 
-    pos += kAsanRedzone;
+    pos += RedzoneSize;
   }
 }
 
@@ -850,7 +876,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
       if (a->isArrayAllocation()) continue;
       if (!a->isStaticAlloca()) continue;
       if (!a->getAllocatedType()->isSized()) continue;
-      if (a->getAlignment() > kAsanRedzone) continue;  // TODO(kcc)
+      if (a->getAlignment() > RedzoneSize) continue;  // TODO(kcc)
       alloca_v.push_back(a);
       uint64_t aligned_size =  getAlignedAllocaSize(a);
       total_size += aligned_size;
@@ -860,7 +886,7 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   if (alloca_v.empty()) return false;
 
   uint64_t total_size_with_redzones =
-      total_size + (alloca_v.size() + 1) * kAsanRedzone;
+      total_size + (alloca_v.size() + 1) * RedzoneSize;
 
   // errs() << "total size w/ redzones: " << total_size_with_redzones << "\n";
 
@@ -868,21 +894,21 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
   Instruction *ins_before = alloca_v[0];
 
   AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
-  my_alloca->setAlignment(kAsanRedzone);
+  my_alloca->setAlignment(RedzoneSize);
   assert(my_alloca->isStaticAlloca());
   Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
 
-  uint64_t pos = kAsanRedzone;
+  uint64_t pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < alloca_v.size(); i++) {
     AllocaInst *a = alloca_v[i];
     uint64_t aligned_size = getAlignedAllocaSize(a);
-    assert((aligned_size % kAsanRedzone) == 0);
+    assert((aligned_size % RedzoneSize) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
         base, ConstantInt::get(LongTy, pos), "", a);
     new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
 
-    pos += aligned_size + kAsanRedzone;
+    pos += aligned_size + RedzoneSize;
     a->replaceAllUsesWith(new_ptr);
   }
   assert(pos == total_size_with_redzones);

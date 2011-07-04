@@ -18,13 +18,6 @@
 #ifndef ASAN_RTL_H
 #define ASAN_RTL_H
 
-// We create poisoned rezones of 32 *bytes* around stack objects and globals.
-// We can poison the entire redzone with one 4-byte store.
-// For objects with ((size % 32) != 0) we create left redzone of 32 bytes
-// and right redzone of 32+(32-(size%32)) bytes.
-// The size of the heap redzone is different and is not a constant.
-const unsigned kAsanRedzone = 32;
-
 // Poison the shadow memory which corresponds to 'redzone_size' bytes
 // of the original memory, where first 'size' bytes are addressable.
 static inline void

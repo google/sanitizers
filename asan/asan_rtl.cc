@@ -301,26 +301,32 @@ struct Global {
   void PoisonRedZones() {
     uintptr_t shadow = MemToShadow(beg);
     // full right redzone
-    uintptr_t right_rz2_offset = 4 * ((size + kAsanRedzone - 1)
-                                     / kAsanRedzone);
+    uintptr_t right_rz2_offset = 4 * ((size + kGlobalAndStackRedzone - 1)
+                                     / kGlobalAndStackRedzone);
     *(uint32_t*)(shadow + right_rz2_offset) = 0xcacacaca;
-    if ((size % kAsanRedzone) != 0) {
+    if ((size % kGlobalAndStackRedzone) != 0) {
       // partial right redzone
-      uint64_t right_rz1_offset = 4 * (size / kAsanRedzone);
+      uint64_t right_rz1_offset = 4 * (size / kGlobalAndStackRedzone);
       CHECK(right_rz1_offset == right_rz2_offset - 4);
       PoisonShadowPartialRightRedzone((uint8_t*)(shadow + right_rz1_offset),
-                                      size % kAsanRedzone, kAsanRedzone,
+                                      size % kGlobalAndStackRedzone,
+                                      kGlobalAndStackRedzone,
                                       SHADOW_GRANULARITY, 0xfb);
     }
   }
 
+  static size_t GetAlignedSize(size_t size) {
+    return ((size + kGlobalAndStackRedzone - 1) / kGlobalAndStackRedzone)
+        * kGlobalAndStackRedzone;
+  }
+
   size_t GetAlignedSize() {
-    return ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
+    return GetAlignedSize(this->size);
   }
 
   bool DescribeAddrIfMyRedZone(uintptr_t addr) {
-    if (addr < beg - kAsanRedzone) return false;
-    if (addr >= beg + GetAlignedSize() + kAsanRedzone) return false;
+    if (addr < beg - kGlobalAndStackRedzone) return false;
+    if (addr >= beg + GetAlignedSize() + kGlobalAndStackRedzone) return false;
     Printf(""PP" is located ", addr);
     if (addr < beg) {
       Printf("%d bytes to the left", beg - addr) ;
@@ -362,8 +368,7 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *
   CHECK(AddrIsInMem(addr));
   // uintptr_t shadow = MemToShadow(addr);
   // Printf("global: "PP"  %ld \n", addr, size);
-  uintptr_t aligned_size =
-      ((size + kAsanRedzone - 1) / kAsanRedzone) * kAsanRedzone;
+  uintptr_t aligned_size = Global::GetAlignedSize(size);
   Global *g = (Global*)(addr + aligned_size);
   if (g->beg || g->size || g->name) return;  // we already inserted this one.
   g->next = g_globals_list;

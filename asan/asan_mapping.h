@@ -59,6 +59,9 @@ const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBi
 #define kShadowGapBeg   (kLowShadowEnd + 1)
 #define kShadowGapEnd   (kHighShadowBeg - 1)
 
+#define kGlobalAndStackRedzone \
+      (SHADOW_GRANULARITY < 32 ? 32 : SHADOW_GRANULARITY)
+
 static inline bool AddrIsInLowMem(uintptr_t a) {
   return a < kLowMemEnd;
 }

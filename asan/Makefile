@@ -32,6 +32,8 @@ BITS=64
 ASAN_STACK=1
 ASAN_GLOBALS=1
 ASAN_USE_CALL=0
+ASAN_SCALE=0  # default will be used
+ASAN_OFFSET=0  #default will be used
 
 RTL_HDR=asan_allocator.h \
 	asan_int.h \
@@ -100,7 +102,9 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 		-mllvm -asan-black-list=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
-		-mllvm -asan-use-call=$(ASAN_USE_CALL)
+		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
+		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
+		-mllvm -asan-mapping-offset=$(ASAN_OFFSET)
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
