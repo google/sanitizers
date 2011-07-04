@@ -26,16 +26,26 @@ class AsanLock {
  public:
   AsanLock() {
     mu_ = OS_SPINLOCK_INIT;
+    is_locked_ = false;
   }
   ~AsanLock() {}
   void Lock() {
     OSSpinLockLock(&mu_);
+    is_locked_ = true;
   }
   void Unlock() {
+    is_locked_ = false;
     OSSpinLockUnlock(&mu_);
+  }
+
+  bool IsLocked() {
+    // This is not atomic, e.g. one thread may get different values if another
+    // one is about to release the lock.
+    return is_locked_;
   }
  private:
   OSSpinLock mu_;
+  bool is_locked_;  // for silly malloc_introspection_t interface
 };
 
 #else  // assume linux
