@@ -201,7 +201,7 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
   const uintptr_t kMaxOffset = (1ULL << 30) - 1;
   uintptr_t c_index = 0;
   size_t res = 0;
-  for (size_t i = 0; i < stack->size; i++) {
+  for (size_t i = 0, n = stack->size; i < n; i++) {
     uintptr_t pc = stack->trace[i];
     if (!pc) break;
     if ((int64_t)pc < 0) break;
@@ -228,6 +228,9 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
     compressed[i] = 0;
   }
 #endif  // __WORDSIZE
+
+  // debug-only code
+#if 0
   AsanStackTrace check_stack;
   UncompressStack(&check_stack, compressed, size);
   if (res < check_stack.size) {
@@ -237,6 +240,7 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
   // UncompressStack(CompressStack(stack)) eliminates the 0x0 frames.
   CHECK(res >= check_stack.size);
   CHECK(0 == memcmp(check_stack.trace, stack->trace, check_stack.size * sizeof(uintptr_t)));
+#endif
 
   return res;
 }
