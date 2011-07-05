@@ -20,6 +20,31 @@
 
 #include "asan_int.h"
 
+class AsanChunk;
+
+class AsanChunkFifoList {
+ public:
+  AsanChunkFifoList() { clear(); }
+  void Push(AsanChunk*);
+  void Push(AsanChunkFifoList *);
+  AsanChunk *Pop();
+  size_t size() { return size_; }
+  void clear() {
+    first_ = last_ = NULL;
+    size_ = 0;
+  }
+ private:
+  AsanChunk *first_;
+  AsanChunk *last_;
+  size_t size_;
+};
+
+
+struct AsanThreadLocalMallocStorage {
+  AsanChunkFifoList quarantine_;
+  void CommitBack();
+};
+
 extern "C" {
 void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack);
 void __asan_free(void *ptr, AsanStackTrace *stack);
@@ -34,6 +59,8 @@ int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
 
 size_t __asan_mz_size(const void *ptr);
 void __asan_describe_heap_address(uintptr_t addr, size_t access_size);
+
+size_t __asan_total_mmaped();
 
 }  // extern "C"
 #endif  // ASAN_ALLOCATOR_H

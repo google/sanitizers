@@ -95,6 +95,7 @@ void *AsanThread::ThreadStart() {
   if (!start_routine_) return 0;
 
   void *res = start_routine_(arg_);
+  malloc_storage().CommitBack();
 
   if (__asan_flag_v == 1) {
     Printf("T%d exited\n", tid_);

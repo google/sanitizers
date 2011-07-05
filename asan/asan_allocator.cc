@@ -28,12 +28,12 @@
 #include <unistd.h>
 #include <algorithm>
 
-namespace {
 
 static const size_t kRedzone      = kMinRedzone;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 1024;
 static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
+static const size_t kMaxThreadLocalQuarantine = 1 << 20;  // 1M
 
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
@@ -100,11 +100,14 @@ static void PoisonMemoryPartialRightRedzone(uintptr_t mem, size_t size) {
                                   kRedzone, SHADOW_GRANULARITY, 0xfa);
 }
 
+static size_t total_mmaped = 0;
+
 static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   CHECK((size % kPageSize) == 0);
   uint8_t *res = (uint8_t*)__asan_mmap(0, size,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
+  total_mmaped += size;
   if (res == (uint8_t*)-1) {
     OutOfMemoryMessage(__FUNCTION__, size);
     AsanStackTrace::PrintCurrent();
@@ -120,8 +123,8 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
 // CHUNK_QUARANTINE: the chunk was freed and put into quarantine zone.
 //
 // The pseudo state CHUNK_MEMALIGN is used to mark that the address is not
-// the beginning of a Chunk (in which case 'next' contains the address
-// of the Chunk).
+// the beginning of a AsanChunk (in which case 'next' contains the address
+// of the AsanChunk).
 //
 // The magic numbers for the enum values are taken randomly.
 enum {
@@ -131,8 +134,6 @@ enum {
   CHUNK_MEMALIGN   = 0xDC68ECD8,
 };
 
-struct Chunk;
-
 struct ChunkBase {
   uint32_t     chunk_state;
   uint32_t     size;  // Must be power of two
@@ -140,12 +141,12 @@ struct ChunkBase {
   uint32_t     offset;  // User-visible memory starts at this+offset (beg()).
   int32_t      alloc_tid;
   int32_t      free_tid;
-  Chunk       *next;
+  AsanChunk       *next;
 
   uintptr_t   beg() { return (uintptr_t)this + offset; }
 };
 
-struct Chunk: public ChunkBase {
+struct AsanChunk: public ChunkBase {
   uint32_t compressed_alloc_stack[(kRedzone - sizeof(ChunkBase)) / sizeof(uint32_t)];
   uint32_t compressed_free_stack[kRedzone / sizeof(uint32_t)];
 
@@ -193,13 +194,55 @@ struct Chunk: public ChunkBase {
   }
 };
 
-static Chunk *PtrToChunk(uintptr_t ptr) {
-  Chunk *m = (Chunk*)(ptr - kRedzone);
+static AsanChunk *PtrToChunk(uintptr_t ptr) {
+  AsanChunk *m = (AsanChunk*)(ptr - kRedzone);
   if (m->chunk_state == CHUNK_MEMALIGN) {
     m = m->next;
   }
   return m;
 }
+
+
+void AsanChunkFifoList::Push(AsanChunkFifoList *q) {
+  if (last_) {
+    CHECK(first_);
+    CHECK(!last_->next);
+    last_->next = q->first_;
+    last_ = q->last_;
+  } else {
+    CHECK(!first_);
+    last_ = q->last_;
+    first_ = q->first_;
+  }
+  size_ += q->size();
+  q->clear();
+}
+
+void AsanChunkFifoList::Push(AsanChunk *n) {
+  if (last_) {
+    CHECK(first_);
+    CHECK(!last_->next);
+    last_->next = n;
+    last_ = n;
+  } else {
+    CHECK(!first_);
+    last_ = first_ = n;
+  }
+  size_ += n->size;
+}
+
+AsanChunk *AsanChunkFifoList::Pop() {
+  CHECK(first_);
+  AsanChunk *res = first_;
+  first_ = first_->next;
+  if (first_ == NULL)
+    last_ = NULL;
+  CHECK(size_ >= res->size);
+  size_ -= res->size;
+  return res;
+}
+
+namespace {
 
 // All pages we ever allocated.
 struct PageGroup {
@@ -211,46 +254,13 @@ struct PageGroup {
   }
 };
 
-template <class Node>
-class SizedFifoList {
- public:
-  void Push(Node *n) {
-    if (last_) {
-      CHECK(first_);
-      CHECK(!last_->next);
-      last_->next = n;
-      last_ = n;
-    } else {
-      CHECK(!first_);
-      last_ = first_ = n;
-    }
-    size_ += n->size;
-  }
-
-  Node *Pop() {
-    CHECK(first_);
-    Node *res = first_;
-    first_ = first_->next;
-    if (first_ == NULL)
-      last_ = NULL;
-    CHECK(size_ >= res->size);
-    size_ -= res->size;
-    return res;
-  }
-
-  size_t size() { return size_; }
- private:
-  Node *first_;
-  Node *last_;
-  size_t size_;
-};
 
 
 class MallocInfo {
  public:
-  Chunk *AllocateChunk(size_t size) {
+  AsanChunk *AllocateChunk(size_t size) {
     size_t idx = GetChunkIdx(size);
-    Chunk *m = NULL;
+    AsanChunk *m = NULL;
     {
       ScopedLock lock(&mu_);
 
@@ -268,24 +278,18 @@ class MallocInfo {
     return m;
   }
 
-  void DeallocateChunk(Chunk *m) {
-
-    CHECK(m);
-    CHECK(m->chunk_state == CHUNK_ALLOCATED);
-    CHECK(IsPowerOfTwo(m->size));
+  void SwallowThreadLocalQuarantine(AsanChunkFifoList *q) {
     CHECK(__asan_flag_quarantine_size > 0);
+    if (q->size() == 0) return;
 
     ScopedLock lock(&mu_);
-
-    quarantine_.Push(m);
-    m->chunk_state = CHUNK_QUARANTINE;
+    quarantine_.Push(q);
     while (quarantine_.size() > __asan_flag_quarantine_size) {
       Pop();
     }
-
   }
 
-  Chunk *FindMallocedOrFreed(uintptr_t addr, size_t access_size) {
+  AsanChunk *FindMallocedOrFreed(uintptr_t addr, size_t access_size) {
     ScopedLock lock(&mu_);
     return FindChunkByAddr(addr);
   }
@@ -299,7 +303,7 @@ class MallocInfo {
     // first, check if this is our memory
     PageGroup *g = FindPageGroup(ptr);
     if (!g) return 0;
-    Chunk *m = PtrToChunk(ptr);
+    AsanChunk *m = PtrToChunk(ptr);
     if (m->chunk_state == CHUNK_ALLOCATED) {
       return m->used_size;
     } else {
@@ -314,7 +318,7 @@ class MallocInfo {
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
            quarantine_.size() >> 20, malloced >> 20);
     for (size_t j = 1; j < kNumChunks; j++) {
-      Chunk *i = chunks[j];
+      AsanChunk *i = chunks[j];
       if (!i) continue;
       size_t t = 0;
       for (; i; i = i->next) {
@@ -336,7 +340,7 @@ class MallocInfo {
     return NULL;
   }
 
-  Chunk *FindChunkByAddr(uintptr_t addr) {
+  AsanChunk *FindChunkByAddr(uintptr_t addr) {
     PageGroup *g = FindPageGroup(addr);
     if (!g) return 0;
     CHECK(g->size_of_chunk);
@@ -345,7 +349,7 @@ class MallocInfo {
     uintptr_t this_chunk_addr = g->beg +
         (offset_from_beg / g->size_of_chunk) * g->size_of_chunk;
     CHECK(g->InRange(this_chunk_addr));
-    Chunk *m = (Chunk*)this_chunk_addr;
+    AsanChunk *m = (AsanChunk*)this_chunk_addr;
     CHECK(m->chunk_state == CHUNK_ALLOCATED ||
           m->chunk_state == CHUNK_AVAILABLE ||
           m->chunk_state == CHUNK_QUARANTINE);
@@ -361,7 +365,7 @@ class MallocInfo {
     }
     uintptr_t left_chunk_addr = this_chunk_addr - g->size_of_chunk;
     CHECK(g->InRange(left_chunk_addr));
-    Chunk *l = (Chunk*)left_chunk_addr;
+    AsanChunk *l = (AsanChunk*)left_chunk_addr;
     uintptr_t l_offset;
     bool is_at_right = l->AddrIsAtRight(addr, 1, &l_offset);
     CHECK(is_at_right);
@@ -373,7 +377,7 @@ class MallocInfo {
 
   void Pop() {
     CHECK(quarantine_.size() > 0);
-    Chunk *m = quarantine_.Pop();
+    AsanChunk *m = quarantine_.Pop();
     CHECK(m);
     // if (F_v >= 2) Printf("MallocInfo::pop %p\n", m);
 
@@ -397,7 +401,7 @@ class MallocInfo {
   }
 
   // Get a list of newly allocated chunks.
-  Chunk *GetNewChunks(size_t size) {
+  AsanChunk *GetNewChunks(size_t size) {
     CHECK(size <= (1UL << 31));
     CHECK(IsPowerOfTwo(size));
     CHECK(IsPowerOfTwo(kMinMmapSize));
@@ -417,9 +421,9 @@ class MallocInfo {
       __asan_stats.mmaped += mmap_size;
       __asan_stats.mmaped_by_size[Log2(size)] += n_chunks;
     }
-    Chunk *res = NULL;
+    AsanChunk *res = NULL;
     for (size_t i = 0; i < n_chunks; i++) {
-      Chunk *m = (Chunk*)(mem + i * size);
+      AsanChunk *m = (AsanChunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
       m->size = size;
       m->next = res;
@@ -445,8 +449,8 @@ class MallocInfo {
     return res;
   }
 
-  Chunk *chunks[kNumChunks];
-  SizedFifoList<Chunk> quarantine_;
+  AsanChunk *chunks[kNumChunks];
+  AsanChunkFifoList quarantine_;
   AsanLock mu_;
 
   PageGroup *page_groups_[kMaxAvailableRam / kMinMmapSize];
@@ -455,8 +459,14 @@ class MallocInfo {
 
 static MallocInfo malloc_info;
 
+}  // namespace
+
+void AsanThreadLocalMallocStorage::CommitBack() {
+  malloc_info.SwallowThreadLocalQuarantine(&this->quarantine_);
+}
+
 static void Describe(uintptr_t addr, size_t access_size) {
-  Chunk *m = malloc_info.FindMallocedOrFreed(addr, access_size);
+  AsanChunk *m = malloc_info.FindMallocedOrFreed(addr, access_size);
   if (!m) return;
   m->DescribeAddress(addr, access_size);
   CHECK(m->alloc_tid >= 0);
@@ -523,7 +533,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     }
   }
 
-  Chunk *m = malloc_info.AllocateChunk(size_to_allocate);
+  AsanChunk *m = malloc_info.AllocateChunk(size_to_allocate);
   CHECK(m);
   CHECK(m->size == size_to_allocate);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
@@ -533,7 +543,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   if (alignment > kRedzone && (addr & (alignment - 1))) {
     addr = RoundUpTo(addr, alignment);
     CHECK((addr & (alignment - 1)) == 0);
-    Chunk *p = (Chunk*)(addr - kRedzone);
+    AsanChunk *p = (AsanChunk*)(addr - kRedzone);
     p->chunk_state = CHUNK_MEMALIGN;
     p->next = m;
   }
@@ -557,7 +567,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   CHECK(stack);
 
   //Printf("Deallocate "PP"\n", ptr);
-  Chunk *m = PtrToChunk((uintptr_t)ptr);
+  AsanChunk *m = PtrToChunk((uintptr_t)ptr);
   if (m->chunk_state == CHUNK_QUARANTINE) {
     Printf("attempting double-free on %p:\n", ptr);
     stack->PrintStack();
@@ -571,7 +581,8 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   CHECK(m->free_tid == -1);
   CHECK(m->alloc_tid >= 0);
-  m->free_tid = AsanThread::GetCurrent()->Ref()->tid();
+  AsanThread *t = AsanThread::GetCurrent();
+  m->free_tid = t->Ref()->tid();
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack,
                                 ASAN_ARRAY_SIZE(m->compressed_free_stack));
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
@@ -583,7 +594,15 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     __asan_stats.freed_by_size[Log2(m->size)]++;
   }
 
-  malloc_info.DeallocateChunk(m);
+  m->chunk_state = CHUNK_QUARANTINE;
+  AsanChunkFifoList *tlq = &t->malloc_storage().quarantine_;
+  tlq->Push(m);
+
+  if (tlq->size() > kMaxThreadLocalQuarantine) {
+    malloc_info.SwallowThreadLocalQuarantine(tlq);
+  }
+
+  // malloc_info.DeallocateChunk(m);
 }
 
 static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *stack) {
@@ -597,7 +616,7 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
     __asan_stats.reallocs++;
     __asan_stats.realloced += new_size;
   }
-  Chunk *m = PtrToChunk((uintptr_t)old_ptr);
+  AsanChunk *m = PtrToChunk((uintptr_t)old_ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   size_t old_size = m->used_size;
   size_t memcpy_size = std::min(new_size, old_size);
@@ -610,8 +629,6 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
 //  stack->PrintStack();
   return new_ptr;
 }
-
-}  // namespace
 
 void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack) {
   return (void*)Allocate(alignment, size, stack);
@@ -651,4 +668,7 @@ size_t __asan_mz_size(const void *ptr) {
 
 void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {
   Describe(addr, access_size);
+}
+size_t __asan_total_mmaped() {
+  return total_mmaped;
 }

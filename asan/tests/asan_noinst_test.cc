@@ -238,3 +238,29 @@ TEST(AddressSanitizer, QuarantineTest) {
   EXPECT_GE(i, 100000U);
   EXPECT_LT(i, max_i);
 }
+
+void *ThreadedQuarantineTestWorker(void *) {
+  AsanStackTrace stack;
+  stack.trace[0] = 0x890;
+  stack.size = 1;
+
+  for (size_t i = 0; i < 1000; i++) {
+    void *p = __asan_malloc(1 + (rand() % 4000), &stack);
+    __asan_free(p, &stack);
+  }
+  return NULL;
+}
+
+// Check that the thread local allocators are flushed when threads are
+// destroyed.
+TEST(AddressSanitizer, ThreadedQuarantineTest) {
+  const int n_threads = 2000;
+  size_t mmaped1 = __asan_total_mmaped();
+  for (int i = 0; i < n_threads; i++) {
+    pthread_t t;
+    pthread_create(&t, NULL, ThreadedQuarantineTestWorker, 0);
+    pthread_join(t, 0);
+  }
+  size_t mmaped2 = __asan_total_mmaped();
+  EXPECT_LT(mmaped2 - mmaped1, 512U * (1 << 20));
+}

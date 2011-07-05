@@ -17,6 +17,7 @@
 #ifndef ASAN_THREAD_H
 #define ASAN_THREAD_H
 
+#include "asan_allocator.h"
 #include "asan_int.h"
 #include "asan_lock.h"
 #include "asan_stack.h"
@@ -74,6 +75,8 @@ class AsanThread {
   static AsanThread *GetMain() { return &main_thread_; }
   static void Init();
 
+  AsanThreadLocalMallocStorage &malloc_storage() { return malloc_storage_; }
+
  private:
 
   void SetThreadStackTopAndBottom();
@@ -87,6 +90,8 @@ class AsanThread {
   int        tid_;
   bool       announced_;
   int        refcount_;
+
+  AsanThreadLocalMallocStorage malloc_storage_;
 
   AsanThread *next_;
   AsanThread *prev_;
