@@ -20,6 +20,7 @@
 
 #include "asan_int.h"
 
+static const size_t kNumFreeLists = __WORDSIZE;
 class AsanChunk;
 
 class AsanChunkFifoList {

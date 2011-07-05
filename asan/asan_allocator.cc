@@ -264,12 +264,12 @@ class MallocInfo {
     {
       ScopedLock lock(&mu_);
 
-      if (!chunks[idx]) {
-        chunks[idx] = GetNewChunks(size);
+      if (!free_lists_[idx]) {
+        free_lists_[idx] = GetNewChunks(size);
       }
-      m = chunks[idx];
+      m = free_lists_[idx];
       CHECK(m);
-      chunks[idx] = m->next;
+      free_lists_[idx] = m->next;
     }
     m->next = 0;
     CHECK(m->chunk_state == CHUNK_AVAILABLE);
@@ -317,8 +317,8 @@ class MallocInfo {
 
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
            quarantine_.size() >> 20, malloced >> 20);
-    for (size_t j = 1; j < kNumChunks; j++) {
-      AsanChunk *i = chunks[j];
+    for (size_t j = 1; j < kNumFreeLists; j++) {
+      AsanChunk *i = free_lists_[j];
       if (!i) continue;
       size_t t = 0;
       for (; i; i = i->next) {
@@ -390,8 +390,8 @@ class MallocInfo {
     // AsanThread::FindByTid(m->free_tid)->Unref();
 
     size_t idx = GetChunkIdx(m->size);
-    m->next = chunks[idx];
-    chunks[idx] = m;
+    m->next = free_lists_[idx];
+    free_lists_[idx] = m;
 
     if (__asan_flag_stats) {
       __asan_stats.real_frees++;
@@ -440,16 +440,15 @@ class MallocInfo {
     return res;
   }
 
-  static const size_t kNumChunks = __WORDSIZE;
 
   size_t GetChunkIdx(size_t size) {
     CHECK(IsPowerOfTwo(size));
     size_t res = Log2(size);
-    CHECK(res < kNumChunks);
+    CHECK(res < kNumFreeLists);
     return res;
   }
 
-  AsanChunk *chunks[kNumChunks];
+  AsanChunk *free_lists_[kNumFreeLists];
   AsanChunkFifoList quarantine_;
   AsanLock mu_;
 
