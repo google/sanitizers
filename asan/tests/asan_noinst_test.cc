@@ -218,3 +218,23 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
     }
   }
 }
+
+TEST(AddressSanitizer, QuarantineTest) {
+  AsanStackTrace stack;
+  stack.trace[0] = 0x890;
+  stack.size = 1;
+
+  const int size = 32;
+  void *p = __asan_malloc(size, &stack);
+  __asan_free(p, &stack);
+  size_t i;
+  size_t max_i = 1 << 30;
+  for (i = 0; i < max_i; i++) {
+    void *p1 = __asan_malloc(size, &stack);
+    __asan_free(p1, &stack);
+    if (p1 == p) break;
+  }
+  // fprintf(stderr, "i=%ld\n", i);
+  EXPECT_GE(i, 100000U);
+  EXPECT_LT(i, max_i);
+}
