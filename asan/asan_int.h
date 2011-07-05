@@ -73,12 +73,14 @@ const size_t kPageSize = 1UL << kPageSizeBits;
 #define GET_CURRENT_FRAME() (uintptr_t*)__builtin_frame_address(0)
 
 // -------------------------- Atomic ---------------- {{{1
-static inline int AtomicInc(int *a) {
+template <class T>
+static inline T AtomicInc(T *a) {
   if (!__asan_flag_mt) return ++(*a);
   return __sync_add_and_fetch(a, 1);
 }
 
-static inline int AtomicDec(int *a) {
+template <class T>
+static inline T AtomicDec(T *a) {
   if (!__asan_flag_mt) return --(*a);
   return __sync_add_and_fetch(a, -1);
 }

@@ -33,6 +33,7 @@ namespace {
 static const size_t kRedzone      = kMinRedzone;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 1024;
+static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
 
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
@@ -201,6 +202,17 @@ static Chunk *PtrToChunk(uintptr_t ptr) {
   return m;
 }
 
+// All pages we ever allocated.
+struct PageGroup {
+  uintptr_t beg;
+  uintptr_t end;
+  size_t size_of_chunk;
+  bool InRange(uintptr_t addr) {
+    return addr >= beg && addr < end;
+  }
+};
+
+
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
@@ -264,10 +276,7 @@ class MallocInfo {
     ScopedLock lock(&mu_);
 
     // first, check if this is our memory
-    PageGroup *g = NULL;
-    for (g = page_groups_; g; g = g->next) {
-      if (ptr >= g->beg && ptr < g->end) break;
-    }
+    PageGroup *g = FindPageGroup(ptr);
     if (!g) return 0;
     Chunk *m = PtrToChunk(ptr);
     if (m->chunk_state == CHUNK_ALLOCATED) {
@@ -304,11 +313,18 @@ class MallocInfo {
   }
 
  private:
-  Chunk *FindChunkByAddr(uintptr_t addr) {
-    PageGroup *g = NULL;
-    for (g = page_groups_; g; g = g->next) {
-      if (g->InRange(addr)) break;
+  PageGroup *FindPageGroup(uintptr_t addr) {
+    for (size_t i = 0; i < n_page_groups_; i++) {
+      PageGroup *g = page_groups_[i];
+      if (g->InRange(addr)) {
+        return g;
+      }
     }
+    return NULL;
+  }
+
+  Chunk *FindChunkByAddr(uintptr_t addr) {
+    PageGroup *g = FindPageGroup(addr);
     if (!g) return 0;
     CHECK(g->size_of_chunk);
     CHECK(IsPowerOfTwo(g->size_of_chunk));
@@ -413,9 +429,10 @@ class MallocInfo {
     // This memory is already poisoned, no need to poison it again.
     pg->beg = (uintptr_t)mem;
     pg->end = pg->beg + mmap_size;
-    pg->next = page_groups_;
     pg->size_of_chunk = size;
-    page_groups_ = pg;
+    size_t page_group_idx = AtomicInc(&n_page_groups_) - 1;
+    CHECK(page_group_idx < ASAN_ARRAY_SIZE(page_groups_));
+    page_groups_[page_group_idx] = pg;
     return res;
   }
 
@@ -433,17 +450,8 @@ class MallocInfo {
   size_t quarantine_size_;
   AsanLock mu_;
 
-  // All pages we ever allocated.
-  struct PageGroup {
-    uintptr_t beg;
-    uintptr_t end;
-    size_t size_of_chunk;
-    PageGroup *next;
-    bool InRange(uintptr_t addr) {
-      return addr >= beg && addr < end;
-    }
-  };
-  PageGroup *page_groups_;
+  PageGroup *page_groups_[kMaxAvailableRam / kMinMmapSize];
+  size_t n_page_groups_;  // atomic
 };
 
 static MallocInfo malloc_info;
