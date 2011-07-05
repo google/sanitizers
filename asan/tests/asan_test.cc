@@ -48,6 +48,12 @@ typedef unsigned long long   U8;
 
 static const char *progname;
 
+// Simple stand-alone pseudorandom number generator.
+// Current algorithm is ANSI C linear congruential PRNG.
+static inline uint32_t my_rand(uint32_t* state) {
+  return (*state = *state * 1103515245 + 12345) >> 16;
+}
+
 class ObjdumpOfMyself {
  public:
   ObjdumpOfMyself(const string &binary) {
@@ -400,35 +406,38 @@ TEST(AddressSanitizer, WildAddressTest) {
 }
 
 static void MallocStress(size_t n) {
-  vector<void *> vec;
-  for (size_t i = 0; i < n; i++) {
-    if ((i % 3) == 0) {
-      if (vec.empty()) continue;
-      size_t idx = rand() % vec.size();
-      void *ptr = vec[idx];
-      vec[idx] = vec.back();
-      vec.pop_back();
-      free_aaa(ptr);
-    } else {
-      size_t size = rand() % 1000 + 1;
+  uint32_t seed = rand();
+  for (size_t iter = 0; iter < 10; iter++) {
+    vector<void *> vec;
+    for (size_t i = 0; i < n; i++) {
+      if ((i % 3) == 0) {
+        if (vec.empty()) continue;
+        size_t idx = my_rand(&seed) % vec.size();
+        void *ptr = vec[idx];
+        vec[idx] = vec.back();
+        vec.pop_back();
+        free_aaa(ptr);
+      } else {
+        size_t size = my_rand(&seed) % 1000 + 1;
 #ifndef __APPLE__
-      size_t alignment = 1 << (rand() % 7 + 3);
-      char *ptr = (char*)memalign_aaa(alignment, size);
+        size_t alignment = 1 << (my_rand(&seed) % 7 + 3);
+        char *ptr = (char*)memalign_aaa(alignment, size);
 #else
-      char *ptr = (char*) malloc_aaa(size);
+        char *ptr = (char*) malloc_aaa(size);
 #endif
-      vec.push_back(ptr);
-      for (size_t i = 0; i < size; i++) {
-        ptr[i] = 0;
+        vec.push_back(ptr);
+        for (size_t i = 0; i < size; i++) {
+          ptr[i] = 0;
+        }
       }
     }
+    for (size_t i = 0; i < vec.size(); i++)
+      free_aaa(vec[i]);
   }
-  for (size_t i = 0; i < vec.size(); i++)
-    free_aaa(vec[i]);
 }
 
 TEST(AddressSanitizer, MallocStressTest) {
-  MallocStress(2000000);
+  MallocStress(200000);
 }
 
 
@@ -436,27 +445,29 @@ TEST(AddressSanitizer, ThreadedMallocStressTest) {
   const int kNumThreads = 4;
   pthread_t t[kNumThreads];
   for (int i = 0; i < kNumThreads; i++) {
-    pthread_create(&t[i], 0, (void* (*)(void*))MallocStress, (void*)300000);
+    pthread_create(&t[i], 0, (void* (*)(void*))MallocStress, (void*)100000);
   }
   for (int i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
   }
 }
 
-void *EmptyThread(void *a) {
+void *ManyThreadsWorker(void *a) {
+  for (int iter = 0; iter < 100; iter++) {
+    for (size_t size = 100; size < 2000; size *= 2) {
+      free(Ident(malloc(size)));
+    }
+  }
   return 0;
 }
 
 TEST(AddressSanitizer, ManyThreadsTest) {
-  const int kNumThreads = 1000;
+  const int kNumThreads = __WORDSIZE == 32 ? 200 : 1000;
   pthread_t t[kNumThreads];
-  int n = kNumThreads;
-  if (__WORDSIZE == 32)
-    n = kNumThreads / 10;
-  for (int i = 0; i < n; i++) {
-    pthread_create(&t[i], 0, (void* (*)(void*))EmptyThread, (void*)i);
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_create(&t[i], 0, (void* (*)(void*))ManyThreadsWorker, (void*)i);
   }
-  for (int i = 0; i < n; i++) {
+  for (int i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
   }
 }

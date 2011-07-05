@@ -42,7 +42,13 @@ class AsanChunkFifoList {
 
 
 struct AsanThreadLocalMallocStorage {
+  AsanThreadLocalMallocStorage() {
+    for (size_t i = 0; i < kNumFreeLists; i++)
+      free_lists_[i] = 0;
+  }
+
   AsanChunkFifoList quarantine_;
+  AsanChunk *free_lists_[kNumFreeLists];
   void CommitBack();
 };
 

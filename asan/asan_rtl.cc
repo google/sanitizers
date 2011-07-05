@@ -147,10 +147,6 @@ void AsanStats::PrintStats() {
   Printf("Stats: %ldM (%ld pages) mmaped in %ld calls\n",
          mmaped>>20, mmaped / kPageSize, mmaps);
 
-  PrintMallocStatsArray(" mmaps   by size: ", mmaped_by_size);
-  PrintMallocStatsArray(" mallocs by size: ", malloced_by_size);
-  PrintMallocStatsArray(" frees   by size: ", freed_by_size);
-  PrintMallocStatsArray(" rfrees  by size: ", really_freed_by_size);
 
 #if __WORDSIZE == 64
   Printf("Stats: %ldM of shadow memory allocated in %ld clusters (%ldM each)\n",
@@ -158,6 +154,12 @@ void AsanStats::PrintStats() {
          low_shadow_maps + high_shadow_maps,
          (kPageClusterSize * kPageSize) >> 20);
 #endif
+  PrintMallocStatsArray(" mmaps   by size: ", mmaped_by_size);
+  PrintMallocStatsArray(" mallocs by size: ", malloced_by_size);
+  PrintMallocStatsArray(" frees   by size: ", freed_by_size);
+  PrintMallocStatsArray(" rfrees  by size: ", really_freed_by_size);
+  Printf("Stats: malloc large: %ld small slow: %ld\n",
+         malloc_large, malloc_small_slow);
 }
 
 AsanStats __asan_stats;

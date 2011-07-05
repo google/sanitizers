@@ -29,11 +29,19 @@
 
 using namespace std;
 
+// Simple stand-alone pseudorandom number generator.
+// Current algorithm is ANSI C linear congruential PRNG.
+static inline uint32_t my_rand(uint32_t* state) {
+  return (*state = *state * 1103515245 + 12345) >> 16;
+}
+
+
 TEST(AddressSanitizer, InternalSimpleDeathTest) {
   EXPECT_DEATH(exit(1), "");
 }
 
 static void MallocStress(size_t n) {
+  uint32_t seed = rand();
   AsanStackTrace stack1;
   stack1.trace[0] = 0xa123;
   stack1.trace[1] = 0xa456;
@@ -53,19 +61,19 @@ static void MallocStress(size_t n) {
   for (size_t i = 0; i < n; i++) {
     if ((i % 3) == 0) {
       if (vec.empty()) continue;
-      size_t idx = rand() % vec.size();
+      size_t idx = my_rand(&seed) % vec.size();
       void *ptr = vec[idx];
       vec[idx] = vec.back();
       vec.pop_back();
       __asan_free(ptr, &stack1);
     } else {
-      size_t size = rand() % 1000 + 1;
-      switch ((rand() % 128)) {
+      size_t size = my_rand(&seed) % 1000 + 1;
+      switch ((my_rand(&seed) % 128)) {
         case 0: size += 1024; break;
         case 1: size += 2048; break;
         case 2: size += 4096; break;
       }
-      size_t alignment = 1 << (rand() % 10 + 1);
+      size_t alignment = 1 << (my_rand(&seed) % 10 + 1);
       char *ptr = (char*)__asan_memalign(alignment, size, &stack2);
       vec.push_back(ptr);
       for (size_t i = 0; i < size; i++) {
@@ -198,6 +206,7 @@ static uintptr_t pc_array[] = {
 };
 
 TEST(AddressSanitizer, CompressStackTraceTest) {
+  uint32_t seed = rand();
   const size_t n = ASAN_ARRAY_SIZE(pc_array);
   uint32_t compressed[2 * n];
 
@@ -205,8 +214,8 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
     random_shuffle(pc_array, pc_array + n);
     AsanStackTrace stack0, stack1;
     stack0.CopyFrom(pc_array, n);
-    stack0.size = std::max((size_t)1, (size_t)rand() % stack0.size);
-    size_t compress_size = std::max((size_t)2, (size_t)rand() % (2 * n));
+    stack0.size = std::max((size_t)1, (size_t)my_rand(&seed) % stack0.size);
+    size_t compress_size = std::max((size_t)2, (size_t)my_rand(&seed) % (2 * n));
     size_t n_frames = AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
     CHECK(n_frames <= stack0.size);
     AsanStackTrace::UncompressStack(&stack1, compressed, compress_size);
@@ -240,12 +249,13 @@ TEST(AddressSanitizer, QuarantineTest) {
 }
 
 void *ThreadedQuarantineTestWorker(void *) {
+  uint32_t seed = rand();
   AsanStackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
 
   for (size_t i = 0; i < 1000; i++) {
-    void *p = __asan_malloc(1 + (rand() % 4000), &stack);
+    void *p = __asan_malloc(1 + (my_rand(&seed) % 4000), &stack);
     __asan_free(p, &stack);
   }
   return NULL;
@@ -254,13 +264,41 @@ void *ThreadedQuarantineTestWorker(void *) {
 // Check that the thread local allocators are flushed when threads are
 // destroyed.
 TEST(AddressSanitizer, ThreadedQuarantineTest) {
-  const int n_threads = 2000;
+  const int n_threads = 3000;
   size_t mmaped1 = __asan_total_mmaped();
   for (int i = 0; i < n_threads; i++) {
     pthread_t t;
     pthread_create(&t, NULL, ThreadedQuarantineTestWorker, 0);
     pthread_join(t, 0);
+    size_t mmaped2 = __asan_total_mmaped();
+    EXPECT_LT(mmaped2 - mmaped1, 320U * (1 << 20));
   }
-  size_t mmaped2 = __asan_total_mmaped();
-  EXPECT_LT(mmaped2 - mmaped1, 512U * (1 << 20));
+}
+
+void *ThreadedOneSizeMallocStress(void *) {
+  AsanStackTrace stack;
+  stack.trace[0] = 0x890;
+  stack.size = 1;
+  const size_t kNumMallocs = 1000;
+  for (int iter = 0; iter < 1000; iter++) {
+    void *p[kNumMallocs];
+    for (size_t i = 0; i < kNumMallocs; i++) {
+      p[i] = __asan_malloc(32, &stack);
+    }
+    for (size_t i = 0; i < kNumMallocs; i++) {
+      __asan_free(p[i], &stack);
+    }
+  }
+  return NULL;
+}
+
+TEST(AddressSanitizer, ThreadedOneSizeMallocStressTest) {
+  const int kNumThreads = 4;
+  pthread_t t[kNumThreads];
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_create(&t[i], 0, ThreadedOneSizeMallocStress, 0);
+  }
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_join(t[i], 0);
+  }
 }

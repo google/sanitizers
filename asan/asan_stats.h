@@ -37,6 +37,9 @@ struct AsanStats {
   size_t freed_by_size[__WORDSIZE];
   size_t really_freed_by_size[__WORDSIZE];
 
+  size_t malloc_large;
+  size_t malloc_small_slow;
+
   void PrintStats();
 };
 
