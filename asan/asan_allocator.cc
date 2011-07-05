@@ -135,7 +135,7 @@ struct Chunk;
 
 struct ChunkBase {
   uint32_t     chunk_state;
-  uint32_t     allocated_size;  // Must be power of two
+  uint32_t     size;  // Must be power of two
   uint32_t     used_size;
   uint32_t     offset;  // User-visible memory starts at this+offset (beg()).
   int32_t      alloc_tid;
@@ -167,7 +167,7 @@ struct Chunk: public ChunkBase {
 
   bool AddrIsAtRight(uintptr_t addr, size_t access_size, size_t *offset) {
     if (addr + access_size >= beg() + used_size &&
-        addr < (uintptr_t)this + allocated_size + kRedzone) {
+        addr < (uintptr_t)this + size + kRedzone) {
       if (addr <= beg() + used_size)
         *offset = 0;
       else
@@ -212,7 +212,7 @@ struct PageGroup {
 };
 
 template <class Node>
-class FifoList {
+class SizedFifoList {
  public:
   void Push(Node *n) {
     if (last_) {
@@ -224,18 +224,25 @@ class FifoList {
       CHECK(!first_);
       last_ = first_ = n;
     }
+    size_ += n->size;
   }
+
   Node *Pop() {
     CHECK(first_);
     Node *res = first_;
     first_ = first_->next;
     if (first_ == NULL)
       last_ = NULL;
+    CHECK(size_ >= res->size);
+    size_ -= res->size;
     return res;
   }
+
+  size_t size() { return size_; }
  private:
   Node *first_;
   Node *last_;
+  size_t size_;
 };
 
 
@@ -265,16 +272,14 @@ class MallocInfo {
 
     CHECK(m);
     CHECK(m->chunk_state == CHUNK_ALLOCATED);
-    CHECK(IsPowerOfTwo(m->allocated_size));
+    CHECK(IsPowerOfTwo(m->size));
     CHECK(__asan_flag_quarantine_size > 0);
 
     ScopedLock lock(&mu_);
 
     quarantine_.Push(m);
-    quarantine_size_ += m->allocated_size;
     m->chunk_state = CHUNK_QUARANTINE;
-    while (quarantine_size_ &&
-           (quarantine_size_ > __asan_flag_quarantine_size)) {
+    while (quarantine_.size() > __asan_flag_quarantine_size) {
       Pop();
     }
 
@@ -307,13 +312,13 @@ class MallocInfo {
     size_t malloced = 0;
 
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
-           quarantine_size_ >> 20, malloced >> 20);
+           quarantine_.size() >> 20, malloced >> 20);
     for (size_t j = 1; j < kNumChunks; j++) {
       Chunk *i = chunks[j];
       if (!i) continue;
       size_t t = 0;
       for (; i; i = i->next) {
-        t += i->allocated_size;
+        t += i->size;
       }
       Printf("%ld:%ld ", j, t >> 20);
     }
@@ -367,12 +372,9 @@ class MallocInfo {
   }
 
   void Pop() {
-    CHECK(quarantine_size_ > 0);
+    CHECK(quarantine_.size() > 0);
     Chunk *m = quarantine_.Pop();
     CHECK(m);
-    // Printf("pop  : %p quarantine_size_ = %ld; size = %ld\n", m, quarantine_size_, m->size);
-    CHECK(quarantine_size_ >= m->allocated_size);
-    quarantine_size_ -= m->allocated_size;
     // if (F_v >= 2) Printf("MallocInfo::pop %p\n", m);
 
     CHECK(m->chunk_state == CHUNK_QUARANTINE);
@@ -383,14 +385,14 @@ class MallocInfo {
     // AsanThread::FindByTid(m->alloc_tid)->Unref();
     // AsanThread::FindByTid(m->free_tid)->Unref();
 
-    size_t idx = GetChunkIdx(m->allocated_size);
+    size_t idx = GetChunkIdx(m->size);
     m->next = chunks[idx];
     chunks[idx] = m;
 
     if (__asan_flag_stats) {
       __asan_stats.real_frees++;
       __asan_stats.really_freed += m->used_size;
-      __asan_stats.really_freed_by_size[Log2(m->allocated_size)]++;
+      __asan_stats.really_freed_by_size[Log2(m->size)]++;
     }
   }
 
@@ -419,7 +421,7 @@ class MallocInfo {
     for (size_t i = 0; i < n_chunks; i++) {
       Chunk *m = (Chunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
-      m->allocated_size = size;
+      m->size = size;
       m->next = res;
       res = m;
     }
@@ -444,8 +446,7 @@ class MallocInfo {
   }
 
   Chunk *chunks[kNumChunks];
-  FifoList<Chunk> quarantine_;
-  size_t quarantine_size_;
+  SizedFifoList<Chunk> quarantine_;
   AsanLock mu_;
 
   PageGroup *page_groups_[kMaxAvailableRam / kMinMmapSize];
@@ -524,7 +525,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
 
   Chunk *m = malloc_info.AllocateChunk(size_to_allocate);
   CHECK(m);
-  CHECK(m->allocated_size == size_to_allocate);
+  CHECK(m->size == size_to_allocate);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   uintptr_t addr = (uintptr_t)m + kRedzone;
   CHECK(addr == (uintptr_t)m->compressed_free_stack);
@@ -579,7 +580,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (__asan_flag_stats) {
     __asan_stats.frees++;
     __asan_stats.freed += m->used_size;
-    __asan_stats.freed_by_size[Log2(m->allocated_size)]++;
+    __asan_stats.freed_by_size[Log2(m->size)]++;
   }
 
   malloc_info.DeallocateChunk(m);
