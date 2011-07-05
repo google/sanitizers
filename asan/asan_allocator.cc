@@ -204,8 +204,7 @@ static Chunk *PtrToChunk(uintptr_t ptr) {
 class MallocInfo {
  public:
   Chunk *AllocateChunk(size_t size) {
-    CHECK(IsPowerOfTwo(size));
-    size_t idx = Log2(size);
+    size_t idx = GetChunkIdx(size);
     Chunk *m = NULL;
     {
       ScopedLock lock(&mu_);
@@ -370,7 +369,7 @@ class MallocInfo {
     // AsanThread::FindByTid(m->alloc_tid)->Unref();
     // AsanThread::FindByTid(m->free_tid)->Unref();
 
-    size_t idx = Log2(m->allocated_size);
+    size_t idx = GetChunkIdx(m->allocated_size);
     m->next = chunks[idx];
     chunks[idx] = m;
 
@@ -383,7 +382,7 @@ class MallocInfo {
 
   void GetNewChunks(size_t size) {
     CHECK(size <= (1UL << 31));
-    size_t idx = Log2(size);
+    size_t idx = GetChunkIdx(size);
     CHECK(chunks[idx] == NULL);
     CHECK(IsPowerOfTwo(size));
     CHECK(IsPowerOfTwo(kMinMmapSize));
@@ -419,8 +418,16 @@ class MallocInfo {
     page_groups_ = pg;
   }
 
+  static const size_t kNumChunks = __WORDSIZE;
 
-  Chunk *chunks[__WORDSIZE];
+  size_t GetChunkIdx(size_t size) {
+    CHECK(IsPowerOfTwo(size));
+    size_t res = Log2(size);
+    CHECK(res < kNumChunks);
+    return res;
+  }
+
+  Chunk *chunks[kNumChunks];
   Chunk *quarantine_;
   size_t quarantine_size_;
   AsanLock mu_;
