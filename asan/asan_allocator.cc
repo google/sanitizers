@@ -291,7 +291,7 @@ class MallocInfo {
     CHECK(in_quarantine == quarantine_size_);
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
            in_quarantine >> 20, malloced >> 20);
-    for (size_t j = 1; j < __WORDSIZE; j++) {
+    for (size_t j = 1; j < kNumChunks; j++) {
       Chunk *i = chunks[j];
       if (!i) continue;
       size_t t = 0;
