@@ -120,7 +120,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
 // CHUNK_QUARANTINE: the chunk was freed and put into quarantine zone.
 //
 // The pseudo state CHUNK_MEMALIGN is used to mark that the address is not
-// the beginning of a Chunk (in which case 'prev' contains the address
+// the beginning of a Chunk (in which case 'next' contains the address
 // of the Chunk).
 //
 // The magic numbers for the enum values are taken randomly.
@@ -197,7 +197,7 @@ struct Chunk: public ChunkBase {
 static Chunk *PtrToChunk(uintptr_t ptr) {
   Chunk *m = (Chunk*)(ptr - kRedzone);
   if (m->chunk_state == CHUNK_MEMALIGN) {
-    m = m->prev;
+    m = m->next;
   }
   return m;
 }
@@ -536,7 +536,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     CHECK((addr & (alignment - 1)) == 0);
     Chunk *p = (Chunk*)(addr - kRedzone);
     p->chunk_state = CHUNK_MEMALIGN;
-    p->prev = m;
+    p->next = m;
   }
   CHECK(m == PtrToChunk(addr));
   m->used_size = size;
