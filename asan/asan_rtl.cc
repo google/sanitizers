@@ -993,7 +993,7 @@ void __asan_init() {
   __asan_flag_atexit = IntFlagValue(options, "atexit=", 0);
   __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   __asan_flag_report_globals = IntFlagValue(options, "report_globals=", 1);
-  __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1 << 30);
+  __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1U << 31);
   __asan_flag_stats = IntFlagValue(options, "stats=", 0);
   __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
   __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
