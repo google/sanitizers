@@ -141,7 +141,6 @@ struct ChunkBase {
   int32_t      alloc_tid;
   int32_t      free_tid;
   Chunk       *next;
-  Chunk       *prev;
 
   uintptr_t   beg() { return (uintptr_t)this + offset; }
 };
@@ -212,6 +211,33 @@ struct PageGroup {
   }
 };
 
+template <class Node>
+class FifoList {
+ public:
+  void Push(Node *n) {
+    if (last_) {
+      CHECK(first_);
+      CHECK(!last_->next);
+      last_->next = n;
+      last_ = n;
+    } else {
+      CHECK(!first_);
+      last_ = first_ = n;
+    }
+  }
+  Node *Pop() {
+    CHECK(first_);
+    Node *res = first_;
+    first_ = first_->next;
+    if (first_ == NULL)
+      last_ = NULL;
+    return res;
+  }
+ private:
+  Node *first_;
+  Node *last_;
+};
+
 
 class MallocInfo {
  public:
@@ -228,7 +254,7 @@ class MallocInfo {
       CHECK(m);
       chunks[idx] = m->next;
     }
-    m->next = m->prev = 0;
+    m->next = 0;
     CHECK(m->chunk_state == CHUNK_AVAILABLE);
     m->chunk_state = CHUNK_ALLOCATED;
 
@@ -244,17 +270,7 @@ class MallocInfo {
 
     ScopedLock lock(&mu_);
 
-    if (!quarantine_) {
-      m->next = m->prev = m;
-    } else {
-      Chunk *prev = quarantine_->prev;
-      Chunk *next = quarantine_;
-      m->next = next;
-      m->prev = prev;
-      prev->next = m;
-      next->prev = m;
-    }
-    quarantine_ = m;
+    quarantine_.Push(m);
     quarantine_size_ += m->allocated_size;
     m->chunk_state = CHUNK_QUARANTINE;
     while (quarantine_size_ &&
@@ -288,18 +304,10 @@ class MallocInfo {
 
   void PrintStatus() {
     ScopedLock lock(&mu_);
-    size_t in_quarantine = 0;
     size_t malloced = 0;
 
-    Chunk *i = quarantine_;
-    if (i) do {
-      in_quarantine += i->allocated_size;
-      i = i->next;
-    } while (i != quarantine_);
-
-    CHECK(in_quarantine == quarantine_size_);
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
-           in_quarantine >> 20, malloced >> 20);
+           quarantine_size_ >> 20, malloced >> 20);
     for (size_t j = 1; j < kNumChunks; j++) {
       Chunk *i = chunks[j];
       if (!i) continue;
@@ -359,20 +367,10 @@ class MallocInfo {
   }
 
   void Pop() {
-    CHECK(quarantine_);
     CHECK(quarantine_size_ > 0);
-    Chunk *m = quarantine_->prev;
+    Chunk *m = quarantine_.Pop();
     CHECK(m);
     // Printf("pop  : %p quarantine_size_ = %ld; size = %ld\n", m, quarantine_size_, m->size);
-    Chunk *next = m->next;
-    Chunk *prev = m->prev;
-    CHECK(next && prev);
-    if (next == m) {
-      quarantine_ = NULL;
-    } else {
-      next->prev = prev;
-      prev->next = next;
-    }
     CHECK(quarantine_size_ >= m->allocated_size);
     quarantine_size_ -= m->allocated_size;
     // if (F_v >= 2) Printf("MallocInfo::pop %p\n", m);
@@ -446,7 +444,7 @@ class MallocInfo {
   }
 
   Chunk *chunks[kNumChunks];
-  Chunk *quarantine_;
+  FifoList<Chunk> quarantine_;
   size_t quarantine_size_;
   AsanLock mu_;
 
