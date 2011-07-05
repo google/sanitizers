@@ -210,7 +210,7 @@ class MallocInfo {
       ScopedLock lock(&mu_);
 
       if (!chunks[idx]) {
-        GetNewChunks(size);
+        chunks[idx] = GetNewChunks(size);
       }
       m = chunks[idx];
       CHECK(m);
@@ -380,10 +380,9 @@ class MallocInfo {
     }
   }
 
-  void GetNewChunks(size_t size) {
+  // Get a list of newly allocated chunks.
+  Chunk *GetNewChunks(size_t size) {
     CHECK(size <= (1UL << 31));
-    size_t idx = GetChunkIdx(size);
-    CHECK(chunks[idx] == NULL);
     CHECK(IsPowerOfTwo(size));
     CHECK(IsPowerOfTwo(kMinMmapSize));
     size_t mmap_size = std::max(size, kMinMmapSize);
@@ -402,12 +401,13 @@ class MallocInfo {
       __asan_stats.mmaped += mmap_size;
       __asan_stats.mmaped_by_size[Log2(size)] += n_chunks;
     }
+    Chunk *res = NULL;
     for (size_t i = 0; i < n_chunks; i++) {
       Chunk *m = (Chunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
       m->allocated_size = size;
-      m->next = chunks[idx];
-      chunks[idx] = m;
+      m->next = res;
+      res = m;
     }
     PageGroup *pg = (PageGroup*)(mem + n_chunks * size);
     // This memory is already poisoned, no need to poison it again.
@@ -416,6 +416,7 @@ class MallocInfo {
     pg->next = page_groups_;
     pg->size_of_chunk = size;
     page_groups_ = pg;
+    return res;
   }
 
   static const size_t kNumChunks = __WORDSIZE;
