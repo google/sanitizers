@@ -601,8 +601,6 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (tlq->size() > kMaxThreadLocalQuarantine) {
     malloc_info.SwallowThreadLocalQuarantine(tlq);
   }
-
-  // malloc_info.DeallocateChunk(m);
 }
 
 static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *stack) {
