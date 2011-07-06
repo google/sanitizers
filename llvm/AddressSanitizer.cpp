@@ -242,17 +242,18 @@ static void CloneDebugInfo(Instruction *from, Instruction *to) {
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   // Shadow >> scale
   Shadow = irb.CreateLShr(Shadow, MappingScale);
-  // (Shadow >> scale) | offset
   if (ClUseBTS) {
+    // Generate something like "bts $0x2c,%rcx". This is more compact than
+    // "mov $0x100000000000,%rdx; or %rdx,%rcx", but slower.
     char bts[30];
     sprintf(bts, "bts $$%ld, $0", MappingOffset);
     Value *insn = InlineAsm::get(
         FunctionType::get(LongTy, ArrayRef<const Type*>(LongTy), false),
         StringRef(bts), StringRef("=r,0"), true);
     Value *res = irb.CreateCall(insn, Shadow);
-    // errs() << *res << "\n";
     return res;
   }
+  // (Shadow >> scale) | offset
   return irb.CreateOr(Shadow, ConstantInt::get(LongTy, 1ULL << MappingOffset));
 }
 
