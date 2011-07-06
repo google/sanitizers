@@ -29,6 +29,9 @@
 
 using namespace std;
 
+// Used in other files.
+void break_optimization() {}
+
 // Simple stand-alone pseudorandom number generator.
 // Current algorithm is ANSI C linear congruential PRNG.
 static inline uint32_t my_rand(uint32_t* state) {

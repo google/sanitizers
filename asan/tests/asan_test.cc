@@ -164,12 +164,8 @@ void asan_write_sized_aligned(uint8_t *p, size_t size) {
   else if (size == 8) asan_write((uint64_t*)p);
 }
 
-__attribute__((noinline))
-void break_optimization() {
- static volatile int a;
- a++;
-}
-
+// empty function declared in another file.
+extern void break_optimization();
 
 __attribute__((noinline)) void *malloc_fff(size_t size) {
   void *res = malloc/**/(size); break_optimization(); return res;}
