@@ -1027,6 +1027,29 @@ TEST(AddressSanitizer, DISABLED_DemoFunctionStaticTest) {
   Ident(a)[5] = 0;
 }
 
+#ifdef __APPLE__
+#include "asan_mac_test.h"
+TEST(AddressSanitizerMac, CFAllocatorDefaultDoubleFree) {
+  EXPECT_DEATH(
+      CFAllocatorDefaultDoubleFree(),
+      "attempting double-free");
+}
+
+TEST(AddressSanitizerMac, CFAllocatorSystemDefaultDoubleFree) {
+  EXPECT_DEATH(
+      CFAllocatorSystemDefaultDoubleFree(),
+      "attempting double-free");
+}
+
+TEST(AddressSanitizerMac, CFAllocatorMallocDoubleFree) {
+  EXPECT_DEATH(CFAllocatorMallocDoubleFree(), "attempting double-free");
+}
+
+TEST(AddressSanitizerMac, CFAllocatorMallocZoneDoubleFree) {
+  EXPECT_DEATH(CFAllocatorMallocZoneDoubleFree(), "attempting double-free");
+}
+#endif  // __APPLE__
+
 int main(int argc, char **argv) {
   progname = argv[0];
   testing::GTEST_FLAG(death_test_style) = "threadsafe";
