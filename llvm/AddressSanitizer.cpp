@@ -14,6 +14,8 @@
 */
 
 // This file is a part of AddressSanitizer, an address sanity checker.
+// Details of the algorithm:
+//  http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
 
 #define DEBUG_TYPE "asan"
 
@@ -49,8 +51,6 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-
-#include "asan_rtl.h"
 
 using std::vector;
 using std::max;
@@ -792,6 +792,23 @@ static uint64_t ValueForPoison(uint64_t poison_byte, size_t ShadowRedzoneSize) {
     return (poison_byte << 24) + (poison_byte << 16) +
         (poison_byte << 8) + (poison_byte);
   assert(0 && "ShadowRedzoneSize is either 1, 2 or 4");
+}
+
+static void PoisonShadowPartialRightRedzone(unsigned char *shadow,
+                                            unsigned long size,
+                                            unsigned long redzone_size,
+                                            unsigned long shadow_granularity,
+                                            unsigned char magic) {
+  for (unsigned long i = 0; i < redzone_size;
+       i+= shadow_granularity, shadow++) {
+    if (i + shadow_granularity <= size) {
+      *shadow = 0;  // fully addressable
+    } else if (i >= size) {
+      *shadow = (shadow_granularity == 128) ? 0xff : magic;  // unaddressable
+    } else {
+      *shadow = size - i;  // first size-i bytes are addressable
+    }
+  }
 }
 
 void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,

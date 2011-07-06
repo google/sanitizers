@@ -5,4 +5,3 @@ patch -p 0 < $ROOT/llvm/clang.patch
 cd lib/Transforms/Instrumentation
 ROOT=../../../..
 ln -fs $ROOT/llvm/AddressSanitizer.cpp
-ln -fs $ROOT/asan/asan_rtl.h
