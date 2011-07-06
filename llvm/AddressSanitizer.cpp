@@ -58,8 +58,8 @@ using std::max;
 using namespace llvm;
 
 static const uint64_t kDefaultShadowScale = 3;
-static const uint64_t kDefaultShadowOffset32 = 1ULL << 29;
-static const uint64_t kDefaultShadowOffset64 = 1ULL << 44;
+static const uint64_t kDefaultShadowOffset32 = 29;
+static const uint64_t kDefaultShadowOffset64 = 44;
 
 // Command-line flags.
 
@@ -86,6 +86,8 @@ static cl::opt<std::string>  ClBlackListFile("asan-black-list",
                         "during instrumentation"));
 static cl::opt<bool> ClUseCall("asan-use-call",
        cl::desc("Use function call to generate a crash"), cl::init(false));
+static cl::opt<bool> ClUseBTS("asan-use-bts",
+       cl::desc("Use the BTS instruction (x86)"), cl::init(false));
 
 // These flags *will* allow to change the shadow mapping. Not usable yet.
 // The shadow mapping looks like
@@ -241,7 +243,17 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
   // Shadow >> scale
   Shadow = irb.CreateLShr(Shadow, MappingScale);
   // (Shadow >> scale) | offset
-  return irb.CreateOr(Shadow, ConstantInt::get(LongTy, MappingOffset));
+  if (ClUseBTS) {
+    char bts[30];
+    sprintf(bts, "bts $$%ld, $0", MappingOffset);
+    Value *insn = InlineAsm::get(
+        FunctionType::get(LongTy, ArrayRef<const Type*>(LongTy), false),
+        StringRef(bts), StringRef("=r,r"), true);
+    Value *res = irb.CreateCall(insn, Shadow);
+    errs() << *res << "\n";
+    return res;
+  }
+  return irb.CreateOr(Shadow, ConstantInt::get(LongTy, 1ULL << MappingOffset));
 }
 
 void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
@@ -637,7 +649,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   MappingOffset = LongSize == 32
       ? kDefaultShadowOffset32 : kDefaultShadowOffset64;
   if (ClMappingOffset) {
-    MappingOffset = 1ULL << ClMappingOffset;
+    MappingOffset = ClMappingOffset;
   }
   MappingScale = kDefaultShadowScale;
   if (ClMappingScale) {
@@ -647,7 +659,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   // For scales 6 and 7, the redzone has to be 64 and 128 bytes respectively.
   RedzoneSize = max(32, (int)(1 << MappingScale));
   new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
-                     ConstantInt::get(LongTy, MappingOffset),
+                     ConstantInt::get(LongTy, 1ULL << MappingOffset),
                      "__asan_mapping_offset");
   new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(LongTy, MappingScale),
