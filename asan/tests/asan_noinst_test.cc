@@ -76,9 +76,9 @@ static void MallocStress(size_t n) {
       size_t alignment = 1 << (my_rand(&seed) % 10 + 1);
       char *ptr = (char*)__asan_memalign(alignment, size, &stack2);
       vec.push_back(ptr);
-      for (size_t i = 0; i < size; i++) {
-        ptr[i] = 0;
-      }
+      ptr[0] = 0;
+      ptr[size-1] = 0;
+      ptr[size/2] = 0;
     }
   }
   for (size_t i = 0; i < vec.size(); i++)
@@ -86,10 +86,9 @@ static void MallocStress(size_t n) {
 }
 
 
-TEST(AddressSanitizer, InternalMallocTest) {
+TEST(AddressSanitizer, NoInstMallocTest) {
   MallocStress(1000000);
 }
-
 
 static void PrintShadow(const char *tag, uintptr_t ptr, size_t size) {
   fprintf(stderr, "%s shadow: %lx size % 3ld: ", tag, (long)ptr, (long)size);
