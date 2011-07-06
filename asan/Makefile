@@ -39,7 +39,6 @@ RTL_HDR=asan_allocator.h \
 	asan_int.h \
 	asan_lock.h \
 	asan_mapping.h \
-	asan_rtl.h \
 	asan_stack.h \
 	asan_stats.h \
 	asan_thread.h \

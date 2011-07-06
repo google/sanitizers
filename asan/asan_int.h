@@ -18,7 +18,6 @@
 #ifndef ASAN_INT_H
 #define ASAN_INT_H
 
-#include "asan_rtl.h"
 #include <stdint.h>  // for __WORDSIZE
 #include <stdlib.h>  // for size_t
 
