@@ -15,6 +15,7 @@
 SVNVERSION=$(shell svnversion)
 OS=$(shell uname)
 ROOT=$(shell pwd)
+PLATFORM=$(shell uname)
 
 CXX=g++ -Wall -fvisibility=hidden
 CLEANROOM_CXX=g++ -Wall
@@ -30,7 +31,11 @@ BIN=bin_$(OS)
 LIBS=#-lpthread -ldl
 BITS=64
 ASAN_STACK=1
+ifeq ($(PLATFORM),Darwin)
+ASAN_GLOBALS=0
+else
 ASAN_GLOBALS=1
+endif
 ASAN_USE_CALL=0
 ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=0  #default will be used
@@ -58,8 +63,6 @@ GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
-
-PLATFORM=$(shell uname | tr "[A-Z]" "[a-z]")
 
 all: b64 b32
 
@@ -105,26 +108,49 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset=$(ASAN_OFFSET)
 
+$(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
+	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \
+		-m$(BITS)                             \
+		-mllvm -asan-black-list=tests/asan_test.ignore  \
+		-mllvm -asan-stack=$(ASAN_STACK)      \
+		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
+		-mllvm -asan-use-call=$(ASAN_USE_CALL)
+
+ifeq ($(PLATFORM),Darwin)
+LD_FLAGS=-framework Foundation
+else
+LD_FLAGS=
+endif
+
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
-		-DASAN_USE_SYSINFO=1
+		-DASAN_USE_SYSINFO=1 \
+    $(LD_FLAGS)
 
 $(BIN)/libasan$(SUFF).so: $(LIBASAN_OBJ)
-	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl
+	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl $(LD_FLAGS)
 
 $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | Makefile
 	ar ru $@ $^
 
 
-
+ifeq ($(PLATFORM),Darwin)
+TEST_OBJECTS=\
+	     $(BIN)/asan_test$(SUFF).o \
+	     $(BIN)/asan_globals_test$(SUFF).o \
+	     $(BIN)/asan_noinst_test$(SUFF).o \
+	     $(BIN)/asan_mac_test$(SUFF).o
+else
 TEST_OBJECTS=\
 	     $(BIN)/asan_test$(SUFF).o \
 	     $(BIN)/asan_globals_test$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o
+LD_FLAGS=
+endif
 
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
-	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $(TEST_OBJECTS) -o $@ $(LIBS) $(GTEST_LIB)
+	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
