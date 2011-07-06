@@ -248,9 +248,9 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
     sprintf(bts, "bts $$%ld, $0", MappingOffset);
     Value *insn = InlineAsm::get(
         FunctionType::get(LongTy, ArrayRef<const Type*>(LongTy), false),
-        StringRef(bts), StringRef("=r,r"), true);
+        StringRef(bts), StringRef("=r,0"), true);
     Value *res = irb.CreateCall(insn, Shadow);
-    errs() << *res << "\n";
+    // errs() << *res << "\n";
     return res;
   }
   return irb.CreateOr(Shadow, ConstantInt::get(LongTy, 1ULL << MappingOffset));
