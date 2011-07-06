@@ -15,6 +15,20 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+// Implementation of ASan's memory allocator.
+// Evey piece of memory (AsanChunk) allocated by the allocator
+// has a left redzone of kRedzone bytes and
+// a right redzone such that the end of the chunk is aligned by kRedzone
+// (i.e. the right redzone is between 0 and kRedzone-1).
+// The left redzone is always poisoned.
+// The right redzone is poisoned on malloc, the body is poisoned on free.
+// Once freed, a chunk is moved to a quarantine (fifo list).
+// After quarantine, a chunk is returned to freelists.
+//
+// The left redzone contains ASan's internal data and the stack trace of
+// the malloc call.
+// Once freed, the body of the chunk contains the stack trace of the free call.
+
 #include "asan_allocator.h"
 #include "asan_int.h"
 #include "asan_mapping.h"
@@ -28,7 +42,7 @@
 #include <algorithm>
 
 
-static const size_t kRedzone      = kMinRedzone;
+static const size_t kRedzone      = 128;
 static const size_t kMinAllocSize = kRedzone * 2;
 static const size_t kMinMmapSize  = kPageSize * 1024;
 static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
@@ -48,10 +62,6 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
   return (a & (alignment - 1)) == 0;
-}
-
-static inline bool IsWordAligned(uintptr_t a) {
-  return IsAligned(a, kWordSize);
 }
 
 static inline bool IsPowerOfTwo(size_t x) {
@@ -136,8 +146,8 @@ enum {
 
 struct ChunkBase {
   uint32_t     chunk_state;
-  uint32_t     size;  // Must be power of two
-  uint32_t     used_size;
+  uint32_t     size;       // Must be power of two.
+  uint32_t     used_size;  // Size requested by the user.
   uint32_t     offset;  // User-visible memory starts at this+offset (beg()).
   int32_t      alloc_tid;
   int32_t      free_tid;

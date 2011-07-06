@@ -21,8 +21,6 @@
 #include <stdint.h>  // for __WORDSIZE
 #include <stdlib.h>  // for size_t
 
-static const int kMinRedzone = 128;
-
 class AsanThread;
 class AsanStackTrace;
 
