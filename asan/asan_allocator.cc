@@ -213,7 +213,7 @@ static AsanChunk *PtrToChunk(uintptr_t ptr) {
 }
 
 
-void AsanChunkFifoList::Push(AsanChunkFifoList *q) {
+void AsanChunkFifoList::PushList(AsanChunkFifoList *q) {
   if (last_) {
     CHECK(first_);
     CHECK(!last_->next);
@@ -302,7 +302,7 @@ class MallocInfo {
     ScopedLock lock(&mu_);
     AsanChunkFifoList *q = &x->quarantine_;
     if (q->size() > 0) {
-      quarantine_.Push(q);
+      quarantine_.PushList(q);
       while (quarantine_.size() > __asan_flag_quarantine_size) {
         Pop();
       }
