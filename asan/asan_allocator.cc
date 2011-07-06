@@ -18,7 +18,6 @@
 #include "asan_allocator.h"
 #include "asan_int.h"
 #include "asan_mapping.h"
-#include "asan_rtl.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
 

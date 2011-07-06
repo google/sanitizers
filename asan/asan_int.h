@@ -72,6 +72,27 @@ const size_t kPageSize = 1UL << kPageSizeBits;
 #define GET_CALLER_PC() (uintptr_t)__builtin_return_address(0)
 #define GET_CURRENT_FRAME() (uintptr_t*)__builtin_frame_address(0)
 
+// Poison the shadow memory which corresponds to 'redzone_size' bytes
+// of the original memory, where first 'size' bytes are addressable.
+static inline void
+PoisonShadowPartialRightRedzone(unsigned char *shadow,
+                                unsigned long size,
+                                unsigned long redzone_size,
+                                unsigned long shadow_granularity,
+                                unsigned char magic) {
+  for (unsigned long i = 0; i < redzone_size;
+       i+= shadow_granularity, shadow++) {
+    if (i + shadow_granularity <= size) {
+      *shadow = 0;  // fully addressable
+    } else if (i >= size) {
+      *shadow = (shadow_granularity == 128) ? 0xff : magic;  // unaddressable
+    } else {
+      *shadow = size - i;  // first size-i bytes are addressable
+    }
+  }
+}
+
+
 // -------------------------- Atomic ---------------- {{{1
 template <class T>
 static inline T AtomicInc(T *a) {
