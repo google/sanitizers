@@ -229,6 +229,7 @@ void AsanChunkFifoList::PushList(AsanChunkFifoList *q) {
 }
 
 void AsanChunkFifoList::Push(AsanChunk *n) {
+  CHECK(n->next == NULL);
   if (last_) {
     CHECK(first_);
     CHECK(!last_->next);
