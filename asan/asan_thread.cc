@@ -171,7 +171,6 @@ AsanThread* AsanThread::GetCurrent() {
   // for further allocations (originating from the guts of libpthread).
   return thread;
 #else
-  CHECK(tl_current_thread);
   return tl_current_thread;
 #endif
 }

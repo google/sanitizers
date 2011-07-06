@@ -565,12 +565,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
 
   AsanThread *t = AsanThread::GetCurrent();
   AsanChunk *m = NULL;
-#ifndef __APPLE__  
-  CHECK(t);
-  if (size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
-#else
   if (!t || size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
-#endif
     // get directly from global storage.
     m = malloc_info.AllocateChunks(size_to_allocate, 1);
     if (__asan_flag_stats)  __asan_stats.malloc_large++;
