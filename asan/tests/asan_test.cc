@@ -426,9 +426,9 @@ static void MallocStress(size_t n) {
         char *ptr = (char*) malloc_aaa(size);
 #endif
         vec.push_back(ptr);
-        for (size_t i = 0; i < size; i++) {
-          ptr[i] = 0;
-        }
+        ptr[0] = 0;
+        ptr[size-1] = 0;
+        ptr[size/2] = 0;
       }
     }
     for (size_t i = 0; i < vec.size(); i++)
