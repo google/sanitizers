@@ -221,7 +221,7 @@ static void *asan_thread_start(void *arg) {
   return t->ThreadStart();
 }
 
-// ---------------------- AddressSanitizer malloc -------------------- {{{1
+// ---------------------- mmap -------------------- {{{1
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
          "0x%lx (%ld) bytes of %s\n",
@@ -292,6 +292,7 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK(res == (void*)beg);
 }
 
+// ---------------------- Globals -------------------- {{{1
 // We create right redzones for globals and keep the gobals in a linked list.
 struct Global {
   Global *next;   // Next in the list.
@@ -385,6 +386,7 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *
   g->PoisonRedZones();
 }
 
+// ---------------------- DescribeAddress -------------------- {{{1
 __attribute__((noinline))
 static void DescribeAddress(uintptr_t sp, uintptr_t bp,
                             uintptr_t addr, uintptr_t access_size) {
@@ -412,8 +414,6 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
   // finally, check if this is a heap.
   __asan_describe_heap_address(addr, access_size);
 }
-
-
 
 // -------------------------- Interceptors ------------------- {{{1
 #ifndef __APPLE__
