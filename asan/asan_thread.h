@@ -77,6 +77,8 @@ class AsanThread {
 
   AsanThreadLocalMallocStorage &malloc_storage() { return malloc_storage_; }
 
+  static const int kInvalidTid = -1;
+
  private:
 
   void SetThreadStackTopAndBottom();

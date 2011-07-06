@@ -250,6 +250,9 @@ AsanChunk *AsanChunkFifoList::Pop() {
     last_ = NULL;
   CHECK(size_ >= res->size);
   size_ -= res->size;
+  if (last_) {
+    CHECK(!last_->next);
+  }
   return res;
 }
 
@@ -299,7 +302,6 @@ class MallocInfo {
   void SwallowThreadLocalMallocStorage(AsanThreadLocalMallocStorage *x,
                                        bool eat_free_lists) {
     CHECK(__asan_flag_quarantine_size > 0);
-
     ScopedLock lock(&mu_);
     AsanChunkFifoList *q = &x->quarantine_;
     if (q->size() > 0) {
@@ -319,6 +321,11 @@ class MallocInfo {
         }
       }
     }
+  }
+
+  void BypassThreadLocalQuarantine(AsanChunk *chunk) {
+    ScopedLock lock(&mu_);
+    quarantine_.Push(chunk);
   }
 
   AsanChunk *FindMallocedOrFreed(uintptr_t addr, size_t access_size) {
@@ -558,7 +565,12 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
 
   AsanThread *t = AsanThread::GetCurrent();
   AsanChunk *m = NULL;
+#ifndef __APPLE__  
+  CHECK(t);
   if (size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
+#else
+  if (!t || size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
+#endif
     // get directly from global storage.
     m = malloc_info.AllocateChunks(size_to_allocate, 1);
     if (__asan_flag_stats)  __asan_stats.malloc_large++;
@@ -594,8 +606,8 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->used_size = size;
   m->offset = addr - (uintptr_t)m;
   CHECK(m->beg() == addr);
-  m->alloc_tid = t->Ref()->tid();
-  m->free_tid   = -1;
+  m->alloc_tid = t ? t->Ref()->tid() : 0;
+  m->free_tid   = AsanThread::kInvalidTid;
   AsanStackTrace::CompressStack(stack, m->compressed_alloc_stack,
                                 ASAN_ARRAY_SIZE(m->compressed_alloc_stack));
   PoisonShadow(addr, rounded_size, 0);
@@ -622,10 +634,10 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     ShowStatsAndAbort();
   }
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
-  CHECK(m->free_tid == -1);
+  CHECK(m->free_tid == AsanThread::kInvalidTid);
   CHECK(m->alloc_tid >= 0);
   AsanThread *t = AsanThread::GetCurrent();
-  m->free_tid = t->Ref()->tid();
+  m->free_tid = t ? t->Ref()->tid() : 0;
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack,
                                 ASAN_ARRAY_SIZE(m->compressed_free_stack));
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
@@ -638,11 +650,17 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   }
 
   m->chunk_state = CHUNK_QUARANTINE;
-  AsanThreadLocalMallocStorage *ms = &t->malloc_storage();
-  ms->quarantine_.Push(m);
+  if (t) {
+    AsanThreadLocalMallocStorage *ms = &t->malloc_storage();
+    CHECK(!m->next);
+    ms->quarantine_.Push(m);
 
-  if (ms->quarantine_.size() > kMaxThreadLocalQuarantine) {
-    malloc_info.SwallowThreadLocalMallocStorage(ms, false);
+    if (ms->quarantine_.size() > kMaxThreadLocalQuarantine) {
+      malloc_info.SwallowThreadLocalMallocStorage(ms, false);
+    }
+  } else {
+    CHECK(!m->next);
+    malloc_info.BypassThreadLocalQuarantine(m);
   }
 }
 

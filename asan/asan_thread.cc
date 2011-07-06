@@ -167,14 +167,11 @@ AsanThread* AsanThread::GetCurrent() {
   CHECK(tls_key_created);
   AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
   // After the thread calls _pthread_exit() the TSD is unavailable
-  // and pthread_getspecific() may return NULL. Thus we associate the further
-  // allocations (originating from the guts of libpthread) with thread 0.
-  if (thread) {
-    return thread;
-  } else {
-    return GetMain();
-  }
+  // and pthread_getspecific() may return NULL. In this case we use the global freelist
+  // for further allocations (originating from the guts of libpthread).
+  return thread;
 #else
+  CHECK(tl_current_thread);
   return tl_current_thread;
 #endif
 }
@@ -182,7 +179,7 @@ AsanThread* AsanThread::GetCurrent() {
 void AsanThread::SetCurrent(AsanThread *t) {
 #ifdef __APPLE__
   CHECK(0 == pthread_setspecific(g_tls_key, t));
-  CHECK(pthread_getspecific(g_tls_key));
+  CHECK(pthread_getspecific(g_tls_key) == t);
 #else
   tl_current_thread = t;
 #endif
