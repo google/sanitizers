@@ -645,6 +645,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   // call __asan_init in the module ctor.
   IRBuilder<> irb(asan_ctor_bb, asan_ctor_insert_before);
   Value *asan_init = M.getOrInsertFunction("__asan_init", VoidTy, NULL);
+  cast<Function>(asan_init)->setLinkage(Function::ExternalWeakLinkage);
   irb.CreateCall(asan_init);
 
   MappingOffset = LongSize == 32
@@ -790,6 +791,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
     Value *asan_init = F.getParent()->getOrInsertFunction("__asan_init", VoidTy, NULL);
+    cast<Function>(asan_init)->setLinkage(Function::ExternalWeakLinkage);
     CallInst::Create(asan_init, "", Before);
     F.dump();
   }

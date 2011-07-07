@@ -96,12 +96,12 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3186,6 +3192,30 @@
+@@ -3186,6 +3192,37 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
 +  // AddressSanitizer Support.
-+  if (Args.hasArg(options::OPT_fasan) && !Args.hasArg(options::OPT_shared)) {
++  if (Args.hasArg(options::OPT_fasan) && !Args.hasArg(options::OPT_dynamiclib)) {
 +    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
 +    std::string libasan;
 +    if (libasan_from_env) {
@@ -120,14 +120,21 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    CmdArgs.push_back("_malloc_default_purgeable_zone");
 +    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("_malloc_zone_memalign");
++    // TODO(glider): do we need to always depend on Foundation?
++    CmdArgs.push_back("-framework");
++    CmdArgs.push_back("Foundation");
 +    getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
++  }
++  if (Args.hasArg(options::OPT_fasan) && Args.hasArg(options::OPT_dynamiclib)) {
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("___asan_init");
 +  }
 +
 +
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3220,6 +3250,8 @@
+@@ -3220,6 +3257,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -136,7 +143,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4009,6 +4041,25 @@
+@@ -4009,6 +4048,25 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
