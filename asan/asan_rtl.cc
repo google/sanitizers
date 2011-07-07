@@ -984,9 +984,9 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
          " (pc %p sp %p bp %p ax %p T%d)\n",
          getpid(), addr, pc, sp, bp, ax, AsanThread::GetCurrent()->tid());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
-//  AsanStackTrace::PrintCurrent(pc);
-//  Printf("\n");
-  stack.PrintStack();  // try fast unwind too.
+  stack.PrintStack();  // try fast unwind first.
+  Printf("\n");
+  AsanStackTrace::PrintCurrent(pc);  // try slow unwind.
   ShowStatsAndAbort();
 }
 
