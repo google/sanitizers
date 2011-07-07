@@ -677,8 +677,6 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
   uint8_t *new_ptr = Allocate(0, new_size, stack);
   memcpy(new_ptr, old_ptr, memcpy_size);
   Deallocate(old_ptr, stack);
-  __asan_stats.reallocs++;
-  __asan_stats.realloced += memcpy_size;
 //  Printf("Reallocate "PP" (%ld) => "PP" (%ld)\n", old_ptr, old_size, new_ptr, new_size);
 //  stack->PrintStack();
   return new_ptr;
