@@ -431,7 +431,11 @@ extern "C"
 void free(void *ptr) {
   malloc_zone_t *zone = malloc_zone_from_ptr(ptr);
   if (zone) {
-    malloc_zone_free(zone, ptr);
+    if ((zone->version >= 6) && (zone->free_definite_size)) {
+      zone->free_definite_size(zone, ptr, malloc_size(ptr));
+    } else {
+      malloc_zone_free(zone, ptr);
+    }
   } else {
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
     __asan_free(ptr, &stack);
@@ -571,42 +575,44 @@ extern "C" void __cxa_throw(void *a, void *b, void *c) {
 // The following code was partially taken from Google Perftools,
 // http://code.google.com/p/google-perftools.
 #ifdef __APPLE__
+#include <CoreFoundation/CFBase.h>
 
+// TODO(glider): do we need both zones?
 static malloc_zone_t *system_malloc_zone = NULL;
+static malloc_zone_t *system_purgeable_zone = NULL;
 
 // We need to provide wrappers around all the libc functions.
 namespace {
 // TODO(glider): the mz_* functions should be united with the Linux wrappers,
 // as they are basically copied from there.
 size_t mz_size(malloc_zone_t* zone, const void* ptr) {
-  // Check whether this pointer belongs to the original malloc zone.
+  // Fast path: check whether this pointer belongs to the original malloc zone.
   // We cannot just call malloc_zone_from_ptr(), because it in turn calls our mz_size().
   if (system_malloc_zone) {
     if ((system_malloc_zone->size)(system_malloc_zone, ptr)) return 0;
-#if 0
-    // Memory regions owned by ASan are in fact allocated by the system allocator.
-    // If this was done using malloc() rather than memalign(), we can find the first
-    // byte of the allocation and make sure it's accessible.
-    if ((system_malloc_zone->size)(system_malloc_zone, (char*)ptr - __asan_flag_redzone_words)) {
-      // TODO(glider): check that the size returned by the system_malloc_zone->size
-      // matches our zone size + overhead.
-      return __asan_get_allocation_size((char*)ptr - __asan_flag_redzone_words);
-    }
-#endif  
   }
   return __asan_mz_size(ptr);
 }
 
-void* mz_malloc(malloc_zone_t* zone, size_t size) {
+void *mz_malloc(malloc_zone_t *zone, size_t size) {
   if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(0, size, &stack);
+  return __asan_malloc(size, &stack);
 }
 
-void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
+void *cf_malloc(CFIndex size, CFOptionFlags hint, void *info) {
+  if (!asan_inited) {
+    CHECK(system_malloc_zone);
+    return malloc_zone_malloc(system_malloc_zone, size);
+  }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  return __asan_malloc(size, &stack);
+}
+
+void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
@@ -622,7 +628,7 @@ void* mz_calloc(malloc_zone_t* zone, size_t nmemb, size_t size) {
   return __asan_calloc(nmemb, size, &stack);
 }
 
-void* mz_valloc(malloc_zone_t* zone, size_t size) {
+void *mz_valloc(malloc_zone_t *zone, size_t size) {
   if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_valloc(system_malloc_zone, size);
@@ -631,30 +637,116 @@ void* mz_valloc(malloc_zone_t* zone, size_t size) {
   return __asan_memalign(kPageSize, size, &stack);
 }
 
-void mz_free(malloc_zone_t* zone, void* ptr) {
-  // TODO(glider): for some reason Chromium calls mz_free() for pointers that belong to
-  // DefaultPurgeableMallocZone instead of asan_zone. We might want to fix this someday.
-  if (!ptr) return;
+void print_zone_for_ptr(void *ptr) {
   malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
-  if (orig_zone != zone) {
-    Printf("WARNING: trying to mz_free() a pointer allocated by another zone!\n");
-    Printf("ptr: %p, asan_zone: %p, orig_zone: %p\n", ptr,  zone, orig_zone);
-    if (orig_zone) {
-      Printf("orig_zone->name: %s\n", orig_zone->zone_name);
-      malloc_zone_free(orig_zone, ptr);
+  if (orig_zone) {
+    if (orig_zone->zone_name) {
+      Printf("malloc_zone_from_ptr(%p) = %p, which is %s\n",
+             ptr, orig_zone, orig_zone->zone_name);
+    } else {
+      Printf("malloc_zone_from_ptr(%p) = %p, which doesn't have a name\n",
+             ptr, orig_zone);
     }
   } else {
-    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-    __asan_free(ptr, &stack);
+    Printf("malloc_zone_from_ptr(%p) = NULL\n", ptr);
   }
 }
 
-void* mz_realloc(malloc_zone_t* zone, void* ptr, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_realloc(ptr, size, &stack);
+// TODO(glider): the allocation callbacks need to be refactored.
+void mz_free(malloc_zone_t *zone, void *ptr) {
+  if (!ptr) return;
+  malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
+  // For some reason Chromium calls mz_free() for pointers that belong to
+  // DefaultPurgeableMallocZone instead of asan_zone. We might want to fix this someday.
+  if (orig_zone == system_purgeable_zone) {
+    system_purgeable_zone->free(system_purgeable_zone, ptr);
+    return;
+  }
+  if (__asan_mz_size(ptr)) {
+    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+    __asan_free(ptr, &stack);
+  } else {
+    // Let us just leak this memory for now.
+    Printf("mz_free(%p) -- attempting to free unallocated memory.\n"
+           "AddressSanitizer is ignoring this error on Mac OS now.\n", ptr);
+    print_zone_for_ptr(ptr);
+    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+    stack.PrintStack();
+    return;
+  }
 }
 
-void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
+void cf_free(void *ptr, void *info) {
+  if (!ptr) return;
+  if (!ptr) return;
+  malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
+  // For some reason Chromium calls mz_free() for pointers that belong to
+  // DefaultPurgeableMallocZone instead of asan_zone. We might want to fix this someday.
+  if (orig_zone == system_purgeable_zone) {
+    system_purgeable_zone->free(system_purgeable_zone, ptr);
+    return;
+  }
+  if (__asan_mz_size(ptr)) {
+    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+    __asan_free(ptr, &stack);
+  } else {
+    // Let us just leak this memory for now.
+    Printf("cf_free(%p) -- attempting to free unallocated memory.\n"
+           "AddressSanitizer is ignoring this error on Mac OS now.\n", ptr);
+    print_zone_for_ptr(ptr);
+    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+    stack.PrintStack();
+    return;
+  }
+}
+
+void *mz_realloc(malloc_zone_t *zone, void *ptr, size_t size) {
+  if (!ptr) {
+    GET_STACK_TRACE_HERE_FOR_MALLOC;
+    return __asan_malloc(size, &stack);
+  } else {
+    if (__asan_mz_size(ptr)) {
+      GET_STACK_TRACE_HERE_FOR_MALLOC;
+      return __asan_realloc(ptr, size, &stack);
+    } else {
+      // We can't recover from reallocating an unknown address, because
+      // this would require reading at most |size| bytes from
+      // potentially unaccessible memory.
+      Printf("mz_realloc(%p) -- attempting to realloc unallocated memory.\n"
+             "This is an unrecoverable problem, exiting now.\n", ptr);
+      print_zone_for_ptr(ptr);
+      GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+      stack.PrintStack();
+      ShowStatsAndAbort();
+      return NULL;  // unreachable
+    }
+  }
+}
+
+void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
+  if (!ptr) {
+    GET_STACK_TRACE_HERE_FOR_MALLOC;
+    return __asan_malloc(size, &stack);
+  } else {
+    if (__asan_mz_size(ptr)) {
+      GET_STACK_TRACE_HERE_FOR_MALLOC;
+      return __asan_realloc(ptr, size, &stack);
+    } else {
+      // We can't recover from reallocating an unknown address, because
+      // this would require reading at most |size| bytes from
+      // potentially unaccessible memory.
+      Printf("cf_realloc(%p) -- attempting to realloc unallocated memory.\n"
+             "This is an unrecoverable problem, exiting now.\n", ptr);
+      print_zone_for_ptr(ptr);
+      GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+      stack.PrintStack();
+      ShowStatsAndAbort();
+      return NULL;  // unreachable
+    }
+  }
+}
+
+void *mz_memalign(malloc_zone_t *zone, size_t align, size_t size) {
   if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_memalign(system_malloc_zone, align, size);
@@ -665,7 +757,17 @@ void* mz_memalign(malloc_zone_t* zone, size_t align, size_t size) {
 
 void mz_destroy(malloc_zone_t* zone) {
   // A no-op -- we will not be destroyed!
+  Printf("mz_destroy() called -- ignoring\n");
 }
+
+  // from AvailabilityMacros.h
+#if defined(MAC_OS_X_VERSION_10_6) && \
+    MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+void mz_free_definite_size(malloc_zone_t* zone, void *ptr, size_t size) {
+  // TODO(glider): check that |size| is valid.
+  UNIMPLEMENTED();
+}
+#endif
 
 // malloc_introspection callbacks.  I'm not clear on what all of these do.
 kern_return_t mi_enumerator(task_t task, void *,
@@ -713,10 +815,13 @@ void mi_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {
 }
 
 boolean_t mi_zone_locked(malloc_zone_t *zone) {
-  return false;  // Hopefully unneeded by us!
+  return Global::mu_.IsLocked();
 }
 
+
 }  // unnamed namespace
+
+extern bool kCFUseCollectableAllocator;  // is GC on?
 
 static void ReplaceSystemAlloc() {
   static malloc_introspection_t asan_introspection;
@@ -752,7 +857,7 @@ static void ReplaceSystemAlloc() {
     MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
   // Switch to version 6 on OSX 10.6 to support memalign.
   asan_zone.version = 6;
-  asan_zone.free_definite_size = NULL;
+  asan_zone.free_definite_size = 0;
   asan_zone.memalign = &mz_memalign;
   asan_introspection.zone_locked = &mi_zone_locked;
 
@@ -762,7 +867,7 @@ static void ReplaceSystemAlloc() {
   // zone is the szone implementation from OS X and will crash if it
   // isn't.  By creating the zone now, this will be true and changing
   // the default zone won't cause a problem.  (OS X 10.6 and higher.)
-  malloc_default_purgeable_zone();
+  system_purgeable_zone = malloc_default_purgeable_zone();
 #endif
 
   // Register the ASan zone. At this point, it will not be the
@@ -778,6 +883,20 @@ static void ReplaceSystemAlloc() {
   system_malloc_zone = malloc_default_zone();
   malloc_zone_unregister(system_malloc_zone);
   malloc_zone_register(system_malloc_zone);
+  // Make sure the default allocator was replaced.
+  CHECK(malloc_default_zone() == &asan_zone);
+
+  static CFAllocatorContext asan_context =
+      { /*version*/ 0, /*info*/ &asan_zone,
+        /*retain*/ NULL, /*release*/ NULL,
+        /*copyDescription*/NULL,
+        /*allocate*/ &cf_malloc,
+        /*reallocate*/ &cf_realloc,
+        /*deallocate*/ &cf_free,
+        /*preferredSize*/ NULL };
+  CFAllocatorRef cf_asan =
+      CFAllocatorCreate(kCFAllocatorUseContext, &asan_context);
+  CFAllocatorSetDefault(cf_asan);
 }
 
 #endif
@@ -1048,6 +1167,30 @@ void __asan_init() {
     CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
   }
 
+  if (__asan_flag_v) {
+    Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
+    Printf("|| `["PP", "PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);
+    Printf("|| `["PP", "PP"]` || ShadowGap ||\n", kShadowGapBeg, kShadowGapEnd);
+    Printf("|| `["PP", "PP"]` || LowShadow  ||\n", kLowShadowBeg, kLowShadowEnd);
+    Printf("|| `["PP", "PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
+    Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
+           MEM_TO_SHADOW(kLowShadowBeg),
+           MEM_TO_SHADOW(kLowShadowEnd),
+           MEM_TO_SHADOW(kHighShadowBeg),
+           MEM_TO_SHADOW(kHighShadowEnd));
+    Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
+    Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
+    Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
+
+    Printf("SHADOW_SCALE: %lx\n", SHADOW_SCALE);
+    Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
+    Printf("SHADOW_OFFSET: %lx\n", SHADOW_OFFSET);
+    CHECK(SHADOW_SCALE >= 3 && SHADOW_SCALE <= 7);
+#ifdef __APPLE__    
+    Printf("CF_USING_COLLECTABLE_MEMORY = %d\n", kCFUseCollectableAllocator);
+#endif    
+  }
+
 #if __WORDSIZE == 32
   {
     // mmap the low shadow plus one page just to make sure it's not taken by our allocator.
@@ -1075,24 +1218,6 @@ void __asan_init() {
 
   if (__asan_flag_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
-    Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
-    Printf("|| `["PP", "PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);
-    Printf("|| `["PP", "PP"]` || ShadowGap ||\n", kShadowGapBeg, kShadowGapEnd);
-    Printf("|| `["PP", "PP"]` || LowShadow  ||\n", kLowShadowBeg, kLowShadowEnd);
-    Printf("|| `["PP", "PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
-    Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
-           MEM_TO_SHADOW(kLowShadowBeg),
-           MEM_TO_SHADOW(kLowShadowEnd),
-           MEM_TO_SHADOW(kHighShadowBeg),
-           MEM_TO_SHADOW(kHighShadowEnd));
-    Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
-    Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
-    Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
-
-    Printf("SHADOW_SCALE: %lx\n", SHADOW_SCALE);
-    Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
-    Printf("SHADOW_OFFSET: %lx\n", SHADOW_OFFSET);
-    CHECK(SHADOW_SCALE >= 3 && SHADOW_SCALE <= 7);
   }
 }
 
