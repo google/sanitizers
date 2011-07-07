@@ -15,13 +15,11 @@ def symbolize_addr2line(line):
     binary = match.group(2)
     addr = match.group(3)
     if not pipes.has_key(binary):
-      print ["addr2line", "-f", "-e", binary]
       pipes[binary] = subprocess.Popen(["addr2line", "-f", "-e", binary],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     p = pipes[binary]
     try:
       print >>p.stdin, addr
-      print addr
       function_name = p.stdout.readline().rstrip()
       file_name     = p.stdout.readline().rstrip()
     except:
