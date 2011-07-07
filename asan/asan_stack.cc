@@ -196,7 +196,6 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
     compressed[i] = 0;
   }
 #else // 64 bits, compress.
-  CHECK(size >= 2);
   uintptr_t prev_pc = 0;
   const uintptr_t kMaxOffset = (1ULL << 30) - 1;
   uintptr_t c_index = 0;

@@ -55,7 +55,7 @@ static const size_t kMallocContextSize = 30;
 static int    __asan_flag_atexit;
 static bool   __asan_flag_fast_unwind;
 
-size_t __asan_flag_redzone_words;  // multiple of 8
+size_t __asan_flag_redzone;  // power of two, >= 32
 bool   __asan_flag_mt;  // set to 0 if you have only one thread.
 size_t __asan_flag_quarantine_size;
 int    __asan_flag_demangle;
@@ -1104,11 +1104,9 @@ void __asan_init() {
 
   __asan_flag_v = IntFlagValue(options, "v=", 0);
 
-  __asan_flag_redzone_words = IntFlagValue(options, "red_zone_words=", 16);
-  if (__asan_flag_redzone_words & 7) {
-    __asan_flag_redzone_words = (__asan_flag_redzone_words + 7) & ~7;
-  }
-  CHECK(__asan_flag_redzone_words >= 8 && (__asan_flag_redzone_words % 8) == 0);
+  __asan_flag_redzone = IntFlagValue(options, "redzone=", 128);
+  CHECK(__asan_flag_redzone >= 32);
+  CHECK((__asan_flag_redzone & (__asan_flag_redzone - 1)) == 0);
 
   __asan_flag_atexit = IntFlagValue(options, "atexit=", 0);
   __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
@@ -1178,7 +1176,7 @@ void __asan_init() {
            MEM_TO_SHADOW(kLowShadowEnd),
            MEM_TO_SHADOW(kHighShadowBeg),
            MEM_TO_SHADOW(kHighShadowEnd));
-    Printf("red_zone_words=%ld\n", __asan_flag_redzone_words);
+    Printf("red_zone=%ld\n", __asan_flag_redzone);
     Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
     Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
 

@@ -17,9 +17,9 @@
 
 // Implementation of ASan's memory allocator.
 // Evey piece of memory (AsanChunk) allocated by the allocator
-// has a left redzone of kRedzone bytes and
-// a right redzone such that the end of the chunk is aligned by kRedzone
-// (i.e. the right redzone is between 0 and kRedzone-1).
+// has a left redzone of REDZONE bytes and
+// a right redzone such that the end of the chunk is aligned by REDZONE
+// (i.e. the right redzone is between 0 and REDZONE-1).
 // The left redzone is always poisoned.
 // The right redzone is poisoned on malloc, the body is poisoned on free.
 // Once freed, a chunk is moved to a quarantine (fifo list).
@@ -41,9 +41,8 @@
 #include <unistd.h>
 #include <algorithm>
 
-
-static const size_t kRedzone      = 128;
-static const size_t kMinAllocSize = kRedzone * 2;
+#define  REDZONE __asan_flag_redzone
+static const size_t kMinAllocSize = REDZONE * 2;
 static const size_t kMinMmapSize  = kPageSize * 1024;
 static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
 static const size_t kMaxThreadLocalQuarantine = 1 << 20;  // 1M
@@ -97,17 +96,17 @@ static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
   memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
 }
 
-// Given kRedzone bytes, we need to mark first size bytes
-// as addressable and the rest kRedzone-size bytes as unaddressable.
+// Given REDZONE bytes, we need to mark first size bytes
+// as addressable and the rest REDZONE-size bytes as unaddressable.
 static void PoisonMemoryPartialRightRedzone(uintptr_t mem, size_t size) {
-  CHECK(size <= kRedzone);
-  CHECK(IsAligned(mem, kRedzone));
+  CHECK(size <= REDZONE);
+  CHECK(IsAligned(mem, REDZONE));
   CHECK(IsPowerOfTwo(SHADOW_GRANULARITY));
-  CHECK(IsPowerOfTwo(kRedzone));
-  CHECK(kRedzone >= SHADOW_GRANULARITY);
+  CHECK(IsPowerOfTwo(REDZONE));
+  CHECK(REDZONE >= SHADOW_GRANULARITY);
   uint8_t *shadow = (uint8_t*)MemToShadow(mem);
   PoisonShadowPartialRightRedzone(shadow, size,
-                                  kRedzone, SHADOW_GRANULARITY, 0xfa);
+                                  REDZONE, SHADOW_GRANULARITY, 0xfa);
 }
 
 static size_t total_mmaped = 0;
@@ -158,20 +157,21 @@ struct ChunkBase {
 
 struct AsanChunk: public ChunkBase {
   uint32_t *compressed_alloc_stack() {
-    CHECK(kRedzone >= sizeof(ChunkBase));
+    CHECK(REDZONE >= sizeof(ChunkBase));
     return (uint32_t*)((uintptr_t)this + sizeof(ChunkBase));
   }
   uint32_t *compressed_free_stack() {
-    return (uint32_t*)((uintptr_t)this + kRedzone);
+    CHECK(REDZONE >= sizeof(ChunkBase));
+    return (uint32_t*)((uintptr_t)this + REDZONE);
   }
 
-  size_t compressed_free_stack_size() {
-    return kRedzone / sizeof(uint32_t);
-  }
+  // The left redzone after the ChunkBase is given to the alloc stack trace.
   size_t compressed_alloc_stack_size() {
-    return (kRedzone - sizeof(ChunkBase)) / sizeof(uint32_t);
+    return (REDZONE - sizeof(ChunkBase)) / sizeof(uint32_t);
   }
-
+  size_t compressed_free_stack_size() {
+    return (REDZONE) / sizeof(uint32_t);
+  }
 
   bool AddrIsInside(uintptr_t addr, size_t access_size, size_t *offset) {
     if (addr >= beg() && (addr + access_size) <= (beg() + used_size)) {
@@ -191,7 +191,7 @@ struct AsanChunk: public ChunkBase {
 
   bool AddrIsAtRight(uintptr_t addr, size_t access_size, size_t *offset) {
     if (addr + access_size >= beg() + used_size &&
-        addr < (uintptr_t)this + size + kRedzone) {
+        addr < (uintptr_t)this + size + REDZONE) {
       if (addr <= beg() + used_size)
         *offset = 0;
       else
@@ -218,7 +218,7 @@ struct AsanChunk: public ChunkBase {
 };
 
 static AsanChunk *PtrToChunk(uintptr_t ptr) {
-  AsanChunk *m = (AsanChunk*)(ptr - kRedzone);
+  AsanChunk *m = (AsanChunk*)(ptr - REDZONE);
   if (m->chunk_state == CHUNK_MEMALIGN) {
     m = m->next;
   }
@@ -548,12 +548,12 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     size = 1;  // TODO(kcc): do something smarter
   }
   CHECK(IsPowerOfTwo(alignment));
-  size_t rounded_size = RoundUpTo(size, kRedzone);
-  size_t needed_size = rounded_size + kRedzone;
-  if (alignment > kRedzone) {
+  size_t rounded_size = RoundUpTo(size, REDZONE);
+  size_t needed_size = rounded_size + REDZONE;
+  if (alignment > REDZONE) {
     needed_size += alignment;
   }
-  CHECK((needed_size % kRedzone) == 0);
+  CHECK((needed_size % REDZONE) == 0);
   if (needed_size > __asan_flag_large_malloc) {
     OutOfMemoryMessage(__FUNCTION__, size);
     stack->PrintStack();
@@ -561,7 +561,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
   size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
   CHECK(size_to_allocate >= kMinAllocSize);
-  CHECK((size_to_allocate % kRedzone) == 0);
+  CHECK((size_to_allocate % REDZONE) == 0);
 
   if (__asan_flag_stats) {
     __asan_stats.allocated_since_last_stats += size;
@@ -600,13 +600,13 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->chunk_state = CHUNK_ALLOCATED;
   m->next = NULL;
   CHECK(m->size == size_to_allocate);
-  uintptr_t addr = (uintptr_t)m + kRedzone;
+  uintptr_t addr = (uintptr_t)m + REDZONE;
   CHECK(addr == (uintptr_t)m->compressed_free_stack());
 
-  if (alignment > kRedzone && (addr & (alignment - 1))) {
+  if (alignment > REDZONE && (addr & (alignment - 1))) {
     addr = RoundUpTo(addr, alignment);
     CHECK((addr & (alignment - 1)) == 0);
-    AsanChunk *p = (AsanChunk*)(addr - kRedzone);
+    AsanChunk *p = (AsanChunk*)(addr - REDZONE);
     p->chunk_state = CHUNK_MEMALIGN;
     p->next = m;
   }
@@ -620,7 +620,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
                                 m->compressed_alloc_stack_size());
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
-    PoisonMemoryPartialRightRedzone(addr + rounded_size - kRedzone, size % kRedzone);
+    PoisonMemoryPartialRightRedzone(addr + rounded_size - REDZONE, size % REDZONE);
   }
   return (uint8_t*)addr;
 }
@@ -648,7 +648,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   m->free_tid = t ? t->Ref()->tid() : 0;
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack(),
                                 m->compressed_free_stack_size());
-  size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
+  size_t rounded_size = RoundUpTo(m->used_size, REDZONE);
   PoisonShadow((uintptr_t)ptr, rounded_size, 0xfb);
 
   if (__asan_flag_stats) {

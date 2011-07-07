@@ -39,7 +39,7 @@ extern int    __asan_flag_demangle;
 extern bool   __asan_flag_symbolize;
 extern int    __asan_flag_v;
 extern bool   __asan_flag_mt;
-extern size_t __asan_flag_redzone_words;
+extern size_t __asan_flag_redzone;
 extern int    __asan_flag_debug;
 extern bool   __asan_flag_poison_shadow;
 extern size_t __asan_flag_malloc_context_size;
