@@ -160,6 +160,14 @@ struct AsanChunk: public ChunkBase {
   uint32_t compressed_alloc_stack[(kRedzone - sizeof(ChunkBase)) / sizeof(uint32_t)];
   uint32_t compressed_free_stack[kRedzone / sizeof(uint32_t)];
 
+  size_t compressed_free_stack_size() {
+    return kRedzone / sizeof(uint32_t);
+  }
+  size_t compressed_alloc_stack_size() {
+    return (kRedzone - sizeof(ChunkBase)) / sizeof(uint32_t);
+  }
+
+
   bool AddrIsInside(uintptr_t addr, size_t access_size, size_t *offset) {
     if (addr >= beg() && (addr + access_size) <= (beg() + used_size)) {
       *offset = addr - beg();
@@ -503,14 +511,14 @@ static void Describe(uintptr_t addr, size_t access_size) {
   AsanThread *alloc_thread = AsanThread::FindByTid(m->alloc_tid);
   AsanStackTrace alloc_stack;
   AsanStackTrace::UncompressStack(&alloc_stack, m->compressed_alloc_stack,
-                                  ASAN_ARRAY_SIZE(m->compressed_alloc_stack));
+                                  m->compressed_alloc_stack_size());
 
   if (m->free_tid >= 0) {
     AsanThread *free_thread = AsanThread::FindByTid(m->free_tid);
     Printf("freed by thread T%d here:\n", free_thread->tid());
     AsanStackTrace free_stack;
     AsanStackTrace::UncompressStack(&free_stack, m->compressed_free_stack,
-                                    ASAN_ARRAY_SIZE(m->compressed_free_stack));
+                                    m->compressed_free_stack_size());
     free_stack.PrintStack();
     Printf("previously allocated by thread T%d here:\n",
            alloc_thread->tid());
@@ -604,7 +612,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->alloc_tid = t ? t->Ref()->tid() : 0;
   m->free_tid   = AsanThread::kInvalidTid;
   AsanStackTrace::CompressStack(stack, m->compressed_alloc_stack,
-                                ASAN_ARRAY_SIZE(m->compressed_alloc_stack));
+                                m->compressed_alloc_stack_size());
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
     PoisonMemoryPartialRightRedzone(addr + rounded_size - kRedzone, size % kRedzone);
@@ -634,7 +642,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   AsanThread *t = AsanThread::GetCurrent();
   m->free_tid = t ? t->Ref()->tid() : 0;
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack,
-                                ASAN_ARRAY_SIZE(m->compressed_free_stack));
+                                m->compressed_free_stack_size());
   size_t rounded_size = RoundUpTo(m->used_size, kRedzone);
   PoisonShadow((uintptr_t)ptr, rounded_size, 0xfb);
 
