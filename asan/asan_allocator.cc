@@ -112,7 +112,7 @@ static void PoisonMemoryPartialRightRedzone(uintptr_t mem, size_t size) {
 static size_t total_mmaped = 0;
 
 static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
-  CHECK((size % kPageSize) == 0);
+  CHECK(IsAligned(size, kPageSize));
   uint8_t *res = (uint8_t*)__asan_mmap(0, size,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
@@ -553,7 +553,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   if (alignment > REDZONE) {
     needed_size += alignment;
   }
-  CHECK((needed_size % REDZONE) == 0);
+  CHECK(IsAligned(needed_size, REDZONE));
   if (needed_size > __asan_flag_large_malloc) {
     OutOfMemoryMessage(__FUNCTION__, size);
     stack->PrintStack();
@@ -561,7 +561,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
   size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
   CHECK(size_to_allocate >= kMinAllocSize);
-  CHECK((size_to_allocate % REDZONE) == 0);
+  CHECK(IsAligned(size_to_allocate,REDZONE));
 
   if (__asan_flag_stats) {
     __asan_stats.allocated_since_last_stats += size;
@@ -620,7 +620,8 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
                                 m->compressed_alloc_stack_size());
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
-    PoisonMemoryPartialRightRedzone(addr + rounded_size - REDZONE, size % REDZONE);
+    PoisonMemoryPartialRightRedzone(addr + rounded_size - REDZONE,
+                                    size & (REDZONE - 1));
   }
   return (uint8_t*)addr;
 }
@@ -723,7 +724,7 @@ void *__asan_valloc(size_t size, AsanStackTrace *stack) {
 int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
                           AsanStackTrace *stack) {
   *memptr = Allocate(alignment, size, stack);
-  CHECK(((uintptr_t)*memptr % alignment) == 0);
+  CHECK(IsAligned((uintptr_t)*memptr, alignment));
   return 0;
 }
 
