@@ -397,7 +397,7 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
   // Check the stack.
   AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
   if (t) {
-    Printf("Address "PP" is %ld bytes below T%d's stack top",
+    Printf("Address "PP" is located %ld bytes below T%d's stack top",
            addr, t->stack_top() - addr, t->tid());
     int frame = TryToFindFrameForStackAddress(sp, bp, addr);
     if (frame >= 0) {
