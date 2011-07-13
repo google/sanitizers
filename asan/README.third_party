@@ -1,5 +1,9 @@
 basictypes.h, sysinfo.cc and sysinfo.h were taken with minor modifications from Google Perftools,
-http://code.google.com/p/google-perftools
+http://code.google.com/p/google-perftools (BSD license).
 
 We don't need most of that stuff, so it'll be nice to clean those files up,
 retaining the license notice.
+
+================================================================================
+mach_override.c and mach_override.h were taken from the mach_star framework, 
+https://github.com/rentzsch/mach_star (MIT license).
