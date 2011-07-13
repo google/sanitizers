@@ -238,7 +238,7 @@ mach_override_ptr(
 
 #if defined(__i386__) || defined(__x86_64__)
 	if (!err) {
-		uint32_t addressOffset = ((void*)escapeIsland - (void*)originalFunctionPtr - 5);
+		uint32_t addressOffset = ((char*)escapeIsland - (char*)originalFunctionPtr - 5);
 		addressOffset = OSSwapInt32(addressOffset);
 		
 		jumpRelativeInstruction |= 0xE900000000000000LL; 
@@ -378,14 +378,14 @@ allocateBranchIsland(
 				}
 			}
 			if( allocated )
-				*island = (void*) page;
+				*island = (BranchIsland*) page;
 			else if( !allocated && !err )
 				err = KERN_NO_SPACE;
 		}
 	} else {
 		void *block = malloc( sizeof( BranchIsland ) );
 		if( block )
-			*island = block;
+			*island = (BranchIsland*)block;
 		else
 			err = KERN_NO_SPACE;
 	}
@@ -537,6 +537,9 @@ static AsmInstructionMatch possibleInstructions[] = {
 	{ 0x1, {0xFF}, {0x57} },							// push %edi
 	{ 0x1, {0xFF}, {0x56} },							// push %esi
 	{ 0x2, {0xFF, 0xFF}, {0x31, 0xC0} },						// xor %eax, %eax
+  { 0x3, {0xFF, 0x4F, 0x00}, {0x8B, 0x45, 0x00} },  // mov $imm(%ebp), %reg
+  { 0x3, {0xFF, 0x4C, 0x00}, {0x8B, 0x40, 0x00} },  // mov $imm(%eax-%edx), %reg
+  { 0x4, {0xFF, 0xFF, 0xFF, 0x00}, {0x8B, 0x4C, 0x24, 0x00} },  // mov $imm(%esp), %ecx
 	{ 0x0 }
 };
 #elif defined(__x86_64__)
@@ -548,6 +551,8 @@ static AsmInstructionMatch possibleInstructions[] = {
 	{ 0x4, {0xFB, 0xFF, 0x00, 0x00}, {0x48, 0x89, 0x00, 0x00} },	                // move onto rbp
 	{ 0x2, {0xFF, 0x00}, {0x41, 0x00} },						// push %rXX
 	{ 0x2, {0xFF, 0x00}, {0x85, 0x00} },						// test %rX,%rX
+  { 0x5, {0xF8, 0x00, 0x00, 0x00, 0x00}, {0xB8, 0x00, 0x00, 0x00, 0x00} },   // mov $imm, %reg
+  { 0x3, {0xFF, 0xFF, 0x00}, {0xFF, 0x77, 0x00} },  // pushq $imm(%rdi)
 	{ 0x0 }
 };
 #endif
@@ -555,7 +560,7 @@ static AsmInstructionMatch possibleInstructions[] = {
 static Boolean codeMatchesInstruction(unsigned char *code, AsmInstructionMatch* instruction) 
 {
 	Boolean match = true;
-	
+  
 	size_t i;
 	for (i=0; i<instruction->length; i++) {
 		unsigned char mask = instruction->mask[i];
