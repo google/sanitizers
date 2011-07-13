@@ -18,6 +18,7 @@ ROOT=$(shell pwd)
 PLATFORM=$(shell uname)
 
 CXX=g++ -Wall -fvisibility=hidden
+CC=gcc -Wall -fvisibility=hidden
 CLEANROOM_CXX=g++ -Wall
 
 CLANG_SRC=../clang_src
@@ -41,7 +42,7 @@ ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=0  #default will be used
 ASAN_BTS=0
 
-RTL_HDR=asan_allocator.h \
+RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
 	asan_lock.h \
 	asan_mapping.h \
@@ -52,13 +53,19 @@ RTL_HDR=asan_allocator.h \
 	sysinfo.h
 
 SUFF=$(BITS)
-
-LIBASAN_OBJ=$(BIN)/asan_rtl$(SUFF).o \
+LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
 
+ifeq ($(PLATFORM),Darwin)
+RTL_HDR=$(RTL_HDR_COMMON) mach_override.h
+LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) $(BIN)/mach_override$(SUFF).o
+else
+RTL_HDR=$(RTL_HDR_COMMON)
+LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON)
+endif
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -126,6 +133,12 @@ endif
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
+		-DASAN_REVISION=\"$(SVNVERSION)\" \
+		-DASAN_USE_SYSINFO=1 \
+    $(LD_FLAGS)
+
+$(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile
+	$(CC) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
     $(LD_FLAGS)
