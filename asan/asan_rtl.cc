@@ -31,7 +31,6 @@
 #include <execinfo.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <setjmp.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -47,8 +46,9 @@
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #include <malloc/malloc.h>
+#include <setjmp.h>
 #endif
-// must not include <setjmp.h>
+// must not include <setjmp.h> on Linux
 
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
@@ -1255,10 +1255,12 @@ void __asan_init() {
   }
 
 
-  AsanThread::Init();
-  AsanThread::GetMain()->ThreadStart();
+  // On Linux AsanThread::ThreadStart() calls malloc() that's why |asan_inited|
+  // should be set to 1 prior to initializing the threads.
   asan_inited = 1;
 
+  AsanThread::Init();
+  AsanThread::GetMain()->ThreadStart();
 
   if (__asan_flag_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
