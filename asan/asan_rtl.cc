@@ -22,25 +22,28 @@
 #include "asan_stack.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
+#ifdef __APPLE__
+#include "mach_override.h"
+#endif
 
-
-#include <stdint.h>
-#include <pthread.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <signal.h>
-#include <execinfo.h>
-#include <sys/mman.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <algorithm>
-#include <sys/syscall.h>
-#include <sys/ucontext.h>
 #include <dlfcn.h>
+#include <execinfo.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/ucontext.h>
+#include <unistd.h>
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #include <malloc/malloc.h>
@@ -504,6 +507,7 @@ void *operator new(size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 
 #define OPERATOR_DELETE_BODY \
+  if (!ptr) return;\
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
   __asan_free(ptr, &stack);
 
@@ -513,8 +517,24 @@ void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
 #endif
 
-extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-                                void *(*start_routine) (void *), void *arg) {
+// To replace weak system functions on Linux we just need to declare functions
+// with same names in our library and then obtain the real function pointers
+// using dlsym(). This is not so on Mac OS, where the two-level namespace makes
+// our replacement functions invisible to other libraries. This may be overcomed
+// using the DYLD_FORCE_FLAT_NAMESPACE, but some errors loading the shared
+// libraries in Chromium were noticed when doing so. Instead we use mach_override,
+// a handy framework for patching functions at runtime. To avoid possible name
+// clashes, our replacement functions have the "wrap_" prefix on Mac.
+
+#ifdef __APPLE__
+#define WRAP(x) wrap_##x
+#else
+#define WRAP(x) x
+#endif
+
+extern "C"
+int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
+                         void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
   new (t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack);
@@ -522,25 +542,17 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 }
 
 extern "C"
-sig_t signal(int signum, sig_t handler) {
-#ifdef __APPLE__
+sig_t WRAP(signal)(int signum, sig_t handler) {
   if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
-#else
-  if (signum != SIGSEGV && signum != SIGILL) {
-#endif
     return real_signal(signum, handler);
   }
   return NULL;
 }
 
 extern "C"
-int sigaction(int signum, const struct sigaction *act,
-                struct sigaction *oldact) {
-#ifdef __APPLE__
+int WRAP(sigaction)(int signum, const struct sigaction *act,
+                    struct sigaction *oldact) {
   if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
-#else
-  if (signum != SIGSEGV && signum != SIGILL) {
-#endif
     return real_sigaction(signum, act, oldact);
   }
   return 0;
@@ -556,17 +568,20 @@ static void UnpoisonStackFromHereToTop() {
   memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
 }
 
-extern "C" void longjmp(void *env, int val) {
+
+extern "C" void WRAP(longjmp)(void *env, int val) {
   UnpoisonStackFromHereToTop();
   real_longjmp(env, val);
 }
 
-extern "C" void siglongjmp(void *env, int val) {
+extern "C" void WRAP(siglongjmp)(void *env, int val) {
   UnpoisonStackFromHereToTop();
   real_siglongjmp(env, val);
 }
 
-extern "C" void __cxa_throw(void *a, void *b, void *c) {
+extern "C" void __cxa_throw(void *a, void *b, void *c);
+
+extern "C" void WRAP(__cxa_throw)(void *a, void *b, void *c) {
   UnpoisonStackFromHereToTop();
   real_cxa_throw(a, b, c);
 }
@@ -613,7 +628,6 @@ void *cf_malloc(CFIndex size, CFOptionFlags hint, void *info) {
 }
 
 void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
@@ -625,6 +639,7 @@ void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
     CHECK(allocated < kCallocPoolSize);
     return mem;
   }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_calloc(nmemb, size, &stack);
 }
 
@@ -677,7 +692,6 @@ void mz_free(malloc_zone_t *zone, void *ptr) {
 }
 
 void cf_free(void *ptr, void *info) {
-  if (!ptr) return;
   if (!ptr) return;
   malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
   // For some reason Chromium calls mz_free() for pointers that belong to
@@ -1128,13 +1142,45 @@ void __asan_init() {
 
   __asan_flag_quarantine_size =
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
-
+  
+#ifndef __APPLE__  
+  // Initialize the real_* function pointers with the original functions.
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
   CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
+#else
+  // Use mach_override_ptr() to replace the system functions, initialize the real_*
+  // pointers as well.
+  // TODO(glider): mach_override_ptr() tends to spend too much time in allocateBranchIsland().
+  // This should be ok for real-word application, but slows down our tests which fork too many
+  // children.
+  void *old_func;
+  CHECK(0 == mach_override_ptr((void*)sigaction, (void*)WRAP(sigaction), &old_func));
+  CHECK(real_sigaction = (sigaction_f)old_func);
+  CHECK(0 == mach_override_ptr((void*)signal, (void*)WRAP(signal), &old_func));
+  CHECK(real_signal = (signal_f)old_func);
+  CHECK(0 == mach_override_ptr((void*)longjmp, (void*)WRAP(longjmp), &old_func));
+  CHECK(real_longjmp = (longjmp_f)old_func);
+#if 0 
+  // siglongjmp for x86 looks as follows:
+  // 2f8a8:       8b 44 24 04             mov    0x4(%esp),%eax
+  // 2f8ac:       83 78 48 00             cmpl   $0x0,0x48(%eax)
+  // 2f8b0:       0f 85 76 ba 13 00       jne    16b32c <___udivmoddi4+0x19ec>
+  // 2f8b6:       eb 3f                   jmp    2f8f7 <_longjmp+0x3f>
+  // Instead of handling those instructions in mach_override we assume that
+  // patching longjmp is sufficient.
+  // TODO(glider): need a test for this.
+  CHECK(0 == mach_override_ptr((void*)siglongjmp, (void*)WRAP(siglongjmp), &old_func));
+  CHECK(real_siglongjmp = (longjmp_f)old_func);
+#endif  
+  CHECK(0 == mach_override_ptr((void*)__cxa_throw, (void*)WRAP(__cxa_throw), &old_func));
+  CHECK(real_cxa_throw = (cxa_throw_f)old_func);
+  CHECK(0 == mach_override_ptr((void*)pthread_create, (void*)WRAP(pthread_create), &old_func));
+  CHECK(real_pthread_create = (pthread_create_f)old_func);
+#endif
 
   // Set the SIGSEGV handler.
   {
@@ -1208,10 +1254,10 @@ void __asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
-  asan_inited = 1;
 
   AsanThread::Init();
   AsanThread::GetMain()->ThreadStart();
+  asan_inited = 1;
 
 
   if (__asan_flag_v) {
