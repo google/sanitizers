@@ -557,20 +557,34 @@ static AsmInstructionMatch possibleInstructions[] = {
 };
 #endif
 
+//#define DEBUG_DISASM 1
+#undef DEBUG_DISASM
+
 static Boolean codeMatchesInstruction(unsigned char *code, AsmInstructionMatch* instruction) 
 {
 	Boolean match = true;
   
 	size_t i;
+#ifdef DEBUG_DISASM
+  printf("Matching: ");
+#endif  
 	for (i=0; i<instruction->length; i++) {
 		unsigned char mask = instruction->mask[i];
 		unsigned char constraint = instruction->constraint[i];
 		unsigned char codeValue = code[i];
-				
+#ifdef DEBUG_DISASM
+    printf("%x ", codeValue);
+#endif    
 		match = ((codeValue & mask) == constraint);
 		if (!match) break;
 	}
-	
+#ifdef DEBUG_DISASM
+  if (match) {
+    printf(" OK\n");
+  } else {
+    printf(" FAIL\n");
+  }
+#endif  
 	return match;
 }
 
