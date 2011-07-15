@@ -15,6 +15,9 @@
 
 #include <CoreServices/CoreServices.h>
 
+//#define DEBUG_DISASM 1
+#undef DEBUG_DISASM
+
 /**************************
 *	
 *	Constants
@@ -169,8 +172,19 @@ mach_override_ptr(
 {
 	assert( originalFunctionAddress );
 	assert( overrideFunctionAddress );
-	
+
 	long	*originalFunctionPtr = (long*) originalFunctionAddress;
+#ifdef DEBUG_DISASM
+  fprintf(stderr, "Replacing function at %p\n", originalFunctionAddress);
+  fprintf(stderr, "First 16 bytes of the function: ");
+  unsigned char *orig = (unsigned char *)originalFunctionAddress;
+  int i;
+  for (i = 0; i < 16; i++) {
+     fprintf(stderr, "%x ", (unsigned int) orig[i]);
+  }
+  fprintf(stderr, "\n");
+#endif
+	
 	mach_error_t	err = err_none;
 	
 #if defined(__ppc__) || defined(__POWERPC__)
@@ -189,7 +203,9 @@ mach_override_ptr(
 	Boolean overridePossible = eatKnownInstructions ((unsigned char *)originalFunctionPtr, 
 										&jumpRelativeInstruction, &eatenCount, originalInstructions);
 	if (eatenCount > kOriginalInstructionsSize) {
-		//printf ("Too many instructions eaten\n");
+#ifdef DEBUG_DISASM  
+		fprintf(stderr, "Too many instructions eaten\n");
+#endif    
 		overridePossible = false;
 	}
 	if (!overridePossible) err = err_cannot_override;
@@ -557,32 +573,29 @@ static AsmInstructionMatch possibleInstructions[] = {
 };
 #endif
 
-//#define DEBUG_DISASM 1
-#undef DEBUG_DISASM
-
-static Boolean codeMatchesInstruction(unsigned char *code, AsmInstructionMatch* instruction) 
+static Boolean codeMatchesInstruction(unsigned char *code, AsmInstructionMatch* instruction)
 {
 	Boolean match = true;
-  
 	size_t i;
+  assert(instruction);
 #ifdef DEBUG_DISASM
-  printf("Matching: ");
+  fprintf(stderr, "Matching: ");
 #endif  
 	for (i=0; i<instruction->length; i++) {
 		unsigned char mask = instruction->mask[i];
 		unsigned char constraint = instruction->constraint[i];
 		unsigned char codeValue = code[i];
 #ifdef DEBUG_DISASM
-    printf("%x ", codeValue);
+    fprintf(stderr, "%x ", (unsigned)codeValue);
 #endif    
 		match = ((codeValue & mask) == constraint);
 		if (!match) break;
 	}
 #ifdef DEBUG_DISASM
   if (match) {
-    printf(" OK\n");
+    fprintf(stderr, " OK\n");
   } else {
-    printf(" FAIL\n");
+    fprintf(stderr, " FAIL\n");
   }
 #endif  
 	return match;
