@@ -534,6 +534,9 @@ void operator delete[](void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY;
 #endif
 
 extern "C"
+#ifndef __APPLE__
+__attribute__((visibility("default")))
+#endif
 int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
                          void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
