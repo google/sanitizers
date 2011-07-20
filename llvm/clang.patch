@@ -143,7 +143,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4009,6 +4048,25 @@
+@@ -4009,6 +4048,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
@@ -163,6 +163,8 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    CmdArgs.push_back(Args.MakeArgString(libasan));
 +    CmdArgs.push_back("-lpthread");
 +    CmdArgs.push_back("-ldl");
++    CmdArgs.push_back("-u__asan_init");
++
 +    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 +  }
 +
