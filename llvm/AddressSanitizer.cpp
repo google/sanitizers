@@ -590,6 +590,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
                     asan_ctor_insert_before);
     Value *asan_register_global = M.getOrInsertFunction(
         "__asan_register_global", VoidTy, LongTy, LongTy, LongTy, NULL);
+    cast<Function>(asan_register_global)->setLinkage(
+        Function::ExternalWeakLinkage);
 
     irb.CreateCall3(asan_register_global,
                    irb.CreatePointerCast(new_global, LongTy),
