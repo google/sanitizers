@@ -125,12 +125,6 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL)
 
-ifeq ($(PLATFORM),Darwin)
-LD_FLAGS=-framework Foundation
-else
-LD_FLAGS=
-endif
-
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
@@ -141,8 +135,11 @@ $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1
 
-$(BIN)/libasan$(SUFF).so: $(LIBASAN_OBJ)
-	$(CXX) -m$(BITS) -O3 -o $@ -g -shared -fPIC $^ -lpthread -ldl $(LD_FLAGS)
+ifeq ($(PLATFORM),Darwin)
+LD_FLAGS=-framework Foundation
+else
+LD_FLAGS=
+endif
 
 $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | Makefile
 	ar ru $@ $^
@@ -162,7 +159,7 @@ TEST_OBJECTS=\
 LD_FLAGS=
 endif
 
-$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB) $(BIN)/libasan$(SUFF).so
+$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB)
 	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
@@ -171,6 +168,6 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS) -g"
 
 clean:
-	rm -f *.o *.ll *.S *.so *.a *.log asan_test64* asan_test32*  a.out perf.data log
+	rm -f *.o *.ll *.S *.a *.log asan_test64* asan_test32*  a.out perf.data log
 	rm -f $(CLANG_LIB)/libasan*
 	rm -rf $(BIN)
