@@ -508,7 +508,6 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
                       "llvm.global_ctors");
 }
 
-// ***unfinished***
 // This function replaces all global variables with new variables that have
 // trailing redzones. It also creates a function that poisons
 // redzones and inserts this function into llvm.global_ctors.
