@@ -432,13 +432,7 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
     return;
   }
 
-  // If the shadow value is non-zero, crash.
-  // Otherwise continue executing the old code.
   Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
-  // Split the mop and the successive code into a separate block.
-  // Note that it invalidates the iterators used in handleFunction(),
-  // but we're ok with that as long as we break from the loop immediately
-  // after insrtumentMop().
 
   Instruction *CheckTerm = splitBlockAndInsertIfThen(
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
