@@ -114,7 +114,7 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
-		-mllvm -asan-mapping-offset=$(ASAN_OFFSET) \
+		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
 		-mllvm -asan-use-bts=$(ASAN_BTS)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile

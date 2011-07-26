@@ -87,10 +87,10 @@ static cl::opt<bool> ClUseBTS("asan-use-bts",
 
 // These flags *will* allow to change the shadow mapping. Not usable yet.
 // The shadow mapping looks like
-//    Shadow = (Mem >> scale) + (1 << offset)
+//    Shadow = (Mem >> scale) + (1 << offset_log)
 static cl::opt<int> ClMappingScale("asan-mapping-scale",
        cl::desc("scale of asan shadow mapping"), cl::init(0));
-static cl::opt<int> ClMappingOffset("asan-mapping-offset",
+static cl::opt<int> ClMappingOffsetLog("asan-mapping-offset-log",
        cl::desc("offset of asan shadow mapping"), cl::init(0));
 
 // Optimization flags. Not user visible, used mostly for testing
@@ -178,7 +178,7 @@ struct AddressSanitizer : public ModulePass {
   Module      *CurrentModule;
   LLVMContext *C;
   TargetData *TD;
-  uint64_t    MappingOffset;
+  uint64_t    MappingOffsetLog;
   int         MappingScale;
   size_t      RedzoneSize;
   int         LongSize;
@@ -247,7 +247,7 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
     // Generate something like "bts $0x2c,%rcx". This is more compact than
     // "mov $0x100000000000,%rdx; or %rdx,%rcx", but slower.
     char bts[30];
-    sprintf(bts, "bts $$%ld, $0", MappingOffset);
+    sprintf(bts, "bts $$%ld, $0", MappingOffsetLog);
     Value *insn = InlineAsm::get(
         FunctionType::get(LongTy, ArrayRef<const Type*>(LongTy), false),
         StringRef(bts), StringRef("=r,0"), true);
@@ -255,7 +255,8 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
     return res;
   }
   // (Shadow >> scale) | offset
-  return irb.CreateOr(Shadow, ConstantInt::get(LongTy, 1ULL << MappingOffset));
+  return irb.CreateOr(Shadow, ConstantInt::get(LongTy,
+                                               1ULL << MappingOffsetLog));
 }
 
 void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
@@ -652,10 +653,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
   cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
   irb.CreateCall(asan_init);
 
-  MappingOffset = LongSize == 32
+  MappingOffsetLog = LongSize == 32
       ? kDefaultShadowOffset32 : kDefaultShadowOffset64;
-  if (ClMappingOffset) {
-    MappingOffset = ClMappingOffset;
+  if (ClMappingOffsetLog) {
+    MappingOffsetLog = ClMappingOffsetLog;
   }
   MappingScale = kDefaultShadowScale;
   if (ClMappingScale) {
@@ -664,12 +665,18 @@ bool AddressSanitizer::runOnModule(Module &M) {
   // Redzone used for stack and globals is at least 32 bytes.
   // For scales 6 and 7, the redzone has to be 64 and 128 bytes respectively.
   RedzoneSize = max(32, (int)(1 << MappingScale));
-  new GlobalVariable(M, LongTy, true, GlobalValue::ExternalLinkage,
-                     ConstantInt::get(LongTy, 1ULL << MappingOffset),
+  GlobalValue *asan_mapping_offset =
+      new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
+                     ConstantInt::get(LongTy, 1ULL << MappingOffsetLog),
                      "__asan_mapping_offset");
-  new GlobalVariable(M, LongTy, true, GlobalValue::ExternalLinkage,
-                     ConstantInt::get(LongTy, MappingScale),
-                     "__asan_mapping_scale");
+  GlobalValue *asan_mapping_scale =
+      new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
+                         ConstantInt::get(LongTy, MappingScale),
+                         "__asan_mapping_scale");
+
+  // Read these globals, otherwise they may be optimized away.
+  irb.CreateLoad(asan_mapping_scale, true);
+  irb.CreateLoad(asan_mapping_offset, true);
 
   bool res = false;
 
