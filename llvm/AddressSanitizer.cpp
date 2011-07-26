@@ -247,7 +247,7 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
     // Generate something like "bts $0x2c,%rcx". This is more compact than
     // "mov $0x100000000000,%rdx; or %rdx,%rcx", but slower.
     char bts[30];
-    sprintf(bts, "bts $$%ld, $0", MappingOffsetLog);
+    sprintf(bts, "bts $$%ld, $0", (long)MappingOffsetLog);
     Value *insn = InlineAsm::get(
         FunctionType::get(LongTy, ArrayRef<const Type*>(LongTy), false),
         StringRef(bts), StringRef("=r,0"), true);
