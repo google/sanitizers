@@ -112,8 +112,10 @@ static cl::opt<bool> ClExperimental("asan-experiment",
 
 // Debug flags.
 static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
-static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"), cl::init(0));
-static cl::opt<std::string> ClDebugFunc("asan-debug-func", cl::desc("Debug func"));
+static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"),
+                                 cl::init(0));
+static cl::opt<std::string> ClDebugFunc("asan-debug-func",
+                                        cl::desc("Debug func"));
 static cl::opt<int> ClDebugMin("asan-debug-min",
                                cl::desc("Debug min inst"), cl::init(-1));
 static cl::opt<int> ClDebugMax("asan-debug-max",
@@ -146,7 +148,8 @@ struct AddressSanitizer : public ModulePass {
   Instruction *generateCrashCode(IRBuilder<> &irb, Value *Addr,
                                  int telltale_value);
   bool instrumentMemIntrinsic(MemIntrinsic *mem_intr);
-  void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr, Value *size,
+  void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr,
+                                   Value *size,
                                    Instruction *insert_before, bool is_w);
   Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
   bool handleFunction(Function &F);
@@ -199,7 +202,8 @@ struct AddressSanitizer : public ModulePass {
 
 char AddressSanitizer::ID = 0;
 INITIALIZE_PASS(AddressSanitizer, "asan",
-    "AddressSanitizer: detects use-after-free and out-of-bounds bugs.", false, false)
+    "AddressSanitizer: detects use-after-free and out-of-bounds bugs.",
+    false, false)
 AddressSanitizer::AddressSanitizer() : ModulePass(ID) { }
 ModulePass *llvm::createAddressSanitizerPass() {
   return new AddressSanitizer();
@@ -218,7 +222,8 @@ ModulePass *llvm::createAddressSanitizerPass() {
 //   Tail
 //
 // Returns the NewBasicBlock's terminator.
-BranchInst *AddressSanitizer::splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp) {
+BranchInst *AddressSanitizer::splitBlockAndInsertIfThen(
+    Instruction *SplitBefore, Value *Cmp) {
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
@@ -384,7 +389,8 @@ Instruction *AddressSanitizer::generateCrashCode(
 
   std::string asm_str = "ud2;";
   asm_str += telltale_insns[telltale_value];
-  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), StringRef(""), true);
+  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), 
+                                 StringRef(""), true);
   CallInst *asm_call = irb.CreateCall(my_asm);
 
   // This saves us one jump, but triggers a bug in RA (or somewhere else):
@@ -760,7 +766,6 @@ bool AddressSanitizer::handleFunction(Function &F) {
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
          BI != BE; ++BI) {
       if (!to_instrument.count(BI)) continue;
-      // errs() << F.getNameStr() << (isa<StoreInst>(BI) ? " st" : " ld") << "\n";
       // Instrument LOAD or STORE.
       if (ClDebugMin < 0 || ClDebugMax < 0 ||
           (n_instrumented >= ClDebugMin && n_instrumented <= ClDebugMax)) {
@@ -792,7 +797,8 @@ bool AddressSanitizer::handleFunction(Function &F) {
   if (F.getNameStr().find(" load]") != std::string::npos) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
-    Value *asan_init = F.getParent()->getOrInsertFunction("__asan_init", VoidTy, NULL);
+    Value *asan_init = F.getParent()->getOrInsertFunction("__asan_init",
+                                                          VoidTy, NULL);
     cast<Function>(asan_init)->setLinkage(Function::ExternalWeakLinkage);
     CallInst::Create(asan_init, "", Before);
     F.dump();
@@ -828,7 +834,8 @@ static void PoisonShadowPartialRightRedzone(unsigned char *shadow,
   }
 }
 
-void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> irb,
+void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, 
+                                   IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
   uint8_t poison_left_byte  = MappingScale == 7 ? 0xff : 0xf1;
   uint8_t poison_mid_byte   = MappingScale == 7 ? 0xff : 0xf2;
