@@ -664,10 +664,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
   // Redzone used for stack and globals is at least 32 bytes.
   // For scales 6 and 7, the redzone has to be 64 and 128 bytes respectively.
   RedzoneSize = max(32, (int)(1 << MappingScale));
-  new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
+  new GlobalVariable(M, LongTy, true, GlobalValue::ExternalLinkage,
                      ConstantInt::get(LongTy, 1ULL << MappingOffset),
                      "__asan_mapping_offset");
-  new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
+  new GlobalVariable(M, LongTy, true, GlobalValue::ExternalLinkage,
                      ConstantInt::get(LongTy, MappingScale),
                      "__asan_mapping_scale");
 
