@@ -96,9 +96,9 @@ void __asan_printf(const char *format, ...) {
 // -------------------------- Globals --------------------- {{{1
 static int asan_inited;
 
-__attribute__((weak)) __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
-__attribute__((weak)) __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
-__attribute__((weak)) __attribute__((visibility("default"))) void __asan_init();
+extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
+extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
+__attribute__((visibility("default"))) void __asan_init();
 
 
 #if __WORDSIZE == 64

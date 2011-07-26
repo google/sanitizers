@@ -593,7 +593,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     Value *asan_register_global = M.getOrInsertFunction(
         "__asan_register_global", VoidTy, LongTy, LongTy, LongTy, NULL);
     cast<Function>(asan_register_global)->setLinkage(
-        Function::ExternalWeakLinkage);
+        Function::ExternalLinkage);
 
     irb.CreateCall3(asan_register_global,
                    irb.CreatePointerCast(new_global, LongTy),
@@ -649,7 +649,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   // call __asan_init in the module ctor.
   IRBuilder<> irb(asan_ctor_bb, asan_ctor_insert_before);
   Value *asan_init = M.getOrInsertFunction("__asan_init", VoidTy, NULL);
-  cast<Function>(asan_init)->setLinkage(Function::ExternalWeakLinkage);
+  cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
   irb.CreateCall(asan_init);
 
   MappingOffset = LongSize == 32
@@ -795,7 +795,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
     Instruction *Before = BB->begin();
     Value *asan_init = F.getParent()->getOrInsertFunction("__asan_init",
                                                           VoidTy, NULL);
-    cast<Function>(asan_init)->setLinkage(Function::ExternalWeakLinkage);
+    cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
     CallInst::Create(asan_init, "", Before);
     F.dump();
   }
