@@ -73,11 +73,11 @@ const size_t kPageSize = 1UL << kPageSizeBits;
 // of the original memory, where first 'size' bytes are addressable.
 static inline void
 PoisonShadowPartialRightRedzone(unsigned char *shadow,
-                                unsigned long size,
-                                unsigned long redzone_size,
-                                unsigned long shadow_granularity,
+                                uintptr_t size,
+                                uintptr_t redzone_size,
+                                uintptr_t shadow_granularity,
                                 unsigned char magic) {
-  for (unsigned long i = 0; i < redzone_size;
+  for (uintptr_t i = 0; i < redzone_size;
        i+= shadow_granularity, shadow++) {
     if (i + shadow_granularity <= size) {
       *shadow = 0;  // fully addressable
