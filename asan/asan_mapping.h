@@ -33,12 +33,6 @@ extern uintptr_t __asan_mapping_offset;
 #define MEM_TO_SHADOW(mem) (((mem) >> SHADOW_SCALE) | (__asan_mapping_offset))
 
 #if __WORDSIZE == 64
-const size_t kPageClusterSizeBits = 8;
-const size_t kPageClusterSize = 1UL << kPageClusterSizeBits;
-const size_t kPossiblePageClustersBits = 46 - kPageClusterSizeBits - kPageSizeBits;
-#endif
-
-#if __WORDSIZE == 64
   static const size_t kHighMemEnd = 0x00007fffffffffffUL;
 #else  // __WORDSIZE == 32
   static const size_t kHighMemEnd = 0xffffffff;

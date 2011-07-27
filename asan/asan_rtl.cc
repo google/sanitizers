@@ -71,13 +71,6 @@ size_t __asan_flag_malloc_context_size = kMallocContextSize;
 int    __asan_flag_stats;
 uintptr_t __asan_flag_large_malloc;
 
-
-#if __WORDSIZE == 32
-static const int __asan_flag_protect_shadow = 1;
-#else
-static int __asan_flag_protect_shadow;
-#endif
-
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out = NULL;
 
@@ -99,13 +92,6 @@ static int asan_inited;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
 __attribute__((visibility("default"))) void __asan_init();
-
-
-#if __WORDSIZE == 64
-static uintptr_t
-  mapped_clusters[(1UL << kPossiblePageClustersBits) / kWordSizeInBits];
-static AsanLock shadow_lock;
-#endif
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
@@ -150,13 +136,6 @@ void AsanStats::PrintStats() {
   Printf("Stats: %ldM (%ld pages) mmaped in %ld calls\n",
          mmaped>>20, mmaped / kPageSize, mmaps);
 
-
-#if __WORDSIZE == 64
-  Printf("Stats: %ldM of shadow memory allocated in %ld clusters (%ldM each)\n",
-         ((low_shadow_maps + high_shadow_maps) * kPageClusterSize * kPageSize)>>20,
-         low_shadow_maps + high_shadow_maps,
-         (kPageClusterSize * kPageSize) >> 20);
-#endif
   PrintMallocStatsArray(" mmaps   by size: ", mmaped_by_size);
   PrintMallocStatsArray(" mallocs by size: ", malloced_by_size);
   PrintMallocStatsArray(" frees   by size: ", freed_by_size);
@@ -252,7 +231,7 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
                         bool abort_on_failure = true) {
   void *res = __asan_mmap((void*)start_page, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
+                   MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
   // Printf("%p => %p\n", (void*)start_page, res);
   char *ch = (char*)res;
   if (res == (void*)-1L && abort_on_failure) {
@@ -263,7 +242,6 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
   return ch;
 }
 
-#if __WORDSIZE == 32
 // mmap range [beg, end]
 static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   CHECK((beg % kPageSize) == 0);
@@ -271,19 +249,6 @@ static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   // Printf("mmap_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
   return mmap_pages(beg, (end - beg + 1) / kPageSize, mem_type);
 }
-#else  // __WORDSIZE == 64
-static char *mmap_low_shadow(size_t start_page, size_t n_pages) {
-  CHECK(AddrIsInLowShadow(start_page));
-  __asan_stats.low_shadow_maps++;
-  return mmap_pages(start_page, n_pages, "low shadow memory");
-}
-
-static char *mmap_high_shadow(size_t start_page, size_t n_pages) {
-  CHECK(AddrIsInHighShadow(start_page));
-  __asan_stats.high_shadow_maps++;
-  return mmap_pages(start_page, n_pages, "high shadow memory");
-}
-#endif
 
 // protect range [beg, end]
 static void protect_range(uintptr_t beg, uintptr_t end) {
@@ -292,7 +257,7 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
   // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
   void *res = __asan_mmap((void*)beg, end - beg + 1,
                    PROT_NONE,
-                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
+                   MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
   CHECK(res == (void*)beg);
 }
 
@@ -968,38 +933,6 @@ void GetPcSpBpAx(void *context,
 
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
-#if __WORDSIZE == 64
-  // If we trapped while accessing an address that looks like shadow
-  // -- just map that page. On 32-bits all shadow is pre-mapped.
-  uintptr_t page = addr & ~(kPageSize - 1);
-  if (AddrIsInShadow(addr)) {
-    size_t start_page = page & ~(kPageClusterSize * kPageSize - 1);
-    size_t end_page = start_page + kPageClusterSize * kPageSize;
-    size_t cluster_index = start_page >> (kPageClusterSizeBits + kPageSizeBits);
-    size_t cluster_word_idx = cluster_index / kWordSizeInBits;
-    size_t cluster_bits_idx = cluster_index % kWordSizeInBits;
-    size_t cluster_bits_mask = 1UL << cluster_bits_idx;
-    CHECK(cluster_word_idx < sizeof(mapped_clusters));
-
-    ScopedLock lock(&shadow_lock);
-    if (mapped_clusters[cluster_word_idx] & cluster_bits_mask) {
-      // already allocated
-      return;
-    }
-    mapped_clusters[cluster_word_idx] |= cluster_bits_mask;
-
-    if (__asan_flag_v >= 2)
-      Printf("==%d==mapping shadow: [0x%lx, 0x%lx); %ld pages\n",
-             getpid(), start_page, end_page, kPageClusterSize);
-    if(AddrIsInHighShadow(addr)) {
-      mmap_high_shadow(start_page, kPageClusterSize);
-    } else {
-      CHECK(AddrIsInLowShadow(addr));
-      mmap_low_shadow(start_page, kPageClusterSize);
-    }
-    return;
-  }
-#endif
   // Write the first message using the bullet-proof write.
   if (13 != write(2, "ASAN:SIGSEGV\n", 13)) abort();
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/true);
@@ -1144,9 +1077,6 @@ void __asan_init() {
   __asan_flag_debug = IntFlagValue(options, "debug=", 0);
   __asan_flag_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   __asan_flag_mt = IntFlagValue(options, "mt=", 1);
-#if __WORDSIZE == 64
-  __asan_flag_protect_shadow = IntFlagValue(options, "protect_shadow=", 0);
-#endif
 
   if (__asan_flag_atexit) {
     atexit(asan_atexit);
@@ -1247,25 +1177,14 @@ void __asan_init() {
 #endif    
   }
 
-#if __WORDSIZE == 32
   {
     // mmap the low shadow plus one page just to make sure it's not taken by our allocator.
     mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
     // mmap the high shadow.
     mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
-  }
-#else  // __WORDSIZE == 64
-  {
-    uintptr_t first_shadow_page = SHADOW_OFFSET;
-    mmap_pages(first_shadow_page, 1, "First shadow page");
-  }
-#endif  // __WORDSIZE == 64
-
-  if (__asan_flag_protect_shadow) {
-    // protect the gap between low and high shadow
+    // protect the gap
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
-
 
   // On Linux AsanThread::ThreadStart() calls malloc() that's why |asan_inited|
   // should be set to 1 prior to initializing the threads.
