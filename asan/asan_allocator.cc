@@ -213,7 +213,8 @@ struct AsanChunk: public ChunkBase {
     } else {
       Printf(" somewhere around (this is AddressSanitizer bug!)");
     }
-    Printf(" %ld-byte region ["PP","PP")\n" , used_size, beg(), beg() + used_size);
+    Printf(" %ld-byte region ["PP","PP")\n",
+           used_size, beg(), beg() + used_size);
   }
 };
 
@@ -561,7 +562,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
   size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
   CHECK(size_to_allocate >= kMinAllocSize);
-  CHECK(IsAligned(size_to_allocate,REDZONE));
+  CHECK(IsAligned(size_to_allocate, REDZONE));
 
   if (__asan_flag_stats) {
     __asan_stats.allocated_since_last_stats += size;
@@ -630,7 +631,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   CHECK(stack);
 
-  //Printf("Deallocate "PP"\n", ptr);
+  // Printf("Deallocate "PP"\n", ptr);
   AsanChunk *m = PtrToChunk((uintptr_t)ptr);
   if (m->chunk_state == CHUNK_QUARANTINE) {
     Printf("attempting double-free on %p:\n", ptr);
@@ -673,7 +674,8 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   }
 }
 
-static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *stack) {
+static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
+                           AsanStackTrace *stack) {
   if (!old_ptr) {
     return Allocate(0, new_size, stack);
   }
@@ -691,8 +693,6 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size, AsanStackTrace *st
   uint8_t *new_ptr = Allocate(0, new_size, stack);
   memcpy(new_ptr, old_ptr, memcpy_size);
   Deallocate(old_ptr, stack);
-//  Printf("Reallocate "PP" (%ld) => "PP" (%ld)\n", old_ptr, old_size, new_ptr, new_size);
-//  stack->PrintStack();
   return new_ptr;
 }
 

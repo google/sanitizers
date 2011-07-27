@@ -108,7 +108,7 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
   }
 }
 #elif defined(ASAN_USE_EXTERNAL_SYMBOLIZER)
-extern bool 
+extern bool
 ASAN_USE_EXTERNAL_SYMBOLIZER(const void *pc, char *out, int out_size);
 
 void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {

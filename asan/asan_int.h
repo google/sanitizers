@@ -31,7 +31,6 @@ void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
 void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
-
 }  // extern "C"
 
 extern size_t __asan_flag_quarantine_size;

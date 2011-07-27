@@ -123,7 +123,6 @@ static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
     Printf("%ld:%03ld; ", i, (array[i] << i) >> 20);
   }
   Printf("\n");
-
 }
 
 void AsanStats::PrintStats() {
@@ -175,14 +174,13 @@ static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
   AsanThread *t = AsanThread::GetCurrent();
   if (!t->AddrIsInStack(bp)) return -1;
   if (!t->AddrIsInStack(sp)) return -1;
-  if (addr < sp) return -1; // Probably, should nto happen.
-  if (addr < bp) return 0;  // current frame.
+  if (addr < sp) return -1;  // Probably, should not happen.
+  if (addr < bp) return 0;   // current frame.
   uintptr_t *top = (uintptr_t*)t->stack_top();
   uintptr_t *frame = (uintptr_t*)bp;
   uintptr_t *prev_frame = frame;
   int res = 0;
   while (frame >= prev_frame && frame < top && frame < (uintptr_t*)addr) {
-    // Printf("%d ZZZ "PP" addr-frame="PP" \n", res, frame, addr-(uintptr_t)frame);
     CHECK(t->AddrIsInStack((uintptr_t)frame));
     prev_frame = frame;
     frame = (uintptr_t*)frame[0];
@@ -277,11 +275,12 @@ struct Global {
     // full right redzone
     uintptr_t right_rz2_offset = ShadowRZSize *
         ((size + kGlobalAndStackRedzone - 1) / kGlobalAndStackRedzone);
-    memset((uint8_t*)shadow + right_rz2_offset, 
+    memset((uint8_t*)shadow + right_rz2_offset,
            SHADOW_SCALE == 7 ? 0xff : 0xfc, ShadowRZSize);
     if ((size % kGlobalAndStackRedzone) != 0) {
       // partial right redzone
-      uint64_t right_rz1_offset = ShadowRZSize * (size / kGlobalAndStackRedzone);
+      uint64_t right_rz1_offset =
+          ShadowRZSize * (size / kGlobalAndStackRedzone);
       CHECK(right_rz1_offset == right_rz2_offset - ShadowRZSize);
       PoisonShadowPartialRightRedzone((uint8_t*)(shadow + right_rz1_offset),
                                       size % kGlobalAndStackRedzone,
@@ -304,7 +303,7 @@ struct Global {
     if (addr >= beg + GetAlignedSize() + kGlobalAndStackRedzone) return false;
     Printf(""PP" is located ", addr);
     if (addr < beg) {
-      Printf("%d bytes to the left", beg - addr) ;
+      Printf("%d bytes to the left", beg - addr);
     } else if (addr >= beg + size) {
       Printf("%d bytes to the right", addr - (beg + size));
     } else {
@@ -328,7 +327,8 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
   bool res = false;
   for (Global *g = g_globals_list; g; g = g->next) {
     if (__asan_flag_report_globals >= 2)
-      Printf("Search Global: "PP" beg="PP" size=%ld name=%s\n", g, g->beg, g->size, g->name);
+      Printf("Search Global: "PP" beg="PP" size=%ld name=%s\n",
+             g, g->beg, g->size, g->name);
     res |= g->DescribeAddrIfMyRedZone(addr);
     CHECK(g != g->next);
   }
@@ -336,7 +336,8 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 }
 
 // exported function
-extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *name) {
+extern "C" void __asan_register_global(uintptr_t addr,
+                                       size_t size, const char *name) {
   CHECK(asan_inited);
   if (!__asan_flag_report_globals) return;
   ScopedLock lock(&Global::mu_);
@@ -352,7 +353,8 @@ extern "C" void __asan_register_global(uintptr_t addr, size_t size, const char *
   g->name = name;
   g_globals_list = g;
   if (__asan_flag_report_globals >= 2)
-    Printf("Added Global: "PP" beg="PP" size=%ld name=%s\n", g, g->beg, g->size, g->name);
+    Printf("Added Global: "PP" beg="PP" size=%ld name=%s\n",
+           g, g->beg, g->size, g->name);
   g->PoisonRedZones();
 }
 
@@ -481,7 +483,7 @@ void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
 void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
-void operator delete[](void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
+void operator delete[](void *ptr, std::nothrow_t const&) {OPERATOR_DELETE_BODY;}
 #endif
 
 // To replace weak system functions on Linux we just need to declare functions
@@ -489,9 +491,10 @@ void operator delete[](void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY;
 // using dlsym(). This is not so on Mac OS, where the two-level namespace makes
 // our replacement functions invisible to other libraries. This may be overcomed
 // using the DYLD_FORCE_FLAT_NAMESPACE, but some errors loading the shared
-// libraries in Chromium were noticed when doing so. Instead we use mach_override,
-// a handy framework for patching functions at runtime. To avoid possible name
-// clashes, our replacement functions have the "wrap_" prefix on Mac.
+// libraries in Chromium were noticed when doing so.
+// Instead we use mach_override, a handy framework for patching functions at
+// runtime. To avoid possible name clashes, our replacement functions have
+// the "wrap_" prefix on Mac.
 
 #ifdef __APPLE__
 #define WRAP(x) wrap_##x
@@ -515,9 +518,9 @@ extern "C"
 sig_t WRAP(signal)(int signum, sig_t handler) {
 #ifdef __APPLE__
   if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
-#else  
+#else
   if (signum != SIGSEGV && signum != SIGILL) {
-#endif  
+#endif
     return real_signal(signum, handler);
   }
   return NULL;
@@ -526,11 +529,11 @@ sig_t WRAP(signal)(int signum, sig_t handler) {
 extern "C"
 int WRAP(sigaction)(int signum, const struct sigaction *act,
                     struct sigaction *oldact) {
-#ifdef __APPLE__                    
+#ifdef __APPLE__
   if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
-#else  
+#else
   if (signum != SIGSEGV && signum != SIGILL) {
-#endif  
+#endif
     return real_sigaction(signum, act, oldact);
   }
   return 0;
@@ -929,7 +932,6 @@ void GetPcSpBpAx(void *context,
   *ax = ucontext->uc_mcontext.gregs[REG_EAX];
 # endif  // __WORDSIZE
 #endif
-
 }
 
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
@@ -966,7 +968,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
           access_size, addr, AsanThread::GetCurrent()->tid());
 
   if (__asan_flag_debug) {
-    PrintBytes("PC: ",(uintptr_t*)pc);
+    PrintBytes("PC: ", (uintptr_t*)pc);
   }
 
   AsanStackTrace::PrintCurrent(pc);
@@ -1085,8 +1087,8 @@ void __asan_init() {
 
   __asan_flag_quarantine_size =
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
-  
-#ifndef __APPLE__  
+
+#ifndef __APPLE__
   // Initialize the real_* function pointers with the original functions.
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
@@ -1107,7 +1109,7 @@ void __asan_init() {
   CHECK(real_signal = (signal_f)old_func);
   CHECK(0 == mach_override_ptr((void*)longjmp, (void*)WRAP(longjmp), &old_func));
   CHECK(real_longjmp = (longjmp_f)old_func);
-#if 0 
+#if 0
   // siglongjmp for x86 looks as follows:
   // 2f8a8:       8b 44 24 04             mov    0x4(%esp),%eax
   // 2f8ac:       83 78 48 00             cmpl   $0x0,0x48(%eax)
@@ -1118,7 +1120,7 @@ void __asan_init() {
   // TODO(glider): need a test for this.
   CHECK(0 == mach_override_ptr((void*)siglongjmp, (void*)WRAP(siglongjmp), &old_func));
   CHECK(real_siglongjmp = (longjmp_f)old_func);
-#endif  
+#endif
   CHECK(0 == mach_override_ptr((void*)__cxa_throw, (void*)WRAP(__cxa_throw), &old_func));
   CHECK(real_cxa_throw = (cxa_throw_f)old_func);
   CHECK(0 == mach_override_ptr((void*)pthread_create, (void*)WRAP(pthread_create), &old_func));
@@ -1173,9 +1175,9 @@ void __asan_init() {
     Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
     Printf("SHADOW_OFFSET: %lx\n", SHADOW_OFFSET);
     CHECK(SHADOW_SCALE >= 3 && SHADOW_SCALE <= 7);
-#ifdef __APPLE__    
+#ifdef __APPLE__
     Printf("CF_USING_COLLECTABLE_MEMORY = %d\n", kCFUseCollectableAllocator);
-#endif    
+#endif
   }
 
   {

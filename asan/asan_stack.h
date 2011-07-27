@@ -55,7 +55,6 @@ struct AsanStackTrace {
                             uint32_t *compressed, size_t size);
   static void UncompressStack(AsanStackTrace *stack,
                               uint32_t *compressed, size_t size);
-
 };
 
 #define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \

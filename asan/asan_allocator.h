@@ -68,6 +68,5 @@ size_t __asan_mz_size(const void *ptr);
 void __asan_describe_heap_address(uintptr_t addr, size_t access_size);
 
 size_t __asan_total_mmaped();
-
 }  // extern "C"
 #endif  // ASAN_ALLOCATOR_H
