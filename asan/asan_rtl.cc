@@ -127,6 +127,7 @@ static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
 }
 
 void AsanStats::PrintStats() {
+  if (!__asan_flag_stats) return;
   Printf("Stats: %ldM malloced (%ldM for red zones) by %ld calls\n",
          malloced>>20, malloced_redzones>>20, mallocs);
   Printf("Stats: %ldM realloced by %ld calls\n", realloced>>20, reallocs);
