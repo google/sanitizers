@@ -78,7 +78,7 @@ class AsanLock {
 
 class ScopedLock {
  public:
-  ScopedLock(AsanLock *mu) : mu_(mu) {
+  explicit ScopedLock(AsanLock *mu) : mu_(mu) {
     mu_->Lock();
   }
   ~ScopedLock() {

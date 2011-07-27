@@ -58,12 +58,6 @@ class ProcSelfMaps {
     Printf("%s\n", proc_self_maps_);
   }
 
-  void FilterOutAsanRtlFileName(char file_name[]) {
-    if (strstr(file_name, "asan_rtl.cc")) {
-      strcpy(file_name,   "_asan_rtl_");
-    }
-  }
-
   void PrintPc(uintptr_t pc, int idx) {
     for (size_t i = 0; i < map_size_; i++) {
       Mapping &m = memory_map[i];

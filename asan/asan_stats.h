@@ -18,6 +18,7 @@
 #ifndef ASAN_STATS_H
 #define ASAN_STATS_H
 struct AsanStats {
+  enum { kMallocStatsSize = __WORDSIZE };
   size_t low_shadow_maps;
   size_t high_shadow_maps;
   size_t mallocs;
@@ -32,10 +33,10 @@ struct AsanStats {
   size_t allocated_since_last_stats;
   size_t mmaps;
   size_t mmaped;
-  size_t mmaped_by_size[__WORDSIZE];
-  size_t malloced_by_size[__WORDSIZE];
-  size_t freed_by_size[__WORDSIZE];
-  size_t really_freed_by_size[__WORDSIZE];
+  size_t mmaped_by_size[kMallocStatsSize];
+  size_t malloced_by_size[kMallocStatsSize];
+  size_t freed_by_size[kMallocStatsSize];
+  size_t really_freed_by_size[kMallocStatsSize];
 
   size_t malloc_large;
   size_t malloc_small_slow;
