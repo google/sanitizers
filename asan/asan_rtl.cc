@@ -1136,34 +1136,26 @@ void __asan_init() {
   CHECK(real_pthread_create = (pthread_create_f)old_func);
 #endif
 
+  struct sigaction sigact;
   // Set the SIGSEGV handler.
-  {
-    struct sigaction sigact;
-    memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = ASAN_OnSIGSEGV;
-    sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
-  }
+  memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = ASAN_OnSIGSEGV;
+  sigact.sa_flags = SA_SIGINFO;
+  CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
 
 #ifdef __APPLE__
   // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
-  {
-    struct sigaction sigact;
-    memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = ASAN_OnSIGSEGV;
-    sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
-  }
+  memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = ASAN_OnSIGSEGV;
+  sigact.sa_flags = SA_SIGINFO;
+  CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
 #endif
 
   // Set the SIGILL handler.
-  {
-    struct sigaction sigact;
-    memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = ASAN_OnSIGILL;
-    sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
-  }
+  memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = ASAN_OnSIGILL;
+  sigact.sa_flags = SA_SIGINFO;
+  CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
 
   if (__asan_flag_v) {
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);

@@ -74,7 +74,7 @@ class ProcSelfMaps {
  private:
   void copy_until_new_line(const char *str, char *dest, size_t max_size) {
     size_t i = 0;
-    for (; str[i] && str[i] != '\n' && i < max_size - 1; i++){
+    for (; str[i] && str[i] != '\n' && i < max_size - 1; i++) {
       dest[i] = str[i];
     }
     dest[i] = 0;
