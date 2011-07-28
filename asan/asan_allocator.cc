@@ -333,6 +333,7 @@ class MallocInfo {
           free_lists_[idx] = m;
           m = t;
         }
+        x->free_lists_[idx] = 0;
       }
     }
   }
