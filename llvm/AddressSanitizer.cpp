@@ -159,7 +159,7 @@ struct AddressSanitizer : public ModulePass {
  private:
 
   uint64_t getAllocaSizeInBytes(AllocaInst *a) {
-    const Type *ty = a->getAllocatedType();
+    Type *ty = a->getAllocatedType();
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
     return size_in_bytes;
   }
@@ -182,14 +182,14 @@ struct AddressSanitizer : public ModulePass {
   int         MappingScale;
   size_t      RedzoneSize;
   int         LongSize;
-  const Type *VoidTy;
-  const Type *LongTy;
-  const Type *LongPtrTy;
-  const Type *i32Ty;
-  const Type *i32PtrTy;
-  const Type *ByteTy;
-  const Type *BytePtrTy;
-  const FunctionType *Fn0Ty;
+  Type *VoidTy;
+  Type *LongTy;
+  Type *LongPtrTy;
+  Type *i32Ty;
+  Type *i32PtrTy;
+  Type *ByteTy;
+  Type *BytePtrTy;
+  FunctionType *Fn0Ty;
   Instruction *asan_ctor_insert_before;
   SmallSet<Instruction*, 16> to_instrument;
   BlackList *black_list;
@@ -249,7 +249,7 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
     char bts[30];
     sprintf(bts, "bts $$%ld, $0", (long)MappingOffsetLog);
     Value *insn = InlineAsm::get(
-        FunctionType::get(LongTy, ArrayRef<const Type*>(LongTy), false),
+        FunctionType::get(LongTy, ArrayRef<Type*>(LongTy), false),
         StringRef(bts), StringRef("=r,0"), true);
     Value *res = irb.CreateCall(insn, Shadow);
     return res;
@@ -320,8 +320,8 @@ void AddressSanitizer::instrumentMop(BasicBlock::iterator &BI) {
     // We are accessing a global scalar variable. Nothing to catch here.
     return;
   }
-  const Type *OrigPtrTy = Addr->getType();
-  const Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
+  Type *OrigPtrTy = Addr->getType();
+  Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
 
   assert(OrigTy->isSized());
   unsigned type_size = TD->getTypeStoreSizeInBits(OrigTy);
@@ -355,7 +355,7 @@ Instruction *AddressSanitizer::generateCrashCode(
 
   // Move the failing address to %rax/%eax
   FunctionType *Fn1Ty = FunctionType::get(
-      VoidTy, ArrayRef<const Type*>(LongTy), false);
+      VoidTy, ArrayRef<Type*>(LongTy), false);
   const char *mov_str = LongSize == 32
       ? "mov $0, %eax" : "mov $0, %rax";
   Value *asm_mov = InlineAsm::get(
@@ -407,9 +407,9 @@ void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
 
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
-  const Type *ShadowTy  = IntegerType::get(
+  Type *ShadowTy  = IntegerType::get(
       *C, max((size_t)8, type_size >> MappingScale));
-  const Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
+  Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
   Value *ShadowValue = irb1.CreateLoad(
@@ -494,7 +494,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   CurrentCtors.push_back(RuntimeCtorInit);
 
   // Create a new initializer.
-  const ArrayType * AT = ArrayType::get (RuntimeCtorInit->getType(),
+  ArrayType * AT = ArrayType::get (RuntimeCtorInit->getType(),
                                          CurrentCtors.size());
   Constant *NewInit = ConstantArray::get (AT, CurrentCtors);
 
@@ -519,8 +519,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   for (Module::GlobalListType::iterator G = globals.begin(),
        E = globals.end(); G != E; ++G) {
     GlobalVariable &orig_global = *G;
-    const PointerType *ptrty = cast<PointerType>(orig_global.getType());
-    const Type *ty = ptrty->getElementType();
+    PointerType *ptrty = cast<PointerType>(orig_global.getType());
+    Type *ty = ptrty->getElementType();
     if (ClDebug) {
       errs() << "GLOBAL: " << orig_global;
     }
@@ -544,7 +544,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         (RedzoneSize - (size_in_bytes % RedzoneSize));
     Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
 
-    const StructType *new_ty = StructType::get(
+    StructType *new_ty = StructType::get(
         ty, RightRedZoneTy, NULL);
     Constant *new_initializer = ConstantStruct::get(
         new_ty,
@@ -839,8 +839,8 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
 
   size_t ShadowRZSize = RedzoneSize >> MappingScale;
   assert(ShadowRZSize >= 1 && ShadowRZSize <= 4);
-  const Type *RZTy = Type::getIntNTy(*C, ShadowRZSize * 8);
-  const Type *RZPtrTy = PointerType::get(RZTy, 0);
+  Type *RZTy = Type::getIntNTy(*C, ShadowRZSize * 8);
+  Type *RZPtrTy = PointerType::get(RZTy, 0);
 
   Value *poison_left  = ConstantInt::get(RZTy,
     ValueForPoison(do_poison ? poison_left_byte : 0LL, ShadowRZSize));
