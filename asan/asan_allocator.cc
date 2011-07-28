@@ -384,7 +384,7 @@ class MallocInfo {
 
  private:
   PageGroup *FindPageGroup(uintptr_t addr) {
-    for (size_t i = 0; i < n_page_groups_; i++) {
+    for (int i = 0; i < n_page_groups_; i++) {
       PageGroup *g = page_groups_[i];
       if (g->InRange(addr)) {
         return g;
@@ -487,8 +487,8 @@ class MallocInfo {
     pg->beg = (uintptr_t)mem;
     pg->end = pg->beg + mmap_size;
     pg->size_of_chunk = size;
-    size_t page_group_idx = AtomicInc(&n_page_groups_) - 1;
-    CHECK(page_group_idx < ASAN_ARRAY_SIZE(page_groups_));
+    int page_group_idx = AtomicInc(&n_page_groups_) - 1;
+    CHECK(page_group_idx < (int)ASAN_ARRAY_SIZE(page_groups_));
     page_groups_[page_group_idx] = pg;
     return res;
   }
@@ -498,7 +498,7 @@ class MallocInfo {
   AsanLock mu_;
 
   PageGroup *page_groups_[kMaxAvailableRam / kMinMmapSize];
-  size_t n_page_groups_;  // atomic
+  int n_page_groups_;  // atomic
 };
 
 static MallocInfo malloc_info;

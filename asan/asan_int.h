@@ -90,18 +90,14 @@ PoisonShadowPartialRightRedzone(unsigned char *shadow,
 
 
 // -------------------------- Atomic ---------------- {{{1
-template <class T>
-static inline T AtomicInc(T *a) {
+static inline int AtomicInc(int *a) {
   if (!__asan_flag_mt) return ++(*a);
   return __sync_add_and_fetch(a, 1);
 }
 
-template <class T>
-static inline T AtomicDec(T *a) {
+static inline int AtomicDec(int *a) {
   if (!__asan_flag_mt) return --(*a);
   return __sync_add_and_fetch(a, -1);
 }
-
-
 
 #endif  // ASAN_INT_H
