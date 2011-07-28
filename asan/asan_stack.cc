@@ -28,7 +28,7 @@ class ProcSelfMaps {
  public:
   void Init() {
     ScopedLock lock(&mu_);
-    if (map_size_ != 0) return; // already inited
+    if (map_size_ != 0) return;  // already inited
     if (__asan_flag_v) {
       Printf("ProcSelfMaps::Init()\n");
     }
@@ -189,7 +189,7 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
   for (size_t i = stack->size; i < size; i++) {
     compressed[i] = 0;
   }
-#else // 64 bits, compress.
+#else  // 64 bits, compress.
   uintptr_t prev_pc = 0;
   const uintptr_t kMaxOffset = (1ULL << 30) - 1;
   uintptr_t c_index = 0;
@@ -198,19 +198,19 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
     uintptr_t pc = stack->trace[i];
     if (!pc) break;
     if ((int64_t)pc < 0) break;
-    //Printf("C pc[%ld] %lx\n", i, pc);
+    // Printf("C pc[%ld] %lx\n", i, pc);
     if (prev_pc - pc < kMaxOffset || pc - prev_pc < kMaxOffset) {
       uintptr_t offset = (int64_t)(pc - prev_pc);
       offset |= (1U << 31);
       if (c_index >= size) break;
-      //Printf("C co[%ld] offset %lx\n", i, offset);
+      // Printf("C co[%ld] offset %lx\n", i, offset);
       compressed[c_index++] = offset;
     } else {
       uintptr_t hi = pc >> 32;
       uintptr_t lo = (pc << 32) >> 32;
       CHECK((hi & (1 << 31)) == 0);
       if (c_index + 1 >= size) break;
-      //Printf("C co[%ld] hi/lo: %lx %lx\n", c_index, hi, lo);
+      // Printf("C co[%ld] hi/lo: %lx %lx\n", c_index, hi, lo);
       compressed[c_index++] = hi;
       compressed[c_index++] = lo;
     }

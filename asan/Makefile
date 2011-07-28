@@ -168,7 +168,7 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS) -g"
 
 # TODO(kcc): remove these filters one by one
-LINT_FITLER=-build,-readability,-whitespace/parens,-whitespace/line_length,-whitespace/comments,-whitespace/braces
+LINT_FITLER=-build,-readability,-whitespace/parens,-whitespace/line_length,-whitespace/braces
 
 lint:
 	../third_party/cpplint/cpplint.py --filter=$(LINT_FITLER) asan_*.cc asan_*.h

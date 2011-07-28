@@ -40,7 +40,7 @@ class AsanThread {
   void Unref();
 
   void Announce() {
-    if (tid_ == 0) return; // no need to announce the main thread.
+    if (tid_ == 0) return;  // no need to announce the main thread.
     if (!announced_) {
       announced_ = true;
       CHECK(parent_);
