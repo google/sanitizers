@@ -92,6 +92,9 @@ static int asan_inited;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
 __attribute__((visibility("default"))) void __asan_init();
+extern "C"
+__attribute__((visibility("default")))
+void __asan_register_global(uintptr_t addr, size_t size, const char *name);
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
