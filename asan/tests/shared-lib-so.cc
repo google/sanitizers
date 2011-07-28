@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 
+int pad[10];
 int GLOB[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 extern "C"

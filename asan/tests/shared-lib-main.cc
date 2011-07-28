@@ -30,6 +30,6 @@ int main(int argc, char *argv[]) {
   if (!inc) return 1;
   printf("ok\n");
   inc(1);
-//  inc(-1);
+  inc(-1);
   return 0;
 }
