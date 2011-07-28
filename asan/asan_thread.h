@@ -84,7 +84,7 @@ class AsanThread {
   void SetThreadStackTopAndBottom();
 
   AsanThread *parent_;
-  void *(*start_routine_) (void *);
+  void *(*start_routine_) (void *param);
   void *arg_;
   AsanStackTrace stack_;
   uintptr_t  stack_top_;

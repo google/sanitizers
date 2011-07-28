@@ -26,8 +26,8 @@ class AsanChunk;
 class AsanChunkFifoList {
  public:
   AsanChunkFifoList() { clear(); }
-  void Push(AsanChunk*);
-  void PushList(AsanChunkFifoList *);
+  void Push(AsanChunk *n);
+  void PushList(AsanChunkFifoList *q);
   AsanChunk *Pop();
   size_t size() { return size_; }
   void clear() {
