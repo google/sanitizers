@@ -72,7 +72,8 @@ void *AsanThread::ThreadStart() {
   if (__asan_flag_v == 1) {
     int local = 0;
     Printf ("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
-            tid_, stack_bottom_, stack_top_, stack_top_ - stack_bottom_, &local);
+            tid_, stack_bottom_, stack_top_,
+            stack_top_ - stack_bottom_, &local);
   }
   CHECK(AddrIsInMem(stack_bottom_));
   CHECK(AddrIsInMem(stack_top_));
@@ -167,7 +168,8 @@ AsanThread* AsanThread::GetCurrent() {
   CHECK(tls_key_created);
   AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
   // After the thread calls _pthread_exit() the TSD is unavailable
-  // and pthread_getspecific() may return NULL. In this case we use the global freelist
+  // and pthread_getspecific() may return NULL.
+  // In this case we use the global freelist
   // for further allocations (originating from the guts of libpthread).
   return thread;
 #else

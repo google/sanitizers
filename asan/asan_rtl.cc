@@ -583,7 +583,8 @@ namespace {
 // as they are basically copied from there.
 size_t mz_size(malloc_zone_t* zone, const void* ptr) {
   // Fast path: check whether this pointer belongs to the original malloc zone.
-  // We cannot just call malloc_zone_from_ptr(), because it in turn calls our mz_size().
+  // We cannot just call malloc_zone_from_ptr(), because it in turn
+  // calls our mz_size().
   if (system_malloc_zone) {
     if ((system_malloc_zone->size)(system_malloc_zone, ptr)) return 0;
   }
@@ -653,7 +654,8 @@ void mz_free(malloc_zone_t *zone, void *ptr) {
   if (!ptr) return;
   malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
   // For some reason Chromium calls mz_free() for pointers that belong to
-  // DefaultPurgeableMallocZone instead of asan_zone. We might want to fix this someday.
+  // DefaultPurgeableMallocZone instead of asan_zone. We might want to
+  // fix this someday.
   if (orig_zone == system_purgeable_zone) {
     system_purgeable_zone->free(system_purgeable_zone, ptr);
     return;
@@ -676,7 +678,8 @@ void cf_free(void *ptr, void *info) {
   if (!ptr) return;
   malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
   // For some reason Chromium calls mz_free() for pointers that belong to
-  // DefaultPurgeableMallocZone instead of asan_zone. We might want to fix this someday.
+  // DefaultPurgeableMallocZone instead of asan_zone. We might want to
+  // fix this someday.
   if (orig_zone == system_purgeable_zone) {
     system_purgeable_zone->free(system_purgeable_zone, ptr);
     return;
@@ -957,7 +960,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   bool is_write = access_size_and_type & 8;
   int access_size = 1 << (access_size_and_type & 7);
 
-  Printf("==================================================================\n");
+  Printf("=================================================================\n");
   PrintUnwinderHint();
   Printf("==%d== ERROR: AddressSanitizer crashed on address "
          ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
@@ -1095,19 +1098,22 @@ void __asan_init() {
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
-  CHECK((real_pthread_create = (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
+  CHECK((real_pthread_create =
+         (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
 #else
-  // Use mach_override_ptr() to replace the system functions, initialize the real_*
-  // pointers as well.
-  // TODO(glider): mach_override_ptr() tends to spend too much time in allocateBranchIsland().
-  // This should be ok for real-word application, but slows down our tests which fork too many
-  // children.
+  // Use mach_override_ptr() to replace the system functions,
+  // initialize the real_* pointers as well.
+  // TODO(glider): mach_override_ptr() tends to spend too much time
+  // in allocateBranchIsland(). This should be ok for real-word
+  // application, but slows down our tests which fork too many children.
   void *old_func;
-  CHECK(0 == mach_override_ptr((void*)sigaction, (void*)WRAP(sigaction), &old_func));
+  CHECK(0 == mach_override_ptr((void*)sigaction,
+                               (void*)WRAP(sigaction), &old_func));
   CHECK(real_sigaction = (sigaction_f)old_func);
   CHECK(0 == mach_override_ptr((void*)signal, (void*)WRAP(signal), &old_func));
   CHECK(real_signal = (signal_f)old_func);
-  CHECK(0 == mach_override_ptr((void*)longjmp, (void*)WRAP(longjmp), &old_func));
+  CHECK(0 == mach_override_ptr((void*)longjmp,
+                               (void*)WRAP(longjmp), &old_func));
   CHECK(real_longjmp = (longjmp_f)old_func);
 #if 0
   // siglongjmp for x86 looks as follows:
@@ -1118,12 +1124,15 @@ void __asan_init() {
   // Instead of handling those instructions in mach_override we assume that
   // patching longjmp is sufficient.
   // TODO(glider): need a test for this.
-  CHECK(0 == mach_override_ptr((void*)siglongjmp, (void*)WRAP(siglongjmp), &old_func));
+  CHECK(0 == mach_override_ptr((void*)siglongjmp,
+                               (void*)WRAP(siglongjmp), &old_func));
   CHECK(real_siglongjmp = (longjmp_f)old_func);
 #endif
-  CHECK(0 == mach_override_ptr((void*)__cxa_throw, (void*)WRAP(__cxa_throw), &old_func));
+  CHECK(0 == mach_override_ptr((void*)__cxa_throw,
+                               (void*)WRAP(__cxa_throw), &old_func));
   CHECK(real_cxa_throw = (cxa_throw_f)old_func);
-  CHECK(0 == mach_override_ptr((void*)pthread_create, (void*)WRAP(pthread_create), &old_func));
+  CHECK(0 == mach_override_ptr((void*)pthread_create,
+                               (void*)WRAP(pthread_create), &old_func));
   CHECK(real_pthread_create = (pthread_create_f)old_func);
 #endif
 
@@ -1158,9 +1167,12 @@ void __asan_init() {
 
   if (__asan_flag_v) {
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
-    Printf("|| `["PP", "PP"]` || HighShadow ||\n", kHighShadowBeg, kHighShadowEnd);
-    Printf("|| `["PP", "PP"]` || ShadowGap ||\n", kShadowGapBeg, kShadowGapEnd);
-    Printf("|| `["PP", "PP"]` || LowShadow  ||\n", kLowShadowBeg, kLowShadowEnd);
+    Printf("|| `["PP", "PP"]` || HighShadow ||\n",
+           kHighShadowBeg, kHighShadowEnd);
+    Printf("|| `["PP", "PP"]` || ShadowGap  ||\n",
+           kShadowGapBeg, kShadowGapEnd);
+    Printf("|| `["PP", "PP"]` || LowShadow  ||\n",
+           kLowShadowBeg, kLowShadowEnd);
     Printf("|| `["PP", "PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
     Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
            MEM_TO_SHADOW(kLowShadowBeg),
@@ -1181,7 +1193,7 @@ void __asan_init() {
   }
 
   {
-    // mmap the low shadow plus one page just to make sure it's not taken by our allocator.
+    // mmap the low shadow plus one page.
     mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
     // mmap the high shadow.
     mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
@@ -1197,7 +1209,8 @@ void __asan_init() {
   AsanThread::GetMain()->ThreadStart();
 
   if (__asan_flag_v) {
-    Printf("==%d== AddressSanitizer r%s Init done ***\n", getpid(), ASAN_REVISION);
+    Printf("==%d== AddressSanitizer r%s Init done ***\n",
+           getpid(), ASAN_REVISION);
   }
 }
 

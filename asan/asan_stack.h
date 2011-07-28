@@ -68,12 +68,12 @@ struct AsanStackTrace {
     if (fast_unwind) {   \
       stack.FastUnwindStack(GET_CURRENT_FRAME()); \
     } else {                                      \
-      _Unwind_Backtrace(AsanStackTrace::Unwind_Trace, &stack);      \
-    }                                             \
-    if (stack.size >= 2 && stack.trace[1] != GET_CALLER_PC()) {   \
-      Printf("Stack: %d %d pc="PP" : "PP" "PP" "PP" \n", \
+      _Unwind_Backtrace(AsanStackTrace::Unwind_Trace, &stack);   \
+    }                                                            \
+    if (stack.size >= 2 && stack.trace[1] != GET_CALLER_PC()) {  \
+      Printf("Stack: %d %d pc="PP" : "PP" "PP" "PP" \n",         \
              (int)fast_unwind, (int)stack.size, GET_CALLER_PC(), \
-             stack.trace[0], stack.trace[1], stack.trace[2]);                          \
+             stack.trace[0], stack.trace[1], stack.trace[2]);    \
     }                                             \
   }                                               \
 

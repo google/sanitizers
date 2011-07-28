@@ -227,12 +227,14 @@ size_t AsanStackTrace::CompressStack(AsanStackTrace *stack,
   AsanStackTrace check_stack;
   UncompressStack(&check_stack, compressed, size);
   if (res < check_stack.size) {
-    Printf("res %ld check_stack.size %ld; c_size %ld\n", res, check_stack.size, size);
+    Printf("res %ld check_stack.size %ld; c_size %ld\n", res,
+           check_stack.size, size);
   }
   // |res| may be greater than check_stack.size, because
   // UncompressStack(CompressStack(stack)) eliminates the 0x0 frames.
   CHECK(res >= check_stack.size);
-  CHECK(0 == memcmp(check_stack.trace, stack->trace, check_stack.size * sizeof(uintptr_t)));
+  CHECK(0 == memcmp(check_stack.trace, stack->trace,
+                    check_stack.size * sizeof(uintptr_t)));
 #endif
 
   return res;
