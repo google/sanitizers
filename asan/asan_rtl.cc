@@ -336,8 +336,8 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 }
 
 // exported function
-extern "C" void __asan_register_global(uintptr_t addr,
-                                       size_t size, const char *name) {
+void __asan_register_global(uintptr_t addr,
+                            size_t size, const char *name) {
   CHECK(asan_inited);
   if (!__asan_flag_report_globals) return;
   ScopedLock lock(&Global::mu_);
