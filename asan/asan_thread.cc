@@ -71,7 +71,7 @@ void *AsanThread::ThreadStart() {
   SetThreadStackTopAndBottom();
   if (__asan_flag_v == 1) {
     int local = 0;
-    Printf ("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
+    Printf("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
             tid_, stack_bottom_, stack_top_,
             stack_top_ - stack_bottom_, &local);
   }
@@ -123,7 +123,7 @@ void AsanThread::SetThreadStackTopAndBottom() {
   CHECK(AddrIsInStack((uintptr_t)&local));
 #else
   pthread_attr_t attr;
-  CHECK (pthread_getattr_np(pthread_self(), &attr) == 0);
+  CHECK(pthread_getattr_np(pthread_self(), &attr) == 0);
   size_t stacksize = 0;
   void *stackaddr = NULL;
   pthread_attr_getstack(&attr, &stackaddr, &stacksize);

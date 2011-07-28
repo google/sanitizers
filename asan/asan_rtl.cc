@@ -510,7 +510,7 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
                          void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
-  new (t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack);
+  new(t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
