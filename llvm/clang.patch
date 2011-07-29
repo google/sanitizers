@@ -1,6 +1,6 @@
 Index: include/llvm/Transforms/Instrumentation.h
 ===================================================================
---- include/llvm/Transforms/Instrumentation.h	(revision 133511)
+--- include/llvm/Transforms/Instrumentation.h	(revision 135664)
 +++ include/llvm/Transforms/Instrumentation.h	(working copy)
 @@ -31,6 +31,9 @@
  ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
@@ -14,7 +14,7 @@ Index: include/llvm/Transforms/Instrumentation.h
  #endif
 Index: include/llvm/InitializePasses.h
 ===================================================================
---- include/llvm/InitializePasses.h	(revision 133511)
+--- include/llvm/InitializePasses.h	(revision 135664)
 +++ include/llvm/InitializePasses.h	(working copy)
 @@ -96,6 +96,7 @@
  void initializeEdgeProfilerPass(PassRegistry&);
@@ -26,7 +26,7 @@ Index: include/llvm/InitializePasses.h
  void initializeFindUsedTypesPass(PassRegistry&);
 Index: include/llvm/Support/PassManagerBuilder.h
 ===================================================================
---- include/llvm/Support/PassManagerBuilder.h	(revision 133511)
+--- include/llvm/Support/PassManagerBuilder.h	(revision 135664)
 +++ include/llvm/Support/PassManagerBuilder.h	(working copy)
 @@ -24,6 +24,7 @@
  #include "llvm/Analysis/Verifier.h"
@@ -36,7 +36,7 @@ Index: include/llvm/Support/PassManagerBuilder.h
  #include "llvm/Transforms/IPO.h"
  
  namespace llvm {
-@@ -217,6 +218,8 @@
+@@ -222,6 +223,8 @@
        MPM.add(createGVNPass());                 // Remove redundancies
      MPM.add(createMemCpyOptPass());             // Remove memcpy / form memset
      MPM.add(createSCCPPass());                  // Constant prop with SCCP
@@ -47,7 +47,7 @@ Index: include/llvm/Support/PassManagerBuilder.h
      // opened up by them.
 Index: lib/Transforms/Instrumentation/Instrumentation.cpp
 ===================================================================
---- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 133511)
+--- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 135664)
 +++ lib/Transforms/Instrumentation/Instrumentation.cpp	(working copy)
 @@ -24,6 +24,7 @@
    initializeOptimalEdgeProfilerPass(Registry);
@@ -59,7 +59,7 @@ Index: lib/Transforms/Instrumentation/Instrumentation.cpp
  /// LLVMInitializeInstrumentation - C binding for
 Index: lib/Transforms/Instrumentation/CMakeLists.txt
 ===================================================================
---- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 133511)
+--- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 135664)
 +++ lib/Transforms/Instrumentation/CMakeLists.txt	(working copy)
 @@ -1,4 +1,5 @@
  add_llvm_library(LLVMInstrumentation
@@ -69,9 +69,9 @@ Index: lib/Transforms/Instrumentation/CMakeLists.txt
    Instrumentation.cpp
 Index: tools/clang/include/clang/Driver/Options.td
 ===================================================================
---- tools/clang/include/clang/Driver/Options.td	(revision 133511)
+--- tools/clang/include/clang/Driver/Options.td	(revision 135664)
 +++ tools/clang/include/clang/Driver/Options.td	(working copy)
-@@ -248,6 +248,7 @@
+@@ -258,6 +258,7 @@
  def faccess_control : Flag<"-faccess-control">, Group<f_Group>;
  def fallow_unsupported : Flag<"-fallow-unsupported">, Group<f_Group>;
  def fapple_kext : Flag<"-fapple-kext">, Group<f_Group>;
@@ -81,9 +81,9 @@ Index: tools/clang/include/clang/Driver/Options.td
  def fasm_blocks : Flag<"-fasm-blocks">, Group<f_Group>;
 Index: tools/clang/lib/Driver/Tools.cpp
 ===================================================================
---- tools/clang/lib/Driver/Tools.cpp	(revision 133511)
+--- tools/clang/lib/Driver/Tools.cpp	(revision 135664)
 +++ tools/clang/lib/Driver/Tools.cpp	(working copy)
-@@ -1012,6 +1012,12 @@
+@@ -1049,6 +1049,12 @@
    // FIXME: Implement custom jobs for internal actions.
    CmdArgs.push_back("-cc1");
  
@@ -96,7 +96,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3186,6 +3192,37 @@
+@@ -3250,6 +3256,37 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -134,7 +134,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3220,6 +3257,8 @@
+@@ -3288,6 +3325,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -143,7 +143,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4009,6 +4048,27 @@
+@@ -4077,6 +4116,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
@@ -163,7 +163,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    CmdArgs.push_back(Args.MakeArgString(libasan));
 +    CmdArgs.push_back("-lpthread");
 +    CmdArgs.push_back("-ldl");
-+    CmdArgs.push_back("-u__asan_init");
++    CmdArgs.push_back("-export-dynamic");
 +
 +    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
 +  }
