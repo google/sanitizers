@@ -175,14 +175,16 @@ mach_override_ptr(
 
 	long	*originalFunctionPtr = (long*) originalFunctionAddress;
 #ifdef DEBUG_DISASM
-  fprintf(stderr, "Replacing function at %p\n", originalFunctionAddress);
-  fprintf(stderr, "First 16 bytes of the function: ");
-  unsigned char *orig = (unsigned char *)originalFunctionAddress;
-  int i;
-  for (i = 0; i < 16; i++) {
-     fprintf(stderr, "%x ", (unsigned int) orig[i]);
+  {
+    fprintf(stderr, "Replacing function at %p\n", originalFunctionAddress);
+    fprintf(stderr, "First 16 bytes of the function: ");
+    unsigned char *orig = (unsigned char *)originalFunctionAddress;
+    int i;
+    for (i = 0; i < 16; i++) {
+       fprintf(stderr, "%x ", (unsigned int) orig[i]);
+    }
+    fprintf(stderr, "\n");
   }
-  fprintf(stderr, "\n");
 #endif
 	
 	mach_error_t	err = err_none;
@@ -202,8 +204,11 @@ mach_override_ptr(
 
 	Boolean overridePossible = eatKnownInstructions ((unsigned char *)originalFunctionPtr, 
 										&jumpRelativeInstruction, &eatenCount, originalInstructions);
+#ifdef DEBUG_DISASM
+  if (!overridePossible) fprintf(stderr, "overridePossible = false @%d\n", __LINE__);
+#endif
 	if (eatenCount > kOriginalInstructionsSize) {
-#ifdef DEBUG_DISASM  
+#ifdef DEBUG_DISASM
 		fprintf(stderr, "Too many instructions eaten\n");
 #endif    
 		overridePossible = false;
@@ -329,7 +334,18 @@ mach_override_ptr(
         err = makeIslandExecutable(escapeIsland);
         err = makeIslandExecutable(reentryIsland);
 #endif
-	
+#ifdef DEBUG_DISASM
+  {
+    fprintf(stderr, "First 16 bytes of the function after slicing: ");
+    unsigned char *orig = (unsigned char *)originalFunctionAddress;
+    int i;
+    for (i = 0; i < 16; i++) {
+       fprintf(stderr, "%x ", (unsigned int) orig[i]);
+    }
+    fprintf(stderr, "\n");
+  }
+#endif
+
 	return err;
 }
 
@@ -648,7 +664,9 @@ eatKnownInstructions(
 			memset(originalInstructions, 0x90 /* NOP */, kOriginalInstructionsSize); // fill instructions with NOP
 			bcopy(code, originalInstructions, totalEaten);
 		} else {
-			// printf ("Not enough space in island to store original instructions. Adapt the island definition and kOriginalInstructionsSize\n");
+#ifdef DEBUG_DISASM    
+			fprintf (stderr, "Not enough space in island to store original instructions. Adapt the island definition and kOriginalInstructionsSize\n");
+#endif      
 			return false;
 		}
 	}
