@@ -20,3 +20,4 @@ for t in  *.tmpl; do
     done
   done
 done
+exit 0
