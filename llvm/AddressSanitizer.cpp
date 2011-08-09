@@ -77,7 +77,7 @@ static cl::opt<bool> ClGlobals("asan-globals",
 #endif
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
-static cl::opt<std::string>  ClBlackListFile("asan-black-list",
+static cl::opt<std::string>  ClBlackListFile("asan-blacklist",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 static cl::opt<bool> ClUseCall("asan-use-call",

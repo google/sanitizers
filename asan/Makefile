@@ -109,7 +109,7 @@ $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
 		-m$(BITS)                             \
-		-mllvm -asan-black-list=tests/asan_test.ignore  \
+		-mllvm -asan-blacklist=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
@@ -120,7 +120,7 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \
 		-m$(BITS)                             \
-		-mllvm -asan-black-list=tests/asan_test.ignore  \
+		-mllvm -asan-blacklist=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL)
