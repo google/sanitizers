@@ -9,5 +9,4 @@ int GLOB[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 extern "C"
 void inc(int index) {
   GLOB[index]++;
-  //printf("GLOB[%d]: %d\n", index, GLOB[index]);
 }

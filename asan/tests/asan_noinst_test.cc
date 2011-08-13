@@ -215,12 +215,12 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
     AsanStackTrace stack0, stack1;
     stack0.CopyFrom(pc_array, n);
     stack0.size = std::max((size_t)1, (size_t)my_rand(&seed) % stack0.size);
-    size_t compress_size = std::max((size_t)2, (size_t)my_rand(&seed) % (2 * n));
-    size_t n_frames = AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+    size_t compress_size =
+      std::max((size_t)2, (size_t)my_rand(&seed) % (2 * n));
+    size_t n_frames =
+      AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
     CHECK(n_frames <= stack0.size);
     AsanStackTrace::UncompressStack(&stack1, compressed, compress_size);
-    //fprintf(stderr, "Compressed %ld frames to %ld words; uncompressed to %ld\n",
-    //       (long)n_frames, (long)compress_size, (long)stack1.size);
     CHECK(stack1.size == n_frames);
     for (size_t i = 0; i < stack1.size; i++) {
       CHECK(stack0.trace[i] == stack1.trace[i]);

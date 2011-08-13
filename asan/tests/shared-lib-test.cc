@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
   if (start == string::npos) return 1;
   path.replace(start, strlen(kMyName), kSoName);
   path += ".so";
-  //printf("opening %s ... ", path.c_str());
+  // printf("opening %s ... ", path.c_str());
   void *lib = dlopen(path.c_str(), RTLD_NOW);
   if (!lib) {
     printf("error in dlopen(): %s\n", dlerror());
@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
   }
   fun_t *inc = (fun_t*)dlsym(lib, "inc");
   if (!inc) return 1;
-  //printf("ok\n");
+  // printf("ok\n");
   inc(1);
   inc(-1);
   return 0;

@@ -27,7 +27,7 @@ static void LargeFunction(int *x, int zero) {
 }
 
 int main(int argc, char **argv) {
-  int *x = new int [100];
+  int *x = new int[100];
   LargeFunction(x, argc - 1);
   delete x;
 }

@@ -86,7 +86,7 @@ class ObjdumpOfMyself {
          start != string::npos;
          start = next_start, fn = next_fn) {
       next_start = fn_start(objdump, start, &next_fn);
-      //fprintf(stderr, "start: %d next_start = %d fn: %s\n",
+      // fprintf(stderr, "start: %d next_start = %d fn: %s\n",
       //        (int)start, (int)next_start, fn.c_str());
       // Mac OS adds the "_" prefix to function names.
       if (fn.find(APPLE ? "_Disasm" : "Disasm") == string::npos) {
@@ -111,7 +111,7 @@ class ObjdumpOfMyself {
     size_t counter = 0;
     for (size_t i = 0; i < insns.size(); i++) {
       size_t pos = 0;
-      while((pos = disasm.find(insns[i], pos)) != string::npos) {
+      while ((pos = disasm.find(insns[i], pos)) != string::npos) {
         counter++;
         pos++;
       }
@@ -127,7 +127,7 @@ class ObjdumpOfMyself {
     if (pos == string::npos)
       return string::npos;
     size_t beg = pos;
-    while(beg > 0 && objdump[beg - 1] != '<')
+    while (beg > 0 && objdump[beg - 1] != '<')
       beg--;
     *fn = objdump.substr(beg, pos - beg);
     return pos + 3;
@@ -195,7 +195,7 @@ __attribute__((noinline)) void *memalign_bbb(size_t alignment, size_t size) {
   void *res = memalign_ccc(alignment, size); break_optimization(); return res;}
 __attribute__((noinline)) void *memalign_aaa(size_t alignment, size_t size) {
   void *res = memalign_bbb(alignment, size); break_optimization(); return res;}
-#endif  // __APPLE__  
+#endif  // __APPLE__
 
 
 __attribute__((noinline))
@@ -324,7 +324,7 @@ void OOBTest() {
       EXPECT_DEATH(oob_test<T>(size, i), expected_str);
     }
 
-    for(int i = 0; i < size - sizeof(T) + 1; i++)
+    for (int i = 0; i < size - sizeof(T) + 1; i++)
       oob_test<T>(size, i);
 
     for (int i = size - sizeof(T) + 1; i <= size + 3 * sizeof(T); i++) {
@@ -536,10 +536,11 @@ TEST(AddressSanitizer, SimpleStackTest) {
   SizedStackTest<128>();
 }
 
-__attribute__((noinline)) static void Frame0(int frame, char *a, char *b, char *c) {
+__attribute__((noinline))
+static void Frame0(int frame, char *a, char *b, char *c) {
   char d[4];
   char *D = Ident(d);
-  switch(frame) {
+  switch (frame) {
     case 3: a[5]++; break;
     case 2: b[5]++; break;
     case 1: c[5]++; break;
@@ -600,7 +601,7 @@ void SigLongJmpFunc1(sigjmp_buf buf) {
 
 __attribute__((noinline))
 void TouchStackFunc() {
-  int a[100]; // long array will intersect with redzones from LongJmpFunc1.
+  int a[100];  // long array will intersect with redzones from LongJmpFunc1.
   int *A = Ident(a);
   for (int i = 0; i < 100; i++)
     A[i] = i*i;
@@ -642,7 +643,7 @@ TEST(AddressSanitizer, CxxExceptionTest) {
   if (__WORDSIZE == 32) return;
   try {
     ThrowFunc();
-  } catch (...) {}
+  } catch(...) {}
   TouchStackFunc();
 }
 
@@ -718,7 +719,7 @@ TEST(AddressSanitizer, MemIntrinTest) {
 
 __attribute__((noinline))
 static int LargeFunction(bool do_bad_access) {
-  int *x = new int [100];
+  int *x = new int[100];
   x[0]++;
   x[1]++;
   x[2]++;
@@ -809,7 +810,7 @@ TEST(AddressSanitizer, ShadowGapTest) {
 }
 
 extern "C" {
-__attribute__((noinline)) 
+__attribute__((noinline))
 static void UseThenFreeThenUse() {
   char *x = Ident((char*)malloc(8));
   *x = 1;
@@ -868,9 +869,7 @@ __attribute__((noinline))
 static void DisasmWriteGlob() {
   GLOBAL = 1;
 }
-
-
-}
+}  // extern "C"
 
 TEST(AddressSanitizer, DisasmTest) {
   int a;
@@ -928,7 +927,7 @@ TEST(AddressSanitizer, GlobalTest) {
   EXPECT_DEATH(static110[Ident(110+7)] = 0,
                "7 bytes to the right of global variable");
 
-  Ident(func_static15); // avoid optimizations
+  Ident(func_static15);  // avoid optimizations
   func_static15[Ident(0)] = 0;
   EXPECT_DEATH(func_static15[Ident(15)] = 0,
                "0 bytes to the right of global variable");
