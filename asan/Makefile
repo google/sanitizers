@@ -74,7 +74,7 @@ GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 all: b64 b32
 
-test: t64 t32 output_tests
+test: t64 t32 output_tests lint
 
 output_tests: b32 b64
 	cd tests && ./test_output.sh
