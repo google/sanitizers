@@ -43,10 +43,10 @@ using std::string;
 using std::vector;
 using std::map;
 
-typedef unsigned char        U1;
-typedef unsigned short       U2;
-typedef unsigned int         U4;
-typedef unsigned long long   U8;
+typedef uint8_t   U1;
+typedef uint16_t  U2;
+typedef uint32_t  U4;
+typedef uint64_t  U8;
 
 static const char *progname;
 
@@ -56,9 +56,11 @@ static inline uint32_t my_rand(uint32_t* state) {
   return (*state = *state * 1103515245 + 12345) >> 16;
 }
 
+static uint32_t global_seed = 0;
+
 class ObjdumpOfMyself {
  public:
-  ObjdumpOfMyself(const string &binary) {
+  explicit ObjdumpOfMyself(const string &binary) {
     is_correct = true;
     string objdump_name = APPLE ? "gobjdump" : "objdump";
     string prog = objdump_name + " -d " + binary;
@@ -404,7 +406,7 @@ TEST(AddressSanitizer, WildAddressTest) {
 }
 
 static void MallocStress(size_t n) {
-  uint32_t seed = rand();
+  uint32_t seed = my_rand(&global_seed);
   for (size_t iter = 0; iter < 10; iter++) {
     vector<void *> vec;
     for (size_t i = 0; i < n; i++) {
@@ -475,7 +477,8 @@ TEST(AddressSanitizer, ReallocTest) {
   int *ptr = (int*)malloc(sizeof(int) * kMinElem);
   ptr[3] = 3;
   for (int i = 0; i < 10000; i++) {
-    ptr = (int*)realloc(ptr, (rand() % 1000 + kMinElem) * sizeof(int));
+    ptr = (int*)realloc(ptr,
+        (my_rand(&global_seed) % 1000 + kMinElem) * sizeof(int));
     EXPECT_EQ(3, ptr[3]);
   }
 }

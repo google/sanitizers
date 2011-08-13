@@ -36,13 +36,15 @@ static inline uint32_t my_rand(uint32_t* state) {
   return (*state = *state * 1103515245 + 12345) >> 16;
 }
 
+static uint32_t global_seed = 0;
+
 
 TEST(AddressSanitizer, InternalSimpleDeathTest) {
   EXPECT_DEATH(exit(1), "");
 }
 
 static void MallocStress(size_t n) {
-  uint32_t seed = rand();
+  uint32_t seed = my_rand(&global_seed);
   AsanStackTrace stack1;
   stack1.trace[0] = 0xa123;
   stack1.trace[1] = 0xa456;
@@ -94,9 +96,9 @@ TEST(AddressSanitizer, NoInstMallocTest) {
 static void PrintShadow(const char *tag, uintptr_t ptr, size_t size) {
   fprintf(stderr, "%s shadow: %lx size % 3ld: ", tag, (long)ptr, (long)size);
   uintptr_t prev_shadow = 0;
-  for (long i = -32; i < (long)size + 32; i++) {
+  for (intptr_t i = -32; i < (intptr_t)size + 32; i++) {
     uintptr_t shadow = MemToShadow(ptr + i);
-    if (i == 0 || i == (long)size)
+    if (i == 0 || i == (intptr_t)size)
       fprintf(stderr, ".");
     if (shadow != prev_shadow) {
       prev_shadow = shadow;
@@ -206,17 +208,17 @@ static uintptr_t pc_array[] = {
 };
 
 TEST(AddressSanitizer, CompressStackTraceTest) {
-  uint32_t seed = rand();
-  const size_t n = ASAN_ARRAY_SIZE(pc_array);
-  uint32_t compressed[2 * n];
+  uint32_t seed = my_rand(&global_seed);
+  const size_t kNumPcs = ASAN_ARRAY_SIZE(pc_array);
+  uint32_t compressed[2 * kNumPcs];
 
   for (int iter = 0; iter < 10000; iter++) {
-    std::random_shuffle(pc_array, pc_array + n);
+    std::random_shuffle(pc_array, pc_array + kNumPcs);
     AsanStackTrace stack0, stack1;
-    stack0.CopyFrom(pc_array, n);
+    stack0.CopyFrom(pc_array, kNumPcs);
     stack0.size = std::max((size_t)1, (size_t)my_rand(&seed) % stack0.size);
     size_t compress_size =
-      std::max((size_t)2, (size_t)my_rand(&seed) % (2 * n));
+      std::max((size_t)2, (size_t)my_rand(&seed) % (2 * kNumPcs));
     size_t n_frames =
       AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
     CHECK(n_frames <= stack0.size);
@@ -249,7 +251,7 @@ TEST(AddressSanitizer, QuarantineTest) {
 }
 
 void *ThreadedQuarantineTestWorker(void *unused) {
-  uint32_t seed = rand();
+  uint32_t seed = my_rand(&global_seed);
   AsanStackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
