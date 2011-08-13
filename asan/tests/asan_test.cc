@@ -39,7 +39,9 @@ static bool APPLE = true;
 static bool APPLE = false;
 #endif
 
-using namespace std;
+using std::string;
+using std::vector;
+using std::map;
 
 typedef unsigned char        U1;
 typedef unsigned short       U2;
@@ -269,7 +271,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
 #endif  // __APPLE__
 }
 
-void NoOpSignalHandler(int) {
+void NoOpSignalHandler(int unused) {
   fprintf(stderr, "NoOpSignalHandler (should not happen). Aborting\n");
   abort();
 }
@@ -441,7 +443,7 @@ TEST(AddressSanitizer, ThreadedMallocStressTest) {
   const int kNumThreads = 4;
   pthread_t t[kNumThreads];
   for (int i = 0; i < kNumThreads; i++) {
-    pthread_create(&t[i], 0, (void* (*)(void*))MallocStress, (void*)100000);
+    pthread_create(&t[i], 0, (void* (*)(void *x))MallocStress, (void*)100000);
   }
   for (int i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
@@ -461,7 +463,7 @@ TEST(AddressSanitizer, ManyThreadsTest) {
   const int kNumThreads = __WORDSIZE == 32 ? 200 : 1000;
   pthread_t t[kNumThreads];
   for (int i = 0; i < kNumThreads; i++) {
-    pthread_create(&t[i], 0, (void* (*)(void*))ManyThreadsWorker, (void*)i);
+    pthread_create(&t[i], 0, (void* (*)(void *x))ManyThreadsWorker, (void*)i);
   }
   for (int i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
@@ -644,7 +646,7 @@ TEST(AddressSanitizer, CxxExceptionTest) {
   TouchStackFunc();
 }
 
-void *ThreadStackReuseFunc1(void *) {
+void *ThreadStackReuseFunc1(void *unused) {
   // create three red zones for these two stack objects.
   int a;
   int b;
@@ -656,7 +658,7 @@ void *ThreadStackReuseFunc1(void *) {
   return 0;
 }
 
-void *ThreadStackReuseFunc2(void *) {
+void *ThreadStackReuseFunc2(void *unused) {
   TouchStackFunc();
   return 0;
 }
@@ -891,7 +893,7 @@ TEST(AddressSanitizer, DisasmTest) {
   EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamInc", insns));
   EXPECT_EQ(0, o->CountInsnInFunc("DisasmWriteGlob", insns));
 
-  // TODO: implement these (needs just one ud2).
+  // TODO(kcc): implement these (needs just one ud2).
   EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamReadIfWrite", insns));
   EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", insns));
 }
@@ -899,7 +901,7 @@ TEST(AddressSanitizer, DisasmTest) {
 // Currently we create and poison redzone at right of global variables.
 char glob5[5];
 static char static110[110];
-extern int GlobalsTest(int);
+extern int GlobalsTest(int x);
 
 TEST(AddressSanitizer, GlobalTest) {
   static char func_static15[15];

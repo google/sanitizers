@@ -7,12 +7,12 @@
 
 #include <string>
 
-using namespace std;
+using std::string;
 
 const char kMyName[] = "shared-lib-test";
 const char kSoName[] = "shared-lib-test-so";
 
-typedef void (fun_t)(int);
+typedef void (fun_t)(int x);
 
 int main(int argc, char *argv[]) {
   string path = strdup(argv[0]);

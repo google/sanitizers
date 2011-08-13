@@ -27,8 +27,6 @@
 #include <algorithm>
 #include "gtest/gtest.h"
 
-using namespace std;
-
 // Used in other files.
 void break_optimization() {}
 
@@ -60,7 +58,7 @@ static void MallocStress(size_t n) {
   stack3.trace[1] = 0xc456;
   stack3.size = 2;
 
-  vector<void *> vec;
+  std::vector<void *> vec;
   for (size_t i = 0; i < n; i++) {
     if ((i % 3) == 0) {
       if (vec.empty()) continue;
@@ -213,7 +211,7 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
   uint32_t compressed[2 * n];
 
   for (int iter = 0; iter < 10000; iter++) {
-    random_shuffle(pc_array, pc_array + n);
+    std::random_shuffle(pc_array, pc_array + n);
     AsanStackTrace stack0, stack1;
     stack0.CopyFrom(pc_array, n);
     stack0.size = std::max((size_t)1, (size_t)my_rand(&seed) % stack0.size);
@@ -250,7 +248,7 @@ TEST(AddressSanitizer, QuarantineTest) {
   EXPECT_LT(i, max_i);
 }
 
-void *ThreadedQuarantineTestWorker(void *) {
+void *ThreadedQuarantineTestWorker(void *unused) {
   uint32_t seed = rand();
   AsanStackTrace stack;
   stack.trace[0] = 0x890;
@@ -277,7 +275,7 @@ TEST(AddressSanitizer, ThreadedQuarantineTest) {
   }
 }
 
-void *ThreadedOneSizeMallocStress(void *) {
+void *ThreadedOneSizeMallocStress(void *unused) {
   AsanStackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;

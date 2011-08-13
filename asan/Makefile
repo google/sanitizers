@@ -167,11 +167,13 @@ $(GTEST_LIB):
 	cd $(GTEST_MAKE_DIR) && \
 	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS) -g"
 
+RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
 # TODO(kcc): remove these filters one by one
-LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
+TEST_LINT_FITLER=-readability/casting,-build/include,-legal/copyright,-whitespace,-runtime
 
 lint:
-	../third_party/cpplint/cpplint.py --filter=$(LINT_FITLER) asan_*.cc asan_*.h
+	../third_party/cpplint/cpplint.py --filter=$(RTL_LINT_FITLER) asan_*.cc asan_*.h
+	../third_party/cpplint/cpplint.py --filter=$(TEST_LINT_FITLER) tests/*.cc
 
 clean:
 	rm -f *.o *.ll *.S *.a *.log asan_test64* asan_test32*  a.out perf.data log
