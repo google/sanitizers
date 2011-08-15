@@ -78,7 +78,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 
   // TODO: auto whitelist
   const unsigned int WHITELIST[] = {
-    0x08052b54,
+    0x08052b94,
     ~0};
   for (int w = 0; ; w++) {
     if (WHITELIST[w] == (unsigned int)tag)  // in the whitelist
@@ -136,37 +136,38 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 #endif
         }
 
-        reg_id_t SP1 = opnd_get_base(op),  // memory address is already there!
-                 SP2 = (SP1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX);
-        CHECK(reg_to_pointer_sized(SP1) == SP1);  // otherwise SP2 may be wrong.
+        reg_id_t R1 = opnd_get_base(op),  // Register #2 memory address is already there!
+                 R1_8 = reg_32_to_opsz(R1, OPSZ_1),  // TODO: on x64?
+                 R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
+                 R2_8 = reg_32_to_opsz(R2, OPSZ_1);
+        CHECK(reg_to_pointer_sized(R1) == R1);  // otherwise R2 may be wrong.
 
-        dr_save_reg(drcontext, bb, i, SP1, SPILL_SLOT_1);
+        // Save the current values of R1 and R2.
+        dr_save_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
+        // TODO: Something smarter than spilling a "fixed" register R2?
+        dr_save_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
 
-        // TODO: Something smarter than spilling a "fixed" register SP2?
-        dr_save_reg(drcontext, bb, i, SP2, SPILL_SLOT_2);
-        PRE(i, shr(drcontext, opnd_create_reg(SP1), OPND_CREATE_INT8(3)));
-        PRE(i, mov_ld(drcontext, opnd_create_reg(SP2), OPND_CREATE_MEM32(SP1,0x20000000)));
-        PRE(i, test(drcontext, opnd_create_reg(SP2), opnd_create_reg(SP2)));
-        // TODO: slowpath
-        // TODO: support different access sizes.
-        instr_t *trap_label = INSTR_CREATE_label(drcontext);
-        PRE(i, jcc(drcontext, OP_jnz_short,
-                                    opnd_create_instr(trap_label)));
+        PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
+        PRE(i, mov_ld(drcontext, opnd_create_reg(R2), OPND_CREATE_MEM32(R1,0x20000000)));
+        PRE(i, test(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R2_8)));
 
-        dr_restore_reg(drcontext, bb, i, SP1, SPILL_SLOT_1);
-        dr_restore_reg(drcontext, bb, i, SP2, SPILL_SLOT_2);
-        if (need_to_restore_eflags) {
-#if defined(VERBOSE_VERBOSE)
-          dr_printf("Restoring eflags\n");
-#endif
-          dr_restore_arith_flags(drcontext, bb, i, SPILL_SLOT_3);
-        }
         instr_t *OK_label = INSTR_CREATE_label(drcontext);
-        PRE(i, jmp_short(drcontext, opnd_create_instr(OK_label)));
+        PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
 
-        PREF(i, trap_label);
-        // Restore the original access address in XAX
+        if (1) {
+        // TODO: if (access_size < 8) {
+          // Slowpath to support accesses smaller than pointer-sized.
+          dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_1);
+          PRE(i, and(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(7)));
+          PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(2)));  // TODO: for 16-bit accesses
+          PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
+          PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
+        }
+
+        // Trap code:
+        // 1) Restore the original access address in XAX 
         dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+        // 2) Send SIGILL to be handled by ASan RTL 
         instrlist_meta_fault_preinsert(bb, i,
                                        INSTR_XL8(
                                            INSTR_CREATE_ud2a(drcontext),
@@ -175,7 +176,18 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
         // NOTE: we don't need to put extra access info (size/is_write)
         // since RTL will see the UNinstrumented code on SIGILL!
         // TODO: review and commit the asan_rtl.cc change accounting for this.
+
         PREF(i, OK_label);
+        // Restore the registers and flags.
+        dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
+        dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
+        if (need_to_restore_eflags) {
+#if defined(VERBOSE_VERBOSE)
+          dr_printf("Restoring eflags\n");
+#endif
+          dr_restore_arith_flags(drcontext, bb, i, SPILL_SLOT_3);
+        }
+        // The original instruction is left untouched.
       }
     }
   }
