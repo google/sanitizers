@@ -22,7 +22,21 @@
 #define TESTALL(mask, var) (((mask) & (var)) == (mask))
 #define TESTANY(mask, var) (((mask) & (var)) != 0)
 
-#define CHECK(condition)  // TODO
+#define CHECK_IMPL(condition, file, line) \
+    do { \
+      if (!(condition)) { \
+        dr_printf("Check failed: `%s`\nat %s:%d\n", #condition, file, line); \
+        dr_abort(); \
+      } \
+    } while(0)  // TODO: stacktrace
+
+#define CHECK(condition) CHECK_IMPL(condition, __FILE__, __LINE__)
+
+//#define VERBOSE_VERBOSE
+
+#if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
+# define VERBOSE
+#endif
 
 bool OperandIsInteresting(opnd_t opnd) {
   // TOTHINK: we may access waaaay beyound the stack, do we need to check it?
@@ -78,7 +92,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 
   // TODO: auto whitelist
   const unsigned int WHITELIST[] = {
-    0x08052b94,
+    0x08052ba4,
     ~0};
   for (int w = 0; ; w++) {
     if (WHITELIST[w] == (unsigned int)tag)  // in the whitelist
@@ -154,12 +168,25 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
         instr_t *OK_label = INSTR_CREATE_label(drcontext);
         PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
 
-        if (1) {
-        // TODO: if (access_size < 8) {
+        opnd_size_t access_size = opnd_get_size(op);
+        CHECK(access_size != OPSZ_NA);
+        if (access_size != OPSZ_8) {
           // Slowpath to support accesses smaller than pointer-sized.
-          dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_1);
+          dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
           PRE(i, and(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(7)));
-          PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(2)));  // TODO: for 16-bit accesses
+          switch (access_size) {
+          case OPSZ_4:
+            PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
+            break;
+          case OPSZ_2:
+            PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(2)));
+            break;
+          case OPSZ_1:
+            PRE(i, inc(drcontext, opnd_create_reg(R1)));
+            break;
+          default:
+            CHECK(0);
+          }
           PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
           PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
         }
