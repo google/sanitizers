@@ -123,6 +123,9 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
     abort();
   }
   PoisonShadow((uintptr_t)res, size, 0xff);
+  if (__asan_flag_debug) {
+    Printf("ASAN_MMAP: ["PP", "PP")\n", res, res + size);
+  }
   return res;
 }
 
@@ -355,7 +358,7 @@ class MallocInfo {
     ScopedLock lock(&mu_);
 
     // first, check if this is our memory
-    PageGroup *g = FindPageGroup(ptr);
+    PageGroup *g = FindPageGroupUnlocked(ptr);
     if (!g) return 0;
     AsanChunk *m = PtrToChunk(ptr);
     if (m->chunk_state == CHUNK_ALLOCATED) {
@@ -383,8 +386,13 @@ class MallocInfo {
     Printf("\n");
   }
 
- private:
   PageGroup *FindPageGroup(uintptr_t addr) {
+    ScopedLock lock(&mu_);
+    return FindPageGroupUnlocked(addr);
+  }
+
+ private:
+  PageGroup *FindPageGroupUnlocked(uintptr_t addr) {
     for (int i = 0; i < n_page_groups_; i++) {
       PageGroup *g = page_groups_[i];
       if (g->InRange(addr)) {
@@ -395,7 +403,7 @@ class MallocInfo {
   }
 
   AsanChunk *FindChunkByAddr(uintptr_t addr) {
-    PageGroup *g = FindPageGroup(addr);
+    PageGroup *g = FindPageGroupUnlocked(addr);
     if (!g) return 0;
     CHECK(g->size_of_chunk);
     CHECK(IsPowerOfTwo(g->size_of_chunk));
@@ -631,6 +639,10 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
 static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   CHECK(stack);
+
+  if (__asan_flag_debug) {
+    CHECK(malloc_info.FindPageGroup((uintptr_t)ptr));
+  }
 
   // Printf("Deallocate "PP"\n", ptr);
   AsanChunk *m = PtrToChunk((uintptr_t)ptr);
