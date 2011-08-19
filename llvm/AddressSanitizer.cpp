@@ -68,6 +68,8 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
        cl::desc("instrument write instructions"), cl::init(true));
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
+static cl::opt<bool> ClReturnLocalReference("asan-return-local-reference",
+       cl::desc("Handle stack memory"), cl::init(false));
 static cl::opt<bool> ClGlobals("asan-globals",
 #ifndef __APPLE__
        cl::desc("Handle global objects"), cl::init(true));
@@ -148,8 +150,9 @@ struct AddressSanitizer : public ModulePass {
                                    Value *size,
                                    Instruction *insert_before, bool is_w);
   Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
-  bool handleFunction(Function &F);
+  bool handleFunction(Module &M, Function &F);
   bool poisonStackInFunction(Function &F);
+  bool instrumentLocalRefReturn(Module &M, Function &F);
   virtual bool runOnModule(Module &M);
   bool insertGlobalRedzones(Module &M);
   void appendToGlobalCtors(Module &M, Function *f);
@@ -193,6 +196,9 @@ struct AddressSanitizer : public ModulePass {
   Instruction *asan_ctor_insert_before;
   SmallSet<Instruction*, 16> to_instrument;
   BlackList *black_list;
+
+  Value *LocalStackBase;
+  size_t LocalStackSize;
 };
 }  // namespace
 
@@ -678,7 +684,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
 
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
     if (F->isDeclaration()) continue;
-    res |= handleFunction(*F);
+    res |= handleFunction(M, *F);
   }
 
   appendToGlobalCtors(M, asan_ctor);
@@ -717,7 +723,7 @@ static bool blockOrItsSuccHasException(BasicBlock &bb) {
   return false;
 }
 
-bool AddressSanitizer::handleFunction(Function &F) {
+bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   if (black_list->IsIn(F)) return false;
   if (F.getNameStr() == kAsanModuleCtorName) return false;
 
@@ -780,12 +786,12 @@ bool AddressSanitizer::handleFunction(Function &F) {
   if (!ClDebugFunc.empty() || ClDebug)
     errs() << F;
 
-  bool changed_stack = false;
-  if (ClStack) {
-    changed_stack = poisonStackInFunction(F);
-    if (changed_stack && ClDebugStack)
-      errs() << F;
-  }
+  LocalStackBase = NULL;  // These two will be set by poisonStackInFunction.
+  LocalStackSize = 0;
+
+  bool changed_stack = poisonStackInFunction(F);
+  bool inserted_local_ref_check = instrumentLocalRefReturn(M, F);
+
 #ifdef __APPLE__
   // In order to handle the +load methods correctly,
   // we need to insert a call to __asan_init() before each of them.
@@ -801,7 +807,7 @@ bool AddressSanitizer::handleFunction(Function &F) {
   }
 #endif
 
-  return n_instrumented > 0 || changed_stack;
+  return n_instrumented > 0 || changed_stack || inserted_local_ref_check;
 }
 
 static uint64_t ValueForPoison(uint64_t poison_byte, size_t ShadowRedzoneSize) {
@@ -890,9 +896,36 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
   }
 }
 
+bool AddressSanitizer::instrumentLocalRefReturn(Module &M, Function &F) {
+  if (!ClReturnLocalReference) return false;
+  if (LocalStackSize == 0) return false;
+  assert(LocalStackBase);
+  FunctionType *FTy = cast<FunctionType>(F.getType()->getElementType());
+  Type *RetTy = FTy->getReturnType();
+  if (!RetTy->isPointerTy()) return false;
+  for (Function::iterator FI = F.begin(), FE = F.end();
+       FI != FE; ++FI) {
+    BasicBlock &BB = *FI;
+    ReturnInst *Ret = dyn_cast<ReturnInst>(BB.getTerminator());
+    if (!Ret) continue;
+    IRBuilder<> IRB(&BB, Ret);
+    Value *RetValue = Ret->getReturnValue();
+    assert(RetValue);
+    Value *RetValueLong = IRB.CreatePointerCast(RetValue, LongTy);
+    Value *StackTop = IRB.CreateAdd(LocalStackBase,
+                                    ConstantInt::get(LongTy, LocalStackSize));
+    Value *RuntimeCallback = M.getOrInsertFunction(
+        "__asan_check_pointer_ret", VoidTy, LongTy, LongTy, NULL);
+    IRB.CreateCall2(RuntimeCallback, RetValueLong, StackTop);
+    // errs() << BB << "\n";
+  }
+  return true;
+}
+
 // Find all static Alloca instructions and put
 // poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Function &F) {
+  if (!ClStack) return false;
   SmallVector<AllocaInst*, 16> alloca_v;
   SmallVector<Instruction*, 8> ret_v;
   uint64_t total_size = 0;
@@ -923,18 +956,18 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
 
   if (alloca_v.empty()) return false;
 
-  uint64_t total_size_with_redzones =
-      total_size + (alloca_v.size() + 1) * RedzoneSize;
+  assert(LocalStackSize == 0);
+  assert(LocalStackBase == NULL);
+  LocalStackSize = total_size + (alloca_v.size() + 1) * RedzoneSize;
 
-  // errs() << "total size w/ redzones: " << total_size_with_redzones << "\n";
-
-  Type *ByteArrayTy = ArrayType::get(ByteTy, total_size_with_redzones);
+  Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
   Instruction *ins_before = alloca_v[0];
 
   AllocaInst *my_alloca = new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
   my_alloca->setAlignment(RedzoneSize);
   assert(my_alloca->isStaticAlloca());
-  Value *base = new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
+  LocalStackBase = 
+      new PtrToIntInst(my_alloca, LongTy, "local_base", ins_before);
 
   uint64_t pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
@@ -943,17 +976,17 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
     uint64_t aligned_size = getAlignedAllocaSize(a);
     assert((aligned_size % RedzoneSize) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
-        base, ConstantInt::get(LongTy, pos), "", a);
+        LocalStackBase, ConstantInt::get(LongTy, pos), "", a);
     new_ptr = new IntToPtrInst(new_ptr, a->getType(), "", a);
 
     pos += aligned_size + RedzoneSize;
     a->replaceAllUsesWith(new_ptr);
   }
-  assert(pos == total_size_with_redzones);
+  assert(pos == LocalStackSize);
 
   // Poison the stack redzones at the entry.
   IRBuilder<> irb(ins_before->getParent(), ins_before);
-  Value *shadow_base = memToShadow(base, irb);
+  Value *shadow_base = memToShadow(LocalStackBase, irb);
   PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb, shadow_base, true);
 
   // Unpoison the stack before all ret instructions.
@@ -962,6 +995,9 @@ bool AddressSanitizer::poisonStackInFunction(Function &F) {
     IRBuilder<> irb_ret(ret->getParent(), ret);
     PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb_ret, shadow_base, false);
   }
+
+  if (ClDebugStack)
+    errs() << F;
 
   // errs() << F.getNameStr() << "\n" << F << "\n";
   return true;

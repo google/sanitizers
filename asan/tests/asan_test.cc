@@ -949,6 +949,20 @@ TEST(AddressSanitizer, GlobalTest) {
   GlobalsTest(0);
 }
 
+int *LocalReferenceReturn() {
+  int a = 0;
+  return Ident(&a);
+}
+
+TEST(AddressSanitizer, LocalReferenceReturnTest) {
+  int *(*f)() = Ident(LocalReferenceReturn);
+  // Call f several times, only the first time should be reported.
+  f();
+  f();
+  f();
+  f();
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {

@@ -27,6 +27,7 @@
 #endif
 
 #include <algorithm>
+#include <set>
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
@@ -91,10 +92,6 @@ static int asan_inited;
 
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
-__attribute__((visibility("default"))) void __asan_init();
-extern "C"
-__attribute__((visibility("default")))
-void __asan_register_global(uintptr_t addr, size_t size, const char *name);
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
@@ -261,6 +258,28 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
   CHECK(res == (void*)beg);
+}
+
+// ---------------------- return-local-reference-------------------- {{{1
+static AsanLock ref_ret_lock;
+static std::set<uintptr_t> ref_ret_pc_set;
+
+void __asan_check_pointer_ret(size_t ptr, size_t stack_top) {
+  int local_var;
+  size_t local_stack = (size_t)&local_var;
+  if (!(ptr <= stack_top && ptr >= local_stack)) return;
+  uintptr_t pc = GET_CALLER_PC();
+
+  ScopedLock lock(&ref_ret_lock);
+  // We want to report a warning only once for each guilty PC.
+  if (!ref_ret_pc_set.insert(pc).second) return;
+
+  Printf("WARNING: AddressSanitizer detected"
+         " return of a pointer to a local variable at pc %p\n"
+         "  Pointer: "PP"; stack_bottom: "PP", stack_top: "PP"\n"
+         "  NOTE: this may be a valid code\n",
+         pc, ptr, local_stack, stack_top);
+  AsanStackTrace::PrintCurrent(pc);
 }
 
 // ---------------------- Globals -------------------- {{{1
