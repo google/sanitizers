@@ -22,6 +22,28 @@
 #include "asan_lock.h"
 #include "asan_stack.h"
 
+// For each thread we create a fake stack and place stack objects on this fake
+// stack instead of the real stack. The fake stack is not really a stack but
+// a ring buffer so that when a function exits the fake stack is not poped
+// but remains there for quite some time until the ring buffer cycles back.
+// So, we poison the objects on the fake stack when function returns.
+// It helps us find use-after-return bugs.
+class AsanFakeStack {
+ public:
+  AsanFakeStack() : size_(0), pos_(0), buffer_(0) { }
+  void Init(size_t size);
+  void Cleanup();
+  uintptr_t GetChunk(size_t chunk_size, const char *frame);
+  bool AddrIsInFakeStack(uintptr_t addr) {
+    return addr >= (uintptr_t)buffer_ && addr < (uintptr_t)(buffer_ + size_);
+  }
+  const char *GetFrameNameByAddr(uintptr_t addr);
+ private:
+  size_t size_;
+  size_t pos_;
+  char *buffer_;
+};
+
 class AsanThread {
  public:
   AsanThread();  // for T0.
@@ -51,7 +73,10 @@ class AsanThread {
 
   uintptr_t stack_top() { return stack_top_; }
   uintptr_t stack_bottom() { return stack_bottom_; }
+  size_t stack_size() { return stack_top_ - stack_bottom_; }
   int tid() { return tid_; }
+
+  AsanFakeStack &FakeStack() { return fake_stack_; }
 
   uintptr_t AddrIsInStack(uintptr_t addr) {
     return addr >= stack_bottom_ && addr < stack_top_;
@@ -61,7 +86,7 @@ class AsanThread {
     ScopedLock lock(&mu_);
     AsanThread *t = live_threads_;
     do {
-      if (t->AddrIsInStack(addr)) {
+      if (t->FakeStack().AddrIsInFakeStack(addr)) {
         return t;
       }
       t = t->next_;
@@ -94,6 +119,8 @@ class AsanThread {
   int        refcount_;
 
   AsanThreadLocalMallocStorage malloc_storage_;
+
+  AsanFakeStack fake_stack_;
 
   AsanThread *next_;
   AsanThread *prev_;

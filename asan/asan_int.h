@@ -33,7 +33,10 @@ void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
 void __asan_register_global(uintptr_t addr, size_t size, const char *name)
     __attribute__((visibility("default")));
-void __asan_check_pointer_ret(size_t ptr, size_t stack_top)
+
+size_t __asan_get_fake_stack(size_t size, const char *frame)
+    __attribute__((visibility("default")));
+void __asan_poison_fake_stack(size_t ptr, size_t size)
     __attribute__((visibility("default")));
 }  // extern "C"
 

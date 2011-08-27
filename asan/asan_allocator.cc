@@ -709,6 +709,8 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
   return new_ptr;
 }
 
+
+
 void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack) {
   return (void*)Allocate(alignment, size, stack);
 }
@@ -750,4 +752,16 @@ void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {
 }
 size_t __asan_total_mmaped() {
   return total_mmaped;
+}
+
+// ---------------------- Fake stack-------------------- {{{1
+size_t __asan_get_fake_stack(size_t size, const char *frame) {
+  size_t res = AsanThread::GetCurrent()->FakeStack().GetChunk(size, frame);
+  // Printf("__asan_get_fake_stack: %p %s\n", res, frame);
+  return res;
+}
+
+void __asan_poison_fake_stack(size_t ptr, size_t size) {
+  // Printf("__asan_poison_fake_stack: %p %ld\n", ptr, size);
+  PoisonShadow(ptr, size, 0xf5);
 }

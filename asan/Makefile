@@ -37,7 +37,6 @@ ASAN_GLOBALS=0
 else
 ASAN_GLOBALS=1
 endif
-ASAN_CHECK_RET=0
 ASAN_USE_CALL=0
 ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=0  #default will be used
@@ -116,8 +115,7 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
-		-mllvm -asan-use-bts=$(ASAN_BTS)          \
-		-mllvm -asan-return-local-reference=$(ASAN_CHECK_RET)
+		-mllvm -asan-use-bts=$(ASAN_BTS)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \

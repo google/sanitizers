@@ -167,35 +167,11 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 }
 
 // ---------------------- Thread ------------------------- {{{1
-// given sp and bp, find the frame to which addr belongs.
-static int TryToFindFrameForStackAddress(uintptr_t sp, uintptr_t bp,
-                                         uintptr_t addr) {
-  if (bp == 0 || sp == 0)  return -1;
-  AsanThread *t = AsanThread::GetCurrent();
-  if (!t->AddrIsInStack(bp)) return -1;
-  if (!t->AddrIsInStack(sp)) return -1;
-  if (addr < sp) return -1;  // Probably, should not happen.
-  if (addr < bp) return 0;   // current frame.
-  uintptr_t *top = (uintptr_t*)t->stack_top();
-  uintptr_t *frame = (uintptr_t*)bp;
-  uintptr_t *prev_frame = frame;
-  int res = 0;
-  while (frame >= prev_frame && frame < top && frame < (uintptr_t*)addr) {
-    CHECK(t->AddrIsInStack((uintptr_t)frame));
-    prev_frame = frame;
-    frame = (uintptr_t*)frame[0];
-    res++;
-  }
-  return res;
-}
-
 #define GET_STACK_TRACE_HERE_FOR_MALLOC         \
   GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, __asan_flag_fast_unwind)
 
 #define GET_STACK_TRACE_HERE_FOR_FREE(ptr) \
   GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, __asan_flag_fast_unwind)
-
-
 
 static void *asan_thread_start(void *arg) {
   AsanThread *t= (AsanThread*)arg;
@@ -258,28 +234,6 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
   CHECK(res == (void*)beg);
-}
-
-// ---------------------- return-local-reference-------------------- {{{1
-static AsanLock ref_ret_lock;
-static std::set<uintptr_t> ref_ret_pc_set;
-
-void __asan_check_pointer_ret(size_t ptr, size_t stack_top) {
-  int local_var;
-  size_t local_stack = (size_t)&local_var;
-  if (!(ptr <= stack_top && ptr >= local_stack)) return;
-  uintptr_t pc = GET_CALLER_PC();
-
-  ScopedLock lock(&ref_ret_lock);
-  // We want to report a warning only once for each guilty PC.
-  if (!ref_ret_pc_set.insert(pc).second) return;
-
-  Printf("WARNING: AddressSanitizer detected"
-         " return of a pointer to a local variable at pc %p\n"
-         "  Pointer: "PP"; stack_bottom: "PP", stack_top: "PP"\n"
-         "  NOTE: this may be a valid code\n",
-         pc, ptr, local_stack, stack_top);
-  AsanStackTrace::PrintCurrent(pc);
 }
 
 // ---------------------- Globals -------------------- {{{1
@@ -391,14 +345,14 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
   // Check the stack.
   AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
   if (t) {
-    Printf("Address "PP" is located %ld bytes below T%d's stack top",
-           addr, t->stack_top() - addr, t->tid());
-    int frame = TryToFindFrameForStackAddress(sp, bp, addr);
-    if (frame >= 0) {
-      Printf(" (allocated in frame #%d)\n", frame);
-    } else {
-      Printf("\n");
-    }
+    Printf("Address "PP" is located in frame <%s> of T%d's stack\n",
+           addr, t->FakeStack().GetFrameNameByAddr(addr), t->tid());
+//    int frame = TryToFindFrameForStackAddress(sp, bp, addr);
+//    if (frame >= 0) {
+//      Printf(" (allocated in frame #%d)\n", frame);
+//    } else {
+//      Printf("\n");
+//    }
     Printf("HINT: this may be a false positive if your program uses "
            "some custom stack unwind mechanism\n"
            "      (longjmp and C++ exceptions *are* supported)\n");
