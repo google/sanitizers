@@ -758,6 +758,7 @@ size_t __asan_total_mmaped() {
 size_t __asan_get_fake_stack(size_t size, const char *frame) {
   size_t res = AsanThread::GetCurrent()->FakeStack().GetChunk(size, frame);
   // Printf("__asan_get_fake_stack: %p %s\n", res, frame);
+  PoisonShadow(res, size, 0);
   return res;
 }
 
