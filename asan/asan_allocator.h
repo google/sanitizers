@@ -52,6 +52,28 @@ struct AsanThreadLocalMallocStorage {
   void CommitBack();
 };
 
+// For each thread we create a fake stack and place stack objects on this fake
+// stack instead of the real stack. The fake stack is not really a stack but
+// a ring buffer so that when a function exits the fake stack is not poped
+// but remains there for quite some time until the ring buffer cycles back.
+// So, we poison the objects on the fake stack when function returns.
+// It helps us find use-after-return bugs.
+class AsanFakeStack {
+ public:
+  AsanFakeStack() : size_(0), pos_(0), buffer_(0) { }
+  void Init(size_t size);
+  void Cleanup();
+  uintptr_t GetChunk(size_t chunk_size, const char *frame);
+  bool AddrIsInFakeStack(uintptr_t addr) {
+    return addr >= (uintptr_t)buffer_ && addr < (uintptr_t)(buffer_ + size_);
+  }
+  const char *GetFrameNameByAddr(uintptr_t addr);
+ private:
+  size_t size_;
+  size_t pos_;
+  char *buffer_;
+};
+
 extern "C" {
 void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack);
 void __asan_free(void *ptr, AsanStackTrace *stack);

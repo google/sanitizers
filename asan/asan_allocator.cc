@@ -755,6 +755,56 @@ size_t __asan_total_mmaped() {
 }
 
 // ---------------------- Fake stack-------------------- {{{1
+void AsanFakeStack::Init(size_t size) {
+  CHECK(size <= 16 * kMaxThreadStackSize);  // Remain sane.
+  CHECK(size_ == 0);
+  CHECK(size > 0);
+  size_ = size;
+  pos_ = 0;
+  buffer_ = (char*)__asan_mmap(0, size,
+                               PROT_READ | PROT_WRITE,
+                               MAP_PRIVATE | MAP_ANON, -1, 0);
+  CHECK(buffer_ != (char*)-1);
+}
+
+void AsanFakeStack::Cleanup() {
+  uintptr_t fake_shadow_bottom = MemToShadow((uintptr_t)buffer_);
+  uintptr_t fake_shadow_top = MemToShadow((uintptr_t)(buffer_ + size_));
+  memset((void*)fake_shadow_bottom, 0, fake_shadow_top - fake_shadow_bottom);
+
+  int munmap_res = munmap(buffer_, size_);
+  CHECK(munmap_res == 0);
+}
+
+static const uintptr_t kFrameNameMagic = 0x41B58AB3;
+
+uintptr_t AsanFakeStack::GetChunk(size_t chunk_size, const char *name) {
+  char *res;
+  if (pos_ + chunk_size <= size_) {
+    res = buffer_ + pos_;
+    pos_ += chunk_size;
+  } else {
+    res = buffer_;
+    pos_ = chunk_size;
+  }
+  uintptr_t *as_uintptr = (uintptr_t*)res;
+  as_uintptr[0] = kFrameNameMagic;
+  as_uintptr[1] = (uintptr_t)name;
+  return (uintptr_t)res;
+}
+
+const char *AsanFakeStack::GetFrameNameByAddr(uintptr_t addr) {
+  CHECK(AddrIsInFakeStack(addr));
+  addr &= ~(__WORDSIZE/8 - 1);  // allign addr.
+  uintptr_t *ptr = (uintptr_t*)addr;
+  while (ptr >= (uintptr_t*)buffer_) {
+    if (ptr[0] == kFrameNameMagic)
+      return (const char*)ptr[1];
+    ptr--;
+  }
+  return "UNKNOWN";
+}
+
 size_t __asan_get_fake_stack(size_t size, const char *frame) {
   size_t res = AsanThread::GetCurrent()->FakeStack().GetChunk(size, frame);
   // Printf("__asan_get_fake_stack: %p %s\n", res, frame);

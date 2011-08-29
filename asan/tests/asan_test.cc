@@ -963,6 +963,42 @@ TEST(AddressSanitizer, LocalReferenceReturnTest) {
   f();
 }
 
+__attribute__((noinline))
+static void FuncWithLargeStack() {
+  int LargeStack[800000];
+  Ident(LargeStack)[0] = 0;
+}
+static void LotsOfStackReuse() {
+  int LargeStack[100000];
+  Ident(LargeStack)[0] = 0;
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
+  Ident(LargeStack)[0] = 0;
+}
+
+TEST(AddressSanitizer, DISABLED_StressStackReuseTest) {
+  LotsOfStackReuse();
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {

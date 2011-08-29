@@ -24,57 +24,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-const size_t kMaxStackSize = 16 * (1 << 20);  // 16M
-
-void AsanFakeStack::Init(size_t size) {
-  CHECK(size <= 16 * kMaxStackSize);  // Remain sane.
-  CHECK(size_ == 0);
-  CHECK(size > 0);
-  size_ = size;
-  pos_ = 0;
-  buffer_ = (char*)__asan_mmap(0, size,
-                               PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANON, -1, 0);
-  CHECK(buffer_ != (char*)-1);
-}
-
-void AsanFakeStack::Cleanup() {
-  uintptr_t fake_shadow_bottom = MemToShadow((uintptr_t)buffer_);
-  uintptr_t fake_shadow_top = MemToShadow((uintptr_t)(buffer_ + size_));
-  memset((void*)fake_shadow_bottom, 0, fake_shadow_top - fake_shadow_bottom);
-
-  int munmap_res = munmap(buffer_, size_);
-  CHECK(munmap_res == 0);
-}
-
-static const uintptr_t kFrameNameMagic = 0x41B58AB3;
-
-uintptr_t AsanFakeStack::GetChunk(size_t chunk_size, const char *name) {
-  char *res;
-  if (pos_ + chunk_size <= size_) {
-    res = buffer_ + pos_;
-    pos_ += chunk_size;
-  } else {
-    res = buffer_;
-    pos_ = chunk_size;
-  }
-  uintptr_t *as_uintptr = (uintptr_t*)res;
-  as_uintptr[0] = kFrameNameMagic;
-  as_uintptr[1] = (uintptr_t)name;
-  return (uintptr_t)res;
-}
-
-const char *AsanFakeStack::GetFrameNameByAddr(uintptr_t addr) {
-  CHECK(AddrIsInFakeStack(addr));
-  addr &= ~(__WORDSIZE/8 - 1);  // allign addr.
-  uintptr_t *ptr = (uintptr_t*)addr;
-  while (ptr >= (uintptr_t*)buffer_) {
-    if (ptr[0] == kFrameNameMagic)
-      return (const char*)ptr[1];
-    ptr--;
-  }
-  return "UNKNOWN";
-}
 
 #ifdef __APPLE__
 static pthread_key_t g_tls_key;
@@ -188,10 +137,10 @@ void AsanThread::SetThreadStackTopAndBottom() {
   stack_bottom_ = (uintptr_t)stackaddr;
   // When running under the GNU make command, pthread_attr_getstack
   // returns garbage for a stacksize.
-  if (stacksize > kMaxStackSize) {
+  if (stacksize > kMaxThreadStackSize) {
     Printf("WARNING: pthread_attr_getstack returned "PP" as stacksize\n",
            stacksize);
-    stack_bottom_ = stack_top_ - kMaxStackSize;
+    stack_bottom_ = stack_top_ - kMaxThreadStackSize;
   }
   CHECK(AddrIsInStack((uintptr_t)&attr));
 #endif
