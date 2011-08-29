@@ -785,8 +785,6 @@ void AsanFakeStack::Cleanup() {
   CHECK(munmap_res == 0);
 }
 
-static const uintptr_t kFrameNameMagic = 0x41B58AB3;
-
 static bool allzero(const char *array, size_t size) {
   // TODO(kcc): make it faster.
   // TODO(kcc): maybe replace with a bit vector.

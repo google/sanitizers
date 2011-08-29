@@ -23,6 +23,7 @@
 #include "asan_stack.h"
 
 const size_t kMaxThreadStackSize = 16 * (1 << 20);  // 16M
+static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
 class AsanThread {
  public:
@@ -56,6 +57,8 @@ class AsanThread {
   size_t stack_size() { return stack_top_ - stack_bottom_; }
   int tid() { return tid_; }
 
+  const char *GetFrameNameByAddr(uintptr_t addr);
+
   AsanFakeStack &FakeStack() { return fake_stack_; }
 
   uintptr_t AddrIsInStack(uintptr_t addr) {
@@ -67,6 +70,9 @@ class AsanThread {
     AsanThread *t = live_threads_;
     do {
       if (t->FakeStack().AddrIsInFakeStack(addr)) {
+        return t;
+      }
+      if (t->AddrIsInStack(addr)) {
         return t;
       }
       t = t->next_;

@@ -117,6 +117,21 @@ void *AsanThread::ThreadStart() {
   return res;
 }
 
+const char *AsanThread::GetFrameNameByAddr(uintptr_t addr) {
+  if (FakeStack().AddrIsInFakeStack(addr)) {
+    return FakeStack().GetFrameNameByAddr(addr);
+  }
+  CHECK(AddrIsInStack(addr));
+  addr &= ~(__WORDSIZE/8 - 1);  // allign addr.
+  uintptr_t *ptr = (uintptr_t*)addr;
+  while (ptr >= (uintptr_t*)stack_bottom()) {
+    if (ptr[0] == kFrameNameMagic)
+      return (const char*)ptr[1];
+    ptr--;
+  }
+  return "UNKNOWN";
+}
+
 void AsanThread::SetThreadStackTopAndBottom() {
 #ifdef __APPLE__
   size_t stacksize = pthread_get_stacksize_np(pthread_self());

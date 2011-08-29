@@ -346,7 +346,7 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
   AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
   if (t) {
     Printf("Address "PP" is located in frame <%s> of T%d's stack\n",
-           addr, t->FakeStack().GetFrameNameByAddr(addr), t->tid());
+           addr, t->GetFrameNameByAddr(addr), t->tid());
 //    int frame = TryToFindFrameForStackAddress(sp, bp, addr);
 //    if (frame >= 0) {
 //      Printf(" (allocated in frame #%d)\n", frame);
