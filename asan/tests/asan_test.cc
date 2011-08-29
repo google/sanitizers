@@ -995,7 +995,7 @@ static void LotsOfStackReuse() {
   Ident(LargeStack)[0] = 0;
 }
 
-TEST(AddressSanitizer, DISABLED_StressStackReuseTest) {
+TEST(AddressSanitizer, StressStackReuseTest) {
   LotsOfStackReuse();
 }
 

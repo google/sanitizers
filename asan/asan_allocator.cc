@@ -755,42 +755,75 @@ size_t __asan_total_mmaped() {
 }
 
 // ---------------------- Fake stack-------------------- {{{1
+static const size_t kStackRedzoneSize = 32;
+static inline size_t FakeStackBitVectorSize(size_t fake_stack_size) {
+  return RoundUpTo((fake_stack_size / kStackRedzoneSize), kPageSize);
+}
+
+
 void AsanFakeStack::Init(size_t size) {
   CHECK(size <= 16 * kMaxThreadStackSize);  // Remain sane.
   CHECK(size_ == 0);
   CHECK(size > 0);
   size_ = size;
   pos_ = 0;
-  buffer_ = (char*)__asan_mmap(0, size,
+  char *res = (char*)__asan_mmap(0, size + FakeStackBitVectorSize(size),
                                PROT_READ | PROT_WRITE,
                                MAP_PRIVATE | MAP_ANON, -1, 0);
-  CHECK(buffer_ != (char*)-1);
+  CHECK(res != (char*)-1);
+  buffer_ = res + FakeStackBitVectorSize(size);
+  occupied_ = res;
 }
 
 void AsanFakeStack::Cleanup() {
-  uintptr_t fake_shadow_bottom = MemToShadow((uintptr_t)buffer_);
-  uintptr_t fake_shadow_top = MemToShadow((uintptr_t)(buffer_ + size_));
+  size_t map_size = size_ + FakeStackBitVectorSize(size_);
+  uintptr_t fake_shadow_bottom = MemToShadow((uintptr_t)occupied_);
+  uintptr_t fake_shadow_top = MemToShadow((uintptr_t)(occupied_ + map_size));
   memset((void*)fake_shadow_bottom, 0, fake_shadow_top - fake_shadow_bottom);
 
-  int munmap_res = munmap(buffer_, size_);
+  int munmap_res = munmap(occupied_, map_size);
   CHECK(munmap_res == 0);
 }
 
 static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
+static bool allzero(const char *array, size_t size) {
+  // TODO(kcc): make it faster.
+  // TODO(kcc): maybe replace with a bit vector.
+  for (size_t i = 0; i < size; i++)
+    if (array[i]) return false;
+  return true;
+}
+
 uintptr_t AsanFakeStack::GetChunk(size_t chunk_size, const char *name) {
-  char *res;
-  if (pos_ + chunk_size <= size_) {
-    res = buffer_ + pos_;
-    pos_ += chunk_size;
-  } else {
-    res = buffer_;
-    pos_ = chunk_size;
+  uintptr_t res = 0;
+  int i;
+  for (i = 0; i < 100; i++) {
+    if (pos_ + chunk_size <= size_) {
+      res = (uintptr_t)(buffer_ + pos_);
+      pos_ += chunk_size;
+    } else {
+      res = (uintptr_t)buffer_;
+      pos_ = chunk_size;
+    }
+    size_t offset = (res - (size_t)buffer_) / kStackRedzoneSize;
+    if (allzero(occupied_ + offset, chunk_size / kStackRedzoneSize)) {
+      memset(occupied_ + offset, 1, chunk_size / kStackRedzoneSize);
+      break;
+    }
   }
+  CHECK(i < 100);
   uintptr_t *as_uintptr = (uintptr_t*)res;
   as_uintptr[0] = kFrameNameMagic;
   as_uintptr[1] = (uintptr_t)name;
-  return (uintptr_t)res;
+  PoisonShadow(res, chunk_size, 0);
+  return res;
+}
+
+void AsanFakeStack::TakeChunkBack(size_t chunk, size_t chunk_size) {
+  size_t offset = (chunk - (size_t)buffer_) / kStackRedzoneSize;
+  memset(occupied_ + offset, 0, chunk_size / kStackRedzoneSize);
+  PoisonShadow(chunk, chunk_size, 0xf5);
 }
 
 const char *AsanFakeStack::GetFrameNameByAddr(uintptr_t addr) {
@@ -808,11 +841,10 @@ const char *AsanFakeStack::GetFrameNameByAddr(uintptr_t addr) {
 size_t __asan_get_fake_stack(size_t size, const char *frame) {
   size_t res = AsanThread::GetCurrent()->FakeStack().GetChunk(size, frame);
   // Printf("__asan_get_fake_stack: %p %s\n", res, frame);
-  PoisonShadow(res, size, 0);
   return res;
 }
 
 void __asan_poison_fake_stack(size_t ptr, size_t size) {
+  AsanThread::GetCurrent()->FakeStack().TakeChunkBack(ptr, size);
   // Printf("__asan_poison_fake_stack: %p %ld\n", ptr, size);
-  PoisonShadow(ptr, size, 0xf5);
 }

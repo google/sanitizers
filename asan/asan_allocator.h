@@ -64,6 +64,7 @@ class AsanFakeStack {
   void Init(size_t size);
   void Cleanup();
   uintptr_t GetChunk(size_t chunk_size, const char *frame);
+  void TakeChunkBack(size_t chunk, size_t chunk_size);
   bool AddrIsInFakeStack(uintptr_t addr) {
     return addr >= (uintptr_t)buffer_ && addr < (uintptr_t)(buffer_ + size_);
   }
@@ -72,6 +73,7 @@ class AsanFakeStack {
   size_t size_;
   size_t pos_;
   char *buffer_;
+  char *occupied_;  // vector of bools.
 };
 
 extern "C" {
