@@ -51,6 +51,9 @@
 #endif
 // must not include <setjmp.h> on Linux
 
+#ifndef ASAN_NEEDS_SEGV
+# define ASAN_NEEDS_SEGV 1
+#endif
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
@@ -913,6 +916,7 @@ void GetPcSpBpAx(void *context,
 #endif
 }
 
+#ifdef ASAN_NEEDS_SEGV
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
   // Write the first message using the bullet-proof write.
@@ -930,6 +934,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   AsanStackTrace::PrintCurrent(pc);  // try slow unwind.
   ShowStatsAndAbort();
 }
+#endif  // ASAN_NEEDS_SEGV
 
 static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
                               uintptr_t addr, unsigned access_size_and_type) {
@@ -1113,11 +1118,14 @@ void __asan_init() {
 #endif
 
   struct sigaction sigact;
+
+#ifdef ASAN_NEEDS_SEGV
   // Set the SIGSEGV handler.
   memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = ASAN_OnSIGSEGV;
   sigact.sa_flags = SA_SIGINFO;
   CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
+#endif  // ASAN_NEEDS_SEGV
 
 #ifdef __APPLE__
   // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
