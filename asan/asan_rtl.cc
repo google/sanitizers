@@ -916,7 +916,7 @@ void GetPcSpBpAx(void *context,
 #endif
 }
 
-#ifdef ASAN_NEEDS_SEGV
+#if ASAN_NEEDS_SEGV
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
   // Write the first message using the bullet-proof write.
@@ -1119,7 +1119,7 @@ void __asan_init() {
 
   struct sigaction sigact;
 
-#ifdef ASAN_NEEDS_SEGV
+#if ASAN_NEEDS_SEGV
   // Set the SIGSEGV handler.
   memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = ASAN_OnSIGSEGV;
