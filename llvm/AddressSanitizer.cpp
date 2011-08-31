@@ -57,6 +57,8 @@ static const uint64_t kDefaultShadowScale = 3;
 static const uint64_t kDefaultShadowOffset32 = 29;
 static const uint64_t kDefaultShadowOffset64 = 44;
 
+static const size_t kMaxStackMallocSize = 1 << 16;  // 64K
+
 // Command-line flags.
 
 // (potentially) user-visible flags.
@@ -68,6 +70,8 @@ static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
        cl::desc("instrument write instructions"), cl::init(true));
 static cl::opt<bool> ClStack("asan-stack",
        cl::desc("Handle stack memory"), cl::init(true));
+static cl::opt<bool> ClUseAfterReturn("asan-use-after-return",
+       cl::desc("Check return-after-free"), cl::init(false));
 static cl::opt<bool> ClGlobals("asan-globals",
 #ifndef __APPLE__
        cl::desc("Handle global objects"), cl::init(true));
@@ -879,6 +883,8 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
   }
 }
 
+static const uintptr_t kFrameNameMagic = 0x41B58AB3;
+
 // Find all static Alloca instructions and put
 // poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
@@ -915,15 +921,37 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
 
   uint64_t LocalStackSize = total_size + (alloca_v.size() + 1) * RedzoneSize;
 
+  bool DoStackMalloc = ClUseAfterReturn
+      && LocalStackSize <= kMaxStackMallocSize;
+
   Instruction *ins_before = alloca_v[0];
   IRBuilder<> irb(ins_before->getParent(), ins_before);
 
-  Value *GetFakeStack = M.getOrInsertFunction(
-      "__asan_get_fake_stack", LongTy, LongTy, LongTy, NULL);
   Value *FunctionName = createPrivateGlobalForString(M, F.getName());
-  Value *LocalStackBase = irb.CreateCall2(
-      GetFakeStack, ConstantInt::get(LongTy, LocalStackSize),
-      irb.CreatePointerCast(FunctionName, LongTy));
+  FunctionName = irb.CreatePointerCast(FunctionName, LongTy);
+  Value *LocalStackBase = NULL;
+  if (DoStackMalloc) {
+    Value *AsanStackMallocFunc = M.getOrInsertFunction(
+        "__asan_stack_malloc", LongTy, LongTy, NULL);
+    LocalStackBase = irb.CreateCall(AsanStackMallocFunc,
+        ConstantInt::get(LongTy, LocalStackSize));
+  } else {
+    Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
+    AllocaInst *my_alloca =
+        new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
+    my_alloca->setAlignment(RedzoneSize);
+    assert(my_alloca->isStaticAlloca());
+    LocalStackBase = irb.CreatePointerCast(my_alloca, LongTy);
+  }
+
+  // Write the magic value and the function name constant to the redzone.
+  Value *BasePlus0 = irb.CreateIntToPtr(LocalStackBase, LongPtrTy);
+  Value *BasePlus1 = irb.CreateAdd(LocalStackBase,
+                                   ConstantInt::get(LongTy, LongSize/8));
+  BasePlus1 = irb.CreateIntToPtr(BasePlus1, LongPtrTy);
+  irb.CreateStore(ConstantInt::get(LongTy, kFrameNameMagic), BasePlus0);
+  irb.CreateStore(FunctionName, BasePlus1);
+
   uint64_t pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < alloca_v.size(); i++) {
@@ -943,15 +971,22 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *shadow_base = memToShadow(LocalStackBase, irb);
   PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb, shadow_base, true);
 
-  Value *PoisonFakeStack = M.getOrInsertFunction(
-      "__asan_poison_fake_stack", LongTy, LongTy, LongTy, NULL);
+  Value *AsanStackFreeFunc = NULL;
+  if (DoStackMalloc) {
+    AsanStackFreeFunc = M.getOrInsertFunction(
+        "__asan_stack_free", VoidTy, LongTy, LongTy, NULL);
+  }
 
   // Unpoison the stack before all ret instructions.
   for (size_t i = 0; i < ret_v.size(); i++) {
     Instruction *ret = ret_v[i];
     IRBuilder<> irb_ret(ret->getParent(), ret);
-    irb_ret.CreateCall2(PoisonFakeStack, LocalStackBase,
-                        ConstantInt::get(LongTy, LocalStackSize));
+    if (DoStackMalloc) {
+      irb_ret.CreateCall2(AsanStackFreeFunc, LocalStackBase,
+                          ConstantInt::get(LongTy, LocalStackSize));
+    } else {
+      PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb_ret, shadow_base, false);
+    }
   }
 
   if (ClDebugStack)

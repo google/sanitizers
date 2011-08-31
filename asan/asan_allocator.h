@@ -60,20 +60,18 @@ struct AsanThreadLocalMallocStorage {
 // It helps us find use-after-return bugs.
 class AsanFakeStack {
  public:
-  AsanFakeStack() : size_(0), pos_(0), buffer_(0) { }
+  AsanFakeStack() : size_(0), fake_stack_(0) { }
   void Init(size_t size);
   void Cleanup();
-  uintptr_t GetChunk(size_t chunk_size, const char *frame);
-  void TakeChunkBack(size_t chunk, size_t chunk_size);
+  uintptr_t AllocateStack(size_t size);
+  void DeallocateStack(uintptr_t ptr, size_t size);
   bool AddrIsInFakeStack(uintptr_t addr) {
-    return addr >= (uintptr_t)buffer_ && addr < (uintptr_t)(buffer_ + size_);
+    return addr >= fake_stack_ && addr < (fake_stack_ + size_);
   }
-  const char *GetFrameNameByAddr(uintptr_t addr);
+  uintptr_t Bottom() { return fake_stack_; }
  private:
   size_t size_;
-  size_t pos_;
-  char *buffer_;
-  char *occupied_;  // vector of bools.
+  uintptr_t fake_stack_;
 };
 
 extern "C" {
