@@ -687,38 +687,200 @@ TEST(AddressSanitizer, Store128Test) {
   free(a);
 }
 
-TEST(AddressSanitizer, MemIntrinTest) {
+static std::string RightOOBErrorMessage(int oob_distance) {
+  assert(oob_distance >= 0);
+  char expected_str[100];
+  sprintf(expected_str, "located %d bytes to the right", oob_distance);
+  return std::string(expected_str);
+}
+
+static std::string LeftOOBErrorMessage(int oob_distance) {
+  assert(oob_distance > 0);
+  char expected_str[100];
+  sprintf(expected_str, "located %d bytes to the left", oob_distance);
+  return std::string(expected_str);
+}
+
+template<class T>
+void MemSetOOBTestTemplate(size_t length) {
+  if (length == 0) return;
+  size_t size = Ident(sizeof(T) * length);
+  T *array = Ident((T*)malloc(size));
+  int element = Ident(42);
+  int zero = Ident(0);
+  // memset interval inside array
+  memset(array, element, size);
+  memset(array, element, size - 1);
+  memset(array + length - 1, element, sizeof(T));
+  memset(array, element, 1);
+
+  // memset 0 bytes
+  memset(array - 10, element, zero);
+  memset(array - 1, element, zero);
+  memset(array, element, zero);
+  memset(array + length, 0, zero);
+  memset(array + length + 1, 0, zero);
+
+  // try to memset bytes to the right of array
+  EXPECT_DEATH(memset(array, 0, size + 1),
+               RightOOBErrorMessage(0));
+  EXPECT_DEATH(memset((char*)(array + length) - 1, element, 6),
+               RightOOBErrorMessage(4));
+  EXPECT_DEATH(memset(array + 1, element, size + sizeof(T)),
+               RightOOBErrorMessage(2 * sizeof(T) - 1));
+  // whole interval is to the right
+  EXPECT_DEATH(memset(array + length + 1, 0, 10),
+               RightOOBErrorMessage(sizeof(T)));
+
+  // try to memset bytes to the left of array
+  EXPECT_DEATH(memset((char*)array - 1, element, size),
+               LeftOOBErrorMessage(1));
+  EXPECT_DEATH(memset((char*)array - 5, 0, 6),
+               LeftOOBErrorMessage(5));
+  EXPECT_DEATH(memset(array - 5, element, size + 5 * sizeof(T)),
+               LeftOOBErrorMessage(5 * sizeof(T)));
+  // whole interval is to the left
+  EXPECT_DEATH(memset(array - 2, 0, sizeof(T)),
+               LeftOOBErrorMessage(2 * sizeof(T)));
+
+  // try to memset bytes both to the left & to the right
+  EXPECT_DEATH(memset((char*)array - 2, element, size + 4),
+               LeftOOBErrorMessage(2));
+
+  free(array);
+}
+
+TEST(AddressSanitizer, MemSetOOBTest) {
+  MemSetOOBTestTemplate<char>(100);
+  MemSetOOBTestTemplate<int>(5);
+  MemSetOOBTestTemplate<double>(256);
+  // We can test arrays of structres/classes here, but what for?
+}
+
+// Same test for memcpy and memmove functions
+template <class T, class M>
+void MemTransferOOBTestTemplate(size_t length) {
+  if (length == 0) return;
+  size_t size = Ident(sizeof(T) * length);
+  T *src = Ident((T*)malloc(size));
+  T *dest = Ident((T*)malloc(size));
+  int zero = Ident(0);
+
+  // valid transfer of bytes between arrays
+  M::transfer(dest, src, size);
+  M::transfer(dest + 1, src, size - sizeof(T));
+  M::transfer(dest, src + length - 1, sizeof(T));
+  M::transfer(dest, src, 1);
+
+  // transfer zero bytes
+  M::transfer(dest - 1, src, 0);
+  M::transfer(dest + length, src, zero);
+  M::transfer(dest, src - 1, zero);
+  M::transfer(dest, src, zero);
+
+  // try to change mem to the right of dest
+  EXPECT_DEATH(M::transfer(dest + 1, src, size),
+               RightOOBErrorMessage(sizeof(T) - 1));
+  EXPECT_DEATH(M::transfer((char*)(dest + length) - 1, src, 5),
+               RightOOBErrorMessage(3));
+
+  // try to change mem to the left of dest
+  EXPECT_DEATH(M::transfer(dest - 2, src, size),
+               LeftOOBErrorMessage(2 * sizeof(T)));
+  EXPECT_DEATH(M::transfer((char*)dest - 3, src, 4),
+               LeftOOBErrorMessage(3));
+
+  // try to access mem to the right of src
+  EXPECT_DEATH(M::transfer(dest, src + 2, size),
+               RightOOBErrorMessage(2 * sizeof(T) - 1));
+  EXPECT_DEATH(M::transfer(dest, (char*)(src + length) - 3, 6),
+               RightOOBErrorMessage(2));
+
+  // try to access mem to the left of src
+  EXPECT_DEATH(M::transfer(dest, src - 1, size),
+               LeftOOBErrorMessage(sizeof(T)));
+  EXPECT_DEATH(M::transfer(dest, (char*)src - 6, 7),
+               LeftOOBErrorMessage(6));
+
+  // Generally we don't need to test cases where both accessing src and writing
+  // to dest address to poisoned memory.
+
+  T *big_src = Ident((T*)malloc(size * 2));
+  T *big_dest = Ident((T*)malloc(size * 2));
+  // try to change mem to both sides of dest
+  EXPECT_DEATH(M::transfer(dest - 1, big_src, size * 2),
+               LeftOOBErrorMessage(sizeof(T)));
+  // try to access mem to both sides of src
+  EXPECT_DEATH(M::transfer(big_dest, src - 2, size * 2),
+               LeftOOBErrorMessage(2 * sizeof(T)));
+
+  free(src);
+  free(dest);
+  free(big_src);
+  free(big_dest);
+}
+
+class MemCpyWrapper {
+ public:
+  static void* transfer(void *to, const void *from, size_t size) {
+    return memcpy(to, from, size);
+  }
+};
+TEST(AddressSanitizer, MemCpyOOBTest) {
+  MemTransferOOBTestTemplate<char, MemCpyWrapper>(100);
+  MemTransferOOBTestTemplate<int, MemCpyWrapper>(1024);
+}
+
+class MemMoveWrapper {
+ public:
+  static void* transfer(void *to, const void *from, size_t size) {
+    return memmove(to, from, size);
+  }
+};
+TEST(AddressSanitizer, MemMoveOOBTest) {
+  MemTransferOOBTestTemplate<char, MemMoveWrapper>(100);
+  MemTransferOOBTestTemplate<int, MemMoveWrapper>(1024);
+}
+
+// At the moment we instrument memcpy/memove/memset calls at compile time so we
+// can't handle OOB error if these functions are called by pointer, see disabled
+// MemIntrinsicCallByPointerTest below
+typedef void*(*PointerToMemTransfer)(void*, const void*, size_t);
+typedef void*(*PointerToMemSet)(void*, int, size_t);
+
+void CallMemSetByPointer(PointerToMemSet MemSet) {
+  size_t size = Ident(100);
+  char *array = Ident((char*)malloc(size));
+  EXPECT_DEATH(MemSet(array, 0, 101), RightOOBErrorMessage(0));
+  free(array);
+}
+
+void CallMemTransferByPointer(PointerToMemTransfer MemTransfer) {
   size_t size = Ident(100);
   char *src = Ident((char*)malloc(size));
   char *dst = Ident((char*)malloc(size));
-  memset(src, 0, size);
-  size_t zero = Ident(0);
-
-  EXPECT_DEATH(memset(src, 0, 101), "located 0 bytes to the right");
-  EXPECT_DEATH(memset(src, 0, 105), "located 4 bytes to the right");
-  EXPECT_DEATH(memset(src - 1, 0, 100), "located 1 bytes to the left");
-  EXPECT_DEATH(memset(src - 5, 0, 100), "located 5 bytes to the left");
-
-  EXPECT_DEATH(memset(src, 0, size + 5), "located 4 bytes to the right");
-  EXPECT_DEATH(memset(src - 5, 0, size), "located 5 bytes to the left");
-
-  memset(src-10, 0, zero);
-  memset(src+104, 0, zero);
-
-  memcpy(dst, src, size);
-  memcpy(src, dst, 100);
-  memmove(dst, src, size);
-  memmove(src, dst, 100);
-
-  EXPECT_DEATH(memcpy(src, dst, 101), "located 0 bytes to the right");
-  EXPECT_DEATH(memcpy(src-1, dst, size), "located 1 bytes to the left");
-  EXPECT_DEATH(memmove(src, dst-1, 5), "located 1 bytes to the left");
-  EXPECT_DEATH(memmove(src, dst+10, 100), "located 9 bytes to the right");
-
-
+  EXPECT_DEATH(MemTransfer(dst, src, 101), RightOOBErrorMessage(0));
   free(src);
   free(dst);
 }
+
+TEST(AddressSanitizer, DISABLED_MemIntrinsicCallByPointerTest) {
+  CallMemSetByPointer(&memset);
+  CallMemTransferByPointer(&memcpy);
+  CallMemTransferByPointer(&memmove);
+}
+
+// This test case fails
+// Clang optimizes memcpy/memset calls which lead to unaligned access
+TEST(AddressSanitizer, DISABLED_MemIntrinsicUnalignedAccessTest) {
+  int size = Ident(4096);
+  char *s = Ident((char*)malloc(size));
+  EXPECT_DEATH(memset(s + size - 1, 0, 2), RightOOBErrorMessage(0));
+  free(s);
+}
+
+// TODO(samsonov): Add a test with malloc(0)
+// TODO(samsonov): Add tests for str* and mem* functions.
 
 __attribute__((noinline))
 static int LargeFunction(bool do_bad_access) {
