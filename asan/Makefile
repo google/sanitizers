@@ -136,12 +136,14 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
-		-DASAN_USE_SYSINFO=1
+		-DASAN_USE_SYSINFO=1 \
+		$(ASAN_FLAGS)
 
 $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile
 	$(CC) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
-		-DASAN_USE_SYSINFO=1
+		-DASAN_USE_SYSINFO=1 \
+		$(ASAN_FLAGS)
 
 ifeq ($(PLATFORM),Darwin)
 LD_FLAGS=-framework Foundation
