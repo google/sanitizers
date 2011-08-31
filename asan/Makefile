@@ -96,12 +96,20 @@ $(BIN):
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
-install:
+install_pre:
 	rm -rf $(INSTALL_DIR)
 	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/bin $(INSTALL_DIR)/lib
 	for f in clang; do cp $(CLANG_BUILD)/bin/$$f $(INSTALL_DIR)/bin/$$f; done
+
+install: install_pre
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
+
+# Use this target if you want only the 32-bit version to be installed.
+install32: install_pre
+	for f in clang libasan32.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
+	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
+
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
 	$(CLEANROOM_CXX) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
