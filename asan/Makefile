@@ -183,7 +183,7 @@ RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/he
 # TODO(kcc): remove these filters one by one
 TEST_LINT_FITLER=-readability/casting,-build/include,-legal/copyright,-whitespace/newline,-runtime/sizeof,-runtime/int,-runtime/printf
 
-LLVM_LINT_FILTER=whitespace
+LLVM_LINT_FILTER=-,+whitespace
 
 lint:
 	../third_party/cpplint/cpplint.py --filter=$(LLVM_LINT_FILTER) ../llvm/AddressSanitizer.cpp

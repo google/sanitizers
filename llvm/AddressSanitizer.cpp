@@ -158,7 +158,7 @@ struct AddressSanitizer : public ModulePass {
   bool insertGlobalRedzones(Module &M);
   void appendToGlobalCtors(Module &M, Function *f);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *cmp);
-  static char ID; // Pass identification, replacement for typeid
+  static char ID;  // Pass identification, replacement for typeid
 
  private:
 
@@ -395,7 +395,7 @@ Instruction *AddressSanitizer::generateCrashCode(
 
   std::string asm_str = "ud2;";
   asm_str += telltale_insns[telltale_value];
-  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str), 
+  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str),
                                  StringRef(""), true);
   CallInst *asm_call = irb.CreateCall(my_asm);
 
@@ -480,22 +480,22 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
       i32Ty, PointerType::getUnqual(FnTy), NULL);
 
   Constant *RuntimeCtorInit = ConstantStruct::get(
-      ty, ConstantInt::get (i32Ty, 65535), f, NULL);
+      ty, ConstantInt::get(i32Ty, 65535), f, NULL);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
   std::vector<Constant *> CurrentCtors;
-  GlobalVariable * GVCtor = M.getNamedGlobal ("llvm.global_ctors");
+  GlobalVariable * GVCtor = M.getNamedGlobal("llvm.global_ctors");
   if (GVCtor) {
     CurrentCtors.push_back(RuntimeCtorInit);
     if (Constant *Const = GVCtor->getInitializer()) {
       for (unsigned index = 0; index < Const->getNumOperands(); ++index) {
-        CurrentCtors.push_back (cast<Constant>(Const->getOperand (index)));
+        CurrentCtors.push_back(cast<Constant>(Const->getOperand(index)));
       }
     }
     // Rename the global variable so that we can name our global
     // llvm.global_ctors.
-    GVCtor->setName ("removed");
+    GVCtor->setName("removed");
     GVCtor->eraseFromParent();
   }
 
@@ -503,18 +503,18 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *f) {
   CurrentCtors.push_back(RuntimeCtorInit);
 
   // Create a new initializer.
-  ArrayType * AT = ArrayType::get (RuntimeCtorInit->getType(),
+  ArrayType *AT = ArrayType::get(RuntimeCtorInit->getType(),
                                          CurrentCtors.size());
-  Constant *NewInit = ConstantArray::get (AT, CurrentCtors);
+  Constant *NewInit = ConstantArray::get(AT, CurrentCtors);
 
   // Create the new llvm.global_ctors global variable and replace all uses of
   // the old global variable with the new one.
-  new GlobalVariable (M,
-                      NewInit->getType(),
-                      false,
-                      GlobalValue::AppendingLinkage,
-                      NewInit,
-                      "llvm.global_ctors");
+  new GlobalVariable(M,
+                     NewInit->getType(),
+                     false,
+                     GlobalValue::AppendingLinkage,
+                     NewInit,
+                     "llvm.global_ctors");
 }
 
 // This function replaces all global variables with new variables that have
@@ -595,10 +595,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         Function::ExternalLinkage);
 
     irb.CreateCall3(asan_register_global,
-                   irb.CreatePointerCast(new_global, LongTy),
-                   ConstantInt::get(LongTy, size_in_bytes),
-                   irb.CreatePointerCast(orig_name_glob, LongTy)
-                   );
+                    irb.CreatePointerCast(new_global, LongTy),
+                    ConstantInt::get(LongTy, size_in_bytes),
+                    irb.CreatePointerCast(orig_name_glob, LongTy));
 
     if (ClDebug) {
       errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
@@ -619,7 +618,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
   return false;
 }
-//virtual
+
+// virtual
 bool AddressSanitizer::runOnModule(Module &M) {
   if (!ClAsan) return false;
   // Initialize the private fields. No one has accessed them before.
@@ -745,10 +745,10 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
         Value *addr = getLDSTOperand(BI);
         if (ClOpt && ClOptSameTemp) {
           if (!temps_to_instrument.insert(addr))
-            continue; // We've seen this temp in the current BB.
+            continue;  // We've seen this temp in the current BB.
         }
       } else if (isa<MemIntrinsic>(BI) && ClMemIntrin) {
-        ; // ok, take it.
+        // ok, take it.
       } else {
         if (isa<CallInst>(BI)) {
           // A call inside BB.
@@ -823,7 +823,7 @@ static void PoisonShadowPartialRightRedzone(unsigned char *shadow,
   }
 }
 
-void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, 
+void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
                                    IRBuilder<> irb,
                                    Value *shadow_base, bool do_poison) {
   uint8_t poison_left_byte  = MappingScale == 7 ? 0xff : 0xf1;
