@@ -718,21 +718,21 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
     return false;
   // We want to instrument every address only once per basic block
   // (unless there are calls between uses).
-  SmallSet<Value*, 16> temps_to_instrument;
-  SmallVector<Instruction*, 16> to_instrument;
+  SmallSet<Value*, 16> TempsToInstrument;
+  SmallVector<Instruction*, 16> ToInstrument;
 
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
     if (blockOrItsSuccHasException(*FI)) continue;
-    temps_to_instrument.clear();
+    TempsToInstrument.clear();
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
           (isa<StoreInst>(BI) && ClInstrumentWrites)) {
         Value *Addr = getLDSTOperand(BI);
         if (ClOpt && ClOptSameTemp) {
-          if (!temps_to_instrument.insert(Addr))
+          if (!TempsToInstrument.insert(Addr))
             continue;  // We've seen this temp in the current BB.
         }
       } else if (isa<MemIntrinsic>(BI) && ClMemIntrin) {
@@ -740,31 +740,31 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
       } else {
         if (isa<CallInst>(BI)) {
           // A call inside BB.
-          temps_to_instrument.clear();
+          TempsToInstrument.clear();
         }
         continue;
       }
-      to_instrument.push_back(BI);
+      ToInstrument.push_back(BI);
     }
   }
 
   // Instrument.
-  int n_instrumented = 0;
-  for (size_t i = 0, n = to_instrument.size(); i != n; i++) {
-    Instruction *Inst = to_instrument[i];
+  int NumInstrumented = 0;
+  for (size_t i = 0, n = ToInstrument.size(); i != n; i++) {
+    Instruction *Inst = ToInstrument[i];
     if (ClDebugMin < 0 || ClDebugMax < 0 ||
-        (n_instrumented >= ClDebugMin && n_instrumented <= ClDebugMax)) {
+        (NumInstrumented >= ClDebugMin && NumInstrumented <= ClDebugMax)) {
       if (isa<StoreInst>(Inst) || isa<LoadInst>(Inst))
         instrumentMop(Inst);
       else
         instrumentMemIntrinsic(cast<MemIntrinsic>(Inst));
     }
-    n_instrumented++;
+    NumInstrumented++;
   }
 
   DEBUG(dbgs() << F);
 
-  bool changed_stack = poisonStackInFunction(M, F);
+  bool ChangedStack = poisonStackInFunction(M, F);
 
 #ifdef __APPLE__
   // In order to handle the +load methods correctly,
@@ -773,39 +773,39 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   if (F.getNameStr().find(" load]") != std::string::npos) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
-    Value *asan_init = F.getParent()->getOrInsertFunction(kAsanInitName,
+    Value *AsanInit = F.getParent()->getOrInsertFunction(kAsanInitName,
                                                           VoidTy, NULL);
-    cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
-    CallInst::Create(asan_init, "", Before);
+    cast<Function>(AsanInit)->setLinkage(Function::ExternalLinkage);
+    CallInst::Create(AsanInit, "", Before);
     F.dump();
   }
 #endif
 
-  return n_instrumented > 0 || changed_stack;
+  return NumInstrumented > 0 || ChangedStack;
 }
 
-static uint64_t ValueForPoison(uint64_t poison_byte, size_t ShadowRedzoneSize) {
-  if (ShadowRedzoneSize == 1) return poison_byte;
-  if (ShadowRedzoneSize == 2) return (poison_byte << 8) + poison_byte;
+static uint64_t ValueForPoison(uint64_t PoisonByte, size_t ShadowRedzoneSize) {
+  if (ShadowRedzoneSize == 1) return PoisonByte;
+  if (ShadowRedzoneSize == 2) return (PoisonByte << 8) + PoisonByte;
   if (ShadowRedzoneSize == 4)
-    return (poison_byte << 24) + (poison_byte << 16) +
-        (poison_byte << 8) + (poison_byte);
+    return (PoisonByte << 24) + (PoisonByte << 16) +
+        (PoisonByte << 8) + (PoisonByte);
   assert(0 && "ShadowRedzoneSize is either 1, 2 or 4");
 }
 
-static void PoisonShadowPartialRightRedzone(unsigned char *shadow,
+static void PoisonShadowPartialRightRedzone(unsigned char *Shadow,
                                             unsigned long Size,
-                                            unsigned long redzone_size,
-                                            unsigned long shadow_granularity,
-                                            unsigned char magic) {
-  for (unsigned long i = 0; i < redzone_size;
-       i+= shadow_granularity, shadow++) {
-    if (i + shadow_granularity <= Size) {
-      *shadow = 0;  // fully addressable
+                                            unsigned long RedzoneSize,
+                                            unsigned long ShadowGranularity,
+                                            unsigned char Magic) {
+  for (unsigned long i = 0; i < RedzoneSize;
+       i+= ShadowGranularity, Shadow++) {
+    if (i + ShadowGranularity <= Size) {
+      *Shadow = 0;  // fully addressable
     } else if (i >= Size) {
-      *shadow = (shadow_granularity == 128) ? 0xff : magic;  // unaddressable
+      *Shadow = (ShadowGranularity == 128) ? 0xff : Magic;  // unaddressable
     } else {
-      *shadow = Size - i;  // first Size-i bytes are addressable
+      *Shadow = Size - i;  // first Size-i bytes are addressable
     }
   }
 }
@@ -931,7 +931,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     LocalStackBase = IRB.CreatePointerCast(my_alloca, LongTy);
   }
 
-  // Write the magic value and the function name constant to the redzone.
+  // Write the Magic value and the function name constant to the redzone.
   Value *BasePlus0 = IRB.CreateIntToPtr(LocalStackBase, LongPtrTy);
   Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
                                    ConstantInt::get(LongTy, LongSize/8));
@@ -987,34 +987,34 @@ BlackList::BlackList(const std::string &Path) {
   Functions = NULL;
   const char *kFunPrefix = "fun:";
   if (!ClBlackListFile.size()) return;
-  std::string fun;
+  std::string Fun;
 
   OwningPtr<MemoryBuffer> File;
-  if (error_code ec = MemoryBuffer::getFile(ClBlackListFile.c_str(), File)) {
-    errs() << ec.message();
+  if (error_code EC = MemoryBuffer::getFile(ClBlackListFile.c_str(), File)) {
+    errs() << EC.message();
     exit(1);
   }
-  MemoryBuffer *buff = File.take();
-  const char *data = buff->getBufferStart();
-  size_t data_len = buff->getBufferSize();
-  SmallVector<StringRef, 16> lines;
-  SplitString(StringRef(data, data_len), lines, "\n\r");
-  for (size_t i = 0; i < lines.size(); i++) {
-    if (lines[i].startswith(kFunPrefix)) {
-      std::string this_fun = lines[i].substr(strlen(kFunPrefix));
-      if (fun.size()) {
-        fun += "|";
+  MemoryBuffer *Buff = File.take();
+  const char *Data = Buff->getBufferStart();
+  size_t DataLen = Buff->getBufferSize();
+  SmallVector<StringRef, 16> Lines;
+  SplitString(StringRef(Data, DataLen), Lines, "\n\r");
+  for (size_t i = 0; i < Lines.size(); i++) {
+    if (Lines[i].startswith(kFunPrefix)) {
+      std::string ThisFunc = Lines[i].substr(strlen(kFunPrefix));
+      if (Fun.size()) {
+        Fun += "|";
       }
-      // add this_fun replacing * with .*
-      for (size_t j = 0; j < this_fun.size(); j++) {
-        if (this_fun[j] == '*')
-          fun += '.';
-        fun += this_fun[j];
+      // add ThisFunc replacing * with .*
+      for (size_t j = 0; j < ThisFunc.size(); j++) {
+        if (ThisFunc[j] == '*')
+          Fun += '.';
+        Fun += ThisFunc[j];
       }
     }
   }
-  if (fun.size()) {
-    Functions = new Regex(fun);
+  if (Fun.size()) {
+    Functions = new Regex(Fun);
   }
 }
 
