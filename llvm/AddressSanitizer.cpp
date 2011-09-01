@@ -31,6 +31,7 @@
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/DataTypes.h"
 #include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Regex.h"
@@ -42,8 +43,6 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Type.h"
 
-#include <stdint.h>
-#include <stdio.h>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -134,23 +133,23 @@ static const char *kAsanModuleCtorName = "asan.module_ctor";
 // http://code.google.com/p/data-race-test/wiki/ThreadSanitizerIgnores
 class BlackList {
  public:
-  BlackList(const std::string &path);
+  BlackList(const std::string &Path);
   bool IsIn(const Function &F);
  private:
-  Regex *functions;
+  Regex *Functions;
 };
 
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
-  void instrumentMop(Instruction *mop);
+  void instrumentMop(Instruction *Ins);
   void instrumentAddress(Instruction *orig_mop, IRBuilder<> &irb,
-                         Value *Addr, size_t type_size, bool is_w);
+                         Value *Addr, size_t type_size, bool IsWrite);
   Instruction *generateCrashCode(IRBuilder<> &irb, Value *Addr,
                                  int telltale_value);
   bool instrumentMemIntrinsic(MemIntrinsic *mem_intr);
   void instrumentMemIntrinsicParam(Instruction *orig_mop, Value *addr,
                                    Value *size,
-                                   Instruction *insert_before, bool is_w);
+                                   Instruction *insert_before, bool IsWrite);
   Value *memToShadow(Value *Shadow, IRBuilder<> &irb);
   bool handleFunction(Module &M, Function &F);
   bool poisonStackInFunction(Module &M, Function &F);
@@ -270,11 +269,11 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &irb) {
 }
 
 void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
-    Value *addr, Value *size, Instruction *insert_before, bool is_w) {
+    Value *addr, Value *size, Instruction *insert_before, bool IsWrite) {
   // Check the first byte.
   {
     IRBuilder<> irb(insert_before->getParent(), insert_before);
-    instrumentAddress(orig_mop, irb, addr, 8, is_w);
+    instrumentAddress(orig_mop, irb, addr, 8, IsWrite);
   }
   // Check the last byte.
   {
@@ -284,7 +283,7 @@ void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *orig_mop,
     size_minus_one = irb.CreateIntCast(size_minus_one, LongTy, false);
     Value *addr_long = irb.CreatePointerCast(addr, LongTy);
     Value *addr_plus_size_minus_one = irb.CreateAdd(addr_long, size_minus_one);
-    instrumentAddress(orig_mop, irb, addr_plus_size_minus_one, 8, is_w);
+    instrumentAddress(orig_mop, irb, addr_plus_size_minus_one, 8, IsWrite);
   }
 }
 
@@ -322,9 +321,9 @@ static Value *getLDSTOperand(Instruction *inst) {
   return cast<StoreInst>(*inst).getPointerOperand();
 }
 
-void AddressSanitizer::instrumentMop(Instruction *mop) {
-  int is_w = !!isa<StoreInst>(*mop);
-  Value *Addr = getLDSTOperand(mop);
+void AddressSanitizer::instrumentMop(Instruction *Ins) {
+  int IsWrite = isa<StoreInst>(*Ins);
+  Value *Addr = getLDSTOperand(Ins);
   if (ClOpt && ClOptGlobals && isa<GlobalVariable>(Addr)) {
     // We are accessing a global scalar variable. Nothing to catch here.
     return;
@@ -341,8 +340,8 @@ void AddressSanitizer::instrumentMop(Instruction *mop) {
     return;
   }
 
-  IRBuilder<> irb1(mop->getParent(), mop);
-  instrumentAddress(mop, irb1, Addr, type_size, is_w);
+  IRBuilder<> irb1(Ins->getParent(), Ins);
+  instrumentAddress(Ins, irb1, Addr, type_size, IsWrite);
 }
 
 Instruction *AddressSanitizer::generateCrashCode(
@@ -408,10 +407,10 @@ Instruction *AddressSanitizer::generateCrashCode(
 
 void AddressSanitizer::instrumentAddress(Instruction *orig_mop,
                                          IRBuilder<> &irb1, Value *Addr,
-                                         size_t type_size, bool is_w) {
+                                         size_t type_size, bool IsWrite) {
   unsigned log_of_size_in_bytes = __builtin_ctz(type_size / 8);
   assert(8U * (1 << log_of_size_in_bytes) == type_size);
-  uint8_t telltale_value = is_w * 8 + log_of_size_in_bytes;
+  uint8_t telltale_value = IsWrite * 8 + log_of_size_in_bytes;
   assert(telltale_value < 16);
 
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
@@ -996,8 +995,8 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   return true;
 }
 
-BlackList::BlackList(const std::string &path) {
-  functions = NULL;
+BlackList::BlackList(const std::string &Path) {
+  Functions = NULL;
   const char *kFunPrefix = "fun:";
   if (!ClBlackListFile.size()) return;
   std::string fun;
@@ -1028,13 +1027,13 @@ BlackList::BlackList(const std::string &path) {
   }
   if (fun.size()) {
     // errs() << fun << "\n";
-    functions = new Regex(fun);
+    Functions = new Regex(fun);
   }
 }
 
 bool BlackList::IsIn(const Function &F) {
-  if (functions) {
-    bool res = functions->match(F.getNameStr());
+  if (Functions) {
+    bool res = Functions->match(F.getNameStr());
     // errs() << "IsIn: " << res << " " << F.getNameStr() << "\n";
     return res;
   }
