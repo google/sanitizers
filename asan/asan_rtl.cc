@@ -288,7 +288,7 @@ struct Global {
     } else {
       Printf("%d bytes inside", addr - beg);  // Can it happen?
     }
-    Printf(" of global variable '%s' (%lx) of size %ld\n", name, beg, size);
+    Printf(" of global variable '%s' (0x%lx) of size %ld\n", name, beg, size);
     return true;
   }
 
