@@ -337,8 +337,8 @@ void AddressSanitizer::instrumentMop(Instruction *Ins) {
     return;
   }
 
-  IRBuilder<> irb1(Ins->getParent(), Ins);
-  instrumentAddress(Ins, irb1, Addr, TypeSize, IsWrite);
+  IRBuilder<> IRB(Ins->getParent(), Ins);
+  instrumentAddress(Ins, IRB, Addr, TypeSize, IsWrite);
 }
 
 Instruction *AddressSanitizer::generateCrashCode(
@@ -402,32 +402,32 @@ Instruction *AddressSanitizer::generateCrashCode(
 }
 
 void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
-                                         IRBuilder<> &irb1, Value *Addr,
+                                         IRBuilder<> &IRB, Value *Addr,
                                          uint32_t TypeSize, bool IsWrite) {
   unsigned LogOfSizeInBytes = CountTrailingZeros_32(TypeSize / 8);
   assert(8U * (1 << LogOfSizeInBytes) == TypeSize);
   uint8_t TelltaleValue = IsWrite * 8 + LogOfSizeInBytes;
   assert(TelltaleValue < 16);
 
-  Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
+  Value *AddrLong = IRB.CreatePointerCast(Addr, LongTy);
 
   Type *ShadowTy  = IntegerType::get(
       *C, max(8U, TypeSize >> MappingScale));
   Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
-  Value *ShadowPtr = memToShadow(AddrLong, irb1);
+  Value *ShadowPtr = memToShadow(AddrLong, IRB);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
-  Value *ShadowValue = irb1.CreateLoad(
-      irb1.CreateIntToPtr(ShadowPtr, ShadowPtrTy));
+  Value *ShadowValue = IRB.CreateLoad(
+      IRB.CreateIntToPtr(ShadowPtr, ShadowPtrTy));
 
   if (ClExperimental) {
     // Experimental code.
-    Value *Lower3Bits = irb1.CreateAnd(
+    Value *Lower3Bits = IRB.CreateAnd(
         AddrLong, ConstantInt::get(LongTy, 7));
-    Lower3Bits = irb1.CreateIntCast(Lower3Bits, ByteTy, false);
-    Value *X = irb1.CreateSub(
+    Lower3Bits = IRB.CreateIntCast(Lower3Bits, ByteTy, false);
+    Value *X = IRB.CreateSub(
         ConstantInt::get(ByteTy, 256 - (TypeSize >> MappingScale)),
         Lower3Bits);
-    Value *Cmp = irb1.CreateICmpUGE(ShadowValue, X);
+    Value *Cmp = IRB.CreateICmpUGE(ShadowValue, X);
     Instruction *CheckTerm = splitBlockAndInsertIfThen(
         cast<Instruction>(Cmp)->getNextNode(), Cmp);
     IRBuilder<> irb3(CheckTerm->getParent(), CheckTerm);
@@ -436,7 +436,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
     return;
   }
 
-  Value *Cmp = irb1.CreateICmpNE(ShadowValue, CmpVal);
+  Value *Cmp = IRB.CreateICmpNE(ShadowValue, CmpVal);
 
   Instruction *CheckTerm = splitBlockAndInsertIfThen(
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
@@ -813,60 +813,60 @@ static void PoisonShadowPartialRightRedzone(unsigned char *Shadow,
 void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
                                    IRBuilder<> IRB,
                                    Value *ShadowBase, bool DoPoison) {
-  uint8_t poison_left_byte  = MappingScale == 7 ? 0xff : 0xf1;
-  uint8_t poison_mid_byte   = MappingScale == 7 ? 0xff : 0xf2;
-  uint8_t poison_right_byte = MappingScale == 7 ? 0xff : 0xf3;
+  uint8_t PoisonLeftByte  = MappingScale == 7 ? 0xff : 0xf1;
+  uint8_t PoisonMidByte   = MappingScale == 7 ? 0xff : 0xf2;
+  uint8_t PoisonRightByte = MappingScale == 7 ? 0xff : 0xf3;
 
   size_t ShadowRZSize = RedzoneSize >> MappingScale;
   assert(ShadowRZSize >= 1 && ShadowRZSize <= 4);
   Type *RZTy = Type::getIntNTy(*C, ShadowRZSize * 8);
   Type *RZPtrTy = PointerType::get(RZTy, 0);
 
-  Value *poison_left  = ConstantInt::get(RZTy,
-    ValueForPoison(DoPoison ? poison_left_byte : 0LL, ShadowRZSize));
-  Value *poison_mid   = ConstantInt::get(RZTy,
-    ValueForPoison(DoPoison ? poison_mid_byte : 0LL, ShadowRZSize));
-  Value *poison_right = ConstantInt::get(RZTy,
-    ValueForPoison(DoPoison ? poison_right_byte : 0LL, ShadowRZSize));
+  Value *PoisonLeft  = ConstantInt::get(RZTy,
+    ValueForPoison(DoPoison ? PoisonLeftByte : 0LL, ShadowRZSize));
+  Value *PoisonMid   = ConstantInt::get(RZTy,
+    ValueForPoison(DoPoison ? PoisonMidByte : 0LL, ShadowRZSize));
+  Value *PoisonRight = ConstantInt::get(RZTy,
+    ValueForPoison(DoPoison ? PoisonRightByte : 0LL, ShadowRZSize));
 
   // poison the first red zone.
-  IRB.CreateStore(poison_left, IRB.CreateIntToPtr(ShadowBase, RZPtrTy));
+  IRB.CreateStore(PoisonLeft, IRB.CreateIntToPtr(ShadowBase, RZPtrTy));
 
   // poison all other red zones.
-  uint64_t pos = RedzoneSize;
+  uint64_t Pos = RedzoneSize;
   for (size_t i = 0; i < AllocaVec.size(); i++) {
     AllocaInst *AI = AllocaVec[i];
     uint64_t SizeInBytes = getAllocaSizeInBytes(AI);
-    uint64_t aligned_size = getAlignedAllocaSize(AI);
-    assert(aligned_size - SizeInBytes < RedzoneSize);
-    Value *ptr;
+    uint64_t AlignedSize = getAlignedAllocaSize(AI);
+    assert(AlignedSize - SizeInBytes < RedzoneSize);
+    Value *Ptr;
 
-    pos += aligned_size;
+    Pos += AlignedSize;
 
     assert(ShadowBase->getType() == LongTy);
-    if (SizeInBytes < aligned_size) {
+    if (SizeInBytes < AlignedSize) {
       // Poison the partial redzone at right
-      ptr = IRB.CreateAdd(
+      Ptr = IRB.CreateAdd(
           ShadowBase, ConstantInt::get(LongTy,
-                                        (pos >> MappingScale) - ShadowRZSize));
-      size_t addressible_bytes = RedzoneSize - (aligned_size - SizeInBytes);
-      uint32_t poison = 0;
+                                        (Pos >> MappingScale) - ShadowRZSize));
+      size_t addressible_bytes = RedzoneSize - (AlignedSize - SizeInBytes);
+      uint32_t Poison = 0;
       if (DoPoison) {
-        PoisonShadowPartialRightRedzone((uint8_t*)&poison, addressible_bytes,
+        PoisonShadowPartialRightRedzone((uint8_t*)&Poison, addressible_bytes,
                                         RedzoneSize,
                                         1ULL << MappingScale, 0xf4);
       }
-      Value *partial_poison = ConstantInt::get(RZTy, poison);
-      IRB.CreateStore(partial_poison, IRB.CreateIntToPtr(ptr, RZPtrTy));
+      Value *partial_poison = ConstantInt::get(RZTy, Poison);
+      IRB.CreateStore(partial_poison, IRB.CreateIntToPtr(Ptr, RZPtrTy));
     }
 
     // Poison the full redzone at right.
-    ptr = IRB.CreateAdd(ShadowBase,
-                        ConstantInt::get(LongTy, pos >> MappingScale));
-    Value *poison = i == AllocaVec.size() - 1 ? poison_right : poison_mid;
-    IRB.CreateStore(poison, IRB.CreateIntToPtr(ptr, RZPtrTy));
+    Ptr = IRB.CreateAdd(ShadowBase,
+                        ConstantInt::get(LongTy, Pos >> MappingScale));
+    Value *Poison = i == AllocaVec.size() - 1 ? PoisonRight : PoisonMid;
+    IRB.CreateStore(Poison, IRB.CreateIntToPtr(Ptr, RZPtrTy));
 
-    pos += RedzoneSize;
+    Pos += RedzoneSize;
   }
 }
 
@@ -877,7 +877,7 @@ static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   if (!ClStack) return false;
   SmallVector<AllocaInst*, 16> AllocaVec;
-  SmallVector<Instruction*, 8> ret_v;
+  SmallVector<Instruction*, 8> RetVec;
   uint64_t total_size = 0;
 
   // Filter out Alloca instructions we want (and can) handle.
@@ -888,7 +888,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
          BI != BE; ++BI) {
       if (isa<ReturnInst>(BI)) {
-          ret_v.push_back(BI);
+          RetVec.push_back(BI);
           continue;
       }
 
@@ -899,8 +899,8 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
       if (!AI->getAllocatedType()->isSized()) continue;
       if (AI->getAlignment() > RedzoneSize) continue;  // TODO(kcc)
       AllocaVec.push_back(AI);
-      uint64_t aligned_size =  getAlignedAllocaSize(AI);
-      total_size += aligned_size;
+      uint64_t AlignedSize =  getAlignedAllocaSize(AI);
+      total_size += AlignedSize;
     }
   }
 
@@ -924,11 +924,11 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
         ConstantInt::get(LongTy, LocalStackSize));
   } else {
     Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
-    AllocaInst *my_alloca =
-        new AllocaInst(ByteArrayTy, "my_alloca", ins_before);
-    my_alloca->setAlignment(RedzoneSize);
-    assert(my_alloca->isStaticAlloca());
-    LocalStackBase = IRB.CreatePointerCast(my_alloca, LongTy);
+    AllocaInst *MyAlloca =
+        new AllocaInst(ByteArrayTy, "MyAlloca", ins_before);
+    MyAlloca->setAlignment(RedzoneSize);
+    assert(MyAlloca->isStaticAlloca());
+    LocalStackBase = IRB.CreatePointerCast(MyAlloca, LongTy);
   }
 
   // Write the Magic value and the function name constant to the redzone.
@@ -939,20 +939,20 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   IRB.CreateStore(ConstantInt::get(LongTy, kFrameNameMagic), BasePlus0);
   IRB.CreateStore(FunctionName, BasePlus1);
 
-  uint64_t pos = RedzoneSize;
+  uint64_t Pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < AllocaVec.size(); i++) {
     AllocaInst *AI = AllocaVec[i];
-    uint64_t aligned_size = getAlignedAllocaSize(AI);
-    assert((aligned_size % RedzoneSize) == 0);
-    Value *new_ptr = BinaryOperator::CreateAdd(
-        LocalStackBase, ConstantInt::get(LongTy, pos), "", AI);
-    new_ptr = new IntToPtrInst(new_ptr, AI->getType(), "", AI);
+    uint64_t AlignedSize = getAlignedAllocaSize(AI);
+    assert((AlignedSize % RedzoneSize) == 0);
+    Value *NewPtr = BinaryOperator::CreateAdd(
+        LocalStackBase, ConstantInt::get(LongTy, Pos), "", AI);
+    NewPtr = new IntToPtrInst(NewPtr, AI->getType(), "", AI);
 
-    pos += aligned_size + RedzoneSize;
-    AI->replaceAllUsesWith(new_ptr);
+    Pos += AlignedSize + RedzoneSize;
+    AI->replaceAllUsesWith(NewPtr);
   }
-  assert(pos == LocalStackSize);
+  assert(Pos == LocalStackSize);
 
   // Poison the stack redzones at the entry.
   Value *ShadowBase = memToShadow(LocalStackBase, IRB);
@@ -965,14 +965,14 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   }
 
   // Unpoison the stack before all ret instructions.
-  for (size_t i = 0; i < ret_v.size(); i++) {
-    Instruction *ret = ret_v[i];
-    IRBuilder<> irb_ret(ret->getParent(), ret);
+  for (size_t i = 0; i < RetVec.size(); i++) {
+    Instruction *Ret = RetVec[i];
+    IRBuilder<> IRBRet(Ret->getParent(), Ret);
     if (DoStackMalloc) {
-      irb_ret.CreateCall2(AsanStackFreeFunc, LocalStackBase,
+      IRBRet.CreateCall2(AsanStackFreeFunc, LocalStackBase,
                           ConstantInt::get(LongTy, LocalStackSize));
     } else {
-      PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), irb_ret, ShadowBase, false);
+      PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRBRet, ShadowBase, false);
     }
   }
 
