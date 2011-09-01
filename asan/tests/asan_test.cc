@@ -1065,6 +1065,8 @@ TEST(AddressSanitizer, DisasmTest) {
 // Currently we create and poison redzone at right of global variables.
 char glob5[5];
 static char static110[110];
+const char ConstGlob[7] = {1, 2, 3, 4, 5, 6, 7};
+static const char StaticConstGlob[3] = {9, 8, 7};
 extern int GlobalsTest(int x);
 
 TEST(AddressSanitizer, GlobalTest) {
@@ -1106,6 +1108,11 @@ TEST(AddressSanitizer, GlobalTest) {
   // We don't create left redzones, so this is not 100% guaranteed to fail.
   // But most likely will.
   EXPECT_DEATH(fs2[Ident(-1)] = 0, "is located.*of global variable");
+
+  EXPECT_DEATH(Ident(Ident(ConstGlob)[8]),
+               "is located 1 bytes to the right of .*ConstGlob");
+  EXPECT_DEATH(Ident(Ident(StaticConstGlob)[5]),
+               "is located 2 bytes to the right of .*StaticConstGlob");
 
   // call stuff from another file.
   GlobalsTest(0);

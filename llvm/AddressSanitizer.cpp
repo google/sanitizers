@@ -32,6 +32,7 @@
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DataTypes.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Regex.h"
@@ -526,27 +527,28 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
   for (Module::GlobalListType::iterator G = globals.begin(),
        E = globals.end(); G != E; ++G) {
-    GlobalVariable &orig_global = *G;
-    PointerType *ptrty = cast<PointerType>(orig_global.getType());
-    Type *ty = ptrty->getElementType();
-    if (ClDebug) {
-      errs() << "GLOBAL: " << orig_global;
-    }
+    Type *ty = cast<PointerType>(G->getType())->getElementType();
+    DEBUG(dbgs() << "GLOBAL: " << *G);
 
     if (!ty->isSized()) continue;
-    if (!orig_global.hasInitializer()) continue;
-    if (orig_global.isConstant()) continue;  // do we care about constants?
-    if (orig_global.getLinkage() != GlobalVariable::ExternalLinkage &&
-        orig_global.getLinkage() != GlobalVariable::CommonLinkage  &&
-        orig_global.getLinkage() != GlobalVariable::PrivateLinkage  &&
-        orig_global.getLinkage() != GlobalVariable::InternalLinkage
+    if (!G->hasInitializer()) continue;
+    if (G->getLinkage() != GlobalVariable::ExternalLinkage &&
+        G->getLinkage() != GlobalVariable::CommonLinkage  &&
+        G->getLinkage() != GlobalVariable::PrivateLinkage  &&
+        G->getLinkage() != GlobalVariable::InternalLinkage
         ) {
       // do we care about other linkages?
       continue;
     }
     // TODO(kcc): do something smart if the alignment is large.
-    if (orig_global.getAlignment() > RedzoneSize) continue;
+    if (G->getAlignment() > RedzoneSize) continue;
+    old_globals.push_back(G);
+  }
 
+  for (size_t i = 0, n = old_globals.size(); i < n; i++) {
+    GlobalVariable *G = old_globals[i];
+    PointerType *PtrTy = cast<PointerType>(G->getType());
+    Type *ty = PtrTy->getElementType();
     uint64_t size_in_bytes = TD->getTypeStoreSizeInBits(ty) / 8;
     uint64_t right_redzone_size = RedzoneSize +
         (RedzoneSize - (size_in_bytes % RedzoneSize));
@@ -556,20 +558,20 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         ty, RightRedZoneTy, NULL);
     Constant *new_initializer = ConstantStruct::get(
         new_ty,
-        orig_global.getInitializer(),
+        G->getInitializer(),
         Constant::getNullValue(RightRedZoneTy),
         NULL);
 
     GlobalVariable *orig_name_glob =
-        createPrivateGlobalForString(M, orig_global.getName());
+        createPrivateGlobalForString(M, G->getName());
 
     // Create a new global variable with enough space for a redzone.
     GlobalVariable *new_global = new GlobalVariable(
-        M, new_ty, orig_global.isConstant(), orig_global.getLinkage(),
+        M, new_ty, G->isConstant(), G->getLinkage(),
         new_initializer,
         "",
-        &orig_global, orig_global.isThreadLocal());
-    new_global->copyAttributesFrom(&orig_global);
+        G, G->isThreadLocal());
+    new_global->copyAttributesFrom(G);
     new_global->setAlignment(RedzoneSize);
 
     Constant *Indices[2];
@@ -577,14 +579,13 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     Indices[1] = ConstantInt::get(i32Ty, 0);
 
     GlobalAlias *alias = new GlobalAlias(
-        ptrty, GlobalValue::InternalLinkage,
-        orig_global.getName() + "_asanRZ",
+        PtrTy, GlobalValue::InternalLinkage,
+        G->getName() + "_asanRZ",
         ConstantExpr::getGetElementPtr(new_global, Indices, 2),
         new_global->getParent());
 
-    orig_global.replaceAllUsesWith(alias);
-    new_global->takeName(&orig_global);
-    old_globals.push_back(&orig_global);
+    G->replaceAllUsesWith(alias);
+    new_global->takeName(G);
 
     IRBuilder<> irb(asan_ctor_insert_before->getParent(),
                     asan_ctor_insert_before);
@@ -593,17 +594,12 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     cast<Function>(asan_register_global)->setLinkage(
         Function::ExternalLinkage);
 
-    irb.CreateCall3(asan_register_global,
+    irb.CreateCall4(asan_register_global,
                     irb.CreatePointerCast(new_global, LongTy),
                     ConstantInt::get(LongTy, size_in_bytes),
                     irb.CreatePointerCast(orig_name_glob, LongTy));
 
-    if (ClDebug) {
-      errs() << "   " <<  *ty << " --- " << *new_ty << "\n";
-      errs() << *new_initializer << "\n";
-      errs() << *new_global << "\n";
-      errs() << *alias << "\n";
-    }
+    DEBUG(dbgs() << "NEW GLOBAL:\n" << *new_global << *alias);
   }
 
   // Now delete all old globals which are replaced with new ones.
@@ -611,9 +607,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     old_globals[i]->eraseFromParent();
   }
 
-  if (ClDebug >= 2) {
-    errs() << M;
-  }
+  DEBUG(dbgs() << M);
 
   return false;
 }
@@ -773,8 +767,7 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
     n_instrumented++;
   }
 
-  if (!ClDebugFunc.empty() || ClDebug)
-    errs() << F;
+  DEBUG(dbgs() << F);
 
   bool changed_stack = poisonStackInFunction(M, F);
 
@@ -988,10 +981,10 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     }
   }
 
-  if (ClDebugStack)
-    errs() << F;
+  if (ClDebugStack) {
+    DEBUG(dbgs() << F);
+  }
 
-  // errs() << F.getNameStr() << "\n" << F << "\n";
   return true;
 }
 
@@ -1026,7 +1019,6 @@ BlackList::BlackList(const std::string &Path) {
     }
   }
   if (fun.size()) {
-    // errs() << fun << "\n";
     Functions = new Regex(fun);
   }
 }
@@ -1034,7 +1026,6 @@ BlackList::BlackList(const std::string &Path) {
 bool BlackList::IsIn(const Function &F) {
   if (Functions) {
     bool res = Functions->match(F.getNameStr());
-    // errs() << "IsIn: " << res << " " << F.getNameStr() << "\n";
     return res;
   }
   return false;

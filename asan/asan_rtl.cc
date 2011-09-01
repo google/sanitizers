@@ -27,7 +27,7 @@
 #endif
 
 #include <algorithm>
-#include <set>
+#include <vector>
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
@@ -242,7 +242,6 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
 // ---------------------- Globals -------------------- {{{1
 // We create right redzones for globals and keep the gobals in a linked list.
 struct Global {
-  Global *next;   // Next in the list.
   uintptr_t beg;  // Address of the global.
   size_t size;    // Size of the global.
   const char *name;
@@ -297,44 +296,42 @@ struct Global {
 
 AsanLock Global::mu_;
 
-static Global *g_globals_list;
+static std::vector<Global> *g_all_globals = NULL;
 
 __attribute__((noinline))
 static bool DescribeAddrIfGlobal(uintptr_t addr) {
   if (!__asan_flag_report_globals) return false;
   ScopedLock lock(&Global::mu_);
+  if (!g_all_globals) return false;
   bool res = false;
-  for (Global *g = g_globals_list; g; g = g->next) {
+  for (size_t i = 0, n = g_all_globals->size(); i < n; i++) {
+    Global *g = &(*g_all_globals)[i];
     if (__asan_flag_report_globals >= 2)
       Printf("Search Global: "PP" beg="PP" size=%ld name=%s\n",
              g, g->beg, g->size, g->name);
     res |= g->DescribeAddrIfMyRedZone(addr);
-    CHECK(g != g->next);
   }
   return res;
 }
 
 // exported function
-void __asan_register_global(uintptr_t addr,
-                            size_t size, const char *name) {
+void __asan_register_global(uintptr_t addr, size_t size,
+                            const char *name) {
   CHECK(asan_inited);
   if (!__asan_flag_report_globals) return;
   ScopedLock lock(&Global::mu_);
+  if (!g_all_globals)
+    g_all_globals = new std::vector<Global>;
   CHECK(AddrIsInMem(addr));
-  // uintptr_t shadow = MemToShadow(addr);
-  // Printf("global: "PP"  %ld \n", addr, size);
-  uintptr_t aligned_size = Global::GetAlignedSize(size);
-  Global *g = (Global*)(addr + aligned_size);
-  if (g->beg || g->size || g->name) return;  // we already inserted this one.
-  g->next = g_globals_list;
-  g->size = size;
-  g->beg = addr;
-  g->name = name;
-  g_globals_list = g;
+  Global g;
+  g.size = size;
+  g.beg = addr;
+  g.name = name;
   if (__asan_flag_report_globals >= 2)
-    Printf("Added Global: "PP" beg="PP" size=%ld name=%s\n",
-           g, g->beg, g->size, g->name);
-  g->PoisonRedZones();
+    Printf("Added Global: beg="PP" size=%ld name=%s\n",
+           g.beg, g.size, g.name);
+  g.PoisonRedZones();
+  g_all_globals->push_back(g);
 }
 
 // ---------------------- DescribeAddress -------------------- {{{1
