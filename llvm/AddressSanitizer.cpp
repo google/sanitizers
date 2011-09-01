@@ -70,6 +70,8 @@ static const char *kAsanMappingScaleName = "__asan_mapping_scale";
 static const char *kAsanStackMallocName = "__asan_stack_malloc";
 static const char *kAsanStackFreeName = "__asan_stack_free";
 
+static const char *kLLVMGlobalCtors = "llvm.global_ctors";
+
 // Command-line flags.
 
 // (potentially) user-visible flags.
@@ -478,7 +480,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F) {
   // Get the current set of static global constructors and add the new ctor
   // to the list.
   std::vector<Constant *> CurrentCtors;
-  GlobalVariable * GVCtor = M.getNamedGlobal("llvm.global_ctors");
+  GlobalVariable * GVCtor = M.getNamedGlobal(kLLVMGlobalCtors);
   if (GVCtor) {
     CurrentCtors.push_back(RuntimeCtorInit);
     if (Constant *Const = GVCtor->getInitializer()) {
@@ -487,7 +489,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F) {
       }
     }
     // Rename the global variable so that we can name our global
-    // llvm.global_ctors.
+    // kLLVMGlobalCtors
     GVCtor->setName("removed");
     GVCtor->eraseFromParent();
   }
@@ -500,19 +502,19 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F) {
                                          CurrentCtors.size());
   Constant *NewInit = ConstantArray::get(AT, CurrentCtors);
 
-  // Create the new llvm.global_ctors global variable and replace all uses of
+  // Create the new kLLVMGlobalCtors global variable and replace all uses of
   // the old global variable with the new one.
   new GlobalVariable(M,
                      NewInit->getType(),
                      false,
                      GlobalValue::AppendingLinkage,
                      NewInit,
-                     "llvm.global_ctors");
+                     kLLVMGlobalCtors);
 }
 
 // This function replaces all global variables with new variables that have
 // trailing redzones. It also creates a function that poisons
-// redzones and inserts this function into llvm.global_ctors.
+// redzones and inserts this function into kLLVMGlobalCtors.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   Module::GlobalListType &globals = M.getGlobalList();
 
