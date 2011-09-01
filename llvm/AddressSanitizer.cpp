@@ -34,6 +34,7 @@
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/IRBuilder.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/raw_ostream.h"
@@ -150,7 +151,7 @@ struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(Instruction *Ins);
   void instrumentAddress(Instruction *OrigIns, IRBuilder<> &IRB,
-                         Value *Addr, size_t TypeSize, bool IsWrite);
+                         Value *Addr, uint32_t TypeSize, bool IsWrite);
   Instruction *generateCrashCode(IRBuilder<> &IRB, Value *Addr,
                                  int TelltaleValue);
   bool instrumentMemIntrinsic(MemIntrinsic *MI);
@@ -182,7 +183,7 @@ struct AddressSanitizer : public ModulePass {
     return getAlignedSize(SizeInBytes);
   }
 
-  void PoisonStack(const ArrayRef<AllocaInst*> &alloca_v, IRBuilder<> IRB,
+  void PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec, IRBuilder<> IRB,
                    Value *ShadowBase, bool DoPoison);
 
   Module      *CurrentModule;
@@ -272,12 +273,12 @@ void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *OrigIns,
   // Check the last byte.
   {
     IRBuilder<> IRB(InsertBefore->getParent(), InsertBefore);
-    Value *size_minus_one = IRB.CreateSub(
+    Value *SizeMinusOne = IRB.CreateSub(
         Size, ConstantInt::get(Size->getType(), 1));
-    size_minus_one = IRB.CreateIntCast(size_minus_one, LongTy, false);
-    Value *addr_long = IRB.CreatePointerCast(Addr, LongTy);
-    Value *addr_plus_size_minus_one = IRB.CreateAdd(addr_long, size_minus_one);
-    instrumentAddress(OrigIns, IRB, addr_plus_size_minus_one, 8, IsWrite);
+    SizeMinusOne = IRB.CreateIntCast(SizeMinusOne, LongTy, false);
+    Value *AddrLong = IRB.CreatePointerCast(Addr, LongTy);
+    Value *AddrPlusSizeMinisOne = IRB.CreateAdd(AddrLong, SizeMinusOne);
+    instrumentAddress(OrigIns, IRB, AddrPlusSizeMinisOne, 8, IsWrite);
   }
 }
 
@@ -288,10 +289,10 @@ bool AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *MI) {
   Value *src = mtran ? mtran->getSource() : NULL;
   Value *length = MI->getLength();
 
-  Constant *const_length = dyn_cast<Constant>(length);
+  Constant *ConstLength = dyn_cast<Constant>(length);
   Instruction *InsertBefore = MI->getNextNode();
-  if (const_length) {
-    if (const_length->isNullValue()) return false;
+  if (ConstLength) {
+    if (ConstLength->isNullValue()) return false;
   } else {
     // The size is not a constant so it could be zero -- check at run-time.
     IRBuilder<> IRB(InsertBefore->getParent(), InsertBefore);
@@ -326,10 +327,10 @@ void AddressSanitizer::instrumentMop(Instruction *Ins) {
   Type *OrigTy = cast<PointerType>(OrigPtrTy)->getElementType();
 
   assert(OrigTy->isSized());
-  unsigned TypeSize = TD->getTypeStoreSizeInBits(OrigTy);
+  uint32_t TypeSize = TD->getTypeStoreSizeInBits(OrigTy);
 
-  if (TypeSize != 8  && TypeSize != 16
-      && TypeSize != 32 && TypeSize != 64 && TypeSize != 128) {
+  if (TypeSize != 8  && TypeSize != 16 &&
+      TypeSize != 32 && TypeSize != 64 && TypeSize != 128) {
     // TODO(kcc): do something better.
     return;
   }
@@ -347,27 +348,26 @@ Instruction *AddressSanitizer::generateCrashCode(
     // This mode could be useful if we can not use SIGILL for some reason.
     //
     // The TelltaleValue (is_write and size) is encoded in the function name.
-    char function_name[100];
-    sprintf(function_name, kAsanReportErrorTemplate, TelltaleValue);
-    Value *asan_report_warning = CurrentModule->getOrInsertFunction(
-        function_name, VoidTy, LongTy, NULL);
-    CallInst *call = IRB.CreateCall(asan_report_warning, Addr);
+    std::string FunctionName = kAsanReportErrorTemplate + itostr(TelltaleValue);
+    Value *ReportWarningFunc = CurrentModule->getOrInsertFunction(
+        FunctionName, VoidTy, LongTy, NULL);
+    CallInst *call = IRB.CreateCall(ReportWarningFunc, Addr);
     return call;
   }
 
   // Move the failing address to %rax/%eax
   FunctionType *Fn1Ty = FunctionType::get(
       VoidTy, ArrayRef<Type*>(LongTy), false);
-  const char *mov_str = LongSize == 32
+  const char *MovStr = LongSize == 32
       ? "mov $0, %eax" : "mov $0, %rax";
-  Value *asm_mov = InlineAsm::get(
-      Fn1Ty, StringRef(mov_str), StringRef("r"), true);
-  IRB.CreateCall(asm_mov, Addr);
+  Value *AsmMov = InlineAsm::get(
+      Fn1Ty, StringRef(MovStr), StringRef("r"), true);
+  IRB.CreateCall(AsmMov, Addr);
 
   // crash with ud2; could use int3, but it is less friendly to gdb.
   // after ud2 put a 1-byte instruction that encodes the access type and size.
 
-  const char *telltale_insns[16] = {
+  const char *TelltaleInsns[16] = {
     "push   %eax",  // 0x50
     "push   %ecx",  // 0x51
     "push   %edx",  // 0x52
@@ -386,31 +386,31 @@ Instruction *AddressSanitizer::generateCrashCode(
     "pop    %edi"   // 0x5f
   };
 
-  std::string asm_str = "ud2;";
-  asm_str += telltale_insns[TelltaleValue];
-  Value *my_asm = InlineAsm::get(Fn0Ty, StringRef(asm_str),
-                                 StringRef(""), true);
-  CallInst *asm_call = IRB.CreateCall(my_asm);
+  std::string AsmStr = "ud2;";
+  AsmStr += TelltaleInsns[TelltaleValue];
+  Value *MyAsm = InlineAsm::get(Fn0Ty, StringRef(AsmStr),
+                                StringRef(""), true);
+  CallInst *AsmCall = IRB.CreateCall(MyAsm);
 
   // This saves us one jump, but triggers a bug in RA (or somewhere else):
   // while building 483.xalancbmk the compiler goes into infinite loop in
   // llvm::SpillPlacement::iterate() / RAGreedy::growRegion
-  // asm_call->setDoesNotReturn();
-  return asm_call;
+  // AsmCall->setDoesNotReturn();
+  return AsmCall;
 }
 
 void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
                                          IRBuilder<> &irb1, Value *Addr,
-                                         size_t TypeSize, bool IsWrite) {
-  unsigned log_of_size_in_bytes = __builtin_ctz(TypeSize / 8);
-  assert(8U * (1 << log_of_size_in_bytes) == TypeSize);
-  uint8_t TelltaleValue = IsWrite * 8 + log_of_size_in_bytes;
+                                         uint32_t TypeSize, bool IsWrite) {
+  unsigned LogOfSizeInBytes = CountTrailingZeros_32(TypeSize / 8);
+  assert(8U * (1 << LogOfSizeInBytes) == TypeSize);
+  uint8_t TelltaleValue = IsWrite * 8 + LogOfSizeInBytes;
   assert(TelltaleValue < 16);
 
   Value *AddrLong = irb1.CreatePointerCast(Addr, LongTy);
 
   Type *ShadowTy  = IntegerType::get(
-      *C, max((size_t)8, TypeSize >> MappingScale));
+      *C, max(8U, TypeSize >> MappingScale));
   Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, irb1);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
@@ -808,7 +808,7 @@ static void PoisonShadowPartialRightRedzone(unsigned char *shadow,
   }
 }
 
-void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
+void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
                                    IRBuilder<> IRB,
                                    Value *ShadowBase, bool DoPoison) {
   uint8_t poison_left_byte  = MappingScale == 7 ? 0xff : 0xf1;
@@ -832,8 +832,8 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
 
   // poison all other red zones.
   uint64_t pos = RedzoneSize;
-  for (size_t i = 0; i < alloca_v.size(); i++) {
-    AllocaInst *AI = alloca_v[i];
+  for (size_t i = 0; i < AllocaVec.size(); i++) {
+    AllocaInst *AI = AllocaVec[i];
     uint64_t SizeInBytes = getAllocaSizeInBytes(AI);
     uint64_t aligned_size = getAlignedAllocaSize(AI);
     assert(aligned_size - SizeInBytes < RedzoneSize);
@@ -861,7 +861,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &alloca_v,
     // Poison the full redzone at right.
     ptr = IRB.CreateAdd(ShadowBase,
                         ConstantInt::get(LongTy, pos >> MappingScale));
-    Value *poison = i == alloca_v.size() - 1 ? poison_right : poison_mid;
+    Value *poison = i == AllocaVec.size() - 1 ? poison_right : poison_mid;
     IRB.CreateStore(poison, IRB.CreateIntToPtr(ptr, RZPtrTy));
 
     pos += RedzoneSize;
@@ -874,7 +874,7 @@ static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 // poisoned red zones around all of them.
 bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   if (!ClStack) return false;
-  SmallVector<AllocaInst*, 16> alloca_v;
+  SmallVector<AllocaInst*, 16> AllocaVec;
   SmallVector<Instruction*, 8> ret_v;
   uint64_t total_size = 0;
 
@@ -896,20 +896,20 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
       if (!AI->isStaticAlloca()) continue;
       if (!AI->getAllocatedType()->isSized()) continue;
       if (AI->getAlignment() > RedzoneSize) continue;  // TODO(kcc)
-      alloca_v.push_back(AI);
+      AllocaVec.push_back(AI);
       uint64_t aligned_size =  getAlignedAllocaSize(AI);
       total_size += aligned_size;
     }
   }
 
-  if (alloca_v.empty()) return false;
+  if (AllocaVec.empty()) return false;
 
-  uint64_t LocalStackSize = total_size + (alloca_v.size() + 1) * RedzoneSize;
+  uint64_t LocalStackSize = total_size + (AllocaVec.size() + 1) * RedzoneSize;
 
   bool DoStackMalloc = ClUseAfterReturn
       && LocalStackSize <= kMaxStackMallocSize;
 
-  Instruction *ins_before = alloca_v[0];
+  Instruction *ins_before = AllocaVec[0];
   IRBuilder<> IRB(ins_before->getParent(), ins_before);
 
   Value *FunctionName = createPrivateGlobalForString(M, F.getName());
@@ -939,8 +939,8 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
 
   uint64_t pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
-  for (size_t i = 0; i < alloca_v.size(); i++) {
-    AllocaInst *AI = alloca_v[i];
+  for (size_t i = 0; i < AllocaVec.size(); i++) {
+    AllocaInst *AI = AllocaVec[i];
     uint64_t aligned_size = getAlignedAllocaSize(AI);
     assert((aligned_size % RedzoneSize) == 0);
     Value *new_ptr = BinaryOperator::CreateAdd(
@@ -954,7 +954,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
 
   // Poison the stack redzones at the entry.
   Value *ShadowBase = memToShadow(LocalStackBase, IRB);
-  PoisonStack(ArrayRef<AllocaInst*>(alloca_v), IRB, ShadowBase, true);
+  PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRB, ShadowBase, true);
 
   Value *AsanStackFreeFunc = NULL;
   if (DoStackMalloc) {
@@ -970,7 +970,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
       irb_ret.CreateCall2(AsanStackFreeFunc, LocalStackBase,
                           ConstantInt::get(LongTy, LocalStackSize));
     } else {
-      PoisonStack(ArrayRef<AllocaInst*>(alloca_v), irb_ret, ShadowBase, false);
+      PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), irb_ret, ShadowBase, false);
     }
   }
 
