@@ -106,7 +106,8 @@ static void PoisonMemoryPartialRightRedzone(uintptr_t mem, size_t size) {
   CHECK(REDZONE >= SHADOW_GRANULARITY);
   uint8_t *shadow = (uint8_t*)MemToShadow(mem);
   PoisonShadowPartialRightRedzone(shadow, size,
-                                  REDZONE, SHADOW_GRANULARITY, 0xfa);
+                                  REDZONE, SHADOW_GRANULARITY,
+                                  kAsanHeapRightRedzoneMagic);
 }
 
 static size_t total_mmaped = 0;
@@ -122,7 +123,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
     AsanStackTrace::PrintCurrent();
     abort();
   }
-  PoisonShadow((uintptr_t)res, size, 0xff);
+  PoisonShadow((uintptr_t)res, size, kAsanHeapLeftRedzoneMagic);
   if (__asan_flag_debug) {
     Printf("ASAN_MMAP: ["PP", "PP")\n", res, res + size);
   }
@@ -664,7 +665,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack(),
                                 m->compressed_free_stack_size());
   size_t rounded_size = RoundUpTo(m->used_size, REDZONE);
-  PoisonShadow((uintptr_t)ptr, rounded_size, 0xfb);
+  PoisonShadow((uintptr_t)ptr, rounded_size, kAsanHeapFreeMagic);
 
   if (__asan_flag_stats) {
     __asan_stats.frees++;
@@ -811,7 +812,7 @@ uintptr_t AsanFakeStack::AllocateStack(size_t size) {
 
 void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
   CHECK(AddrIsInFakeStack(ptr));
-  PoisonShadow(ptr, size, 0xf5);
+  PoisonShadow(ptr, size, kAsanStackAfterReturnMagic);
   FifoPush(ptr);
 }
 

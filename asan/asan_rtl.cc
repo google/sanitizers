@@ -263,7 +263,8 @@ struct Global {
       PoisonShadowPartialRightRedzone((uint8_t*)(shadow + right_rz1_offset),
                                       size % kGlobalAndStackRedzone,
                                       kGlobalAndStackRedzone,
-                                      SHADOW_GRANULARITY, 0xfb);
+                                      SHADOW_GRANULARITY,
+                                      kAsanGlobalRedzoneMagic);
     }
   }
 
@@ -940,9 +941,41 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   Printf("=================================================================\n");
   PrintUnwinderHint();
-  Printf("==%d== ERROR: AddressSanitizer crashed on address "
+  const char *bug_descr = "unknown-crash";
+  if (AddrIsInMem(addr)) {
+    uint8_t *shadow_addr = (uint8_t*)MemToShadow(addr);
+    uint8_t shadow_byte = shadow_addr[0];
+    if (shadow_byte > 0 && shadow_byte < 128) {
+      // we are in the partial right redzone, look at the next shadow byte.
+      shadow_byte = shadow_addr[1];
+    }
+    switch (shadow_byte) {
+      case kAsanHeapLeftRedzoneMagic:
+      case kAsanHeapRightRedzoneMagic:
+        bug_descr = "heap-buffer-overflow";
+        break;
+      case kAsanHeapFreeMagic:
+        bug_descr = "heap-use-after-free";
+        break;
+      case kAsanStackLeftRedzoneMagic:
+        bug_descr = "stack-buffer-underflow";
+        break;
+      case kAsanStackMidRedzoneMagic:
+      case kAsanStackRightRedzoneMagic:
+        bug_descr = "stack-buffer-overflow";
+        break;
+      case kAsanStackAfterReturnMagic:
+        bug_descr = "stack-use-after-return";
+        break;
+      case kAsanGlobalRedzoneMagic:
+        bug_descr = "global-buffer-overflow";
+        break;
+    }
+  }
+
+  Printf("==%d== ERROR: AddressSanitizer %s on address "
          ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
-         getpid(), addr, pc, bp, sp);
+         getpid(), bug_descr, addr, pc, bp, sp);
 
   Printf("%s of size %d at "PP" thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",

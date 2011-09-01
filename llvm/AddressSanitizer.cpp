@@ -73,6 +73,10 @@ static const char *kAsanStackFreeName = "__asan_stack_free";
 
 static const char *kLLVMGlobalCtors = "llvm.global_ctors";
 
+static const int kAsanStackLeftRedzoneMagic = 0xf1;
+static const int kAsanStackMidRedzoneMagic = 0xf2;
+static const int kAsanStackRightRedzoneMagic = 0xf3;
+
 // Command-line flags.
 
 // (potentially) user-visible flags.
@@ -666,11 +670,11 @@ static bool blockHasException(BasicBlock &BB) {
     //   llvm::FunctionLoweringInfo::clear(): Assertion `CatchInfoFound.size()
     //   == CatchInfoLost.size() && "Not all catch info was assigned to a
     //   landing pad!"' failed.
-    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(BI)) {                                                                                                                                          
-      if (II->getIntrinsicID() == Intrinsic::eh_exception) {                                                                                                                                        
-        return true;                                                                                                                                                                                
-      }                                                                                                                                                                                             
-    }                         
+    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(BI)) {
+      if (II->getIntrinsicID() == Intrinsic::eh_exception) {
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -788,9 +792,12 @@ static void PoisonShadowPartialRightRedzone(uint8_t *Shadow,
 void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
                                    IRBuilder<> IRB,
                                    Value *ShadowBase, bool DoPoison) {
-  uint8_t PoisonLeftByte  = MappingScale == 7 ? 0xff : 0xf1;
-  uint8_t PoisonMidByte   = MappingScale == 7 ? 0xff : 0xf2;
-  uint8_t PoisonRightByte = MappingScale == 7 ? 0xff : 0xf3;
+  uint8_t PoisonLeftByte =
+      MappingScale == 7 ? 0xff : kAsanStackLeftRedzoneMagic;
+  uint8_t PoisonMidByte =
+      MappingScale == 7 ? 0xff : kAsanStackMidRedzoneMagic;
+  uint8_t PoisonRightByte =
+      MappingScale == 7 ? 0xff : kAsanStackRightRedzoneMagic;
 
   size_t ShadowRZSize = RedzoneSize >> MappingScale;
   assert(ShadowRZSize >= 1 && ShadowRZSize <= 4);
