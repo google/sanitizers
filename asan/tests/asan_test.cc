@@ -1111,50 +1111,35 @@ TEST(AddressSanitizer, GlobalTest) {
   GlobalsTest(0);
 }
 
-int *LocalReferenceReturn() {
+int *ReturnsPointerToALocalObject() {
   int a = 0;
   return Ident(&a);
 }
 
 TEST(AddressSanitizer, LocalReferenceReturnTest) {
-  int *(*f)() = Ident(LocalReferenceReturn);
+  int *(*f)() = Ident(ReturnsPointerToALocalObject);
   // Call f several times, only the first time should be reported.
   f();
   f();
   f();
   f();
+#if ASAN_UAR
+  EXPECT_DEATH(*f() = 1, "is located in frame .*ReturnsPointerToALocalObject");
+#endif  // ASAN_UAR
 }
 
 __attribute__((noinline))
 static void FuncWithLargeStack() {
-  int LargeStack[800000];
+  int LargeStack[10000];
   Ident(LargeStack)[0] = 0;
 }
 static void LotsOfStackReuse() {
-  int LargeStack[100000];
+  int LargeStack[10000];
   Ident(LargeStack)[0] = 0;
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  FuncWithLargeStack(); FuncWithLargeStack(); FuncWithLargeStack();
-  Ident(LargeStack)[0] = 0;
+  for (int i = 0; i < 10000; i++) {
+    FuncWithLargeStack();
+    Ident(LargeStack)[0] = 0;
+  }
 }
 
 TEST(AddressSanitizer, StressStackReuseTest) {

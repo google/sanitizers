@@ -60,7 +60,7 @@ struct AsanThreadLocalMallocStorage {
 // It helps us find use-after-return bugs.
 class AsanFakeStack {
  public:
-  AsanFakeStack() : size_(0), fake_stack_(0) { }
+  AsanFakeStack() : size_(0), fake_stack_(0), first_(0), last_(0) { }
   void Init(size_t size);
   void Cleanup();
   uintptr_t AllocateStack(size_t size);
@@ -72,6 +72,16 @@ class AsanFakeStack {
  private:
   size_t size_;
   uintptr_t fake_stack_;
+
+  struct FifoNode {
+    uintptr_t padding[2];
+    FifoNode *next;
+  };
+  FifoNode *first_;
+  FifoNode *last_;
+
+  void FifoPush(uintptr_t a);
+  uintptr_t FifoPop();
 };
 
 extern "C" {

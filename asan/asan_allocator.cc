@@ -756,39 +756,72 @@ size_t __asan_total_mmaped() {
 
 // ---------------------- Fake stack-------------------- {{{1
 static const size_t kStackRedzoneSize = 32;
+static const size_t kMaxStackMallocSize = 1 << 16;
+
+void AsanFakeStack::FifoPush(uintptr_t a) {
+  FifoNode *node =(FifoNode*)a;
+  node->next = 0;
+  if (first_ == 0 && last_ == 0) {
+    first_ = last_ = node;
+  } else {
+    last_->next = node;
+    last_ = node;
+  }
+}
+
+uintptr_t AsanFakeStack::FifoPop() {
+  CHECK(first_ && last_);
+  FifoNode *res = 0;
+  if (first_ == last_) {
+    res = first_;
+    first_ = last_ = 0;
+  } else {
+    res = first_;
+    first_ = first_->next;
+  }
+  return (uintptr_t)res;
+}
 
 void AsanFakeStack::Init(size_t size) {
   CHECK(size <= 16 * kMaxThreadStackSize);  // Remain sane.
+  CHECK(size >= kMaxStackMallocSize);
   CHECK(size_ == 0);
-  CHECK(size > 0);
   size_ = size;
   fake_stack_ = (uintptr_t)__asan_mmap(0, size,
                                        PROT_READ | PROT_WRITE,
                                        MAP_PRIVATE | MAP_ANON, -1, 0);
   CHECK(fake_stack_ != (uintptr_t)-1);
+  for (size_t i = 0; i < size; i += kMaxStackMallocSize) {
+    FifoPush(fake_stack_ + i);
+  }
 }
 
 void AsanFakeStack::Cleanup() {
+  PoisonShadow(fake_stack_, size_, 0);
   int munmap_res = munmap((void*)fake_stack_, size_);
   CHECK(munmap_res == 0);
 }
 
 uintptr_t AsanFakeStack::AllocateStack(size_t size) {
-  return fake_stack_;
-}
-
-void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
-}
-
-size_t __asan_stack_malloc(size_t size) {
-  size_t ptr = AsanThread::GetCurrent()->FakeStack().AllocateStack(size);
-  Printf("__asan_stack_malloc "PP" %ld\n", ptr, size);
+  uintptr_t ptr = FifoPop();
+  CHECK(ptr);
   PoisonShadow(ptr, size, 0);
   return ptr;
 }
 
-void __asan_stack_free(size_t ptr, size_t size) {
-  Printf("__asan_stack_free   "PP" %ld\n", ptr, size);
+void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
+  CHECK(AddrIsInFakeStack(ptr));
   PoisonShadow(ptr, size, 0xf5);
+  FifoPush(ptr);
+}
+
+size_t __asan_stack_malloc(size_t size) {
+  size_t ptr = AsanThread::GetCurrent()->FakeStack().AllocateStack(size);
+  // Printf("__asan_stack_malloc "PP" %ld\n", ptr, size);
+  return ptr;
+}
+
+void __asan_stack_free(size_t ptr, size_t size) {
+  // Printf("__asan_stack_free   "PP" %ld\n", ptr, size);
   AsanThread::GetCurrent()->FakeStack().DeallocateStack(ptr, size);
 }

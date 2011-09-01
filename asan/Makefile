@@ -41,6 +41,7 @@ ASAN_USE_CALL=0
 ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=0  #default will be used
 ASAN_BTS=0
+ASAN_UAR=0
 
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
@@ -123,6 +124,7 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
+		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR) \
 		-mllvm -asan-use-bts=$(ASAN_BTS)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
