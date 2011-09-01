@@ -59,6 +59,16 @@ static const uint64_t kDefaultShadowOffset64 = 44;
 
 static const size_t kMaxStackMallocSize = 1 << 16;  // 64K
 
+static const char *kAsanModuleCtorName = "asan.module_ctor";
+static const char *kAsanReportErrorTemplate = "__asan_report_error_%d";
+static const char *kAsanRedzoneNameSuffix = "_asanRZ";
+static const char *kAsanRegisterGlobalName = "__asan_register_global";
+static const char *kAsanInitName = "__asan_init";
+static const char *kAsanMappingOffsetName = "__asan_mapping_offset";
+static const char *kAsanMappingScaleName = "__asan_mapping_scale";
+static const char *kAsanStackMallocName = "__asan_stack_malloc";
+static const char *kAsanStackFreeName = "__asan_stack_free";
+
 // Command-line flags.
 
 // (potentially) user-visible flags.
@@ -122,8 +132,6 @@ static cl::opt<int> ClDebugMax("asan-debug-max",
                                cl::desc("Debug man inst"), cl::init(-1));
 
 namespace {
-
-static const char *kAsanModuleCtorName = "asan.module_ctor";
 
 // Blacklisted functions are not instrumented.
 // The blacklist file contains one or more lines like this:
@@ -355,7 +363,7 @@ Instruction *AddressSanitizer::generateCrashCode(
     //
     // The telltale_value (is_write and size) is encoded in the function name.
     char function_name[100];
-    sprintf(function_name, "__asan_report_error_%d", telltale_value);
+    sprintf(function_name, kAsanReportErrorTemplate, telltale_value);
     Value *asan_report_warning = CurrentModule->getOrInsertFunction(
         function_name, VoidTy, LongTy, NULL);
     CallInst *call = irb.CreateCall(asan_report_warning, Addr);
@@ -580,7 +588,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
     GlobalAlias *alias = new GlobalAlias(
         PtrTy, GlobalValue::InternalLinkage,
-        G->getName() + "_asanRZ",
+        G->getName() + kAsanRedzoneNameSuffix,
         ConstantExpr::getGetElementPtr(new_global, Indices, 2),
         new_global->getParent());
 
@@ -590,11 +598,11 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     IRBuilder<> irb(asan_ctor_insert_before->getParent(),
                     asan_ctor_insert_before);
     Value *asan_register_global = M.getOrInsertFunction(
-        "__asan_register_global", VoidTy, LongTy, LongTy, LongTy, NULL);
+        kAsanRegisterGlobalName, VoidTy, LongTy, LongTy, LongTy, NULL);
     cast<Function>(asan_register_global)->setLinkage(
         Function::ExternalLinkage);
 
-    irb.CreateCall4(asan_register_global,
+    irb.CreateCall3(asan_register_global,
                     irb.CreatePointerCast(new_global, LongTy),
                     ConstantInt::get(LongTy, size_in_bytes),
                     irb.CreatePointerCast(orig_name_glob, LongTy));
@@ -640,7 +648,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
 
   // call __asan_init in the module ctor.
   IRBuilder<> irb(asan_ctor_bb, asan_ctor_insert_before);
-  Value *asan_init = M.getOrInsertFunction("__asan_init", VoidTy, NULL);
+  Value *asan_init = M.getOrInsertFunction(kAsanInitName, VoidTy, NULL);
   cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
   irb.CreateCall(asan_init);
 
@@ -659,11 +667,11 @@ bool AddressSanitizer::runOnModule(Module &M) {
   GlobalValue *asan_mapping_offset =
       new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(LongTy, 1ULL << MappingOffsetLog),
-                     "__asan_mapping_offset");
+                     kAsanMappingOffsetName);
   GlobalValue *asan_mapping_scale =
       new GlobalVariable(M, LongTy, true, GlobalValue::LinkOnceODRLinkage,
                          ConstantInt::get(LongTy, MappingScale),
-                         "__asan_mapping_scale");
+                         kAsanMappingScaleName);
 
   // Read these globals, otherwise they may be optimized away.
   irb.CreateLoad(asan_mapping_scale, true);
@@ -778,7 +786,7 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   if (F.getNameStr().find(" load]") != std::string::npos) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
-    Value *asan_init = F.getParent()->getOrInsertFunction("__asan_init",
+    Value *asan_init = F.getParent()->getOrInsertFunction(kAsanInitName,
                                                           VoidTy, NULL);
     cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
     CallInst::Create(asan_init, "", Before);
@@ -924,7 +932,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *LocalStackBase = NULL;
   if (DoStackMalloc) {
     Value *AsanStackMallocFunc = M.getOrInsertFunction(
-        "__asan_stack_malloc", LongTy, LongTy, NULL);
+        kAsanStackMallocName, LongTy, LongTy, NULL);
     LocalStackBase = irb.CreateCall(AsanStackMallocFunc,
         ConstantInt::get(LongTy, LocalStackSize));
   } else {
@@ -966,7 +974,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *AsanStackFreeFunc = NULL;
   if (DoStackMalloc) {
     AsanStackFreeFunc = M.getOrInsertFunction(
-        "__asan_stack_free", VoidTy, LongTy, LongTy, NULL);
+        kAsanStackFreeName, VoidTy, LongTy, LongTy, NULL);
   }
 
   // Unpoison the stack before all ret instructions.
