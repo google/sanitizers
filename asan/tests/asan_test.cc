@@ -1135,16 +1135,28 @@ TEST(AddressSanitizer, LocalReferenceReturnTest) {
 #endif  // ASAN_UAR
 }
 
+template <int size>
 __attribute__((noinline))
-static void FuncWithLargeStack() {
-  int LargeStack[10000];
-  Ident(LargeStack)[0] = 0;
+static void FuncWithStack() {
+  char x[size];
+  Ident(x)[0] = 0;
+  Ident(x)[size-1] = 0;
 }
+
 static void LotsOfStackReuse() {
   int LargeStack[10000];
   Ident(LargeStack)[0] = 0;
   for (int i = 0; i < 10000; i++) {
-    FuncWithLargeStack();
+    FuncWithStack<128 * 1>();
+    FuncWithStack<128 * 2>();
+    FuncWithStack<128 * 4>();
+    FuncWithStack<128 * 8>();
+    FuncWithStack<128 * 16>();
+    FuncWithStack<128 * 32>();
+    FuncWithStack<128 * 64>();
+    FuncWithStack<128 * 128>();
+    FuncWithStack<128 * 256>();
+    FuncWithStack<128 * 512>();
     Ident(LargeStack)[0] = 0;
   }
 }
@@ -1152,6 +1164,7 @@ static void LotsOfStackReuse() {
 TEST(AddressSanitizer, StressStackReuseTest) {
   LotsOfStackReuse();
 }
+
 
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
