@@ -71,7 +71,7 @@ AsanThread *AsanThread::FindByTid(int tid) {
 
 void *AsanThread::ThreadStart() {
   SetThreadStackTopAndBottom();
-  fake_stack_.Init(stack_size() * 4);
+  fake_stack_.Init(stack_size());
   if (__asan_flag_v == 1) {
     int local = 0;
     Printf("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
@@ -122,8 +122,8 @@ const char *AsanThread::GetFrameNameByAddr(uintptr_t addr) {
   if (AddrIsInStack(addr)) {
     bottom = stack_bottom();
   } else {
-    CHECK(FakeStack().AddrIsInFakeStack(addr));
-    bottom = FakeStack().Bottom();
+    bottom = FakeStack().AddrIsInFakeStack(addr);
+    CHECK(bottom);
   }
   addr &= ~(__WORDSIZE/8 - 1);  // allign addr.
   uintptr_t *ptr = (uintptr_t*)addr;

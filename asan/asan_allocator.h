@@ -60,29 +60,44 @@ struct AsanThreadLocalMallocStorage {
 // It helps us find use-after-return bugs.
 class AsanFakeStack {
  public:
-  AsanFakeStack() : size_(0), fake_stack_(0), first_(0), last_(0) { }
+  AsanFakeStack();
   explicit AsanFakeStack(int empty_ctor_for_thread_0) { }
-  void Init(size_t size);
+  void Init(size_t stack_size);
   void Cleanup();
   uintptr_t AllocateStack(size_t size);
   void DeallocateStack(uintptr_t ptr, size_t size);
-  bool AddrIsInFakeStack(uintptr_t addr) {
-    return addr >= fake_stack_ && addr < (fake_stack_ + size_);
-  }
-  uintptr_t Bottom() { return fake_stack_; }
+  uintptr_t AddrIsInFakeStack(uintptr_t addr);
  private:
-  size_t size_;
-  uintptr_t fake_stack_;
+  static const size_t kMinStackFrameSizeLog = 9;  // Min frame is 512B.
+  static const size_t kMaxStackFrameSizeLog = 16;  // Max stack frame is 64K.
+  static const size_t kMaxStackMallocSize = 1 << kMaxStackFrameSizeLog;
+  static const size_t kNumberOfSizeClasses =
+      kMaxStackFrameSizeLog - kMinStackFrameSizeLog + 1;
+
+  bool AddrIsInSizeClass(uintptr_t addr, size_t size_class);
+
+  const size_t ClassMmapSize(size_t size_class) { return 2 * stack_size_; }
+  const size_t ClassSize(size_t size_class) {
+    return 1UL << (size_class + kMinStackFrameSizeLog);
+  }
+
+  size_t ComputSizeClass(size_t alloc_size);
 
   struct FifoNode {
     uintptr_t padding[2];
     FifoNode *next;
   };
-  FifoNode *first_;
-  FifoNode *last_;
 
-  void FifoPush(uintptr_t a);
-  uintptr_t FifoPop();
+  struct FifoList {
+    FifoNode *first, *last;
+    void FifoPush(uintptr_t a);
+    uintptr_t FifoPop();
+  };
+
+  size_t stack_size_;
+
+  uintptr_t allocated_size_classes_[kNumberOfSizeClasses];
+  FifoList size_classes_[kNumberOfSizeClasses];
 };
 
 extern "C" {
