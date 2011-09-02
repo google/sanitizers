@@ -776,7 +776,7 @@ uintptr_t AsanFakeStack::AddrIsInFakeStack(uintptr_t addr) {
 }
 
 // We may want to compute this during compilation.
-inline size_t AsanFakeStack::ComputSizeClass(size_t alloc_size) {
+inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
   size_t rounded_size = RoundUpToPowerOfTwo(alloc_size);
   size_t log = Log2(rounded_size);
   CHECK(alloc_size <= (1UL << log));
@@ -826,19 +826,24 @@ void AsanFakeStack::Cleanup() {
   }
 }
 
+void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
+  CHECK(ClassMmapSize(size_class) >= kPageSize);
+  uintptr_t new_mem = (uintptr_t)__asan_mmap(0, ClassMmapSize(size_class),
+                                             PROT_READ | PROT_WRITE,
+                                             MAP_PRIVATE | MAP_ANON, -1, 0);
+  CHECK(new_mem != (uintptr_t)-1);
+  for (size_t i = 0; i < ClassMmapSize(size_class);
+       i += ClassSize(size_class)) {
+    size_classes_[size_class].FifoPush(new_mem + i);
+  }
+  allocated_size_classes_[size_class] = new_mem;
+}
+
 uintptr_t AsanFakeStack::AllocateStack(size_t size) {
-  size_t size_class = ComputSizeClass(size);
+  CHECK(size <= kMaxStackMallocSize);
+  size_t size_class = ComputeSizeClass(size);
   if (!allocated_size_classes_[size_class]) {
-    CHECK(ClassMmapSize(size_class) >= kPageSize);
-    uintptr_t new_mem = (uintptr_t)__asan_mmap(0, ClassMmapSize(size_class),
-                                               PROT_READ | PROT_WRITE,
-                                               MAP_PRIVATE | MAP_ANON, -1, 0);
-    CHECK(new_mem != (uintptr_t)-1);
-    for (size_t i = 0; i < ClassMmapSize(size_class);
-         i += ClassSize(size_class)) {
-      size_classes_[size_class].FifoPush(new_mem + i);
-    }
-    allocated_size_classes_[size_class] = new_mem;
+    AllocateOneSizeClass(size_class);
   }
   uintptr_t ptr = size_classes_[size_class].FifoPop();
   CHECK(ptr);
@@ -847,7 +852,7 @@ uintptr_t AsanFakeStack::AllocateStack(size_t size) {
 }
 
 void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
-  size_t size_class = ComputSizeClass(size);
+  size_t size_class = ComputeSizeClass(size);
   CHECK(allocated_size_classes_[size_class]);
   CHECK(AddrIsInFakeStack(ptr));
   PoisonShadow(ptr, size, kAsanStackAfterReturnMagic);

@@ -54,8 +54,8 @@ struct AsanThreadLocalMallocStorage {
 
 // For each thread we create a fake stack and place stack objects on this fake
 // stack instead of the real stack. The fake stack is not really a stack but
-// a ring buffer so that when a function exits the fake stack is not poped
-// but remains there for quite some time until the ring buffer cycles back.
+// a fast malloc-like allocator so that when a function exits the fake stack
+// is not poped but remains there for quite some time until gets used again.
 // So, we poison the objects on the fake stack when function returns.
 // It helps us find use-after-return bugs.
 class AsanFakeStack {
@@ -66,6 +66,7 @@ class AsanFakeStack {
   void Cleanup();
   uintptr_t AllocateStack(size_t size);
   void DeallocateStack(uintptr_t ptr, size_t size);
+  // Return the bottom of the maped region.
   uintptr_t AddrIsInFakeStack(uintptr_t addr);
  private:
   static const size_t kMinStackFrameSizeLog = 9;  // Min frame is 512B.
@@ -76,15 +77,20 @@ class AsanFakeStack {
 
   bool AddrIsInSizeClass(uintptr_t addr, size_t size_class);
 
-  const size_t ClassMmapSize(size_t size_class) { return 2 * stack_size_; }
+  // Each size class should be large enough to hold all frames.
+  const size_t ClassMmapSize(size_t size_class) {
+    return 2 * stack_size_;
+  }
+
   const size_t ClassSize(size_t size_class) {
     return 1UL << (size_class + kMinStackFrameSizeLog);
   }
 
-  size_t ComputSizeClass(size_t alloc_size);
+  size_t ComputeSizeClass(size_t alloc_size);
+  void AllocateOneSizeClass(size_t size_class);
 
   struct FifoNode {
-    uintptr_t padding[2];
+    uintptr_t padding[2];  // Used by the instrumentation code.
     FifoNode *next;
   };
 
