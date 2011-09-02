@@ -962,6 +962,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
         break;
       case kAsanStackMidRedzoneMagic:
       case kAsanStackRightRedzoneMagic:
+      case kAsanStackPartialRedzoneMagic:
         bug_descr = "stack-buffer-overflow";
         break;
       case kAsanStackAfterReturnMagic:

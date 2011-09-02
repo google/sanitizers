@@ -76,6 +76,7 @@ static const char *kLLVMGlobalCtors = "llvm.global_ctors";
 static const int kAsanStackLeftRedzoneMagic = 0xf1;
 static const int kAsanStackMidRedzoneMagic = 0xf2;
 static const int kAsanStackRightRedzoneMagic = 0xf3;
+static const int kAsanStackPartialRedzoneMagic = 0xf4;
 
 // Command-line flags.
 
@@ -836,7 +837,8 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
       if (DoPoison) {
         PoisonShadowPartialRightRedzone((uint8_t*)&Poison, AddressableBytes,
                                         RedzoneSize,
-                                        1ULL << MappingScale, 0xf4);
+                                        1ULL << MappingScale,
+                                        kAsanStackPartialRedzoneMagic);
       }
       Value *PartialPoison = ConstantInt::get(RZTy, Poison);
       IRB.CreateStore(PartialPoison, IRB.CreateIntToPtr(Ptr, RZPtrTy));

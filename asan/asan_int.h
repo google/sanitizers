@@ -82,6 +82,7 @@ const int kAsanHeapFreeMagic = 0xfd;
 const int kAsanStackLeftRedzoneMagic = 0xf1;
 const int kAsanStackMidRedzoneMagic = 0xf2;
 const int kAsanStackRightRedzoneMagic = 0xf3;
+const int kAsanStackPartialRedzoneMagic = 0xf4;
 const int kAsanStackAfterReturnMagic = 0xf5;
 const int kAsanGlobalRedzoneMagic = 0xf9;
 
