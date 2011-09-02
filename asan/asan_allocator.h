@@ -61,6 +61,7 @@ struct AsanThreadLocalMallocStorage {
 class AsanFakeStack {
  public:
   AsanFakeStack() : size_(0), fake_stack_(0), first_(0), last_(0) { }
+  explicit AsanFakeStack(int empty_ctor_for_thread_0) { }
   void Init(size_t size);
   void Cleanup();
   uintptr_t AllocateStack(size_t size);

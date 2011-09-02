@@ -38,7 +38,7 @@ static const int kMaxTid = (1 << 16) - 1;
 
 static AsanThread *threads[kMaxTid + 1];
 
-AsanThread::AsanThread() {
+AsanThread::AsanThread() : fake_stack_(/*empty_ctor_for_thread_0*/0) {
   CHECK(tid_ == 0);
   CHECK(this == &main_thread_);
   CHECK(threads[0] == 0);
