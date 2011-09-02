@@ -1135,12 +1135,12 @@ TEST(AddressSanitizer, LocalReferenceReturnTest) {
 #endif  // ASAN_UAR
 }
 
-template <int size>
+template <int kSize>
 __attribute__((noinline))
 static void FuncWithStack() {
-  char x[size];
+  char x[kSize];
   Ident(x)[0] = 0;
-  Ident(x)[size-1] = 0;
+  Ident(x)[kSize-1] = 0;
 }
 
 static void LotsOfStackReuse() {
