@@ -788,6 +788,7 @@ inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
 }
 
 void AsanFakeStack::FifoList::FifoPush(uintptr_t a) {
+  // Printf("T%d push "PP"\n", AsanThread::GetCurrent()->tid(), a);
   FifoNode *node =(FifoNode*)a;
   node->next = 0;
   if (first == 0 && last == 0) {
@@ -816,14 +817,20 @@ void AsanFakeStack::Init(size_t stack_size) {
 }
 
 void AsanFakeStack::Cleanup() {
+  // Printf("T%d cleanup\n", AsanThread::GetCurrent()->tid());
   for (size_t i = 0; i < kNumberOfSizeClasses; i++) {
     uintptr_t mem = allocated_size_classes_[i];
     if (mem) {
-      int munmap_res = munmap((void*)mem, ClassMmapSize(i));
       PoisonShadow(mem, ClassMmapSize(i), 0);
+      allocated_size_classes_[i] = 0;
+      int munmap_res = munmap((void*)mem, ClassMmapSize(i));
       CHECK(munmap_res == 0);
     }
   }
+}
+
+size_t AsanFakeStack::ClassMmapSize(size_t size_class) {
+  return RoundUpToPowerOfTwo(stack_size_);
 }
 
 void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
@@ -832,10 +839,16 @@ void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
                                              PROT_READ | PROT_WRITE,
                                              MAP_PRIVATE | MAP_ANON, -1, 0);
   CHECK(new_mem != (uintptr_t)-1);
-  for (size_t i = 0; i < ClassMmapSize(size_class);
+  // Printf("T%d new_mem[%ld]: "PP"-"PP" mmap %ld\n",
+  //       AsanThread::GetCurrent()->tid(),
+  //       size_class, new_mem, new_mem + ClassMmapSize(size_class),
+  //       ClassMmapSize(size_class));
+  size_t i;
+  for (i = 0; i < ClassMmapSize(size_class);
        i += ClassSize(size_class)) {
     size_classes_[size_class].FifoPush(new_mem + i);
   }
+  CHECK(i == ClassMmapSize(size_class));
   allocated_size_classes_[size_class] = new_mem;
 }
 
@@ -854,7 +867,8 @@ uintptr_t AsanFakeStack::AllocateStack(size_t size) {
 void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
   size_t size_class = ComputeSizeClass(size);
   CHECK(allocated_size_classes_[size_class]);
-  CHECK(AddrIsInFakeStack(ptr));
+  CHECK(AddrIsInSizeClass(ptr, size_class));
+  CHECK(AddrIsInSizeClass(ptr + size - 1, size_class));
   PoisonShadow(ptr, size, kAsanStackAfterReturnMagic);
   size_classes_[size_class].FifoPush(ptr);
 }

@@ -1165,6 +1165,17 @@ TEST(AddressSanitizer, StressStackReuseTest) {
   LotsOfStackReuse();
 }
 
+TEST(AddressSanitizer, ThreadedStressStackReuseTest) {
+  const int kNumThreads = 20;
+  pthread_t t[kNumThreads];
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_create(&t[i], 0, (void* (*)(void *x))LotsOfStackReuse, 0);
+  }
+  for (int i = 0; i < kNumThreads; i++) {
+    pthread_join(t[i], 0);
+  }
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {

@@ -78,11 +78,9 @@ class AsanFakeStack {
   bool AddrIsInSizeClass(uintptr_t addr, size_t size_class);
 
   // Each size class should be large enough to hold all frames.
-  const size_t ClassMmapSize(size_t size_class) {
-    return 2 * stack_size_;
-  }
+  size_t ClassMmapSize(size_t size_class);
 
-  const size_t ClassSize(size_t size_class) {
+  size_t ClassSize(size_t size_class) {
     return 1UL << (size_class + kMinStackFrameSizeLog);
   }
 
