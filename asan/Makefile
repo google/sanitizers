@@ -124,8 +124,7 @@ install_clang:
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
 install: install_clang
-	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
-	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
+	for f in libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 
 # Use this target if you want only the 32-bit version to be installed.
 install_lib32:
