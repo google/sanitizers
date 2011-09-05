@@ -100,33 +100,36 @@ b64: | $(BIN)
 b32: | $(BIN)
 	$(MAKE) BITS=32 $(BIN)/asan_test32
 
-lib32:	$(BIN)
+lib32:	$(BIN) $(CLANG_LIB)
 	$(MAKE) BITS=32 $(LIBASAN_OBJ_32)
 	ar ru $(CLANG_LIB)/libasan32.a $(LIBASAN_OBJ_32)
 
-lib64:	$(BIN)
+lib64:	$(BIN) $(CLANG_LIB)
 	$(MAKE) BITS=64 $(LIBASAN_OBJ_64)
 	ar ru $(CLANG_LIB)/libasan64.a $(LIBASAN_OBJ_64)
 
 $(BIN):
 	mkdir -p $(BIN)
 
+$(CLANG_LIB):
+	mkdir -p $(CLANG_LIB)
+
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
-install_pre:
+install_clang:
 	rm -rf $(INSTALL_DIR)
 	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/bin $(INSTALL_DIR)/lib
 	for f in clang; do cp $(CLANG_BUILD)/bin/$$f $(INSTALL_DIR)/bin/$$f; done
+	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
-install: install_pre
+install: install_clang
 	for f in clang libasan32.a libasan64.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
 # Use this target if you want only the 32-bit version to be installed.
-install32: install_pre
-	for f in clang libasan32.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
-	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
+install_lib32:
+	for f in libasan32.a; do cp -r $(CLANG_BUILD)/lib/$$f $(INSTALL_DIR)/lib/$$f; done
 
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
