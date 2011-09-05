@@ -59,13 +59,24 @@ LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
 
+LIBASAN_OBJ_COMMON_MACRO=$(1)/asan_rtl$(2).o \
+	    $(1)/asan_allocator$(2).o  \
+	    $(1)/asan_stack$(2).o  \
+	    $(1)/asan_thread$(2).o  \
+	    $(1)/sysinfo$(2).o
+
+
 ifeq ($(PLATFORM),Darwin)
 RTL_HDR=$(RTL_HDR_COMMON) mach_override.h
-LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) $(BIN)/mach_override$(SUFF).o
+LIBASAN_OBJ_MACRO=$(LIBASAN_OBJ_COMMON_MACRO) $(1)/mach_override$(2).o
 else
 RTL_HDR=$(RTL_HDR_COMMON)
-LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON)
+LIBASAN_OBJ_MACRO=$(LIBASAN_OBJ_COMMON_MACRO)
 endif
+
+LIBASAN_OBJ=$(call LIBASAN_OBJ_MACRO,$(BIN),$(SUFF))
+LIBASAN_OBJ_32=$(call LIBASAN_OBJ_MACRO,$(BIN),32)
+LIBASAN_OBJ_64=$(call LIBASAN_OBJ_MACRO,$(BIN),64)
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -89,6 +100,13 @@ b64: | $(BIN)
 b32: | $(BIN)
 	$(MAKE) BITS=32 $(BIN)/asan_test32
 
+lib32:	$(BIN)
+	$(MAKE) BITS=32 $(LIBASAN_OBJ_32)
+	ar ru $(CLANG_LIB)/libasan32.a $(LIBASAN_OBJ_32)
+
+lib64:	$(BIN)
+	$(MAKE) BITS=64 $(LIBASAN_OBJ_64)
+	ar ru $(CLANG_LIB)/libasan64.a $(LIBASAN_OBJ_64)
 
 $(BIN):
 	mkdir -p $(BIN)
