@@ -485,6 +485,8 @@ TEST(AddressSanitizer, ReallocTest) {
 
 void WrongFree() {
   int *x = (int*)malloc(100 * sizeof(int));
+  // Use the allocated memory, otherwise Clang will optimize it out.
+  *x = 42;
   free(x + 1);
 }
 
