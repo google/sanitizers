@@ -1,6 +1,6 @@
 Index: include/llvm/Transforms/Instrumentation.h
 ===================================================================
---- include/llvm/Transforms/Instrumentation.h	(revision 135664)
+--- include/llvm/Transforms/Instrumentation.h	(revision 139006)
 +++ include/llvm/Transforms/Instrumentation.h	(working copy)
 @@ -31,6 +31,9 @@
  ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
@@ -14,7 +14,7 @@ Index: include/llvm/Transforms/Instrumentation.h
  #endif
 Index: include/llvm/InitializePasses.h
 ===================================================================
---- include/llvm/InitializePasses.h	(revision 135664)
+--- include/llvm/InitializePasses.h	(revision 139006)
 +++ include/llvm/InitializePasses.h	(working copy)
 @@ -96,6 +96,7 @@
  void initializeEdgeProfilerPass(PassRegistry&);
@@ -24,30 +24,9 @@ Index: include/llvm/InitializePasses.h
  void initializeEarlyCSEPass(PassRegistry&);
  void initializeExpandISelPseudosPass(PassRegistry&);
  void initializeFindUsedTypesPass(PassRegistry&);
-Index: include/llvm/Support/PassManagerBuilder.h
-===================================================================
---- include/llvm/Support/PassManagerBuilder.h	(revision 135664)
-+++ include/llvm/Support/PassManagerBuilder.h	(working copy)
-@@ -24,6 +24,7 @@
- #include "llvm/Analysis/Verifier.h"
- #include "llvm/Target/TargetLibraryInfo.h"
- #include "llvm/Transforms/Scalar.h"
-+#include "llvm/Transforms/Instrumentation.h"
- #include "llvm/Transforms/IPO.h"
- 
- namespace llvm {
-@@ -222,6 +223,8 @@
-       MPM.add(createGVNPass());                 // Remove redundancies
-     MPM.add(createMemCpyOptPass());             // Remove memcpy / form memset
-     MPM.add(createSCCPPass());                  // Constant prop with SCCP
-+
-+    MPM.add(createAddressSanitizerPass());      // AddressSanitizer
-     
-     // Run instcombine after redundancy elimination to exploit opportunities
-     // opened up by them.
 Index: lib/Transforms/Instrumentation/Instrumentation.cpp
 ===================================================================
---- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 135664)
+--- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 139006)
 +++ lib/Transforms/Instrumentation/Instrumentation.cpp	(working copy)
 @@ -24,6 +24,7 @@
    initializeOptimalEdgeProfilerPass(Registry);
@@ -59,7 +38,7 @@ Index: lib/Transforms/Instrumentation/Instrumentation.cpp
  /// LLVMInitializeInstrumentation - C binding for
 Index: lib/Transforms/Instrumentation/CMakeLists.txt
 ===================================================================
---- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 135664)
+--- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 139006)
 +++ lib/Transforms/Instrumentation/CMakeLists.txt	(working copy)
 @@ -1,4 +1,5 @@
  add_llvm_library(LLVMInstrumentation
@@ -67,9 +46,35 @@ Index: lib/Transforms/Instrumentation/CMakeLists.txt
    EdgeProfiling.cpp
    GCOVProfiling.cpp
    Instrumentation.cpp
+Index: lib/Transforms/IPO/PassManagerBuilder.cpp
+===================================================================
+--- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 139006)
++++ lib/Transforms/IPO/PassManagerBuilder.cpp	(working copy)
+@@ -24,6 +24,7 @@
+ #include "llvm/Analysis/Verifier.h"
+ #include "llvm/Target/TargetLibraryInfo.h"
+ #include "llvm/Transforms/Scalar.h"
++#include "llvm/Transforms/Instrumentation.h"
+ #include "llvm/Transforms/IPO.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Support/ManagedStatic.h"
+@@ -161,6 +162,8 @@
+   MPM.add(createMemCpyOptPass());             // Remove memcpy / form memset
+   MPM.add(createSCCPPass());                  // Constant prop with SCCP
+ 
++  MPM.add(createAddressSanitizerPass());      // AddressSanitizer
++
+   // Run instcombine after redundancy elimination to exploit opportunities
+   // opened up by them.
+   MPM.add(createInstructionCombiningPass());
+@@ -340,4 +343,3 @@
+   PassManagerBase *LPM = unwrap(PM);
+   Builder->populateLTOPassManager(*LPM, Internalize, RunInliner);
+ }
+-
 Index: tools/clang/include/clang/Driver/Options.td
 ===================================================================
---- tools/clang/include/clang/Driver/Options.td	(revision 135664)
+--- tools/clang/include/clang/Driver/Options.td	(revision 139006)
 +++ tools/clang/include/clang/Driver/Options.td	(working copy)
 @@ -258,6 +258,7 @@
  def faccess_control : Flag<"-faccess-control">, Group<f_Group>;
@@ -81,9 +86,9 @@ Index: tools/clang/include/clang/Driver/Options.td
  def fasm_blocks : Flag<"-fasm-blocks">, Group<f_Group>;
 Index: tools/clang/lib/Driver/Tools.cpp
 ===================================================================
---- tools/clang/lib/Driver/Tools.cpp	(revision 135664)
+--- tools/clang/lib/Driver/Tools.cpp	(revision 139006)
 +++ tools/clang/lib/Driver/Tools.cpp	(working copy)
-@@ -1049,6 +1049,12 @@
+@@ -1059,6 +1059,12 @@
    // FIXME: Implement custom jobs for internal actions.
    CmdArgs.push_back("-cc1");
  
@@ -96,7 +101,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3250,6 +3256,39 @@
+@@ -3405,6 +3411,39 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -136,7 +141,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3288,6 +3327,8 @@
+@@ -3443,6 +3482,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -145,7 +150,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4077,6 +4118,27 @@
+@@ -4252,6 +4293,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
