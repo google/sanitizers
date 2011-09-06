@@ -265,6 +265,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
   int *pm;
   int pm_res = posix_memalign((void**)&pm, 4096, 4096);
   EXPECT_EQ(0, pm_res);
+  free(pm);
 
   int *ma = (int*)memalign(4096, 4096);
   EXPECT_EQ(0, (uintptr_t)ma % 4096);
