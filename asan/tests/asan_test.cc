@@ -1179,6 +1179,23 @@ TEST(AddressSanitizer, ThreadedStressStackReuseTest) {
   }
 }
 
+__attribute__((noinline))
+static void StackReuseAndException() {
+  int large_stack[1000];
+  Ident(large_stack);
+  throw 1;
+}
+
+// TODO(kcc): support exceptions with use-after-return.
+TEST(AddressSanitizer, DISABLED_StressStackReuseAndExceptionsTest) {
+  for (int i = 0; i < 10000; i++) {
+    try {
+    StackReuseAndException();
+    } catch(...) {
+    }
+  }
+}
+
 // ------------------ demo tests; run each one-by-one -------------
 // e.g. --gtest_filter=*DemoOOBLeftHigh --gtest_also_run_disabled_tests
 TEST(AddressSanitizer, DISABLED_DemoThreadedTest) {
