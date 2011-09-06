@@ -27,7 +27,7 @@
 #endif
 
 #include <algorithm>
-#include <vector>
+#include <map>
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
@@ -297,7 +297,8 @@ struct Global {
 
 AsanLock Global::mu_;
 
-static std::vector<Global> *g_all_globals = NULL;
+typedef std::map<uintptr_t, Global> MapOfGlobals;
+static MapOfGlobals *g_all_globals = NULL;
 
 __attribute__((noinline))
 static bool DescribeAddrIfGlobal(uintptr_t addr) {
@@ -305,24 +306,30 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals) return false;
   bool res = false;
-  for (size_t i = 0, n = g_all_globals->size(); i < n; i++) {
-    Global *g = &(*g_all_globals)[i];
+  // Just iterate. May want to use binary search instead.
+  for (MapOfGlobals::iterator i = g_all_globals->begin(),
+       end = g_all_globals->end(); i != end; ++i) {
+    Global &g = i->second;
+    CHECK(i->first == g.beg);
     if (__asan_flag_report_globals >= 2)
-      Printf("Search Global: "PP" beg="PP" size=%ld name=%s\n",
-             g, g->beg, g->size, g->name);
-    res |= g->DescribeAddrIfMyRedZone(addr);
+      Printf("Search Global: beg="PP" size=%ld name=%s\n",
+             g.beg, g.size, g.name);
+    res |= g.DescribeAddrIfMyRedZone(addr);
   }
   return res;
 }
 
-// exported function
+// exported function.
+// Register a global variable by its address, size and name.
+// This function may be called more than once for every global
+// so we store the globals in a map.
 void __asan_register_global(uintptr_t addr, size_t size,
                             const char *name) {
   CHECK(asan_inited);
   if (!__asan_flag_report_globals) return;
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals)
-    g_all_globals = new std::vector<Global>;
+    g_all_globals = new MapOfGlobals;
   CHECK(AddrIsInMem(addr));
   Global g;
   g.size = size;
@@ -332,7 +339,7 @@ void __asan_register_global(uintptr_t addr, size_t size,
     Printf("Added Global: beg="PP" size=%ld name=%s\n",
            g.beg, g.size, g.name);
   g.PoisonRedZones();
-  g_all_globals->push_back(g);
+  (*g_all_globals)[addr] = g;
 }
 
 // ---------------------- DescribeAddress -------------------- {{{1
