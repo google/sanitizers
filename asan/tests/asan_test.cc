@@ -49,6 +49,7 @@ typedef uint32_t  U4;
 typedef uint64_t  U8;
 
 static const char *progname;
+static const int kPageSize = 4096;
 
 // Simple stand-alone pseudorandom number generator.
 // Current algorithm is ANSI C linear congruential PRNG.
@@ -263,15 +264,27 @@ TEST(AddressSanitizer, VariousMallocsTest) {
 #ifndef __APPLE__
   // fprintf(stderr, "posix_memalign\n");
   int *pm;
-  int pm_res = posix_memalign((void**)&pm, 4096, 4096);
+  int pm_res = posix_memalign((void**)&pm, kPageSize, kPageSize);
   EXPECT_EQ(0, pm_res);
   free(pm);
 
-  int *ma = (int*)memalign(4096, 4096);
-  EXPECT_EQ(0, (uintptr_t)ma % 4096);
+  int *ma = (int*)memalign(kPageSize, kPageSize);
+  EXPECT_EQ(0, (uintptr_t)ma % kPageSize);
   ma[123] = 0;
   free(ma);
 #endif  // __APPLE__
+}
+
+TEST(AddressSanitizer, CallocTest) {
+  int *a = (int*)calloc(100, sizeof(int));
+  EXPECT_EQ(0, a[10]);
+  free(a);
+}
+
+TEST(AddressSanitizer, VallocTest) {
+  void *a = (void*)valloc(100);
+  EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  free(a);
 }
 
 void NoOpSignalHandler(int unused) {
