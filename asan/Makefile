@@ -125,6 +125,15 @@ install:
 	cp -rv $(CLANG_BUILD)/lib/clang $(INSTALL_DIR)/lib
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
 
+# install_lib{32,64} are for Chromium OS only.
+install_lib32:
+	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/lib
+	cp -v $(CLANG_BUILD)/lib/libasan32.a $(INSTALL_DIR)/lib
+
+install_lib64:
+	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/lib
+	cp -v $(CLANG_BUILD)/lib/libasan64.a $(INSTALL_DIR)/lib
+
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
 	$(CLEANROOM_CXX) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
 
