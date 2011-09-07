@@ -451,6 +451,13 @@ void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_valloc(size, &stack);
 }
+
+extern "C"
+__attribute__((visibility("default")))
+void *pvalloc(size_t size) {
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
+  return __asan_pvalloc(size, &stack);
+}
 #endif
 
 #if 1

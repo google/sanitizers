@@ -112,6 +112,7 @@ void *__asan_malloc(size_t size, AsanStackTrace *stack);
 void *__asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack);
 void *__asan_realloc(void *p, size_t size, AsanStackTrace *stack);
 void *__asan_valloc(size_t size, AsanStackTrace *stack);
+void *__asan_pvalloc(size_t size, AsanStackTrace *stack);
 
 int __asan_posix_memalign(void **memptr, size_t alignment, size_t size,
                           AsanStackTrace *stack);

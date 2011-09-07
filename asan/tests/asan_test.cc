@@ -287,7 +287,7 @@ TEST(AddressSanitizer, VallocTest) {
   free(a);
 }
 
-TEST(AddressSanitizer, DISABLED_PvallocTest) {
+TEST(AddressSanitizer, PvallocTest) {
   char *a = (char*)pvalloc(kPageSize + 100);
   EXPECT_EQ(0, (uintptr_t)a % kPageSize);
   a[kPageSize + 101] = 1;  // we should not report an error here.

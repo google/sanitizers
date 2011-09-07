@@ -729,11 +729,21 @@ void *__asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
   memset(res, 0, nmemb * size);
   return (void*)res;
 }
+
 void *__asan_realloc(void *p, size_t size, AsanStackTrace *stack) {
   return Reallocate((uint8_t*)p, size, stack);
 }
 
 void *__asan_valloc(size_t size, AsanStackTrace *stack) {
+  return Allocate(kPageSize, size, stack);
+}
+
+void *__asan_pvalloc(size_t size, AsanStackTrace *stack) {
+  size = RoundUpTo(size, kPageSize);
+  if (size == 0) {
+    // pvalloc(0) should allocate one page.
+    size = kPageSize;
+  }
   return Allocate(kPageSize, size, stack);
 }
 
