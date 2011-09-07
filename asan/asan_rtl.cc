@@ -437,6 +437,7 @@ void *memalign(size_t boundary, size_t size) {
 }
 
 extern "C"
+__attribute__((visibility("default")))
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
