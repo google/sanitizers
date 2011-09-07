@@ -282,8 +282,20 @@ TEST(AddressSanitizer, CallocTest) {
 }
 
 TEST(AddressSanitizer, VallocTest) {
-  void *a = (void*)valloc(100);
+  void *a = valloc(100);
   EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  free(a);
+}
+
+TEST(AddressSanitizer, DISABLED_PvallocTest) {
+  char *a = (char*)pvalloc(kPageSize + 100);
+  EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  a[kPageSize + 101] = 1;  // we should not report an error here.
+  free(a);
+
+  a = (char*)pvalloc(0);  // pvalloc(0) should allocate at least one page.
+  EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  a[101] = 1;  // we should not report an error here.
   free(a);
 }
 
