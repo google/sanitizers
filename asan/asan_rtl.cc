@@ -431,6 +431,7 @@ void *realloc(void *ptr, size_t size) {
 }
 
 extern "C"
+__attribute__((visibility("default")))
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_memalign(boundary, size, &stack);
@@ -443,7 +444,9 @@ int posix_memalign(void **memptr, size_t alignment, size_t size) {
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
   return __asan_posix_memalign(memptr, alignment, size, &stack);
 }
+
 extern "C"
+__attribute__((visibility("default")))
 void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_valloc(size, &stack);
