@@ -99,6 +99,7 @@ class AsanFakeStack {
   };
 
   size_t stack_size_;
+  bool   alive_;
 
   uintptr_t allocated_size_classes_[kNumberOfSizeClasses];
   FifoList size_classes_[kNumberOfSizeClasses];

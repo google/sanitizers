@@ -767,7 +767,7 @@ size_t __asan_total_mmaped() {
 
 // ---------------------- Fake stack-------------------- {{{1
 AsanFakeStack::AsanFakeStack()
-  : stack_size_(0) {
+  : stack_size_(0), alive_(false) {
   memset(allocated_size_classes_, 0, sizeof(allocated_size_classes_));
   memset(size_classes_, 0, sizeof(size_classes_));
 }
@@ -799,18 +799,21 @@ inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
 
 void AsanFakeStack::FifoList::FifoPush(uintptr_t a) {
   // Printf("T%d push "PP"\n", AsanThread::GetCurrent()->tid(), a);
-  FifoNode *node =(FifoNode*)a;
+  FifoNode *node = (FifoNode*)a;
+  CHECK(node);
   node->next = 0;
   if (first == 0 && last == 0) {
     first = last = node;
   } else {
+    CHECK(first);
+    CHECK(last);
     last->next = node;
     last = node;
   }
 }
 
 uintptr_t AsanFakeStack::FifoList::FifoPop() {
-  CHECK(first && last);
+  CHECK(first && last && "Exhausted fake stack");
   FifoNode *res = 0;
   if (first == last) {
     res = first;
@@ -824,10 +827,12 @@ uintptr_t AsanFakeStack::FifoList::FifoPop() {
 
 void AsanFakeStack::Init(size_t stack_size) {
   stack_size_ = stack_size;
+  alive_ = true;
 }
 
 void AsanFakeStack::Cleanup() {
   // Printf("T%d cleanup\n", AsanThread::GetCurrent()->tid());
+  alive_ = false;
   for (size_t i = 0; i < kNumberOfSizeClasses; i++) {
     uintptr_t mem = allocated_size_classes_[i];
     if (mem) {
@@ -863,6 +868,7 @@ void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
 }
 
 uintptr_t AsanFakeStack::AllocateStack(size_t size) {
+  CHECK(alive_);
   CHECK(size <= kMaxStackMallocSize);
   size_t size_class = ComputeSizeClass(size);
   if (!allocated_size_classes_[size_class]) {
@@ -875,6 +881,7 @@ uintptr_t AsanFakeStack::AllocateStack(size_t size) {
 }
 
 void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
+  CHECK(alive_);
   size_t size_class = ComputeSizeClass(size);
   CHECK(allocated_size_classes_[size_class]);
   CHECK(AddrIsInSizeClass(ptr, size_class));
