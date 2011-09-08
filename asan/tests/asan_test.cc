@@ -1299,6 +1299,17 @@ TEST(AddressSanitizer, DISABLED_DemoFunctionStaticTest) {
   Ident(a)[5] = 0;
 }
 
+TEST(AddressSanitizer, DISABLED_DemoTooMuchMemoryTest) {
+  const size_t kAllocSize = 1 << 28;
+  size_t total_size = 0;
+  while (true) {
+    char *x = (char*)malloc(kAllocSize);
+    memset(x, 0, kAllocSize);
+    total_size += kAllocSize;
+    fprintf(stderr, "total: %ldM\n", (long)total_size >> 20);
+  }
+}
+
 #ifdef __APPLE__
 #include "asan_mac_test.h"
 TEST(AddressSanitizerMac, CFAllocatorDefaultDoubleFree) {
