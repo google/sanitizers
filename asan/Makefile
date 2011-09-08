@@ -127,11 +127,11 @@ install:
 
 # install_lib{32,64} are for Chromium OS only.
 install_lib32:
-	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/lib
+	test -d $(INSTALL_DIR)/lib || mkdir -p $(INSTALL_DIR)/lib
 	cp -v $(CLANG_BUILD)/lib/libasan32.a $(INSTALL_DIR)/lib
 
 install_lib64:
-	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/lib
+	test -d $(INSTALL_DIR)/lib || mkdir -p $(INSTALL_DIR)/lib
 	cp -v $(CLANG_BUILD)/lib/libasan64.a $(INSTALL_DIR)/lib
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
