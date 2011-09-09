@@ -287,6 +287,7 @@ TEST(AddressSanitizer, VallocTest) {
   free(a);
 }
 
+#ifndef __APPLE__
 TEST(AddressSanitizer, PvallocTest) {
   char *a = (char*)pvalloc(kPageSize + 100);
   EXPECT_EQ(0, (uintptr_t)a % kPageSize);
@@ -298,6 +299,7 @@ TEST(AddressSanitizer, PvallocTest) {
   a[101] = 1;  // we should not report an error here.
   free(a);
 }
+#endif  // __APPLE__
 
 void NoOpSignalHandler(int unused) {
   fprintf(stderr, "NoOpSignalHandler (should not happen). Aborting\n");
