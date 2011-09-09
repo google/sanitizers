@@ -62,7 +62,7 @@ static const size_t kMaxStackMallocSize = 1 << 16;  // 64K
 static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
 static const char *kAsanModuleCtorName = "asan.module_ctor";
-static const char *kAsanReportErrorTemplate = "__asan_report_error_%d";
+static const char *kAsanReportErrorTemplate = "__asan_report_error_";
 static const char *kAsanRedzoneNameSuffix = "_asanRZ";
 static const char *kAsanRegisterGlobalName = "__asan_register_global";
 static const char *kAsanInitName = "__asan_init";
