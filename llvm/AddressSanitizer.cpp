@@ -167,7 +167,7 @@ struct AddressSanitizer : public ModulePass {
   bool poisonStackInFunction(Module &M, Function &F);
   virtual bool runOnModule(Module &M);
   bool insertGlobalRedzones(Module &M);
-  void appendToGlobalCtors(Module &M, Function *F);
+  void appendToGlobalCtors(Module &M, Function *F, int Priority);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp);
   static char ID;  // Pass identification, replacement for typeid
 
@@ -447,25 +447,21 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
   CloneDebugInfo(OrigIns, Crash);
 }
 
-// Append 'F' to the list of global ctors.
-void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F) {
-  // The code is shamelessly stolen from
-  // RegisterRuntimeInitializer::insertInitializerIntoGlobalCtorList().
-  // LLVM may need a general API function for this.
-
+// Append 'F' to the list of global ctors with the given Priority.
+void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
+                                           int Priority) {
   FunctionType *FnTy = FunctionType::get(VoidTy, false);
   StructType *Ty = StructType::get(
       i32Ty, PointerType::getUnqual(FnTy), NULL);
 
   Constant *RuntimeCtorInit = ConstantStruct::get(
-      Ty, ConstantInt::get(i32Ty, 65535), F, NULL);
+      Ty, ConstantInt::get(i32Ty, Priority), F, NULL);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
   std::vector<Constant *> CurrentCtors;
   GlobalVariable * GVCtor = M.getNamedGlobal(kLLVMGlobalCtors);
   if (GVCtor) {
-    CurrentCtors.push_back(RuntimeCtorInit);
     if (Constant *Const = GVCtor->getInitializer()) {
       for (uint32_t index = 0; index < Const->getNumOperands(); ++index) {
         CurrentCtors.push_back(cast<Constant>(Const->getOperand(index)));
@@ -477,7 +473,6 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F) {
     GVCtor->eraseFromParent();
   }
 
-  // We insert this twice, in the beginning and at the end. Just in case.
   CurrentCtors.push_back(RuntimeCtorInit);
 
   // Create a new initializer.
@@ -655,7 +650,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
     Res |= handleFunction(M, *F);
   }
 
-  appendToGlobalCtors(M, asan_ctor);
+  appendToGlobalCtors(M, asan_ctor, 1 /*high priority*/);
 
   return Res;
 }
