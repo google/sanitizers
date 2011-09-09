@@ -354,7 +354,9 @@ Instruction *AddressSanitizer::generateCrashCode(
     std::string FunctionName = kAsanReportErrorTemplate + itostr(TelltaleValue);
     Value *ReportWarningFunc = CurrentModule->getOrInsertFunction(
         FunctionName, VoidTy, IntptrTy, NULL);
-    return IRB.CreateCall(ReportWarningFunc, Addr);
+    CallInst *Call = IRB.CreateCall(ReportWarningFunc, Addr);
+    Call->setDoesNotReturn();
+    return Call;
   }
 
   // Move the failing address to %rax/%eax
