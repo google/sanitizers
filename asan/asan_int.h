@@ -56,7 +56,7 @@ extern uintptr_t __asan_flag_large_malloc;
 #define Printf __asan_printf
 
 #if __WORDSIZE == 64
-  #define PP "0x%016lx"
+  #define PP "0x%012lx"
 #else
   #define PP "0x%08lx"
 #endif
