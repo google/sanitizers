@@ -74,6 +74,7 @@ int    __asan_flag_report_globals;
 size_t __asan_flag_malloc_context_size = kMallocContextSize;
 int    __asan_flag_stats;
 uintptr_t __asan_flag_large_malloc;
+bool   __asan_flag_lazy_shadow;
 
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out = NULL;
@@ -935,6 +936,16 @@ void GetPcSpBpAx(void *context,
 #if ASAN_NEEDS_SEGV
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
+  if (AddrIsInShadow(addr) && __asan_flag_lazy_shadow) {
+    // We traped on access to a shadow address. Just map a large chunk around
+    // this address.
+    const uintptr_t chunk_size = kPageSize << 10;  // 4M
+    uintptr_t chunk = addr & ~(chunk_size - 1);
+    __asan_mmap((void*)chunk, chunk_size,
+                   PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
+    return;
+  }
   // Write the first message using the bullet-proof write.
   if (13 != write(2, "ASAN:SIGSEGV\n", 13)) abort();
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/true);
@@ -1107,6 +1118,7 @@ void __asan_init() {
   __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
   __asan_flag_report_globals = IntFlagValue(options, "report_globals=", 1);
   __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1U << 31);
+  __asan_flag_lazy_shadow = IntFlagValue(options, "lazy_shadow=", 0);
   __asan_flag_stats = IntFlagValue(options, "stats=", 0);
   __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
   __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
@@ -1218,10 +1230,12 @@ void __asan_init() {
   }
 
   {
-    // mmap the low shadow plus one page.
-    mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
-    // mmap the high shadow.
-    mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
+    if (!__asan_flag_lazy_shadow) {
+      // mmap the low shadow plus one page.
+      mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
+      // mmap the high shadow.
+      mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
+    }
     // protect the gap
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
