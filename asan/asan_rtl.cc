@@ -75,6 +75,7 @@ size_t __asan_flag_malloc_context_size = kMallocContextSize;
 int    __asan_flag_stats;
 uintptr_t __asan_flag_large_malloc;
 bool   __asan_flag_lazy_shadow;
+bool   __asan_flag_handle_segv;
 
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out = NULL;
@@ -1108,7 +1109,7 @@ void __asan_init() {
       IntFlagValue(options, "malloc_context_size=", kMallocContextSize);
   CHECK(__asan_flag_malloc_context_size <= kMallocContextSize);
 
-  __asan_flag_v = IntFlagValue(options, "v=", 0);
+  __asan_flag_v = IntFlagValue(options, "verbosity=", 0);
 
   __asan_flag_redzone = IntFlagValue(options, "redzone=", 128);
   CHECK(__asan_flag_redzone >= 32);
@@ -1119,6 +1120,7 @@ void __asan_init() {
   __asan_flag_report_globals = IntFlagValue(options, "report_globals=", 1);
   __asan_flag_large_malloc = IntFlagValue(options, "large_malloc=", 1U << 31);
   __asan_flag_lazy_shadow = IntFlagValue(options, "lazy_shadow=", 0);
+  __asan_flag_handle_segv = IntFlagValue(options, "handle_segv=", 1);
   __asan_flag_stats = IntFlagValue(options, "stats=", 0);
   __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
   __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
@@ -1180,21 +1182,25 @@ void __asan_init() {
 
   struct sigaction sigact;
 
+  if (__asan_flag_handle_segv) {
 #if ASAN_NEEDS_SEGV
-  // Set the SIGSEGV handler.
-  memset(&sigact, 0, sizeof(sigact));
-  sigact.sa_sigaction = ASAN_OnSIGSEGV;
-  sigact.sa_flags = SA_SIGINFO;
-  CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
+    // Set the SIGSEGV handler.
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = ASAN_OnSIGSEGV;
+    sigact.sa_flags = SA_SIGINFO;
+    CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
 #endif  // ASAN_NEEDS_SEGV
 
 #ifdef __APPLE__
-  // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
-  memset(&sigact, 0, sizeof(sigact));
-  sigact.sa_sigaction = ASAN_OnSIGSEGV;
-  sigact.sa_flags = SA_SIGINFO;
-  CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
+    // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
+    memset(&sigact, 0, sizeof(sigact));
+    sigact.sa_sigaction = ASAN_OnSIGSEGV;
+    sigact.sa_flags = SA_SIGINFO;
+    CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
 #endif
+  } else {
+    CHECK(!__asan_flag_lazy_shadow);
+  }
 
   // Set the SIGILL handler.
   memset(&sigact, 0, sizeof(sigact));
