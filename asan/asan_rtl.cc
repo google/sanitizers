@@ -1237,8 +1237,10 @@ void __asan_init() {
 
   {
     if (!__asan_flag_lazy_shadow) {
-      // mmap the low shadow plus one page.
-      mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
+      if (kLowShadowBeg != kLowShadowEnd) {
+        // mmap the low shadow plus one page.
+        mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
+      }
       // mmap the high shadow.
       mmap_range(kHighShadowBeg, kHighShadowEnd, "HighShadow");
     }

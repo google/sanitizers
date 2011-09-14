@@ -26,9 +26,9 @@
 extern uintptr_t __asan_mapping_scale;
 extern uintptr_t __asan_mapping_offset;
 
-#define SHADOW_SCALE __asan_mapping_scale
+#define SHADOW_SCALE (__asan_mapping_scale)
 #define SHADOW_GRANULARITY (1ULL << SHADOW_SCALE)
-#define SHADOW_OFFSET __asan_mapping_offset
+#define SHADOW_OFFSET (__asan_mapping_offset)
 
 #define MEM_TO_SHADOW(mem) (((mem) >> SHADOW_SCALE) | (__asan_mapping_offset))
 
@@ -40,7 +40,7 @@ extern uintptr_t __asan_mapping_offset;
 
 
 #define kLowMemBeg      0
-#define kLowMemEnd      (SHADOW_OFFSET - 1)
+#define kLowMemEnd      (SHADOW_OFFSET ? SHADOW_OFFSET - 1 : 0)
 
 #define kLowShadowBeg   SHADOW_OFFSET
 #define kLowShadowEnd   MEM_TO_SHADOW(kLowMemEnd)
@@ -50,7 +50,7 @@ extern uintptr_t __asan_mapping_offset;
 #define kHighShadowBeg  MEM_TO_SHADOW(kHighMemBeg)
 #define kHighShadowEnd  MEM_TO_SHADOW(kHighMemEnd)
 
-#define kShadowGapBeg   (kLowShadowEnd + 1)
+#define kShadowGapBeg   (kLowShadowEnd ? kLowShadowEnd + 1 : 16 * kPageSize)
 #define kShadowGapEnd   (kHighShadowBeg - 1)
 
 #define kGlobalAndStackRedzone \

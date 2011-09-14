@@ -39,8 +39,15 @@ ASAN_GLOBALS=1
 endif
 ASAN_USE_CALL=0
 ASAN_SCALE=0  # default will be used
-ASAN_OFFSET=0  #default will be used
+ASAN_OFFSET=-1  #default will be used
 ASAN_UAR=0
+
+ASAN_PIE=0
+PIE=
+ifeq ($(ASAN_PIE), 1)
+  PIE=-fPIE -pie
+endif
+
 
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
@@ -135,11 +142,11 @@ install_lib64:
 	cp -v $(CLANG_BUILD)/lib/libasan64.a $(INSTALL_DIR)/lib
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
-	$(CLEANROOM_CXX) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
+	$(CLEANROOM_CXX) $(PIE) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
-		-m$(BITS)                             \
+		$(PIE) -m$(BITS)                             \
 		-mllvm -asan-blacklist=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
@@ -150,20 +157,20 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \
-		-m$(BITS)                             \
+		$(PIE) -m$(BITS)                             \
 		-mllvm -asan-blacklist=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL)
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
-	$(CXX) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
+	$(CXX) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
 		$(ASAN_FLAGS)
 
 $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile
-	$(CC) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
+	$(CC) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
 		$(ASAN_FLAGS)
@@ -193,12 +200,12 @@ LD_FLAGS=
 endif
 
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB)
-	$(CLANG_CXX) -fasan -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
+	$(CLANG_CXX) -fasan $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="-m$(BITS) -g"
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g"
 
 RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
 # TODO(kcc): remove these filters one by one

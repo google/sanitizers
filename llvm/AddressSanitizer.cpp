@@ -55,8 +55,8 @@ using std::max;
 using namespace llvm;
 
 static const uint64_t kDefaultShadowScale = 3;
-static const uint64_t kDefaultShadowOffset32 = 29;
-static const uint64_t kDefaultShadowOffset64 = 44;
+static const uint64_t kDefaultShadowOffset32 = 1ULL << 29;
+static const uint64_t kDefaultShadowOffset64 = 1ULL << 44;
 
 static const size_t kMaxStackMallocSize = 1 << 16;  // 64K
 static const uintptr_t kFrameNameMagic = 0x41B58AB3;
@@ -112,7 +112,7 @@ static cl::opt<bool> ClUseCall("asan-use-call",
 static cl::opt<int> ClMappingScale("asan-mapping-scale",
        cl::desc("scale of asan shadow mapping"), cl::init(0));
 static cl::opt<int> ClMappingOffsetLog("asan-mapping-offset-log",
-       cl::desc("offset of asan shadow mapping"), cl::init(0));
+       cl::desc("offset of asan shadow mapping"), cl::init(-1));
 
 // Optimization flags. Not user visible, used mostly for testing
 // and benchmarking the tool.
@@ -193,7 +193,7 @@ struct AddressSanitizer : public ModulePass {
   Module      *CurrentModule;
   LLVMContext *C;
   TargetData *TD;
-  uint64_t MappingOffsetLog;
+  uint64_t MappingOffset;
   int MappingScale;
   size_t RedzoneSize;
   int LongSize;
@@ -264,7 +264,7 @@ Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &IRB) {
   Shadow = IRB.CreateLShr(Shadow, MappingScale);
   // (Shadow >> scale) | offset
   return IRB.CreateOr(Shadow, ConstantInt::get(IntptrTy,
-                                               1ULL << MappingOffsetLog));
+                                               MappingOffset));
 }
 
 void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *OrigIns,
@@ -617,10 +617,15 @@ bool AddressSanitizer::runOnModule(Module &M) {
   cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
   IRB.CreateCall(asan_init);
 
-  MappingOffsetLog = LongSize == 32
+  MappingOffset = LongSize == 32
       ? kDefaultShadowOffset32 : kDefaultShadowOffset64;
-  if (ClMappingOffsetLog) {
-    MappingOffsetLog = ClMappingOffsetLog;
+  if (ClMappingOffsetLog >= 0) {
+    if (ClMappingOffsetLog == 0) {
+      // special case
+      MappingOffset = 0;
+    } else {
+      MappingOffset = 1ULL << ClMappingOffsetLog;
+    }
   }
   MappingScale = kDefaultShadowScale;
   if (ClMappingScale) {
@@ -631,7 +636,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   RedzoneSize = max(32, (int)(1 << MappingScale));
   GlobalValue *asan_mapping_offset =
       new GlobalVariable(M, IntptrTy, true, GlobalValue::LinkOnceODRLinkage,
-                     ConstantInt::get(IntptrTy, 1ULL << MappingOffsetLog),
+                     ConstantInt::get(IntptrTy, MappingOffset),
                      kAsanMappingOffsetName);
   GlobalValue *asan_mapping_scale =
       new GlobalVariable(M, IntptrTy, true, GlobalValue::LinkOnceODRLinkage,
