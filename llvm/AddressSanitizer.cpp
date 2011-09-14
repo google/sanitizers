@@ -262,6 +262,8 @@ static void CloneDebugInfo(Instruction *From, Instruction *To) {
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &IRB) {
   // Shadow >> scale
   Shadow = IRB.CreateLShr(Shadow, MappingScale);
+  if (MappingScale == 0)
+    return Shadow;
   // (Shadow >> scale) | offset
   return IRB.CreateOr(Shadow, ConstantInt::get(IntptrTy,
                                                MappingOffset));
