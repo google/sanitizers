@@ -24,63 +24,58 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <vector>
 
-#ifdef __APPLE__
+
 static pthread_key_t g_tls_key;
 // This flag is updated only once at program startup, and then read
 // by concurrent threads.
 static bool tls_key_created = false;
-#else
-static __thread AsanThread *tl_current_thread;
-#endif
 
-static const int kMaxTid = (1 << 16) - 1;
-
-static AsanThread *threads[kMaxTid + 1];
+// Make it large enough so that we never run out of tids.
+// I am not sure we can easily replace this with vector<>.
+static const int kMaxTid = (1 << 22) + 1;
+static AsanThreadSummary *thread_summaries[kMaxTid + 1];
+static int n_threads;
 
 AsanThread::AsanThread() : fake_stack_(/*empty_ctor_for_thread_0*/0) {
   CHECK(tid_ == 0);
   CHECK(this == &main_thread_);
-  CHECK(threads[0] == 0);
-  threads[0] = &main_thread_;
 }
 
-AsanThread::AsanThread(AsanThread *parent, void *(*start_routine) (void *),
+AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),
                        void *arg, AsanStackTrace *stack)
-  : parent_(parent),
-  start_routine_(start_routine),
-  arg_(arg),
-  tid_(AtomicInc(&n_threads_)),
-  announced_(false),
-  refcount_(1) {
-  if (stack) {
-    stack_ = *stack;
-  }
-  CHECK(tid_ <= kMaxTid);
-  threads[tid_] = this;
+  : start_routine_(start_routine),
+    arg_(arg) {
+  ScopedLock lock(&mu_);
+  CHECK(n_threads > 0);
+  CHECK(n_threads < kMaxTid);
+  int tid = n_threads;
+  n_threads++;
+  summary_ = new AsanThreadSummary(tid, parent_tid, stack);
+  summary_->set_thread(this);
+  thread_summaries[tid] = summary_;
 }
 
-AsanThread *AsanThread::FindByTid(int tid) {
+AsanThreadSummary *AsanThread::FindByTid(int tid) {
   CHECK(tid >= 0);
-  CHECK(tid <= kMaxTid);
-  AsanThread *res = threads[tid];
-  CHECK(res);
-  CHECK(res->tid_ == tid);
-  return res;
+  CHECK(tid < n_threads);
+  CHECK(thread_summaries[tid]);
+  return thread_summaries[tid];
 }
 
 AsanThread *AsanThread::FindThreadByStackAddress(uintptr_t addr) {
   ScopedLock lock(&mu_);
-  AsanThread *t = live_threads_;
-  do {
+  for (int tid = 0; tid < n_threads; tid++) {
+    AsanThread *t = thread_summaries[tid]->thread();
+    if (!t) continue;
     if (t->FakeStack().AddrIsInFakeStack(addr)) {
       return t;
     }
     if (t->AddrIsInStack(addr)) {
       return t;
     }
-    t = t->next_;
-  } while (t != live_threads_);
+  }
   return 0;
 }
 
@@ -101,17 +96,10 @@ void *AsanThread::ThreadStart() {
   uintptr_t shadow_top = MemToShadow(stack_top_);
   memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 
-  CHECK(live_threads_);
-
-  { // Insert this thread into live_threads_
-    ScopedLock lock(&mu_);
-    this->next_ = live_threads_;
-    this->prev_ = live_threads_->prev_;
-    this->prev_->next_ = this;
-    this->next_->prev_ = this;
+  if (!start_routine_) {
+    CHECK(tid_ == 0);
+    return 0;
   }
-
-  if (!start_routine_) return 0;
 
   void *res = start_routine_(arg_);
   malloc_storage().CommitBack();
@@ -120,15 +108,7 @@ void *AsanThread::ThreadStart() {
     Printf("T%d exited\n", tid_);
   }
 
-  { // Remove this from live_threads_
-    ScopedLock lock(&mu_);
-    AsanThread *prev = this->prev_;
-    AsanThread *next = this->next_;
-    prev->next_ = next_;
-    next->prev_ = prev_;
-  }
   FakeStack().Cleanup();
-  Unref();
   return res;
 }
 
@@ -179,51 +159,39 @@ void AsanThread::SetThreadStackTopAndBottom() {
 #endif
 }
 
-void AsanThread::Init() {
-#ifdef __APPLE__
-    CHECK(0 == pthread_key_create(&g_tls_key, 0));
-    tls_key_created = true;
-#endif
-  live_threads_ = GetMain();
-  live_threads_->next_ = live_threads_->prev_ = live_threads_;
-  SetCurrent(GetMain());
+AsanThread::~AsanThread() {
+  summary_->set_thread(0);
 }
 
-void AsanThread::Unref() {
-  CHECK(refcount_ > 0);
-  if (AtomicDec(&refcount_) == 0) {
-    CHECK(tid() > 0);
-    AsanStackTrace stack;
-    stack.size = 0;
-    __asan_free(this, &stack);
-  }
+static void DestroyAsanTsd(void *tsd) {
+  AsanThread *t = (AsanThread*)tsd;
+  if (t != AsanThread::GetMain())
+    delete t;
+}
+
+void AsanThread::Init() {
+  CHECK(0 == pthread_key_create(&g_tls_key, DestroyAsanTsd));
+  tls_key_created = true;
+  SetCurrent(&main_thread_);
+  main_thread_.summary_ = &main_thread_summary_;
+  main_thread_summary_.set_thread(&main_thread_);
+  thread_summaries[0] = &main_thread_summary_;
+  n_threads = 1;
 }
 
 AsanThread* AsanThread::GetCurrent() {
-#ifdef __APPLE__
   CHECK(tls_key_created);
   AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
-  // After the thread calls _pthread_exit() the TSD is unavailable
-  // and pthread_getspecific() may return NULL.
-  // In this case we use the global freelist
-  // for further allocations (originating from the guts of libpthread).
   return thread;
-#else
-  return tl_current_thread;
-#endif
 }
 
 void AsanThread::SetCurrent(AsanThread *t) {
-#ifdef __APPLE__
   CHECK(0 == pthread_setspecific(g_tls_key, t));
   CHECK(pthread_getspecific(g_tls_key) == t);
-#else
-  tl_current_thread = t;
-#endif
 }
 
 int AsanThread::n_threads_;
-AsanThread *AsanThread::live_threads_;
 AsanLock AsanThread::mu_;
 bool AsanThread::inited_;
 AsanThread AsanThread::main_thread_;
+AsanThreadSummary AsanThread::main_thread_summary_;

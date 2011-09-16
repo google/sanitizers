@@ -25,38 +25,59 @@
 const size_t kMaxThreadStackSize = 16 * (1 << 20);  // 16M
 static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
-class AsanThread {
+class AsanThread;
+
+// These objects are created for every thread and are never deleted,
+// so we can find them by tid even if the thread is long dead.
+class AsanThreadSummary {
  public:
-  AsanThread();  // for T0.
-  AsanThread(AsanThread *parent, void *(*start_routine) (void *),
-             void *arg, AsanStackTrace *stack);
-
-  void *ThreadStart();
-
-  static AsanThread *FindByTid(int tid);
-  static AsanThread *FindThreadByStackAddress(uintptr_t addr);
-
-  AsanThread *Ref() {
-    AtomicInc(&refcount_);
-    return this;
+  AsanThreadSummary() { }  // for T0.
+  AsanThreadSummary(int tid, int parent_tid, AsanStackTrace *stack)
+    : tid_(tid),
+      parent_tid_(parent_tid),
+      announced_(false) {
+    if (stack) {
+      stack_ = *stack;
+    }
+    thread_ = 0;
   }
-
-  void Unref();
-
   void Announce() {
     if (tid_ == 0) return;  // no need to announce the main thread.
     if (!announced_) {
       announced_ = true;
-      CHECK(parent_);
-      Printf("Thread T%d created by T%d here:\n", tid_, parent_->tid_);
+      Printf("Thread T%d created by T%d here:\n", tid_, parent_tid_);
       stack_.PrintStack();
     }
   }
+  int tid() { return tid_; }
+  AsanThread *thread() { return thread_; }
+  void set_thread(AsanThread *thread) { thread_ = thread; }
+ private:
+  int tid_;
+  int parent_tid_;
+  bool announced_;
+  AsanStackTrace stack_;
+  AsanThread *thread_;
+};
+
+// AsanThread are stored in TSD and destroyed when the thread dies.
+class AsanThread {
+ public:
+  AsanThread();  // for T0.
+  AsanThread(int parent_tid, void *(*start_routine) (void *),
+             void *arg, AsanStackTrace *stack);
+  ~AsanThread();
+
+  void *ThreadStart();
+
+  static AsanThreadSummary *FindByTid(int tid);
+  static AsanThread *FindThreadByStackAddress(uintptr_t addr);
 
   uintptr_t stack_top() { return stack_top_; }
   uintptr_t stack_bottom() { return stack_bottom_; }
   size_t stack_size() { return stack_top_ - stack_bottom_; }
-  int tid() { return tid_; }
+  int tid() { return summary_->tid(); }
+  AsanThreadSummary *summary() { return summary_; }
 
   const char *GetFrameNameByAddr(uintptr_t addr);
 
@@ -66,6 +87,7 @@ class AsanThread {
     return addr >= stack_bottom_ && addr < stack_top_;
   }
 
+  // Get the current thread. May return NULL.
   static AsanThread *GetCurrent();
   static void SetCurrent(AsanThread *t);
 
@@ -79,26 +101,20 @@ class AsanThread {
  private:
 
   void SetThreadStackTopAndBottom();
-
-  AsanThread *parent_;
+  AsanThreadSummary *summary_;
   void *(*start_routine_) (void *param);
   void *arg_;
-  AsanStackTrace stack_;
   uintptr_t  stack_top_;
   uintptr_t  stack_bottom_;
   int        tid_;
   bool       announced_;
-  int        refcount_;
 
   AsanThreadLocalMallocStorage malloc_storage_;
 
   AsanFakeStack fake_stack_;
 
-  AsanThread *next_;
-  AsanThread *prev_;
-
-  static AsanThread *live_threads_;
   static AsanThread main_thread_;
+  static AsanThreadSummary main_thread_summary_;
   static int n_threads_;
   static AsanLock mu_;
   static bool inited_;

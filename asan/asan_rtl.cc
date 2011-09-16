@@ -366,7 +366,7 @@ static void DescribeAddress(uintptr_t sp, uintptr_t bp,
     Printf("HINT: this may be a false positive if your program uses "
            "some custom stack unwind mechanism\n"
            "      (longjmp and C++ exceptions *are* supported)\n");
-    t->Announce();
+    t->summary()->Announce();
     return;
   }
   // finally, check if this is a heap.
@@ -411,7 +411,6 @@ void *malloc(size_t size) {
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
   if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
@@ -423,6 +422,7 @@ void *calloc(size_t nmemb, size_t size) {
     CHECK(allocated < kCallocPoolSize);
     return mem;
   }
+  GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_calloc(nmemb, size, &stack);
 }
 
@@ -507,7 +507,8 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
                          void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
-  new(t) AsanThread(AsanThread::GetCurrent(), start_routine, arg, &stack);
+  new(t) AsanThread(AsanThread::GetCurrent()->tid(),
+                    start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 

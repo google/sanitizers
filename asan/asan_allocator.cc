@@ -448,9 +448,6 @@ class MallocInfo {
     m->chunk_state = CHUNK_AVAILABLE;
     CHECK(m->alloc_tid >= 0);
     CHECK(m->free_tid >= 0);
-    // TODO(kcc): doing Unref will lead to deadlock.
-    // AsanThread::FindByTid(m->alloc_tid)->Unref();
-    // AsanThread::FindByTid(m->free_tid)->Unref();
 
     size_t idx = GetChunkIdx(m->size);
     m->next = free_lists_[idx];
@@ -524,13 +521,13 @@ static void Describe(uintptr_t addr, size_t access_size) {
   if (!m) return;
   m->DescribeAddress(addr, access_size);
   CHECK(m->alloc_tid >= 0);
-  AsanThread *alloc_thread = AsanThread::FindByTid(m->alloc_tid);
+  AsanThreadSummary *alloc_thread = AsanThread::FindByTid(m->alloc_tid);
   AsanStackTrace alloc_stack;
   AsanStackTrace::UncompressStack(&alloc_stack, m->compressed_alloc_stack(),
                                   m->compressed_alloc_stack_size());
 
   if (m->free_tid >= 0) {
-    AsanThread *free_thread = AsanThread::FindByTid(m->free_tid);
+    AsanThreadSummary *free_thread = AsanThread::FindByTid(m->free_tid);
     Printf("freed by thread T%d here:\n", free_thread->tid());
     AsanStackTrace free_stack;
     AsanStackTrace::UncompressStack(&free_stack, m->compressed_free_stack(),
@@ -540,13 +537,13 @@ static void Describe(uintptr_t addr, size_t access_size) {
            alloc_thread->tid());
 
     alloc_stack.PrintStack();
-    AsanThread::GetCurrent()->Announce();
+    AsanThread::GetCurrent()->summary()->Announce();
     free_thread->Announce();
     alloc_thread->Announce();
   } else {
     Printf("allocated by thread T%d here:\n", alloc_thread->tid());
     alloc_stack.PrintStack();
-    AsanThread::GetCurrent()->Announce();
+    AsanThread::GetCurrent()->summary()->Announce();
     alloc_thread->Announce();
   }
 }
@@ -625,7 +622,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->used_size = size;
   m->offset = addr - (uintptr_t)m;
   CHECK(m->beg() == addr);
-  m->alloc_tid = t ? t->Ref()->tid() : 0;
+  m->alloc_tid = t ? t->tid() : 0;
   m->free_tid   = AsanThread::kInvalidTid;
   AsanStackTrace::CompressStack(stack, m->compressed_alloc_stack(),
                                 m->compressed_alloc_stack_size());
@@ -661,7 +658,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   CHECK(m->free_tid == AsanThread::kInvalidTid);
   CHECK(m->alloc_tid >= 0);
   AsanThread *t = AsanThread::GetCurrent();
-  m->free_tid = t ? t->Ref()->tid() : 0;
+  m->free_tid = t ? t->tid() : 0;
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack(),
                                 m->compressed_free_stack_size());
   size_t rounded_size = RoundUpTo(m->used_size, REDZONE);
