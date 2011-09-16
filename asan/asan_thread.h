@@ -34,6 +34,7 @@ class AsanThread {
   void *ThreadStart();
 
   static AsanThread *FindByTid(int tid);
+  static AsanThread *FindThreadByStackAddress(uintptr_t addr);
 
   AsanThread *Ref() {
     AtomicInc(&refcount_);
@@ -63,21 +64,6 @@ class AsanThread {
 
   uintptr_t AddrIsInStack(uintptr_t addr) {
     return addr >= stack_bottom_ && addr < stack_top_;
-  }
-
-  static AsanThread *FindThreadByStackAddress(uintptr_t addr) {
-    ScopedLock lock(&mu_);
-    AsanThread *t = live_threads_;
-    do {
-      if (t->FakeStack().AddrIsInFakeStack(addr)) {
-        return t;
-      }
-      if (t->AddrIsInStack(addr)) {
-        return t;
-      }
-      t = t->next_;
-    } while (t != live_threads_);
-    return 0;
   }
 
   static AsanThread *GetCurrent();

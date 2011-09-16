@@ -69,6 +69,21 @@ AsanThread *AsanThread::FindByTid(int tid) {
   return res;
 }
 
+AsanThread *AsanThread::FindThreadByStackAddress(uintptr_t addr) {
+  ScopedLock lock(&mu_);
+  AsanThread *t = live_threads_;
+  do {
+    if (t->FakeStack().AddrIsInFakeStack(addr)) {
+      return t;
+    }
+    if (t->AddrIsInStack(addr)) {
+      return t;
+    }
+    t = t->next_;
+  } while (t != live_threads_);
+  return 0;
+}
+
 void *AsanThread::ThreadStart() {
   SetThreadStackTopAndBottom();
   fake_stack_.Init(stack_size());
