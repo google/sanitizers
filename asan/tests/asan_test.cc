@@ -672,6 +672,7 @@ void ThrowFunc() {
 }
 
 TEST(AddressSanitizer, CxxExceptionTest) {
+  if (ASAN_UAR) return;
   // TODO(kcc): this test crashes on 32-bit for some reason...
   if (__WORDSIZE == 32) return;
   try {
@@ -1160,9 +1161,9 @@ TEST(AddressSanitizer, LocalReferenceReturnTest) {
   f();
   f();
   f();
-#if ASAN_UAR
-  EXPECT_DEATH(*f() = 1, "is located in frame .*ReturnsPointerToALocalObject");
-#endif  // ASAN_UAR
+  if (ASAN_UAR) {
+    EXPECT_DEATH(*f() = 1, "is located in frame .*ReturnsPointerToALocal");
+  }
 }
 
 template <int kSize>

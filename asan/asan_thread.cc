@@ -108,7 +108,6 @@ void *AsanThread::ThreadStart() {
     Printf("T%d exited\n", tid_);
   }
 
-  FakeStack().Cleanup();
   return res;
 }
 
@@ -160,6 +159,7 @@ void AsanThread::SetThreadStackTopAndBottom() {
 }
 
 AsanThread::~AsanThread() {
+  FakeStack().Cleanup();
   summary_->set_thread(0);
 }
 

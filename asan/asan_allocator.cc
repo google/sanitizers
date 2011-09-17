@@ -772,7 +772,8 @@ AsanFakeStack::AsanFakeStack()
 bool AsanFakeStack::AddrIsInSizeClass(uintptr_t addr, size_t size_class) {
   uintptr_t mem = allocated_size_classes_[size_class];
   uintptr_t size = ClassMmapSize(size_class);
-  return mem && addr >= mem && addr < mem + size;
+  bool res = mem && addr >= mem && addr < mem + size;
+  return res;
 }
 
 uintptr_t AsanFakeStack::AddrIsInFakeStack(uintptr_t addr) {
@@ -828,7 +829,6 @@ void AsanFakeStack::Init(size_t stack_size) {
 }
 
 void AsanFakeStack::Cleanup() {
-  // Printf("T%d cleanup\n", AsanThread::GetCurrent()->tid());
   alive_ = false;
   for (size_t i = 0; i < kNumberOfSizeClasses; i++) {
     uintptr_t mem = allocated_size_classes_[i];
@@ -887,13 +887,28 @@ void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
   size_classes_[size_class].FifoPush(ptr);
 }
 
-size_t __asan_stack_malloc(size_t size) {
-  size_t ptr = AsanThread::GetCurrent()->FakeStack().AllocateStack(size);
-  // Printf("__asan_stack_malloc "PP" %ld\n", ptr, size);
+size_t __asan_stack_malloc(size_t size, size_t real_stack) {
+  AsanThread *t = AsanThread::GetCurrent();
+  if (!t) {
+    // TSD is gone, use the real stack.
+    return real_stack;
+  }
+  size_t ptr = t->FakeStack().AllocateStack(size);
+  // Printf("__asan_stack_malloc "PP" %ld "PP"\n", ptr, size, real_stack);
   return ptr;
 }
 
-void __asan_stack_free(size_t ptr, size_t size) {
-  // Printf("__asan_stack_free   "PP" %ld\n", ptr, size);
-  AsanThread::GetCurrent()->FakeStack().DeallocateStack(ptr, size);
+void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
+  if (ptr == real_stack) {
+    // we returned the real stack in __asan_stack_malloc, so do nothing now.
+    return;
+  }
+  AsanThread *t = AsanThread::GetCurrent();
+  if (!t) {
+    // TSD is gone between __asan_stack_malloc and here.
+    // The whole thread fake stack has been destructed anyway.
+    return;
+  }
+  // Printf("__asan_stack_free   "PP" %ld "PP"\n", ptr, size, real_stack);
+  t->FakeStack().DeallocateStack(ptr, size);
 }

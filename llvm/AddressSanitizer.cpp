@@ -902,19 +902,20 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
 
   Value *FunctionName = createPrivateGlobalForString(M, F.getName());
   FunctionName = IRB.CreatePointerCast(FunctionName, IntptrTy);
-  Value *LocalStackBase = NULL;
+
+  Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
+  AllocaInst *MyAlloca =
+      new AllocaInst(ByteArrayTy, "MyAlloca", InsBefore);
+  MyAlloca->setAlignment(RedzoneSize);
+  assert(MyAlloca->isStaticAlloca());
+  Value *OrigStackBase = IRB.CreatePointerCast(MyAlloca, IntptrTy);
+  Value *LocalStackBase = OrigStackBase;
+
   if (DoStackMalloc) {
     Value *AsanStackMallocFunc = M.getOrInsertFunction(
-        kAsanStackMallocName, IntptrTy, IntptrTy, NULL);
-    LocalStackBase = IRB.CreateCall(AsanStackMallocFunc,
-        ConstantInt::get(IntptrTy, LocalStackSize));
-  } else {
-    Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
-    AllocaInst *MyAlloca =
-        new AllocaInst(ByteArrayTy, "MyAlloca", InsBefore);
-    MyAlloca->setAlignment(RedzoneSize);
-    assert(MyAlloca->isStaticAlloca());
-    LocalStackBase = IRB.CreatePointerCast(MyAlloca, IntptrTy);
+        kAsanStackMallocName, IntptrTy, IntptrTy, IntptrTy, NULL);
+    LocalStackBase = IRB.CreateCall2(AsanStackMallocFunc,
+        ConstantInt::get(IntptrTy, LocalStackSize), OrigStackBase);
   }
 
   // Write the Magic value and the function name constant to the redzone.
@@ -947,7 +948,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *AsanStackFreeFunc = NULL;
   if (DoStackMalloc) {
     AsanStackFreeFunc = M.getOrInsertFunction(
-        kAsanStackFreeName, VoidTy, IntptrTy, IntptrTy, NULL);
+        kAsanStackFreeName, VoidTy, IntptrTy, IntptrTy, IntptrTy, NULL);
   }
 
   // Unpoison the stack before all ret instructions.
@@ -955,8 +956,9 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     Instruction *Ret = RetVec[i];
     IRBuilder<> IRBRet(Ret->getParent(), Ret);
     if (DoStackMalloc) {
-      IRBRet.CreateCall2(AsanStackFreeFunc, LocalStackBase,
-                         ConstantInt::get(IntptrTy, LocalStackSize));
+      IRBRet.CreateCall3(AsanStackFreeFunc, LocalStackBase,
+                         ConstantInt::get(IntptrTy, LocalStackSize),
+                         OrigStackBase);
     } else {
       PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRBRet, ShadowBase, false);
     }
