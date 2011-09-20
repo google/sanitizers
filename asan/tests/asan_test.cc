@@ -19,15 +19,13 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <vector>
-#include <map>
 #include <pthread.h>
 #include <stdint.h>
 #include <setjmp.h>
 #include <assert.h>
-#include "gtest/gtest.h"
 #include <emmintrin.h>
 
+#include "asan_test_config.h"
 
 #ifndef __APPLE__
 #include <malloc.h>
@@ -39,9 +37,13 @@ static bool APPLE = true;
 static bool APPLE = false;
 #endif
 
-using std::string;
-using std::vector;
-using std::map;
+#if ASAN_HAS_EXCEPTIONS
+# define ASAN_THROW(x) throw (x)
+#else
+# define ASAN_THROW(x)
+#endif
+
+
 
 typedef uint8_t   U1;
 typedef uint16_t  U2;
@@ -416,11 +418,13 @@ TEST(AddressSanitizer, UAF_char) {
                "AddressSanitizer.*freed");
 }
 
+#if ASAN_HAS_BLACKLIST
 TEST(AddressSanitizer, IgnoreTest) {
   int *x = Ident(new int);
   delete Ident(x);
   *x = 0;
 }
+#endif  // ASAN_HAS_BLACKLIST
 
 TEST(AddressSanitizer, OutOfMemoryTest) {
   size_t size = __WORDSIZE == 64 ? (size_t)(1ULL << 48) : (0xf0000000);
@@ -668,7 +672,7 @@ void ThrowFunc() {
   int *A = Ident(&a);
   int *B = Ident(&b);
   *A = *B;
-  throw 1;
+  ASAN_THROW(1);
 }
 
 TEST(AddressSanitizer, CxxExceptionTest) {
@@ -718,18 +722,18 @@ TEST(AddressSanitizer, Store128Test) {
   free(a);
 }
 
-static std::string RightOOBErrorMessage(int oob_distance) {
+static string RightOOBErrorMessage(int oob_distance) {
   assert(oob_distance >= 0);
   char expected_str[100];
   sprintf(expected_str, "located %d bytes to the right", oob_distance);
-  return std::string(expected_str);
+  return string(expected_str);
 }
 
-static std::string LeftOOBErrorMessage(int oob_distance) {
+static string LeftOOBErrorMessage(int oob_distance) {
   assert(oob_distance > 0);
   char expected_str[100];
   sprintf(expected_str, "located %d bytes to the left", oob_distance);
-  return std::string(expected_str);
+  return string(expected_str);
 }
 
 template<class T>
@@ -1211,7 +1215,7 @@ __attribute__((noinline))
 static void StackReuseAndException() {
   int large_stack[1000];
   Ident(large_stack);
-  throw 1;
+  ASAN_THROW(1);
 }
 
 // TODO(kcc): support exceptions with use-after-return.

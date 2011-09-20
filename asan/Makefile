@@ -41,11 +41,18 @@ ASAN_USE_CALL=0
 ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=-1  #default will be used
 ASAN_UAR=0
+ASAN_HAS_EXCEPTIONS=1
+ASAN_HAS_BLACKLIST=1
 
 ASAN_PIE=0
 PIE=
 ifeq ($(ASAN_PIE), 1)
   PIE=-fPIE -pie
+endif
+
+BLACKLIST=
+ifeq ($(ASAN_HAS_BLACKLIST), 1)
+  BLACKLIST=-mllvm -asan-blacklist=tests/asan_test.ignore
 endif
 
 
@@ -144,21 +151,24 @@ install_lib64:
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
 	$(CLEANROOM_CXX) $(PIE) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
 
+$(BIN)/asan_break_optimization$(SUFF).o: tests/asan_break_optimization.cc Makefile
+	$(CLEANROOM_CXX) $(PIE) -m$(BITS) -c $< -O0 -o $@
+
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
 		$(PIE) -m$(BITS)                             \
-		-mllvm -asan-blacklist=tests/asan_test.ignore  \
+		$(BLACKLIST)  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
-		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR)
+		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR) \
+		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \
 		$(PIE) -m$(BITS)                             \
-		-mllvm -asan-blacklist=tests/asan_test.ignore  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL)
@@ -190,11 +200,13 @@ TEST_OBJECTS=\
 	     $(BIN)/asan_test$(SUFF).o \
 	     $(BIN)/asan_globals_test$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o \
+	     $(BIN)/asan_break_optimization$(SUFF).o \
 	     $(BIN)/asan_mac_test$(SUFF).o
 else
 TEST_OBJECTS=\
 	     $(BIN)/asan_test$(SUFF).o \
 	     $(BIN)/asan_globals_test$(SUFF).o \
+	     $(BIN)/asan_break_optimization$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o
 LD_FLAGS=
 endif
