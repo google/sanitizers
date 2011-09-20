@@ -432,10 +432,12 @@ TEST(AddressSanitizer, OutOfMemoryTest) {
                "ERROR: AddressSanitizer failed to allocate");
 }
 
+#if ASAN_NEEDS_SEGV
 TEST(AddressSanitizer, WildAddressTest) {
   char *c = (char*)0x123;
   EXPECT_DEATH(*c = 0, "AddressSanitizer crashed on unknown address");
 }
+#endif
 
 static void MallocStress(size_t n) {
   uint32_t seed = my_rand(&global_seed);
@@ -1000,6 +1002,7 @@ TEST(AddressSanitizer, ThreadedTest) {
     "Thread T.*created.*Thread T.*created.*Thread T.*created.*");
 }
 
+#if ASAN_NEEDS_SEGV
 TEST(AddressSanitizer, ShadowGapTest) {
 #if __WORDSIZE == 32
   char *addr = (char*)0x22000000;
@@ -1008,6 +1011,7 @@ TEST(AddressSanitizer, ShadowGapTest) {
 #endif
   EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
 }
+#endif  // ASAN_NEEDS_SEGV
 
 extern "C" {
 __attribute__((noinline))

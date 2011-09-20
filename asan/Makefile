@@ -43,6 +43,7 @@ ASAN_OFFSET=-1  #default will be used
 ASAN_UAR=0
 ASAN_HAS_EXCEPTIONS=1
 ASAN_HAS_BLACKLIST=1
+ASAN_NEEDS_SEGV=1
 
 ASAN_PIE=0
 PIE=
@@ -157,14 +158,15 @@ $(BIN)/asan_break_optimization$(SUFF).o: tests/asan_break_optimization.cc Makefi
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
 		$(PIE) -m$(BITS)                             \
-		$(BLACKLIST)  \
+		$(BLACKLIST) -DASAN_HAS_BLACKLIST=$(ASAN_HAS_BLACKLIST) \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
 		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR) \
-		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS)
+		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS) \
+		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \
@@ -177,6 +179,7 @@ $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
+		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV)
 		$(ASAN_FLAGS)
 
 $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile

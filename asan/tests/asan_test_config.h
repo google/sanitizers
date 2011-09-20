@@ -36,8 +36,12 @@ using std::map;
 # error "please define ASAN_HAS_EXCEPTIONS"
 #endif
 
-#ifdef ASAN_HAS_BLACKLIST
+#ifndef ASAN_HAS_BLACKLIST
 # error "please define ASAN_HAS_BLACKLIST"
+#endif
+
+#ifndef ASAN_NEEDS_SEGV
+# error "please define ASAN_NEEDS_SEGV"
 #endif
 
 #endif  // ASAN_TEST_CONFIG_H
