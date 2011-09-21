@@ -64,7 +64,7 @@
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
 static int    __asan_flag_atexit;
-static bool   __asan_flag_fast_unwind;
+static bool   __asan_flag_fast_unwind = true;
 
 size_t __asan_flag_redzone;  // power of two, >= 32
 bool   __asan_flag_mt;  // set to 0 if you have only one thread.
