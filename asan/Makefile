@@ -179,7 +179,8 @@ $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
-		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV)
+		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV) \
+		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS) \
 		$(ASAN_FLAGS)
 
 $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile

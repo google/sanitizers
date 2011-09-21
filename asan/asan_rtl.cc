@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <map>
+#include <ctype.h>
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
@@ -279,6 +280,15 @@ struct Global {
     return GetAlignedSize(this->size);
   }
 
+  // Check if the global is a zero-terminated ASCII string. If so, print it.
+  void PrintIfASCII() {
+    for (size_t p = beg; p < beg + size - 1; p++) {
+      if (!isascii(*(char*)p)) return;
+    }
+    if (*(char*)(beg + size - 1) != 0) return;
+    Printf("  '%s' is ascii string '%s'\n", name, beg);
+  }
+
   bool DescribeAddrIfMyRedZone(uintptr_t addr) {
     if (addr < beg - kGlobalAndStackRedzone) return false;
     if (addr >= beg + GetAlignedSize() + kGlobalAndStackRedzone) return false;
@@ -291,6 +301,7 @@ struct Global {
       Printf("%d bytes inside", addr - beg);  // Can it happen?
     }
     Printf(" of global variable '%s' (0x%lx) of size %ld\n", name, beg, size);
+    PrintIfASCII();
     return true;
   }
 
@@ -594,10 +605,12 @@ extern "C" void WRAP(siglongjmp)(void *env, int val) {
 
 extern "C" void __cxa_throw(void *a, void *b, void *c);
 
+#if ASAN_HAS_EXCEPTIONS
 extern "C" void WRAP(__cxa_throw)(void *a, void *b, void *c) {
   UnpoisonStackFromHereToTop();
   real_cxa_throw(a, b, c);
 }
+#endif
 
 // -------------------------- Mac OS X memory interception-------- {{{1
 // The following code was partially taken from Google Perftools,

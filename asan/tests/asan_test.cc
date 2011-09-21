@@ -1160,6 +1160,12 @@ TEST(AddressSanitizer, GlobalTest) {
   GlobalsTest(0);
 }
 
+TEST(AddressSanitizer, GlobalStringConstTest) {
+  static const char *zoo = "FOOBAR123";
+  const char *p = Ident(zoo);
+  EXPECT_DEATH(Ident(p[15]), "is ascii string 'FOOBAR123'");
+}
+
 int *ReturnsPointerToALocalObject() {
   int a = 0;
   return Ident(&a);
