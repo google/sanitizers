@@ -143,6 +143,7 @@ _Unwind_Reason_Code AsanStackTrace::Unwind_Trace(
 
 void AsanStackTrace::FastUnwindStack(uintptr_t *frame) {
   size = 0;
+  if (!__asan_inited) return;
   trace[size++] = GET_CALLER_PC();
   AsanThread *t = AsanThread::GetCurrent();
   if (!t) return;

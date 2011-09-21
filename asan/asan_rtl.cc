@@ -97,7 +97,7 @@ void __asan_printf(const char *format, ...) {
 
 
 // -------------------------- Globals --------------------- {{{1
-static int asan_inited;
+int __asan_inited;
 
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
@@ -341,7 +341,7 @@ static bool DescribeAddrIfGlobal(uintptr_t addr) {
 // so we store the globals in a map.
 void __asan_register_global(uintptr_t addr, size_t size,
                             const char *name) {
-  CHECK(asan_inited);
+  CHECK(__asan_inited);
   if (!__asan_flag_report_globals) return;
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals)
@@ -459,7 +459,7 @@ void *malloc(size_t size) {
 
 extern "C"
 void *calloc(size_t nmemb, size_t size) {
-  if (!asan_inited) {
+  if (!__asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
     static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
@@ -492,12 +492,14 @@ extern "C" {
               __attribute__((alias("memalign")));
 }  // extern "C"
 
+extern "C"
 struct mallinfo mallinfo() {
   UNIMPLEMENTED();
   struct mallinfo res;
   return res;
 }
 
+extern "C"
 int mallopt(int cmd, int value) {
   UNIMPLEMENTED();
   return -1;
@@ -656,7 +658,7 @@ size_t mz_size(malloc_zone_t* zone, const void* ptr) {
 }
 
 void *mz_malloc(malloc_zone_t *zone, size_t size) {
-  if (!asan_inited) {
+  if (!__asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
@@ -665,7 +667,7 @@ void *mz_malloc(malloc_zone_t *zone, size_t size) {
 }
 
 void *cf_malloc(CFIndex size, CFOptionFlags hint, void *info) {
-  if (!asan_inited) {
+  if (!__asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
@@ -674,7 +676,7 @@ void *cf_malloc(CFIndex size, CFOptionFlags hint, void *info) {
 }
 
 void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
-  if (!asan_inited) {
+  if (!__asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
     static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
@@ -690,7 +692,7 @@ void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
 }
 
 void *mz_valloc(malloc_zone_t *zone, size_t size) {
-  if (!asan_inited) {
+  if (!__asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_valloc(system_malloc_zone, size);
   }
@@ -809,7 +811,7 @@ void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
 }
 
 void *mz_memalign(malloc_zone_t *zone, size_t align, size_t size) {
-  if (!asan_inited) {
+  if (!__asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_memalign(system_malloc_zone, align, size);
   }
@@ -1161,7 +1163,7 @@ static void asan_atexit() {
 }
 
 void __asan_init() {
-  if (asan_inited) return;
+  if (__asan_inited) return;
   asan_out = stderr;
 
 #ifdef __APPLE__
@@ -1312,9 +1314,9 @@ void __asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
-  // On Linux AsanThread::ThreadStart() calls malloc() that's why |asan_inited|
+  // On Linux AsanThread::ThreadStart() calls malloc() that's why __asan_inited
   // should be set to 1 prior to initializing the threads.
-  asan_inited = 1;
+  __asan_inited = 1;
 
   AsanThread::Init();
   AsanThread::GetMain()->ThreadStart();
