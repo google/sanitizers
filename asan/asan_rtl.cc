@@ -484,7 +484,12 @@ void *memalign(size_t boundary, size_t size) {
   return __asan_memalign(boundary, size, &stack);
 }
 
-extern "C"
+extern "C" {
+    void* __libc_memalign(size_t align, size_t s)
+              __attribute__((alias("memalign")));
+}  // extern "C"
+
+extern"C"
 __attribute__((visibility("default")))
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
