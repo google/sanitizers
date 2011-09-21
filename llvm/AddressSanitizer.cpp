@@ -900,8 +900,6 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Instruction *InsBefore = AllocaVec[0];
   IRBuilder<> IRB(InsBefore->getParent(), InsBefore);
 
-  Value *FunctionName = createPrivateGlobalForString(M, F.getName());
-  FunctionName = IRB.CreatePointerCast(FunctionName, IntptrTy);
 
   Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
   AllocaInst *MyAlloca =
@@ -918,18 +916,19 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
         ConstantInt::get(IntptrTy, LocalStackSize), OrigStackBase);
   }
 
-  // Write the Magic value and the function name constant to the redzone.
-  Value *BasePlus0 = IRB.CreateIntToPtr(LocalStackBase, IntptrPtrTy);
-  Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
-                                   ConstantInt::get(IntptrTy, LongSize/8));
-  BasePlus1 = IRB.CreateIntToPtr(BasePlus1, IntptrPtrTy);
-  IRB.CreateStore(ConstantInt::get(IntptrTy, kFrameNameMagic), BasePlus0);
-  IRB.CreateStore(FunctionName, BasePlus1);
+  // This string will be parsed by the run-time (DescribeStackAddress).
+  std::string DescrString = std::string(F.getName()) +
+      " " + itostr(AllocaVec.size()) + " ";
+
 
   uint64_t Pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
   for (size_t i = 0; i < AllocaVec.size(); i++) {
     AllocaInst *AI = AllocaVec[i];
+    uint64_t SizeInBytes = getAllocaSizeInBytes(AI);
+    std::string name = AI->getName();
+    DescrString += itostr(Pos) + " " + itostr(SizeInBytes) +
+        " " + itostr(name.size()) + " " + name + " ";
     uint64_t AlignedSize = getAlignedAllocaSize(AI);
     assert((AlignedSize % RedzoneSize) == 0);
     Value *NewPtr = BinaryOperator::CreateAdd(
@@ -940,6 +939,17 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     AI->replaceAllUsesWith(NewPtr);
   }
   assert(Pos == LocalStackSize);
+
+  // Write the Magic value and the function name constant to the redzone.
+  Value *BasePlus0 = IRB.CreateIntToPtr(LocalStackBase, IntptrPtrTy);
+  IRB.CreateStore(ConstantInt::get(IntptrTy, kFrameNameMagic), BasePlus0);
+  Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
+                                   ConstantInt::get(IntptrTy, LongSize/8));
+  BasePlus1 = IRB.CreateIntToPtr(BasePlus1, IntptrPtrTy);
+  Value *Descr = createPrivateGlobalForString(M, DescrString);
+  Descr = IRB.CreatePointerCast(Descr, IntptrTy);
+  IRB.CreateStore(Descr, BasePlus1);
+
 
   // Poison the stack redzones at the entry.
   Value *ShadowBase = memToShadow(LocalStackBase, IRB);

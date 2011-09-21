@@ -600,16 +600,16 @@ __attribute__((noinline)) static void Frame3(int frame) {
 }
 
 TEST(AddressSanitizer, GuiltyStackFrame0Test) {
-  EXPECT_DEATH(Frame3(0), "located in frame <.*Frame0");
+  EXPECT_DEATH(Frame3(0), "located .*in frame <.*Frame0");
 }
 TEST(AddressSanitizer, GuiltyStackFrame1Test) {
-  EXPECT_DEATH(Frame3(1), "located in frame <.*Frame1");
+  EXPECT_DEATH(Frame3(1), "located .*in frame <.*Frame1");
 }
 TEST(AddressSanitizer, GuiltyStackFrame2Test) {
-  EXPECT_DEATH(Frame3(2), "located in frame <.*Frame2");
+  EXPECT_DEATH(Frame3(2), "located .*in frame <.*Frame2");
 }
 TEST(AddressSanitizer, GuiltyStackFrame3Test) {
-  EXPECT_DEATH(Frame3(3), "located in frame <.*Frame3");
+  EXPECT_DEATH(Frame3(3), "located .*in frame <.*Frame3");
 }
 
 

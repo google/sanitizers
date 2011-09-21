@@ -79,7 +79,7 @@ class AsanThread {
   int tid() { return summary_->tid(); }
   AsanThreadSummary *summary() { return summary_; }
 
-  const char *GetFrameNameByAddr(uintptr_t addr);
+  const char *GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset);
 
   AsanFakeStack &FakeStack() { return fake_stack_; }
 

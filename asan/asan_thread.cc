@@ -111,7 +111,7 @@ void *AsanThread::ThreadStart() {
   return res;
 }
 
-const char *AsanThread::GetFrameNameByAddr(uintptr_t addr) {
+const char *AsanThread::GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset) {
   uintptr_t bottom = 0;
   if (AddrIsInStack(addr)) {
     bottom = stack_bottom();
@@ -119,13 +119,16 @@ const char *AsanThread::GetFrameNameByAddr(uintptr_t addr) {
     bottom = FakeStack().AddrIsInFakeStack(addr);
     CHECK(bottom);
   }
-  addr &= ~(__WORDSIZE/8 - 1);  // allign addr.
-  uintptr_t *ptr = (uintptr_t*)addr;
+  uintptr_t alligned_addr = addr & ~(__WORDSIZE/8 - 1);  // allign addr.
+  uintptr_t *ptr = (uintptr_t*)alligned_addr;
   while (ptr >= (uintptr_t*)bottom) {
-    if (ptr[0] == kFrameNameMagic)
+    if (ptr[0] == kFrameNameMagic) {
+      *offset = addr - (uintptr_t)ptr;
       return (const char*)ptr[1];
+    }
     ptr--;
   }
+  *offset = 0;
   return "UNKNOWN";
 }
 

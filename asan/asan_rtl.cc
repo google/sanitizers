@@ -345,30 +345,64 @@ void __asan_register_global(uintptr_t addr, size_t size,
 }
 
 // ---------------------- DescribeAddress -------------------- {{{1
+static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
+  AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
+  if (!t) return false;
+  const intptr_t kBufSize = 4095;
+  char buf[kBufSize];
+  uintptr_t offset = 0;
+  const char *frame_descr = t->GetFrameNameByAddr(addr, &offset);
+  // This string is created by the compiler and has the following form:
+  // "FunctioName n alloc_1 alloc_2 ... alloc_n"
+  // where alloc_i looks like "offset size len ObjectName ".
+  CHECK(frame_descr);
+  // Report the function name and the offset.
+  const char *name_end = strchr(frame_descr, ' ');
+  CHECK(name_end);
+  buf[0] = 0;
+  strncat(buf, frame_descr, std::min(kBufSize, name_end - frame_descr));
+  Printf("Address "PP" is located at offset %ld "
+         "in frame <%s> of T%d's stack:\n",
+         addr, offset, buf, t->tid());
+  // Report the number of stack objects.
+  char *p;
+  size_t n_objects = strtol(name_end, &p, 10);
+  CHECK(n_objects > 0);
+  Printf("  This frame has %ld object(s):\n", n_objects);
+  // Report all objects in this frame.
+  for (size_t i = 0; i < n_objects; i++) {
+    size_t beg, size, len;
+    beg  = strtol(p, &p, 10);
+    CHECK(beg > 0);
+    size = strtol(p, &p, 10);
+    CHECK(size > 0);
+    len  = strtol(p, &p, 10);
+    CHECK(len > 0);
+    CHECK(*p == ' ');
+    p++;
+    CHECK(*p != ' ');
+    name_end = strchr(p, ' ');
+    CHECK(name_end);
+    buf[0] = 0;
+    strncat(buf, p, std::min(kBufSize, name_end - p));
+    Printf("    [%ld, %ld) '%s'\n", beg, beg + size, buf);
+  }
+  Printf("HINT: this may be a false positive if your program uses "
+         "some custom stack unwind mechanism\n"
+         "      (longjmp and C++ exceptions *are* supported)\n");
+  t->summary()->Announce();
+  return true;
+}
+
 __attribute__((noinline))
-static void DescribeAddress(uintptr_t sp, uintptr_t bp,
-                            uintptr_t addr, uintptr_t access_size) {
+static void DescribeAddress(uintptr_t addr, uintptr_t access_size) {
   // Check if this is a global.
   if (DescribeAddrIfGlobal(addr))
     return;
 
-  // Check the stack.
-  AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
-  if (t) {
-    Printf("Address "PP" is located in frame <%s> of T%d's stack\n",
-           addr, t->GetFrameNameByAddr(addr), t->tid());
-//    int frame = TryToFindFrameForStackAddress(sp, bp, addr);
-//    if (frame >= 0) {
-//      Printf(" (allocated in frame #%d)\n", frame);
-//    } else {
-//      Printf("\n");
-//    }
-    Printf("HINT: this may be a false positive if your program uses "
-           "some custom stack unwind mechanism\n"
-           "      (longjmp and C++ exceptions *are* supported)\n");
-    t->summary()->Announce();
+  if (DescribeStackAddress(addr, access_size))
     return;
-  }
+
   // finally, check if this is a heap.
   __asan_describe_heap_address(addr, access_size);
 }
@@ -1019,7 +1053,7 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   CHECK(AddrIsInMem(addr));
 
-  DescribeAddress(sp, bp, addr, access_size);
+  DescribeAddress(addr, access_size);
 
   uintptr_t shadow_addr = MemToShadow(addr);
   Printf("==%d== ABORTING\n", getpid());
