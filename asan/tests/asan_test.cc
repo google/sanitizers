@@ -577,7 +577,7 @@ TEST(AddressSanitizer, SimpleStackTest) {
 
 __attribute__((noinline))
 static void Frame0(int frame, char *a, char *b, char *c) {
-  char d[4];
+  char d[4] = {0};
   char *D = Ident(d);
   switch (frame) {
     case 3: a[5]++; break;
@@ -587,15 +587,15 @@ static void Frame0(int frame, char *a, char *b, char *c) {
   }
 }
 __attribute__((noinline)) static void Frame1(int frame, char *a, char *b) {
-  char c[4]; Frame0(frame, a, b, c);
+  char c[4] = {0}; Frame0(frame, a, b, c);
   break_optimization();
 }
 __attribute__((noinline)) static void Frame2(int frame, char *a) {
-  char b[4]; Frame1(frame, a, b);
+  char b[4] = {0}; Frame1(frame, a, b);
   break_optimization();
 }
 __attribute__((noinline)) static void Frame3(int frame) {
-  char a[4]; Frame2(frame, a);
+  char a[4] = {0}; Frame2(frame, a);
   break_optimization();
 }
 
