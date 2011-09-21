@@ -410,12 +410,12 @@ TEST(AddressSanitizer, OOBRightTest) {
 }
 
 TEST(AddressSanitizer, UAF_char) {
-  EXPECT_DEATH(uaf_test<U1>(1, 0), "AddressSanitizer.*freed");
-  EXPECT_DEATH(uaf_test<U1>(10, 0), "AddressSanitizer.*freed");
-  EXPECT_DEATH(uaf_test<U1>(10, 10), "AddressSanitizer.*freed");
-  EXPECT_DEATH(uaf_test<U1>(kLargeMalloc, 0), "AddressSanitizer.*freed");
-  EXPECT_DEATH(uaf_test<U1>(kLargeMalloc, kLargeMalloc / 2),
-               "AddressSanitizer.*freed");
+  const char *uaf_string = "AddressSanitizer.*heap-use-after-free";
+  EXPECT_DEATH(uaf_test<U1>(1, 0), uaf_string);
+  EXPECT_DEATH(uaf_test<U1>(10, 0), uaf_string);
+  EXPECT_DEATH(uaf_test<U1>(10, 10), uaf_string);
+  EXPECT_DEATH(uaf_test<U1>(kLargeMalloc, 0), uaf_string);
+  EXPECT_DEATH(uaf_test<U1>(kLargeMalloc, kLargeMalloc / 2), uaf_string);
 }
 
 #if ASAN_HAS_BLACKLIST
@@ -720,7 +720,9 @@ TEST(AddressSanitizer, Store128Test) {
   assert(((uintptr_t)p % 16) == 0);
   __m128i value_wide = _mm_set1_epi16(0x1234);
   EXPECT_DEATH(_mm_store_si128((__m128i*)p, value_wide),
-               "WRITE of size 16.*located 0 bytes to the right of 12-byte");
+               "WRITE of size 16");
+  EXPECT_DEATH(_mm_store_si128((__m128i*)p, value_wide),
+               "located 0 bytes to the right of 12-byte");
   free(a);
 }
 
@@ -998,8 +1000,9 @@ void ThreadedTestSpawn() {
 }
 
 TEST(AddressSanitizer, ThreadedTest) {
-  EXPECT_DEATH(ThreadedTestSpawn(),
-    "Thread T.*created.*Thread T.*created.*Thread T.*created.*");
+  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T1 .*created");
+  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T2 .*created");
+  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T3 .*created");
 }
 
 #if ASAN_NEEDS_SEGV
