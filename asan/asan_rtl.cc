@@ -45,10 +45,13 @@
 #include <sys/types.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
+
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #include <malloc/malloc.h>
 #include <setjmp.h>
+#else
+#include <malloc.h>
 #endif
 // must not include <setjmp.h> on Linux
 
@@ -488,6 +491,17 @@ extern "C" {
     void* __libc_memalign(size_t align, size_t s)
               __attribute__((alias("memalign")));
 }  // extern "C"
+
+struct mallinfo mallinfo() {
+  UNIMPLEMENTED();
+  struct mallinfo res;
+  return res;
+}
+
+int mallopt(int cmd, int value) {
+  UNIMPLEMENTED();
+  return -1;
+}
 
 extern"C"
 __attribute__((visibility("default")))
