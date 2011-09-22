@@ -44,4 +44,6 @@ using std::map;
 # error "please define ASAN_NEEDS_SEGV"
 #endif
 
+#define ASAN_PCRE_DOTALL ""
+
 #endif  // ASAN_TEST_CONFIG_H

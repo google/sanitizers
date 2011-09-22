@@ -998,8 +998,11 @@ void ThreadedTestSpawn() {
 }
 
 TEST(AddressSanitizer, ThreadedTest) {
-  // TODO(kcc): how to match multiple lines with PCRE?
-  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T.*created");
+  EXPECT_DEATH(ThreadedTestSpawn(),
+               ASAN_PCRE_DOTALL
+               "Thread T.*created"
+               ".*Thread T.*created"
+               ".*Thread T.*created");
 }
 
 #if ASAN_NEEDS_SEGV
