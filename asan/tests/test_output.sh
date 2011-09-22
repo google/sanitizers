@@ -6,7 +6,7 @@ SYMBOLIZER=../../scripts/asan_symbolize.py
 
 for t in  *.tmpl; do
   for b in 32 64; do
-    for O in 2 3; do
+    for O in 0 1 2 3; do
       c=`basename $t .tmpl`
       c_so=$c-so
       exe=$c.$b.O$O
