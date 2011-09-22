@@ -58,7 +58,15 @@ Index: lib/Transforms/IPO/PassManagerBuilder.cpp
  #include "llvm/Transforms/IPO.h"
  #include "llvm/ADT/SmallVector.h"
  #include "llvm/Support/ManagedStatic.h"
-@@ -161,6 +162,8 @@
+@@ -101,6 +102,7 @@
+       MPM.add(Inliner);
+       Inliner = 0;
+     }
++    MPM.add(createAddressSanitizerPass());      // AddressSanitizer
+     return;
+   }
+ 
+@@ -161,6 +163,8 @@
    MPM.add(createMemCpyOptPass());             // Remove memcpy / form memset
    MPM.add(createSCCPPass());                  // Constant prop with SCCP
  
@@ -67,7 +75,7 @@ Index: lib/Transforms/IPO/PassManagerBuilder.cpp
    // Run instcombine after redundancy elimination to exploit opportunities
    // opened up by them.
    MPM.add(createInstructionCombiningPass());
-@@ -340,4 +343,3 @@
+@@ -340,4 +344,3 @@
    PassManagerBase *LPM = unwrap(PM);
    Builder->populateLTOPassManager(*LPM, Internalize, RunInliner);
  }
