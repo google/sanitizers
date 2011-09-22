@@ -998,9 +998,8 @@ void ThreadedTestSpawn() {
 }
 
 TEST(AddressSanitizer, ThreadedTest) {
-  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T1 .*created");
-  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T2 .*created");
-  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T3 .*created");
+  // TODO(kcc): how to match multiple lines with PCRE?
+  EXPECT_DEATH(ThreadedTestSpawn(), "Thread T.*created");
 }
 
 #if ASAN_NEEDS_SEGV
