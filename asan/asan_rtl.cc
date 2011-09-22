@@ -392,14 +392,10 @@ static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
     size = strtol(p, &p, 10);
     CHECK(size > 0);
     len  = strtol(p, &p, 10);
-    CHECK(len > 0);
     CHECK(*p == ' ');
     p++;
-    CHECK(*p != ' ');
-    name_end = strchr(p, ' ');
-    CHECK(name_end);
     buf[0] = 0;
-    strncat(buf, p, std::min(kBufSize, name_end - p));
+    strncat(buf, p, std::min((size_t)kBufSize, len));
     Printf("    [%ld, %ld) '%s'\n", beg, beg + size, buf);
   }
   Printf("HINT: this may be a false positive if your program uses "
