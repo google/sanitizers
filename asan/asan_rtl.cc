@@ -491,14 +491,13 @@ extern "C" {
 
 extern "C"
 struct mallinfo mallinfo() {
-  UNIMPLEMENTED();
   struct mallinfo res;
+  memset(&res, 0, sizeof(res));
   return res;
 }
 
 extern "C"
 int mallopt(int cmd, int value) {
-  UNIMPLEMENTED();
   return -1;
 }
 
