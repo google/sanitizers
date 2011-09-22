@@ -579,13 +579,18 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
+static bool MySignal(int signum) {
+  if (signum == SIGILL) return true;
+  if (__asan_flag_handle_segv && signum == SIGSEGV) return true;
+#ifdef __APPLE__
+  if (__asan_flag_handle_segv && signum == SIGBUS) return true;
+#endif
+  return false;
+}
+
 extern "C"
 sig_t WRAP(signal)(int signum, sig_t handler) {
-#ifdef __APPLE__
-  if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
-#else
-  if (signum != SIGSEGV && signum != SIGILL) {
-#endif
+  if (!MySignal(signum)) {
     return real_signal(signum, handler);
   }
   return NULL;
@@ -594,11 +599,7 @@ sig_t WRAP(signal)(int signum, sig_t handler) {
 extern "C"
 int WRAP(sigaction)(int signum, const struct sigaction *act,
                     struct sigaction *oldact) {
-#ifdef __APPLE__
-  if (signum != SIGSEGV && signum != SIGBUS && signum != SIGILL) {
-#else
-  if (signum != SIGSEGV && signum != SIGILL) {
-#endif
+  if (!MySignal(signum)) {
     return real_sigaction(signum, act, oldact);
   }
   return 0;
