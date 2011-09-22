@@ -114,6 +114,7 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
 static sigaction_f      real_sigaction;
 static signal_f         real_signal;
 static longjmp_f        real_longjmp;
+static longjmp_f        real__longjmp;
 static longjmp_f        real_siglongjmp;
 static cxa_throw_f      real_cxa_throw;
 static pthread_create_f real_pthread_create;
@@ -613,10 +614,14 @@ static void UnpoisonStackFromHereToTop() {
   memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
 }
 
-
 extern "C" void WRAP(longjmp)(void *env, int val) {
   UnpoisonStackFromHereToTop();
   real_longjmp(env, val);
+}
+
+extern "C" void WRAP(_longjmp)(void *env, int val) {
+  UnpoisonStackFromHereToTop();
+  real__longjmp(env, val);
 }
 
 extern "C" void WRAP(siglongjmp)(void *env, int val) {
@@ -1238,6 +1243,7 @@ void __asan_init() {
   CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
   CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
   CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
+  CHECK((real__longjmp = (longjmp_f)dlsym(RTLD_NEXT, "_longjmp")));
   CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
   CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
   CHECK((real_pthread_create =
@@ -1257,6 +1263,9 @@ void __asan_init() {
   CHECK(0 == mach_override_ptr((void*)longjmp,
                                (void*)WRAP(longjmp), &old_func));
   CHECK(real_longjmp = (longjmp_f)old_func);
+  CHECK(0 == mach_override_ptr((void*)_longjmp,
+                               (void*)WRAP(_longjmp), &old_func));
+  CHECK(real__longjmp = (longjmp_f)old_func);
 #if 0
   // siglongjmp for x86 looks as follows:
   // 2f8a8:       8b 44 24 04             mov    0x4(%esp),%eax

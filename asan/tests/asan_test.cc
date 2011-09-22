@@ -610,7 +610,6 @@ TEST(AddressSanitizer, GuiltyStackFrame3Test) {
   EXPECT_DEATH(Frame3(3), "located .*in frame <.*Frame3");
 }
 
-
 __attribute__((noinline))
 void LongJmpFunc1(jmp_buf buf) {
   // create three red zones for these two stack objects.
@@ -621,6 +620,18 @@ void LongJmpFunc1(jmp_buf buf) {
   int *B = Ident(&b);
   *A = *B;
   longjmp(buf, 1);
+}
+
+__attribute__((noinline))
+void UnderscopeLongJmpFunc1(jmp_buf buf) {
+  // create three red zones for these two stack objects.
+  int a;
+  int b;
+
+  int *A = Ident(&a);
+  int *B = Ident(&b);
+  *A = *B;
+  _longjmp(buf, 1);
 }
 
 __attribute__((noinline))
@@ -649,6 +660,15 @@ TEST(AddressSanitizer, LongJmpTest) {
   static jmp_buf buf;
   if (!setjmp(buf)) {
     LongJmpFunc1(buf);
+  } else {
+    TouchStackFunc();
+  }
+}
+
+TEST(AddressSanitizer, UnderscopeLongJmpTest) {
+  static jmp_buf buf;
+  if (!_setjmp(buf)) {
+    UnderscopeLongJmpFunc1(buf);
   } else {
     TouchStackFunc();
   }
