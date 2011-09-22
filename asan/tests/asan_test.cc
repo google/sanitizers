@@ -84,7 +84,6 @@ class ObjdumpOfMyself {
     }
     // cut the objdump into functions
     size_t pos;
-    size_t prev_beg = 0;
     string fn, next_fn;
     size_t next_start;
     for (size_t start = fn_start(objdump, 0, &fn);
@@ -95,7 +94,6 @@ class ObjdumpOfMyself {
       //        (int)start, (int)next_start, fn.c_str());
       // Mac OS adds the "_" prefix to function names.
       if (fn.find(APPLE ? "_Disasm" : "Disasm") == string::npos) {
-        prev_beg = pos;
         continue;
       }
       string fn_body = objdump.substr(start, next_start - start);
