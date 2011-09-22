@@ -17,6 +17,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
@@ -917,9 +918,9 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   }
 
   // This string will be parsed by the run-time (DescribeStackAddress).
-  std::string DescrString = std::string(F.getName()) +
-      " " + itostr(AllocaVec.size()) + " ";
-
+  SmallString<2048> StackDescriptionStorage;
+  raw_svector_ostream StackDescription(StackDescriptionStorage);
+  StackDescription << F.getName() << " " << AllocaVec.size() << " ";
 
   uint64_t Pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
@@ -927,8 +928,8 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     AllocaInst *AI = AllocaVec[i];
     uint64_t SizeInBytes = getAllocaSizeInBytes(AI);
     std::string name = AI->getName();
-    DescrString += itostr(Pos) + " " + itostr(SizeInBytes) +
-        " " + itostr(name.size()) + " " + name + " ";
+    StackDescription << Pos << " " << SizeInBytes << " " <<
+                     name.size() << " " << name << " ";
     uint64_t AlignedSize = getAlignedAllocaSize(AI);
     assert((AlignedSize % RedzoneSize) == 0);
     Value *NewPtr = BinaryOperator::CreateAdd(
@@ -946,7 +947,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
                                    ConstantInt::get(IntptrTy, LongSize/8));
   BasePlus1 = IRB.CreateIntToPtr(BasePlus1, IntptrPtrTy);
-  Value *Descr = createPrivateGlobalForString(M, DescrString);
+  Value *Descr = createPrivateGlobalForString(M, StackDescription.str());
   Descr = IRB.CreatePointerCast(Descr, IntptrTy);
   IRB.CreateStore(Descr, BasePlus1);
 
