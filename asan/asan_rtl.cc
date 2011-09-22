@@ -633,6 +633,36 @@ extern "C" void WRAP(__cxa_throw)(void *a, void *b, void *c) {
 }
 #endif
 
+extern "C" {
+// intercept mlock and friends.
+// Since asan maps 16T of RAM, mlock is completely unfriendly to asan.
+// All functions return 0 (success).
+static void MlockIsUnsupported() {
+  static bool printed = 0;
+  if (printed) return;
+  printed = true;
+  Printf("INFO: AddressSanitizer ignores mlock/mlockall/munlock/munlockall\n");
+}
+int mlock(const void *addr, size_t len) {
+  MlockIsUnsupported();
+  return 0;
+}
+int munlock(const void *addr, size_t len) {
+  MlockIsUnsupported();
+  return 0;
+}
+int mlockall(int flags) {
+  MlockIsUnsupported();
+  return 0;
+}
+int munlockall(void) {
+  MlockIsUnsupported();
+  return 0;
+}
+}  // extern "C"
+
+
+
 // -------------------------- Mac OS X memory interception-------- {{{1
 // The following code was partially taken from Google Perftools,
 // http://code.google.com/p/google-perftools.

@@ -43,7 +43,7 @@ static bool APPLE = false;
 # define ASAN_THROW(x)
 #endif
 
-
+#include <sys/mman.h>
 
 typedef uint8_t   U1;
 typedef uint16_t  U2;
@@ -1236,6 +1236,13 @@ TEST(AddressSanitizer, DISABLED_StressStackReuseAndExceptionsTest) {
     } catch(...) {
     }
   }
+}
+
+TEST(AddressSanitizer, MlockTest) {
+  EXPECT_EQ(0, mlockall(MCL_CURRENT));
+  EXPECT_EQ(0, mlock((void*)0x12345, 0x5678));
+  EXPECT_EQ(0, munlockall());
+  EXPECT_EQ(0, munlock((void*)0x987, 0x654));
 }
 
 // ------------------ demo tests; run each one-by-one -------------
