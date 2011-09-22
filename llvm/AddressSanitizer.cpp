@@ -940,7 +940,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   }
   assert(Pos == LocalStackSize);
 
-  // Write the Magic value and the function name constant to the redzone.
+  // Write the Magic value and the frame description constant to the redzone.
   Value *BasePlus0 = IRB.CreateIntToPtr(LocalStackBase, IntptrPtrTy);
   IRB.CreateStore(ConstantInt::get(IntptrTy, kFrameNameMagic), BasePlus0);
   Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
