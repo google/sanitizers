@@ -56,6 +56,14 @@ ifeq ($(ASAN_HAS_BLACKLIST), 1)
   BLACKLIST=-mllvm -asan-blacklist=tests/asan_test.ignore
 endif
 
+CLANG_FASAN_CXX=$(CLANG_CXX) -fasan \
+		$(BLACKLIST) \
+		-mllvm -asan-stack=$(ASAN_STACK)      \
+		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
+		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
+		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
+		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
+		-mllvm -asan-use-after-return=$(ASAN_UAR) \
 
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
@@ -221,7 +229,7 @@ $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g"
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g" CXX="$(CLANG_FASAN_CXX)"
 
 RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
 # TODO(kcc): remove these filters one by one
