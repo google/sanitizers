@@ -1,6 +1,6 @@
 Index: include/llvm/Transforms/Instrumentation.h
 ===================================================================
---- include/llvm/Transforms/Instrumentation.h	(revision 139006)
+--- include/llvm/Transforms/Instrumentation.h	(revision 140360)
 +++ include/llvm/Transforms/Instrumentation.h	(working copy)
 @@ -31,6 +31,9 @@
  ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
@@ -14,7 +14,7 @@ Index: include/llvm/Transforms/Instrumentation.h
  #endif
 Index: include/llvm/InitializePasses.h
 ===================================================================
---- include/llvm/InitializePasses.h	(revision 139006)
+--- include/llvm/InitializePasses.h	(revision 140360)
 +++ include/llvm/InitializePasses.h	(working copy)
 @@ -96,6 +96,7 @@
  void initializeEdgeProfilerPass(PassRegistry&);
@@ -26,7 +26,7 @@ Index: include/llvm/InitializePasses.h
  void initializeFindUsedTypesPass(PassRegistry&);
 Index: lib/Transforms/Instrumentation/Instrumentation.cpp
 ===================================================================
---- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 139006)
+--- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 140360)
 +++ lib/Transforms/Instrumentation/Instrumentation.cpp	(working copy)
 @@ -24,6 +24,7 @@
    initializeOptimalEdgeProfilerPass(Registry);
@@ -38,7 +38,7 @@ Index: lib/Transforms/Instrumentation/Instrumentation.cpp
  /// LLVMInitializeInstrumentation - C binding for
 Index: lib/Transforms/Instrumentation/CMakeLists.txt
 ===================================================================
---- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 139006)
+--- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 140360)
 +++ lib/Transforms/Instrumentation/CMakeLists.txt	(working copy)
 @@ -1,4 +1,5 @@
  add_llvm_library(LLVMInstrumentation
@@ -48,7 +48,7 @@ Index: lib/Transforms/Instrumentation/CMakeLists.txt
    Instrumentation.cpp
 Index: lib/Transforms/IPO/PassManagerBuilder.cpp
 ===================================================================
---- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 139006)
+--- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 140360)
 +++ lib/Transforms/IPO/PassManagerBuilder.cpp	(working copy)
 @@ -24,6 +24,7 @@
  #include "llvm/Analysis/Verifier.h"
@@ -82,9 +82,9 @@ Index: lib/Transforms/IPO/PassManagerBuilder.cpp
 -
 Index: tools/clang/include/clang/Driver/Options.td
 ===================================================================
---- tools/clang/include/clang/Driver/Options.td	(revision 139006)
+--- tools/clang/include/clang/Driver/Options.td	(revision 140360)
 +++ tools/clang/include/clang/Driver/Options.td	(working copy)
-@@ -258,6 +258,7 @@
+@@ -261,6 +261,7 @@
  def faccess_control : Flag<"-faccess-control">, Group<f_Group>;
  def fallow_unsupported : Flag<"-fallow-unsupported">, Group<f_Group>;
  def fapple_kext : Flag<"-fapple-kext">, Group<f_Group>;
@@ -94,9 +94,9 @@ Index: tools/clang/include/clang/Driver/Options.td
  def fasm_blocks : Flag<"-fasm-blocks">, Group<f_Group>;
 Index: tools/clang/lib/Driver/Tools.cpp
 ===================================================================
---- tools/clang/lib/Driver/Tools.cpp	(revision 139006)
+--- tools/clang/lib/Driver/Tools.cpp	(revision 140360)
 +++ tools/clang/lib/Driver/Tools.cpp	(working copy)
-@@ -1059,6 +1059,12 @@
+@@ -1124,6 +1124,12 @@
    // FIXME: Implement custom jobs for internal actions.
    CmdArgs.push_back("-cc1");
  
@@ -109,7 +109,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3405,6 +3411,39 @@
+@@ -3484,6 +3490,39 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -149,7 +149,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3443,6 +3482,8 @@
+@@ -3522,6 +3561,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -158,7 +158,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4252,6 +4293,27 @@
+@@ -4331,6 +4372,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
