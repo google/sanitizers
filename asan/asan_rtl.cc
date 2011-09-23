@@ -375,7 +375,8 @@ static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
   const char *name_end = strchr(frame_descr, ' ');
   CHECK(name_end);
   buf[0] = 0;
-  strncat(buf, frame_descr, std::min(kBufSize, name_end - frame_descr));
+  strncat(buf, frame_descr,
+          std::min(kBufSize, static_cast<intptr_t>(name_end - frame_descr)));
   Printf("Address "PP" is located at offset %ld "
          "in frame <%s> of T%d's stack:\n",
          addr, offset, buf, t->tid());
@@ -434,11 +435,16 @@ extern "C"
 void free(void *ptr) {
   malloc_zone_t *zone = malloc_zone_from_ptr(ptr);
   if (zone) {
+#if defined(MAC_OS_X_VERSION_10_6) && \
+    MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
     if ((zone->version >= 6) && (zone->free_definite_size)) {
       zone->free_definite_size(zone, ptr, malloc_size(ptr));
     } else {
       malloc_zone_free(zone, ptr);
     }
+#else
+    malloc_zone_free(zone, ptr);
+#endif
   } else {
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
     __asan_free(ptr, &stack);
@@ -841,6 +847,13 @@ void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
   }
 }
 
+void mz_destroy(malloc_zone_t* zone) {
+  // A no-op -- we will not be destroyed!
+  Printf("mz_destroy() called -- ignoring\n");
+}
+  // from AvailabilityMacros.h
+#if defined(MAC_OS_X_VERSION_10_6) && \
+    MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
 void *mz_memalign(malloc_zone_t *zone, size_t align, size_t size) {
   if (!__asan_inited) {
     CHECK(system_malloc_zone);
@@ -850,14 +863,6 @@ void *mz_memalign(malloc_zone_t *zone, size_t align, size_t size) {
   return __asan_memalign(align, size, &stack);
 }
 
-void mz_destroy(malloc_zone_t* zone) {
-  // A no-op -- we will not be destroyed!
-  Printf("mz_destroy() called -- ignoring\n");
-}
-
-  // from AvailabilityMacros.h
-#if defined(MAC_OS_X_VERSION_10_6) && \
-    MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
 void mz_free_definite_size(malloc_zone_t* zone, void *ptr, size_t size) {
   // TODO(glider): check that |size| is valid.
   UNIMPLEMENTED();
