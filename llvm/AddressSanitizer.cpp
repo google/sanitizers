@@ -924,20 +924,19 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
 
   uint64_t Pos = RedzoneSize;
   // Replace Alloca instructions with base+offset.
-  for (size_t i = 0; i < AllocaVec.size(); i++) {
+  for (size_t i = 0, n = AllocaVec.size(); i < n; i++) {
     AllocaInst *AI = AllocaVec[i];
     uint64_t SizeInBytes = getAllocaSizeInBytes(AI);
-    std::string name = AI->getName();
-    StackDescription << Pos << " " << SizeInBytes << " " <<
-                     name.size() << " " << name << " ";
+    StringRef Name = AI->getName();
+    StackDescription << Pos << " " << SizeInBytes << " "
+                     << Name.size() << " " << Name << " ";
     uint64_t AlignedSize = getAlignedAllocaSize(AI);
     assert((AlignedSize % RedzoneSize) == 0);
-    Value *NewPtr = BinaryOperator::CreateAdd(
-        LocalStackBase, ConstantInt::get(IntptrTy, Pos), "", AI);
-    NewPtr = new IntToPtrInst(NewPtr, AI->getType(), "", AI);
-
+    AI->replaceAllUsesWith(
+        IRB.CreateIntToPtr(
+            IRB.CreateAdd(LocalStackBase, ConstantInt::get(IntptrTy, Pos)),
+            AI->getType()));
     Pos += AlignedSize + RedzoneSize;
-    AI->replaceAllUsesWith(NewPtr);
   }
   assert(Pos == LocalStackSize);
 
@@ -947,10 +946,10 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
                                    ConstantInt::get(IntptrTy, LongSize/8));
   BasePlus1 = IRB.CreateIntToPtr(BasePlus1, IntptrPtrTy);
-  Value *Descr = createPrivateGlobalForString(M, StackDescription.str());
-  Descr = IRB.CreatePointerCast(Descr, IntptrTy);
-  IRB.CreateStore(Descr, BasePlus1);
-
+  Value *Description = IRB.CreatePointerCast(
+      createPrivateGlobalForString(M, StackDescription.str()),
+      IntptrTy);
+  IRB.CreateStore(Description, BasePlus1);
 
   // Poison the stack redzones at the entry.
   Value *ShadowBase = memToShadow(LocalStackBase, IRB);
