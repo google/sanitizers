@@ -1069,6 +1069,14 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 
 static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
                               uintptr_t addr, unsigned access_size_and_type) {
+  // Do not print more than one report, otherwise they will mix up.
+  {
+    static bool aborting = false;
+    ScopedLock lock(&Global::mu_);
+    if (aborting) return;
+    aborting = true;
+  }
+
   bool is_write = access_size_and_type & 8;
   int access_size = 1 << (access_size_and_type & 7);
 
