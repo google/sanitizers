@@ -899,6 +899,99 @@ TEST(AddressSanitizer, MemMoveOOBTest) {
   MemTransferOOBTestTemplate<int, MemMoveWrapper>(1024);
 }
 
+// Tests for string functions
+
+// Temporary pattern for string interceptors error messages
+// TODO(samsonov): Produce a normal error report in interceptors
+static std::string kStringReadErrorMessage = "Invalid READ access";
+static std::string kStringWriteErrorMessage = "Invalid WRITE access";
+
+// Used for string functions tests
+static char global_string[] = "global";
+static size_t global_string_length = 6;
+
+// Input to a test is a zero-terminated string str with given length
+// Accesses to the bytes to the left and to the right of str
+// are presumed to produce OOB errors
+void StrLenOOBTestTemplate(char *str, size_t length, bool is_global) {
+  // Normal strlen calls
+  EXPECT_EQ(strlen(str), length);
+  if (length > 0) {
+    EXPECT_EQ(strlen(str + 1), length - 1);
+    EXPECT_EQ(strlen(str + length), 0);
+  }
+  // Arg of strlen is not malloced, OOB access
+  if (!is_global) {
+    // We don't insert RedZones to the left of global variables
+    EXPECT_DEATH(Ident(strlen(str - 1)), kStringReadErrorMessage);
+    EXPECT_DEATH(Ident(strlen(str - 5)), kStringReadErrorMessage);
+  }
+  EXPECT_DEATH(Ident(strlen(str + length + 1)), kStringReadErrorMessage);
+  // Overwrite terminator
+  str[length] = 'a';
+  // String is not zero-terminated, strlen will lead to OOB access
+  EXPECT_DEATH(Ident(strlen(str)), kStringReadErrorMessage);
+  EXPECT_DEATH(Ident(strlen(str + length)), kStringReadErrorMessage);
+  // Restore terminator
+  str[length] = 0;
+}
+TEST(AddressSanitizer, DISABLED_StrLenOOBTest) {
+  // Check heap-allocated string
+  size_t length = Ident(10);
+  char *heap_string = Ident((char*)malloc(length + 1));
+  char stack_string[10 + 1];
+  for (int i = 0; i < length; i++) {
+    heap_string[i] = 'a';
+    stack_string[i] = 'b';
+  }
+  heap_string[length] = 0;
+  stack_string[length] = 0;
+  StrLenOOBTestTemplate(heap_string, length, false);
+  StrLenOOBTestTemplate(stack_string, length, false);
+  StrLenOOBTestTemplate(global_string, global_string_length, true);
+  free(heap_string);
+}
+
+TEST(AddressSanitizer, DISABLED_StrNCpyOOBTest) {
+  size_t to_size = Ident(20);
+  size_t from_size = Ident(6);  // less than to_size
+  char *to = Ident((char*)malloc(to_size));
+  // From is a zero-terminated string "hello\0" of length 6
+  char *from = Ident((char*)malloc(from_size));
+  strcpy(from, "hello");
+  // copy 0 bytes
+  strncpy(to, from, 0);
+  strncpy(to - 1, from - 1, 0);
+  // normal strncpy calls
+  strncpy(to, from, from_size);
+  strncpy(to, from, to_size);
+  strncpy(to, from + from_size - 1, to_size);
+  strncpy(to + to_size - 1, from, 1);
+  // One of {to, from} points to not allocated memory
+  EXPECT_DEATH(Ident(strncpy(to, from - 1, from_size)),
+               kStringReadErrorMessage);
+  EXPECT_DEATH(Ident(strncpy(to - 1, from, from_size)),
+               kStringWriteErrorMessage);
+  EXPECT_DEATH(Ident(strncpy(to, from + from_size, 1)),
+               kStringReadErrorMessage);
+  EXPECT_DEATH(Ident(strncpy(to + to_size, from, 1)),
+               kStringWriteErrorMessage);
+  // Length of "to" is too small
+  EXPECT_DEATH(Ident(strncpy(to + to_size - from_size + 1, from, from_size)),
+               kStringWriteErrorMessage);
+  EXPECT_DEATH(Ident(strncpy(to + 1, from, to_size)),
+               kStringWriteErrorMessage);
+  // Overwrite terminator in from
+  from[from_size - 1] = '!';
+  // normal strncpy call
+  strncpy(to, from, from_size);
+  // Length of "from" is too small
+  EXPECT_DEATH(Ident(strncpy(to, from, to_size)),
+               kStringReadErrorMessage);
+  free(to);
+  free(from);
+}
+
 // At the moment we instrument memcpy/memove/memset calls at compile time so we
 // can't handle OOB error if these functions are called by pointer, see disabled
 // MemIntrinsicCallByPointerTest below
