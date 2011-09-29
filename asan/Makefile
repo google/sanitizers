@@ -98,8 +98,6 @@ LIBASAN_OBJ_MACRO=$(LIBASAN_OBJ_COMMON_MACRO)
 endif
 
 LIBASAN_OBJ=$(call LIBASAN_OBJ_MACRO,$(BIN),$(SUFF))
-LIBASAN_OBJ_32=$(call LIBASAN_OBJ_MACRO,$(BIN),32)
-LIBASAN_OBJ_64=$(call LIBASAN_OBJ_MACRO,$(BIN),64)
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -123,14 +121,6 @@ b64: | $(BIN)
 b32: | $(BIN)
 	$(MAKE) BITS=32 $(BIN)/asan_test32
 
-lib32:	$(BIN) $(CLANG_LIB)
-	$(MAKE) BITS=32 $(LIBASAN_OBJ_32)
-	ar ru $(CLANG_LIB)/libasan32.a $(LIBASAN_OBJ_32)
-
-lib64:	$(BIN) $(CLANG_LIB)
-	$(MAKE) BITS=64 $(LIBASAN_OBJ_64)
-	ar ru $(CLANG_LIB)/libasan64.a $(LIBASAN_OBJ_64)
-
 $(BIN):
 	mkdir -p $(BIN)
 
@@ -147,15 +137,6 @@ install:
 	cp -v $(CLANG_BUILD)/lib/libasan*.a $(INSTALL_DIR)/lib
 	cp -rv $(CLANG_BUILD)/lib/clang $(INSTALL_DIR)/lib
 	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
-
-# install_lib{32,64} are for Chromium OS only.
-install_lib32:
-	test -d $(INSTALL_DIR)/lib || mkdir -p $(INSTALL_DIR)/lib
-	cp -v $(CLANG_BUILD)/lib/libasan32.a $(INSTALL_DIR)/lib
-
-install_lib64:
-	test -d $(INSTALL_DIR)/lib || mkdir -p $(INSTALL_DIR)/lib
-	cp -v $(CLANG_BUILD)/lib/libasan64.a $(INSTALL_DIR)/lib
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
 	$(CLEANROOM_CXX) $(PIE) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
