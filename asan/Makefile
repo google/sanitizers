@@ -122,13 +122,18 @@ $(CLANG_LIB):
 clang:
 	cd ../ && llvm/rebuild_clang_and_asan.sh > /dev/null
 
-install:
-	rm -rf $(INSTALL_DIR)
-	mkdir  $(INSTALL_DIR) $(INSTALL_DIR)/bin $(INSTALL_DIR)/lib
+install: install_lib install_clang
+
+$(INSTALL_DIR):
+	mkdir -p $(INSTALL_DIR) $(INSTALL_DIR)/bin $(INSTALL_DIR)/lib
+
+install_clang: | $(INSTALL_DIR)
 	cp -v $(CLANG_BUILD)/bin/clang $(INSTALL_DIR)/bin
-	cp -v $(CLANG_BUILD)/lib/libasan*.a $(INSTALL_DIR)/lib
 	cp -rv $(CLANG_BUILD)/lib/clang $(INSTALL_DIR)/lib
-	(cd $(INSTALL_DIR)/bin; ln -s clang clang++)
+	(cd $(INSTALL_DIR)/bin; ln -sf clang clang++)
+
+install_lib: | $(INSTALL_DIR)
+	cp -v $(CLANG_BUILD)/lib/libasan*.a $(INSTALL_DIR)/lib
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
 	$(CLEANROOM_CXX) $(PIE) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
