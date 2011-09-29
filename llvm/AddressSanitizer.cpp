@@ -297,7 +297,7 @@ bool AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *MI) {
   Value *Length = MI->getLength();
 
   Constant *ConstLength = dyn_cast<Constant>(Length);
-  Instruction *InsertBefore = MI->getNextNode();
+  Instruction *InsertBefore = MI;
   if (ConstLength) {
     if (ConstLength->isNullValue()) return false;
   } else {
