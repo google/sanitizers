@@ -573,6 +573,15 @@ TEST(AddressSanitizer, SimpleStackTest) {
   SizedStackTest<128>();
 }
 
+TEST(AddressSanitizer, ManyStackObjectsTest) {
+  char XXX[10];
+  char YYY[20];
+  char ZZZ[30];
+  Ident(XXX);
+  Ident(YYY);
+  EXPECT_DEATH(Ident(ZZZ)[-1] = 0, ASAN_PCRE_DOTALL "XXX.*YYY.*ZZZ");
+}
+
 __attribute__((noinline))
 static void Frame0(int frame, char *a, char *b, char *c) {
   char d[4] = {0};

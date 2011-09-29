@@ -99,9 +99,6 @@ void __asan_printf(const char *format, ...) {
 // -------------------------- Globals --------------------- {{{1
 int __asan_inited;
 
-extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
-extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
-
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
                            struct sigaction *oldact);
@@ -397,6 +394,7 @@ static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
     p++;
     buf[0] = 0;
     strncat(buf, p, std::min((size_t)kBufSize, len));
+    p += len;
     Printf("    [%ld, %ld) '%s'\n", beg, beg + size, buf);
   }
   Printf("HINT: this may be a false positive if your program uses "
