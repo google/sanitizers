@@ -23,14 +23,22 @@
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
 
-extern uintptr_t __asan_mapping_scale;
-extern uintptr_t __asan_mapping_offset;
-
+#ifdef ASAN_FLEXIBLE_MAPPING_AND_OFFSET
+extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
+extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
 #define SHADOW_SCALE (__asan_mapping_scale)
-#define SHADOW_GRANULARITY (1ULL << SHADOW_SCALE)
 #define SHADOW_OFFSET (__asan_mapping_offset)
+#else
+#define SHADOW_SCALE (3)
+#if __WORDSIZE == 32
+#define SHADOW_OFFSET (1 << 29)
+#else
+#define SHADOW_OFFSET (1ULL << 44)
+#endif
+#endif  // ASAN_FLEXIBLE_MAPPING_AND_OFFSET
 
-#define MEM_TO_SHADOW(mem) (((mem) >> SHADOW_SCALE) | (__asan_mapping_offset))
+#define SHADOW_GRANULARITY (1ULL << SHADOW_SCALE)
+#define MEM_TO_SHADOW(mem) (((mem) >> SHADOW_SCALE) | (SHADOW_OFFSET))
 
 #if __WORDSIZE == 64
   static const size_t kHighMemEnd = 0x00007fffffffffffUL;
