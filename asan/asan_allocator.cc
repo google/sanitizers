@@ -86,6 +86,15 @@ static inline size_t RoundUpToPowerOfTwo(size_t size) {
   return 1UL << up;
 }
 
+static inline uint16_t SizeToSizeClass(size_t size) {
+  size_t rounded = RoundUpToPowerOfTwo(size);
+  return Log2(rounded);
+}
+
+static inline size_t SizeClassToSize(uint16_t size_class) {
+  return 1UL << size_class;
+}
+
 static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
   CHECK(IsAligned(mem,        SHADOW_GRANULARITY));
   CHECK(IsAligned(mem + size, SHADOW_GRANULARITY));
@@ -141,22 +150,23 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
 //
 // The magic numbers for the enum values are taken randomly.
 enum {
-  CHUNK_AVAILABLE  = 0x573B5CE5,
-  CHUNK_ALLOCATED  = 0x32041A36,
-  CHUNK_QUARANTINE = 0x1978BAE3,
-  CHUNK_MEMALIGN   = 0xDC68ECD8,
+  CHUNK_AVAILABLE  = 0x573B,
+  CHUNK_ALLOCATED  = 0x3204,
+  CHUNK_QUARANTINE = 0x1978,
+  CHUNK_MEMALIGN   = 0xDC68,
 };
 
 struct ChunkBase {
-  uint32_t     chunk_state;
-  uint32_t     size;       // Must be power of two.
-  uint32_t     used_size;  // Size requested by the user.
-  uint32_t     offset;  // User-visible memory starts at this+offset (beg()).
-  int32_t      alloc_tid;
-  int32_t      free_tid;
-  AsanChunk       *next;
+  uint16_t   chunk_state;
+  uint16_t   size_class;
+  uint32_t   offset;  // User-visible memory starts at this+offset (beg()).
+  int32_t    alloc_tid;
+  int32_t    free_tid;
+  size_t     used_size;  // Size requested by the user.
+  AsanChunk *next;
 
   uintptr_t   beg() { return (uintptr_t)this + offset; }
+  size_t Size() { return SizeClassToSize(size_class); }
 };
 
 struct AsanChunk: public ChunkBase {
@@ -195,7 +205,7 @@ struct AsanChunk: public ChunkBase {
 
   bool AddrIsAtRight(uintptr_t addr, size_t access_size, size_t *offset) {
     if (addr + access_size >= beg() + used_size &&
-        addr < (uintptr_t)this + size + REDZONE) {
+        addr < (uintptr_t)this + Size() + REDZONE) {
       if (addr <= beg() + used_size)
         *offset = 0;
       else
@@ -257,7 +267,7 @@ void AsanChunkFifoList::Push(AsanChunk *n) {
     CHECK(!first_);
     last_ = first_ = n;
   }
-  size_ += n->size;
+  size_ += n->Size();
 }
 
 AsanChunk *AsanChunkFifoList::Pop() {
@@ -266,8 +276,8 @@ AsanChunk *AsanChunkFifoList::Pop() {
   first_ = first_->next;
   if (first_ == NULL)
     last_ = NULL;
-  CHECK(size_ >= res->size);
-  size_ -= res->size;
+  CHECK(size_ >= res->Size());
+  size_ -= res->Size();
   if (last_) {
     CHECK(!last_->next);
   }
@@ -380,7 +390,7 @@ class MallocInfo {
       if (!i) continue;
       size_t t = 0;
       for (; i; i = i->next) {
-        t += i->size;
+        t += i->Size();
       }
       Printf("%ld:%ld ", j, t >> 20);
     }
@@ -449,14 +459,14 @@ class MallocInfo {
     CHECK(m->alloc_tid >= 0);
     CHECK(m->free_tid >= 0);
 
-    size_t idx = GetChunkIdx(m->size);
+    size_t idx = GetChunkIdx(m->Size());
     m->next = free_lists_[idx];
     free_lists_[idx] = m;
 
     if (__asan_flag_stats) {
       __asan_stats.real_frees++;
       __asan_stats.really_freed += m->used_size;
-      __asan_stats.really_freed_by_size[Log2(m->size)]++;
+      __asan_stats.really_freed_by_size[Log2(m->Size())]++;
     }
   }
 
@@ -482,10 +492,12 @@ class MallocInfo {
       __asan_stats.mmaped_by_size[Log2(size)] += n_chunks;
     }
     AsanChunk *res = NULL;
+    uint16_t size_class = SizeToSizeClass(size);
+    CHECK(size == SizeClassToSize(size_class));
     for (size_t i = 0; i < n_chunks; i++) {
       AsanChunk *m = (AsanChunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
-      m->size = size;
+      m->size_class = size_class;
       m->next = res;
       res = m;
     }
@@ -607,7 +619,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   CHECK(m->chunk_state == CHUNK_AVAILABLE);
   m->chunk_state = CHUNK_ALLOCATED;
   m->next = NULL;
-  CHECK(m->size == size_to_allocate);
+  CHECK(m->Size() == size_to_allocate);
   uintptr_t addr = (uintptr_t)m + REDZONE;
   CHECK(addr == (uintptr_t)m->compressed_free_stack());
 
@@ -667,7 +679,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (__asan_flag_stats) {
     __asan_stats.frees++;
     __asan_stats.freed += m->used_size;
-    __asan_stats.freed_by_size[Log2(m->size)]++;
+    __asan_stats.freed_by_size[Log2(m->Size())]++;
   }
 
   m->chunk_state = CHUNK_QUARANTINE;
