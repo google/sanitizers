@@ -82,22 +82,14 @@ LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
 
-LIBASAN_OBJ_COMMON_MACRO=$(1)/asan_rtl$(2).o \
-	    $(1)/asan_allocator$(2).o  \
-	    $(1)/asan_stack$(2).o  \
-	    $(1)/asan_thread$(2).o  \
-	    $(1)/sysinfo$(2).o
-
 
 ifeq ($(PLATFORM),Darwin)
 RTL_HDR=$(RTL_HDR_COMMON) mach_override.h
-LIBASAN_OBJ_MACRO=$(LIBASAN_OBJ_COMMON_MACRO) $(1)/mach_override$(2).o
+LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) $(BIN)/mach_override$(SUFF).o
 else
 RTL_HDR=$(RTL_HDR_COMMON)
-LIBASAN_OBJ_MACRO=$(LIBASAN_OBJ_COMMON_MACRO)
+LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON)
 endif
-
-LIBASAN_OBJ=$(call LIBASAN_OBJ_MACRO,$(BIN),$(SUFF))
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
