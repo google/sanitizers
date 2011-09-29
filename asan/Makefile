@@ -188,7 +188,7 @@ endif
 
 lib: $(CLANG_LIB)/libasan$(SUFF).a
 
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN) $(LIBASAN_OBJ) Makefile
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN) $(CLANG_LIB) $(LIBASAN_OBJ) Makefile
 	ar ru $@ $(LIBASAN_OBJ)
 	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) -o $(BIN)/libasan$(BITS).so
 
