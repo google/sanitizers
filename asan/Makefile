@@ -205,6 +205,7 @@ endif
 
 $(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | Makefile
 	ar ru $@ $^
+	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) -o $(BIN)/libasan$(BITS).so
 
 
 ifeq ($(PLATFORM),Darwin)
