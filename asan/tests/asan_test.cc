@@ -912,8 +912,8 @@ TEST(AddressSanitizer, MemMoveOOBTest) {
 
 // Temporary pattern for string interceptors error messages
 // TODO(samsonov): Produce a normal error report in interceptors
-static std::string kStringReadErrorMessage = "Invalid READ access";
-static std::string kStringWriteErrorMessage = "Invalid WRITE access";
+static const char *kStringReadErrorMessage = "Invalid READ access";
+static const char *kStringWriteErrorMessage = "Invalid WRITE access";
 
 // Used for string functions tests
 static char global_string[] = "global";
