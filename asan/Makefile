@@ -113,6 +113,11 @@ b64: | $(BIN)
 b32: | $(BIN)
 	$(MAKE) BITS=32 $(BIN)/asan_test32
 
+lib32:
+	$(MAKE) BITS=32 lib
+lib64:
+	$(MAKE) BITS=64 lib
+
 $(BIN):
 	mkdir -p $(BIN)
 
@@ -181,8 +186,10 @@ else
 LD_FLAGS=
 endif
 
-$(CLANG_LIB)/libasan$(SUFF).a: $(LIBASAN_OBJ) | Makefile
-	ar ru $@ $^
+lib: $(CLANG_LIB)/libasan$(SUFF).a
+
+$(CLANG_LIB)/libasan$(SUFF).a: $(BIN) $(LIBASAN_OBJ) Makefile
+	ar ru $@ $(LIBASAN_OBJ)
 	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) -o $(BIN)/libasan$(BITS).so
 
 
