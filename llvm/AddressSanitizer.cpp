@@ -965,10 +965,6 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   for (size_t i = 0; i < RetVec.size(); i++) {
     Instruction *Ret = RetVec[i];
     IRBuilder<> IRBRet(Ret->getParent(), Ret);
-    // Overwrite kFrameNameMagic with something else.
-    // otherwise, we may report an error incorrectly if we access
-    // an uninitialized stack out of bounds.
-    IRBRet.CreateStore(ConstantInt::get(IntptrTy, 0), BasePlus0);
 
     if (DoStackMalloc) {
       IRBRet.CreateCall3(AsanStackFreeFunc, LocalStackBase,
@@ -976,6 +972,10 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
                          OrigStackBase);
     } else {
       PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRBRet, ShadowBase, false);
+      // Overwrite kFrameNameMagic with something else.
+      // otherwise, we may report an error incorrectly if we access
+      // an uninitialized stack out of bounds.
+      IRBRet.CreateStore(ConstantInt::get(IntptrTy, 0), BasePlus0);
     }
   }
 
