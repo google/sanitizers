@@ -472,6 +472,14 @@ TEST(AddressSanitizer, MallocStressTest) {
   MallocStress(200000);
 }
 
+TEST(AddressSanitizer, LargeMallocTest) {
+  for (int i = 0; i < 1000; i++) {
+    size_t size = my_rand(&global_seed) * my_rand(&global_seed);
+    size %= 1 << 28;
+    free(Ident(malloc(size)));
+  }
+}
+
 
 TEST(AddressSanitizer, ThreadedMallocStressTest) {
   const int kNumThreads = 4;
@@ -494,7 +502,7 @@ void *ManyThreadsWorker(void *a) {
 }
 
 TEST(AddressSanitizer, ManyThreadsTest) {
-  const int kNumThreads = __WORDSIZE == 32 ? 200 : 1000;
+  const int kNumThreads = __WORDSIZE == 32 ? 150 : 1000;
   pthread_t t[kNumThreads];
   for (int i = 0; i < kNumThreads; i++) {
     pthread_create(&t[i], 0, (void* (*)(void *x))ManyThreadsWorker, (void*)i);
