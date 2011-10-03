@@ -20,7 +20,7 @@
 
 #include "asan_int.h"
 
-static const size_t kNumFreeLists = __WORDSIZE;
+static const size_t kNumberOfSizeClasses = 256;
 class AsanChunk;
 
 class AsanChunkFifoList {
@@ -43,12 +43,12 @@ class AsanChunkFifoList {
 
 struct AsanThreadLocalMallocStorage {
   AsanThreadLocalMallocStorage() {
-    for (size_t i = 0; i < kNumFreeLists; i++)
+    for (size_t i = 0; i < kNumberOfSizeClasses; i++)
       free_lists_[i] = 0;
   }
 
   AsanChunkFifoList quarantine_;
-  AsanChunk *free_lists_[kNumFreeLists];
+  AsanChunk *free_lists_[kNumberOfSizeClasses];
   void CommitBack();
 };
 

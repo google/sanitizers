@@ -472,14 +472,22 @@ TEST(AddressSanitizer, MallocStressTest) {
   MallocStress(200000);
 }
 
+static void TestLargeMalloc(size_t size) {
+  char buff[1024];
+  sprintf(buff, "is located 1 bytes to the left of %lu-byte", (long)size);
+  EXPECT_DEATH(Ident((char*)malloc(size))[-1] = 0, buff);
+}
+
 TEST(AddressSanitizer, LargeMallocTest) {
-  for (int i = 0; i < 1000; i++) {
-    size_t size = my_rand(&global_seed) * my_rand(&global_seed);
-    size %= 1 << 28;
-    free(Ident(malloc(size)));
+  for (int i = 113; i < (1 << 28); i = i * 2 + 13) {
+    TestLargeMalloc(i);
   }
 }
 
+TEST(AddressSanitizer, HugeMallocTest) {
+  size_t n_megs = __WORDSIZE == 32 ? 2600 : 4100;
+  TestLargeMalloc(n_megs << 20);
+}
 
 TEST(AddressSanitizer, ThreadedMallocStressTest) {
   const int kNumThreads = 4;

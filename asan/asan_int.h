@@ -50,7 +50,6 @@ extern int    __asan_flag_debug;
 extern bool   __asan_flag_poison_shadow;
 extern size_t __asan_flag_malloc_context_size;
 extern int    __asan_flag_stats;
-extern uintptr_t __asan_flag_large_malloc;
 
 extern int __asan_inited;
 

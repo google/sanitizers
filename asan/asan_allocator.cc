@@ -48,6 +48,17 @@ static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
 static const size_t kMaxThreadLocalQuarantine = 1 << 20;  // 1M
 static const size_t kMaxSizeForThreadLocalFreeList = 1 << 17;
 
+// Size classes less than kMallocSizeClassStep are powers of two.
+// All other size classes are multiples of kMallocSizeClassStep.
+static const size_t kMallocSizeClassStepLog = 26;
+static const size_t kMallocSizeClassStep = 1UL << kMallocSizeClassStepLog;
+
+#if __WORDSIZE == 32
+static const size_t kMaxAllowedMallocSize = 3UL << 30;  // 3G
+#else
+static const size_t kMaxAllowedMallocSize = 8UL << 30;  // 8G
+#endif
+
 static void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
   abort();
@@ -55,7 +66,7 @@ static void ShowStatsAndAbort() {
 
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
-         "0x%lx (%ld) bytes (%s) in T%d\n",
+         "0x%lx (%lu) bytes (%s) in T%d\n",
          getpid(), size, size, mem_type, AsanThread::GetCurrent()->tid());
 }
 
@@ -86,13 +97,27 @@ static inline size_t RoundUpToPowerOfTwo(size_t size) {
   return 1UL << up;
 }
 
-static inline uint16_t SizeToSizeClass(size_t size) {
-  size_t rounded = RoundUpToPowerOfTwo(size);
-  return Log2(rounded);
+static inline size_t SizeClassToSize(uint8_t size_class) {
+  CHECK(size_class < kNumberOfSizeClasses);
+  if (size_class <= kMallocSizeClassStepLog) {
+    return 1UL << size_class;
+  } else {
+    return (size_class - kMallocSizeClassStepLog) * kMallocSizeClassStep;
+  }
 }
 
-static inline size_t SizeClassToSize(uint16_t size_class) {
-  return 1UL << size_class;
+static inline uint8_t SizeToSizeClass(size_t size) {
+  uint8_t res = 0;
+  if (size <= kMallocSizeClassStep) {
+    size_t rounded = RoundUpToPowerOfTwo(size);
+    res = Log2(rounded);
+  } else {
+    res = ((size + kMallocSizeClassStep - 1) / kMallocSizeClassStep)
+        + kMallocSizeClassStepLog;
+  }
+  CHECK(res < kNumberOfSizeClasses);
+  CHECK(size <= SizeClassToSize(res));
+  return res;
 }
 
 static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
@@ -158,7 +183,7 @@ enum {
 
 struct ChunkBase {
   uint16_t   chunk_state;
-  uint16_t   size_class;
+  uint8_t    size_class;
   uint32_t   offset;  // User-visible memory starts at this+offset (beg()).
   int32_t    alloc_tid;
   int32_t    free_tid;
@@ -167,6 +192,7 @@ struct ChunkBase {
 
   uintptr_t   beg() { return (uintptr_t)this + offset; }
   size_t Size() { return SizeClassToSize(size_class); }
+  uint8_t SizeClass() { return size_class; }
 };
 
 struct AsanChunk: public ChunkBase {
@@ -227,7 +253,7 @@ struct AsanChunk: public ChunkBase {
     } else {
       Printf(" somewhere around (this is AddressSanitizer bug!)");
     }
-    Printf(" %ld-byte region ["PP","PP")\n",
+    Printf(" %lu-byte region ["PP","PP")\n",
            used_size, beg(), beg() + used_size);
   }
 };
@@ -284,13 +310,6 @@ AsanChunk *AsanChunkFifoList::Pop() {
   return res;
 }
 
-static size_t GetChunkIdx(size_t size) {
-  CHECK(IsPowerOfTwo(size));
-  size_t res = Log2(size);
-  CHECK(res < kNumFreeLists);
-  return res;
-}
-
 namespace {
 
 // All pages we ever allocated.
@@ -307,15 +326,14 @@ struct PageGroup {
 
 class MallocInfo {
  public:
-  AsanChunk *AllocateChunks(size_t size, size_t n_chunks) {
-    size_t idx = GetChunkIdx(size);
+  AsanChunk *AllocateChunks(uint8_t size_class, size_t n_chunks) {
     AsanChunk *m = NULL;
-    AsanChunk **fl = &free_lists_[idx];
+    AsanChunk **fl = &free_lists_[size_class];
     {
       ScopedLock lock(&mu_);
       for (size_t i = 0; i < n_chunks; i++) {
         if (!(*fl)) {
-          *fl = GetNewChunks(size);
+          *fl = GetNewChunks(size_class);
         }
         AsanChunk *t = *fl;
         *fl = t->next;
@@ -339,15 +357,16 @@ class MallocInfo {
       }
     }
     if (eat_free_lists) {
-      for (size_t idx = 0; idx < kNumFreeLists; idx++) {
-        AsanChunk *m = x->free_lists_[idx];
+      for (size_t size_class = 0; size_class < kNumberOfSizeClasses;
+           size_class++) {
+        AsanChunk *m = x->free_lists_[size_class];
         while (m) {
           AsanChunk *t = m->next;
-          m->next = free_lists_[idx];
-          free_lists_[idx] = m;
+          m->next = free_lists_[size_class];
+          free_lists_[size_class] = m;
           m = t;
         }
-        x->free_lists_[idx] = 0;
+        x->free_lists_[size_class] = 0;
       }
     }
   }
@@ -385,7 +404,7 @@ class MallocInfo {
 
     Printf(" MallocInfo: in quarantine: %ld malloced: %ld; ",
            quarantine_.size() >> 20, malloced >> 20);
-    for (size_t j = 1; j < kNumFreeLists; j++) {
+    for (size_t j = 1; j < kNumberOfSizeClasses; j++) {
       AsanChunk *i = free_lists_[j];
       if (!i) continue;
       size_t t = 0;
@@ -417,7 +436,6 @@ class MallocInfo {
     PageGroup *g = FindPageGroupUnlocked(addr);
     if (!g) return 0;
     CHECK(g->size_of_chunk);
-    CHECK(IsPowerOfTwo(g->size_of_chunk));
     uintptr_t offset_from_beg = addr - g->beg;
     uintptr_t this_chunk_addr = g->beg +
         (offset_from_beg / g->size_of_chunk) * g->size_of_chunk;
@@ -426,7 +444,7 @@ class MallocInfo {
     CHECK(m->chunk_state == CHUNK_ALLOCATED ||
           m->chunk_state == CHUNK_AVAILABLE ||
           m->chunk_state == CHUNK_QUARANTINE);
-    uintptr_t offset;
+    uintptr_t offset = 0;
     if (m->AddrIsInside(addr, 1, &offset) ||
         m->AddrIsAtRight(addr, 1, &offset))
       return m;
@@ -439,7 +457,7 @@ class MallocInfo {
     uintptr_t left_chunk_addr = this_chunk_addr - g->size_of_chunk;
     CHECK(g->InRange(left_chunk_addr));
     AsanChunk *l = (AsanChunk*)left_chunk_addr;
-    uintptr_t l_offset;
+    uintptr_t l_offset = 0;
     bool is_at_right = l->AddrIsAtRight(addr, 1, &l_offset);
     CHECK(is_at_right);
     if (l_offset < offset) {
@@ -459,9 +477,9 @@ class MallocInfo {
     CHECK(m->alloc_tid >= 0);
     CHECK(m->free_tid >= 0);
 
-    size_t idx = GetChunkIdx(m->Size());
-    m->next = free_lists_[idx];
-    free_lists_[idx] = m;
+    size_t size_class = m->SizeClass();
+    m->next = free_lists_[size_class];
+    free_lists_[size_class] = m;
 
     if (__asan_flag_stats) {
       __asan_stats.real_frees++;
@@ -471,12 +489,13 @@ class MallocInfo {
   }
 
   // Get a list of newly allocated chunks.
-  AsanChunk *GetNewChunks(size_t size) {
-    CHECK(size <= (1UL << 31));
-    CHECK(IsPowerOfTwo(size));
+  AsanChunk *GetNewChunks(uint8_t size_class) {
+    size_t size = SizeClassToSize(size_class);
     CHECK(IsPowerOfTwo(kMinMmapSize));
+    CHECK(size < kMinMmapSize || (size % kMinMmapSize) == 0);
     size_t mmap_size = std::max(size, kMinMmapSize);
     size_t n_chunks = mmap_size / size;
+    CHECK(n_chunks * size == mmap_size);
     if (size < kPageSize) {
       // Size is small, just poison the last chunk.
       n_chunks--;
@@ -492,8 +511,6 @@ class MallocInfo {
       __asan_stats.mmaped_by_size[Log2(size)] += n_chunks;
     }
     AsanChunk *res = NULL;
-    uint16_t size_class = SizeToSizeClass(size);
-    CHECK(size == SizeClassToSize(size_class));
     for (size_t i = 0; i < n_chunks; i++) {
       AsanChunk *m = (AsanChunk*)(mem + i * size);
       m->chunk_state = CHUNK_AVAILABLE;
@@ -512,7 +529,7 @@ class MallocInfo {
     return res;
   }
 
-  AsanChunk *free_lists_[kNumFreeLists];
+  AsanChunk *free_lists_[kNumberOfSizeClasses];
   AsanChunkFifoList quarantine_;
   AsanLock mu_;
 
@@ -563,7 +580,6 @@ static void Describe(uintptr_t addr, size_t access_size) {
 static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   __asan_init();
   CHECK(stack);
-  // Printf("Allocate align: %ld size: %ld\n", alignment, size);
   if (size == 0) {
     size = 1;  // TODO(kcc): do something smarter
   }
@@ -574,14 +590,22 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     needed_size += alignment;
   }
   CHECK(IsAligned(needed_size, REDZONE));
-  if (needed_size > __asan_flag_large_malloc) {
+  if (needed_size > kMaxAllowedMallocSize) {
     OutOfMemoryMessage(__FUNCTION__, size);
     stack->PrintStack();
     abort();
   }
-  size_t size_to_allocate = RoundUpToPowerOfTwo(needed_size);
+
+  uint8_t size_class = SizeToSizeClass(needed_size);
+  size_t size_to_allocate = SizeClassToSize(size_class);
   CHECK(size_to_allocate >= kMinAllocSize);
+  CHECK(size_to_allocate >= needed_size);
   CHECK(IsAligned(size_to_allocate, REDZONE));
+
+  if (__asan_flag_v >= 2) {
+    Printf("Allocate align: %ld size: %ld class: %d real: %ld\n",
+         alignment, size, size_class, size_to_allocate);
+  }
 
   if (__asan_flag_stats) {
     __asan_stats.allocated_since_last_stats += size;
@@ -600,16 +624,15 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   AsanChunk *m = NULL;
   if (!t || size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
     // get directly from global storage.
-    m = malloc_info.AllocateChunks(size_to_allocate, 1);
+    m = malloc_info.AllocateChunks(size_class, 1);
     if (__asan_flag_stats)  __asan_stats.malloc_large++;
   } else {
     // get from the thread-local storage.
-    size_t idx = GetChunkIdx(size_to_allocate);
-    AsanChunk **fl = &t->malloc_storage().free_lists_[idx];
+    AsanChunk **fl = &t->malloc_storage().free_lists_[size_class];
     if (!*fl) {
       size_t n_new_chunks = kMaxSizeForThreadLocalFreeList / size_to_allocate;
       // n_new_chunks = std::min((size_t)32, n_new_chunks);
-      *fl = malloc_info.AllocateChunks(size_to_allocate, n_new_chunks);
+      *fl = malloc_info.AllocateChunks(size_class, n_new_chunks);
       if (__asan_flag_stats) __asan_stats.malloc_small_slow++;
     }
     m = *fl;
