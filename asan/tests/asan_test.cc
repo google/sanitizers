@@ -1465,7 +1465,7 @@ TEST(AddressSanitizer, DISABLED_DemoFunctionStaticTest) {
 }
 
 TEST(AddressSanitizer, DISABLED_DemoTooMuchMemoryTest) {
-  const size_t kAllocSize = 1 << 28;
+  const size_t kAllocSize = (1 << 28) - 1024;
   size_t total_size = 0;
   while (true) {
     char *x = (char*)malloc(kAllocSize);
