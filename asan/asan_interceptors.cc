@@ -113,8 +113,9 @@ void __asan_interceptors_init() {
 #else
   // TODO(samsonov): Add Apple implementation here.
 #endif
-  // TODO(samsonov): Should we output that in verbose mode only?
-  Printf("AddressSanitizer: libc interceptors initialized\n");
+  if (__asan_flag_v > 0) {
+    Printf("AddressSanitizer: libc interceptors initialized\n");
+  }
 }
 
 // This implementation is used in interceptors of
