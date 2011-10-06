@@ -555,6 +555,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     G->replaceAllUsesWith(
         ConstantExpr::getGetElementPtr(new_global, Indices, 2));
     new_global->takeName(G);
+    G->eraseFromParent();
 
     IRBuilder<> IRB(CtorInsertBefore->getParent(),
                     CtorInsertBefore);
@@ -569,11 +570,6 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
                     IRB.CreatePointerCast(orig_name_glob, IntptrTy));
 
     DEBUG(dbgs() << "NEW GLOBAL:\n" << *new_global);
-  }
-
-  // Now delete all old globals which are replaced with new ones.
-  for (size_t i = 0; i < GlobalsToChange.size(); i++) {
-    GlobalsToChange[i]->eraseFromParent();
   }
 
   DEBUG(dbgs() << M);
@@ -966,7 +962,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     } else {
       PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRBRet, ShadowBase, false);
       // Overwrite kFrameNameMagic with something else.
-      // otherwise, we may report an error incorrectly if we access
+      // Otherwise, we may report an error incorrectly if we access
       // an uninitialized stack out of bounds.
       IRBRet.CreateStore(ConstantInt::get(IntptrTy, 0), BasePlus0);
     }
