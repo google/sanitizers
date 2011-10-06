@@ -25,7 +25,6 @@
 #include "llvm/CallingConv.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
-#include "llvm/GlobalAlias.h"
 #include "llvm/InlineAsm.h"
 #include "llvm/InstrTypes.h"
 #include "llvm/IntrinsicInst.h"
@@ -64,7 +63,6 @@ static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
 static const char *kAsanModuleCtorName = "asan.module_ctor";
 static const char *kAsanReportErrorTemplate = "__asan_report_error_";
-static const char *kAsanRedzoneNameSuffix = "_asanRZ";
 static const char *kAsanRegisterGlobalName = "__asan_register_global";
 static const char *kAsanInitName = "__asan_init";
 static const char *kAsanMappingOffsetName = "__asan_mapping_offset";
@@ -554,13 +552,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     Indices[0] = ConstantInt::get(i32Ty, 0);
     Indices[1] = ConstantInt::get(i32Ty, 0);
 
-    GlobalAlias *alias = new GlobalAlias(
-        PtrTy, GlobalValue::InternalLinkage,
-        G->getName() + kAsanRedzoneNameSuffix,
-        ConstantExpr::getGetElementPtr(new_global, Indices, 2),
-        new_global->getParent());
-
-    G->replaceAllUsesWith(alias);
+    G->replaceAllUsesWith(
+        ConstantExpr::getGetElementPtr(new_global, Indices, 2));
     new_global->takeName(G);
 
     IRBuilder<> IRB(CtorInsertBefore->getParent(),
@@ -575,7 +568,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
                     ConstantInt::get(IntptrTy, SizeInBytes),
                     IRB.CreatePointerCast(orig_name_glob, IntptrTy));
 
-    DEBUG(dbgs() << "NEW GLOBAL:\n" << *new_global << *alias);
+    DEBUG(dbgs() << "NEW GLOBAL:\n" << *new_global);
   }
 
   // Now delete all old globals which are replaced with new ones.
