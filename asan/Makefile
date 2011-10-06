@@ -53,7 +53,7 @@ endif
 
 BLACKLIST=
 ifeq ($(ASAN_HAS_BLACKLIST), 1)
-  BLACKLIST=-mllvm -asan-blacklist=tests/asan_test.ignore
+  BLACKLIST=-mllvm -asan-blacklist=$(ROOT)/tests/asan_test.ignore
 endif
 
 CLANG_FASAN_CXX=$(CLANG_CXX) -fasan \
@@ -212,7 +212,7 @@ $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g" CXX="$(CLANG_FASAN_CXX)"
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" CXX="$(CLANG_FASAN_CXX)"
 
 RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
 # TODO(kcc): remove these filters one by one
