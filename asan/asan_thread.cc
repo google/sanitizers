@@ -16,6 +16,7 @@
 // This file is a part of AddressSanitizer, an address sanity checker.
 
 #include "asan_allocator.h"
+#include "asan_interceptors.h"
 #include "asan_thread.h"
 #include "asan_mapping.h"
 
@@ -94,7 +95,7 @@ void *AsanThread::ThreadStart() {
   // clear the shadow state for the entire stack.
   uintptr_t shadow_bot = MemToShadow(stack_bottom_);
   uintptr_t shadow_top = MemToShadow(stack_top_);
-  memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
+  __asan::real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 
   if (!start_routine_) {
     CHECK(tid_ == 0);
@@ -119,8 +120,8 @@ const char *AsanThread::GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset) {
     bottom = FakeStack().AddrIsInFakeStack(addr);
     CHECK(bottom);
   }
-  uintptr_t alligned_addr = addr & ~(__WORDSIZE/8 - 1);  // allign addr.
-  uintptr_t *ptr = (uintptr_t*)alligned_addr;
+  uintptr_t aligned_addr = addr & ~(__WORDSIZE/8 - 1);  // align addr.
+  uintptr_t *ptr = (uintptr_t*)aligned_addr;
   while (ptr >= (uintptr_t*)bottom) {
     if (ptr[0] == kFrameNameMagic) {
       *offset = addr - (uintptr_t)ptr;

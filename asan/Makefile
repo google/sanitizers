@@ -67,6 +67,7 @@ CLANG_FASAN_CXX=$(CLANG_CXX) -fasan \
 
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
+	asan_interceptors.h \
 	asan_lock.h \
 	asan_mapping.h \
 	asan_stack.h \
@@ -78,6 +79,7 @@ RTL_HDR_COMMON=asan_allocator.h \
 SUFF=$(BITS)
 LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
+	    $(BIN)/asan_interceptors$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o

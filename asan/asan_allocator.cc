@@ -31,6 +31,7 @@
 
 #include "asan_allocator.h"
 #include "asan_int.h"
+#include "asan_interceptors.h"
 #include "asan_mapping.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
@@ -58,11 +59,6 @@ static const size_t kMaxAllowedMallocSize = 3UL << 30;  // 3G
 #else
 static const size_t kMaxAllowedMallocSize = 8UL << 30;  // 8G
 #endif
-
-static void ShowStatsAndAbort() {
-  __asan_stats.PrintStats();
-  abort();
-}
 
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
@@ -127,7 +123,7 @@ static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
   uintptr_t shadow_end = MemToShadow(mem + size);
   if (poison && SHADOW_GRANULARITY == 128)
     poison = 0xff;
-  memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
+  __asan::real_memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
 }
 
 // Given REDZONE bytes, we need to mark first size bytes
@@ -683,11 +679,11 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     Printf("attempting double-free on %p:\n", ptr);
     stack->PrintStack();
     m->DescribeAddress((uintptr_t)ptr, 1);
-    ShowStatsAndAbort();
+    __asan_show_stats_and_abort();
   } else if (m->chunk_state != CHUNK_ALLOCATED) {
     Printf("attempting free on address which was not malloc()-ed: %p\n", ptr);
     stack->PrintStack();
-    ShowStatsAndAbort();
+    __asan_show_stats_and_abort();
   }
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   CHECK(m->free_tid == AsanThread::kInvalidTid);
@@ -737,7 +733,7 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
   size_t old_size = m->used_size;
   size_t memcpy_size = std::min(new_size, old_size);
   uint8_t *new_ptr = Allocate(0, new_size, stack);
-  memcpy(new_ptr, old_ptr, memcpy_size);
+  __asan::real_memcpy(new_ptr, old_ptr, memcpy_size);
   Deallocate(old_ptr, stack);
   return new_ptr;
 }
@@ -758,7 +754,7 @@ void *__asan_malloc(size_t size, AsanStackTrace *stack) {
 
 void *__asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
   uint8_t *res = Allocate(0, nmemb * size, stack);
-  memset(res, 0, nmemb * size);
+  __asan::real_memset(res, 0, nmemb * size);
   return (void*)res;
 }
 
@@ -800,8 +796,9 @@ size_t __asan_total_mmaped() {
 // ---------------------- Fake stack-------------------- {{{1
 AsanFakeStack::AsanFakeStack()
   : stack_size_(0), alive_(false) {
-  memset(allocated_size_classes_, 0, sizeof(allocated_size_classes_));
-  memset(size_classes_, 0, sizeof(size_classes_));
+  __asan::real_memset(allocated_size_classes_,
+                      0, sizeof(allocated_size_classes_));
+  __asan::real_memset(size_classes_, 0, sizeof(size_classes_));
 }
 
 bool AsanFakeStack::AddrIsInSizeClass(uintptr_t addr, size_t size_class) {

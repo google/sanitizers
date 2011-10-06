@@ -15,6 +15,7 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+#include "asan_interceptors.h"
 #include "asan_lock.h"
 #include "asan_stack.h"
 #include "asan_thread.h"
@@ -44,7 +45,8 @@ class ProcSelfMaps {
       mapping.beg = start;
       mapping.end = end;
       mapping.offset = offset;
-      strncpy(mapping.name, filename, ASAN_ARRAY_SIZE(mapping.name));
+      __asan::real_strncpy(mapping.name,
+                           filename, ASAN_ARRAY_SIZE(mapping.name));
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
       if (__asan_flag_v >= 2) {
         Printf("[%ld] ["PP","PP"] off "PP" %s\n", map_size_,

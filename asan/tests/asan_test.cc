@@ -926,11 +926,6 @@ TEST(AddressSanitizer, MemMoveOOBTest) {
 
 // Tests for string functions
 
-// Temporary pattern for string interceptors error messages
-// TODO(samsonov): Produce a normal error report in interceptors
-static const char *kStringReadErrorMessage = "Invalid READ access";
-static const char *kStringWriteErrorMessage = "Invalid WRITE access";
-
 // Used for string functions tests
 static char global_string[] = "global";
 static size_t global_string_length = 6;
@@ -948,15 +943,15 @@ void StrLenOOBTestTemplate(char *str, size_t length, bool is_global) {
   // Arg of strlen is not malloced, OOB access
   if (!is_global) {
     // We don't insert RedZones to the left of global variables
-    EXPECT_DEATH(Ident(strlen(str - 1)), kStringReadErrorMessage);
-    EXPECT_DEATH(Ident(strlen(str - 5)), kStringReadErrorMessage);
+    EXPECT_DEATH(Ident(strlen(str - 1)), LeftOOBErrorMessage(1));
+    EXPECT_DEATH(Ident(strlen(str - 5)), LeftOOBErrorMessage(5));
   }
-  EXPECT_DEATH(Ident(strlen(str + length + 1)), kStringReadErrorMessage);
+  EXPECT_DEATH(Ident(strlen(str + length + 1)), RightOOBErrorMessage(0));
   // Overwrite terminator
   str[length] = 'a';
   // String is not zero-terminated, strlen will lead to OOB access
-  EXPECT_DEATH(Ident(strlen(str)), kStringReadErrorMessage);
-  EXPECT_DEATH(Ident(strlen(str + length)), kStringReadErrorMessage);
+  EXPECT_DEATH(Ident(strlen(str)), RightOOBErrorMessage(0));
+  EXPECT_DEATH(Ident(strlen(str + length)), RightOOBErrorMessage(0));
   // Restore terminator
   str[length] = 0;
 }
@@ -972,7 +967,9 @@ TEST(AddressSanitizer, DISABLED_StrLenOOBTest) {
   heap_string[length] = 0;
   stack_string[length] = 0;
   StrLenOOBTestTemplate(heap_string, length, false);
-  StrLenOOBTestTemplate(stack_string, length, false);
+  // TODO(samsonov): Fix expected messages in StrLenOOBTestTemplate to
+  //      make test for stack_string work. Or move it to output tests.
+  // StrLenOOBTestTemplate(stack_string, length, false);
   StrLenOOBTestTemplate(global_string, global_string_length, true);
   free(heap_string);
 }
@@ -994,25 +991,25 @@ TEST(AddressSanitizer, DISABLED_StrNCpyOOBTest) {
   strncpy(to + to_size - 1, from, 1);
   // One of {to, from} points to not allocated memory
   EXPECT_DEATH(Ident(strncpy(to, from - 1, from_size)),
-               kStringReadErrorMessage);
+               LeftOOBErrorMessage(1));
   EXPECT_DEATH(Ident(strncpy(to - 1, from, from_size)),
-               kStringWriteErrorMessage);
+               LeftOOBErrorMessage(1));
   EXPECT_DEATH(Ident(strncpy(to, from + from_size, 1)),
-               kStringReadErrorMessage);
+               RightOOBErrorMessage(0));
   EXPECT_DEATH(Ident(strncpy(to + to_size, from, 1)),
-               kStringWriteErrorMessage);
+               RightOOBErrorMessage(0));
   // Length of "to" is too small
   EXPECT_DEATH(Ident(strncpy(to + to_size - from_size + 1, from, from_size)),
-               kStringWriteErrorMessage);
+               RightOOBErrorMessage(0));
   EXPECT_DEATH(Ident(strncpy(to + 1, from, to_size)),
-               kStringWriteErrorMessage);
+               RightOOBErrorMessage(0));
   // Overwrite terminator in from
   from[from_size - 1] = '!';
   // normal strncpy call
   strncpy(to, from, from_size);
   // Length of "from" is too small
   EXPECT_DEATH(Ident(strncpy(to, from, to_size)),
-               kStringReadErrorMessage);
+               RightOOBErrorMessage(0));
   free(to);
   free(from);
 }

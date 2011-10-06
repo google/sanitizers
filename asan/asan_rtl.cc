@@ -17,6 +17,7 @@
 
 #include "asan_allocator.h"
 #include "asan_int.h"
+#include "asan_interceptors.h"
 #include "asan_lock.h"
 #include "asan_mapping.h"
 #include "asan_stack.h"
@@ -90,7 +91,7 @@ void __asan_printf(const char *format, ...) {
   va_list args;
   va_start(args, format);
   vsnprintf(buffer, kLen, format, args);
-  fwrite(buffer, 1, strlen(buffer), asan_out);
+  fwrite(buffer, 1, __asan::real_strlen(buffer), asan_out);
   fflush(asan_out);
   va_end(args);
 }
@@ -154,7 +155,7 @@ void AsanStats::PrintStats() {
 AsanStats __asan_stats;
 
 // -------------------------- Misc ---------------- {{{1
-static void ShowStatsAndAbort() {
+void __asan_show_stats_and_abort() {
   __asan_stats.PrintStats();
   abort();
 }
@@ -218,7 +219,7 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
   char *ch = (char*)res;
   if (res == (void*)-1L && abort_on_failure) {
     OutOfMemoryMessage(mem_type, n_pages * kPageSize);
-    ShowStatsAndAbort();
+    __asan_show_stats_and_abort();
   }
   CHECK(res == (void*)start_page || res == (void*)-1L);
   return ch;
@@ -257,7 +258,7 @@ struct Global {
     // full right redzone
     uintptr_t right_rz2_offset = ShadowRZSize *
         ((size + kGlobalAndStackRedzone - 1) / kGlobalAndStackRedzone);
-    memset((uint8_t*)shadow + right_rz2_offset,
+    __asan::real_memset((uint8_t*)shadow + right_rz2_offset,
            SHADOW_SCALE == 7 ? 0xff : kAsanGlobalRedzoneMagic, ShadowRZSize);
     if ((size % kGlobalAndStackRedzone) != 0) {
       // partial right redzone
@@ -496,7 +497,7 @@ extern "C" {
 extern "C"
 struct mallinfo mallinfo() {
   struct mallinfo res;
-  memset(&res, 0, sizeof(res));
+  __asan::real_memset(&res, 0, sizeof(res));
   return res;
 }
 
@@ -549,22 +550,6 @@ void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr, std::nothrow_t const&) {OPERATOR_DELETE_BODY;}
 #endif
 
-// To replace weak system functions on Linux we just need to declare functions
-// with same names in our library and then obtain the real function pointers
-// using dlsym(). This is not so on Mac OS, where the two-level namespace makes
-// our replacement functions invisible to other libraries. This may be overcomed
-// using the DYLD_FORCE_FLAT_NAMESPACE, but some errors loading the shared
-// libraries in Chromium were noticed when doing so.
-// Instead we use mach_override, a handy framework for patching functions at
-// runtime. To avoid possible name clashes, our replacement functions have
-// the "wrap_" prefix on Mac.
-
-#ifdef __APPLE__
-#define WRAP(x) wrap_##x
-#else
-#define WRAP(x) x
-#endif
-
 extern "C"
 #ifndef __APPLE__
 __attribute__((visibility("default")))
@@ -611,7 +596,7 @@ static void UnpoisonStackFromHereToTop() {
   uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
   uintptr_t top_shadow = MemToShadow(top);
   uintptr_t bot_shadow = MemToShadow(bottom);
-  memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
+  __asan::real_memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
 }
 
 extern "C" void WRAP(longjmp)(void *env, int val) {
@@ -816,7 +801,7 @@ void *mz_realloc(malloc_zone_t *zone, void *ptr, size_t size) {
       print_zone_for_ptr(ptr);
       GET_STACK_TRACE_HERE_FOR_FREE(ptr);
       stack.PrintStack();
-      ShowStatsAndAbort();
+      __asan_show_stats_and_abort();
       return NULL;  // unreachable
     }
   }
@@ -839,7 +824,7 @@ void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
       print_zone_for_ptr(ptr);
       GET_STACK_TRACE_HERE_FOR_FREE(ptr);
       stack.PrintStack();
-      ShowStatsAndAbort();
+      __asan_show_stats_and_abort();
       return NULL;  // unreachable
     }
   }
@@ -923,7 +908,7 @@ extern bool kCFUseCollectableAllocator;  // is GC on?
 
 static void ReplaceSystemAlloc() {
   static malloc_introspection_t asan_introspection;
-  memset(&asan_introspection, 0, sizeof(asan_introspection));
+  __asan::real_memset(&asan_introspection, 0, sizeof(asan_introspection));
 
   asan_introspection.enumerator = &mi_enumerator;
   asan_introspection.good_size = &mi_good_size;
@@ -934,7 +919,7 @@ static void ReplaceSystemAlloc() {
   asan_introspection.force_unlock = &mi_force_unlock;
 
   static malloc_zone_t asan_zone;
-  memset(&asan_zone, 0, sizeof(malloc_zone_t));
+  __asan::real_memset(&asan_zone, 0, sizeof(malloc_zone_t));
 
   // Start with a version 4 zone which is used for OS X 10.4 and 10.5.
   asan_zone.version = 4;
@@ -1062,7 +1047,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   stack.PrintStack();  // try fast unwind first.
   Printf("\n");
   AsanStackTrace::PrintCurrent(pc);  // try slow unwind.
-  ShowStatsAndAbort();
+  __asan_show_stats_and_abort();
 }
 
 static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
@@ -1166,14 +1151,25 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   asan_report_error(pc, bp, sp, addr, access_size_and_type);
 }
 
+#define GET_BP_PC_SP \
+  uintptr_t bp = *GET_CURRENT_FRAME();        \
+  uintptr_t pc = GET_CALLER_PC();             \
+  uintptr_t local_stack;                      \
+  uintptr_t sp = (uintptr_t)&local_stack;
+
+
+void __asan_report_error(uintptr_t addr, bool is_write, int log_access_size) {
+  GET_BP_PC_SP;
+  CHECK(0 <= log_access_size && log_access_size < 8);
+  int size_and_type = (is_write << 3) | log_access_size;
+  asan_report_error(pc, bp, sp, addr, size_and_type);
+}
+
 // exported functions
 #define ASAN_REPORT_ERROR(size_and_type) \
 extern "C" void __asan_report_error_ ## size_and_type(uintptr_t addr) { \
-  uintptr_t bp = *GET_CURRENT_FRAME();                               \
-  uintptr_t pc = GET_CALLER_PC();                                    \
-  uintptr_t local_stack;                                             \
-  uintptr_t sp = (uintptr_t)&local_stack;                            \
-  asan_report_error(pc, bp, sp, addr, size_and_type);                \
+  GET_BP_PC_SP;                                                         \
+  asan_report_error(pc, bp, sp, addr, size_and_type);                   \
 }
 
 // handle reads of sizes 1..16
@@ -1196,7 +1192,7 @@ static int64_t IntFlagValue(const char *flags, const char *flag,
   if (!flags) return default_val;
   const char *str = strstr(flags, flag);
   if (!str) return default_val;
-  return atoll(str + strlen(flag));
+  return atoll(str + __asan::real_strlen(flag));
 }
 
 static void asan_atexit() {
@@ -1207,6 +1203,8 @@ static void asan_atexit() {
 void __asan_init() {
   if (__asan_inited) return;
   asan_out = stderr;
+
+  __asan_interceptors_init();
 
 #ifdef __APPLE__
   ReplaceSystemAlloc();
@@ -1236,6 +1234,8 @@ void __asan_init() {
   __asan_flag_debug = IntFlagValue(options, "debug=", 0);
   __asan_flag_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   __asan_flag_mt = IntFlagValue(options, "mt=", 1);
+  __asan_flag_replace_str = IntFlagValue(options, "replace_str=", 0);
+  __asan_flag_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
 
   if (__asan_flag_atexit) {
     atexit(asan_atexit);
@@ -1297,14 +1297,14 @@ void __asan_init() {
 
   if (__asan_flag_handle_segv) {
     // Set the SIGSEGV handler.
-    memset(&sigact, 0, sizeof(sigact));
+    __asan::real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
     CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
 
 #ifdef __APPLE__
     // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
-    memset(&sigact, 0, sizeof(sigact));
+    __asan::real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
     CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
@@ -1314,7 +1314,7 @@ void __asan_init() {
   }
 
   // Set the SIGILL handler.
-  memset(&sigact, 0, sizeof(sigact));
+  __asan::real_memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = ASAN_OnSIGILL;
   sigact.sa_flags = SA_SIGINFO;
   CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
@@ -1375,5 +1375,5 @@ void __asan_init() {
 void __asan_check_failed(const char *cond, const char *file, int line) {
   Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
   AsanStackTrace::PrintCurrent();
-  ShowStatsAndAbort();
+  __asan_show_stats_and_abort();
 }
