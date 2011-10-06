@@ -229,3 +229,4 @@ clean:
 	rm -f *.o *.ll *.S *.a *.log asan_test64* asan_test32*  a.out perf.data log
 	rm -f $(CLANG_LIB)/libasan*
 	rm -rf $(BIN)
+	rm -rf $(GTEST_ROOT)/make-*
