@@ -192,7 +192,7 @@ lib: $(CLANG_LIB)/libasan$(SUFF).a
 
 $(CLANG_LIB)/libasan$(SUFF).a: $(BIN) $(CLANG_LIB) $(LIBASAN_OBJ) Makefile
 	ar ru $@ $(LIBASAN_OBJ)
-	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) -o $(BIN)/libasan$(BITS).so
+	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) $(LD_FLAGS) -o $(BIN)/libasan$(BITS).so
 
 
 TEST_OBJECTS_COMMON=\
