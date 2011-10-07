@@ -184,6 +184,21 @@ mach_override_ptr(
        fprintf(stderr, "%x ", (unsigned int) orig[i]);
     }
     fprintf(stderr, "\n");
+    fprintf(stderr,
+            "To disassemble, save the following function as disas.c"
+            " and run:\n  gcc -c disas.c && gobjdump -d disas.o\n"
+            "The first 16 bytes of the original function will start"
+            " after four nop instructions.\n");
+    fprintf(stderr, "\nvoid foo() {\n  asm volatile(\"nop;nop;nop;nop;\");\n");
+    int j = 0;
+    for (j = 0; j < 2; j++) {
+      fprintf(stderr, "  asm volatile(\".byte ");
+      for (i = 8 * j; i < 8 * (j+1) - 1; i++) {
+        fprintf(stderr, "0x%x, ", (unsigned int) orig[i]);
+      }
+      fprintf(stderr, "0x%x;\");\n", (unsigned int) orig[8 * (j+1) - 1]);
+    }
+    fprintf(stderr, "}\n\n");
   }
 #endif
 	
