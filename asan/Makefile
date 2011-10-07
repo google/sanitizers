@@ -195,15 +195,17 @@ $(CLANG_LIB)/libasan$(SUFF).a: $(BIN) $(CLANG_LIB) $(LIBASAN_OBJ) Makefile
 	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) -o $(BIN)/libasan$(BITS).so
 
 
-TEST_OBJECTS=\
+TEST_OBJECTS_COMMON=\
 	     $(BIN)/asan_test$(SUFF).o \
 	     $(BIN)/asan_globals_test$(SUFF).o \
 	     $(BIN)/asan_break_optimization$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o
 
 ifeq ($(PLATFORM),Darwin)
-TEST_OBJECTS=$(TEST_OBJECTS) \
+TEST_OBJECTS=$(TEST_OBJECTS_COMMON) \
 	     $(BIN)/asan_mac_test$(SUFF).o
+else
+TEST_OBJECTS=$(TEST_OBJECTS_COMMON)
 endif
 
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB)
