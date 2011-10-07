@@ -22,6 +22,10 @@
 #include "asan_mapping.h"
 #include "asan_stack.h"
 #include "asan_stats.h"
+#ifdef __APPLE__
+#include "mach_override.h"
+#include <string.h>
+#endif
 
 #include <dlfcn.h>
 #include <stdio.h>
@@ -111,7 +115,12 @@ void __asan_interceptors_init() {
   CHECK((__asan::real_strlen = (strlen_f)dlsym(RTLD_NEXT, "strlen")));
   CHECK((__asan::real_strncpy = (strncpy_f)dlsym(RTLD_NEXT, "strncpy")));
 #else
-  // TODO(samsonov): Add Apple implementation here.
+  // TODO(samsonov): Add Apple implementation instead of stubs here.
+  __asan::real_memcpy = memcpy;
+  __asan::real_memmove = memmove;
+  __asan::real_memset = memset;
+  __asan::real_strlen = strlen;
+  __asan::real_strncpy = strncpy; 
 #endif
   if (__asan_flag_v > 0) {
     Printf("AddressSanitizer: libc interceptors initialized\n");
