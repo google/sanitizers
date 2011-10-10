@@ -29,6 +29,7 @@
 
 #include <dlfcn.h>
 #include <stdio.h>
+#include <string.h>
 
 bool __asan_flag_replace_str;
 bool __asan_flag_replace_intrin;
