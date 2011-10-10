@@ -120,7 +120,7 @@ void __asan_interceptors_init() {
   __asan::real_memmove = memmove;
   __asan::real_memset = memset;
   __asan::real_strlen = strlen;
-  __asan::real_strncpy = strncpy; 
+  __asan::real_strncpy = strncpy;
 #endif
   if (__asan_flag_v > 0) {
     Printf("AddressSanitizer: libc interceptors initialized\n");
