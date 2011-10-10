@@ -987,13 +987,6 @@ static void ReplaceSystemAlloc() {
 #endif
 
 // -------------------------- Run-time entry ------------------- {{{1
-static void PrintUnwinderHint() {
-  if (__asan_flag_fast_unwind) {
-    Printf("HINT: if your stack trace looks short or garbled, "
-           "use ASAN_OPTIONS=fast_unwind=0\n");
-  }
-}
-
 void GetPcSpBpAx(void *context,
                  uintptr_t *pc, uintptr_t *sp, uintptr_t *bp, uintptr_t *ax) {
   ucontext_t *ucontext = (ucontext_t*)context;
@@ -1038,7 +1031,6 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   }
   // Write the first message using the bullet-proof write.
   if (13 != write(2, "ASAN:SIGSEGV\n", 13)) abort();
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/true);
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
@@ -1046,9 +1038,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
          " (pc %p sp %p bp %p ax %p T%d)\n",
          getpid(), addr, pc, sp, bp, ax, AsanThread::GetCurrent()->tid());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
-  stack.PrintStack();  // try fast unwind first.
-  Printf("\n");
-  AsanStackTrace::PrintCurrent(pc);  // try slow unwind.
+  GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax, false, pc, bp);
+  stack.PrintStack();
   __asan_show_stats_and_abort();
 }
 
@@ -1066,7 +1057,6 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   int access_size = 1 << (access_size_and_type & 7);
 
   Printf("=================================================================\n");
-  PrintUnwinderHint();
   const char *bug_descr = "unknown-crash";
   if (AddrIsInMem(addr)) {
     uint8_t *shadow_addr = (uint8_t*)MemToShadow(addr);
@@ -1112,7 +1102,10 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
     PrintBytes("PC: ", (uintptr_t*)pc);
   }
 
-  AsanStackTrace::PrintCurrent(pc);
+  GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax,
+                                 false,  // __asan_flag_fast_unwind,
+                                 pc, bp);
+  stack.PrintStack();
 
   CHECK(AddrIsInMem(addr));
 
@@ -1154,9 +1147,9 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
 }
 
 #define GET_BP_PC_SP \
-  uintptr_t bp = *GET_CURRENT_FRAME();        \
-  uintptr_t pc = GET_CALLER_PC();             \
-  uintptr_t local_stack;                      \
+  uintptr_t bp = GET_CURRENT_FRAME();              \
+  uintptr_t pc = GET_CALLER_PC();                  \
+  uintptr_t local_stack;                           \
   uintptr_t sp = (uintptr_t)&local_stack;
 
 
@@ -1384,6 +1377,6 @@ void __asan_init() {
 
 void __asan_check_failed(const char *cond, const char *file, int line) {
   Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
-  AsanStackTrace::PrintCurrent();
+  PRINT_CURRENT_STACK();
   __asan_show_stats_and_abort();
 }

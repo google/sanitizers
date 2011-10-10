@@ -46,10 +46,10 @@ struct AsanStackTrace {
     }
   }
 
-  void FastUnwindStack(uintptr_t *frame);
+  void FastUnwindStack(uintptr_t pc, uintptr_t bp);
   static _Unwind_Reason_Code Unwind_Trace(
       struct _Unwind_Context *ctx, void *param);
-  static void PrintCurrent(uintptr_t pc = 0);
+  static uintptr_t GetCurrentPc();
 
   static size_t CompressStack(AsanStackTrace *stack,
                             uint32_t *compressed, size_t size);
@@ -57,25 +57,39 @@ struct AsanStackTrace {
                               uint32_t *compressed, size_t size);
 };
 
-#define GET_STACK_TRACE_HERE(max_s, fast_unwind)  \
-  AsanStackTrace stack;                           \
-  if ((max_s) <= 1) {                             \
-    stack.size = 1;                               \
-    stack.trace[0] = GET_CALLER_PC();             \
-  } else {                                        \
-    stack.max_size = max_s;                       \
-    stack.size = 0;                               \
-    if (fast_unwind) {   \
-      stack.FastUnwindStack(GET_CURRENT_FRAME()); \
-    } else {                                      \
-      _Unwind_Backtrace(AsanStackTrace::Unwind_Trace, &stack);   \
-    }                                                            \
-    if (stack.size >= 2 && stack.trace[1] != GET_CALLER_PC()) {  \
-      Printf("Stack: %d %d pc="PP" : "PP" "PP" "PP" \n",         \
-             (int)fast_unwind, (int)stack.size, GET_CALLER_PC(), \
-             stack.trace[0], stack.trace[1], stack.trace[2]);    \
-    }                                             \
-  }                                               \
+// Get the stack trace with the given pc and bp.
+// The pc will be in the position 0 of the resulting stack trace.
+// The bp may refer to the current frame or to the caller's frame.
+// With fast_unwind==true we unwind using frame pointers.
+// Otherwise we use _Unwind_Backtrace.
+#define GET_STACK_TRACE_WITH_PC_AND_BP(max_s, fast_unwind, pc, bp)  \
+  AsanStackTrace stack;                             \
+  {                                                 \
+    uintptr_t saved_pc = pc;                        \
+    uintptr_t saved_bp = bp;                        \
+    stack.size = 0;                                 \
+    stack.trace[0] = saved_pc;                      \
+    if ((max_s) > 1) {                              \
+      stack.max_size = max_s;                       \
+      if (fast_unwind) {                            \
+        stack.FastUnwindStack(saved_pc, saved_bp);  \
+      } else {                                      \
+        _Unwind_Backtrace(AsanStackTrace::Unwind_Trace, &stack);   \
+        if (stack.size == 0)                        \
+          stack.FastUnwindStack(saved_pc, saved_bp);\
+      }                                             \
+    }                                               \
+  }                                                 \
+
+#define GET_STACK_TRACE_HERE(max_size, fast_unwind)         \
+  GET_STACK_TRACE_WITH_PC_AND_BP(max_size, fast_unwind,     \
+     AsanStackTrace::GetCurrentPc(), GET_CURRENT_FRAME())   \
+
+#define PRINT_CURRENT_STACK()                    \
+  {                                              \
+    GET_STACK_TRACE_HERE(kStackTraceMax, false); \
+    stack.PrintStack();                          \
+  }                                              \
 
 
 #endif  // ASAN_STACK_H

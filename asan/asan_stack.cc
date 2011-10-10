@@ -136,45 +136,39 @@ _Unwind_Reason_Code AsanStackTrace::Unwind_Trace(
     struct _Unwind_Context *ctx, void *param) {
   AsanStackTrace *b = (AsanStackTrace*)param;
   CHECK(b->size < b->max_size);
-  b->trace[b->size] = _Unwind_GetIP(ctx);
-  // Printf("ctx: %p ip: %lx\n", ctx, b->buff[b->cur]);
-  b->size++;
+  uintptr_t pc = _Unwind_GetIP(ctx);
+  if (b->size > 0 || pc == b->trace[0]) {
+    b->trace[b->size++] = pc;
+  }
   if (b->size == b->max_size) return _URC_NORMAL_STOP;
   return _URC_NO_REASON;
 }
 
-void AsanStackTrace::FastUnwindStack(uintptr_t *frame) {
-  size = 0;
+uintptr_t AsanStackTrace::GetCurrentPc() {
+  return GET_CALLER_PC();
+}
+
+void AsanStackTrace::FastUnwindStack(uintptr_t pc, uintptr_t bp) {
+  CHECK(size == 0 && trace[0] == pc);
+  size = 1;
   if (!__asan_inited) return;
-  trace[size++] = GET_CALLER_PC();
   AsanThread *t = AsanThread::GetCurrent();
   if (!t) return;
+  uintptr_t *frame = (uintptr_t*)bp;
   uintptr_t *prev_frame = frame;
   uintptr_t *top = (uintptr_t*)t->stack_top();
+  uintptr_t *bottom = (uintptr_t*)t->stack_bottom();
   while (frame >= prev_frame &&
          frame < top &&
+         frame > bottom &&
          size < max_size) {
-    uintptr_t pc = frame[1];
-    trace[size++] = pc;
+    uintptr_t pc1 = frame[1];
+    if (pc1 != pc) {
+      trace[size++] = pc1;
+    }
     prev_frame = frame;
     frame = (uintptr_t*)frame[0];
   }
-}
-
-void AsanStackTrace::PrintCurrent(uintptr_t pc) {
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast unwind*/false);
-  CHECK(stack.size >= 2);
-  size_t skip_frames = 1;
-  if (pc) {
-    // find this pc, should be somewehre around 3-rd frame
-    for (size_t i = skip_frames; i < stack.size; i++) {
-      if (stack.trace[i] == pc) {
-        skip_frames = i;
-        break;
-      }
-    }
-  }
-  PrintStack(stack.trace + skip_frames, stack.size - skip_frames);
 }
 
 // On 32-bits we don't compress stack traces.

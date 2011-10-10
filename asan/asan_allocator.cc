@@ -150,7 +150,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   total_mmaped += size;
   if (res == (uint8_t*)-1) {
     OutOfMemoryMessage(__FUNCTION__, size);
-    AsanStackTrace::PrintCurrent();
+    PRINT_CURRENT_STACK();
     abort();
   }
   PoisonShadow((uintptr_t)res, size, kAsanHeapLeftRedzoneMagic);
