@@ -45,6 +45,8 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/ucontext.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #ifdef __APPLE__
@@ -1344,6 +1346,14 @@ void __asan_init() {
 #ifdef __APPLE__
     Printf("CF_USING_COLLECTABLE_MEMORY = %d\n", kCFUseCollectableAllocator);
 #endif
+  }
+
+  if (__WORDSIZE == 64) {
+    // Disable core dumper -- it makes little sense to dump 16T+ core.
+    struct rlimit nocore;
+    nocore.rlim_cur = 0;
+    nocore.rlim_max = 0;
+    setrlimit(RLIMIT_CORE, &nocore);
   }
 
   {
