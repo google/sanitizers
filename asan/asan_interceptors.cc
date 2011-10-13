@@ -24,11 +24,9 @@
 #include "asan_stats.h"
 #ifdef __APPLE__
 #include "mach_override.h"
-#include <string.h>
 #endif
 
 #include <dlfcn.h>
-#include <stdio.h>
 #include <string.h>
 
 bool __asan_flag_replace_str;
@@ -48,12 +46,18 @@ static void __asan_write_range(const void *offset, size_t size);
 static size_t __asan_strnlen(const char *s, size_t maxlen);
 
 static inline void ensure_asan_inited() {
+  CHECK(!__asan_init_is_running);
   if (!__asan_inited) {
     __asan_init();
   }
 }
 
 void *WRAP(memcpy)(void *to, const void *from, size_t size) {
+  // memcpy is called during __asan_init() from the internals
+  // of printf(...).
+  if (__asan_init_is_running) {
+    return __asan::real_memcpy(to, from, size);
+  }
   ensure_asan_inited();
   if (__asan_flag_replace_intrin) {
     __asan_write_range(from, size);
@@ -82,6 +86,12 @@ void *WRAP(memset)(void *block, int c, size_t size) {
 }
 
 size_t WRAP(strlen)(const char *s) {
+  // strlen is called during __asan_init() from library
+  // functions on Mac: malloc_default_purgeable_zone()
+  // in ReplaceSystemAlloc().
+  if (__asan_init_is_running) {
+    return __asan::real_strlen(s);
+  }
   ensure_asan_inited();
   // TODO(samsonov): We should predict possible OOB access in
   // real_strlen() call, and instrument its arguments
@@ -109,20 +119,11 @@ char *WRAP(strncpy)(char *to, const char *from, size_t size) {
 }
 
 void __asan_interceptors_init() {
-#ifndef __APPLE__
-  CHECK((__asan::real_memcpy = (memcpy_f)dlsym(RTLD_NEXT, "memcpy")));
-  CHECK((__asan::real_memmove = (memmove_f)dlsym(RTLD_NEXT, "memmove")));
-  CHECK((__asan::real_memset = (memset_f)dlsym(RTLD_NEXT, "memset")));
-  CHECK((__asan::real_strlen = (strlen_f)dlsym(RTLD_NEXT, "strlen")));
-  CHECK((__asan::real_strncpy = (strncpy_f)dlsym(RTLD_NEXT, "strncpy")));
-#else
-  // TODO(samsonov): Add Apple implementation instead of stubs here.
-  __asan::real_memcpy = memcpy;
-  __asan::real_memmove = memmove;
-  __asan::real_memset = memset;
-  __asan::real_strlen = strlen;
-  __asan::real_strncpy = strncpy;
-#endif
+  INTERCEPT_FUNCTION(memcpy);
+  INTERCEPT_FUNCTION(memmove);
+  INTERCEPT_FUNCTION(memset);
+  INTERCEPT_FUNCTION(strlen);
+  INTERCEPT_FUNCTION(strncpy);
   if (__asan_flag_v > 0) {
     Printf("AddressSanitizer: libc interceptors initialized\n");
   }

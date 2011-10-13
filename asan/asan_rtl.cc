@@ -101,6 +101,7 @@ void __asan_printf(const char *format, ...) {
 
 // -------------------------- Globals --------------------- {{{1
 int __asan_inited;
+bool __asan_init_is_running;
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
@@ -1197,6 +1198,7 @@ static void asan_atexit() {
 
 void __asan_init() {
   if (__asan_inited) return;
+  __asan_init_is_running = true;
   asan_out = stderr;
 
   __asan_interceptors_init();
@@ -1365,6 +1367,7 @@ void __asan_init() {
   // On Linux AsanThread::ThreadStart() calls malloc() that's why __asan_inited
   // should be set to 1 prior to initializing the threads.
   __asan_inited = 1;
+  __asan_init_is_running = false;
 
   AsanThread::Init();
   AsanThread::GetMain()->ThreadStart();

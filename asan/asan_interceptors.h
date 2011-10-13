@@ -36,6 +36,17 @@
 #define WRAP(x) x
 #endif
 
+#ifdef __APPLE__
+#define INTERCEPT_FUNCTION(func)                                        \
+  CHECK(0 == mach_override_ptr((void*)(func),                           \
+                               (void*)WRAP(func),                       \
+                               (void**)&__asan::real_##func));          \
+  CHECK(__asan::real_##func != NULL);
+#else
+#define INTERCEPT_FUNCTION(func)                                        \
+  CHECK((__asan::real_##func = (func##_f)dlsym(RTLD_NEXT, #func)));
+#endif
+
 typedef void* (*memcpy_f)(void *to, const void *from, size_t size);
 typedef void* (*memmove_f)(void *to, const void *from, size_t size);
 typedef void* (*memset_f)(void *block, int c, size_t size);

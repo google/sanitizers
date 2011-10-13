@@ -55,7 +55,8 @@ extern bool   __asan_flag_replace_str;
 extern bool   __asan_flag_replace_intrin;
 
 extern int __asan_inited;
-
+// Used to avoid infinite recursion in __asan_init().
+extern bool __asan_init_is_running;
 
 #define Printf __asan_printf
 
