@@ -30,12 +30,19 @@
 // Instead we use mach_override, a handy framework for patching functions at
 // runtime. To avoid possible name clashes, our replacement functions have
 // the "wrap_" prefix on Mac.
+//
+// After interception, the calls to system functions will be substituted by
+// calls to our interceptors. We store pointers to system function f()
+// in __asan::real_f().
 #ifdef __APPLE__
 #define WRAP(x) wrap_##x
 #else
 #define WRAP(x) x
 #endif
 
+// TODO(glider): mach_override_ptr() tends to spend too much time
+// in allocateBranchIsland(). This should be ok for real-word
+// application, but slows down our tests which fork too many children.
 #ifdef __APPLE__
 #define INTERCEPT_FUNCTION(func)                                        \
   CHECK(0 == mach_override_ptr((void*)(func),                           \
@@ -53,13 +60,16 @@ typedef void* (*memset_f)(void *block, int c, size_t size);
 typedef size_t (*strlen_f)(const char *s);
 typedef char* (*strncpy_f)(char *to, const char *from, size_t size);
 
-// __asan::real_X(...) holds pointer to library implementation of X(...).
+// __asan::real_X() holds pointer to library implementation of X().
+// __asan::internal_X() is the implementation of X() for use in RTL.
 namespace __asan {
 extern memcpy_f         real_memcpy;
 extern memmove_f        real_memmove;
 extern memset_f         real_memset;
 extern strlen_f         real_strlen;
 extern strncpy_f        real_strncpy;
+
+size_t internal_strlen(const char *s);
 }  // namespace
 
 // Initializes pointers to str*/mem* functions.

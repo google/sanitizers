@@ -118,6 +118,12 @@ char *WRAP(strncpy)(char *to, const char *from, size_t size) {
   return __asan::real_strncpy(to, from, size);
 }
 
+size_t __asan::internal_strlen(const char *s) {
+  size_t i = 0;
+  while (s[i]) i++;
+  return i;
+}
+
 void __asan_interceptors_init() {
   INTERCEPT_FUNCTION(memcpy);
   INTERCEPT_FUNCTION(memmove);

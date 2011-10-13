@@ -108,17 +108,21 @@ typedef int (*sigaction_f)(int signum, const struct sigaction *act,
                            struct sigaction *oldact);
 typedef sig_t (*signal_f)(int signum, sig_t handler);
 typedef void (*longjmp_f)(void *env, int val);
-typedef void (*cxa_throw_f)(void *, void *, void *);
+typedef longjmp_f _longjmp_f;
+typedef longjmp_f siglongjmp_f;
+typedef void (*__cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
 
-static sigaction_f      real_sigaction;
-static signal_f         real_signal;
-static longjmp_f        real_longjmp;
-static longjmp_f        real__longjmp;
-static longjmp_f        real_siglongjmp;
-static cxa_throw_f      real_cxa_throw;
-static pthread_create_f real_pthread_create;
+namespace __asan {
+sigaction_f             real_sigaction;
+signal_f                real_signal;
+longjmp_f               real_longjmp;
+_longjmp_f              real__longjmp;
+siglongjmp_f            real_siglongjmp;
+__cxa_throw_f           real___cxa_throw;
+pthread_create_f        real_pthread_create;
+}  // namespace
 
 // -------------------------- AsanStats ---------------- {{{1
 static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
@@ -563,7 +567,7 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
   AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
   new(t) AsanThread(AsanThread::GetCurrent()->tid(),
                     start_routine, arg, &stack);
-  return real_pthread_create(thread, attr, asan_thread_start, t);
+  return __asan::real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
 static bool MySignal(int signum) {
@@ -578,7 +582,7 @@ static bool MySignal(int signum) {
 extern "C"
 sig_t WRAP(signal)(int signum, sig_t handler) {
   if (!MySignal(signum)) {
-    return real_signal(signum, handler);
+    return __asan::real_signal(signum, handler);
   }
   return NULL;
 }
@@ -587,7 +591,7 @@ extern "C"
 int WRAP(sigaction)(int signum, const struct sigaction *act,
                     struct sigaction *oldact) {
   if (!MySignal(signum)) {
-    return real_sigaction(signum, act, oldact);
+    return __asan::real_sigaction(signum, act, oldact);
   }
   return 0;
 }
@@ -604,17 +608,17 @@ static void UnpoisonStackFromHereToTop() {
 
 extern "C" void WRAP(longjmp)(void *env, int val) {
   UnpoisonStackFromHereToTop();
-  real_longjmp(env, val);
+  __asan::real_longjmp(env, val);
 }
 
 extern "C" void WRAP(_longjmp)(void *env, int val) {
   UnpoisonStackFromHereToTop();
-  real__longjmp(env, val);
+  __asan::real__longjmp(env, val);
 }
 
 extern "C" void WRAP(siglongjmp)(void *env, int val) {
   UnpoisonStackFromHereToTop();
-  real_siglongjmp(env, val);
+  __asan::real_siglongjmp(env, val);
 }
 
 extern "C" void __cxa_throw(void *a, void *b, void *c);
@@ -622,7 +626,7 @@ extern "C" void __cxa_throw(void *a, void *b, void *c);
 #if ASAN_HAS_EXCEPTIONS
 extern "C" void WRAP(__cxa_throw)(void *a, void *b, void *c) {
   UnpoisonStackFromHereToTop();
-  real_cxa_throw(a, b, c);
+  __asan::real___cxa_throw(a, b, c);
 }
 #endif
 
@@ -1188,7 +1192,7 @@ static int64_t IntFlagValue(const char *flags, const char *flag,
   if (!flags) return default_val;
   const char *str = strstr(flags, flag);
   if (!str) return default_val;
-  return atoll(str + __asan::real_strlen(flag));
+  return atoll(str + __asan::internal_strlen(flag));
 }
 
 static void asan_atexit() {
@@ -1200,12 +1204,6 @@ void __asan_init() {
   if (__asan_inited) return;
   __asan_init_is_running = true;
   asan_out = stderr;
-
-  __asan_interceptors_init();
-
-#ifdef __APPLE__
-  ReplaceSystemAlloc();
-#endif
 
   // flags
   const char *options = getenv("ASAN_OPTIONS");
@@ -1241,35 +1239,18 @@ void __asan_init() {
   __asan_flag_quarantine_size =
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
 
+  // interceptors
+  __asan_interceptors_init();
+
+#ifdef __APPLE__
+  ReplaceSystemAlloc();
+#endif
+
+  INTERCEPT_FUNCTION(sigaction);
+  INTERCEPT_FUNCTION(signal);
+  INTERCEPT_FUNCTION(longjmp);
+  INTERCEPT_FUNCTION(_longjmp);
 #ifndef __APPLE__
-  // Initialize the real_* function pointers with the original functions.
-  CHECK((real_sigaction = (sigaction_f)dlsym(RTLD_NEXT, "sigaction")));
-  CHECK((real_signal = (signal_f)dlsym(RTLD_NEXT, "signal")));
-  CHECK((real_longjmp = (longjmp_f)dlsym(RTLD_NEXT, "longjmp")));
-  CHECK((real__longjmp = (longjmp_f)dlsym(RTLD_NEXT, "_longjmp")));
-  CHECK((real_siglongjmp = (longjmp_f)dlsym(RTLD_NEXT, "siglongjmp")));
-  CHECK((real_cxa_throw = (cxa_throw_f)dlsym(RTLD_NEXT, "__cxa_throw")));
-  CHECK((real_pthread_create =
-         (pthread_create_f)dlsym(RTLD_NEXT, "pthread_create")));
-#else
-  // Use mach_override_ptr() to replace the system functions,
-  // initialize the real_* pointers as well.
-  // TODO(glider): mach_override_ptr() tends to spend too much time
-  // in allocateBranchIsland(). This should be ok for real-word
-  // application, but slows down our tests which fork too many children.
-  void *old_func;
-  CHECK(0 == mach_override_ptr((void*)sigaction,
-                               (void*)WRAP(sigaction), &old_func));
-  CHECK(real_sigaction = (sigaction_f)old_func);
-  CHECK(0 == mach_override_ptr((void*)signal, (void*)WRAP(signal), &old_func));
-  CHECK(real_signal = (signal_f)old_func);
-  CHECK(0 == mach_override_ptr((void*)longjmp,
-                               (void*)WRAP(longjmp), &old_func));
-  CHECK(real_longjmp = (longjmp_f)old_func);
-  CHECK(0 == mach_override_ptr((void*)_longjmp,
-                               (void*)WRAP(_longjmp), &old_func));
-  CHECK(real__longjmp = (longjmp_f)old_func);
-#if 0
   // siglongjmp for x86 looks as follows:
   // 2f8a8:       8b 44 24 04             mov    0x4(%esp),%eax
   // 2f8ac:       83 78 48 00             cmpl   $0x0,0x48(%eax)
@@ -1278,17 +1259,10 @@ void __asan_init() {
   // Instead of handling those instructions in mach_override we assume that
   // patching longjmp is sufficient.
   // TODO(glider): need a test for this.
-  CHECK(0 == mach_override_ptr((void*)siglongjmp,
-                               (void*)WRAP(siglongjmp), &old_func));
-  CHECK(real_siglongjmp = (longjmp_f)old_func);
+  INTERCEPT_FUNCTION(siglongjmp);
 #endif
-  CHECK(0 == mach_override_ptr((void*)__cxa_throw,
-                               (void*)WRAP(__cxa_throw), &old_func));
-  CHECK(real_cxa_throw = (cxa_throw_f)old_func);
-  CHECK(0 == mach_override_ptr((void*)pthread_create,
-                               (void*)WRAP(pthread_create), &old_func));
-  CHECK(real_pthread_create = (pthread_create_f)old_func);
-#endif
+  INTERCEPT_FUNCTION(__cxa_throw);
+  INTERCEPT_FUNCTION(pthread_create);
 
   struct sigaction sigact;
 
@@ -1297,14 +1271,14 @@ void __asan_init() {
     __asan::real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
+    CHECK(0 == __asan::real_sigaction(SIGSEGV, &sigact, 0));
 
 #ifdef __APPLE__
     // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
     __asan::real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
+    CHECK(0 == __asan::real_sigaction(SIGBUS, &sigact, 0));
 #endif
   } else {
     CHECK(!__asan_flag_lazy_shadow);
@@ -1314,7 +1288,7 @@ void __asan_init() {
   __asan::real_memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = ASAN_OnSIGILL;
   sigact.sa_flags = SA_SIGINFO;
-  CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
+  CHECK(0 == __asan::real_sigaction(SIGILL, &sigact, 0));
 
   if (__asan_flag_v) {
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
