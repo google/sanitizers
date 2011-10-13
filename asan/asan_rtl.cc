@@ -1049,7 +1049,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 }
 
 static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
-                              uintptr_t addr, unsigned access_size_and_type) {
+                              uintptr_t addr, bool is_write,
+                              size_t access_size) {
   // Do not print more than one report, otherwise they will mix up.
   {
     static bool aborting = false;
@@ -1057,9 +1058,6 @@ static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
     if (aborting) return;
     aborting = true;
   }
-
-  bool is_write = access_size_and_type & 8;
-  int access_size = 1 << (access_size_and_type & 7);
 
   Printf("=================================================================\n");
   const char *bug_descr = "unknown-crash";
@@ -1148,7 +1146,9 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   CHECK(insn[0] == 0x0f && insn[1] == 0x0b);  // ud2
   unsigned access_size_and_type = insn[2] - 0x50;
   CHECK(access_size_and_type < 16);
-  asan_report_error(pc, bp, sp, addr, access_size_and_type);
+  bool is_write = access_size_and_type & 8;
+  int access_size = 1 << (access_size_and_type & 7);
+  asan_report_error(pc, bp, sp, addr, is_write, access_size);
 }
 
 #define GET_BP_PC_SP \
@@ -1158,32 +1158,28 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   uintptr_t sp = (uintptr_t)&local_stack;
 
 
-void __asan_report_error(uintptr_t addr, bool is_write, int log_access_size) {
+void __asan_report_error(uintptr_t addr, bool is_write, int access_size) {
   GET_BP_PC_SP;
-  CHECK(0 <= log_access_size && log_access_size < 8);
-  int size_and_type = (is_write << 3) | log_access_size;
-  asan_report_error(pc, bp, sp, addr, size_and_type);
+  asan_report_error(pc, bp, sp, addr, is_write, access_size);
 }
 
 // exported functions
-#define ASAN_REPORT_ERROR(size_and_type) \
-extern "C" void __asan_report_error_ ## size_and_type(uintptr_t addr) { \
-  GET_BP_PC_SP;                                                         \
-  asan_report_error(pc, bp, sp, addr, size_and_type);                   \
+#define ASAN_REPORT_ERROR(type, is_write, size) \
+extern "C" void __asan_report_ ## type ## size(uintptr_t addr) { \
+  GET_BP_PC_SP;                                                  \
+  asan_report_error(pc, bp, sp, addr, is_write, size);           \
 }
 
-// handle reads of sizes 1..16
-ASAN_REPORT_ERROR(0)
-ASAN_REPORT_ERROR(1)
-ASAN_REPORT_ERROR(2)
-ASAN_REPORT_ERROR(3)
-ASAN_REPORT_ERROR(4)
-// handle writes of sizes 1..16
-ASAN_REPORT_ERROR(8)
-ASAN_REPORT_ERROR(9)
-ASAN_REPORT_ERROR(10)
-ASAN_REPORT_ERROR(11)
-ASAN_REPORT_ERROR(12)
+ASAN_REPORT_ERROR(load, false, 1)
+ASAN_REPORT_ERROR(load, false, 2)
+ASAN_REPORT_ERROR(load, false, 4)
+ASAN_REPORT_ERROR(load, false, 8)
+ASAN_REPORT_ERROR(load, false, 16)
+ASAN_REPORT_ERROR(store, true, 1)
+ASAN_REPORT_ERROR(store, true, 2)
+ASAN_REPORT_ERROR(store, true, 4)
+ASAN_REPORT_ERROR(store, true, 8)
+ASAN_REPORT_ERROR(store, true, 16)
 
 
 // -------------------------- Init ------------------- {{{1

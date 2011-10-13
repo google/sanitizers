@@ -33,7 +33,7 @@ void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
 void __asan_register_global(uintptr_t addr, size_t size, const char *name)
     __attribute__((visibility("default")));
-void __asan_report_error(uintptr_t addr, bool is_write, int log_access_size);
+void __asan_report_error(uintptr_t addr, bool is_write, int access_size);
 void __asan_show_stats_and_abort();
 size_t __asan_stack_malloc(size_t size, size_t real_stack)
     __attribute__((visibility("default")));

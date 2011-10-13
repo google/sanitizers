@@ -62,7 +62,7 @@ static const size_t kMaxStackMallocSize = 1 << 16;  // 64K
 static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
 static const char *kAsanModuleCtorName = "asan.module_ctor";
-static const char *kAsanReportErrorTemplate = "__asan_report_error_";
+static const char *kAsanReportErrorTemplate = "__asan_report_";
 static const char *kAsanRegisterGlobalName = "__asan_register_global";
 static const char *kAsanInitName = "__asan_init";
 static const char *kAsanMappingOffsetName = "__asan_mapping_offset";
@@ -156,7 +156,7 @@ struct AddressSanitizer : public ModulePass {
   void instrumentAddress(Instruction *OrigIns, IRBuilder<> &IRB,
                          Value *Addr, uint32_t TypeSize, bool IsWrite);
   Instruction *generateCrashCode(IRBuilder<> &IRB, Value *Addr,
-                                 int TelltaleValue);
+                                 bool IsWrite, uint32_t TypeSize);
   bool instrumentMemIntrinsic(MemIntrinsic *MI);
   void instrumentMemIntrinsicParam(Instruction *OrigIns, Value *Addr,
                                   Value *Size,
@@ -344,21 +344,28 @@ void AddressSanitizer::instrumentMop(Instruction *I) {
 }
 
 Instruction *AddressSanitizer::generateCrashCode(
-    IRBuilder<> &IRB, Value *Addr, int TelltaleValue) {
+    IRBuilder<> &IRB, Value *Addr, bool IsWrite, uint32_t TypeSize) {
+
   if (ClUseCall) {
     // Here we use a call instead of arch-specific asm to report an error.
     // This is almost always slower (because the codegen needs to generate
     // prologue/epilogue for otherwise leaf functions) and generates more code.
     // This mode could be useful if we can not use SIGILL for some reason.
     //
-    // The TelltaleValue (is_write and size) is encoded in the function name.
-    std::string FunctionName = kAsanReportErrorTemplate + itostr(TelltaleValue);
+    // IsWrite and TypeSize are encoded in the function name.
+    std::string FunctionName = std::string(kAsanReportErrorTemplate) +
+        (IsWrite ? "store" : "load") + itostr(TypeSize / 8);
     Value *ReportWarningFunc = CurrentModule->getOrInsertFunction(
         FunctionName, VoidTy, IntptrTy, NULL);
     CallInst *Call = IRB.CreateCall(ReportWarningFunc, Addr);
     Call->setDoesNotReturn();
     return Call;
   }
+
+  uint32_t LogOfSizeInBytes = CountTrailingZeros_32(TypeSize / 8);
+  assert(8U * (1 << LogOfSizeInBytes) == TypeSize);
+  uint8_t TelltaleValue = IsWrite * 8 + LogOfSizeInBytes;
+  assert(TelltaleValue < 16);
 
   // Move the failing address to %rax/%eax
   FunctionType *Fn1Ty = FunctionType::get(
@@ -407,11 +414,6 @@ Instruction *AddressSanitizer::generateCrashCode(
 void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
                                          IRBuilder<> &IRB, Value *Addr,
                                          uint32_t TypeSize, bool IsWrite) {
-  uint32_t LogOfSizeInBytes = CountTrailingZeros_32(TypeSize / 8);
-  assert(8U * (1 << LogOfSizeInBytes) == TypeSize);
-  uint8_t TelltaleValue = IsWrite * 8 + LogOfSizeInBytes;
-  assert(TelltaleValue < 16);
-
   Value *AddrLong = IRB.CreatePointerCast(Addr, IntptrTy);
 
   Type *ShadowTy  = IntegerType::get(
@@ -446,7 +448,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
   }
 
   IRBuilder<> IRB1(CheckTerm->getParent(), CheckTerm);
-  Instruction *Crash = generateCrashCode(IRB1, AddrLong, TelltaleValue);
+  Instruction *Crash = generateCrashCode(IRB1, AddrLong, IsWrite, TypeSize);
   CloneDebugInfo(OrigIns, Crash);
 }
 

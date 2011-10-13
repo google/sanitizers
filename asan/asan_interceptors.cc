@@ -153,7 +153,7 @@ static void AccessAddress(uint8_t *address, bool isWrite) {
     if (last_addressed_byte <= shadow_value) {
       return;
     }
-    __asan_report_error((uintptr_t)address, isWrite, /*log_access_size*/ 0);
+    __asan_report_error((uintptr_t)address, isWrite, 1);
   }
 }
 
