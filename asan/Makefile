@@ -81,18 +81,20 @@ GCC_ASAN_PATH=SET_FROM_COMMAND_LINE
 GCC_ASAN_CXX=$(GCC_ASAN_PATH)/g++ -fasan \
 	     $(COMMON_ASAN_DEFINES) \
 	     -DADDRESS_SANITIZER=1
-GCC_ASAN_LD=$(GCC_ASAN_PATH)/g++ -ldl -lpthread $(LIBASAN_A)
+GCC_ASAN_LD=$(GCC_ASAN_PATH)/g++ -ldl -lpthread
 
 ASAN_COMPILER=clang
 
 ifeq ($(ASAN_COMPILER), clang)
-ASAN_CXX=$(CLANG_ASAN_CXX)
-ASAN_LD=$(CLANG_ASAN_LD)
+  ASAN_CXX=$(CLANG_ASAN_CXX)
+  ASAN_LD=$(CLANG_ASAN_LD)
+  ASAN_LD_TAIL=
 endif
 
 ifeq ($(ASAN_COMPILER), gcc)
   ASAN_CXX=$(GCC_ASAN_CXX)
   ASAN_LD=$(GCC_ASAN_LD)
+  ASAN_LD_TAIL=$(LIBASAN_A)
 endif
 
 RTL_HDR_COMMON=asan_allocator.h \
@@ -225,7 +227,8 @@ TEST_OBJECTS=$(TEST_OBJECTS_COMMON)
 endif
 
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS) $(LIBASAN_A) Makefile tests/asan_test.ignore $(GTEST_LIB)
-	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
+	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) \
+		$(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB) $(ASAN_LD_TAIL)
 
 # for now, build gtest with clang/asan even if we use a differetn compiler.
 $(GTEST_LIB):
