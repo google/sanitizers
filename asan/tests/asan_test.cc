@@ -510,12 +510,12 @@ void *ManyThreadsWorker(void *a) {
 }
 
 TEST(AddressSanitizer, ManyThreadsTest) {
-  const int kNumThreads = __WORDSIZE == 32 ? 150 : 1000;
+  const size_t kNumThreads = __WORDSIZE == 32 ? 150 : 1000;
   pthread_t t[kNumThreads];
-  for (int i = 0; i < kNumThreads; i++) {
+  for (size_t i = 0; i < kNumThreads; i++) {
     pthread_create(&t[i], 0, (void* (*)(void *x))ManyThreadsWorker, (void*)i);
   }
-  for (int i = 0; i < kNumThreads; i++) {
+  for (size_t i = 0; i < kNumThreads; i++) {
     pthread_join(t[i], 0);
   }
 }

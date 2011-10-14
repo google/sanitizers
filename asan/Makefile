@@ -31,6 +31,7 @@ BIN=bin_$(OS)
 
 LIBS=#-lpthread -ldl
 BITS=64
+SUFF=$(BITS)
 ASAN_STACK=1
 ifeq ($(PLATFORM),Darwin)
 ASAN_GLOBALS=0
@@ -51,26 +52,48 @@ ifeq ($(ASAN_PIE), 1)
   PIE=-fPIE -pie
 endif
 
+LIBASAN_A=$(CLANG_LIB)/libasan$(SUFF).a
+
 BLACKLIST=
 ifeq ($(ASAN_HAS_BLACKLIST), 1)
   BLACKLIST=-mllvm -asan-blacklist=$(ROOT)/tests/asan_test.ignore
 endif
 
+COMMON_ASAN_DEFINES=\
+                -DASAN_UAR=$(ASAN_UAR) \
+		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS) \
+		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV) \
+		-DASAN_HAS_BLACKLIST=$(ASAN_HAS_BLACKLIST)
+
 CLANG_ASAN_CXX=$(CLANG_CXX) -fasan \
-		$(BLACKLIST) -DASAN_HAS_BLACKLIST=$(ASAN_HAS_BLACKLIST) \
+		$(BLACKLIST)  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
-		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR) \
-		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS) \
-		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV)
+		-mllvm -asan-use-after-return=$(ASAN_UAR) \
+		$(COMMON_ASAN_DEFINES)
 
 CLANG_ASAN_LD=$(CLANG_CXX) -fasan
 
+GCC_ASAN_PATH=SET_FROM_COMMAND_LINE
+GCC_ASAN_CXX=$(GCC_ASAN_PATH)/g++ -fasan \
+	     $(COMMON_ASAN_DEFINES) \
+	     -DADDRESS_SANITIZER=1
+GCC_ASAN_LD=$(GCC_ASAN_PATH)/g++ -ldl -lpthread $(LIBASAN_A)
+
+ASAN_COMPILER=clang
+
+ifeq ($(ASAN_COMPILER), clang)
 ASAN_CXX=$(CLANG_ASAN_CXX)
 ASAN_LD=$(CLANG_ASAN_LD)
+endif
+
+ifeq ($(ASAN_COMPILER), gcc)
+  ASAN_CXX=$(GCC_ASAN_CXX)
+  ASAN_LD=$(GCC_ASAN_LD)
+endif
 
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
@@ -83,7 +106,6 @@ RTL_HDR_COMMON=asan_allocator.h \
 	basictypes.h \
 	sysinfo.h
 
-SUFF=$(BITS)
 LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
 	    $(BIN)/asan_interceptors$(SUFF).o  \
@@ -99,6 +121,7 @@ else
 RTL_HDR=$(RTL_HDR_COMMON)
 LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON)
 endif
+
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -181,9 +204,9 @@ else
 LD_FLAGS=
 endif
 
-lib: $(CLANG_LIB)/libasan$(SUFF).a
+lib: $(LIBASAN_A)
 
-$(CLANG_LIB)/libasan$(SUFF).a: $(BIN) $(CLANG_LIB) $(LIBASAN_OBJ) Makefile
+$(LIBASAN_A): $(BIN) $(CLANG_LIB) $(LIBASAN_OBJ) Makefile
 	ar ru $@ $(LIBASAN_OBJ)
 	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) $(LD_FLAGS) -o $(BIN)/libasan$(BITS).so
 
@@ -201,13 +224,15 @@ else
 TEST_OBJECTS=$(TEST_OBJECTS_COMMON)
 endif
 
-$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB)
+$(BIN)/asan_test$(SUFF): $(TEST_OBJECTS) $(LIBASAN_A) Makefile tests/asan_test.ignore $(GTEST_LIB)
 	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
 
+# for now, build gtest with clang/asan even if we use a differetn compiler.
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" CXX="$(ASAN_CXX)"
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" \
+	  CXX="$(CLANG_ASAN_CXX)"
 
 RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
 # TODO(kcc): remove these filters one by one
