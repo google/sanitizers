@@ -1228,13 +1228,13 @@ TEST(AddressSanitizer, DisasmTest) {
   ObjdumpOfMyself *o = objdump_of_myself();
   vector<string> insns;
   insns.push_back("ud2");
-  insns.push_back("__asan_report_error");
+  insns.push_back("__asan_report_");
   EXPECT_EQ(0, o->CountInsnInFunc("DisasmSimple", insns));
   EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamWrite", insns));
   EXPECT_EQ(1, o->CountInsnInFunc("DisasmParamInc", insns));
   EXPECT_EQ(0, o->CountInsnInFunc("DisasmWriteGlob", insns));
 
-  // TODO(kcc): implement these (needs just one ud2).
+  // TODO(kcc): implement these (needs just one __asan_report).
   EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamReadIfWrite", insns));
   EXPECT_EQ(2, o->CountInsnInFunc("DisasmParamIfReadWrite", insns));
 }

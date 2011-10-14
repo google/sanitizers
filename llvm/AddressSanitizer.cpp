@@ -103,7 +103,7 @@ static cl::opt<std::string>  ClBlackListFile("asan-blacklist",
        cl::desc("File containing the list of functions to ignore "
                         "during instrumentation"));
 static cl::opt<bool> ClUseCall("asan-use-call",
-       cl::desc("Use function call to generate a crash"), cl::init(false));
+       cl::desc("Use function call to generate a crash"), cl::init(true));
 
 // These flags *will* allow to change the shadow mapping. Not usable yet.
 // The shadow mapping looks like

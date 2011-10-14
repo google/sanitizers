@@ -37,7 +37,7 @@ ASAN_GLOBALS=0
 else
 ASAN_GLOBALS=1
 endif
-ASAN_USE_CALL=0
+ASAN_USE_CALL=1
 ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=-1  #default will be used
 ASAN_UAR=0
@@ -202,7 +202,7 @@ TEST_OBJECTS=$(TEST_OBJECTS_COMMON)
 endif
 
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile $(CLANG_LIB)/libasan$(SUFF).a tests/asan_test.ignore $(GTEST_LIB)
-	$(CLANG_CXX) -fasan $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
+	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) $(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB)
 
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
