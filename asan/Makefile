@@ -56,14 +56,21 @@ ifeq ($(ASAN_HAS_BLACKLIST), 1)
   BLACKLIST=-mllvm -asan-blacklist=$(ROOT)/tests/asan_test.ignore
 endif
 
-CLANG_FASAN_CXX=$(CLANG_CXX) -fasan \
-		$(BLACKLIST) \
+CLANG_ASAN_CXX=$(CLANG_CXX) -fasan \
+		$(BLACKLIST) -DASAN_HAS_BLACKLIST=$(ASAN_HAS_BLACKLIST) \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
 		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
 		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
 		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
-		-mllvm -asan-use-after-return=$(ASAN_UAR) \
+		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR) \
+		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS) \
+		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV)
+
+CLANG_ASAN_LD=$(CLANG_CXX) -fasan
+
+ASAN_CXX=$(CLANG_ASAN_CXX)
+ASAN_LD=$(CLANG_ASAN_LD)
 
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
@@ -149,24 +156,10 @@ $(BIN)/asan_break_optimization$(SUFF).o: tests/asan_break_optimization.cc Makefi
 	$(CLEANROOM_CXX) $(PIE) -m$(BITS) -c $< -O0 -o $@
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
-	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ \
-		$(PIE) -m$(BITS)                             \
-		$(BLACKLIST) -DASAN_HAS_BLACKLIST=$(ASAN_HAS_BLACKLIST) \
-		-mllvm -asan-stack=$(ASAN_STACK)      \
-		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
-		-mllvm -asan-use-call=$(ASAN_USE_CALL) \
-		-mllvm -asan-mapping-scale=$(ASAN_SCALE) \
-		-mllvm -asan-mapping-offset-log=$(ASAN_OFFSET) \
-		-mllvm -asan-use-after-return=$(ASAN_UAR) -DASAN_UAR=$(ASAN_UAR) \
-		-DASAN_HAS_EXCEPTIONS=$(ASAN_HAS_EXCEPTIONS) \
-		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV)
+	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ $(PIE) -m$(BITS)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
-	$(CLANG_CXX) -fasan $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC \
-		$(PIE) -m$(BITS)                             \
-		-mllvm -asan-stack=$(ASAN_STACK)      \
-		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
-		-mllvm -asan-use-call=$(ASAN_USE_CALL)
+	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC $(PIE) -m$(BITS)
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 	$(CXX) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
@@ -214,7 +207,7 @@ $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS)  $(CLANG_LIB)/libasan$(SUFF).a Makefile
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" CXX="$(CLANG_FASAN_CXX)"
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" CXX="$(ASAN_CXX)"
 
 RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
 # TODO(kcc): remove these filters one by one
