@@ -1165,6 +1165,8 @@ void __asan_report_error(uintptr_t addr, bool is_write, int access_size) {
 
 // exported functions
 #define ASAN_REPORT_ERROR(type, is_write, size) \
+extern "C" void __asan_report_ ## type ## size(uintptr_t addr)   \
+  __attribute__((visibility("default")));                        \
 extern "C" void __asan_report_ ## type ## size(uintptr_t addr) { \
   GET_BP_PC_SP;                                                  \
   asan_report_error(pc, bp, sp, addr, is_write, size);           \
