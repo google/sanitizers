@@ -642,35 +642,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
   return Res;
 }
 
-static bool blockHasException(BasicBlock &BB) {
-  for (BasicBlock::iterator BI = BB.begin(), BE = BB.end();
-       BI != BE; ++BI) {
-    // TODO(kcc):
-    // Workaround for a strange compile assertion while building 483.xalancbmk
-    // If we instrument a basic block which calls llvm.eh.exception
-    // llvm later crashes with this:
-    // lib/CodeGen/SelectionDAG/FunctionLoweringInfo.cpp:212: void
-    //   llvm::FunctionLoweringInfo::clear(): Assertion `CatchInfoFound.size()
-    //   == CatchInfoLost.size() && "Not all catch info was assigned to a
-    //   landing pad!"' failed.
-    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(BI)) {
-      if (II->getIntrinsicID() == Intrinsic::eh_exception) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-static bool blockOrItsSuccHasException(BasicBlock &BB) {
-  if (blockHasException(BB)) return true;
-  const TerminatorInst *term = BB.getTerminator();
-  if (term->getNumSuccessors() == 1 &&
-      blockHasException(*term->getSuccessor(0)))
-    return true;
-  return false;
-}
-
 bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   if (BL->isIn(F)) return false;
   if (F.getNameStr() == kAsanModuleCtorName) return false;
@@ -685,7 +656,6 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
        FI != FE; ++FI) {
-    if (blockOrItsSuccHasException(*FI)) continue;
     TempsToInstrument.clear();
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
