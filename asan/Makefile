@@ -237,7 +237,7 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" \
 	  CXX="$(CLANG_ASAN_CXX)"
 
-RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class
+RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class,-legal/copyright
 # TODO(kcc): remove these filters one by one
 TEST_LINT_FITLER=-readability/casting,-build/include,-legal/copyright,-whitespace/newline,-runtime/sizeof,-runtime/int,-runtime/printf
 

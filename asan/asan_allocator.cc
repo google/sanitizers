@@ -1,20 +1,14 @@
-/* Copyright 2011 Google Inc.
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*      http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
-
+//===-- asan_allocator.cc ------------*- C++ -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
 // This file is a part of AddressSanitizer, an address sanity checker.
-
+//
 // Implementation of ASan's memory allocator.
 // Evey piece of memory (AsanChunk) allocated by the allocator
 // has a left redzone of REDZONE bytes and
@@ -28,6 +22,8 @@
 // The left redzone contains ASan's internal data and the stack trace of
 // the malloc call.
 // Once freed, the body of the chunk contains the stack trace of the free call.
+//
+//===----------------------------------------------------------------------===//
 
 #include "asan_allocator.h"
 #include "asan_int.h"
