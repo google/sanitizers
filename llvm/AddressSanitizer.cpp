@@ -143,6 +143,7 @@ class BlackList {
   Regex *Functions;
 };
 
+/// AddressSanitizer: instrument the code in module to find memory bugs.
 struct AddressSanitizer : public ModulePass {
   AddressSanitizer();
   void instrumentMop(Instruction *I);
@@ -245,10 +246,6 @@ BranchInst *AddressSanitizer::splitBlockAndInsertIfThen(
 
   BranchInst *CheckTerm = BranchInst::Create(Tail, NewBasicBlock);
   return CheckTerm;
-}
-
-static void CloneDebugInfo(Instruction *From, Instruction *To) {
-  To->setDebugLoc(From->getDebugLoc());
 }
 
 Value *AddressSanitizer::memToShadow(Value *Shadow, IRBuilder<> &IRB) {
@@ -442,7 +439,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
 
   IRBuilder<> IRB1(CheckTerm->getParent(), CheckTerm);
   Instruction *Crash = generateCrashCode(IRB1, AddrLong, IsWrite, TypeSize);
-  CloneDebugInfo(OrigIns, Crash);
+  Crash->setDebugLoc(OrigIns->getDebugLoc());
 }
 
 // Append 'F' to the list of global ctors with the given Priority.
