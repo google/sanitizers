@@ -193,6 +193,7 @@ struct AddressSanitizer : public ModulePass {
   Type *IntptrTy;
   Type *IntptrPtrTy;
   Function *AsanCtorFunction;
+  Function *AsanInitFunction;
   Instruction *CtorInsertBefore;
   OwningPtr<BlackList> BL;
 };
@@ -594,10 +595,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
 
   // call __asan_init in the module ctor.
   IRBuilder<> IRB(AsanCtorBB, CtorInsertBefore);
-  Value *asan_init = M.getOrInsertFunction(kAsanInitName,
-                                           IRB.getVoidTy(), NULL);
-  cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
-  IRB.CreateCall(asan_init);
+  AsanInitFunction = cast<Function>(
+      M.getOrInsertFunction(kAsanInitName, IRB.getVoidTy(), NULL));
+  AsanInitFunction->setLinkage(Function::ExternalLinkage);
+  IRB.CreateCall(AsanInitFunction);
 
   MappingOffset = LongSize == 32
       ? kDefaultShadowOffset32 : kDefaultShadowOffset64;
@@ -707,12 +708,8 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   // We cannot just ignore these methods, because they may call other
   // instrumented functions.
   if (F.getNameStr().find(" load]") != std::string::npos) {
-    BasicBlock *BB = F.begin();
-    Instruction *Before = BB->begin();
-    Value *AsanInit = F.getParent()->getOrInsertFunction(
-        kAsanInitName, Type::getVoidTy(*C), NULL);
-    cast<Function>(AsanInit)->setLinkage(Function::ExternalLinkage);
-    CallInst::Create(AsanInit, "", Before);
+    IRBuilder<> IRB(F.begin()->begin());
+    IRB.CreateCall(AsanInitFunction);
   }
 
   return NumInstrumented > 0 || ChangedStack;
@@ -779,7 +776,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
       // Poison the partial redzone at right
       Ptr = IRB.CreateAdd(
           ShadowBase, ConstantInt::get(IntptrTy,
-                                        (Pos >> MappingScale) - ShadowRZSize));
+                                       (Pos >> MappingScale) - ShadowRZSize));
       size_t AddressableBytes = RedzoneSize - (AlignedSize - SizeInBytes);
       uint32_t Poison = 0;
       if (DoPoison) {
