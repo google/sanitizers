@@ -803,6 +803,7 @@ bool AsanFakeStack::AddrIsInSizeClass(uintptr_t addr, size_t size_class) {
 }
 
 uintptr_t AsanFakeStack::AddrIsInFakeStack(uintptr_t addr) {
+  if (!alive_) return 0;
   for (size_t i = 0; i < kNumberOfSizeClasses; i++) {
     if (AddrIsInSizeClass(addr, i)) return allocated_size_classes_[i];
   }
