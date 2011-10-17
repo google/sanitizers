@@ -190,7 +190,6 @@ struct AddressSanitizer : public ModulePass {
   int MappingScale;
   size_t RedzoneSize;
   int LongSize;
-  Type *VoidTy;
   Type *IntptrTy;
   Type *IntptrPtrTy;
   Type *ByteTy;
@@ -344,7 +343,7 @@ Instruction *AddressSanitizer::generateCrashCode(
     std::string FunctionName = std::string(kAsanReportErrorTemplate) +
         (IsWrite ? "store" : "load") + itostr(TypeSize / 8);
     Value *ReportWarningFunc = CurrentModule->getOrInsertFunction(
-        FunctionName, VoidTy, IntptrTy, NULL);
+        FunctionName, IRB.getVoidTy(), IntptrTy, NULL);
     CallInst *Call = IRB.CreateCall(ReportWarningFunc, Addr);
     Call->setDoesNotReturn();
     return Call;
@@ -357,7 +356,7 @@ Instruction *AddressSanitizer::generateCrashCode(
 
   // Move the failing address to %rax/%eax
   FunctionType *Fn1Ty = FunctionType::get(
-      VoidTy, ArrayRef<Type*>(IntptrTy), false);
+      IRB.getVoidTy(), ArrayRef<Type*>(IntptrTy), false);
   const char *MovStr = LongSize == 32
       ? "mov $0, %eax" : "mov $0, %rax";
   Value *AsmMov = InlineAsm::get(
@@ -444,7 +443,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
 void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
                                            int Priority) {
   IRBuilder<> IRB(M.getContext());
-  FunctionType *FnTy = FunctionType::get(VoidTy, false);
+  FunctionType *FnTy = FunctionType::get(IRB.getVoidTy(), false);
   StructType *Ty = StructType::get(
       IRB.getInt32Ty(), PointerType::getUnqual(FnTy), NULL);
 
@@ -551,7 +550,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     G->eraseFromParent();
 
     Value *asan_register_global = M.getOrInsertFunction(
-        kAsanRegisterGlobalName, VoidTy, IntptrTy, IntptrTy, IntptrTy, NULL);
+        kAsanRegisterGlobalName, IRB.getVoidTy(),
+        IntptrTy, IntptrTy, IntptrTy, NULL);
     cast<Function>(asan_register_global)->setLinkage(
         Function::ExternalLinkage);
 
@@ -581,12 +581,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
   C = &(M.getContext());
   LongSize = TD->getPointerSizeInBits();
   IntptrTy = Type::getIntNTy(*C, LongSize);
-  i32Ty = Type::getIntNTy(*C, 32);
   ByteTy  = Type::getInt8Ty(*C);
   BytePtrTy = PointerType::get(ByteTy, 0);
   IntptrPtrTy = PointerType::get(IntptrTy, 0);
-  VoidTy = Type::getVoidTy(*C);
-  Fn0Ty = FunctionType::get(VoidTy, false);
+  Fn0Ty = FunctionType::get(Type::getVoidTy(*C), false);
 
   Function *asan_ctor = Function::Create(
       Fn0Ty, GlobalValue::InternalLinkage, kAsanModuleCtorName, &M);
@@ -595,7 +593,8 @@ bool AddressSanitizer::runOnModule(Module &M) {
 
   // call __asan_init in the module ctor.
   IRBuilder<> IRB(asan_ctor_bb, CtorInsertBefore);
-  Value *asan_init = M.getOrInsertFunction(kAsanInitName, VoidTy, NULL);
+  Value *asan_init = M.getOrInsertFunction(kAsanInitName,
+                                           IRB.getVoidTy(), NULL);
   cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
   IRB.CreateCall(asan_init);
 
@@ -739,8 +738,8 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   if (F.getNameStr().find(" load]") != std::string::npos) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
-    Value *AsanInit = F.getParent()->getOrInsertFunction(kAsanInitName,
-                                                          VoidTy, NULL);
+    Value *AsanInit = F.getParent()->getOrInsertFunction(
+        kAsanInitName, Type::getVoidTy(*C), NULL);
     cast<Function>(AsanInit)->setLinkage(Function::ExternalLinkage);
     CallInst::Create(AsanInit, "", Before);
   }
@@ -938,7 +937,8 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   Value *AsanStackFreeFunc = NULL;
   if (DoStackMalloc) {
     AsanStackFreeFunc = M.getOrInsertFunction(
-        kAsanStackFreeName, VoidTy, IntptrTy, IntptrTy, IntptrTy, NULL);
+        kAsanStackFreeName, IRB.getVoidTy(),
+        IntptrTy, IntptrTy, IntptrTy, NULL);
   }
 
   // Unpoison the stack before all ret instructions.
