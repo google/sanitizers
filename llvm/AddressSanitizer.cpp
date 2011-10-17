@@ -49,9 +49,6 @@
 #include <vector>
 #include <algorithm>
 
-using std::vector;
-using std::max;
-
 using namespace llvm;
 
 static const uint64_t kDefaultShadowScale = 3;
@@ -417,7 +414,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
   Value *AddrLong = IRB.CreatePointerCast(Addr, IntptrTy);
 
   Type *ShadowTy  = IntegerType::get(
-      *C, max(8U, TypeSize >> MappingScale));
+      *C, std::max(8U, TypeSize >> MappingScale));
   Type *ShadowPtrTy = PointerType::get(ShadowTy, 0);
   Value *ShadowPtr = memToShadow(AddrLong, IRB);
   Value *CmpVal = Constant::getNullValue(ShadowTy);
@@ -627,7 +624,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   }
   // Redzone used for stack and globals is at least 32 bytes.
   // For scales 6 and 7, the redzone has to be 64 and 128 bytes respectively.
-  RedzoneSize = max(32, (int)(1 << MappingScale));
+  RedzoneSize = std::max(32, (int)(1 << MappingScale));
   GlobalValue *asan_mapping_offset =
       new GlobalVariable(M, IntptrTy, true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(IntptrTy, MappingOffset),
