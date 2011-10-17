@@ -192,8 +192,6 @@ struct AddressSanitizer : public ModulePass {
   int LongSize;
   Type *IntptrTy;
   Type *IntptrPtrTy;
-  Type *BytePtrTy;
-  FunctionType *Fn0Ty;
   Instruction *CtorInsertBefore;
   OwningPtr<BlackList> BL;
 };
@@ -386,8 +384,8 @@ Instruction *AddressSanitizer::generateCrashCode(
 
   std::string AsmStr = "ud2;";
   AsmStr += TelltaleInsns[TelltaleValue];
-  Value *MyAsm = InlineAsm::get(Fn0Ty, StringRef(AsmStr),
-                                StringRef(""), true);
+  Value *MyAsm = InlineAsm::get(FunctionType::get(Type::getVoidTy(*C), false),
+                                StringRef(AsmStr), StringRef(""), true);
   CallInst *AsmCall = IRB.CreateCall(MyAsm);
 
   // This saves us one jump, but triggers a bug in RA (or somewhere else):
@@ -585,10 +583,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
   LongSize = TD->getPointerSizeInBits();
   IntptrTy = Type::getIntNTy(*C, LongSize);
   IntptrPtrTy = PointerType::get(IntptrTy, 0);
-  Fn0Ty = FunctionType::get(Type::getVoidTy(*C), false);
 
   Function *asan_ctor = Function::Create(
-      Fn0Ty, GlobalValue::InternalLinkage, kAsanModuleCtorName, &M);
+      FunctionType::get(Type::getVoidTy(*C), false),
+      GlobalValue::InternalLinkage, kAsanModuleCtorName, &M);
   BasicBlock *asan_ctor_bb = BasicBlock::Create(*C, "", asan_ctor);
   CtorInsertBefore = ReturnInst::Create(*C, asan_ctor_bb);
 
