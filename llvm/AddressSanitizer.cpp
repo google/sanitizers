@@ -192,7 +192,6 @@ struct AddressSanitizer : public ModulePass {
   int LongSize;
   Type *IntptrTy;
   Type *IntptrPtrTy;
-  Type *ByteTy;
   Type *BytePtrTy;
   FunctionType *Fn0Ty;
   Instruction *CtorInsertBefore;
@@ -427,7 +426,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
         Lower3Bits, ConstantInt::get(IntptrTy, TypeSize / 8 - 1));
     // (uint8_t) ((Addr & (Granularity-1)) + size - 1)
     LastAccessedByte = IRB2.CreateIntCast(
-        LastAccessedByte, ByteTy, false);
+        LastAccessedByte, IRB.getInt8Ty(), false);
     // ((uint8_t) ((Addr & (Granularity-1)) + size - 1)) >= ShadowValue
     Value *Cmp2 = IRB2.CreateICmpSGE(LastAccessedByte, ShadowValue);
 
@@ -509,6 +508,12 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     GlobalsToChange.push_back(G);
   }
 
+  if (GlobalsToChange.empty())
+    return false;
+
+  IRBuilder<> IRB(CtorInsertBefore->getParent(),
+                  CtorInsertBefore);
+
   for (size_t i = 0, n = GlobalsToChange.size(); i < n; i++) {
     GlobalVariable *G = GlobalsToChange[i];
     PointerType *PtrTy = cast<PointerType>(G->getType());
@@ -516,7 +521,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     uint64_t SizeInBytes = TD->getTypeStoreSizeInBits(Ty) / 8;
     uint64_t right_redzone_size = RedzoneSize +
         (RedzoneSize - (SizeInBytes % RedzoneSize));
-    Type *RightRedZoneTy = ArrayType::get(ByteTy, right_redzone_size);
+    Type *RightRedZoneTy = ArrayType::get(IRB.getInt8Ty(), right_redzone_size);
 
     StructType *new_ty = StructType::get(
         Ty, RightRedZoneTy, NULL);
@@ -538,8 +543,6 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     new_global->copyAttributesFrom(G);
     new_global->setAlignment(RedzoneSize);
 
-    IRBuilder<> IRB(CtorInsertBefore->getParent(),
-                    CtorInsertBefore);
     Constant *Indices[2];
     Indices[0] = IRB.getInt32(0);
     Indices[1] = IRB.getInt32(0);
@@ -565,7 +568,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
   DEBUG(dbgs() << M);
 
-  return false;
+  return true;
 }
 
 // virtual
@@ -581,8 +584,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
   C = &(M.getContext());
   LongSize = TD->getPointerSizeInBits();
   IntptrTy = Type::getIntNTy(*C, LongSize);
-  ByteTy  = Type::getInt8Ty(*C);
-  BytePtrTy = PointerType::get(ByteTy, 0);
   IntptrPtrTy = PointerType::get(IntptrTy, 0);
   Fn0Ty = FunctionType::get(Type::getVoidTy(*C), false);
 
@@ -881,7 +882,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   IRBuilder<> IRB(InsBefore->getParent(), InsBefore);
 
 
-  Type *ByteArrayTy = ArrayType::get(ByteTy, LocalStackSize);
+  Type *ByteArrayTy = ArrayType::get(IRB.getInt8Ty(), LocalStackSize);
   AllocaInst *MyAlloca =
       new AllocaInst(ByteArrayTy, "MyAlloca", InsBefore);
   MyAlloca->setAlignment(RedzoneSize);
