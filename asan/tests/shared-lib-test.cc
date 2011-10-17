@@ -1,6 +1,15 @@
-// Copyright 2011 Google Inc. All Rights Reserved.
-// Author: glider@google.com (Alexander Potapenko)
-
+//===-- asan_rtl.cc ------------*- C++ -*-===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file is a part of AddressSanitizer, an address sanity checker.
+//
+//===----------------------------------------------------------------------===//
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
