@@ -258,12 +258,12 @@ void AddressSanitizer::instrumentMemIntrinsicParam(Instruction *OrigIns,
     Value *Addr, Value *Size, Instruction *InsertBefore, bool IsWrite) {
   // Check the first byte.
   {
-    IRBuilder<> IRB(InsertBefore->getParent(), InsertBefore);
+    IRBuilder<> IRB(InsertBefore);
     instrumentAddress(OrigIns, IRB, Addr, 8, IsWrite);
   }
   // Check the last byte.
   {
-    IRBuilder<> IRB(InsertBefore->getParent(), InsertBefore);
+    IRBuilder<> IRB(InsertBefore);
     Value *SizeMinusOne = IRB.CreateSub(
         Size, ConstantInt::get(Size->getType(), 1));
     SizeMinusOne = IRB.CreateIntCast(SizeMinusOne, IntptrTy, false);
@@ -286,7 +286,7 @@ bool AddressSanitizer::instrumentMemIntrinsic(MemIntrinsic *MI) {
     if (ConstLength->isNullValue()) return false;
   } else {
     // The size is not a constant so it could be zero -- check at run-time.
-    IRBuilder<> IRB(InsertBefore->getParent(), InsertBefore);
+    IRBuilder<> IRB(InsertBefore);
 
     Value *Cmp = IRB.CreateICmpNE(Length,
                                    Constant::getNullValue(Length->getType()));
@@ -325,7 +325,7 @@ void AddressSanitizer::instrumentMop(Instruction *I) {
     return;
   }
 
-  IRBuilder<> IRB(I->getParent(), I);
+  IRBuilder<> IRB(I);
   instrumentAddress(I, IRB, Addr, TypeSize, IsWrite);
 }
 
@@ -414,7 +414,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
 
   Instruction *CheckTerm = splitBlockAndInsertIfThen(
       cast<Instruction>(Cmp)->getNextNode(), Cmp);
-  IRBuilder<> IRB2(CheckTerm->getParent(), CheckTerm);
+  IRBuilder<> IRB2(CheckTerm);
 
   size_t Granularity = 1 << MappingScale;
   if (TypeSize < 8 * Granularity) {
@@ -433,7 +433,7 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
     CheckTerm = splitBlockAndInsertIfThen(CheckTerm, Cmp2);
   }
 
-  IRBuilder<> IRB1(CheckTerm->getParent(), CheckTerm);
+  IRBuilder<> IRB1(CheckTerm);
   Instruction *Crash = generateCrashCode(IRB1, AddrLong, IsWrite, TypeSize);
   Crash->setDebugLoc(OrigIns->getDebugLoc());
 }
@@ -512,8 +512,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   if (GlobalsToChange.empty())
     return false;
 
-  IRBuilder<> IRB(CtorInsertBefore->getParent(),
-                  CtorInsertBefore);
+  IRBuilder<> IRB(CtorInsertBefore);
 
   for (size_t i = 0, n = GlobalsToChange.size(); i < n; i++) {
     GlobalVariable *G = GlobalsToChange[i];
@@ -594,7 +593,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   CtorInsertBefore = ReturnInst::Create(*C, AsanCtorBB);
 
   // call __asan_init in the module ctor.
-  IRBuilder<> IRB(AsanCtorBB, CtorInsertBefore);
+  IRBuilder<> IRB(CtorInsertBefore);
   AsanInitFunction = cast<Function>(
       M.getOrInsertFunction(kAsanInitName, IRB.getVoidTy(), NULL));
   AsanInitFunction->setLinkage(Function::ExternalLinkage);
@@ -839,7 +838,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
       && LocalStackSize <= kMaxStackMallocSize;
 
   Instruction *InsBefore = AllocaVec[0];
-  IRBuilder<> IRB(InsBefore->getParent(), InsBefore);
+  IRBuilder<> IRB(InsBefore);
 
 
   Type *ByteArrayTy = ArrayType::get(IRB.getInt8Ty(), LocalStackSize);
@@ -905,7 +904,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   // Unpoison the stack before all ret instructions.
   for (size_t i = 0, n = RetVec.size(); i < n; i++) {
     Instruction *Ret = RetVec[i];
-    IRBuilder<> IRBRet(Ret->getParent(), Ret);
+    IRBuilder<> IRBRet(Ret);
 
     if (DoStackMalloc) {
       IRBRet.CreateCall3(AsanStackFreeFunc, LocalStackBase,
