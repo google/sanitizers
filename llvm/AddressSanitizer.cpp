@@ -737,7 +737,7 @@ static void PoisonShadowPartialRightRedzone(uint8_t *Shadow,
     if (i + ShadowGranularity <= Size) {
       *Shadow = 0;  // fully addressable
     } else if (i >= Size) {
-      *Shadow = (ShadowGranularity == 128) ? 0xff : Magic;  // unaddressable
+      *Shadow = Magic;  // unaddressable
     } else {
       *Shadow = Size - i;  // first Size-i bytes are addressable
     }
@@ -747,24 +747,17 @@ static void PoisonShadowPartialRightRedzone(uint8_t *Shadow,
 void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
                                    IRBuilder<> IRB,
                                    Value *ShadowBase, bool DoPoison) {
-  uint8_t PoisonLeftByte =
-      MappingScale == 7 ? 0xff : kAsanStackLeftRedzoneMagic;
-  uint8_t PoisonMidByte =
-      MappingScale == 7 ? 0xff : kAsanStackMidRedzoneMagic;
-  uint8_t PoisonRightByte =
-      MappingScale == 7 ? 0xff : kAsanStackRightRedzoneMagic;
-
   size_t ShadowRZSize = RedzoneSize >> MappingScale;
   assert(ShadowRZSize >= 1 && ShadowRZSize <= 4);
   Type *RZTy = Type::getIntNTy(*C, ShadowRZSize * 8);
   Type *RZPtrTy = PointerType::get(RZTy, 0);
 
   Value *PoisonLeft  = ConstantInt::get(RZTy,
-    ValueForPoison(DoPoison ? PoisonLeftByte : 0LL, ShadowRZSize));
+    ValueForPoison(DoPoison ? kAsanStackLeftRedzoneMagic : 0LL, ShadowRZSize));
   Value *PoisonMid   = ConstantInt::get(RZTy,
-    ValueForPoison(DoPoison ? PoisonMidByte : 0LL, ShadowRZSize));
+    ValueForPoison(DoPoison ? kAsanStackMidRedzoneMagic : 0LL, ShadowRZSize));
   Value *PoisonRight = ConstantInt::get(RZTy,
-    ValueForPoison(DoPoison ? PoisonRightByte : 0LL, ShadowRZSize));
+    ValueForPoison(DoPoison ? kAsanStackRightRedzoneMagic : 0LL, ShadowRZSize));
 
   // poison the first red zone.
   IRB.CreateStore(PoisonLeft, IRB.CreateIntToPtr(ShadowBase, RZPtrTy));
