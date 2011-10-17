@@ -325,7 +325,7 @@ void AddressSanitizer::instrumentMop(Instruction *I) {
 
   if (TypeSize != 8  && TypeSize != 16 &&
       TypeSize != 32 && TypeSize != 64 && TypeSize != 128) {
-    // TODO(kcc): do something better.
+    // Ignore all unusual sizes.
     return;
   }
 
@@ -506,7 +506,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       // do we care about other linkages?
       continue;
     }
-    // TODO(kcc): do something smart if the alignment is large.
+    // For now, just ignore this Alloca if the alignment is large.
     if (G->getAlignment() > RedzoneSize) continue;
     GlobalsToChange.push_back(G);
   }
@@ -866,7 +866,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
       if (AI->isArrayAllocation()) continue;
       if (!AI->isStaticAlloca()) continue;
       if (!AI->getAllocatedType()->isSized()) continue;
-      if (AI->getAlignment() > RedzoneSize) continue;  // TODO(kcc)
+      if (AI->getAlignment() > RedzoneSize) continue;
       AllocaVec.push_back(AI);
       uint64_t AlignedSize =  getAlignedAllocaSize(AI);
       TotalSize += AlignedSize;
