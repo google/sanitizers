@@ -1469,23 +1469,25 @@ TEST(AddressSanitizer, DISABLED_DemoTooMuchMemoryTest) {
 
 #ifdef __APPLE__
 #include "asan_mac_test.h"
-TEST(AddressSanitizerMac, CFAllocatorDefaultDoubleFree) {
+// TODO(glider): figure out whether we still need these tests. Is it correct
+// to intercept CFAllocator?
+TEST(AddressSanitizerMac, DISABLED_CFAllocatorDefaultDoubleFree) {
   EXPECT_DEATH(
       CFAllocatorDefaultDoubleFree(),
       "attempting double-free");
 }
 
-TEST(AddressSanitizerMac, CFAllocatorSystemDefaultDoubleFree) {
+TEST(AddressSanitizerMac, DISABLED_CFAllocatorSystemDefaultDoubleFree) {
   EXPECT_DEATH(
       CFAllocatorSystemDefaultDoubleFree(),
       "attempting double-free");
 }
 
-TEST(AddressSanitizerMac, CFAllocatorMallocDoubleFree) {
+TEST(AddressSanitizerMac, DISABLED_CFAllocatorMallocDoubleFree) {
   EXPECT_DEATH(CFAllocatorMallocDoubleFree(), "attempting double-free");
 }
 
-TEST(AddressSanitizerMac, CFAllocatorMallocZoneDoubleFree) {
+TEST(AddressSanitizerMac, DISABLED_CFAllocatorMallocZoneDoubleFree) {
   EXPECT_DEATH(CFAllocatorMallocZoneDoubleFree(), "attempting double-free");
 }
 #endif  // __APPLE__
