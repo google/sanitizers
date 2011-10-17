@@ -748,9 +748,6 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   // the shadow memory.
   // We cannot just ignore these methods, because they may call other
   // instrumented functions.
-
-  // TODO(glider): the +load methods apear only in ObjC files, thus we may want
-  // to restrict this code to a certain subset of targets.
   if (F.getNameStr().find(" load]") != std::string::npos) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
