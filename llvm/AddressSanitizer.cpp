@@ -16,6 +16,7 @@
 #define DEBUG_TYPE "asan"
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -88,12 +89,7 @@ static cl::opt<bool> ClStack("asan-stack",
 static cl::opt<bool> ClUseAfterReturn("asan-use-after-return",
        cl::desc("Check return-after-free"), cl::init(false));
 static cl::opt<bool> ClGlobals("asan-globals",
-#ifndef __APPLE__
        cl::desc("Handle global objects"), cl::init(true));
-#else
-       // TODO(glider): fix -asan-globals on Mac OS.
-       cl::desc("-asan-globals is not supported on Mac yet"), cl::init(false));
-#endif
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<std::string>  ClBlackListFile("asan-blacklist",
@@ -142,7 +138,7 @@ namespace {
 class BlackList {
  public:
   BlackList(const std::string &Path);
-  bool IsIn(const Function &F);
+  bool isIn(const Function &F);
  private:
   Regex *Functions;
 };
@@ -202,7 +198,7 @@ struct AddressSanitizer : public ModulePass {
   Type *BytePtrTy;
   FunctionType *Fn0Ty;
   Instruction *CtorInsertBefore;
-  BlackList *BL;
+  OwningPtr<BlackList> BL;
 };
 }  // namespace
 
@@ -583,7 +579,7 @@ bool AddressSanitizer::runOnModule(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
-  BL = new BlackList(ClBlackListFile);
+  BL.reset(new BlackList(ClBlackListFile));
 
   CurrentModule = &M;
   C = &(M.getContext());
@@ -683,7 +679,7 @@ static bool blockOrItsSuccHasException(BasicBlock &BB) {
 }
 
 bool AddressSanitizer::handleFunction(Module &M, Function &F) {
-  if (BL->IsIn(F)) return false;
+  if (BL->isIn(F)) return false;
   if (F.getNameStr() == kAsanModuleCtorName) return false;
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
@@ -1010,7 +1006,7 @@ BlackList::BlackList(const std::string &Path) {
   }
 }
 
-bool BlackList::IsIn(const Function &F) {
+bool BlackList::isIn(const Function &F) {
   if (Functions) {
     bool Res = Functions->match(F.getNameStr());
     return Res;
