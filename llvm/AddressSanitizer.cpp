@@ -454,7 +454,8 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
   GlobalVariable * GVCtor = M.getNamedGlobal(kLLVMGlobalCtors);
   if (GVCtor) {
     if (Constant *Const = GVCtor->getInitializer()) {
-      for (uint32_t index = 0; index < Const->getNumOperands(); ++index) {
+      for (uint32_t index = 0, num = Const->getNumOperands();
+           index < num; ++index) {
         CurrentCtors.push_back(cast<Constant>(Const->getOperand(index)));
       }
     }
@@ -764,7 +765,7 @@ void AddressSanitizer::PoisonStack(const ArrayRef<AllocaInst*> &AllocaVec,
 
   // poison all other red zones.
   uint64_t Pos = RedzoneSize;
-  for (size_t i = 0; i < AllocaVec.size(); i++) {
+  for (size_t i = 0, n = AllocaVec.size(); i < n; i++) {
     AllocaInst *AI = AllocaVec[i];
     uint64_t SizeInBytes = getAllocaSizeInBytes(AI);
     uint64_t AlignedSize = getAlignedAllocaSize(AI);
@@ -905,7 +906,7 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
   }
 
   // Unpoison the stack before all ret instructions.
-  for (size_t i = 0; i < RetVec.size(); i++) {
+  for (size_t i = 0, n = RetVec.size(); i < n; i++) {
     Instruction *Ret = RetVec[i];
     IRBuilder<> IRBRet(Ret->getParent(), Ret);
 
@@ -945,14 +946,14 @@ BlackList::BlackList(const std::string &Path) {
   size_t DataLen = Buff->getBufferSize();
   SmallVector<StringRef, 16> Lines;
   SplitString(StringRef(Data, DataLen), Lines, "\n\r");
-  for (size_t i = 0; i < Lines.size(); i++) {
+  for (size_t i = 0, numLines = Lines.size(); i < numLines; i++) {
     if (Lines[i].startswith(kFunPrefix)) {
       std::string ThisFunc = Lines[i].substr(strlen(kFunPrefix));
       if (Fun.size()) {
         Fun += "|";
       }
       // add ThisFunc replacing * with .*
-      for (size_t j = 0; j < ThisFunc.size(); j++) {
+      for (size_t j = 0, n = ThisFunc.size(); j < n; j++) {
         if (ThisFunc[j] == '*')
           Fun += '.';
         Fun += ThisFunc[j];
