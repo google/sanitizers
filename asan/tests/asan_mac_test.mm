@@ -36,7 +36,7 @@ void CFAllocatorMallocZoneDoubleFree() {
 // everything will just crash.
 
 char kStartupStr[] =
-    "If you see this message, AddressSanitizer is instrumenting "
+    "If your test didn't crash, AddressSanitizer is instrumenting "
     "the +load methods correctly.";
 
 @interface LoadSomething : NSObject {
@@ -48,9 +48,8 @@ char kStartupStr[] =
 +(void) load {
   for (int i = 0; i < strlen(kStartupStr); i++) {
     volatile char ch = kStartupStr[i];  // make sure no optimizations occur.
-    fprintf(stderr, "%c", ch);
   }
-  fprintf(stderr, "\n");
+  // Don't print anything here not to interfere with the death tests.
 }
 
 @end
