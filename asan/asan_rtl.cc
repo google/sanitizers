@@ -262,7 +262,7 @@ struct Global {
     uintptr_t right_rz2_offset = ShadowRZSize *
         ((size + kGlobalAndStackRedzone - 1) / kGlobalAndStackRedzone);
     __asan::real_memset((uint8_t*)shadow + right_rz2_offset,
-           SHADOW_SCALE == 7 ? 0xff : kAsanGlobalRedzoneMagic, ShadowRZSize);
+                        kAsanGlobalRedzoneMagic, ShadowRZSize);
     if ((size % kGlobalAndStackRedzone) != 0) {
       // partial right redzone
       uint64_t right_rz1_offset =
