@@ -192,6 +192,7 @@ struct AddressSanitizer : public ModulePass {
   int LongSize;
   Type *IntptrTy;
   Type *IntptrPtrTy;
+  Function *AsanCtorFunction;
   Instruction *CtorInsertBefore;
   OwningPtr<BlackList> BL;
 };
@@ -584,14 +585,14 @@ bool AddressSanitizer::runOnModule(Module &M) {
   IntptrTy = Type::getIntNTy(*C, LongSize);
   IntptrPtrTy = PointerType::get(IntptrTy, 0);
 
-  Function *asan_ctor = Function::Create(
+  AsanCtorFunction = Function::Create(
       FunctionType::get(Type::getVoidTy(*C), false),
       GlobalValue::InternalLinkage, kAsanModuleCtorName, &M);
-  BasicBlock *asan_ctor_bb = BasicBlock::Create(*C, "", asan_ctor);
-  CtorInsertBefore = ReturnInst::Create(*C, asan_ctor_bb);
+  BasicBlock *AsanCtorBB = BasicBlock::Create(*C, "", AsanCtorFunction);
+  CtorInsertBefore = ReturnInst::Create(*C, AsanCtorBB);
 
   // call __asan_init in the module ctor.
-  IRBuilder<> IRB(asan_ctor_bb, CtorInsertBefore);
+  IRBuilder<> IRB(AsanCtorBB, CtorInsertBefore);
   Value *asan_init = M.getOrInsertFunction(kAsanInitName,
                                            IRB.getVoidTy(), NULL);
   cast<Function>(asan_init)->setLinkage(Function::ExternalLinkage);
@@ -637,14 +638,14 @@ bool AddressSanitizer::runOnModule(Module &M) {
     Res |= handleFunction(M, *F);
   }
 
-  appendToGlobalCtors(M, asan_ctor, 1 /*high priority*/);
+  appendToGlobalCtors(M, AsanCtorFunction, 1 /*high priority*/);
 
   return Res;
 }
 
 bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   if (BL->isIn(F)) return false;
-  if (F.getNameStr() == kAsanModuleCtorName) return false;
+  if (&F == AsanCtorFunction) return false;
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getNameStr())
     return false;
