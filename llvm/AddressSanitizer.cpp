@@ -193,8 +193,6 @@ struct AddressSanitizer : public ModulePass {
   Type *VoidTy;
   Type *IntptrTy;
   Type *IntptrPtrTy;
-  Type *i32Ty;
-  Type *i32PtrTy;
   Type *ByteTy;
   Type *BytePtrTy;
   FunctionType *Fn0Ty;
@@ -445,12 +443,13 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
 // Append 'F' to the list of global ctors with the given Priority.
 void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
                                            int Priority) {
+  IRBuilder<> IRB(M.getContext());
   FunctionType *FnTy = FunctionType::get(VoidTy, false);
   StructType *Ty = StructType::get(
-      i32Ty, PointerType::getUnqual(FnTy), NULL);
+      IRB.getInt32Ty(), PointerType::getUnqual(FnTy), NULL);
 
   Constant *RuntimeCtorInit = ConstantStruct::get(
-      Ty, ConstantInt::get(i32Ty, Priority), F, NULL);
+      Ty, IRB.getInt32(Priority), F, NULL);
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
@@ -540,17 +539,17 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     new_global->copyAttributesFrom(G);
     new_global->setAlignment(RedzoneSize);
 
+    IRBuilder<> IRB(CtorInsertBefore->getParent(),
+                    CtorInsertBefore);
     Constant *Indices[2];
-    Indices[0] = ConstantInt::get(i32Ty, 0);
-    Indices[1] = ConstantInt::get(i32Ty, 0);
+    Indices[0] = IRB.getInt32(0);
+    Indices[1] = IRB.getInt32(0);
 
     G->replaceAllUsesWith(
         ConstantExpr::getGetElementPtr(new_global, Indices, 2));
     new_global->takeName(G);
     G->eraseFromParent();
 
-    IRBuilder<> IRB(CtorInsertBefore->getParent(),
-                    CtorInsertBefore);
     Value *asan_register_global = M.getOrInsertFunction(
         kAsanRegisterGlobalName, VoidTy, IntptrTy, IntptrTy, IntptrTy, NULL);
     cast<Function>(asan_register_global)->setLinkage(
@@ -586,7 +585,6 @@ bool AddressSanitizer::runOnModule(Module &M) {
   ByteTy  = Type::getInt8Ty(*C);
   BytePtrTy = PointerType::get(ByteTy, 0);
   IntptrPtrTy = PointerType::get(IntptrTy, 0);
-  i32PtrTy = PointerType::get(i32Ty, 0);
   VoidTy = Type::getVoidTy(*C);
   Fn0Ty = FunctionType::get(VoidTy, false);
 
