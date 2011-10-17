@@ -741,10 +741,16 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
 
   bool ChangedStack = poisonStackInFunction(M, F);
 
-#ifdef __APPLE__
-  // In order to handle the +load methods correctly,
-  // we need to insert a call to __asan_init() before each of them.
-  // TODO(glider): write a test for it.
+  // For each NSObject descendant having a +load method, this method is invoked
+  // by the ObjC runtime before any of the static constructors is called.
+  // Therefore we need to instrument such methods with a call to __asan_init
+  // at the beginning in order to initialize our runtime before any access to
+  // the shadow memory.
+  // We cannot just ignore these methods, because they may call other
+  // instrumented functions.
+
+  // TODO(glider): the +load methods apear only in ObjC files, thus we may want
+  // to restrict this code to a certain subset of targets.
   if (F.getNameStr().find(" load]") != std::string::npos) {
     BasicBlock *BB = F.begin();
     Instruction *Before = BB->begin();
@@ -752,9 +758,7 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
                                                           VoidTy, NULL);
     cast<Function>(AsanInit)->setLinkage(Function::ExternalLinkage);
     CallInst::Create(AsanInit, "", Before);
-    F.dump();
   }
-#endif
 
   return NumInstrumented > 0 || ChangedStack;
 }
