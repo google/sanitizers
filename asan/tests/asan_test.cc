@@ -256,10 +256,10 @@ TEST(AddressSanitizer, VariousMallocsTest) {
   *c = 0;
   delete c;
 
+#ifndef __APPLE__
   // cfree
   cfree(Ident(malloc(1)));
 
-#ifndef __APPLE__
   // fprintf(stderr, "posix_memalign\n");
   int *pm;
   int pm_res = posix_memalign((void**)&pm, kPageSize, kPageSize);
