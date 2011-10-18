@@ -17,7 +17,7 @@
 
 #include "asan_int.h"
 
-static const size_t kNumberOfSizeClasses = 256;
+static const size_t kNumberOfSizeClasses = 255;
 class AsanChunk;
 
 class AsanChunkFifoList {

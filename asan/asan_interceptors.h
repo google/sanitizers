@@ -30,22 +30,20 @@
 // After interception, the calls to system functions will be substituted by
 // calls to our interceptors. We store pointers to system function f()
 // in __asan::real_f().
-#ifdef __APPLE__
-#define WRAP(x) wrap_##x
-#else
-#define WRAP(x) x
-#endif
-
+//
 // TODO(glider): mach_override_ptr() tends to spend too much time
 // in allocateBranchIsland(). This should be ok for real-word
 // application, but slows down our tests which fork too many children.
 #ifdef __APPLE__
+#include "mach_override.h"
+#define WRAP(x) wrap_##x
 #define INTERCEPT_FUNCTION(func)                                        \
   CHECK(0 == mach_override_ptr((void*)(func),                           \
                                (void*)WRAP(func),                       \
                                (void**)&__asan::real_##func));          \
   CHECK(__asan::real_##func != NULL);
 #else
+#define WRAP(x) x
 #define INTERCEPT_FUNCTION(func)                                        \
   CHECK((__asan::real_##func = (func##_f)dlsym(RTLD_NEXT, #func)));
 #endif

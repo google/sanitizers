@@ -18,9 +18,6 @@
 #include "asan_mapping.h"
 #include "asan_stack.h"
 #include "asan_stats.h"
-#ifdef __APPLE__
-#include "mach_override.h"
-#endif
 
 #include <dlfcn.h>
 #include <string.h>

@@ -19,9 +19,6 @@
 #include "asan_stack.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
-#ifdef __APPLE__
-#include "mach_override.h"
-#endif
 
 #include <algorithm>
 #include <map>
@@ -49,8 +46,6 @@
 #include <AvailabilityMacros.h>
 #include <malloc/malloc.h>
 #include <setjmp.h>
-#else
-#include <malloc.h>
 #endif
 // must not include <setjmp.h> on Linux
 
