@@ -43,11 +43,16 @@
 #include <unistd.h>
 // must not include <setjmp.h> on Linux
 
+#ifdef __APPLE__
+#include <CoreFoundation/CFBase.h>
+#include <setjmp.h>
+#include <malloc/malloc.h>
+#endif
+
+
 #ifndef ASAN_NEEDS_SEGV
 # define ASAN_NEEDS_SEGV 1
 #endif
-
-#define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
@@ -842,9 +847,6 @@ void __asan_init() {
     Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
     Printf("SHADOW_OFFSET: %lx\n", SHADOW_OFFSET);
     CHECK(SHADOW_SCALE >= 3 && SHADOW_SCALE <= 7);
-#ifdef __APPLE__
-    Printf("CF_USING_COLLECTABLE_MEMORY = %d\n", kCFUseCollectableAllocator);
-#endif
   }
 
   if (__WORDSIZE == 64) {

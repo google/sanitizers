@@ -17,7 +17,11 @@
 #include <malloc/malloc.h>
 #include <setjmp.h>
 
+#include "asan_allocator.h"
 #include "asan_int.h"
+#include "asan_interceptors.h"
+
+#define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 
 // Similar code is used in Google Perftools,
 // http://code.google.com/p/google-perftools.
@@ -268,11 +272,11 @@ void mi_log(malloc_zone_t *zone, void *address) {
 }
 
 void mi_force_lock(malloc_zone_t *zone) {
-  Global::mu_.Lock();
+  UNIMPLEMENTED();
 }
 
 void mi_force_unlock(malloc_zone_t *zone) {
-  Global::mu_.Unlock();
+  UNIMPLEMENTED();
 }
 
 void mi_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {
@@ -285,7 +289,8 @@ void mi_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {
 }
 
 boolean_t mi_zone_locked(malloc_zone_t *zone) {
-  return Global::mu_.IsLocked();
+  UNIMPLEMENTED();
+  return false;
 }
 
 
