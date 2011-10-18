@@ -104,4 +104,7 @@ void *pvalloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_pvalloc(size, &stack);
 }
+
+void __asan_replace_system_malloc() {
+}
 }  // extern "C"
