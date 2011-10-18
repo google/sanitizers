@@ -49,6 +49,7 @@ extern size_t __asan_flag_malloc_context_size;
 extern int    __asan_flag_stats;
 extern bool   __asan_flag_replace_str;
 extern bool   __asan_flag_replace_intrin;
+extern bool   __asan_flag_fast_unwind;
 
 extern int __asan_inited;
 // Used to avoid infinite recursion in __asan_init().

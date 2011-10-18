@@ -121,7 +121,7 @@ RTL_HDR=$(RTL_HDR_COMMON) mach_override.h
 LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) $(BIN)/mach_override$(SUFF).o
 else
 RTL_HDR=$(RTL_HDR_COMMON)
-LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON)
+LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) $(BIN)/asan_malloc_linux$(SUFF).o
 endif
 
 

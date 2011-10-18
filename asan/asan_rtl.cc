@@ -63,7 +63,7 @@
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
 static int    __asan_flag_atexit;
-static bool   __asan_flag_fast_unwind = true;
+bool   __asan_flag_fast_unwind = true;
 
 size_t __asan_flag_redzone;  // power of two, >= 32
 bool   __asan_flag_mt;  // set to 0 if you have only one thread.
@@ -178,12 +178,6 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 }
 
 // ---------------------- Thread ------------------------- {{{1
-#define GET_STACK_TRACE_HERE_FOR_MALLOC         \
-  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, __asan_flag_fast_unwind)
-
-#define GET_STACK_TRACE_HERE_FOR_FREE(ptr) \
-  GET_STACK_TRACE_HERE(__asan_flag_malloc_context_size, __asan_flag_fast_unwind)
-
 static void *asan_thread_start(void *arg) {
   AsanThread *t= (AsanThread*)arg;
   AsanThread::SetCurrent(t);
@@ -422,13 +416,7 @@ static void DescribeAddress(uintptr_t addr, uintptr_t access_size) {
 }
 
 // -------------------------- Interceptors ------------------- {{{1
-#ifndef __APPLE__
-extern "C"
-void free(void *ptr) {
-  GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  __asan_free(ptr, &stack);
-}
-#else
+#ifdef __APPLE__
 // The free() implementation provided by OS X calls malloc_zone_from_ptr()
 // to find the owner of |ptr|. If the result is NULL, an invalid free() is
 // reported. Our implementation falls back to __asan_free() in this case
@@ -454,89 +442,6 @@ void free(void *ptr) {
 }
 #endif
 
-extern "C" void cfree(void *ptr) {
-  free(ptr);
-}
-
-#ifndef __APPLE__
-// Neither of libc-style allocation routines is needed to be replaced on Mac.
-extern "C"
-void *malloc(size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_malloc(size, &stack);
-}
-
-extern "C"
-void *calloc(size_t nmemb, size_t size) {
-  if (!__asan_inited) {
-    // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
-    const size_t kCallocPoolSize = 1024;
-    static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
-    static size_t allocated;
-    size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
-    void *mem = (void*)&calloc_memory_for_dlsym[allocated];
-    allocated += size_in_words;
-    CHECK(allocated < kCallocPoolSize);
-    return mem;
-  }
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_calloc(nmemb, size, &stack);
-}
-
-extern "C"
-void *realloc(void *ptr, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_realloc(ptr, size, &stack);
-}
-
-extern "C"
-__attribute__((visibility("default")))
-void *memalign(size_t boundary, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(boundary, size, &stack);
-}
-
-extern "C" {
-    void* __libc_memalign(size_t align, size_t s)
-              __attribute__((alias("memalign")));
-}  // extern "C"
-
-extern "C"
-struct mallinfo mallinfo() {
-  struct mallinfo res;
-  __asan::real_memset(&res, 0, sizeof(res));
-  return res;
-}
-
-extern "C"
-int mallopt(int cmd, int value) {
-  return -1;
-}
-
-extern"C"
-__attribute__((visibility("default")))
-int posix_memalign(void **memptr, size_t alignment, size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  // Printf("posix_memalign: %lx %ld\n", alignment, size);
-  return __asan_posix_memalign(memptr, alignment, size, &stack);
-}
-
-extern "C"
-__attribute__((visibility("default")))
-void *valloc(size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_valloc(size, &stack);
-}
-
-extern "C"
-__attribute__((visibility("default")))
-void *pvalloc(size_t size) {
-  GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_pvalloc(size, &stack);
-}
-#endif
-
-#if 1
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
   return __asan_memalign(0, size, &stack);
@@ -555,7 +460,6 @@ void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
 void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr, std::nothrow_t const&) {OPERATOR_DELETE_BODY;}
-#endif
 
 extern "C"
 #ifndef __APPLE__
