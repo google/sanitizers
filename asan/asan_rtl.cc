@@ -454,6 +454,10 @@ void free(void *ptr) {
 }
 #endif
 
+extern "C" void cfree(void *ptr) {
+  free(ptr);
+}
+
 #ifndef __APPLE__
 // Neither of libc-style allocation routines is needed to be replaced on Mac.
 extern "C"
