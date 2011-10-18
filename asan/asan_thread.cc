@@ -147,11 +147,10 @@ void AsanThread::SetThreadStackTopAndBottom() {
 
   stack_top_ = (uintptr_t)stackaddr + stacksize;
   stack_bottom_ = (uintptr_t)stackaddr;
-  // When running under the GNU make command, pthread_attr_getstack
-  // returns garbage for a stacksize.
+  // When running with unlimited stack size, we still want to set some limit.
+  // The unlimited stack size is caused by 'ulimit -s unlimited'.
+  // Also, for some reason, GNU make spawns subrocesses with unlimited stack.
   if (stacksize > kMaxThreadStackSize) {
-    Printf("WARNING: pthread_attr_getstack returned "PP" as stacksize\n",
-           stacksize);
     stack_bottom_ = stack_top_ - kMaxThreadStackSize;
   }
   CHECK(AddrIsInStack((uintptr_t)&attr));
