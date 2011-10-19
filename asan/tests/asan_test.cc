@@ -428,6 +428,22 @@ TEST(AddressSanitizer, IgnoreTest) {
 }
 #endif  // ASAN_HAS_BLACKLIST
 
+struct StructWithBitField {
+  int bf1:1;
+  int bf2:1;
+  int bf3:1;
+  int bf4:29;
+};
+
+TEST(AddressSanitizer, BitFieldTest) {
+  StructWithBitField *x = new StructWithBitField;
+  delete Ident(x);
+  EXPECT_DEATH(x->bf1 = 0, "use-after-free");
+  EXPECT_DEATH(x->bf2 = 0, "use-after-free");
+  EXPECT_DEATH(x->bf3 = 0, "use-after-free");
+  EXPECT_DEATH(x->bf4 = 0, "use-after-free");
+};
+
 TEST(AddressSanitizer, OutOfMemoryTest) {
   size_t size = __WORDSIZE == 64 ? (size_t)(1ULL << 48) : (0xf0000000);
   EXPECT_DEATH(printf("%p\n", malloc(size)),
