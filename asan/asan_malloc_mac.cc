@@ -272,11 +272,11 @@ void mi_log(malloc_zone_t *zone, void *address) {
 }
 
 void mi_force_lock(malloc_zone_t *zone) {
-  // UNIMPLEMENTED();
+  __asan_mz_force_lock();
 }
 
 void mi_force_unlock(malloc_zone_t *zone) {
-  // UNIMPLEMENTED();
+  __asan_mz_force_unlock();
 }
 
 void mi_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {

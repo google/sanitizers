@@ -388,6 +388,14 @@ class MallocInfo {
     }
   }
 
+  void ForceLock() {
+    mu_.Lock();
+  }
+
+  void ForceUnlock() {
+    mu_.Unlock();
+  }
+
   void PrintStatus() {
     ScopedLock lock(&mu_);
     size_t malloced = 0;
@@ -783,8 +791,17 @@ size_t __asan_mz_size(const void *ptr) {
 void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {
   Describe(addr, access_size);
 }
+
 size_t __asan_total_mmaped() {
   return total_mmaped;
+}
+
+void __asan_mz_force_lock() {
+  malloc_info.ForceLock();
+}
+
+void __asan_mz_force_unlock() {
+  malloc_info.ForceUnlock();
 }
 
 // ---------------------- Fake stack-------------------- {{{1
