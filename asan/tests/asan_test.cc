@@ -435,7 +435,7 @@ struct StructWithBitField {
   int bf4:29;
 };
 
-TEST(AddressSanitizer, BitFieldTest) {
+TEST(AddressSanitizer, BitFieldPositiveTest) {
   StructWithBitField *x = new StructWithBitField;
   delete Ident(x);
   EXPECT_DEATH(x->bf1 = 0, "use-after-free");
@@ -443,6 +443,18 @@ TEST(AddressSanitizer, BitFieldTest) {
   EXPECT_DEATH(x->bf3 = 0, "use-after-free");
   EXPECT_DEATH(x->bf4 = 0, "use-after-free");
 };
+
+struct StructWithBitFields_8_24 {
+  int a:8;
+  int b:24;
+};
+
+TEST(AddressSanitizer, BitFieldNegativeTest) {
+  StructWithBitFields_8_24 *x = Ident(new StructWithBitFields_8_24);
+  x->a = 0;
+  x->b = 0;
+  delete Ident(x);
+}
 
 TEST(AddressSanitizer, OutOfMemoryTest) {
   size_t size = __WORDSIZE == 64 ? (size_t)(1ULL << 48) : (0xf0000000);
