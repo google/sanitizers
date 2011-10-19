@@ -1547,7 +1547,7 @@ TEST(AddressSanitizerMac, MallocIntrospectionLock) {
   int i, iter;
   for (iter = 0; iter < kNumIterations; iter++) {
     pthread_t workers[kNumWorkers], forker;
-    for (i = 0; i < kNumWorkers; i++) { 
+    for (i = 0; i < kNumWorkers; i++) {
       pthread_create(&workers[i], 0, MallocIntrospectionLockWorker, 0);
     }
     pthread_create(&forker, 0, MallocIntrospectionLockForker, 0);
