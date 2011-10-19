@@ -506,6 +506,18 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     }
     // For now, just ignore this Alloca if the alignment is large.
     if (G->getAlignment() > RedzoneSize) continue;
+
+    // Ignore the globals from the __OBJC section. The ObjC runtime assumes
+    // those conform to /usr/lib/objc/runtime.h, so we can't add redzones to
+    // them.
+    if (G->hasSection()) {
+      std::string section = G->getSection();
+      if ((section.find("__OBJC,") == 0) ||
+          (section.find("__DATA, __objc_") == 0)) {
+         DEBUG(dbgs() << "Ignoring ObjC runtime global: " << *G);
+         continue;
+      }
+    }
     GlobalsToChange.push_back(G);
   }
 

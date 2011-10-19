@@ -33,11 +33,7 @@ LIBS=#-lpthread -ldl
 BITS=64
 SUFF=$(BITS)
 ASAN_STACK=1
-ifeq ($(PLATFORM),Darwin)
-ASAN_GLOBALS=0
-else
 ASAN_GLOBALS=1
-endif
 ASAN_USE_CALL=1
 ASAN_SCALE=0  # default will be used
 ASAN_OFFSET=-1  #default will be used
