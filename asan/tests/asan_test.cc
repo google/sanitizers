@@ -1493,6 +1493,56 @@ TEST(AddressSanitizerMac, DISABLED_CFAllocatorMallocDoubleFree) {
 TEST(AddressSanitizerMac, DISABLED_CFAllocatorMallocZoneDoubleFree) {
   EXPECT_DEATH(CFAllocatorMallocZoneDoubleFree(), "attempting double-free");
 }
+
+void *MallocIntrospectionLockWorker(void *_) {
+  const int kNumPointers = 100;
+  int i;
+  void *pointers[kNumPointers];
+  for (i = 0; i < kNumPointers; i++) {
+    pointers[i] = malloc(i + 1);
+  }
+  for (i = 0; i < kNumPointers; i++) {
+    free(pointers[i]);
+  }
+
+  return NULL;
+}
+
+void *MallocIntrospectionLockForker(void *_) {
+  pid_t result = fork();
+  if (result == -1) {
+    perror("fork");
+  }
+  assert(result != -1);
+  if (result == 0) {
+    // Call malloc in the child process to make sure we won't deadlock.
+    void *ptr = malloc(42);
+    free(ptr);
+    exit(0);
+  } else {
+    // Return in the parent process.
+    return NULL;
+  }
+}
+
+TEST(AddressSanitizerMac, MallocIntrospectionLock) {
+  // Incorrect implementation of force_lock and force_unlock in our malloc zone
+  // will cause forked processes to deadlock.
+  // TODO(glider): need to detect that none of the child processes deadlocked.
+  const int kNumWorkers = 5, kNumIterations = 100;
+  int i, iter;
+  for (iter = 0; iter < kNumIterations; iter++) {
+    pthread_t workers[kNumWorkers], forker;
+    for (i = 0; i < kNumWorkers; i++) { 
+      pthread_create(&workers[i], 0, MallocIntrospectionLockWorker, 0);
+    }
+    pthread_create(&forker, 0, MallocIntrospectionLockForker, 0);
+    for (i = 0; i < kNumWorkers; i++) {
+      pthread_join(workers[i], 0);
+    }
+    pthread_join(forker, 0);
+  }
+}
 #endif  // __APPLE__
 
 int main(int argc, char **argv) {
