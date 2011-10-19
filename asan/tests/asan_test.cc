@@ -372,6 +372,12 @@ void OOBTest() {
           "is located.*0 byte.*to the right");
 }
 
+// TODO(glider): the following tests are EXTREMELY slow on Darwin:
+//   AddressSanitizer.OOB_char (125503 ms)
+//   AddressSanitizer.OOB_int (126890 ms)
+//   AddressSanitizer.OOBRightTest (315605 ms)
+//   AddressSanitizer.SimpleStackTest (366559 ms)
+
 TEST(AddressSanitizer, OOB_char) {
   OOBTest<U1>();
 }
@@ -483,7 +489,15 @@ TEST(AddressSanitizer, LargeMallocTest) {
 }
 
 TEST(AddressSanitizer, HugeMallocTest) {
+#ifdef __APPLE__
+  // It was empirically found out that 1215 megabytes is the maximum amount of
+  // memory available to the process under AddressSanitizer on Darwin.
+  // (the libSystem malloc() allows allocating up to 2300 megabytes without
+  // ASan).
+  size_t n_megs = __WORDSIZE == 32 ? 1200 : 4100;
+#else
   size_t n_megs = __WORDSIZE == 32 ? 2600 : 4100;
+#endif
   TestLargeMalloc(n_megs << 20);
 }
 
