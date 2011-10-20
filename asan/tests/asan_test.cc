@@ -21,6 +21,7 @@
 #include <emmintrin.h>
 
 #include "asan_test_config.h"
+#include "asan_test_utils.h"
 
 #ifndef __APPLE__
 #include <malloc.h>
@@ -144,13 +145,6 @@ const size_t kLargeMalloc = 1 << 24;
 
 template<class T>
 __attribute__((noinline))
-static T Ident(T t) {
-  static volatile int zero = 0;
-  return zero ? (T)0 : t;
-}
-
-template<class T>
-__attribute__((noinline))
 void asan_write(T *a) {
   *a = 0;
 }
@@ -164,44 +158,41 @@ void asan_write_sized_aligned(uint8_t *p, size_t size) {
   else if (size == 8) asan_write((uint64_t*)p);
 }
 
-// empty function declared in another file.
-extern void break_optimization();
-
 __attribute__((noinline)) void *malloc_fff(size_t size) {
-  void *res = malloc/**/(size); break_optimization(); return res;}
+  void *res = malloc/**/(size); break_optimization(0); return res;}
 __attribute__((noinline)) void *malloc_eee(size_t size) {
-  void *res = malloc_fff(size); break_optimization(); return res;}
+  void *res = malloc_fff(size); break_optimization(0); return res;}
 __attribute__((noinline)) void *malloc_ddd(size_t size) {
-  void *res = malloc_eee(size); break_optimization(); return res;}
+  void *res = malloc_eee(size); break_optimization(0); return res;}
 __attribute__((noinline)) void *malloc_ccc(size_t size) {
-  void *res = malloc_ddd(size); break_optimization(); return res;}
+  void *res = malloc_ddd(size); break_optimization(0); return res;}
 __attribute__((noinline)) void *malloc_bbb(size_t size) {
-  void *res = malloc_ccc(size); break_optimization(); return res;}
+  void *res = malloc_ccc(size); break_optimization(0); return res;}
 __attribute__((noinline)) void *malloc_aaa(size_t size) {
-  void *res = malloc_bbb(size); break_optimization(); return res;}
+  void *res = malloc_bbb(size); break_optimization(0); return res;}
 
 #ifndef __APPLE__
 __attribute__((noinline)) void *memalign_fff(size_t alignment, size_t size) {
-  void *res = memalign/**/(alignment, size); break_optimization(); return res;}
+  void *res = memalign/**/(alignment, size); break_optimization(0); return res;}
 __attribute__((noinline)) void *memalign_eee(size_t alignment, size_t size) {
-  void *res = memalign_fff(alignment, size); break_optimization(); return res;}
+  void *res = memalign_fff(alignment, size); break_optimization(0); return res;}
 __attribute__((noinline)) void *memalign_ddd(size_t alignment, size_t size) {
-  void *res = memalign_eee(alignment, size); break_optimization(); return res;}
+  void *res = memalign_eee(alignment, size); break_optimization(0); return res;}
 __attribute__((noinline)) void *memalign_ccc(size_t alignment, size_t size) {
-  void *res = memalign_ddd(alignment, size); break_optimization(); return res;}
+  void *res = memalign_ddd(alignment, size); break_optimization(0); return res;}
 __attribute__((noinline)) void *memalign_bbb(size_t alignment, size_t size) {
-  void *res = memalign_ccc(alignment, size); break_optimization(); return res;}
+  void *res = memalign_ccc(alignment, size); break_optimization(0); return res;}
 __attribute__((noinline)) void *memalign_aaa(size_t alignment, size_t size) {
-  void *res = memalign_bbb(alignment, size); break_optimization(); return res;}
+  void *res = memalign_bbb(alignment, size); break_optimization(0); return res;}
 #endif  // __APPLE__
 
 
 __attribute__((noinline))
-  void free_ccc(void *p) { free(p); break_optimization();}
+  void free_ccc(void *p) { free(p); break_optimization(0);}
 __attribute__((noinline))
-  void free_bbb(void *p) { free_ccc(p); break_optimization();}
+  void free_bbb(void *p) { free_ccc(p); break_optimization(0);}
 __attribute__((noinline))
-  void free_aaa(void *p) { free_bbb(p); break_optimization();}
+  void free_aaa(void *p) { free_bbb(p); break_optimization(0);}
 
 template<class T>
 __attribute__((noinline))
@@ -651,15 +642,15 @@ static void Frame0(int frame, char *a, char *b, char *c) {
 }
 __attribute__((noinline)) static void Frame1(int frame, char *a, char *b) {
   char c[4] = {0}; Frame0(frame, a, b, c);
-  break_optimization();
+  break_optimization(0);
 }
 __attribute__((noinline)) static void Frame2(int frame, char *a) {
   char b[4] = {0}; Frame1(frame, a, b);
-  break_optimization();
+  break_optimization(0);
 }
 __attribute__((noinline)) static void Frame3(int frame) {
   char a[4] = {0}; Frame2(frame, a);
-  break_optimization();
+  break_optimization(0);
 }
 
 TEST(AddressSanitizer, GuiltyStackFrame0Test) {
