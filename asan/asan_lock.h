@@ -17,19 +17,24 @@
 #include "asan_int.h"
 
 #ifdef __APPLE__
+#include <pthread.h>
+
 #include <libkern/OSAtomic.h>
 class AsanLock {
  public:
   AsanLock() {
     mu_ = OS_SPINLOCK_INIT;
     is_locked_ = false;
+    owner_ = 0;
   }
   ~AsanLock() {}
   void Lock() {
     OSSpinLockLock(&mu_);
     is_locked_ = true;
+    owner_ = pthread_self();
   }
   void Unlock() {
+    owner_ = 0;
     is_locked_ = false;
     OSSpinLockUnlock(&mu_);
   }
@@ -41,6 +46,7 @@ class AsanLock {
   }
  private:
   OSSpinLock mu_;
+  pthread_t owner_;  // for debugging purposes
   bool is_locked_;  // for silly malloc_introspection_t interface
 };
 
