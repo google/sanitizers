@@ -142,9 +142,9 @@ t32: b32
 	$(BIN)/asan_test32
 
 b64: | $(BIN)
-	$(MAKE) BITS=64 $(BIN)/asan_test64
+	$(MAKE) BITS=64 test_and_benchmarks
 b32: | $(BIN)
-	$(MAKE) BITS=32 $(BIN)/asan_test32
+	$(MAKE) BITS=32 test_and_benchmarks
 
 lib32:
 	$(MAKE) BITS=32 lib
@@ -218,6 +218,10 @@ TEST_OBJECTS_COMMON=\
 	     $(BIN)/asan_break_optimization$(SUFF).o \
 	     $(BIN)/asan_noinst_test$(SUFF).o
 
+BENCHMARK_OBJECTS=\
+	     $(BIN)/asan_benchmarks_test$(SUFF).o \
+	     $(BIN)/asan_break_optimization$(SUFF).o
+
 ifeq ($(PLATFORM),Darwin)
 TEST_OBJECTS=$(TEST_OBJECTS_COMMON) \
 	     $(BIN)/asan_mac_test$(SUFF).o
@@ -228,6 +232,12 @@ endif
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS) $(LIBASAN_A) Makefile tests/asan_test.ignore $(GTEST_LIB)
 	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) \
 		$(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB) $(ASAN_LD_TAIL)
+
+$(BIN)/asan_benchmarks$(SUFF): $(BENCHMARK_OBJECTS) $(LIBASAN_A) Makefile $(GTEST_LIB)
+	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(BENCHMARK_OBJECTS) \
+		$(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB) $(ASAN_LD_TAIL)
+
+test_and_benchmarks: $(BIN)/asan_test$(SUFF) $(BIN)/asan_benchmarks$(SUFF)
 
 # for now, build gtest with clang/asan even if we use a differetn compiler.
 $(GTEST_LIB):
