@@ -511,7 +511,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     // those conform to /usr/lib/objc/runtime.h, so we can't add redzones to
     // them.
     if (G->hasSection()) {
-      std::string section = G->getSection();
+      StringRef section(G->getSection());
       if ((section.find("__OBJC,") == 0) ||
           (section.find("__DATA, __objc_") == 0)) {
          DEBUG(dbgs() << "Ignoring ObjC runtime global: " << *G);
