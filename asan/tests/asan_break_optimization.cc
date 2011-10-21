@@ -1,4 +1,4 @@
-//===-- asan_rtl.cc ------------*- C++ -*-===//
+//===-- asan_break_optimization.cc ------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -13,6 +13,6 @@
 
 #include "asan_test_utils.h"
 // Have this function in a separate file to avoid inlining.
-// (Yes, we know about cross-file inlining, but let's assume we don't user it).
+// (Yes, we know about cross-file inlining, but let's assume we don't use it).
 extern "C" void break_optimization(void *x) {
 }
