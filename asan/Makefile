@@ -106,6 +106,7 @@ RTL_HDR_COMMON=asan_allocator.h \
 
 LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
+	    $(BIN)/asan_globals$(SUFF).o  \
 	    $(BIN)/asan_interceptors$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/asan_thread$(SUFF).o  \

@@ -36,6 +36,7 @@ size_t __asan_stack_malloc(size_t size, size_t real_stack)
     __attribute__((visibility("default")));
 void __asan_stack_free(size_t ptr, size_t size, size_t real_stack)
     __attribute__((visibility("default")));
+bool __asan_describe_addr_if_global(uintptr_t addr);
 }  // extern "C"
 
 extern size_t __asan_flag_quarantine_size;
@@ -46,6 +47,7 @@ extern bool   __asan_flag_mt;
 extern size_t __asan_flag_redzone;
 extern int    __asan_flag_debug;
 extern bool   __asan_flag_poison_shadow;
+extern int    __asan_flag_report_globals;
 extern size_t __asan_flag_malloc_context_size;
 extern int    __asan_flag_stats;
 extern bool   __asan_flag_replace_str;
