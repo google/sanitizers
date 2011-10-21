@@ -142,9 +142,9 @@ t32: b32
 	$(BIN)/asan_test32
 
 b64: | $(BIN)
-	$(MAKE) BITS=64 test_and_benchmarks
+	$(MAKE) BITS=64 asan_test asan_benchmarks
 b32: | $(BIN)
-	$(MAKE) BITS=32 test_and_benchmarks
+	$(MAKE) BITS=32 asan_test asan_benchmarks
 
 lib32:
 	$(MAKE) BITS=32 lib
@@ -237,7 +237,9 @@ $(BIN)/asan_benchmarks$(SUFF): $(BENCHMARK_OBJECTS) $(LIBASAN_A) Makefile $(GTES
 	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(BENCHMARK_OBJECTS) \
 		$(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB) $(ASAN_LD_TAIL)
 
-test_and_benchmarks: $(BIN)/asan_test$(SUFF) $(BIN)/asan_benchmarks$(SUFF)
+asan_test: $(BIN)/asan_test$(SUFF)
+
+asan_benchmarks: $(BIN)/asan_benchmarks$(SUFF)
 
 # for now, build gtest with clang/asan even if we use a differetn compiler.
 $(GTEST_LIB):
