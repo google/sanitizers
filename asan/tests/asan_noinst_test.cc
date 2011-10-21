@@ -199,12 +199,12 @@ static uintptr_t pc_array[] = {
   0x4D39C39F
 };
 
-TEST(AddressSanitizer, CompressStackTraceTest) {
+void CompressStackTraceTest(size_t n_iter) {
   uint32_t seed = my_rand(&global_seed);
   const size_t kNumPcs = ASAN_ARRAY_SIZE(pc_array);
   uint32_t compressed[2 * kNumPcs];
 
-  for (int iter = 0; iter < 10000; iter++) {
+  for (size_t iter = 0; iter < n_iter; iter++) {
     std::random_shuffle(pc_array, pc_array + kNumPcs);
     AsanStackTrace stack0, stack1;
     stack0.CopyFrom(pc_array, kNumPcs);
@@ -220,6 +220,14 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
       CHECK(stack0.trace[i] == stack1.trace[i]);
     }
   }
+}
+
+TEST(AddressSanitizer, CompressStackTraceTest) {
+  CompressStackTraceTest(10000);
+}
+
+TEST(AddressSanitizer, CompressStackTraceBenchmark) {
+  CompressStackTraceTest(1000000);
 }
 
 TEST(AddressSanitizer, QuarantineTest) {
