@@ -15,6 +15,7 @@
 #include "asan_int.h"
 #include "asan_mapping.h"
 #include "asan_stack.h"
+#include "asan_test_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -226,8 +227,24 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
   CompressStackTraceTest(10000);
 }
 
+void CompressStackTraceBenchmark(size_t n_iter) {
+  const size_t kNumPcs = ASAN_ARRAY_SIZE(pc_array);
+  uint32_t compressed[2 * kNumPcs];
+  std::random_shuffle(pc_array, pc_array + kNumPcs);
+
+  for (size_t iter = 0; iter < n_iter; iter++) {
+    AsanStackTrace stack0;
+    stack0.CopyFrom(pc_array, kNumPcs);
+    stack0.size = kNumPcs;
+    size_t compress_size = kNumPcs;
+    size_t n_frames =
+      AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+    Ident(n_frames);
+  }
+}
+
 TEST(AddressSanitizer, CompressStackTraceBenchmark) {
-  CompressStackTraceTest(1000000);
+  CompressStackTraceBenchmark(1 << 24);
 }
 
 TEST(AddressSanitizer, QuarantineTest) {
