@@ -232,10 +232,10 @@ void CompressStackTraceBenchmark(size_t n_iter) {
   uint32_t compressed[2 * kNumPcs];
   std::random_shuffle(pc_array, pc_array + kNumPcs);
 
+  AsanStackTrace stack0;
+  stack0.CopyFrom(pc_array, kNumPcs);
+  stack0.size = kNumPcs;
   for (size_t iter = 0; iter < n_iter; iter++) {
-    AsanStackTrace stack0;
-    stack0.CopyFrom(pc_array, kNumPcs);
-    stack0.size = kNumPcs;
     size_t compress_size = kNumPcs;
     size_t n_frames =
       AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
