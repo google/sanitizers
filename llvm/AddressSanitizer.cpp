@@ -666,6 +666,7 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   // (unless there are calls between uses).
   SmallSet<Value*, 16> TempsToInstrument;
   SmallVector<Instruction*, 16> ToInstrument;
+  bool HasExceptionHandling = false;
 
   // Fill the set of memory operations to instrument.
   for (Function::iterator FI = F.begin(), FE = F.end();
@@ -673,6 +674,9 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
     TempsToInstrument.clear();
     for (BasicBlock::iterator BI = FI->begin(), BE = FI->end();
          BI != BE; ++BI) {
+      if (isa<LandingPadInst>(BI))
+        HasExceptionHandling = true;
+
       if ((isa<LoadInst>(BI) && ClInstrumentReads) ||
           (isa<StoreInst>(BI) && ClInstrumentWrites)) {
         Value *Addr = getLDSTOperand(BI);
@@ -709,7 +713,20 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
 
   DEBUG(dbgs() << F);
 
-  bool ChangedStack = poisonStackInFunction(M, F);
+  // Stack poisoning does not play well with exception handling.
+  // When an exception is thrown, we essentially bypass the code
+  // that unpoisones the stack. This is why the run-time library has
+  // to intercept __cxa_throw (as well as longjmp, etc) and unpoison the entire
+  // stack in the interceptor. This however does not work inside the
+  // actual function which catches the exception. Most likely because the
+  // compiler hoists the load of the shadow value somewhere too high.
+  // This causes asan to report a non-existing bug on 453.povray.
+  // It sounds like an LLVM bug, but for now we just don't poison the stack
+  // if a function has a LandingPadInst.
+  bool ChangedStack = false;
+  if (!HasExceptionHandling) {
+    ChangedStack = poisonStackInFunction(M, F);
+  }
 
   // For each NSObject descendant having a +load method, this method is invoked
   // by the ObjC runtime before any of the static constructors is called.
