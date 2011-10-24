@@ -29,6 +29,7 @@ class AsanLock {
   }
   ~AsanLock() {}
   void Lock() {
+    CHECK(owner_ != pthread_self());
     OSSpinLockLock(&mu_);
     is_locked_ = true;
     owner_ = pthread_self();
@@ -46,7 +47,7 @@ class AsanLock {
   }
  private:
   OSSpinLock mu_;
-  pthread_t owner_;  // for debugging purposes
+  volatile pthread_t owner_;  // for debugging purposes
   bool is_locked_;  // for silly malloc_introspection_t interface
 };
 
