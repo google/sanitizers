@@ -89,6 +89,9 @@ static inline void ensure_asan_inited() {
   }
 }
 
+#if 0
+// Interceptors for memcpy/memmove/memset are disabled for now.
+// They are handled by the LLVM module anyway.
 void *WRAP(memcpy)(void *to, const void *from, size_t size) {
   // memcpy is called during __asan_init() from the internals
   // of printf(...).
@@ -121,6 +124,7 @@ void *WRAP(memset)(void *block, int c, size_t size) {
   }
   return __asan::real_memset(block, c, size);
 }
+#endif
 
 size_t WRAP(strlen)(const char *s) {
   // strlen is called during __asan_init() from library
