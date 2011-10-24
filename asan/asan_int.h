@@ -30,7 +30,9 @@ void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
 void __asan_register_global(uintptr_t addr, size_t size, const char *name)
     __attribute__((visibility("default")));
-void __asan_report_error(uintptr_t addr, bool is_write, int access_size);
+void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
+                         uintptr_t addr, bool is_write, size_t access_size)
+    __attribute__((visibility("default")));
 void __asan_show_stats_and_abort();
 size_t __asan_stack_malloc(size_t size, size_t real_stack)
     __attribute__((visibility("default")));
@@ -79,6 +81,12 @@ const size_t kPageSize = 1UL << kPageSizeBits;
 
 #define GET_CALLER_PC() (uintptr_t)__builtin_return_address(0)
 #define GET_CURRENT_FRAME() (uintptr_t)__builtin_frame_address(0)
+
+#define GET_BP_PC_SP \
+  uintptr_t bp = GET_CURRENT_FRAME();              \
+  uintptr_t pc = GET_CALLER_PC();                  \
+  uintptr_t local_stack;                           \
+  uintptr_t sp = (uintptr_t)&local_stack;
 
 // These magic values are written to shadow for better error reporting.
 const int kAsanHeapLeftRedzoneMagic = 0xfa;

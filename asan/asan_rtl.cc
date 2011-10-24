@@ -473,9 +473,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   __asan_show_stats_and_abort();
 }
 
-static void asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
-                              uintptr_t addr, bool is_write,
-                              size_t access_size) {
+void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
+                         uintptr_t addr, bool is_write, size_t access_size) {
   // Do not print more than one report, otherwise they will mix up.
   static int num_calls = 0;
   if (AtomicInc(&num_calls) > 1) return;
@@ -569,19 +568,7 @@ static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   CHECK(access_size_and_type < 16);
   bool is_write = access_size_and_type & 8;
   int access_size = 1 << (access_size_and_type & 7);
-  asan_report_error(pc, bp, sp, addr, is_write, access_size);
-}
-
-#define GET_BP_PC_SP \
-  uintptr_t bp = GET_CURRENT_FRAME();              \
-  uintptr_t pc = GET_CALLER_PC();                  \
-  uintptr_t local_stack;                           \
-  uintptr_t sp = (uintptr_t)&local_stack;
-
-
-void __asan_report_error(uintptr_t addr, bool is_write, int access_size) {
-  GET_BP_PC_SP;
-  asan_report_error(pc, bp, sp, addr, is_write, access_size);
+  __asan_report_error(pc, bp, sp, addr, is_write, access_size);
 }
 
 // exported functions
@@ -590,7 +577,7 @@ extern "C" void __asan_report_ ## type ## size(uintptr_t addr)   \
   __attribute__((visibility("default")));                        \
 extern "C" void __asan_report_ ## type ## size(uintptr_t addr) { \
   GET_BP_PC_SP;                                                  \
-  asan_report_error(pc, bp, sp, addr, is_write, size);           \
+  __asan_report_error(pc, bp, sp, addr, is_write, size);  \
 }
 
 ASAN_REPORT_ERROR(load, false, 1)
@@ -648,7 +635,7 @@ void __asan_init() {
   __asan_flag_debug = IntFlagValue(options, "debug=", 0);
   __asan_flag_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   __asan_flag_mt = IntFlagValue(options, "mt=", 1);
-  __asan_flag_replace_str = IntFlagValue(options, "replace_str=", 0);
+  __asan_flag_replace_str = IntFlagValue(options, "replace_str=", 1);
   __asan_flag_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
 
   if (__asan_flag_atexit) {

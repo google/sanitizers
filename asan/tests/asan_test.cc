@@ -986,7 +986,7 @@ void StrLenOOBTestTemplate(char *str, size_t length, bool is_global) {
   // Restore terminator
   str[length] = 0;
 }
-TEST(AddressSanitizer, DISABLED_StrLenOOBTest) {
+TEST(AddressSanitizer, StrLenOOBTest) {
   // Check heap-allocated string
   size_t length = Ident(10);
   char *heap_string = Ident((char*)malloc(length + 1));
@@ -1005,7 +1005,7 @@ TEST(AddressSanitizer, DISABLED_StrLenOOBTest) {
   free(heap_string);
 }
 
-TEST(AddressSanitizer, DISABLED_StrNCpyOOBTest) {
+TEST(AddressSanitizer, StrNCpyOOBTest) {
   size_t to_size = Ident(20);
   size_t from_size = Ident(6);  // less than to_size
   char *to = Ident((char*)malloc(to_size));
