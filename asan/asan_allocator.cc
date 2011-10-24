@@ -146,7 +146,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   if (res == (uint8_t*)-1) {
     OutOfMemoryMessage(__FUNCTION__, size);
     PRINT_CURRENT_STACK();
-    abort();
+    _exit(EXIT_FAILURE);
   }
   PoisonShadow((uintptr_t)res, size, kAsanHeapLeftRedzoneMagic);
   if (__asan_flag_debug) {
