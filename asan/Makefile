@@ -96,6 +96,7 @@ endif
 RTL_HDR_COMMON=asan_allocator.h \
 	asan_int.h \
 	asan_interceptors.h \
+	asan_interface.h \
 	asan_lock.h \
 	asan_mapping.h \
 	asan_stack.h \
@@ -109,6 +110,7 @@ LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_globals$(SUFF).o  \
 	    $(BIN)/asan_interceptors$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
+	    $(BIN)/asan_stats$(SUFF).o  \
 	    $(BIN)/asan_thread$(SUFF).o  \
 	    $(BIN)/sysinfo$(SUFF).o
 
@@ -217,7 +219,8 @@ TEST_OBJECTS_COMMON=\
 	     $(BIN)/asan_test$(SUFF).o \
 	     $(BIN)/asan_globals_test$(SUFF).o \
 	     $(BIN)/asan_break_optimization$(SUFF).o \
-	     $(BIN)/asan_noinst_test$(SUFF).o
+	     $(BIN)/asan_noinst_test$(SUFF).o \
+	     $(BIN)/asan_interface_test$(SUFF).o
 
 BENCHMARK_OBJECTS=\
 	     $(BIN)/asan_benchmarks_test$(SUFF).o \
