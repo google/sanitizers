@@ -28,6 +28,7 @@
 #include "asan_allocator.h"
 #include "asan_int.h"
 #include "asan_interceptors.h"
+#include "asan_interface.h"
 #include "asan_mapping.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
@@ -575,12 +576,7 @@ static void Describe(uintptr_t addr, size_t access_size) {
   }
 }
 
-static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
-  __asan_init();
-  CHECK(stack);
-  if (size == 0) {
-    size = 1;  // TODO(kcc): do something smarter
-  }
+static inline size_t NeededSizeForAllocation(size_t alignment, size_t size) {
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUpTo(size, REDZONE);
   size_t needed_size = rounded_size + REDZONE;
@@ -588,6 +584,16 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     needed_size += alignment;
   }
   CHECK(IsAligned(needed_size, REDZONE));
+  return needed_size;
+}
+
+static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
+  __asan_init();
+  CHECK(stack);
+  if (size == 0) {
+    size = 1;  // TODO(kcc): do something smarter
+  }
+  size_t needed_size = NeededSizeForAllocation(alignment, size);
   if (needed_size > kMaxAllowedMallocSize) {
     OutOfMemoryMessage(__FUNCTION__, size);
     stack->PrintStack();
@@ -659,6 +665,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->free_tid   = AsanThread::kInvalidTid;
   AsanStackTrace::CompressStack(stack, m->compressed_alloc_stack(),
                                 m->compressed_alloc_stack_size());
+  size_t rounded_size = RoundUpTo(size, REDZONE);
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
     PoisonMemoryPartialRightRedzone(addr + rounded_size - REDZONE,
@@ -803,6 +810,29 @@ void __asan_mz_force_lock() {
 void __asan_mz_force_unlock() {
   malloc_info.ForceUnlock();
 }
+
+// ---------------------- AsanInterface ---------------- {{{1
+namespace __asan_interface {
+
+size_t get_estimated_allocated_size(size_t size) {
+  size_t needed_size = std::min(NeededSizeForAllocation(0, size),
+                                kMaxAllowedMallocSize);
+  return SizeClassToSize(SizeToSizeClass(needed_size));
+}
+
+bool get_ownership(const void *p) {
+  return (p == NULL) || (malloc_info.AllocationSize((uintptr_t)p) > 0);
+}
+
+size_t get_allocated_size(const void *p) {
+  if (p == NULL) return 0;
+  size_t allocated_size = malloc_info.AllocationSize((uintptr_t)p);
+  // Die if p is not malloced or if it is already freed.
+  CHECK(allocated_size > 0);
+  return allocated_size;
+}
+
+}  // namespace
 
 // ---------------------- Fake stack-------------------- {{{1
 AsanFakeStack::AsanFakeStack()

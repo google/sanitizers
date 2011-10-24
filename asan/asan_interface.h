@@ -18,6 +18,15 @@
 // This header should NOT include any other headers from ASan runtime.
 
 namespace __asan_interface {
+  // Returns the estimated number of bytes that will be allocated for
+  // request of "size" bytes.
+  size_t get_estimated_allocated_size(size_t size);
+  // Returns true if p is NULL or if p was returned by the ASan allocator and
+  // is not yet freed.
+  bool get_ownership(const void *p);
+  // Returns the number of bytes reserved for the pointer p.
+  // Requires (get_ownership(p) == true).
+  size_t get_allocated_size(const void *p);
   // Number of bytes, allocated and not yet freed by the application.
   size_t get_current_allocated_bytes();
   // Turns on/off statistics update. Returns the previous value.
