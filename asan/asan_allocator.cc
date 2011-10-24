@@ -828,7 +828,11 @@ size_t get_allocated_size(const void *p) {
   if (p == NULL) return 0;
   size_t allocated_size = malloc_info.AllocationSize((uintptr_t)p);
   // Die if p is not malloced or if it is already freed.
-  CHECK(allocated_size > 0);
+  if (allocated_size == 0) {
+    Printf("get_allocated_size failed, ptr=%p is not owned\n", p);
+    PRINT_CURRENT_STACK();
+    __asan_show_stats_and_abort();
+  }
   return allocated_size;
 }
 
