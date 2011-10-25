@@ -17,8 +17,6 @@
 #include "asan_allocator.h"
 
 struct AsanStats {
-  size_t low_shadow_maps;
-  size_t high_shadow_maps;
   size_t mallocs;
   size_t malloced;
   size_t malloced_redzones;
@@ -28,7 +26,6 @@ struct AsanStats {
   size_t really_freed;
   size_t reallocs;
   size_t realloced;
-  size_t allocated_since_last_stats;
   size_t mmaps;
   size_t mmaped;
   size_t mmaped_by_size[kNumberOfSizeClasses];

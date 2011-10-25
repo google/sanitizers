@@ -15,6 +15,8 @@
 #include "asan_interface.h"
 #include "asan_stats.h"
 
+bool __asan_flag_stats;
+
 size_t __asan_interface::get_current_allocated_bytes() {
   return 0;
 }

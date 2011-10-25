@@ -51,7 +51,7 @@ extern int    __asan_flag_debug;
 extern bool   __asan_flag_poison_shadow;
 extern int    __asan_flag_report_globals;
 extern size_t __asan_flag_malloc_context_size;
-extern int    __asan_flag_stats;
+extern bool   __asan_flag_stats;
 extern bool   __asan_flag_replace_str;
 extern bool   __asan_flag_replace_intrin;
 extern bool   __asan_flag_fast_unwind;

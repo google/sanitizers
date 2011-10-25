@@ -68,7 +68,6 @@ int    __asan_flag_debug;
 bool   __asan_flag_poison_shadow;
 int    __asan_flag_report_globals;
 size_t __asan_flag_malloc_context_size = kMallocContextSize;
-int    __asan_flag_stats;
 uintptr_t __asan_flag_large_malloc;
 bool   __asan_flag_lazy_shadow;
 bool   __asan_flag_handle_segv;

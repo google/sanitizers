@@ -344,7 +344,7 @@ class MallocInfo {
     if (q->size() > 0) {
       quarantine_.PushList(q);
       while (quarantine_.size() > __asan_flag_quarantine_size) {
-        Pop();
+        QuarantinePop();
       }
     }
     if (eat_free_lists) {
@@ -465,7 +465,7 @@ class MallocInfo {
     return m;
   }
 
-  void Pop() {
+  void QuarantinePop() {
     CHECK(quarantine_.size() > 0);
     AsanChunk *m = quarantine_.Pop();
     CHECK(m);
@@ -612,16 +612,10 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
 
   if (__asan_flag_stats) {
-    __asan_stats.allocated_since_last_stats += size;
     __asan_stats.mallocs++;
     __asan_stats.malloced += size;
     __asan_stats.malloced_redzones += size_to_allocate - size;
     __asan_stats.malloced_by_size[Log2(size_to_allocate)]++;
-    if (__asan_stats.allocated_since_last_stats > (1U << __asan_flag_stats)) {
-      __asan_stats.PrintStats();
-      malloc_info.PrintStatus();
-      __asan_stats.allocated_since_last_stats = 0;
-    }
   }
 
   AsanThread *t = AsanThread::GetCurrent();
