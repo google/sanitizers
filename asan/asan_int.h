@@ -60,6 +60,10 @@ extern int __asan_inited;
 // Used to avoid infinite recursion in __asan_init().
 extern bool __asan_init_is_running;
 
+namespace __asan {
+  enum LinkerInitialized { LINKER_INITIALIZED };
+}  // namespace
+
 #define Printf __asan_printf
 
 #if __WORDSIZE == 64

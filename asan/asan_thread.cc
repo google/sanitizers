@@ -21,9 +21,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <vector>
-
-
 static pthread_key_t g_tls_key;
 // This flag is updated only once at program startup, and then read
 // by concurrent threads.
@@ -33,9 +30,9 @@ static bool tls_key_created = false;
 // I am not sure we can easily replace this with vector<>.
 static const int kMaxTid = (1 << 22) + 1;
 static AsanThreadSummary *thread_summaries[kMaxTid + 1];
-static int n_threads;
 
-AsanThread::AsanThread() : fake_stack_(/*empty_ctor_for_thread_0*/0) {
+AsanThread::AsanThread(__asan::LinkerInitialized)
+    : fake_stack_(/*empty_ctor_for_thread_0*/0) {
   CHECK(tid_ == 0);
   CHECK(this == &main_thread_);
 }
@@ -45,10 +42,10 @@ AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),
   : start_routine_(start_routine),
     arg_(arg) {
   ScopedLock lock(&mu_);
-  CHECK(n_threads > 0);
-  CHECK(n_threads < kMaxTid);
-  int tid = n_threads;
-  n_threads++;
+  CHECK(n_threads_ > 0);
+  CHECK(n_threads_ < kMaxTid);
+  int tid = n_threads_;
+  n_threads_++;
   summary_ = new AsanThreadSummary(tid, parent_tid, stack);
   summary_->set_thread(this);
   thread_summaries[tid] = summary_;
@@ -56,14 +53,14 @@ AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),
 
 AsanThreadSummary *AsanThread::FindByTid(int tid) {
   CHECK(tid >= 0);
-  CHECK(tid < n_threads);
+  CHECK(tid < n_threads_);
   CHECK(thread_summaries[tid]);
   return thread_summaries[tid];
 }
 
 AsanThread *AsanThread::FindThreadByStackAddress(uintptr_t addr) {
   ScopedLock lock(&mu_);
-  for (int tid = 0; tid < n_threads; tid++) {
+  for (int tid = 0; tid < n_threads_; tid++) {
     AsanThread *t = thread_summaries[tid]->thread();
     if (!t) continue;
     if (t->FakeStack().AddrIsInFakeStack(addr)) {
@@ -164,8 +161,9 @@ AsanThread::~AsanThread() {
 
 static void DestroyAsanTsd(void *tsd) {
   AsanThread *t = (AsanThread*)tsd;
-  if (t != AsanThread::GetMain())
+  if (t != AsanThread::GetMain()) {
     delete t;
+  }
 }
 
 void AsanThread::Init() {
@@ -175,7 +173,7 @@ void AsanThread::Init() {
   main_thread_.summary_ = &main_thread_summary_;
   main_thread_summary_.set_thread(&main_thread_);
   thread_summaries[0] = &main_thread_summary_;
-  n_threads = 1;
+  n_threads_ = 1;
 }
 
 AsanThread* AsanThread::GetCurrent() {
@@ -192,5 +190,5 @@ void AsanThread::SetCurrent(AsanThread *t) {
 int AsanThread::n_threads_;
 AsanLock AsanThread::mu_;
 bool AsanThread::inited_;
-AsanThread AsanThread::main_thread_;
-AsanThreadSummary AsanThread::main_thread_summary_;
+AsanThread AsanThread::main_thread_(__asan::LINKER_INITIALIZED);
+AsanThreadSummary AsanThread::main_thread_summary_(__asan::LINKER_INITIALIZED);
