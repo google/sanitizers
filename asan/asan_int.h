@@ -61,8 +61,8 @@ extern int __asan_inited;
 extern bool __asan_init_is_running;
 
 namespace __asan {
-  enum LinkerInitialized { LINKER_INITIALIZED };
-}  // namespace
+  enum LinkerInitialized { LINKER_INITIALIZED = 0 };
+}  // namespace __asan
 
 #define Printf __asan_printf
 
