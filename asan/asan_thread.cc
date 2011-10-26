@@ -188,6 +188,5 @@ void AsanThread::SetCurrent(AsanThread *t) {
 
 int AsanThread::n_threads_;
 AsanLock AsanThread::mu_;
-bool AsanThread::inited_;
 AsanThread AsanThread::main_thread_(__asan::LINKER_INITIALIZED);
 AsanThreadSummary AsanThread::main_thread_summary_(__asan::LINKER_INITIALIZED);

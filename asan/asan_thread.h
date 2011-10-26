@@ -80,7 +80,7 @@ class AsanThread {
 
   AsanFakeStack &FakeStack() { return fake_stack_; }
 
-  uintptr_t AddrIsInStack(uintptr_t addr) {
+  bool AddrIsInStack(uintptr_t addr) {
     return addr >= stack_bottom_ && addr < stack_top_;
   }
 
@@ -103,7 +103,6 @@ class AsanThread {
   void *arg_;
   uintptr_t  stack_top_;
   uintptr_t  stack_bottom_;
-  bool       announced_;
 
   AsanThreadLocalMallocStorage malloc_storage_;
 
@@ -113,7 +112,6 @@ class AsanThread {
   static AsanThreadSummary main_thread_summary_;
   static int n_threads_;
   static AsanLock mu_;
-  static bool inited_;
 };
 
 #endif  // ASAN_THREAD_H
