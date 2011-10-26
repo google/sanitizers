@@ -18,11 +18,20 @@
 #include "asan_test_utils.h"
 #include "asan_interface.h"
 
+using __asan_interface::get_estimated_allocated_size;
 using __asan_interface::get_ownership;
 using __asan_interface::get_allocated_size;
 using __asan_interface::get_current_allocated_bytes;
 using __asan_interface::enable_statistics;
 using __asan_interface::print_accumulated_stats;
+
+TEST(AddressSanitizerInterface, GetEstimatedAllocatedSize) {
+  EXPECT_EQ(1, get_estimated_allocated_size(0));
+  const size_t sizes[] = { 1, 30, 1<<30 };
+  for (size_t i = 0; i < 3; i++) {
+    EXPECT_EQ(sizes[i], get_estimated_allocated_size(sizes[i]));
+  }
+}
 
 static const char* kGetAllocatedSizeErrorMsg = "get_allocated_size failed";
 

@@ -576,7 +576,12 @@ static void Describe(uintptr_t addr, size_t access_size) {
   }
 }
 
-static inline size_t NeededSizeForAllocation(size_t alignment, size_t size) {
+static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
+  __asan_init();
+  CHECK(stack);
+  if (size == 0) {
+    size = 1;  // TODO(kcc): do something smarter
+  }
   CHECK(IsPowerOfTwo(alignment));
   size_t rounded_size = RoundUpTo(size, REDZONE);
   size_t needed_size = rounded_size + REDZONE;
@@ -584,16 +589,6 @@ static inline size_t NeededSizeForAllocation(size_t alignment, size_t size) {
     needed_size += alignment;
   }
   CHECK(IsAligned(needed_size, REDZONE));
-  return needed_size;
-}
-
-static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
-  __asan_init();
-  CHECK(stack);
-  if (size == 0) {
-    size = 1;  // TODO(kcc): do something smarter
-  }
-  size_t needed_size = NeededSizeForAllocation(alignment, size);
   if (needed_size > kMaxAllowedMallocSize) {
     OutOfMemoryMessage(__FUNCTION__, size);
     stack->PrintStack();
@@ -659,7 +654,6 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   m->free_tid   = AsanThread::kInvalidTid;
   AsanStackTrace::CompressStack(stack, m->compressed_alloc_stack(),
                                 m->compressed_alloc_stack_size());
-  size_t rounded_size = RoundUpTo(size, REDZONE);
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
     PoisonMemoryPartialRightRedzone(addr + rounded_size - REDZONE,
@@ -808,10 +802,11 @@ void __asan_mz_force_unlock() {
 // ---------------------- AsanInterface ---------------- {{{1
 namespace __asan_interface {
 
+// ASan allocator doesn't reserve extra bytes, so normally we would
+// just return "size".
 size_t get_estimated_allocated_size(size_t size) {
-  size_t needed_size = std::min(NeededSizeForAllocation(0, size),
-                                kMaxAllowedMallocSize);
-  return SizeClassToSize(SizeToSizeClass(needed_size));
+  if (size == 0) return 1;
+  return std::min(size, kMaxAllowedMallocSize);
 }
 
 bool get_ownership(const void *p) {

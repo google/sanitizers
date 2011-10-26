@@ -18,8 +18,10 @@
 // This header should NOT include any other headers from ASan runtime.
 
 namespace __asan_interface {
-  // Returns the estimated number of bytes that will be allocated for
-  // request of "size" bytes.
+  // Returns the estimated number of bytes that will be reserved by allocator
+  // for request of "size" bytes. If ASan allocator can't allocate that much
+  // memory, returns the maximal possible allocation size, otherwise returns
+  // "size".
   size_t get_estimated_allocated_size(size_t size);
   // Returns true if p is NULL or if p was returned by the ASan allocator and
   // is not yet freed.
