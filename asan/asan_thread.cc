@@ -33,7 +33,6 @@ static AsanThreadSummary *thread_summaries[kMaxTid + 1];
 
 AsanThread::AsanThread(__asan::LinkerInitialized)
     : fake_stack_(/*empty_ctor_for_thread_0*/0) {
-  CHECK(tid_ == 0);
   CHECK(this == &main_thread_);
 }
 
@@ -79,7 +78,7 @@ void *AsanThread::ThreadStart() {
   if (__asan_flag_v == 1) {
     int local = 0;
     Printf("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
-            tid_, stack_bottom_, stack_top_,
+            tid(), stack_bottom_, stack_top_,
             stack_top_ - stack_bottom_, &local);
   }
   CHECK(AddrIsInMem(stack_bottom_));
@@ -91,7 +90,7 @@ void *AsanThread::ThreadStart() {
   __asan::real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 
   if (!start_routine_) {
-    CHECK(tid_ == 0);
+    CHECK(tid() == 0);
     return 0;
   }
 
@@ -99,7 +98,7 @@ void *AsanThread::ThreadStart() {
   malloc_storage().CommitBack();
 
   if (__asan_flag_v == 1) {
-    Printf("T%d exited\n", tid_);
+    Printf("T%d exited\n", tid());
   }
 
   return res;

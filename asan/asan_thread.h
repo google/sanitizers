@@ -103,7 +103,6 @@ class AsanThread {
   void *arg_;
   uintptr_t  stack_top_;
   uintptr_t  stack_bottom_;
-  int        tid_;
   bool       announced_;
 
   AsanThreadLocalMallocStorage malloc_storage_;
