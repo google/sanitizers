@@ -157,16 +157,12 @@ void __asan_show_stats_and_abort() {
 
 static void PrintBytes(const char *before, uintptr_t *a) {
   uint8_t *bytes = (uint8_t*)a;
-#if __WORDSIZE == 64
-  Printf("%s"PP": %02x %02x %02x %02x %02x %02x %02x %02x\n",
-         before, (uintptr_t)a,
-         bytes[0], bytes[1], bytes[2], bytes[3],
-         bytes[4], bytes[5], bytes[6], bytes[7]);
-#else
-  Printf("%s"PP": %02x %02x %02x %02x\n",
-         before, (uintptr_t)a,
-         bytes[0], bytes[1], bytes[2], bytes[3]);
-#endif
+  size_t byte_num = (__WORDSIZE) / 8;
+  Printf("%s"PP":", before, (uintptr_t)a);
+  for (size_t i = 0; i < byte_num; i++) {
+    Printf(" %lx%lx", bytes[i] >> 4, bytes[i] & 15);
+  }
+  Printf("\n");
 }
 
 // ---------------------- Thread ------------------------- {{{1
