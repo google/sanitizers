@@ -36,20 +36,20 @@ void *__asan_does_not_support_static_linkage();
 
 void Printf(const char *format, ...);
 
-extern size_t __asan_flag_quarantine_size;
-extern int    __asan_flag_demangle;
-extern bool   __asan_flag_symbolize;
-extern int    __asan_flag_v;
-extern bool   __asan_flag_mt;
-extern size_t __asan_flag_redzone;
-extern int    __asan_flag_debug;
-extern bool   __asan_flag_poison_shadow;
-extern int    __asan_flag_report_globals;
-extern size_t __asan_flag_malloc_context_size;
-extern bool   __asan_flag_stats;
-extern bool   __asan_flag_replace_str;
-extern bool   __asan_flag_replace_intrin;
-extern bool   __asan_flag_fast_unwind;
+extern size_t FLAG_quarantine_size;
+extern int    FLAG_demangle;
+extern bool   FLAG_symbolize;
+extern int    FLAG_v;
+extern bool   FLAG_mt;
+extern size_t FLAG_redzone;
+extern int    FLAG_debug;
+extern bool   FLAG_poison_shadow;
+extern int    FLAG_report_globals;
+extern size_t FLAG_malloc_context_size;
+extern bool   FLAG_stats;
+extern bool   FLAG_replace_str;
+extern bool   FLAG_replace_intrin;
+extern bool   FLAG_fast_unwind;
 
 extern int __asan_inited;
 // Used to avoid infinite recursion in __asan_init().
@@ -118,12 +118,12 @@ PoisonShadowPartialRightRedzone(unsigned char *shadow,
 
 // -------------------------- Atomic ---------------- {{{1
 static inline int AtomicInc(int *a) {
-  if (!__asan_flag_mt) return ++(*a);
+  if (!FLAG_mt) return ++(*a);
   return __sync_add_and_fetch(a, 1);
 }
 
 static inline int AtomicDec(int *a) {
-  if (!__asan_flag_mt) return --(*a);
+  if (!FLAG_mt) return --(*a);
   return __sync_add_and_fetch(a, -1);
 }
 

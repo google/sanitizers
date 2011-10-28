@@ -96,7 +96,7 @@ typedef std::map<uintptr_t, Global> MapOfGlobals;
 static MapOfGlobals *g_all_globals = NULL;
 
 bool __asan_describe_addr_if_global(uintptr_t addr) {
-  if (!__asan_flag_report_globals) return false;
+  if (!FLAG_report_globals) return false;
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals) return false;
   bool res = false;
@@ -105,7 +105,7 @@ bool __asan_describe_addr_if_global(uintptr_t addr) {
        end = g_all_globals->end(); i != end; ++i) {
     Global &g = i->second;
     CHECK(i->first == g.beg);
-    if (__asan_flag_report_globals >= 2)
+    if (FLAG_report_globals >= 2)
       Printf("Search Global: beg="PP" size=%ld name=%s\n",
              g.beg, g.size, g.name);
     res |= g.DescribeAddrIfMyRedZone(addr);
@@ -125,7 +125,7 @@ using namespace __asan;  // NOLINT
 void __asan_register_global(uintptr_t addr, size_t size,
                             const char *name) {
   CHECK(__asan_inited);
-  if (!__asan_flag_report_globals) return;
+  if (!FLAG_report_globals) return;
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals)
     g_all_globals = new MapOfGlobals;
@@ -134,7 +134,7 @@ void __asan_register_global(uintptr_t addr, size_t size,
   g.size = size;
   g.beg = addr;
   g.name = name;
-  if (__asan_flag_report_globals >= 2)
+  if (FLAG_report_globals >= 2)
     Printf("Added Global: beg="PP" size=%ld name=%s\n",
            g.beg, g.size, g.name);
   g.PoisonRedZones();

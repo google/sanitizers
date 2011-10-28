@@ -43,7 +43,7 @@
 
 namespace __asan {
 
-#define  REDZONE __asan_flag_redzone
+#define  REDZONE FLAG_redzone
 static const size_t kMinAllocSize = REDZONE * 2;
 static const size_t kMinMmapSize  = kPageSize * 1024;
 static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
@@ -154,7 +154,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
     _exit(EXIT_FAILURE);
   }
   PoisonShadow((uintptr_t)res, size, kAsanHeapLeftRedzoneMagic);
-  if (__asan_flag_debug) {
+  if (FLAG_debug) {
     Printf("ASAN_MMAP: ["PP", "PP")\n", res, res + size);
   }
   return res;
@@ -343,12 +343,12 @@ class MallocInfo {
 
   void SwallowThreadLocalMallocStorage(AsanThreadLocalMallocStorage *x,
                                        bool eat_free_lists) {
-    CHECK(__asan_flag_quarantine_size > 0);
+    CHECK(FLAG_quarantine_size > 0);
     ScopedLock lock(&mu_);
     AsanChunkFifoList *q = &x->quarantine_;
     if (q->size() > 0) {
       quarantine_.PushList(q);
-      while (quarantine_.size() > __asan_flag_quarantine_size) {
+      while (quarantine_.size() > FLAG_quarantine_size) {
         QuarantinePop();
       }
     }
@@ -485,7 +485,7 @@ class MallocInfo {
     m->next = free_lists_[size_class];
     free_lists_[size_class] = m;
 
-    if (__asan_flag_stats) {
+    if (FLAG_stats) {
       __asan_stats.real_frees++;
       __asan_stats.really_freed += m->used_size;
       __asan_stats.really_freed_by_size[Log2(m->Size())]++;
@@ -509,7 +509,7 @@ class MallocInfo {
     }
     CHECK(n_chunks > 0);
     uint8_t *mem = MmapNewPagesAndPoisonShadow(mmap_size);
-    if (__asan_flag_stats) {
+    if (FLAG_stats) {
       __asan_stats.mmaps++;
       __asan_stats.mmaped += mmap_size;
       __asan_stats.mmaped_by_size[Log2(size)] += n_chunks;
@@ -608,12 +608,12 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   CHECK(size_to_allocate >= needed_size);
   CHECK(IsAligned(size_to_allocate, REDZONE));
 
-  if (__asan_flag_v >= 2) {
+  if (FLAG_v >= 2) {
     Printf("Allocate align: %ld size: %ld class: %d real: %ld\n",
          alignment, size, size_class, size_to_allocate);
   }
 
-  if (__asan_flag_stats) {
+  if (FLAG_stats) {
     __asan_stats.mallocs++;
     __asan_stats.malloced += size;
     __asan_stats.malloced_redzones += size_to_allocate - size;
@@ -625,7 +625,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   if (!t || size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
     // get directly from global storage.
     m = malloc_info.AllocateChunks(size_class, 1);
-    if (__asan_flag_stats)  __asan_stats.malloc_large++;
+    if (FLAG_stats)  __asan_stats.malloc_large++;
   } else {
     // get from the thread-local storage.
     AsanChunk **fl = &t->malloc_storage().free_lists_[size_class];
@@ -633,7 +633,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
       size_t n_new_chunks = kMaxSizeForThreadLocalFreeList / size_to_allocate;
       // n_new_chunks = std::min((size_t)32, n_new_chunks);
       *fl = malloc_info.AllocateChunks(size_class, n_new_chunks);
-      if (__asan_flag_stats) __asan_stats.malloc_small_slow++;
+      if (FLAG_stats) __asan_stats.malloc_small_slow++;
     }
     m = *fl;
     *fl = (*fl)->next;
@@ -673,7 +673,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   if (!ptr) return;
   CHECK(stack);
 
-  if (__asan_flag_debug) {
+  if (FLAG_debug) {
     CHECK(malloc_info.FindPageGroup((uintptr_t)ptr));
   }
 
@@ -699,7 +699,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   size_t rounded_size = RoundUpTo(m->used_size, REDZONE);
   PoisonShadow((uintptr_t)ptr, rounded_size, kAsanHeapFreeMagic);
 
-  if (__asan_flag_stats) {
+  if (FLAG_stats) {
     __asan_stats.frees++;
     __asan_stats.freed += m->used_size;
     __asan_stats.freed_by_size[Log2(m->Size())]++;
@@ -728,7 +728,7 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
   if (new_size == 0) {
     return NULL;
   }
-  if (__asan_flag_stats) {
+  if (FLAG_stats) {
     __asan_stats.reallocs++;
     __asan_stats.realloced += new_size;
   }

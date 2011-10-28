@@ -29,7 +29,7 @@ class ProcSelfMaps {
   void Init() {
     ScopedLock lock(&mu_);
     if (map_size_ != 0) return;  // already inited
-    if (__asan_flag_v >= 2) {
+    if (FLAG_v >= 2) {
       Printf("ProcSelfMaps::Init()\n");
     }
     ProcMapsIterator it(0, &proc_self_maps_);   // 0 means "current pid"
@@ -47,7 +47,7 @@ class ProcSelfMaps {
       real_strncpy(mapping.name,
                    filename, ASAN_ARRAY_SIZE(mapping.name));
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
-      if (__asan_flag_v >= 2) {
+      if (FLAG_v >= 2) {
         Printf("[%ld] ["PP","PP"] off "PP" %s\n", map_size_,
                mapping.beg, mapping.end, mapping.offset, mapping.name);
       }

@@ -42,7 +42,7 @@ AsanThread::~AsanThread() {
 void *AsanThread::ThreadStart() {
   SetThreadStackTopAndBottom();
   fake_stack_.Init(stack_size());
-  if (__asan_flag_v == 1) {
+  if (FLAG_v == 1) {
     int local = 0;
     Printf("T%d: stack ["PP","PP") size 0x%lx; local="PP"\n",
             tid(), stack_bottom_, stack_top_,
@@ -64,7 +64,7 @@ void *AsanThread::ThreadStart() {
   void *res = start_routine_(arg_);
   malloc_storage().CommitBack();
 
-  if (__asan_flag_v == 1) {
+  if (FLAG_v == 1) {
     Printf("T%d exited\n", tid());
   }
 

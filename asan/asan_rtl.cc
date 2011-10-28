@@ -58,25 +58,25 @@ namespace __asan {
 
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
-static int    __asan_flag_atexit;
-bool   __asan_flag_fast_unwind = true;
+static int    FLAG_atexit;
+bool   FLAG_fast_unwind = true;
 
-size_t __asan_flag_redzone;  // power of two, >= 32
-bool   __asan_flag_mt;  // set to 0 if you have only one thread.
-size_t __asan_flag_quarantine_size;
-int    __asan_flag_demangle;
-bool   __asan_flag_symbolize;
-int    __asan_flag_v;
-int    __asan_flag_debug;
-bool   __asan_flag_poison_shadow;
-int    __asan_flag_report_globals;
-size_t __asan_flag_malloc_context_size = kMallocContextSize;
-uintptr_t __asan_flag_large_malloc;
-bool   __asan_flag_lazy_shadow;
-bool   __asan_flag_handle_segv;
-bool __asan_flag_replace_str;
-bool __asan_flag_replace_intrin;
-bool __asan_flag_stats;
+size_t FLAG_redzone;  // power of two, >= 32
+bool   FLAG_mt;  // set to 0 if you have only one thread.
+size_t FLAG_quarantine_size;
+int    FLAG_demangle;
+bool   FLAG_symbolize;
+int    FLAG_v;
+int    FLAG_debug;
+bool   FLAG_poison_shadow;
+int    FLAG_report_globals;
+size_t FLAG_malloc_context_size = kMallocContextSize;
+uintptr_t FLAG_large_malloc;
+bool   FLAG_lazy_shadow;
+bool   FLAG_handle_segv;
+bool FLAG_replace_str;
+bool FLAG_replace_intrin;
+bool FLAG_stats;
 
 
 // -------------------------- Printf ---------------- {{{1
@@ -133,7 +133,7 @@ static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
 }
 
 void AsanStats::PrintStats() {
-  if (!__asan_flag_stats) return;
+  if (!FLAG_stats) return;
   Printf("Stats: %ldM malloced (%ldM for red zones) by %ld calls\n",
          malloced>>20, malloced_redzones>>20, mallocs);
   Printf("Stats: %ldM realloced by %ld calls\n", realloced>>20, reallocs);
@@ -311,7 +311,7 @@ void GetPcSpBpAx(void *context,
 
 static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t addr = (uintptr_t)siginfo->si_addr;
-  if (AddrIsInShadow(addr) && __asan_flag_lazy_shadow) {
+  if (AddrIsInShadow(addr) && FLAG_lazy_shadow) {
     // We traped on access to a shadow address. Just map a large chunk around
     // this address.
     const uintptr_t chunk_size = kPageSize << 10;  // 4M
@@ -433,9 +433,9 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
 
 static bool MySignal(int signum) {
   if (signum == SIGILL) return true;
-  if (__asan_flag_handle_segv && signum == SIGSEGV) return true;
+  if (FLAG_handle_segv && signum == SIGSEGV) return true;
 #ifdef __APPLE__
-  if (__asan_flag_handle_segv && signum == SIGBUS) return true;
+  if (FLAG_handle_segv && signum == SIGBUS) return true;
 #endif
   return false;
 }
@@ -568,12 +568,12 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
           access_size, addr, asanThreadRegistry().GetCurrent()->tid());
 
-  if (__asan_flag_debug) {
+  if (FLAG_debug) {
     PrintBytes("PC: ", (uintptr_t*)pc);
   }
 
   GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax,
-                                 false,  // __asan_flag_fast_unwind,
+                                 false,  // FLAG_fast_unwind,
                                  pc, bp);
   stack.PrintStack();
 
@@ -611,36 +611,36 @@ void __asan_init() {
 
   // flags
   const char *options = getenv("ASAN_OPTIONS");
-  __asan_flag_malloc_context_size =
+  FLAG_malloc_context_size =
       IntFlagValue(options, "malloc_context_size=", kMallocContextSize);
-  CHECK(__asan_flag_malloc_context_size <= kMallocContextSize);
+  CHECK(FLAG_malloc_context_size <= kMallocContextSize);
 
-  __asan_flag_v = IntFlagValue(options, "verbosity=", 0);
+  FLAG_v = IntFlagValue(options, "verbosity=", 0);
 
-  __asan_flag_redzone = IntFlagValue(options, "redzone=", 128);
-  CHECK(__asan_flag_redzone >= 32);
-  CHECK((__asan_flag_redzone & (__asan_flag_redzone - 1)) == 0);
+  FLAG_redzone = IntFlagValue(options, "redzone=", 128);
+  CHECK(FLAG_redzone >= 32);
+  CHECK((FLAG_redzone & (FLAG_redzone - 1)) == 0);
 
-  __asan_flag_atexit = IntFlagValue(options, "atexit=", 0);
-  __asan_flag_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
-  __asan_flag_report_globals = IntFlagValue(options, "report_globals=", 1);
-  __asan_flag_lazy_shadow = IntFlagValue(options, "lazy_shadow=", 0);
-  __asan_flag_handle_segv = IntFlagValue(options, "handle_segv=",
+  FLAG_atexit = IntFlagValue(options, "atexit=", 0);
+  FLAG_poison_shadow = IntFlagValue(options, "poison_shadow=", 1);
+  FLAG_report_globals = IntFlagValue(options, "report_globals=", 1);
+  FLAG_lazy_shadow = IntFlagValue(options, "lazy_shadow=", 0);
+  FLAG_handle_segv = IntFlagValue(options, "handle_segv=",
                                          ASAN_NEEDS_SEGV);
-  __asan_flag_stats = IntFlagValue(options, "stats=", 0);
-  __asan_flag_symbolize = IntFlagValue(options, "symbolize=", 1);
-  __asan_flag_demangle = IntFlagValue(options, "demangle=", 1);
-  __asan_flag_debug = IntFlagValue(options, "debug=", 0);
-  __asan_flag_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
-  __asan_flag_mt = IntFlagValue(options, "mt=", 1);
-  __asan_flag_replace_str = IntFlagValue(options, "replace_str=", 1);
-  __asan_flag_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
+  FLAG_stats = IntFlagValue(options, "stats=", 0);
+  FLAG_symbolize = IntFlagValue(options, "symbolize=", 1);
+  FLAG_demangle = IntFlagValue(options, "demangle=", 1);
+  FLAG_debug = IntFlagValue(options, "debug=", 0);
+  FLAG_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
+  FLAG_mt = IntFlagValue(options, "mt=", 1);
+  FLAG_replace_str = IntFlagValue(options, "replace_str=", 1);
+  FLAG_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
 
-  if (__asan_flag_atexit) {
+  if (FLAG_atexit) {
     atexit(asan_atexit);
   }
 
-  __asan_flag_quarantine_size =
+  FLAG_quarantine_size =
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
 
   // interceptors
@@ -668,7 +668,7 @@ void __asan_init() {
 
   struct sigaction sigact;
 
-  if (__asan_flag_handle_segv) {
+  if (FLAG_handle_segv) {
     // Set the SIGSEGV handler.
     real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
@@ -683,7 +683,7 @@ void __asan_init() {
     CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
 #endif
   } else {
-    CHECK(!__asan_flag_lazy_shadow);
+    CHECK(!FLAG_lazy_shadow);
   }
 
   // Set the SIGILL handler.
@@ -692,7 +692,7 @@ void __asan_init() {
   sigact.sa_flags = SA_SIGINFO;
   CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
 
-  if (__asan_flag_v) {
+  if (FLAG_v) {
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
     Printf("|| `["PP", "PP"]` || HighShadow ||\n",
            kHighShadowBeg, kHighShadowEnd);
@@ -706,9 +706,9 @@ void __asan_init() {
            MEM_TO_SHADOW(kLowShadowEnd),
            MEM_TO_SHADOW(kHighShadowBeg),
            MEM_TO_SHADOW(kHighShadowEnd));
-    Printf("red_zone=%ld\n", __asan_flag_redzone);
-    Printf("malloc_context_size=%ld\n", (int)__asan_flag_malloc_context_size);
-    Printf("fast_unwind=%d\n", (int)__asan_flag_fast_unwind);
+    Printf("red_zone=%ld\n", FLAG_redzone);
+    Printf("malloc_context_size=%ld\n", (int)FLAG_malloc_context_size);
+    Printf("fast_unwind=%d\n", (int)FLAG_fast_unwind);
 
     Printf("SHADOW_SCALE: %lx\n", SHADOW_SCALE);
     Printf("SHADOW_GRANULARITY: %lx\n", SHADOW_GRANULARITY);
@@ -725,7 +725,7 @@ void __asan_init() {
   }
 
   {
-    if (!__asan_flag_lazy_shadow) {
+    if (!FLAG_lazy_shadow) {
       if (kLowShadowBeg != kLowShadowEnd) {
         // mmap the low shadow plus one page.
         mmap_range(kLowShadowBeg - kPageSize, kLowShadowEnd, "LowShadow");
@@ -745,7 +745,7 @@ void __asan_init() {
   asanThreadRegistry().Init();
   asanThreadRegistry().GetMain()->ThreadStart();
 
-  if (__asan_flag_v) {
+  if (FLAG_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n",
            getpid(), ASAN_REVISION);
   }

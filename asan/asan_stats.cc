@@ -23,8 +23,8 @@ size_t __asan_get_current_allocated_bytes() {
 }
 
 bool __asan_enable_statistics(bool enable) {
-  bool old_flag = __asan_flag_stats;
-  __asan_flag_stats = enable;
+  bool old_flag = FLAG_stats;
+  FLAG_stats = enable;
   return old_flag;
 }
 

@@ -106,7 +106,7 @@ void __asan_interceptors_init() {
 #endif
   INTERCEPT_FUNCTION(strlen);
   INTERCEPT_FUNCTION(strncpy);
-  if (__asan_flag_v > 0) {
+  if (FLAG_v > 0) {
     Printf("AddressSanitizer: libc interceptors initialized\n");
   }
 }
@@ -125,7 +125,7 @@ void *WRAP(memcpy)(void *to, const void *from, size_t size) {
     return real_memcpy(to, from, size);
   }
   ensure_asan_inited();
-  if (__asan_flag_replace_intrin) {
+  if (FLAG_replace_intrin) {
     ASAN_WRITE_RANGE(from, size);
     ASAN_READ_RANGE(to, size);
     // TODO(samsonov): Check here that read and write intervals
@@ -136,7 +136,7 @@ void *WRAP(memcpy)(void *to, const void *from, size_t size) {
 
 void *WRAP(memmove)(void *to, const void *from, size_t size) {
   ensure_asan_inited();
-  if (__asan_flag_replace_intrin) {
+  if (FLAG_replace_intrin) {
     ASAN_WRITE_RANGE(from, size);
     ASAN_READ_RANGE(to, size);
   }
@@ -145,7 +145,7 @@ void *WRAP(memmove)(void *to, const void *from, size_t size) {
 
 void *WRAP(memset)(void *block, int c, size_t size) {
   ensure_asan_inited();
-  if (__asan_flag_replace_intrin) {
+  if (FLAG_replace_intrin) {
     ASAN_WRITE_RANGE(block, size);
   }
   return real_memset(block, c, size);
@@ -164,7 +164,7 @@ size_t WRAP(strlen)(const char *s) {
   // real_strlen() call, and instrument its arguments
   // beforehand.
   size_t length = real_strlen(s);
-  if (__asan_flag_replace_str) {
+  if (FLAG_replace_str) {
     ASAN_READ_RANGE(s, length + 1);
   }
   return length;
@@ -172,7 +172,7 @@ size_t WRAP(strlen)(const char *s) {
 
 char *WRAP(strncpy)(char *to, const char *from, size_t size) {
   ensure_asan_inited();
-  if (__asan_flag_replace_str) {
+  if (FLAG_replace_str) {
     // TODO(samsonov): We should be able to find *the first*
     // OOB access that happens in __asan_strlen.
     size_t from_size = __asan_strnlen(from, size) + 1;
