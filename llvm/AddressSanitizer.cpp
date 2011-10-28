@@ -160,7 +160,6 @@ struct AddressSanitizer : public ModulePass {
   bool poisonStackInFunction(Module &M, Function &F);
   virtual bool runOnModule(Module &M);
   bool insertGlobalRedzones(Module &M);
-  void appendToGlobalCtors(Module &M, Function *F, int Priority);
   BranchInst *splitBlockAndInsertIfThen(Instruction *SplitBefore, Value *Cmp);
   static char ID;  // Pass identification, replacement for typeid
 
@@ -438,9 +437,10 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
   Crash->setDebugLoc(OrigIns->getDebugLoc());
 }
 
-// Append 'F' to the list of global ctors with the given Priority.
-void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
-                                           int Priority) {
+// Append F to the list of global ctors with the given Priority.
+// TODO: move to llvm/lib/Transforms/Utils.
+static void appendToGlobalCtors(Module &M, Function *F,
+                                int Priority) {
   IRBuilder<> IRB(M.getContext());
   FunctionType *FnTy = FunctionType::get(IRB.getVoidTy(), false);
   StructType *Ty = StructType::get(
@@ -451,7 +451,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
 
   // Get the current set of static global constructors and add the new ctor
   // to the list.
-  std::vector<Constant *> CurrentCtors;
+  SmallVector<Constant *, 16> CurrentCtors;
   GlobalVariable * GVCtor = M.getNamedGlobal(kLLVMGlobalCtors);
   if (GVCtor) {
     if (Constant *Const = GVCtor->getInitializer()) {
@@ -470,7 +470,7 @@ void AddressSanitizer::appendToGlobalCtors(Module &M, Function *F,
 
   // Create a new initializer.
   ArrayType *AT = ArrayType::get(RuntimeCtorInit->getType(),
-                                         CurrentCtors.size());
+                                 CurrentCtors.size());
   Constant *NewInit = ConstantArray::get(AT, CurrentCtors);
 
   // Create the new kLLVMGlobalCtors global variable and replace all uses of
