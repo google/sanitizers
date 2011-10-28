@@ -509,7 +509,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
     // Ignore all the globals with the names starting with "\01L_OBJC_".
     // Many of those are put into the .cstring section. The linker compresses
-    // that section by removing the spare \0s after the string terminator, so 
+    // that section by removing the spare \0s after the string terminator, so
     // our redzones get broken.
     if ((G->getName().find("\01L_OBJC_") == 0) ||
         (G->getName().find("\01l_OBJC_") == 0)) {
