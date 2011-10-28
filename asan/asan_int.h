@@ -39,6 +39,7 @@ size_t __asan_stack_malloc(size_t size, size_t real_stack)
 void __asan_stack_free(size_t ptr, size_t size, size_t real_stack)
     __attribute__((visibility("default")));
 bool __asan_describe_addr_if_global(uintptr_t addr);
+void *__asan_does_not_support_static_linkage();
 }  // extern "C"
 
 extern size_t __asan_flag_quarantine_size;

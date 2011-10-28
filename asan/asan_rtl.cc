@@ -608,6 +608,9 @@ void __asan_init() {
   __asan_init_is_running = true;
   asan_out = stderr;
 
+  // Make sure we are not statically linked.
+  __asan_does_not_support_static_linkage();
+
   // flags
   const char *options = getenv("ASAN_OPTIONS");
   __asan_flag_malloc_context_size =
