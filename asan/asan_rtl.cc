@@ -95,8 +95,8 @@ void Printf(const char *format, ...) {
 
 
 // -------------------------- Globals --------------------- {{{1
-int __asan_inited;
-bool __asan_init_is_running;
+int asan_inited;
+bool asan_init_is_running;
 
 // -------------------------- Interceptors ---------------- {{{1
 typedef int (*sigaction_f)(int signum, const struct sigaction *act,
@@ -151,11 +151,11 @@ void AsanStats::PrintStats() {
          malloc_large, malloc_small_slow);
 }
 
-AsanStats __asan_stats;
+AsanStats asan_stats;
 
 // -------------------------- Misc ---------------- {{{1
 void ShowStatsAndAbort() {
-  __asan_stats.PrintStats();
+  asan_stats.PrintStats();
   abort();
 }
 
@@ -385,7 +385,7 @@ static int64_t IntFlagValue(const char *flags, const char *flag,
 
 static void asan_atexit() {
   Printf("AddressSanitizer exit stats:\n");
-  __asan_stats.PrintStats();
+  asan_stats.PrintStats();
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
@@ -401,7 +401,7 @@ using namespace __asan;  // NOLINT
 
 #define OPERATOR_NEW_BODY \
   GET_STACK_TRACE_HERE_FOR_MALLOC;\
-  return __asan_memalign(0, size, &stack);
+  return asan_memalign(0, size, &stack);
 
 void *operator new(size_t size) { OPERATOR_NEW_BODY; }
 void *operator new[](size_t size) { OPERATOR_NEW_BODY; }
@@ -411,7 +411,7 @@ void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 #define OPERATOR_DELETE_BODY \
   if (!ptr) return;\
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
-  __asan_free(ptr, &stack);
+  asan_free(ptr, &stack);
 
 void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
@@ -425,7 +425,7 @@ __attribute__((visibility("default")))
 int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
                          void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
-  AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
+  AsanThread *t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
   new(t) AsanThread(asanThreadRegistry().GetCurrent()->tid(),
                     start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
@@ -583,7 +583,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   uintptr_t shadow_addr = MemToShadow(addr);
   Printf("==%d== ABORTING\n", getpid());
-  __asan_stats.PrintStats();
+  asan_stats.PrintStats();
   Printf("Shadow byte and word:\n");
   Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
   uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
@@ -602,8 +602,8 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 }
 
 void __asan_init() {
-  if (__asan_inited) return;
-  __asan_init_is_running = true;
+  if (asan_inited) return;
+  asan_init_is_running = true;
   asan_out = stderr;
 
   // Make sure we are not statically linked.
@@ -737,10 +737,10 @@ void __asan_init() {
     protect_range(kShadowGapBeg, kShadowGapEnd);
   }
 
-  // On Linux AsanThread::ThreadStart() calls malloc() that's why __asan_inited
+  // On Linux AsanThread::ThreadStart() calls malloc() that's why asan_inited
   // should be set to 1 prior to initializing the threads.
-  __asan_inited = 1;
-  __asan_init_is_running = false;
+  asan_inited = 1;
+  asan_init_is_running = false;
 
   asanThreadRegistry().Init();
   asanThreadRegistry().GetMain()->ThreadStart();

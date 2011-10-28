@@ -35,24 +35,24 @@ extern "C" {
 INTERCEPTOR_ATTRIBUTE
 void free(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  __asan_free(ptr, &stack);
+  asan_free(ptr, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void cfree(void *ptr) {
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-  __asan_free(ptr, &stack);
+  asan_free(ptr, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void *malloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_malloc(size, &stack);
+  return asan_malloc(size, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void *calloc(size_t nmemb, size_t size) {
-  if (!__asan_inited) {
+  if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
     static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
@@ -64,19 +64,19 @@ void *calloc(size_t nmemb, size_t size) {
     return mem;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_calloc(nmemb, size, &stack);
+  return asan_calloc(nmemb, size, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void *realloc(void *ptr, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_realloc(ptr, size, &stack);
+  return asan_realloc(ptr, size, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void *memalign(size_t boundary, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(boundary, size, &stack);
+  return asan_memalign(boundary, size, &stack);
 }
 
 void* __libc_memalign(size_t align, size_t s)
@@ -98,18 +98,18 @@ INTERCEPTOR_ATTRIBUTE
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   // Printf("posix_memalign: %lx %ld\n", alignment, size);
-  return __asan_posix_memalign(memptr, alignment, size, &stack);
+  return asan_posix_memalign(memptr, alignment, size, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void *valloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_valloc(size, &stack);
+  return asan_valloc(size, &stack);
 }
 
 INTERCEPTOR_ATTRIBUTE
 void *pvalloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_pvalloc(size, &stack);
+  return asan_pvalloc(size, &stack);
 }
 }  // extern "C"

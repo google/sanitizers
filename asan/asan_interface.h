@@ -34,7 +34,7 @@ extern "C" {
 
   // These two functions are used by the instrumented code in the
   // use-after-return mode. __asan_stack_malloc allocates size bytes of
-  // fake stack and __asan_free deallocates it. real_stack is a pointer to
+  // fake stack and asan_free deallocates it. real_stack is a pointer to
   // the real stack region.
   size_t __asan_stack_malloc(size_t size, size_t real_stack)
       __attribute__((visibility("default")));

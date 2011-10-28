@@ -51,9 +51,9 @@ extern bool   FLAG_replace_str;
 extern bool   FLAG_replace_intrin;
 extern bool   FLAG_fast_unwind;
 
-extern int __asan_inited;
+extern int asan_inited;
 // Used to avoid infinite recursion in __asan_init().
-extern bool __asan_init_is_running;
+extern bool asan_init_is_running;
 
 enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 

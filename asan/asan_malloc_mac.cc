@@ -28,7 +28,7 @@
 
 // The free() implementation provided by OS X calls malloc_zone_from_ptr()
 // to find the owner of |ptr|. If the result is NULL, an invalid free() is
-// reported. Our implementation falls back to __asan_free() in this case
+// reported. Our implementation falls back to asan_free() in this case
 // in order to print an ASan-style report.
 extern "C"
 void free(void *ptr) {
@@ -46,7 +46,7 @@ void free(void *ptr) {
 #endif
   } else {
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-    __asan_free(ptr, &stack);
+    asan_free(ptr, &stack);
   }
 }
 
@@ -69,25 +69,25 @@ size_t mz_size(malloc_zone_t* zone, const void* ptr) {
 }
 
 void *mz_malloc(malloc_zone_t *zone, size_t size) {
-  if (!__asan_inited) {
+  if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_malloc(size, &stack);
+  return asan_malloc(size, &stack);
 }
 
 void *cf_malloc(CFIndex size, CFOptionFlags hint, void *info) {
-  if (!__asan_inited) {
+  if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_malloc(system_malloc_zone, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_malloc(size, &stack);
+  return asan_malloc(size, &stack);
 }
 
 void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
-  if (!__asan_inited) {
+  if (!asan_inited) {
     // Hack: dlsym calls calloc before real_calloc is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
     static uintptr_t calloc_memory_for_dlsym[kCallocPoolSize];
@@ -99,16 +99,16 @@ void *mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
     return mem;
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_calloc(nmemb, size, &stack);
+  return asan_calloc(nmemb, size, &stack);
 }
 
 void *mz_valloc(malloc_zone_t *zone, size_t size) {
-  if (!__asan_inited) {
+  if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_valloc(system_malloc_zone, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(kPageSize, size, &stack);
+  return asan_memalign(kPageSize, size, &stack);
 }
 
 void print_zone_for_ptr(void *ptr) {
@@ -139,7 +139,7 @@ void mz_free(malloc_zone_t *zone, void *ptr) {
   }
   if (__asan_mz_size(ptr)) {
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-    __asan_free(ptr, &stack);
+    asan_free(ptr, &stack);
   } else {
     // Let us just leak this memory for now.
     Printf("mz_free(%p) -- attempting to free unallocated memory.\n"
@@ -163,7 +163,7 @@ void cf_free(void *ptr, void *info) {
   }
   if (__asan_mz_size(ptr)) {
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-    __asan_free(ptr, &stack);
+    asan_free(ptr, &stack);
   } else {
     // Let us just leak this memory for now.
     Printf("cf_free(%p) -- attempting to free unallocated memory.\n"
@@ -178,11 +178,11 @@ void cf_free(void *ptr, void *info) {
 void *mz_realloc(malloc_zone_t *zone, void *ptr, size_t size) {
   if (!ptr) {
     GET_STACK_TRACE_HERE_FOR_MALLOC;
-    return __asan_malloc(size, &stack);
+    return asan_malloc(size, &stack);
   } else {
     if (__asan_mz_size(ptr)) {
       GET_STACK_TRACE_HERE_FOR_MALLOC;
-      return __asan_realloc(ptr, size, &stack);
+      return asan_realloc(ptr, size, &stack);
     } else {
       // We can't recover from reallocating an unknown address, because
       // this would require reading at most |size| bytes from
@@ -201,11 +201,11 @@ void *mz_realloc(malloc_zone_t *zone, void *ptr, size_t size) {
 void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
   if (!ptr) {
     GET_STACK_TRACE_HERE_FOR_MALLOC;
-    return __asan_malloc(size, &stack);
+    return asan_malloc(size, &stack);
   } else {
     if (__asan_mz_size(ptr)) {
       GET_STACK_TRACE_HERE_FOR_MALLOC;
-      return __asan_realloc(ptr, size, &stack);
+      return asan_realloc(ptr, size, &stack);
     } else {
       // We can't recover from reallocating an unknown address, because
       // this would require reading at most |size| bytes from
@@ -229,12 +229,12 @@ void mz_destroy(malloc_zone_t* zone) {
 #if defined(MAC_OS_X_VERSION_10_6) && \
     MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
 void *mz_memalign(malloc_zone_t *zone, size_t align, size_t size) {
-  if (!__asan_inited) {
+  if (!asan_inited) {
     CHECK(system_malloc_zone);
     return malloc_zone_memalign(system_malloc_zone, align, size);
   }
   GET_STACK_TRACE_HERE_FOR_MALLOC;
-  return __asan_memalign(align, size, &stack);
+  return asan_memalign(align, size, &stack);
 }
 
 void mz_free_definite_size(malloc_zone_t* zone, void *ptr, size_t size) {

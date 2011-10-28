@@ -41,7 +41,7 @@ struct AsanStats {
   void PrintStats();
 };
 
-extern AsanStats __asan_stats;
+extern AsanStats asan_stats;
 
 }  // namespace __asan
 

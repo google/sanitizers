@@ -124,7 +124,7 @@ using namespace __asan;  // NOLINT
 // so we store the globals in a map.
 void __asan_register_global(uintptr_t addr, size_t size,
                             const char *name) {
-  CHECK(__asan_inited);
+  CHECK(asan_inited);
   if (!FLAG_report_globals) return;
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals)

@@ -81,8 +81,8 @@ static void AccessAddress(uintptr_t address, bool isWrite) {
 } while (0);
 
 static inline void ensure_asan_inited() {
-  CHECK(!__asan_init_is_running);
-  if (!__asan_inited) {
+  CHECK(!asan_init_is_running);
+  if (!asan_inited) {
     __asan_init();
   }
 }
@@ -121,7 +121,7 @@ using namespace __asan;  // NOLINT
 void *WRAP(memcpy)(void *to, const void *from, size_t size) {
   // memcpy is called during __asan_init() from the internals
   // of printf(...).
-  if (__asan_init_is_running) {
+  if (asan_init_is_running) {
     return real_memcpy(to, from, size);
   }
   ensure_asan_inited();
@@ -156,7 +156,7 @@ size_t WRAP(strlen)(const char *s) {
   // strlen is called during __asan_init() from library
   // functions on Mac: malloc_default_purgeable_zone()
   // in ReplaceSystemAlloc().
-  if (__asan_init_is_running) {
+  if (asan_init_is_running) {
     return real_strlen(s);
   }
   ensure_asan_inited();

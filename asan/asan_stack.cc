@@ -150,7 +150,7 @@ uintptr_t AsanStackTrace::GetCurrentPc() {
 void AsanStackTrace::FastUnwindStack(uintptr_t pc, uintptr_t bp) {
   CHECK(size == 0 && trace[0] == pc);
   size = 1;
-  if (!__asan_inited) return;
+  if (!asan_inited) return;
   AsanThread *t = asanThreadRegistry().GetCurrent();
   if (!t) return;
   uintptr_t *frame = (uintptr_t*)bp;
