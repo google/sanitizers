@@ -20,14 +20,9 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Analysis/DebugInfo.h"
-#include "llvm/CallingConv.h"
-#include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
 #include "llvm/InlineAsm.h"
-#include "llvm/InstrTypes.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
@@ -35,7 +30,6 @@
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/IRBuilder.h"
-#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/raw_ostream.h"
@@ -94,7 +88,7 @@ static cl::opt<bool> ClMemIntrin("asan-memintrin",
        cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
 static cl::opt<std::string>  ClBlackListFile("asan-blacklist",
        cl::desc("File containing the list of functions to ignore "
-                        "during instrumentation"));
+                "during instrumentation"));
 static cl::opt<bool> ClUseCall("asan-use-call",
        cl::desc("Use function call to generate a crash"), cl::init(true));
 
