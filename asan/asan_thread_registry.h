@@ -27,7 +27,7 @@ namespace __asan {
 // AsanThreadRegistry is thread-safe.
 class AsanThreadRegistry {
  public:
-  explicit AsanThreadRegistry(__asan::LinkerInitialized);
+  explicit AsanThreadRegistry(LinkerInitialized);
   void Init();
   void RegisterThread(AsanThread *thread, int parent_tid,
                       AsanStackTrace *stack);

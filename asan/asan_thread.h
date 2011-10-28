@@ -29,7 +29,7 @@ class AsanThread;
 // so we can find them by tid even if the thread is long dead.
 class AsanThreadSummary {
  public:
-  explicit AsanThreadSummary(__asan::LinkerInitialized) { }  // for T0.
+  explicit AsanThreadSummary(LinkerInitialized) { }  // for T0.
   AsanThreadSummary(int tid, int parent_tid, AsanStackTrace *stack)
     : tid_(tid),
       parent_tid_(parent_tid),
@@ -61,7 +61,7 @@ class AsanThreadSummary {
 // AsanThread are stored in TSD and destroyed when the thread dies.
 class AsanThread {
  public:
-  explicit AsanThread(__asan::LinkerInitialized);  // for T0.
+  explicit AsanThread(LinkerInitialized);  // for T0.
   AsanThread(int parent_tid, void *(*start_routine) (void *),
              void *arg, AsanStackTrace *stack);
   ~AsanThread();

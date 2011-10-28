@@ -32,7 +32,7 @@ static void DestroyAsanTsd(void *tsd) {
   }
 }
 
-AsanThreadRegistry::AsanThreadRegistry(__asan::LinkerInitialized x)
+AsanThreadRegistry::AsanThreadRegistry(LinkerInitialized x)
     : main_thread_(x),
       main_thread_summary_(x) { }
 

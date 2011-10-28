@@ -24,7 +24,7 @@
 
 namespace __asan {
 
-AsanThread::AsanThread(__asan::LinkerInitialized)
+AsanThread::AsanThread(LinkerInitialized)
     : fake_stack_(/*empty_ctor_for_thread_0*/0) { }
 
 AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),

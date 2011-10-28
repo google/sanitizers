@@ -55,9 +55,7 @@ extern int __asan_inited;
 // Used to avoid infinite recursion in __asan_init().
 extern bool __asan_init_is_running;
 
-namespace __asan {
-  enum LinkerInitialized { LINKER_INITIALIZED = 0 };
-}  // namespace __asan
+enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 
 #define CHECK(cond) do { if (!(cond)) { \
   __asan_check_failed(#cond, __FILE__, __LINE__); \
