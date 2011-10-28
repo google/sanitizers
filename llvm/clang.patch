@@ -109,7 +109,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3526,6 +3532,55 @@
+@@ -3526,6 +3532,59 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -154,6 +154,8 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("___asan_report_load8");
 +    CmdArgs.push_back("-U");
++    CmdArgs.push_back("___asan_report_load16");
++    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("___asan_report_store1");
 +    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("___asan_report_store2");
@@ -161,11 +163,13 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    CmdArgs.push_back("___asan_report_store4");
 +    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("___asan_report_store8");
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("___asan_report_store16");
 +  }
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3564,6 +3619,8 @@
+@@ -3564,6 +3623,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -174,7 +178,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4395,6 +4452,27 @@
+@@ -4395,6 +4456,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
