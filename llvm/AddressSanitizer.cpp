@@ -41,7 +41,6 @@
 #include "llvm/Type.h"
 
 #include <string>
-#include <vector>
 #include <algorithm>
 
 using namespace llvm;
