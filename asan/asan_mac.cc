@@ -19,6 +19,7 @@
 
 // No-op. Mac does not support static linkage anyway.
 void *__asan_does_not_support_static_linkage() {
+  return NULL;
 }
 
 void *__asan_mmap(void *addr, size_t length, int prot, int flags,
