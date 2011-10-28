@@ -306,8 +306,6 @@ AsanChunk *AsanChunkFifoList::Pop() {
   return res;
 }
 
-namespace {
-
 // All pages we ever allocated.
 struct PageGroup {
   uintptr_t beg;
@@ -542,8 +540,6 @@ class MallocInfo {
 };
 
 static MallocInfo malloc_info;
-
-}  // namespace
 
 void AsanThreadLocalMallocStorage::CommitBack() {
   malloc_info.SwallowThreadLocalMallocStorage(this, true);

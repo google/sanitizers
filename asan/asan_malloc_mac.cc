@@ -293,7 +293,6 @@ boolean_t mi_zone_locked(malloc_zone_t *zone) {
   return false;
 }
 
-
 }  // unnamed namespace
 
 extern bool kCFUseCollectableAllocator;  // is GC on?
