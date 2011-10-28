@@ -507,6 +507,16 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
     // For now, just ignore this Alloca if the alignment is large.
     if (G->getAlignment() > RedzoneSize) continue;
 
+    // Ignore all the globals with the names starting with "\01L_OBJC_".
+    // Many of those are put into the .cstring section. The linker compresses
+    // that section by removing the spare \0s after the string terminator, so 
+    // our redzones get broken.
+    if ((G->getName().find("\01L_OBJC_") == 0) ||
+        (G->getName().find("\01l_OBJC_") == 0)) {
+      DEBUG(dbgs() << "Ignoring \\01L_OBJC_* global: " << *G);
+      continue;
+    }
+
     // Ignore the globals from the __OBJC section. The ObjC runtime assumes
     // those conform to /usr/lib/objc/runtime.h, so we can't add redzones to
     // them.
@@ -518,6 +528,8 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
          continue;
       }
     }
+
+
     GlobalsToChange.push_back(G);
   }
 
