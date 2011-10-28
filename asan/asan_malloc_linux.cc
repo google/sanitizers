@@ -24,7 +24,7 @@
 #define INTERCEPTOR_ATTRIBUTE __attribute__((visibility("default")))
 
 namespace __asan {
-void __asan_replace_system_malloc() {
+void ReplaceSystemMalloc() {
 }
 }  // namespace __asan
 

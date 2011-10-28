@@ -26,13 +26,13 @@ namespace __asan {
 class AsanThread;
 class AsanStackTrace;
 
-void __asan_replace_system_malloc();
-void __asan_check_failed(const char *cond, const char *file, int line);
-void *__asan_mmap(void *addr, size_t length, int prot, int flags,
+void ReplaceSystemMalloc();
+void CheckFailed(const char *cond, const char *file, int line);
+void *asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
-void __asan_show_stats_and_abort();
-bool __asan_describe_addr_if_global(uintptr_t addr);
-void *__asan_does_not_support_static_linkage();
+void ShowStatsAndAbort();
+bool DescribeAddrIfGlobal(uintptr_t addr);
+void *AsanDoesNotSupportStaticLinkage();
 
 void Printf(const char *format, ...);
 
@@ -58,7 +58,7 @@ extern bool __asan_init_is_running;
 enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 
 #define CHECK(cond) do { if (!(cond)) { \
-  __asan_check_failed(#cond, __FILE__, __LINE__); \
+  CheckFailed(#cond, __FILE__, __LINE__); \
 }}while(0)
 
 #if __WORDSIZE == 64

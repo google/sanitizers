@@ -144,7 +144,7 @@ static size_t total_mmaped = 0;
 
 static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   CHECK(IsAligned(size, kPageSize));
-  uint8_t *res = (uint8_t*)__asan_mmap(0, size,
+  uint8_t *res = (uint8_t*)asan_mmap(0, size,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
   total_mmaped += size;
@@ -683,11 +683,11 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     Printf("attempting double-free on %p:\n", ptr);
     stack->PrintStack();
     m->DescribeAddress((uintptr_t)ptr, 1);
-    __asan_show_stats_and_abort();
+    ShowStatsAndAbort();
   } else if (m->chunk_state != CHUNK_ALLOCATED) {
     Printf("attempting free on address which was not malloc()-ed: %p\n", ptr);
     stack->PrintStack();
-    __asan_show_stats_and_abort();
+    ShowStatsAndAbort();
   }
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   CHECK(m->free_tid == AsanThread::kInvalidTid);
@@ -893,7 +893,7 @@ size_t AsanFakeStack::ClassMmapSize(size_t size_class) {
 
 void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
   CHECK(ClassMmapSize(size_class) >= kPageSize);
-  uintptr_t new_mem = (uintptr_t)__asan_mmap(0, ClassMmapSize(size_class),
+  uintptr_t new_mem = (uintptr_t)asan_mmap(0, ClassMmapSize(size_class),
                                              PROT_READ | PROT_WRITE,
                                              MAP_PRIVATE | MAP_ANON, -1, 0);
   CHECK(new_mem != (uintptr_t)-1);
@@ -983,7 +983,7 @@ size_t __asan_get_allocated_size(const void *p) {
   if (allocated_size == 0) {
     Printf("__asan_get_allocated_size failed, ptr=%p is not owned\n", p);
     PRINT_CURRENT_STACK();
-    __asan_show_stats_and_abort();
+    ShowStatsAndAbort();
   }
   return allocated_size;
 }

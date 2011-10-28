@@ -95,7 +95,7 @@ AsanLock Global::mu_;
 typedef std::map<uintptr_t, Global> MapOfGlobals;
 static MapOfGlobals *g_all_globals = NULL;
 
-bool __asan_describe_addr_if_global(uintptr_t addr) {
+bool DescribeAddrIfGlobal(uintptr_t addr) {
   if (!FLAG_report_globals) return false;
   ScopedLock lock(&Global::mu_);
   if (!g_all_globals) return false;

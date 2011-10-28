@@ -154,7 +154,7 @@ void AsanStats::PrintStats() {
 AsanStats __asan_stats;
 
 // -------------------------- Misc ---------------- {{{1
-void __asan_show_stats_and_abort() {
+void ShowStatsAndAbort() {
   __asan_stats.PrintStats();
   abort();
 }
@@ -185,14 +185,14 @@ static void OutOfMemoryMessage(const char *mem_type, size_t size) {
 
 static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
                         bool abort_on_failure = true) {
-  void *res = __asan_mmap((void*)start_page, kPageSize * n_pages,
+  void *res = asan_mmap((void*)start_page, kPageSize * n_pages,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
   // Printf("%p => %p\n", (void*)start_page, res);
   char *ch = (char*)res;
   if (res == (void*)-1L && abort_on_failure) {
     OutOfMemoryMessage(mem_type, n_pages * kPageSize);
-    __asan_show_stats_and_abort();
+    ShowStatsAndAbort();
   }
   CHECK(res == (void*)start_page || res == (void*)-1L);
   return ch;
@@ -211,7 +211,7 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK((beg % kPageSize) == 0);
   CHECK(((end+1) % kPageSize) == 0);
   // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
-  void *res = __asan_mmap((void*)beg, end - beg + 1,
+  void *res = asan_mmap((void*)beg, end - beg + 1,
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
   CHECK(res == (void*)beg);
@@ -268,7 +268,7 @@ static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
 __attribute__((noinline))
 static void DescribeAddress(uintptr_t addr, uintptr_t access_size) {
   // Check if this is a global.
-  if (__asan_describe_addr_if_global(addr))
+  if (DescribeAddrIfGlobal(addr))
     return;
 
   if (DescribeStackAddress(addr, access_size))
@@ -316,7 +316,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     // this address.
     const uintptr_t chunk_size = kPageSize << 10;  // 4M
     uintptr_t chunk = addr & ~(chunk_size - 1);
-    __asan_mmap((void*)chunk, chunk_size,
+    asan_mmap((void*)chunk, chunk_size,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED, 0, 0);
     return;
@@ -333,7 +333,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax, false, pc, bp);
   stack.PrintStack();
-  __asan_show_stats_and_abort();
+  ShowStatsAndAbort();
 }
 
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
@@ -388,10 +388,10 @@ static void asan_atexit() {
   __asan_stats.PrintStats();
 }
 
-void __asan_check_failed(const char *cond, const char *file, int line) {
+void CheckFailed(const char *cond, const char *file, int line) {
   Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
   PRINT_CURRENT_STACK();
-  __asan_show_stats_and_abort();
+  ShowStatsAndAbort();
 }
 
 }  // namespace __asan
@@ -607,7 +607,7 @@ void __asan_init() {
   asan_out = stderr;
 
   // Make sure we are not statically linked.
-  __asan_does_not_support_static_linkage();
+  AsanDoesNotSupportStaticLinkage();
 
   // flags
   const char *options = getenv("ASAN_OPTIONS");
@@ -646,7 +646,7 @@ void __asan_init() {
   // interceptors
   __asan_interceptors_init();
 
-  __asan_replace_system_malloc();
+  ReplaceSystemMalloc();
 
   INTERCEPT_FUNCTION(sigaction);
   INTERCEPT_FUNCTION(signal);

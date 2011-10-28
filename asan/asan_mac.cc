@@ -20,11 +20,11 @@
 namespace __asan {
 
 // No-op. Mac does not support static linkage anyway.
-void *__asan_does_not_support_static_linkage() {
+void *AsanDoesNotSupportStaticLinkage() {
   return NULL;
 }
 
-void *__asan_mmap(void *addr, size_t length, int prot, int flags,
+void *asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset) {
   return mmap(addr, length, prot, flags, fd, offset);
 }

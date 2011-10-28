@@ -24,12 +24,12 @@ extern ElfW(Dyn) _DYNAMIC[];
 
 namespace __asan {
 
-void *__asan_does_not_support_static_linkage() {
+void *AsanDoesNotSupportStaticLinkage() {
   // This will fail to link with -static.
   return &_DYNAMIC;
 }
 
-void *__asan_mmap(void *addr, size_t length, int prot, int flags,
+void *asan_mmap(void *addr, size_t length, int prot, int flags,
                   int fd, uint64_t offset) {
 # if __WORDSIZE == 64
   return (void *)syscall(SYS_mmap, addr, length, prot, flags, fd, offset);

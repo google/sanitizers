@@ -192,7 +192,7 @@ void *mz_realloc(malloc_zone_t *zone, void *ptr, size_t size) {
       print_zone_for_ptr(ptr);
       GET_STACK_TRACE_HERE_FOR_FREE(ptr);
       stack.PrintStack();
-      __asan_show_stats_and_abort();
+      ShowStatsAndAbort();
       return NULL;  // unreachable
     }
   }
@@ -215,7 +215,7 @@ void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
       print_zone_for_ptr(ptr);
       GET_STACK_TRACE_HERE_FOR_FREE(ptr);
       stack.PrintStack();
-      __asan_show_stats_and_abort();
+      ShowStatsAndAbort();
       return NULL;  // unreachable
     }
   }
@@ -298,7 +298,7 @@ boolean_t mi_zone_locked(malloc_zone_t *zone) {
 
 extern bool kCFUseCollectableAllocator;  // is GC on?
 
-void __asan_replace_system_malloc() {
+void ReplaceSystemMalloc() {
   static malloc_introspection_t asan_introspection;
   __asan::real_memset(&asan_introspection, 0, sizeof(asan_introspection));
 
