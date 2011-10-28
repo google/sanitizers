@@ -18,6 +18,8 @@
 #include "asan_internal.h"
 #include "asan_stack.h"
 
+namespace __asan {
+
 const size_t kMaxThreadStackSize = 16 * (1 << 20);  // 16M
 static const uintptr_t kFrameNameMagic = 0x41B58AB3;
 
@@ -98,5 +100,7 @@ class AsanThread {
 
   AsanFakeStack fake_stack_;
 };
+
+}  // namespace __asan
 
 #endif  // ASAN_THREAD_H

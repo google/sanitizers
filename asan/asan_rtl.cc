@@ -54,6 +54,8 @@
 # define ASAN_NEEDS_SEGV 1
 #endif
 
+namespace __asan {
+
 // -------------------------- Flags ------------------------- {{{1
 static const size_t kMallocContextSize = 30;
 static int    __asan_flag_atexit;
@@ -76,13 +78,13 @@ bool   __asan_flag_handle_segv;
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out = NULL;
 
-void __asan_printf(const char *format, ...) {
+void Printf(const char *format, ...) {
   const int kLen = 1024 * 4;
   char buffer[kLen];
   va_list args;
   va_start(args, format);
   vsnprintf(buffer, kLen, format, args);
-  fwrite(buffer, 1, __asan::real_strlen(buffer), asan_out);
+  fwrite(buffer, 1, real_strlen(buffer), asan_out);
   fflush(asan_out);
   va_end(args);
 }
@@ -102,8 +104,6 @@ typedef longjmp_f siglongjmp_f;
 typedef void (*__cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
-
-namespace __asan {
 sigaction_f             real_sigaction;
 signal_f                real_signal;
 longjmp_f               real_longjmp;
@@ -111,7 +111,6 @@ _longjmp_f              real__longjmp;
 siglongjmp_f            real_siglongjmp;
 __cxa_throw_f           real___cxa_throw;
 pthread_create_f        real_pthread_create;
-}  // namespace
 
 // -------------------------- AsanStats ---------------- {{{1
 static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
@@ -275,127 +274,6 @@ static void DescribeAddress(uintptr_t addr, uintptr_t access_size) {
   __asan_describe_heap_address(addr, access_size);
 }
 
-// -------------------------- Interceptors ------------------- {{{1
-#define OPERATOR_NEW_BODY \
-  GET_STACK_TRACE_HERE_FOR_MALLOC;\
-  return __asan_memalign(0, size, &stack);
-
-void *operator new(size_t size) { OPERATOR_NEW_BODY; }
-void *operator new[](size_t size) { OPERATOR_NEW_BODY; }
-void *operator new(size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
-void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
-
-#define OPERATOR_DELETE_BODY \
-  if (!ptr) return;\
-  GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
-  __asan_free(ptr, &stack);
-
-void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
-void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
-void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
-void operator delete[](void *ptr, std::nothrow_t const&) {OPERATOR_DELETE_BODY;}
-
-extern "C"
-#ifndef __APPLE__
-__attribute__((visibility("default")))
-#endif
-int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
-                         void *(*start_routine) (void *), void *arg) {
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
-  AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
-  new(t) AsanThread(asanThreadRegistry().GetCurrent()->tid(),
-                    start_routine, arg, &stack);
-  return __asan::real_pthread_create(thread, attr, asan_thread_start, t);
-}
-
-static bool MySignal(int signum) {
-  if (signum == SIGILL) return true;
-  if (__asan_flag_handle_segv && signum == SIGSEGV) return true;
-#ifdef __APPLE__
-  if (__asan_flag_handle_segv && signum == SIGBUS) return true;
-#endif
-  return false;
-}
-
-extern "C"
-sig_t WRAP(signal)(int signum, sig_t handler) {
-  if (!MySignal(signum)) {
-    return __asan::real_signal(signum, handler);
-  }
-  return NULL;
-}
-
-extern "C"
-int WRAP(sigaction)(int signum, const struct sigaction *act,
-                    struct sigaction *oldact) {
-  if (!MySignal(signum)) {
-    return __asan::real_sigaction(signum, act, oldact);
-  }
-  return 0;
-}
-
-
-static void UnpoisonStackFromHereToTop() {
-  int local_stack;
-  uintptr_t top = asanThreadRegistry().GetCurrent()->stack_top();
-  uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
-  uintptr_t top_shadow = MemToShadow(top);
-  uintptr_t bot_shadow = MemToShadow(bottom);
-  __asan::real_memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
-}
-
-extern "C" void WRAP(longjmp)(void *env, int val) {
-  UnpoisonStackFromHereToTop();
-  __asan::real_longjmp(env, val);
-}
-
-extern "C" void WRAP(_longjmp)(void *env, int val) {
-  UnpoisonStackFromHereToTop();
-  __asan::real__longjmp(env, val);
-}
-
-extern "C" void WRAP(siglongjmp)(void *env, int val) {
-  UnpoisonStackFromHereToTop();
-  __asan::real_siglongjmp(env, val);
-}
-
-extern "C" void __cxa_throw(void *a, void *b, void *c);
-
-#if ASAN_HAS_EXCEPTIONS
-extern "C" void WRAP(__cxa_throw)(void *a, void *b, void *c) {
-  UnpoisonStackFromHereToTop();
-  __asan::real___cxa_throw(a, b, c);
-}
-#endif
-
-extern "C" {
-// intercept mlock and friends.
-// Since asan maps 16T of RAM, mlock is completely unfriendly to asan.
-// All functions return 0 (success).
-static void MlockIsUnsupported() {
-  static bool printed = 0;
-  if (printed) return;
-  printed = true;
-  Printf("INFO: AddressSanitizer ignores mlock/mlockall/munlock/munlockall\n");
-}
-int mlock(const void *addr, size_t len) {
-  MlockIsUnsupported();
-  return 0;
-}
-int munlock(const void *addr, size_t len) {
-  MlockIsUnsupported();
-  return 0;
-}
-int mlockall(int flags) {
-  MlockIsUnsupported();
-  return 0;
-}
-int munlockall(void) {
-  MlockIsUnsupported();
-  return 0;
-}
-}  // extern "C"
-
 // -------------------------- Run-time entry ------------------- {{{1
 void GetPcSpBpAx(void *context,
                  uintptr_t *pc, uintptr_t *sp, uintptr_t *bp, uintptr_t *ax) {
@@ -454,6 +332,190 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   __asan_show_stats_and_abort();
 }
 
+static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
+  // Write the first message using the bullet-proof write.
+  if (12 != write(2, "ASAN:SIGILL\n", 12)) abort();
+  uintptr_t pc, sp, bp, ax;
+  GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
+
+  uintptr_t addr = ax;
+
+  uint8_t *insn = (uint8_t*)pc;
+  CHECK(insn[0] == 0x0f && insn[1] == 0x0b);  // ud2
+  unsigned access_size_and_type = insn[2] - 0x50;
+  CHECK(access_size_and_type < 16);
+  bool is_write = access_size_and_type & 8;
+  int access_size = 1 << (access_size_and_type & 7);
+  __asan_report_error(pc, bp, sp, addr, is_write, access_size);
+}
+
+// exported functions
+#define ASAN_REPORT_ERROR(type, is_write, size) \
+extern "C" void __asan_report_ ## type ## size(uintptr_t addr)   \
+  __attribute__((visibility("default")));                        \
+extern "C" void __asan_report_ ## type ## size(uintptr_t addr) { \
+  GET_BP_PC_SP;                                                  \
+  __asan_report_error(pc, bp, sp, addr, is_write, size);  \
+}
+
+ASAN_REPORT_ERROR(load, false, 1)
+ASAN_REPORT_ERROR(load, false, 2)
+ASAN_REPORT_ERROR(load, false, 4)
+ASAN_REPORT_ERROR(load, false, 8)
+ASAN_REPORT_ERROR(load, false, 16)
+ASAN_REPORT_ERROR(store, true, 1)
+ASAN_REPORT_ERROR(store, true, 2)
+ASAN_REPORT_ERROR(store, true, 4)
+ASAN_REPORT_ERROR(store, true, 8)
+ASAN_REPORT_ERROR(store, true, 16)
+
+
+// -------------------------- Init ------------------- {{{1
+static int64_t IntFlagValue(const char *flags, const char *flag,
+                            int64_t default_val) {
+  if (!flags) return default_val;
+  const char *str = strstr(flags, flag);
+  if (!str) return default_val;
+  return atoll(str + internal_strlen(flag));
+}
+
+static void asan_atexit() {
+  Printf("AddressSanitizer exit stats:\n");
+  __asan_stats.PrintStats();
+}
+
+void __asan_check_failed(const char *cond, const char *file, int line) {
+  Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
+  PRINT_CURRENT_STACK();
+  __asan_show_stats_and_abort();
+}
+
+}  // namespace __asan
+
+// -------------------------- Interceptors ------------------- {{{1
+using namespace __asan;  // NOLINT
+
+#define OPERATOR_NEW_BODY \
+  GET_STACK_TRACE_HERE_FOR_MALLOC;\
+  return __asan_memalign(0, size, &stack);
+
+void *operator new(size_t size) { OPERATOR_NEW_BODY; }
+void *operator new[](size_t size) { OPERATOR_NEW_BODY; }
+void *operator new(size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
+void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
+
+#define OPERATOR_DELETE_BODY \
+  if (!ptr) return;\
+  GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
+  __asan_free(ptr, &stack);
+
+void operator delete(void *ptr) { OPERATOR_DELETE_BODY; }
+void operator delete[](void *ptr) { OPERATOR_DELETE_BODY; }
+void operator delete(void *ptr, std::nothrow_t const&) { OPERATOR_DELETE_BODY; }
+void operator delete[](void *ptr, std::nothrow_t const&) {OPERATOR_DELETE_BODY;}
+
+extern "C"
+#ifndef __APPLE__
+__attribute__((visibility("default")))
+#endif
+int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
+                         void *(*start_routine) (void *), void *arg) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
+  new(t) AsanThread(asanThreadRegistry().GetCurrent()->tid(),
+                    start_routine, arg, &stack);
+  return real_pthread_create(thread, attr, asan_thread_start, t);
+}
+
+static bool MySignal(int signum) {
+  if (signum == SIGILL) return true;
+  if (__asan_flag_handle_segv && signum == SIGSEGV) return true;
+#ifdef __APPLE__
+  if (__asan_flag_handle_segv && signum == SIGBUS) return true;
+#endif
+  return false;
+}
+
+extern "C"
+sig_t WRAP(signal)(int signum, sig_t handler) {
+  if (!MySignal(signum)) {
+    return real_signal(signum, handler);
+  }
+  return NULL;
+}
+
+extern "C"
+int WRAP(sigaction)(int signum, const struct sigaction *act,
+                    struct sigaction *oldact) {
+  if (!MySignal(signum)) {
+    return real_sigaction(signum, act, oldact);
+  }
+  return 0;
+}
+
+
+static void UnpoisonStackFromHereToTop() {
+  int local_stack;
+  uintptr_t top = asanThreadRegistry().GetCurrent()->stack_top();
+  uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
+  uintptr_t top_shadow = MemToShadow(top);
+  uintptr_t bot_shadow = MemToShadow(bottom);
+  real_memset((void*)bot_shadow, 0, top_shadow - bot_shadow);
+}
+
+extern "C" void WRAP(longjmp)(void *env, int val) {
+  UnpoisonStackFromHereToTop();
+  real_longjmp(env, val);
+}
+
+extern "C" void WRAP(_longjmp)(void *env, int val) {
+  UnpoisonStackFromHereToTop();
+  real__longjmp(env, val);
+}
+
+extern "C" void WRAP(siglongjmp)(void *env, int val) {
+  UnpoisonStackFromHereToTop();
+  real_siglongjmp(env, val);
+}
+
+extern "C" void __cxa_throw(void *a, void *b, void *c);
+
+#if ASAN_HAS_EXCEPTIONS
+extern "C" void WRAP(__cxa_throw)(void *a, void *b, void *c) {
+  UnpoisonStackFromHereToTop();
+  real___cxa_throw(a, b, c);
+}
+#endif
+
+extern "C" {
+// intercept mlock and friends.
+// Since asan maps 16T of RAM, mlock is completely unfriendly to asan.
+// All functions return 0 (success).
+static void MlockIsUnsupported() {
+  static bool printed = 0;
+  if (printed) return;
+  printed = true;
+  Printf("INFO: AddressSanitizer ignores mlock/mlockall/munlock/munlockall\n");
+}
+int mlock(const void *addr, size_t len) {
+  MlockIsUnsupported();
+  return 0;
+}
+int munlock(const void *addr, size_t len) {
+  MlockIsUnsupported();
+  return 0;
+}
+int mlockall(int flags) {
+  MlockIsUnsupported();
+  return 0;
+}
+int munlockall(void) {
+  MlockIsUnsupported();
+  return 0;
+}
+}  // extern "C"
+
+// ---------------------- Interface ---------------- {{{1
 void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
                          uintptr_t addr, bool is_write, size_t access_size) {
   // Do not print more than one report, otherwise they will mix up.
@@ -535,58 +597,6 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   abort();
 }
 
-static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
-  // Write the first message using the bullet-proof write.
-  if (12 != write(2, "ASAN:SIGILL\n", 12)) abort();
-  uintptr_t pc, sp, bp, ax;
-  GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
-
-  uintptr_t addr = ax;
-
-  uint8_t *insn = (uint8_t*)pc;
-  CHECK(insn[0] == 0x0f && insn[1] == 0x0b);  // ud2
-  unsigned access_size_and_type = insn[2] - 0x50;
-  CHECK(access_size_and_type < 16);
-  bool is_write = access_size_and_type & 8;
-  int access_size = 1 << (access_size_and_type & 7);
-  __asan_report_error(pc, bp, sp, addr, is_write, access_size);
-}
-
-// exported functions
-#define ASAN_REPORT_ERROR(type, is_write, size) \
-extern "C" void __asan_report_ ## type ## size(uintptr_t addr)   \
-  __attribute__((visibility("default")));                        \
-extern "C" void __asan_report_ ## type ## size(uintptr_t addr) { \
-  GET_BP_PC_SP;                                                  \
-  __asan_report_error(pc, bp, sp, addr, is_write, size);  \
-}
-
-ASAN_REPORT_ERROR(load, false, 1)
-ASAN_REPORT_ERROR(load, false, 2)
-ASAN_REPORT_ERROR(load, false, 4)
-ASAN_REPORT_ERROR(load, false, 8)
-ASAN_REPORT_ERROR(load, false, 16)
-ASAN_REPORT_ERROR(store, true, 1)
-ASAN_REPORT_ERROR(store, true, 2)
-ASAN_REPORT_ERROR(store, true, 4)
-ASAN_REPORT_ERROR(store, true, 8)
-ASAN_REPORT_ERROR(store, true, 16)
-
-
-// -------------------------- Init ------------------- {{{1
-static int64_t IntFlagValue(const char *flags, const char *flag,
-                            int64_t default_val) {
-  if (!flags) return default_val;
-  const char *str = strstr(flags, flag);
-  if (!str) return default_val;
-  return atoll(str + __asan::internal_strlen(flag));
-}
-
-static void asan_atexit() {
-  Printf("AddressSanitizer exit stats:\n");
-  __asan_stats.PrintStats();
-}
-
 void __asan_init() {
   if (__asan_inited) return;
   __asan_init_is_running = true;
@@ -656,27 +666,27 @@ void __asan_init() {
 
   if (__asan_flag_handle_segv) {
     // Set the SIGSEGV handler.
-    __asan::real_memset(&sigact, 0, sizeof(sigact));
+    real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == __asan::real_sigaction(SIGSEGV, &sigact, 0));
+    CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
 
 #ifdef __APPLE__
     // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
-    __asan::real_memset(&sigact, 0, sizeof(sigact));
+    real_memset(&sigact, 0, sizeof(sigact));
     sigact.sa_sigaction = ASAN_OnSIGSEGV;
     sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == __asan::real_sigaction(SIGBUS, &sigact, 0));
+    CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
 #endif
   } else {
     CHECK(!__asan_flag_lazy_shadow);
   }
 
   // Set the SIGILL handler.
-  __asan::real_memset(&sigact, 0, sizeof(sigact));
+  real_memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = ASAN_OnSIGILL;
   sigact.sa_flags = SA_SIGINFO;
-  CHECK(0 == __asan::real_sigaction(SIGILL, &sigact, 0));
+  CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
 
   if (__asan_flag_v) {
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
@@ -735,10 +745,4 @@ void __asan_init() {
     Printf("==%d== AddressSanitizer r%s Init done ***\n",
            getpid(), ASAN_REVISION);
   }
-}
-
-void __asan_check_failed(const char *cond, const char *file, int line) {
-  Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
-  PRINT_CURRENT_STACK();
-  __asan_show_stats_and_abort();
 }

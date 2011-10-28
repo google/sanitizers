@@ -17,6 +17,8 @@
 #include "asan_thread.h"
 #include "asan_thread_registry.h"
 
+namespace __asan {
+
 static AsanThreadRegistry asan_thread_registry(__asan::LINKER_INITIALIZED);
 
 AsanThreadRegistry &asanThreadRegistry() {
@@ -97,3 +99,5 @@ AsanThread *AsanThreadRegistry::FindThreadByStackAddress(uintptr_t addr) {
   }
   return 0;
 }
+
+}  // namespace __asan

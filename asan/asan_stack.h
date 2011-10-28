@@ -17,6 +17,8 @@
 #include "asan_internal.h"
 #include "unwind.h"
 
+namespace __asan {
+
 static const size_t kStackTraceMax = 64;
 
 struct AsanStackTrace {
@@ -52,6 +54,8 @@ struct AsanStackTrace {
   static void UncompressStack(AsanStackTrace *stack,
                               uint32_t *compressed, size_t size);
 };
+
+}  // namespace __asan
 
 // Get the stack trace with the given pc and bp.
 // The pc will be in the position 0 of the resulting stack trace.
@@ -92,6 +96,5 @@ struct AsanStackTrace {
     GET_STACK_TRACE_HERE(kStackTraceMax, false); \
     stack.PrintStack();                          \
   }                                              \
-
 
 #endif  // ASAN_STACK_H

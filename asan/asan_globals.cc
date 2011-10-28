@@ -23,6 +23,8 @@
 #include <ctype.h>
 #include <map>
 
+namespace __asan {
+
 // We create right redzones for globals and keep the globals in a map.
 struct Global {
   uintptr_t beg;  // Address of the global.
@@ -36,8 +38,8 @@ struct Global {
     // full right redzone
     uintptr_t right_rz2_offset = ShadowRZSize *
         ((size + kGlobalAndStackRedzone - 1) / kGlobalAndStackRedzone);
-    __asan::real_memset((uint8_t*)shadow + right_rz2_offset,
-                        kAsanGlobalRedzoneMagic, ShadowRZSize);
+    real_memset((uint8_t*)shadow + right_rz2_offset,
+                kAsanGlobalRedzoneMagic, ShadowRZSize);
     if ((size % kGlobalAndStackRedzone) != 0) {
       // partial right redzone
       uint64_t right_rz1_offset =
@@ -110,6 +112,11 @@ bool __asan_describe_addr_if_global(uintptr_t addr) {
   }
   return res;
 }
+
+}  // namespace __asan
+
+// ---------------------- Interface ---------------- {{{1
+using namespace __asan;  // NOLINT
 
 // exported function.
 // Register a global variable by its address, size and name.

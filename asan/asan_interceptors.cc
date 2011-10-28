@@ -23,16 +23,16 @@
 #include <dlfcn.h>
 #include <string.h>
 
+namespace __asan {
+
 bool __asan_flag_replace_str;
 bool __asan_flag_replace_intrin;
 
-namespace __asan {
 memcpy_f      real_memcpy;
 memmove_f     real_memmove;
 memset_f      real_memset;
 strlen_f      real_strlen;
 strncpy_f     real_strncpy;
-}  // namespace
 
 // This implementation is used in interceptors of
 // glibc str* functions to instrument memory range accesses.
@@ -90,6 +90,34 @@ static inline void ensure_asan_inited() {
   }
 }
 
+
+size_t internal_strlen(const char *s) {
+  size_t i = 0;
+  while (s[i]) i++;
+  return i;
+}
+
+void __asan_interceptors_init() {
+#ifndef __APPLE__
+  INTERCEPT_FUNCTION(memcpy);
+  INTERCEPT_FUNCTION(memmove);
+  INTERCEPT_FUNCTION(memset);
+#else
+  real_memcpy = memcpy;
+  real_memmove = memmove;
+  real_memset = memset;
+#endif
+  INTERCEPT_FUNCTION(strlen);
+  INTERCEPT_FUNCTION(strncpy);
+  if (__asan_flag_v > 0) {
+    Printf("AddressSanitizer: libc interceptors initialized\n");
+  }
+}
+
+}  // namespace __asan
+
+// ---------------------- Wrappers ---------------- {{{1
+using namespace __asan;  // NOLINT
 #if 0
 // Interceptors for memcpy/memmove/memset are disabled for now.
 // They are handled by the LLVM module anyway.
@@ -97,7 +125,7 @@ void *WRAP(memcpy)(void *to, const void *from, size_t size) {
   // memcpy is called during __asan_init() from the internals
   // of printf(...).
   if (__asan_init_is_running) {
-    return __asan::real_memcpy(to, from, size);
+    return real_memcpy(to, from, size);
   }
   ensure_asan_inited();
   if (__asan_flag_replace_intrin) {
@@ -106,7 +134,7 @@ void *WRAP(memcpy)(void *to, const void *from, size_t size) {
     // TODO(samsonov): Check here that read and write intervals
     // do not overlap.
   }
-  return __asan::real_memcpy(to, from, size);
+  return real_memcpy(to, from, size);
 }
 
 void *WRAP(memmove)(void *to, const void *from, size_t size) {
@@ -115,7 +143,7 @@ void *WRAP(memmove)(void *to, const void *from, size_t size) {
     ASAN_WRITE_RANGE(from, size);
     ASAN_READ_RANGE(to, size);
   }
-  return __asan::real_memmove(to, from, size);
+  return real_memmove(to, from, size);
 }
 
 void *WRAP(memset)(void *block, int c, size_t size) {
@@ -123,7 +151,7 @@ void *WRAP(memset)(void *block, int c, size_t size) {
   if (__asan_flag_replace_intrin) {
     ASAN_WRITE_RANGE(block, size);
   }
-  return __asan::real_memset(block, c, size);
+  return real_memset(block, c, size);
 }
 #endif
 
@@ -132,13 +160,13 @@ size_t WRAP(strlen)(const char *s) {
   // functions on Mac: malloc_default_purgeable_zone()
   // in ReplaceSystemAlloc().
   if (__asan_init_is_running) {
-    return __asan::real_strlen(s);
+    return real_strlen(s);
   }
   ensure_asan_inited();
   // TODO(samsonov): We should predict possible OOB access in
   // real_strlen() call, and instrument its arguments
   // beforehand.
-  size_t length = __asan::real_strlen(s);
+  size_t length = real_strlen(s);
   if (__asan_flag_replace_str) {
     ASAN_READ_RANGE(s, length + 1);
   }
@@ -157,28 +185,5 @@ char *WRAP(strncpy)(char *to, const char *from, size_t size) {
     ASAN_READ_RANGE(from, from_size);
     ASAN_WRITE_RANGE(to, size);
   }
-  return __asan::real_strncpy(to, from, size);
-}
-
-size_t __asan::internal_strlen(const char *s) {
-  size_t i = 0;
-  while (s[i]) i++;
-  return i;
-}
-
-void __asan_interceptors_init() {
-#ifndef __APPLE__
-  INTERCEPT_FUNCTION(memcpy);
-  INTERCEPT_FUNCTION(memmove);
-  INTERCEPT_FUNCTION(memset);
-#else
-  __asan::real_memcpy = memcpy;
-  __asan::real_memmove = memmove;
-  __asan::real_memset = memset;
-#endif
-  INTERCEPT_FUNCTION(strlen);
-  INTERCEPT_FUNCTION(strncpy);
-  if (__asan_flag_v > 0) {
-    Printf("AddressSanitizer: libc interceptors initialized\n");
-  }
+  return real_strncpy(to, from, size);
 }

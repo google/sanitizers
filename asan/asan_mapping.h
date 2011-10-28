@@ -60,6 +60,8 @@ extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
 #define kGlobalAndStackRedzone \
       (SHADOW_GRANULARITY < 32 ? 32 : SHADOW_GRANULARITY)
 
+namespace __asan {
+
 static inline bool AddrIsInLowMem(uintptr_t a) {
   return a < kLowMemEnd;
 }
@@ -89,5 +91,6 @@ static inline bool AddrIsInShadow(uintptr_t a) {
   return AddrIsInLowShadow(a) || AddrIsInHighShadow(a);
 }
 
+}  // namespace __asan
 
 #endif  // ASAN_MAPPING_H

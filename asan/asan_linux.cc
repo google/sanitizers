@@ -22,6 +22,8 @@
 
 extern ElfW(Dyn) _DYNAMIC[];
 
+namespace __asan {
+
 void *__asan_does_not_support_static_linkage() {
   // This will fail to link with -static.
   return &_DYNAMIC;
@@ -35,3 +37,5 @@ void *__asan_mmap(void *addr, size_t length, int prot, int flags,
   return (void *)syscall(SYS_mmap2, addr, length, prot, flags, fd, offset);
 # endif
 }
+
+}  // namespace __asan

@@ -17,19 +17,24 @@
 #include <stdint.h>  // for __WORDSIZE
 #include <stdlib.h>  // for size_t
 
+// All internal functions in asan reside inside the __asan namespace
+// to avoid namespace collisions with the user programs.
+// Seperate namespace also makes it simpler to distinguish the asan run-time
+// functions from the instrumented user code in a profile.
+namespace __asan {
+
 class AsanThread;
 class AsanStackTrace;
 
-extern "C" {
 void __asan_replace_system_malloc();
-void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
 void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
 void __asan_show_stats_and_abort();
 bool __asan_describe_addr_if_global(uintptr_t addr);
 void *__asan_does_not_support_static_linkage();
-}  // extern "C"
+
+void Printf(const char *format, ...);
 
 extern size_t __asan_flag_quarantine_size;
 extern int    __asan_flag_demangle;
@@ -54,17 +59,15 @@ namespace __asan {
   enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 }  // namespace __asan
 
-#define Printf __asan_printf
+#define CHECK(cond) do { if (!(cond)) { \
+  __asan_check_failed(#cond, __FILE__, __LINE__); \
+}}while(0)
 
 #if __WORDSIZE == 64
   #define PP "0x%012lx"
 #else
   #define PP "0x%08lx"
 #endif
-
-#define CHECK(cond) do { if (!(cond)) { \
-  __asan_check_failed(#cond, __FILE__, __LINE__); \
-}}while(0)
 
 #define ASAN_ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
@@ -113,7 +116,6 @@ PoisonShadowPartialRightRedzone(unsigned char *shadow,
   }
 }
 
-
 // -------------------------- Atomic ---------------- {{{1
 static inline int AtomicInc(int *a) {
   if (!__asan_flag_mt) return ++(*a);
@@ -124,5 +126,7 @@ static inline int AtomicDec(int *a) {
   if (!__asan_flag_mt) return --(*a);
   return __sync_add_and_fetch(a, -1);
 }
+
+}  // namespace __asan
 
 #endif  // ASAN_INTERNAL_H

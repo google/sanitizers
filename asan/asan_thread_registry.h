@@ -19,6 +19,8 @@
 #include "asan_stack.h"
 #include "asan_thread.h"
 
+namespace __asan {
+
 // Stores summaries of all created threads, returns current thread,
 // thread by tid, thread by stack address. There is a single instance
 // of AsanThreadRegistry for the whole program.
@@ -56,5 +58,7 @@ class AsanThreadRegistry {
 
 // Returns a single instance of registry.
 AsanThreadRegistry &asanThreadRegistry();
+
+}  // namespace __asan
 
 #endif  // ASAN_THREAD_REGISTRY_H

@@ -22,6 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+namespace __asan {
+
 AsanThread::AsanThread(__asan::LinkerInitialized)
     : fake_stack_(/*empty_ctor_for_thread_0*/0) { }
 
@@ -52,7 +54,7 @@ void *AsanThread::ThreadStart() {
   // clear the shadow state for the entire stack.
   uintptr_t shadow_bot = MemToShadow(stack_bottom_);
   uintptr_t shadow_top = MemToShadow(stack_top_);
-  __asan::real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
+  real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 
   if (!start_routine_) {
     CHECK(tid() == 0);
@@ -117,3 +119,5 @@ void AsanThread::SetThreadStackTopAndBottom() {
   CHECK(AddrIsInStack((uintptr_t)&attr));
 #endif
 }
+
+}  // namespace __asan

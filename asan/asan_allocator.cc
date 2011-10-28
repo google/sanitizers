@@ -41,6 +41,8 @@
 #include <unistd.h>
 #include <algorithm>
 
+namespace __asan {
+
 #define  REDZONE __asan_flag_redzone
 static const size_t kMinAllocSize = REDZONE * 2;
 static const size_t kMinMmapSize  = kPageSize * 1024;
@@ -121,7 +123,7 @@ static void PoisonShadow(uintptr_t mem, size_t size, uint8_t poison) {
   CHECK(IsAligned(mem + size, SHADOW_GRANULARITY));
   uintptr_t shadow_beg = MemToShadow(mem);
   uintptr_t shadow_end = MemToShadow(mem + size);
-  __asan::real_memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
+  real_memset((void*)shadow_beg, poison, shadow_end - shadow_beg);
 }
 
 // Given REDZONE bytes, we need to mark first size bytes
@@ -735,7 +737,7 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
   size_t old_size = m->used_size;
   size_t memcpy_size = std::min(new_size, old_size);
   uint8_t *new_ptr = Allocate(0, new_size, stack);
-  __asan::real_memcpy(new_ptr, old_ptr, memcpy_size);
+  real_memcpy(new_ptr, old_ptr, memcpy_size);
   Deallocate(old_ptr, stack);
   return new_ptr;
 }
@@ -756,7 +758,7 @@ void *__asan_malloc(size_t size, AsanStackTrace *stack) {
 
 void *__asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
   uint8_t *res = Allocate(0, nmemb * size, stack);
-  __asan::real_memset(res, 0, nmemb * size);
+  real_memset(res, 0, nmemb * size);
   return (void*)res;
 }
 
@@ -804,36 +806,12 @@ void __asan_mz_force_unlock() {
   malloc_info.ForceUnlock();
 }
 
-// ---------------------- AsanInterface ---------------- {{{1
-// ASan allocator doesn't reserve extra bytes, so normally we would
-// just return "size".
-size_t __asan_get_estimated_allocated_size(size_t size) {
-  if (size == 0) return 1;
-  return std::min(size, kMaxAllowedMallocSize);
-}
-
-bool __asan_get_ownership(const void *p) {
-  return (p == NULL) || (malloc_info.AllocationSize((uintptr_t)p) > 0);
-}
-
-size_t __asan_get_allocated_size(const void *p) {
-  if (p == NULL) return 0;
-  size_t allocated_size = malloc_info.AllocationSize((uintptr_t)p);
-  // Die if p is not malloced or if it is already freed.
-  if (allocated_size == 0) {
-    Printf("__asan_get_allocated_size failed, ptr=%p is not owned\n", p);
-    PRINT_CURRENT_STACK();
-    __asan_show_stats_and_abort();
-  }
-  return allocated_size;
-}
-
 // ---------------------- Fake stack-------------------- {{{1
 AsanFakeStack::AsanFakeStack()
   : stack_size_(0), alive_(false) {
-  __asan::real_memset(allocated_size_classes_,
+  real_memset(allocated_size_classes_,
                       0, sizeof(allocated_size_classes_));
-  __asan::real_memset(size_classes_, 0, sizeof(size_classes_));
+  real_memset(size_classes_, 0, sizeof(size_classes_));
 }
 
 bool AsanFakeStack::AddrIsInSizeClass(uintptr_t addr, size_t size_class) {
@@ -979,4 +957,33 @@ void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
   }
   // Printf("__asan_stack_free   "PP" %ld "PP"\n", ptr, size, real_stack);
   t->FakeStack().DeallocateStack(ptr, size);
+}
+
+}  // namespace __asan
+
+// ---------------------- Interface ---------------- {{{1
+using namespace __asan;  // NOLINT
+
+// ASan allocator doesn't reserve extra bytes, so normally we would
+// just return "size".
+size_t __asan_get_estimated_allocated_size(size_t size) {
+  if (size == 0) return 1;
+  return std::min(size, kMaxAllowedMallocSize);
+}
+
+bool __asan_get_ownership(const void *p) {
+  return (p == NULL) ||
+      (malloc_info.AllocationSize((uintptr_t)p) > 0);
+}
+
+size_t __asan_get_allocated_size(const void *p) {
+  if (p == NULL) return 0;
+  size_t allocated_size = malloc_info.AllocationSize((uintptr_t)p);
+  // Die if p is not malloced or if it is already freed.
+  if (allocated_size == 0) {
+    Printf("__asan_get_allocated_size failed, ptr=%p is not owned\n", p);
+    PRINT_CURRENT_STACK();
+    __asan_show_stats_and_abort();
+  }
+  return allocated_size;
 }

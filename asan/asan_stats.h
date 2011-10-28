@@ -16,6 +16,8 @@
 
 #include "asan_allocator.h"
 
+namespace __asan {
+
 struct AsanStats {
   size_t mallocs;
   size_t malloced;
@@ -40,5 +42,7 @@ struct AsanStats {
 };
 
 extern AsanStats __asan_stats;
+
+}  // namespace __asan
 
 #endif  // ASAN_STATS_H

@@ -23,6 +23,14 @@
 
 #define INTERCEPTOR_ATTRIBUTE __attribute__((visibility("default")))
 
+namespace __asan {
+void __asan_replace_system_malloc() {
+}
+}  // namespace __asan
+
+// ---------------------- Replacement functions ---------------- {{{1
+using namespace __asan;  // NOLINT
+
 extern "C" {
 INTERCEPTOR_ATTRIBUTE
 void free(void *ptr) {
@@ -77,7 +85,7 @@ void* __libc_memalign(size_t align, size_t s)
 INTERCEPTOR_ATTRIBUTE
 struct mallinfo mallinfo() {
   struct mallinfo res;
-  __asan::real_memset(&res, 0, sizeof(res));
+  real_memset(&res, 0, sizeof(res));
   return res;
 }
 
@@ -103,8 +111,5 @@ INTERCEPTOR_ATTRIBUTE
 void *pvalloc(size_t size) {
   GET_STACK_TRACE_HERE_FOR_MALLOC;
   return __asan_pvalloc(size, &stack);
-}
-
-void __asan_replace_system_malloc() {
 }
 }  // extern "C"

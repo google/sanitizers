@@ -17,6 +17,8 @@
 
 #include "asan_internal.h"
 
+namespace __asan {
+
 static const size_t kNumberOfSizeClasses = 255;
 class AsanChunk;
 
@@ -102,7 +104,6 @@ class AsanFakeStack {
   FifoList size_classes_[kNumberOfSizeClasses];
 };
 
-extern "C" {
 void *__asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack);
 void __asan_free(void *ptr, AsanStackTrace *stack);
 
@@ -121,5 +122,6 @@ void __asan_mz_force_unlock();
 void __asan_describe_heap_address(uintptr_t addr, size_t access_size);
 
 size_t __asan_total_mmaped();
-}  // extern "C"
+
+}  // namespace __asan
 #endif  // ASAN_ALLOCATOR_H

@@ -15,7 +15,12 @@
 #include "asan_internal.h"
 #include "asan_stats.h"
 
+namespace __asan {
 bool __asan_flag_stats;
+}  // namespace __asan
+
+// ---------------------- Interface ---------------- {{{1
+using namespace __asan;  // NOLINT
 
 size_t __asan_get_current_allocated_bytes() {
   return 0;

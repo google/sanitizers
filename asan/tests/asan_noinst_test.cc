@@ -17,6 +17,7 @@
 #include "asan_stack.h"
 #include "asan_test_utils.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
@@ -38,17 +39,17 @@ TEST(AddressSanitizer, InternalSimpleDeathTest) {
 
 static void MallocStress(size_t n) {
   uint32_t seed = my_rand(&global_seed);
-  AsanStackTrace stack1;
+  __asan::AsanStackTrace stack1;
   stack1.trace[0] = 0xa123;
   stack1.trace[1] = 0xa456;
   stack1.size = 2;
 
-  AsanStackTrace stack2;
+  __asan::AsanStackTrace stack2;
   stack2.trace[0] = 0xb123;
   stack2.trace[1] = 0xb456;
   stack2.size = 2;
 
-  AsanStackTrace stack3;
+  __asan::AsanStackTrace stack3;
   stack3.trace[0] = 0xc123;
   stack3.trace[1] = 0xc456;
   stack3.size = 2;
@@ -61,7 +62,7 @@ static void MallocStress(size_t n) {
       void *ptr = vec[idx];
       vec[idx] = vec.back();
       vec.pop_back();
-      __asan_free(ptr, &stack1);
+      __asan::__asan_free(ptr, &stack1);
     } else {
       size_t size = my_rand(&seed) % 1000 + 1;
       switch ((my_rand(&seed) % 128)) {
@@ -70,7 +71,7 @@ static void MallocStress(size_t n) {
         case 2: size += 4096; break;
       }
       size_t alignment = 1 << (my_rand(&seed) % 10 + 1);
-      char *ptr = (char*)__asan_memalign(alignment, size, &stack2);
+      char *ptr = (char*)__asan::__asan_memalign(alignment, size, &stack2);
       vec.push_back(ptr);
       ptr[0] = 0;
       ptr[size-1] = 0;
@@ -78,7 +79,7 @@ static void MallocStress(size_t n) {
     }
   }
   for (size_t i = 0; i < vec.size(); i++)
-    __asan_free(vec[i], &stack3);
+    __asan::__asan_free(vec[i], &stack3);
 }
 
 
@@ -90,7 +91,7 @@ static void PrintShadow(const char *tag, uintptr_t ptr, size_t size) {
   fprintf(stderr, "%s shadow: %lx size % 3ld: ", tag, (long)ptr, (long)size);
   uintptr_t prev_shadow = 0;
   for (intptr_t i = -32; i < (intptr_t)size + 32; i++) {
-    uintptr_t shadow = MemToShadow(ptr + i);
+    uintptr_t shadow = __asan::MemToShadow(ptr + i);
     if (i == 0 || i == (intptr_t)size)
       fprintf(stderr, ".");
     if (shadow != prev_shadow) {
@@ -207,18 +208,18 @@ void CompressStackTraceTest(size_t n_iter) {
 
   for (size_t iter = 0; iter < n_iter; iter++) {
     std::random_shuffle(pc_array, pc_array + kNumPcs);
-    AsanStackTrace stack0, stack1;
+    __asan::AsanStackTrace stack0, stack1;
     stack0.CopyFrom(pc_array, kNumPcs);
     stack0.size = std::max((size_t)1, (size_t)my_rand(&seed) % stack0.size);
     size_t compress_size =
       std::max((size_t)2, (size_t)my_rand(&seed) % (2 * kNumPcs));
     size_t n_frames =
-      AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
-    CHECK(n_frames <= stack0.size);
-    AsanStackTrace::UncompressStack(&stack1, compressed, compress_size);
-    CHECK(stack1.size == n_frames);
+      __asan::AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+    assert(n_frames <= stack0.size);
+    __asan::AsanStackTrace::UncompressStack(&stack1, compressed, compress_size);
+    assert(stack1.size == n_frames);
     for (size_t i = 0; i < stack1.size; i++) {
-      CHECK(stack0.trace[i] == stack1.trace[i]);
+      assert(stack0.trace[i] == stack1.trace[i]);
     }
   }
 }
@@ -232,13 +233,13 @@ void CompressStackTraceBenchmark(size_t n_iter) {
   uint32_t compressed[2 * kNumPcs];
   std::random_shuffle(pc_array, pc_array + kNumPcs);
 
-  AsanStackTrace stack0;
+  __asan::AsanStackTrace stack0;
   stack0.CopyFrom(pc_array, kNumPcs);
   stack0.size = kNumPcs;
   for (size_t iter = 0; iter < n_iter; iter++) {
     size_t compress_size = kNumPcs;
     size_t n_frames =
-      AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+      __asan::AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
     Ident(n_frames);
   }
 }
@@ -248,18 +249,18 @@ TEST(AddressSanitizer, CompressStackTraceBenchmark) {
 }
 
 TEST(AddressSanitizer, QuarantineTest) {
-  AsanStackTrace stack;
+  __asan::AsanStackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
 
   const int size = 32;
   void *p = __asan_malloc(size, &stack);
-  __asan_free(p, &stack);
+  __asan::__asan_free(p, &stack);
   size_t i;
   size_t max_i = 1 << 30;
   for (i = 0; i < max_i; i++) {
     void *p1 = __asan_malloc(size, &stack);
-    __asan_free(p1, &stack);
+    __asan::__asan_free(p1, &stack);
     if (p1 == p) break;
   }
   // fprintf(stderr, "i=%ld\n", i);
@@ -269,13 +270,13 @@ TEST(AddressSanitizer, QuarantineTest) {
 
 void *ThreadedQuarantineTestWorker(void *unused) {
   uint32_t seed = my_rand(&global_seed);
-  AsanStackTrace stack;
+  __asan::AsanStackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
 
   for (size_t i = 0; i < 1000; i++) {
     void *p = __asan_malloc(1 + (my_rand(&seed) % 4000), &stack);
-    __asan_free(p, &stack);
+    __asan::__asan_free(p, &stack);
   }
   return NULL;
 }
@@ -284,18 +285,18 @@ void *ThreadedQuarantineTestWorker(void *unused) {
 // destroyed.
 TEST(AddressSanitizer, ThreadedQuarantineTest) {
   const int n_threads = 3000;
-  size_t mmaped1 = __asan_total_mmaped();
+  size_t mmaped1 = __asan::__asan_total_mmaped();
   for (int i = 0; i < n_threads; i++) {
     pthread_t t;
     pthread_create(&t, NULL, ThreadedQuarantineTestWorker, 0);
     pthread_join(t, 0);
-    size_t mmaped2 = __asan_total_mmaped();
+    size_t mmaped2 = __asan::__asan_total_mmaped();
     EXPECT_LT(mmaped2 - mmaped1, 320U * (1 << 20));
   }
 }
 
 void *ThreadedOneSizeMallocStress(void *unused) {
-  AsanStackTrace stack;
+  __asan::AsanStackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
   const size_t kNumMallocs = 1000;
@@ -305,7 +306,7 @@ void *ThreadedOneSizeMallocStress(void *unused) {
       p[i] = __asan_malloc(32, &stack);
     }
     for (size_t i = 0; i < kNumMallocs; i++) {
-      __asan_free(p[i], &stack);
+      __asan::__asan_free(p[i], &stack);
     }
   }
   return NULL;

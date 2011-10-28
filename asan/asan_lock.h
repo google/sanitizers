@@ -16,10 +16,12 @@
 
 #include "asan_internal.h"
 
+
 #ifdef __APPLE__
 #include <pthread.h>
 
 #include <libkern/OSAtomic.h>
+namespace __asan {
 class AsanLock {
  public:
   AsanLock() {
@@ -50,10 +52,11 @@ class AsanLock {
   volatile pthread_t owner_;  // for debugging purposes
   bool is_locked_;  // for silly malloc_introspection_t interface
 };
+}  // namespace __asan
 
 #else  // assume linux
 #include <pthread.h>
-
+namespace __asan {
 class AsanLock {
  public:
   AsanLock() {
@@ -76,9 +79,10 @@ class AsanLock {
   pthread_mutex_t mu_;
   // pthread_spinlock_t mu_;
 };
-
+}  // namespace __asan
 #endif
 
+namespace __asan {
 class ScopedLock {
  public:
   explicit ScopedLock(AsanLock *mu) : mu_(mu) {
@@ -91,6 +95,6 @@ class ScopedLock {
   AsanLock *mu_;
 };
 
-
+}  // namespace __asan
 
 #endif  // ASAN_LOCK_H

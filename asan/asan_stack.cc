@@ -18,10 +18,12 @@
 #include "asan_thread_registry.h"
 
 #include <string.h>
+#include "sysinfo.h"
+
+namespace __asan {
 
 // ----------------------- ProcSelfMaps ----------------------------- {{{1
 #ifdef ASAN_USE_SYSINFO
-#include "sysinfo.h"
 class ProcSelfMaps {
  public:
   void Init() {
@@ -42,8 +44,8 @@ class ProcSelfMaps {
       mapping.beg = start;
       mapping.end = end;
       mapping.offset = offset;
-      __asan::real_strncpy(mapping.name,
-                           filename, ASAN_ARRAY_SIZE(mapping.name));
+      real_strncpy(mapping.name,
+                   filename, ASAN_ARRAY_SIZE(mapping.name));
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
       if (__asan_flag_v >= 2) {
         Printf("[%ld] ["PP","PP"] off "PP" %s\n", map_size_,
@@ -273,3 +275,5 @@ void AsanStackTrace::UncompressStack(AsanStackTrace *stack,
   }
 #endif  // __WORDSIZE
 }
+
+}  // namespace __asan

@@ -40,13 +40,15 @@
 #define INTERCEPT_FUNCTION(func)                                        \
   CHECK(0 == mach_override_ptr((void*)(func),                           \
                                (void*)WRAP(func),                       \
-                               (void**)&__asan::real_##func));          \
+                               (void**)&real_##func));          \
   CHECK(__asan::real_##func != NULL);
 #else
 #define WRAP(x) x
 #define INTERCEPT_FUNCTION(func)                                        \
-  CHECK((__asan::real_##func = (func##_f)dlsym(RTLD_NEXT, #func)));
+  CHECK((real_##func = (func##_f)dlsym(RTLD_NEXT, #func)));
 #endif
+
+namespace __asan {
 
 typedef void* (*memcpy_f)(void *to, const void *from, size_t size);
 typedef void* (*memmove_f)(void *to, const void *from, size_t size);
@@ -56,7 +58,6 @@ typedef char* (*strncpy_f)(char *to, const char *from, size_t size);
 
 // __asan::real_X() holds pointer to library implementation of X().
 // __asan::internal_X() is the implementation of X() for use in RTL.
-namespace __asan {
 extern memcpy_f         real_memcpy;
 extern memmove_f        real_memmove;
 extern memset_f         real_memset;
@@ -64,9 +65,9 @@ extern strlen_f         real_strlen;
 extern strncpy_f        real_strncpy;
 
 size_t internal_strlen(const char *s);
-}  // namespace
-
 // Initializes pointers to str*/mem* functions.
 void __asan_interceptors_init();
+
+}  // namespace __asan
 
 #endif  // ASAN_INTERCEPTORS_H
