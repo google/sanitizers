@@ -11,9 +11,9 @@
 //
 // Handle globals.
 //===----------------------------------------------------------------------===//
-#include "asan_int.h"
 #include "asan_interceptors.h"
 #include "asan_interface.h"
+#include "asan_internal.h"
 #include "asan_lock.h"
 #include "asan_mapping.h"
 #include "asan_stack.h"

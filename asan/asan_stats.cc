@@ -11,8 +11,8 @@
 //
 // Code related to statistics collected by AddressSanitizer.
 //===----------------------------------------------------------------------===//
-#include "asan_int.h"
 #include "asan_interface.h"
+#include "asan_internal.h"
 #include "asan_stats.h"
 
 bool __asan_flag_stats;

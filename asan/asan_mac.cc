@@ -12,7 +12,7 @@
 // Mac-specific details.
 //===----------------------------------------------------------------------===//
 
-#include "asan_int.h"
+#include "asan_internal.h"
 
 #include <sys/mman.h>
 #include <unistd.h>

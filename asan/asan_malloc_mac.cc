@@ -18,8 +18,8 @@
 #include <setjmp.h>
 
 #include "asan_allocator.h"
-#include "asan_int.h"
 #include "asan_interceptors.h"
+#include "asan_internal.h"
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 

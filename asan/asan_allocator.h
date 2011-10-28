@@ -15,7 +15,7 @@
 #ifndef ASAN_ALLOCATOR_H
 #define ASAN_ALLOCATOR_H
 
-#include "asan_int.h"
+#include "asan_internal.h"
 
 static const size_t kNumberOfSizeClasses = 255;
 class AsanChunk;

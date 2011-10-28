@@ -14,7 +14,7 @@
 #ifndef ASAN_MAPPING_H
 #define ASAN_MAPPING_H
 
-#include "asan_int.h"
+#include "asan_internal.h"
 
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm

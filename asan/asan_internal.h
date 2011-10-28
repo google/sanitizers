@@ -1,4 +1,4 @@
-//===-- asan_int.h ------------*- C++ -*-===//
+//===-- asan_internal.h -----------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,8 +11,8 @@
 //
 // ASan-private header which defines various general utilities.
 //===----------------------------------------------------------------------===//
-#ifndef ASAN_INT_H
-#define ASAN_INT_H
+#ifndef ASAN_INTERNAL_H
+#define ASAN_INTERNAL_H
 
 #include <stdint.h>  // for __WORDSIZE
 #include <stdlib.h>  // for size_t
@@ -125,4 +125,4 @@ static inline int AtomicDec(int *a) {
   return __sync_add_and_fetch(a, -1);
 }
 
-#endif  // ASAN_INT_H
+#endif  // ASAN_INTERNAL_H

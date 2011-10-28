@@ -14,7 +14,7 @@
 #ifndef ASAN_LOCK_H
 #define ASAN_LOCK_H
 
-#include "asan_int.h"
+#include "asan_internal.h"
 
 #ifdef __APPLE__
 #include <pthread.h>

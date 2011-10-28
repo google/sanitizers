@@ -94,7 +94,7 @@ ifeq ($(ASAN_COMPILER), gcc)
 endif
 
 RTL_HDR_COMMON=asan_allocator.h \
-	asan_int.h \
+	asan_internal.h \
 	asan_interceptors.h \
 	asan_interface.h \
 	asan_lock.h \

@@ -14,7 +14,7 @@
 #ifndef ASAN_INTERCEPTORS_H
 #define ASAN_INTERCEPTORS_H
 
-#include "asan_int.h"
+#include "asan_internal.h"
 #include "asan_stack.h"
 
 // To replace weak system functions on Linux we just need to declare functions

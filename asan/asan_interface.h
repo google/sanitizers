@@ -24,7 +24,7 @@
 extern "C" {
   // This function should be called at the very beginning of the process,
   // before any instrumented code is executed and before any call to malloc.
-  void __asan_init() 
+  void __asan_init()
       __attribute__((visibility("default")));
 
   // This function should be called by the instrumented code.

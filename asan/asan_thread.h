@@ -15,7 +15,7 @@
 #define ASAN_THREAD_H
 
 #include "asan_allocator.h"
-#include "asan_int.h"
+#include "asan_internal.h"
 #include "asan_stack.h"
 
 const size_t kMaxThreadStackSize = 16 * (1 << 20);  // 16M

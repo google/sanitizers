@@ -14,7 +14,7 @@
 #ifndef ASAN_STACK_H
 #define ASAN_STACK_H
 
-#include "asan_int.h"
+#include "asan_internal.h"
 #include "unwind.h"
 
 static const size_t kStackTraceMax = 64;

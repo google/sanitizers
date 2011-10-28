@@ -12,7 +12,7 @@
 // This test file should be compiled w/o asan instrumentation.
 //===----------------------------------------------------------------------===//
 #include "asan_allocator.h"
-#include "asan_int.h"
+#include "asan_internal.h"
 #include "asan_mapping.h"
 #include "asan_stack.h"
 #include "asan_test_utils.h"

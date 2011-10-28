@@ -12,7 +12,7 @@
 // Linux-specific details.
 //===----------------------------------------------------------------------===//
 
-#include "asan_int.h"
+#include "asan_internal.h"
 
 #include <elf.h>
 #include <link.h>
