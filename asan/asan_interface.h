@@ -15,10 +15,39 @@
 #ifndef ASAN_INTERFACE_H
 #define ASAN_INTERFACE_H
 
+#include <stdint.h>  // for __WORDSIZE
+#include <stdlib.h>  // for size_t
+
 // This header should NOT include any other headers from ASan runtime.
-// All functions in this header as extern "C" and start with __asan_.
+// All functions in this header are extern "C" and start with __asan_.
 
 extern "C" {
+  // This function should be called at the very beginning of the process,
+  // before any instrumented code is executed and before any call to malloc.
+  void __asan_init() 
+      __attribute__((visibility("default")));
+
+  // This function should be called by the instrumented code.
+  // 'addr' is the address of a global variable called 'name' of 'size' bytes.
+  void __asan_register_global(uintptr_t addr, size_t size, const char *name)
+      __attribute__((visibility("default")));
+
+  // These two functions are used by the instrumented code in the
+  // use-after-return mode. __asan_stack_malloc allocates size bytes of
+  // fake stack and __asan_free deallocates it. real_stack is a pointer to
+  // the real stack region.
+  size_t __asan_stack_malloc(size_t size, size_t real_stack)
+      __attribute__((visibility("default")));
+  void __asan_stack_free(size_t ptr, size_t size, size_t real_stack)
+      __attribute__((visibility("default")));
+
+  // This is an internal function that is called to report an error.
+  // However it is still a part of the interface because users may want to
+  // set a breakpoint on this function in a debugger.
+  void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
+                           uintptr_t addr, bool is_write, size_t access_size)
+    __attribute__((visibility("default")));
+
   // Returns the estimated number of bytes that will be reserved by allocator
   // for request of "size" bytes. If ASan allocator can't allocate that much
   // memory, returns the maximal possible allocation size, otherwise returns

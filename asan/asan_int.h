@@ -20,24 +20,13 @@
 class AsanThread;
 class AsanStackTrace;
 
-
 extern "C" {
-void __asan_init() __attribute__((visibility("default")));
 void __asan_replace_system_malloc();
 void __asan_printf(const char *format, ...);
 void __asan_check_failed(const char *cond, const char *file, int line);
 void *__asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
-void __asan_register_global(uintptr_t addr, size_t size, const char *name)
-    __attribute__((visibility("default")));
-void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
-                         uintptr_t addr, bool is_write, size_t access_size)
-    __attribute__((visibility("default")));
 void __asan_show_stats_and_abort();
-size_t __asan_stack_malloc(size_t size, size_t real_stack)
-    __attribute__((visibility("default")));
-void __asan_stack_free(size_t ptr, size_t size, size_t real_stack)
-    __attribute__((visibility("default")));
 bool __asan_describe_addr_if_global(uintptr_t addr);
 void *__asan_does_not_support_static_linkage();
 }  // extern "C"

@@ -14,6 +14,7 @@
 #include "asan_allocator.h"
 #include "asan_int.h"
 #include "asan_interceptors.h"
+#include "asan_interface.h"
 #include "asan_lock.h"
 #include "asan_mapping.h"
 #include "asan_stack.h"
