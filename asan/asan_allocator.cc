@@ -29,9 +29,11 @@
 #include "asan_int.h"
 #include "asan_interceptors.h"
 #include "asan_interface.h"
+#include "asan_lock.h"
 #include "asan_mapping.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
+#include "asan_thread_registry.h"
 
 #include <sys/mman.h>
 #include <stdint.h>
@@ -60,7 +62,8 @@ static const size_t kMaxAllowedMallocSize = 8UL << 30;  // 8G
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
          "0x%lx (%lu) bytes (%s) in T%d\n",
-         getpid(), size, size, mem_type, AsanThread::GetCurrent()->tid());
+         getpid(), size, size, mem_type,
+         asanThreadRegistry().GetCurrent()->tid());
 }
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
@@ -549,13 +552,15 @@ static void Describe(uintptr_t addr, size_t access_size) {
   if (!m) return;
   m->DescribeAddress(addr, access_size);
   CHECK(m->alloc_tid >= 0);
-  AsanThreadSummary *alloc_thread = AsanThread::FindByTid(m->alloc_tid);
+  AsanThreadSummary *alloc_thread =
+      asanThreadRegistry().FindByTid(m->alloc_tid);
   AsanStackTrace alloc_stack;
   AsanStackTrace::UncompressStack(&alloc_stack, m->compressed_alloc_stack(),
                                   m->compressed_alloc_stack_size());
 
   if (m->free_tid >= 0) {
-    AsanThreadSummary *free_thread = AsanThread::FindByTid(m->free_tid);
+    AsanThreadSummary *free_thread =
+        asanThreadRegistry().FindByTid(m->free_tid);
     Printf("freed by thread T%d here:\n", free_thread->tid());
     AsanStackTrace free_stack;
     AsanStackTrace::UncompressStack(&free_stack, m->compressed_free_stack(),
@@ -565,13 +570,13 @@ static void Describe(uintptr_t addr, size_t access_size) {
            alloc_thread->tid());
 
     alloc_stack.PrintStack();
-    AsanThread::GetCurrent()->summary()->Announce();
+    asanThreadRegistry().GetCurrent()->summary()->Announce();
     free_thread->Announce();
     alloc_thread->Announce();
   } else {
     Printf("allocated by thread T%d here:\n", alloc_thread->tid());
     alloc_stack.PrintStack();
-    AsanThread::GetCurrent()->summary()->Announce();
+    asanThreadRegistry().GetCurrent()->summary()->Announce();
     alloc_thread->Announce();
   }
 }
@@ -613,7 +618,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     __asan_stats.malloced_by_size[Log2(size_to_allocate)]++;
   }
 
-  AsanThread *t = AsanThread::GetCurrent();
+  AsanThread *t = asanThreadRegistry().GetCurrent();
   AsanChunk *m = NULL;
   if (!t || size_to_allocate >= kMaxSizeForThreadLocalFreeList) {
     // get directly from global storage.
@@ -685,7 +690,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   CHECK(m->chunk_state == CHUNK_ALLOCATED);
   CHECK(m->free_tid == AsanThread::kInvalidTid);
   CHECK(m->alloc_tid >= 0);
-  AsanThread *t = AsanThread::GetCurrent();
+  AsanThread *t = asanThreadRegistry().GetCurrent();
   m->free_tid = t ? t->tid() : 0;
   AsanStackTrace::CompressStack(stack, m->compressed_free_stack(),
                                 m->compressed_free_stack_size());
@@ -863,7 +868,7 @@ inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
 }
 
 void AsanFakeStack::FifoList::FifoPush(uintptr_t a) {
-  // Printf("T%d push "PP"\n", AsanThread::GetCurrent()->tid(), a);
+  // Printf("T%d push "PP"\n", asanThreadRegistry().GetCurrent()->tid(), a);
   FifoNode *node = (FifoNode*)a;
   CHECK(node);
   node->next = 0;
@@ -919,7 +924,7 @@ void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
                                              MAP_PRIVATE | MAP_ANON, -1, 0);
   CHECK(new_mem != (uintptr_t)-1);
   // Printf("T%d new_mem[%ld]: "PP"-"PP" mmap %ld\n",
-  //       AsanThread::GetCurrent()->tid(),
+  //       asanThreadRegistry().GetCurrent()->tid(),
   //       size_class, new_mem, new_mem + ClassMmapSize(size_class),
   //       ClassMmapSize(size_class));
   size_t i;
@@ -955,7 +960,7 @@ void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
 }
 
 size_t __asan_stack_malloc(size_t size, size_t real_stack) {
-  AsanThread *t = AsanThread::GetCurrent();
+  AsanThread *t = asanThreadRegistry().GetCurrent();
   if (!t) {
     // TSD is gone, use the real stack.
     return real_stack;
@@ -970,7 +975,7 @@ void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
     // we returned the real stack in __asan_stack_malloc, so do nothing now.
     return;
   }
-  AsanThread *t = AsanThread::GetCurrent();
+  AsanThread *t = asanThreadRegistry().GetCurrent();
   if (!t) {
     // TSD is gone between __asan_stack_malloc and here.
     // The whole thread fake stack has been destructed anyway.

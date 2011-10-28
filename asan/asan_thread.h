@@ -9,14 +9,13 @@
 //
 // This file is a part of AddressSanitizer, an address sanity checker.
 //
-// ASan-private header for asan_thread.h.
+// ASan-private header for asan_thread.cc.
 //===----------------------------------------------------------------------===//
 #ifndef ASAN_THREAD_H
 #define ASAN_THREAD_H
 
 #include "asan_allocator.h"
 #include "asan_int.h"
-#include "asan_lock.h"
 #include "asan_stack.h"
 
 const size_t kMaxThreadStackSize = 16 * (1 << 20);  // 16M
@@ -67,14 +66,12 @@ class AsanThread {
 
   void *ThreadStart();
 
-  static AsanThreadSummary *FindByTid(int tid);
-  static AsanThread *FindThreadByStackAddress(uintptr_t addr);
-
   uintptr_t stack_top() { return stack_top_; }
   uintptr_t stack_bottom() { return stack_bottom_; }
   size_t stack_size() { return stack_top_ - stack_bottom_; }
   int tid() { return summary_->tid(); }
   AsanThreadSummary *summary() { return summary_; }
+  void set_summary(AsanThreadSummary *summary) { summary_ = summary; }
 
   const char *GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset);
 
@@ -83,13 +80,6 @@ class AsanThread {
   bool AddrIsInStack(uintptr_t addr) {
     return addr >= stack_bottom_ && addr < stack_top_;
   }
-
-  // Get the current thread. May return NULL.
-  static AsanThread *GetCurrent();
-  static void SetCurrent(AsanThread *t);
-
-  static AsanThread *GetMain() { return &main_thread_; }
-  static void Init();
 
   AsanThreadLocalMallocStorage &malloc_storage() { return malloc_storage_; }
 
@@ -107,11 +97,6 @@ class AsanThread {
   AsanThreadLocalMallocStorage malloc_storage_;
 
   AsanFakeStack fake_stack_;
-
-  static AsanThread main_thread_;
-  static AsanThreadSummary main_thread_summary_;
-  static int n_threads_;
-  static AsanLock mu_;
 };
 
 #endif  // ASAN_THREAD_H

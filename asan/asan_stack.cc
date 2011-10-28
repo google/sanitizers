@@ -15,6 +15,7 @@
 #include "asan_lock.h"
 #include "asan_stack.h"
 #include "asan_thread.h"
+#include "asan_thread_registry.h"
 
 #include <string.h>
 
@@ -148,7 +149,7 @@ void AsanStackTrace::FastUnwindStack(uintptr_t pc, uintptr_t bp) {
   CHECK(size == 0 && trace[0] == pc);
   size = 1;
   if (!__asan_inited) return;
-  AsanThread *t = AsanThread::GetCurrent();
+  AsanThread *t = asanThreadRegistry().GetCurrent();
   if (!t) return;
   uintptr_t *frame = (uintptr_t*)bp;
   uintptr_t *prev_frame = frame;

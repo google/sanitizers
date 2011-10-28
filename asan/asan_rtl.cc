@@ -19,6 +19,7 @@
 #include "asan_stack.h"
 #include "asan_stats.h"
 #include "asan_thread.h"
+#include "asan_thread_registry.h"
 
 #include <algorithm>
 #include <map>
@@ -168,7 +169,7 @@ static void PrintBytes(const char *before, uintptr_t *a) {
 // ---------------------- Thread ------------------------- {{{1
 static void *asan_thread_start(void *arg) {
   AsanThread *t= (AsanThread*)arg;
-  AsanThread::SetCurrent(t);
+  asanThreadRegistry().SetCurrent(t);
   return t->ThreadStart();
 }
 
@@ -231,7 +232,7 @@ static void protect_range(uintptr_t beg, uintptr_t end) {
 
 // ---------------------- DescribeAddress -------------------- {{{1
 static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
-  AsanThread *t = AsanThread::FindThreadByStackAddress(addr);
+  AsanThread *t = asanThreadRegistry().FindThreadByStackAddress(addr);
   if (!t) return false;
   const intptr_t kBufSize = 4095;
   char buf[kBufSize];
@@ -318,7 +319,7 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
                          void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)__asan_malloc(sizeof(AsanThread), &stack);
-  new(t) AsanThread(AsanThread::GetCurrent()->tid(),
+  new(t) AsanThread(asanThreadRegistry().GetCurrent()->tid(),
                     start_routine, arg, &stack);
   return __asan::real_pthread_create(thread, attr, asan_thread_start, t);
 }
@@ -352,7 +353,7 @@ int WRAP(sigaction)(int signum, const struct sigaction *act,
 
 static void UnpoisonStackFromHereToTop() {
   int local_stack;
-  uintptr_t top = AsanThread::GetCurrent()->stack_top();
+  uintptr_t top = asanThreadRegistry().GetCurrent()->stack_top();
   uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
   uintptr_t top_shadow = MemToShadow(top);
   uintptr_t bot_shadow = MemToShadow(bottom);
@@ -461,7 +462,8 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 
   Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP""
          " (pc %p sp %p bp %p ax %p T%d)\n",
-         getpid(), addr, pc, sp, bp, ax, AsanThread::GetCurrent()->tid());
+         getpid(), addr, pc, sp, bp, ax,
+         asanThreadRegistry().GetCurrent()->tid());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax, false, pc, bp);
   stack.PrintStack();
@@ -514,7 +516,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   Printf("%s of size %d at "PP" thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size, addr, AsanThread::GetCurrent()->tid());
+          access_size, addr, asanThreadRegistry().GetCurrent()->tid());
 
   if (__asan_flag_debug) {
     PrintBytes("PC: ", (uintptr_t*)pc);
@@ -739,8 +741,8 @@ void __asan_init() {
   __asan_inited = 1;
   __asan_init_is_running = false;
 
-  AsanThread::Init();
-  AsanThread::GetMain()->ThreadStart();
+  asanThreadRegistry().Init();
+  asanThreadRegistry().GetMain()->ThreadStart();
 
   if (__asan_flag_v) {
     Printf("==%d== AddressSanitizer r%s Init done ***\n",

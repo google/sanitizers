@@ -14,6 +14,7 @@
 #include "asan_allocator.h"
 #include "asan_interceptors.h"
 #include "asan_thread.h"
+#include "asan_thread_registry.h"
 #include "asan_mapping.h"
 
 #include <sys/mman.h>
@@ -21,55 +22,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-static pthread_key_t g_tls_key;
-// This flag is updated only once at program startup, and then read
-// by concurrent threads.
-static bool tls_key_created = false;
-
-// Make it large enough so that we never run out of tids.
-// I am not sure we can easily replace this with vector<>.
-static const int kMaxTid = (1 << 22) + 1;
-static AsanThreadSummary *thread_summaries[kMaxTid + 1];
-
 AsanThread::AsanThread(__asan::LinkerInitialized)
-    : fake_stack_(/*empty_ctor_for_thread_0*/0) {
-  CHECK(this == &main_thread_);
-}
+    : fake_stack_(/*empty_ctor_for_thread_0*/0) { }
 
 AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),
                        void *arg, AsanStackTrace *stack)
-  : start_routine_(start_routine),
-    arg_(arg) {
-  ScopedLock lock(&mu_);
-  CHECK(n_threads_ > 0);
-  CHECK(n_threads_ < kMaxTid);
-  int tid = n_threads_;
-  n_threads_++;
-  summary_ = new AsanThreadSummary(tid, parent_tid, stack);
-  summary_->set_thread(this);
-  thread_summaries[tid] = summary_;
+    : start_routine_(start_routine),
+      arg_(arg) {
+  asanThreadRegistry().RegisterThread(this, parent_tid, stack);
 }
 
-AsanThreadSummary *AsanThread::FindByTid(int tid) {
-  CHECK(tid >= 0);
-  CHECK(tid < n_threads_);
-  CHECK(thread_summaries[tid]);
-  return thread_summaries[tid];
-}
-
-AsanThread *AsanThread::FindThreadByStackAddress(uintptr_t addr) {
-  ScopedLock lock(&mu_);
-  for (int tid = 0; tid < n_threads_; tid++) {
-    AsanThread *t = thread_summaries[tid]->thread();
-    if (!t) continue;
-    if (t->FakeStack().AddrIsInFakeStack(addr)) {
-      return t;
-    }
-    if (t->AddrIsInStack(addr)) {
-      return t;
-    }
-  }
-  return 0;
+AsanThread::~AsanThread() {
+  asanThreadRegistry().UnregisterThread(this);
+  FakeStack().Cleanup();
 }
 
 void *AsanThread::ThreadStart() {
@@ -152,41 +117,3 @@ void AsanThread::SetThreadStackTopAndBottom() {
   CHECK(AddrIsInStack((uintptr_t)&attr));
 #endif
 }
-
-AsanThread::~AsanThread() {
-  FakeStack().Cleanup();
-  summary_->set_thread(0);
-}
-
-static void DestroyAsanTsd(void *tsd) {
-  AsanThread *t = (AsanThread*)tsd;
-  if (t != AsanThread::GetMain()) {
-    delete t;
-  }
-}
-
-void AsanThread::Init() {
-  CHECK(0 == pthread_key_create(&g_tls_key, DestroyAsanTsd));
-  tls_key_created = true;
-  SetCurrent(&main_thread_);
-  main_thread_.summary_ = &main_thread_summary_;
-  main_thread_summary_.set_thread(&main_thread_);
-  thread_summaries[0] = &main_thread_summary_;
-  n_threads_ = 1;
-}
-
-AsanThread* AsanThread::GetCurrent() {
-  CHECK(tls_key_created);
-  AsanThread *thread = (AsanThread*)pthread_getspecific(g_tls_key);
-  return thread;
-}
-
-void AsanThread::SetCurrent(AsanThread *t) {
-  CHECK(0 == pthread_setspecific(g_tls_key, t));
-  CHECK(pthread_getspecific(g_tls_key) == t);
-}
-
-int AsanThread::n_threads_;
-AsanLock AsanThread::mu_;
-AsanThread AsanThread::main_thread_(__asan::LINKER_INITIALIZED);
-AsanThreadSummary AsanThread::main_thread_summary_(__asan::LINKER_INITIALIZED);
