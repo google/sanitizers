@@ -18,22 +18,16 @@
 #include "asan_test_utils.h"
 #include "asan_interface.h"
 
-using __asan_interface::get_estimated_allocated_size;
-using __asan_interface::get_ownership;
-using __asan_interface::get_allocated_size;
-using __asan_interface::get_current_allocated_bytes;
-using __asan_interface::enable_statistics;
-using __asan_interface::print_accumulated_stats;
-
 TEST(AddressSanitizerInterface, GetEstimatedAllocatedSize) {
-  EXPECT_EQ(1, get_estimated_allocated_size(0));
+  EXPECT_EQ(1, __asan_get_estimated_allocated_size(0));
   const size_t sizes[] = { 1, 30, 1<<30 };
   for (size_t i = 0; i < 3; i++) {
-    EXPECT_EQ(sizes[i], get_estimated_allocated_size(sizes[i]));
+    EXPECT_EQ(sizes[i], __asan_get_estimated_allocated_size(sizes[i]));
   }
 }
 
-static const char* kGetAllocatedSizeErrorMsg = "get_allocated_size failed";
+static const char* kGetAllocatedSizeErrorMsg =
+  "__asan_get_allocated_size failed";
 
 TEST(AddressSanitizerInterface, GetAllocatedSizeAndOwnershipTest) {
   const size_t kArraySize = 100;
@@ -43,57 +37,57 @@ TEST(AddressSanitizerInterface, GetAllocatedSizeAndOwnershipTest) {
 
   // Allocated memory is owned by allocator. Allocated size should be
   // equal to requested size.
-  EXPECT_EQ(true, get_ownership(array));
-  EXPECT_EQ(kArraySize, get_allocated_size(array));
-  EXPECT_EQ(true, get_ownership(int_ptr));
-  EXPECT_EQ(sizeof(int), get_allocated_size(int_ptr));
+  EXPECT_EQ(true, __asan_get_ownership(array));
+  EXPECT_EQ(kArraySize, __asan_get_allocated_size(array));
+  EXPECT_EQ(true, __asan_get_ownership(int_ptr));
+  EXPECT_EQ(sizeof(int), __asan_get_allocated_size(int_ptr));
 
   // We cannot call GetAllocatedSize from the memory we didn't map,
   // and from the interior pointers (not returned by previous malloc).
   void *wild_addr = (void*)0x1;
-  EXPECT_EQ(false, get_ownership(wild_addr));
-  EXPECT_DEATH(get_allocated_size(wild_addr), kGetAllocatedSizeErrorMsg);
-  EXPECT_EQ(false, get_ownership(array + kArraySize / 2));
-  EXPECT_DEATH(get_allocated_size(array + kArraySize / 2),
+  EXPECT_EQ(false, __asan_get_ownership(wild_addr));
+  EXPECT_DEATH(__asan_get_allocated_size(wild_addr), kGetAllocatedSizeErrorMsg);
+  EXPECT_EQ(false, __asan_get_ownership(array + kArraySize / 2));
+  EXPECT_DEATH(__asan_get_allocated_size(array + kArraySize / 2),
                kGetAllocatedSizeErrorMsg);
 
   // NULL is a valid argument and is owned.
-  EXPECT_EQ(true, get_ownership(NULL));
-  EXPECT_EQ(0, get_allocated_size(NULL));
+  EXPECT_EQ(true, __asan_get_ownership(NULL));
+  EXPECT_EQ(0, __asan_get_allocated_size(NULL));
 
   // When memory is freed, it's not owned, and call to GetAllocatedSize
   // is forbidden.
   free(array);
-  EXPECT_EQ(false, get_ownership(array));
-  EXPECT_DEATH(get_allocated_size(array), kGetAllocatedSizeErrorMsg);
+  EXPECT_EQ(false, __asan_get_ownership(array));
+  EXPECT_DEATH(__asan_get_allocated_size(array), kGetAllocatedSizeErrorMsg);
 
   delete int_ptr;
 }
 
 TEST(AddressSanitizerInterface, DISABLED_EnableStatisticsTest) {
-  enable_statistics(true);
-  EXPECT_EQ(true, enable_statistics(false));
-  EXPECT_EQ(false, enable_statistics(false));
+  __asan_enable_statistics(true);
+  EXPECT_EQ(true, __asan_enable_statistics(false));
+  EXPECT_EQ(false, __asan_enable_statistics(false));
 }
 
 TEST(AddressSanitizerInterface, DISABLED_GetCurrentAllocatedBytesTest) {
   size_t before_malloc, after_malloc, after_free;
   char *array;
   const size_t kMallocSize = 100;
-  enable_statistics(true);
-  before_malloc = get_current_allocated_bytes();
+  __asan_enable_statistics(true);
+  before_malloc = __asan_get_current_allocated_bytes();
 
   array = Ident((char*)malloc(kMallocSize));
-  after_malloc = get_current_allocated_bytes();
+  after_malloc = __asan_get_current_allocated_bytes();
   EXPECT_EQ(before_malloc + kMallocSize, after_malloc);
 
   free(array);
-  after_free = get_current_allocated_bytes();
+  after_free = __asan_get_current_allocated_bytes();
   EXPECT_EQ(before_malloc, after_free);
 
-  enable_statistics(false);
+  __asan_enable_statistics(false);
   array = Ident((char*)malloc(kMallocSize));
-  after_malloc = get_current_allocated_bytes();
+  after_malloc = __asan_get_current_allocated_bytes();
   EXPECT_EQ(before_malloc, after_malloc);
 
   free(array);
@@ -110,7 +104,7 @@ void *ManyThreadsWithStatsWorker(void *arg) {
     }
   }
   if ((size_t)arg % 15 == 0) {
-    print_accumulated_stats();
+    __asan_print_accumulated_stats();
   }
   return 0;
 }
@@ -118,8 +112,8 @@ void *ManyThreadsWithStatsWorker(void *arg) {
 TEST(AddressSanitizerInterface, DISABLED_ManyThreadsWithStatsStressTest) {
   size_t before_test, after_test, i;
   pthread_t threads[kManyThreadsNumThreads];
-  enable_statistics(true);
-  before_test = get_current_allocated_bytes();
+  __asan_enable_statistics(true);
+  before_test = __asan_get_current_allocated_bytes();
   for (i = 0; i < kManyThreadsNumThreads; i++) {
     pthread_create(&threads[i], 0,
                    (void* (*)(void *x))ManyThreadsWithStatsWorker, (void*)i);
@@ -127,7 +121,7 @@ TEST(AddressSanitizerInterface, DISABLED_ManyThreadsWithStatsStressTest) {
   for (i = 0; i < kManyThreadsNumThreads; i++) {
     pthread_join(threads[i], 0);
   }
-  after_test = get_current_allocated_bytes();
-  enable_statistics(false);
-  print_accumulated_stats();
+  after_test = __asan_get_current_allocated_bytes();
+  __asan_enable_statistics(false);
+  __asan_print_accumulated_stats();
 }

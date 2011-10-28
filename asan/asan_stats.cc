@@ -17,15 +17,15 @@
 
 bool __asan_flag_stats;
 
-size_t __asan_interface::get_current_allocated_bytes() {
+size_t __asan_get_current_allocated_bytes() {
   return 0;
 }
 
-bool __asan_interface::enable_statistics(bool enable) {
+bool __asan_enable_statistics(bool enable) {
   bool old_flag = __asan_flag_stats;
   __asan_flag_stats = enable;
   return old_flag;
 }
 
-void __asan_interface::print_accumulated_stats() {
+void __asan_print_accumulated_stats() {
 }

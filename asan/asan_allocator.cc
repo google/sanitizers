@@ -805,32 +805,28 @@ void __asan_mz_force_unlock() {
 }
 
 // ---------------------- AsanInterface ---------------- {{{1
-namespace __asan_interface {
-
 // ASan allocator doesn't reserve extra bytes, so normally we would
 // just return "size".
-size_t get_estimated_allocated_size(size_t size) {
+size_t __asan_get_estimated_allocated_size(size_t size) {
   if (size == 0) return 1;
   return std::min(size, kMaxAllowedMallocSize);
 }
 
-bool get_ownership(const void *p) {
+bool __asan_get_ownership(const void *p) {
   return (p == NULL) || (malloc_info.AllocationSize((uintptr_t)p) > 0);
 }
 
-size_t get_allocated_size(const void *p) {
+size_t __asan_get_allocated_size(const void *p) {
   if (p == NULL) return 0;
   size_t allocated_size = malloc_info.AllocationSize((uintptr_t)p);
   // Die if p is not malloced or if it is already freed.
   if (allocated_size == 0) {
-    Printf("get_allocated_size failed, ptr=%p is not owned\n", p);
+    Printf("__asan_get_allocated_size failed, ptr=%p is not owned\n", p);
     PRINT_CURRENT_STACK();
     __asan_show_stats_and_abort();
   }
   return allocated_size;
 }
-
-}  // namespace
 
 // ---------------------- Fake stack-------------------- {{{1
 AsanFakeStack::AsanFakeStack()
