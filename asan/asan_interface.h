@@ -65,6 +65,9 @@ extern "C" {
   bool __asan_enable_statistics(bool enable);
   // Prints accumulated stats to stderr. Used for debugging.
   void __asan_print_accumulated_stats();
+  // Returns the number of bytes maped by the asan allocator.
+  // This does not include the shadow memory.
+  size_t __asan_total_mmaped();
 }  // namespace
 
 #endif  // ASAN_INTERFACE_H

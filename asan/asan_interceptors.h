@@ -66,7 +66,7 @@ extern strncpy_f        real_strncpy;
 
 size_t internal_strlen(const char *s);
 // Initializes pointers to str*/mem* functions.
-void __asan_interceptors_init();
+void InitializeAsanInterceptors();
 
 }  // namespace __asan
 

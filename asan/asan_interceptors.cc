@@ -94,7 +94,7 @@ size_t internal_strlen(const char *s) {
   return i;
 }
 
-void __asan_interceptors_init() {
+void InitializeAsanInterceptors() {
 #ifndef __APPLE__
   INTERCEPT_FUNCTION(memcpy);
   INTERCEPT_FUNCTION(memmove);

@@ -790,12 +790,8 @@ size_t __asan_mz_size(const void *ptr) {
   return malloc_info.AllocationSize((uintptr_t)ptr);
 }
 
-void __asan_describe_heap_address(uintptr_t addr, uintptr_t access_size) {
+void DescribeHeapAddress(uintptr_t addr, uintptr_t access_size) {
   Describe(addr, access_size);
-}
-
-size_t __asan_total_mmaped() {
-  return total_mmaped;
 }
 
 void __asan_mz_force_lock() {
@@ -986,4 +982,8 @@ size_t __asan_get_allocated_size(const void *p) {
     ShowStatsAndAbort();
   }
   return allocated_size;
+}
+
+size_t __asan_total_mmaped() {
+  return total_mmaped;
 }

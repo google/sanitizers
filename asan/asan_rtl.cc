@@ -275,7 +275,7 @@ static void DescribeAddress(uintptr_t addr, uintptr_t access_size) {
     return;
 
   // finally, check if this is a heap.
-  __asan_describe_heap_address(addr, access_size);
+  DescribeHeapAddress(addr, access_size);
 }
 
 // -------------------------- Run-time entry ------------------- {{{1
@@ -644,7 +644,7 @@ void __asan_init() {
       IntFlagValue(options, "quarantine_size=", 1UL << 28);
 
   // interceptors
-  __asan_interceptors_init();
+  InitializeAsanInterceptors();
 
   ReplaceSystemMalloc();
 
