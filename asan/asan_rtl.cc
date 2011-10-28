@@ -74,6 +74,10 @@ size_t __asan_flag_malloc_context_size = kMallocContextSize;
 uintptr_t __asan_flag_large_malloc;
 bool   __asan_flag_lazy_shadow;
 bool   __asan_flag_handle_segv;
+bool __asan_flag_replace_str;
+bool __asan_flag_replace_intrin;
+bool __asan_flag_stats;
+
 
 // -------------------------- Printf ---------------- {{{1
 static FILE *asan_out = NULL;

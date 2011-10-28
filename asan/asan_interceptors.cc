@@ -25,9 +25,6 @@
 
 namespace __asan {
 
-bool __asan_flag_replace_str;
-bool __asan_flag_replace_intrin;
-
 memcpy_f      real_memcpy;
 memmove_f     real_memmove;
 memset_f      real_memset;
