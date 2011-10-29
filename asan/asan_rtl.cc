@@ -440,6 +440,17 @@ static bool MySignal(int signum) {
   return false;
 }
 
+static void MaybeInstallSigaction(int signum,
+                                  void (*handler)(int, siginfo_t *, void *)) {
+  if (!MySignal(signum))
+    return;
+  struct sigaction sigact;
+  real_memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = handler;
+  sigact.sa_flags = SA_SIGINFO;
+  CHECK(0 == real_sigaction(signum, &sigact, 0));
+}
+
 extern "C"
 sig_t WRAP(signal)(int signum, sig_t handler) {
   if (!MySignal(signum)) {
@@ -666,31 +677,9 @@ void __asan_init() {
   INTERCEPT_FUNCTION(__cxa_throw);
   INTERCEPT_FUNCTION(pthread_create);
 
-  struct sigaction sigact;
-
-  if (FLAG_handle_segv) {
-    // Set the SIGSEGV handler.
-    real_memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = ASAN_OnSIGSEGV;
-    sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGSEGV, &sigact, 0));
-
-#ifdef __APPLE__
-    // Set the SIGBUS handler. Mac OS may generate either SIGSEGV or SIGBUS.
-    real_memset(&sigact, 0, sizeof(sigact));
-    sigact.sa_sigaction = ASAN_OnSIGSEGV;
-    sigact.sa_flags = SA_SIGINFO;
-    CHECK(0 == real_sigaction(SIGBUS, &sigact, 0));
-#endif
-  } else {
-    CHECK(!FLAG_lazy_shadow);
-  }
-
-  // Set the SIGILL handler.
-  real_memset(&sigact, 0, sizeof(sigact));
-  sigact.sa_sigaction = ASAN_OnSIGILL;
-  sigact.sa_flags = SA_SIGINFO;
-  CHECK(0 == real_sigaction(SIGILL, &sigact, 0));
+  MaybeInstallSigaction(SIGSEGV, ASAN_OnSIGSEGV);
+  MaybeInstallSigaction(SIGBUS, ASAN_OnSIGSEGV);
+  MaybeInstallSigaction(SIGILL, ASAN_OnSIGILL);
 
   if (FLAG_v) {
     Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
