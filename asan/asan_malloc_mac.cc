@@ -26,6 +26,9 @@
 // Similar code is used in Google Perftools,
 // http://code.google.com/p/google-perftools.
 
+// ---------------------- Replacement functions ---------------- {{{1
+using namespace __asan;  // NOLINT
+
 // The free() implementation provided by OS X calls malloc_zone_from_ptr()
 // to find the owner of |ptr|. If the result is NULL, an invalid free() is
 // reported. Our implementation falls back to asan_free() in this case
@@ -297,6 +300,7 @@ boolean_t mi_zone_locked(malloc_zone_t *zone) {
 
 extern bool kCFUseCollectableAllocator;  // is GC on?
 
+namespace __asan {
 void ReplaceSystemMalloc() {
   static malloc_introspection_t asan_introspection;
   __asan::real_memset(&asan_introspection, 0, sizeof(asan_introspection));
@@ -372,3 +376,4 @@ void ReplaceSystemMalloc() {
       CFAllocatorCreate(kCFAllocatorUseContext, &asan_context);
   CFAllocatorSetDefault(cf_asan);
 }
+}  // namespace __asan
