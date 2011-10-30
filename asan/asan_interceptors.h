@@ -48,6 +48,14 @@
   CHECK((real_##func = (func##_f)dlsym(RTLD_NEXT, #func)));
 #endif
 
+#ifdef __APPLE__
+void *WRAP(memcpy)(void *to, const void *from, size_t size);
+void *WRAP(memmove)(void *to, const void *from, size_t size);
+void *WRAP(memset)(void *block, int c, size_t size);
+size_t WRAP(strlen)(const char *s);
+char *WRAP(strncpy)(char *to, const char *from, size_t size);
+#endif
+
 namespace __asan {
 
 typedef void* (*memcpy_f)(void *to, const void *from, size_t size);
@@ -57,14 +65,15 @@ typedef size_t (*strlen_f)(const char *s);
 typedef char* (*strncpy_f)(char *to, const char *from, size_t size);
 
 // __asan::real_X() holds pointer to library implementation of X().
-// __asan::internal_X() is the implementation of X() for use in RTL.
 extern memcpy_f         real_memcpy;
 extern memmove_f        real_memmove;
 extern memset_f         real_memset;
 extern strlen_f         real_strlen;
 extern strncpy_f        real_strncpy;
 
+// __asan::internal_X() is the implementation of X() for use in RTL.
 size_t internal_strlen(const char *s);
+
 // Initializes pointers to str*/mem* functions.
 void InitializeAsanInterceptors();
 
