@@ -292,6 +292,9 @@ void AsanChunkFifoList::Push(AsanChunk *n) {
   size_ += n->Size();
 }
 
+// Interesting performance observation: this function takes up to 15% of overal
+// allocator time. That's because *first_ has been evicted from cache long time
+// ago. Not sure if we can or want to do anything with this.
 AsanChunk *AsanChunkFifoList::Pop() {
   CHECK(first_);
   AsanChunk *res = first_;
