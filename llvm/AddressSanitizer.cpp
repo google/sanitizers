@@ -61,8 +61,6 @@ static const char *kAsanMappingScaleName = "__asan_mapping_scale";
 static const char *kAsanStackMallocName = "__asan_stack_malloc";
 static const char *kAsanStackFreeName = "__asan_stack_free";
 
-static const char *kLLVMGlobalCtors = "llvm.global_ctors";
-
 static const int kAsanStackLeftRedzoneMagic = 0xf1;
 static const int kAsanStackMidRedzoneMagic = 0xf2;
 static const int kAsanStackRightRedzoneMagic = 0xf3;
@@ -70,54 +68,62 @@ static const int kAsanStackPartialRedzoneMagic = 0xf4;
 
 // Command-line flags.
 
-// (potentially) user-visible flags.
+// This flag will be replaced by the clang driver flags when we submit to llvm.
 static cl::opt<bool> ClAsan("asan",
        cl::desc("enable AddressSanitizer"), cl::init(false));
+// This flag may need to be replaced with -f[no-]asan-reads.
 static cl::opt<bool> ClInstrumentReads("asan-instrument-reads",
-       cl::desc("instrument read instructions"), cl::init(true));
+       cl::desc("instrument read instructions"), cl::Hidden, cl::init(true));
 static cl::opt<bool> ClInstrumentWrites("asan-instrument-writes",
-       cl::desc("instrument write instructions"), cl::init(true));
+       cl::desc("instrument write instructions"), cl::Hidden, cl::init(true));
+// This flag may need to be replaced with -f[no]asan-stack.
 static cl::opt<bool> ClStack("asan-stack",
-       cl::desc("Handle stack memory"), cl::init(true));
+       cl::desc("Handle stack memory"), cl::Hidden, cl::init(true));
+// This flag may need to be replaced with -f[no]asan-use-after-return.
 static cl::opt<bool> ClUseAfterReturn("asan-use-after-return",
-       cl::desc("Check return-after-free"), cl::init(false));
+       cl::desc("Check return-after-free"), cl::Hidden, cl::init(false));
+// This flag may need to be replaced with -f[no]asan-globals.
 static cl::opt<bool> ClGlobals("asan-globals",
-       cl::desc("Handle global objects"), cl::init(true));
+       cl::desc("Handle global objects"), cl::Hidden, cl::init(true));
 static cl::opt<bool> ClMemIntrin("asan-memintrin",
-       cl::desc("Handle memset/memcpy/memmove"), cl::init(true));
+       cl::desc("Handle memset/memcpy/memmove"), cl::Hidden, cl::init(true));
+// This flag may need to be replaced with -fasan-blacklist.
 static cl::opt<std::string>  ClBlackListFile("asan-blacklist",
        cl::desc("File containing the list of functions to ignore "
-                "during instrumentation"));
+                "during instrumentation"), cl::Hidden);
 static cl::opt<bool> ClUseCall("asan-use-call",
-       cl::desc("Use function call to generate a crash"), cl::init(true));
+       cl::desc("Use function call to generate a crash"), cl::Hidden,
+       cl::init(true));
 
-// These flags *will* allow to change the shadow mapping. Not usable yet.
+// These flags allow to change the shadow mapping.
 // The shadow mapping looks like
 //    Shadow = (Mem >> scale) + (1 << offset_log)
 static cl::opt<int> ClMappingScale("asan-mapping-scale",
-       cl::desc("scale of asan shadow mapping"), cl::init(0));
+       cl::desc("scale of asan shadow mapping"), cl::Hidden, cl::init(0));
 static cl::opt<int> ClMappingOffsetLog("asan-mapping-offset-log",
-       cl::desc("offset of asan shadow mapping"), cl::init(-1));
+       cl::desc("offset of asan shadow mapping"), cl::Hidden, cl::init(-1));
 
 // Optimization flags. Not user visible, used mostly for testing
 // and benchmarking the tool.
 static cl::opt<bool> ClOpt("asan-opt",
-       cl::desc("Optimize instrumentation"), cl::init(true));
+       cl::desc("Optimize instrumentation"), cl::Hidden, cl::init(true));
 static cl::opt<bool> ClOptSameTemp("asan-opt-same-temp",
-       cl::desc("Instrument the same temp just once"), cl::init(true));
+       cl::desc("Instrument the same temp just once"), cl::Hidden,
+       cl::init(true));
 static cl::opt<bool> ClOptGlobals("asan-opt-globals",
-       cl::desc("Don't instrument scalar globals"), cl::init(true));
+       cl::desc("Don't instrument scalar globals"), cl::Hidden, cl::init(true));
 
 // Debug flags.
-static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::init(0));
+static cl::opt<int> ClDebug("asan-debug", cl::desc("debug"), cl::Hidden,
+                            cl::init(0));
 static cl::opt<int> ClDebugStack("asan-debug-stack", cl::desc("debug stack"),
-                                 cl::init(0));
+                                 cl::Hidden, cl::init(0));
 static cl::opt<std::string> ClDebugFunc("asan-debug-func",
-                                        cl::desc("Debug func"));
-static cl::opt<int> ClDebugMin("asan-debug-min",
-                               cl::desc("Debug min inst"), cl::init(-1));
-static cl::opt<int> ClDebugMax("asan-debug-max",
-                               cl::desc("Debug man inst"), cl::init(-1));
+                                        cl::Hidden, cl::desc("Debug func"));
+static cl::opt<int> ClDebugMin("asan-debug-min", cl::desc("Debug min inst"),
+                               cl::Hidden, cl::init(-1));
+static cl::opt<int> ClDebugMax("asan-debug-max", cl::desc("Debug man inst"),
+                               cl::Hidden, cl::init(-1));
 
 namespace {
 
@@ -430,10 +436,9 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
   Crash->setDebugLoc(OrigIns->getDebugLoc());
 }
 
+// TODO: this function will soon be in lib/Transforms/Utils/ModuleUtils.cpp
 // Append F to the list of global ctors with the given Priority.
-// TODO: move to llvm/lib/Transforms/Utils.
-static void appendToGlobalCtors(Module &M, Function *F,
-                                int Priority) {
+void appendToGlobalCtors(Module &M, Function *F, int Priority) {
   IRBuilder<> IRB(M.getContext());
   FunctionType *FnTy = FunctionType::get(IRB.getVoidTy(), false);
   StructType *Ty = StructType::get(
@@ -445,17 +450,13 @@ static void appendToGlobalCtors(Module &M, Function *F,
   // Get the current set of static global constructors and add the new ctor
   // to the list.
   SmallVector<Constant *, 16> CurrentCtors;
-  GlobalVariable * GVCtor = M.getNamedGlobal(kLLVMGlobalCtors);
-  if (GVCtor) {
-    if (Constant *Const = GVCtor->getInitializer()) {
-      for (uint32_t index = 0, num = Const->getNumOperands();
-           index < num; ++index) {
-        CurrentCtors.push_back(cast<Constant>(Const->getOperand(index)));
-      }
+  if (GlobalVariable * GVCtor = M.getNamedGlobal("llvm.global_ctors")) {
+    if (Constant *Init = GVCtor->getInitializer()) {
+      unsigned n = Init->getNumOperands();
+      CurrentCtors.reserve(n + 1);
+      for (unsigned i = 0; i != n; ++i)
+        CurrentCtors.push_back(cast<Constant>(Init->getOperand(i)));
     }
-    // Rename the global variable so that we can name our global
-    // kLLVMGlobalCtors
-    GVCtor->setName("removed");
     GVCtor->eraseFromParent();
   }
 
@@ -466,19 +467,16 @@ static void appendToGlobalCtors(Module &M, Function *F,
                                  CurrentCtors.size());
   Constant *NewInit = ConstantArray::get(AT, CurrentCtors);
 
-  // Create the new kLLVMGlobalCtors global variable and replace all uses of
+  // Create the new global variable and replace all uses of
   // the old global variable with the new one.
-  new GlobalVariable(M,
-                     NewInit->getType(),
-                     false,
-                     GlobalValue::AppendingLinkage,
-                     NewInit,
-                     kLLVMGlobalCtors);
+  (void)new GlobalVariable(M, NewInit->getType(), false,
+                           GlobalValue::AppendingLinkage, NewInit,
+                           "llvm.global_ctors");
 }
 
 // This function replaces all global variables with new variables that have
 // trailing redzones. It also creates a function that poisons
-// redzones and inserts this function into kLLVMGlobalCtors.
+// redzones and inserts this function into llvm.global_ctors.
 bool AddressSanitizer::insertGlobalRedzones(Module &M) {
   SmallVector<GlobalVariable *, 16> GlobalsToChange;
 
