@@ -17,6 +17,7 @@
 #include "asan_allocator.h"
 #include "asan_internal.h"
 #include "asan_stack.h"
+#include "asan_stats.h"
 
 namespace __asan {
 
@@ -77,13 +78,13 @@ class AsanThread {
 
   const char *GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset);
 
-  AsanFakeStack &FakeStack() { return fake_stack_; }
-
   bool AddrIsInStack(uintptr_t addr) {
     return addr >= stack_bottom_ && addr < stack_top_;
   }
 
+  AsanFakeStack &FakeStack() { return fake_stack_; }
   AsanThreadLocalMallocStorage &malloc_storage() { return malloc_storage_; }
+  AsanStats &stats() { return stats_; }
 
   static const int kInvalidTid = -1;
 
@@ -96,9 +97,9 @@ class AsanThread {
   uintptr_t  stack_top_;
   uintptr_t  stack_bottom_;
 
-  AsanThreadLocalMallocStorage malloc_storage_;
-
   AsanFakeStack fake_stack_;
+  AsanThreadLocalMallocStorage malloc_storage_;
+  AsanStats stats_;
 };
 
 }  // namespace __asan

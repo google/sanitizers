@@ -17,6 +17,7 @@
 
 #include "asan_lock.h"
 #include "asan_stack.h"
+#include "asan_stats.h"
 #include "asan_thread.h"
 
 namespace __asan {
@@ -38,6 +39,13 @@ class AsanThreadRegistry {
   AsanThread *GetCurrent();
   void SetCurrent(AsanThread *t);
 
+  // Returns pointer to stats for GetCurrent(), or pointer to stats for
+  // T0 if GetCurrent() returns NULL.
+  AsanStats *GetCurrentThreadStats();
+  // Flushes all thread-local stats to accumulated stats, and returns
+  // a copy of accumulated stats.
+  AsanStats GetAccumulatedStats();
+
   AsanThreadSummary *FindByTid(int tid);
   AsanThread *FindThreadByStackAddress(uintptr_t addr);
 
@@ -46,6 +54,7 @@ class AsanThreadRegistry {
   AsanThreadSummary *thread_summaries_[kMaxNumberOfThreads];
   AsanThread main_thread_;
   AsanThreadSummary main_thread_summary_;
+  AsanStats accumulated_stats_;
   int n_threads_;
   AsanLock mu_;
   // For each thread tls_key_ stores the pointer to the corresponding

@@ -34,7 +34,8 @@ static void DestroyAsanTsd(void *tsd) {
 
 AsanThreadRegistry::AsanThreadRegistry(LinkerInitialized x)
     : main_thread_(x),
-      main_thread_summary_(x) { }
+      main_thread_summary_(x),
+      accumulated_stats_(x) { }
 
 void AsanThreadRegistry::Init() {
   CHECK(0 == pthread_key_create(&tls_key_, DestroyAsanTsd));
@@ -61,6 +62,7 @@ void AsanThreadRegistry::RegisterThread(AsanThread *thread, int parent_tid,
 
 void AsanThreadRegistry::UnregisterThread(AsanThread *thread) {
   ScopedLock lock(&mu_);
+  thread->stats().FlushToStats(&accumulated_stats_);
   AsanThreadSummary *summary = thread->summary();
   CHECK(summary);
   summary->set_thread(NULL);
@@ -79,6 +81,22 @@ AsanThread *AsanThreadRegistry::GetCurrent() {
 void AsanThreadRegistry::SetCurrent(AsanThread *t) {
   CHECK(0 == pthread_setspecific(tls_key_, t));
   CHECK(pthread_getspecific(tls_key_) == t);
+}
+
+AsanStats *AsanThreadRegistry::GetCurrentThreadStats() {
+  AsanThread *t = GetCurrent();
+  return (t) ? &(t->stats()) : &main_thread_.stats();
+}
+
+AsanStats AsanThreadRegistry::GetAccumulatedStats() {
+  ScopedLock lock(&mu_);
+  for (int tid = 0; tid < n_threads_; tid++) {
+    AsanThread *t = thread_summaries_[tid]->thread();
+    if (t != NULL) {
+      t->stats().FlushToStats(&accumulated_stats_);
+    }
+  }
+  return accumulated_stats_;
 }
 
 AsanThreadSummary *AsanThreadRegistry::FindByTid(int tid) {

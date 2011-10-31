@@ -15,10 +15,16 @@
 #define ASAN_STATS_H
 
 #include "asan_allocator.h"
+#include "asan_internal.h"
 
 namespace __asan {
 
+// AsanStats struct is NOT thread-safe.
+// Each AsanThread has its own AsanStats, which are sometimes flushed
+// to the accumulated AsanStats.
 struct AsanStats {
+  // AsanStats must be a struct consisting of size_t fields only.
+  // When merging two AsanStats structs, we treat them as arrays of size_t.
   size_t mallocs;
   size_t malloced;
   size_t malloced_redzones;
@@ -38,10 +44,20 @@ struct AsanStats {
   size_t malloc_large;
   size_t malloc_small_slow;
 
-  void PrintStats();
+  // Ctor for global AsanStats (accumulated stats and main thread stats).
+  explicit AsanStats(LinkerInitialized) { }
+  // Default ctor for thread-local stats.
+  AsanStats();
+
+  // Adds values of all counters to counters in "stats",
+  // and fills current counters with zeroes.
+  void FlushToStats(AsanStats *stats);
+  // Prints formatted stats to stderr.
+  void Print();
 };
 
-extern AsanStats asan_stats;
+// Prints merged thread-local stats.
+void PrintAccumulatedStats();
 
 }  // namespace __asan
 

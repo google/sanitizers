@@ -116,46 +116,9 @@ siglongjmp_f            real_siglongjmp;
 __cxa_throw_f           real___cxa_throw;
 pthread_create_f        real_pthread_create;
 
-// -------------------------- AsanStats ---------------- {{{1
-static void PrintMallocStatsArray(const char *name, size_t array[__WORDSIZE]) {
-//  Printf("%s", name);
-//  for (size_t i = 0; i < __WORDSIZE; i++) {
-//    if (!array[i]) continue;
-//    Printf("%ld:%06ld; ", i, array[i]);
-//  }
-//  Printf("\n");
-  Printf("%s", name);
-  for (size_t i = 0; i < __WORDSIZE; i++) {
-    if (!array[i]) continue;
-    Printf("%ld:%03ld; ", i, (array[i] << i) >> 20);
-  }
-  Printf("\n");
-}
-
-void AsanStats::PrintStats() {
-  if (!FLAG_stats) return;
-  Printf("Stats: %ldM malloced (%ldM for red zones) by %ld calls\n",
-         malloced>>20, malloced_redzones>>20, mallocs);
-  Printf("Stats: %ldM realloced by %ld calls\n", realloced>>20, reallocs);
-  Printf("Stats: %ldM freed by %ld calls\n", freed>>20, frees);
-  Printf("Stats: %ldM really freed by %ld calls\n",
-         really_freed>>20, real_frees);
-  Printf("Stats: %ldM (%ld pages) mmaped in %ld calls\n",
-         mmaped>>20, mmaped / kPageSize, mmaps);
-
-  PrintMallocStatsArray(" mmaps   by size: ", mmaped_by_size);
-  PrintMallocStatsArray(" mallocs by size: ", malloced_by_size);
-  PrintMallocStatsArray(" frees   by size: ", freed_by_size);
-  PrintMallocStatsArray(" rfrees  by size: ", really_freed_by_size);
-  Printf("Stats: malloc large: %ld small slow: %ld\n",
-         malloc_large, malloc_small_slow);
-}
-
-AsanStats asan_stats;
-
 // -------------------------- Misc ---------------- {{{1
 void ShowStatsAndAbort() {
-  asan_stats.PrintStats();
+  PrintAccumulatedStats();
   abort();
 }
 
@@ -385,7 +348,7 @@ static int64_t IntFlagValue(const char *flags, const char *flag,
 
 static void asan_atexit() {
   Printf("AddressSanitizer exit stats:\n");
-  asan_stats.PrintStats();
+  PrintAccumulatedStats();
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
@@ -594,7 +557,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   uintptr_t shadow_addr = MemToShadow(addr);
   Printf("==%d== ABORTING\n", getpid());
-  asan_stats.PrintStats();
+  PrintAccumulatedStats();
   Printf("Shadow byte and word:\n");
   Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
   uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
