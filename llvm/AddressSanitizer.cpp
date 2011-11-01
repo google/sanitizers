@@ -38,6 +38,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Type.h"
 
 #include <string>
@@ -435,44 +436,6 @@ void AddressSanitizer::instrumentAddress(Instruction *OrigIns,
   IRBuilder<> IRB1(CheckTerm);
   Instruction *Crash = generateCrashCode(IRB1, AddrLong, IsWrite, TypeSize);
   Crash->setDebugLoc(OrigIns->getDebugLoc());
-}
-
-// TODO: this function will soon be in lib/Transforms/Utils/ModuleUtils.cpp
-// Append F to the list of global ctors with the given Priority.
-void appendToGlobalCtors(Module &M, Function *F, int Priority) {
-  IRBuilder<> IRB(M.getContext());
-  FunctionType *FnTy = FunctionType::get(IRB.getVoidTy(), false);
-  StructType *Ty = StructType::get(
-      IRB.getInt32Ty(), PointerType::getUnqual(FnTy), NULL);
-
-  Constant *RuntimeCtorInit = ConstantStruct::get(
-      Ty, IRB.getInt32(Priority), F, NULL);
-
-  // Get the current set of static global constructors and add the new ctor
-  // to the list.
-  SmallVector<Constant *, 16> CurrentCtors;
-  if (GlobalVariable * GVCtor = M.getNamedGlobal("llvm.global_ctors")) {
-    if (Constant *Init = GVCtor->getInitializer()) {
-      unsigned n = Init->getNumOperands();
-      CurrentCtors.reserve(n + 1);
-      for (unsigned i = 0; i != n; ++i)
-        CurrentCtors.push_back(cast<Constant>(Init->getOperand(i)));
-    }
-    GVCtor->eraseFromParent();
-  }
-
-  CurrentCtors.push_back(RuntimeCtorInit);
-
-  // Create a new initializer.
-  ArrayType *AT = ArrayType::get(RuntimeCtorInit->getType(),
-                                 CurrentCtors.size());
-  Constant *NewInit = ConstantArray::get(AT, CurrentCtors);
-
-  // Create the new global variable and replace all uses of
-  // the old global variable with the new one.
-  (void)new GlobalVariable(M, NewInit->getType(), false,
-                           GlobalValue::AppendingLinkage, NewInit,
-                           "llvm.global_ctors");
 }
 
 // This function replaces all global variables with new variables that have
