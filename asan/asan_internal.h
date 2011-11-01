@@ -94,6 +94,9 @@ const int kAsanStackPartialRedzoneMagic = 0xf4;
 const int kAsanStackAfterReturnMagic = 0xf5;
 const int kAsanGlobalRedzoneMagic = 0xf9;
 
+static const uintptr_t kCurrentStackFrameMagic = 0x41B58AB3;
+static const uintptr_t kRetiredStackFrameMagic = 0x45E0360E;
+
 // Poison the shadow memory which corresponds to 'redzone_size' bytes
 // of the original memory, where first 'size' bytes are addressable.
 static inline void

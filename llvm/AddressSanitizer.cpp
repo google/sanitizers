@@ -50,7 +50,8 @@ static const uint64_t kDefaultShadowOffset32 = 1ULL << 29;
 static const uint64_t kDefaultShadowOffset64 = 1ULL << 44;
 
 static const size_t kMaxStackMallocSize = 1 << 16;  // 64K
-static const uintptr_t kFrameNameMagic = 0x41B58AB3;
+static const uintptr_t kCurrentStackFrameMagic = 0x41B58AB3;
+static const uintptr_t kRetiredStackFrameMagic = 0x45E0360E;
 
 static const char *kAsanModuleCtorName = "asan.module_ctor";
 static const char *kAsanReportErrorTemplate = "__asan_report_";
@@ -907,7 +908,8 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
 
   // Write the Magic value and the frame description constant to the redzone.
   Value *BasePlus0 = IRB.CreateIntToPtr(LocalStackBase, IntptrPtrTy);
-  IRB.CreateStore(ConstantInt::get(IntptrTy, kFrameNameMagic), BasePlus0);
+  IRB.CreateStore(ConstantInt::get(IntptrTy, kCurrentStackFrameMagic),
+                  BasePlus0);
   Value *BasePlus1 = IRB.CreateAdd(LocalStackBase,
                                    ConstantInt::get(IntptrTy, LongSize/8));
   BasePlus1 = IRB.CreateIntToPtr(BasePlus1, IntptrPtrTy);
@@ -932,16 +934,16 @@ bool AddressSanitizer::poisonStackInFunction(Module &M, Function &F) {
     Instruction *Ret = RetVec[i];
     IRBuilder<> IRBRet(Ret);
 
+    // Mark the current frame as retired.
+    IRBRet.CreateStore(ConstantInt::get(IntptrTy, kRetiredStackFrameMagic),
+                       BasePlus0);
+    // Unpoison the stack.
+    PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRBRet, ShadowBase, false);
+
     if (DoStackMalloc) {
       IRBRet.CreateCall3(AsanStackFreeFunc, LocalStackBase,
                          ConstantInt::get(IntptrTy, LocalStackSize),
                          OrigStackBase);
-    } else {
-      PoisonStack(ArrayRef<AllocaInst*>(AllocaVec), IRBRet, ShadowBase, false);
-      // Overwrite kFrameNameMagic with something else.
-      // Otherwise, we may report an error incorrectly if we access
-      // an uninitialized stack out of bounds.
-      IRBRet.CreateStore(ConstantInt::get(IntptrTy, 0), BasePlus0);
     }
   }
 

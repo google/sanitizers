@@ -83,7 +83,7 @@ const char *AsanThread::GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset) {
   uintptr_t aligned_addr = addr & ~(__WORDSIZE/8 - 1);  // align addr.
   uintptr_t *ptr = (uintptr_t*)aligned_addr;
   while (ptr >= (uintptr_t*)bottom) {
-    if (ptr[0] == kFrameNameMagic) {
+    if (ptr[0] == kCurrentStackFrameMagic) {
       *offset = addr - (uintptr_t)ptr;
       return (const char*)ptr[1];
     }
