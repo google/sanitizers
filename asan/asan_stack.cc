@@ -18,7 +18,10 @@
 #include "asan_thread_registry.h"
 
 #include <string.h>
+
+#ifdef ASAN_USE_SYSINFO
 #include "sysinfo.h"
+#endif
 
 namespace __asan {
 
