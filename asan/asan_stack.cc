@@ -23,6 +23,11 @@
 #include "sysinfo.h"
 #endif
 
+#ifdef ASAN_USE_EXTERNAL_SYMBOLIZER
+extern bool
+ASAN_USE_EXTERNAL_SYMBOLIZER(const void *pc, char *out, int out_size);
+#endif
+
 namespace __asan {
 
 // ----------------------- ProcSelfMaps ----------------------------- {{{1
@@ -112,9 +117,6 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
   }
 }
 #elif defined(ASAN_USE_EXTERNAL_SYMBOLIZER)
-extern bool
-ASAN_USE_EXTERNAL_SYMBOLIZER(const void *pc, char *out, int out_size);
-
 void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
   for (size_t i = 0; i < size && addr[i]; i++) {
     uintptr_t pc = addr[i];
