@@ -74,16 +74,19 @@ void *AsanThread::ThreadStart() {
 
 const char *AsanThread::GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset) {
   uintptr_t bottom = 0;
+  bool is_fake_stack = false;
   if (AddrIsInStack(addr)) {
     bottom = stack_bottom();
   } else {
     bottom = FakeStack().AddrIsInFakeStack(addr);
     CHECK(bottom);
+    is_fake_stack = true;
   }
   uintptr_t aligned_addr = addr & ~(__WORDSIZE/8 - 1);  // align addr.
   uintptr_t *ptr = (uintptr_t*)aligned_addr;
   while (ptr >= (uintptr_t*)bottom) {
-    if (ptr[0] == kCurrentStackFrameMagic) {
+    if (ptr[0] == kCurrentStackFrameMagic ||
+        (is_fake_stack && ptr[0] == kRetiredStackFrameMagic)) {
       *offset = addr - (uintptr_t)ptr;
       return (const char*)ptr[1];
     }

@@ -1345,7 +1345,7 @@ TEST(AddressSanitizer, LocalReferenceReturnTest) {
   f();
   f();
   if (ASAN_UAR) {
-    EXPECT_DEATH(*f() = 1, "is located in frame .*ReturnsPointerToALocal");
+    EXPECT_DEATH(*f() = 1, "is located.*in frame .*ReturnsPointerToALocal");
   }
 }
 

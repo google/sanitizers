@@ -940,6 +940,11 @@ void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
   size_classes_[size_class].FifoPush(ptr);
 }
 
+}  // namespace __asan
+
+// ---------------------- Interface ---------------- {{{1
+using namespace __asan;  // NOLINT
+
 size_t __asan_stack_malloc(size_t size, size_t real_stack) {
   AsanThread *t = asanThreadRegistry().GetCurrent();
   if (!t) {
@@ -966,10 +971,6 @@ void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
   t->FakeStack().DeallocateStack(ptr, size);
 }
 
-}  // namespace __asan
-
-// ---------------------- Interface ---------------- {{{1
-using namespace __asan;  // NOLINT
 
 // ASan allocator doesn't reserve extra bytes, so normally we would
 // just return "size".
