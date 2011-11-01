@@ -947,6 +947,7 @@ void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
 using namespace __asan;  // NOLINT
 
 size_t __asan_stack_malloc(size_t size, size_t real_stack) {
+  if (!FLAG_use_fake_stack) return real_stack;
   AsanThread *t = asanThreadRegistry().GetCurrent();
   if (!t) {
     // TSD is gone, use the real stack.
@@ -958,6 +959,7 @@ size_t __asan_stack_malloc(size_t size, size_t real_stack) {
 }
 
 void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
+  if (!FLAG_use_fake_stack) return;
   if (ptr == real_stack) {
     // we returned the real stack in __asan_stack_malloc, so do nothing now.
     return;

@@ -77,6 +77,7 @@ bool   FLAG_handle_segv;
 bool FLAG_replace_str;
 bool FLAG_replace_intrin;
 bool FLAG_stats;
+bool FLAG_use_fake_stack;
 
 
 // -------------------------- Printf ---------------- {{{1
@@ -609,6 +610,7 @@ void __asan_init() {
   FLAG_mt = IntFlagValue(options, "mt=", 1);
   FLAG_replace_str = IntFlagValue(options, "replace_str=", 1);
   FLAG_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
+  FLAG_use_fake_stack = IntFlagValue(options, "use_fake_stack=", 1);
 
   if (FLAG_atexit) {
     atexit(asan_atexit);

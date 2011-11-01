@@ -50,6 +50,7 @@ extern bool   FLAG_stats;
 extern bool   FLAG_replace_str;
 extern bool   FLAG_replace_intrin;
 extern bool   FLAG_fast_unwind;
+extern bool   FLAG_use_fake_stack;
 
 extern int asan_inited;
 // Used to avoid infinite recursion in __asan_init().
