@@ -16,6 +16,7 @@
 #define ASAN_ALLOCATOR_H
 
 #include "asan_internal.h"
+#include "asan_interceptors.h"
 
 namespace __asan {
 
@@ -24,6 +25,7 @@ class AsanChunk;
 
 class AsanChunkFifoList {
  public:
+  explicit AsanChunkFifoList(LinkerInitialized) { }
   AsanChunkFifoList() { clear(); }
   void Push(AsanChunk *n);
   void PushList(AsanChunkFifoList *q);
@@ -41,9 +43,11 @@ class AsanChunkFifoList {
 
 
 struct AsanThreadLocalMallocStorage {
+  explicit AsanThreadLocalMallocStorage(LinkerInitialized x)
+      : quarantine_(x) { }
   AsanThreadLocalMallocStorage() {
-    for (size_t i = 0; i < kNumberOfSizeClasses; i++)
-      free_lists_[i] = 0;
+    CHECK(real_memset);
+    real_memset(this, 0, sizeof(AsanThreadLocalMallocStorage));
   }
 
   AsanChunkFifoList quarantine_;
@@ -60,7 +64,7 @@ struct AsanThreadLocalMallocStorage {
 class AsanFakeStack {
  public:
   AsanFakeStack();
-  explicit AsanFakeStack(int empty_ctor_for_thread_0) { }
+  explicit AsanFakeStack(LinkerInitialized) { }
   void Init(size_t stack_size);
   void Cleanup();
   uintptr_t AllocateStack(size_t size);

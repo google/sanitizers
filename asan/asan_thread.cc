@@ -25,7 +25,8 @@
 namespace __asan {
 
 AsanThread::AsanThread(LinkerInitialized x)
-    : fake_stack_(/*empty_ctor_for_thread_0*/0),
+    : fake_stack_(x),
+      malloc_storage_(x),
       stats_(x) { }
 
 AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),

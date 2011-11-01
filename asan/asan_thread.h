@@ -31,9 +31,9 @@ class AsanThreadSummary {
  public:
   explicit AsanThreadSummary(LinkerInitialized) { }  // for T0.
   AsanThreadSummary(int tid, int parent_tid, AsanStackTrace *stack)
-    : tid_(tid),
-      parent_tid_(parent_tid),
-      announced_(false) {
+      : tid_(tid),
+        parent_tid_(parent_tid),
+        announced_(false) {
     if (stack) {
       stack_ = *stack;
     }

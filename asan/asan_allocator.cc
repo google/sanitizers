@@ -815,9 +815,10 @@ void __asan_mz_force_unlock() {
 
 // ---------------------- Fake stack-------------------- {{{1
 AsanFakeStack::AsanFakeStack()
-  : stack_size_(0), alive_(false) {
+    : stack_size_(0), alive_(false) {
+  CHECK(real_memset);
   real_memset(allocated_size_classes_,
-                      0, sizeof(allocated_size_classes_));
+              0, sizeof(allocated_size_classes_));
   real_memset(size_classes_, 0, sizeof(size_classes_));
 }
 

@@ -20,6 +20,7 @@
 #include "asan_allocator.h"
 #include "asan_interceptors.h"
 #include "asan_internal.h"
+#include "asan_stack.h"
 
 #define UNIMPLEMENTED() CHECK("unimplemented" && 0)
 

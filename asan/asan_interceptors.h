@@ -15,7 +15,6 @@
 #define ASAN_INTERCEPTORS_H
 
 #include "asan_internal.h"
-#include "asan_stack.h"
 
 // To replace weak system functions on Linux we just need to declare functions
 // with same names in our library and then obtain the real function pointers
