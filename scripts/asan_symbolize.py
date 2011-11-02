@@ -7,13 +7,30 @@ import subprocess
 
 pipes = {}
 
+def patch_address(frameno, addr_s):
+  ''' Subtracts 1 or 2 from the top frame's address.
+  Top frame is normally the return address from asan_report*
+  call, which is not expected to return at all. Because of that, this
+  address often belongs to the next source code line, or even to a different
+  function. '''
+  if frameno == '0':
+    addr = int(addr_s, 16)
+    if os.uname()[4].startswith('arm'):
+      # Cancel the Thumb bit
+      addr = addr & (~1)
+    addr -= 1
+    return hex(addr)
+  return addr_s
+
 # TODO(glider): need some refactoring here
 def symbolize_addr2line(line):
   #0 0x7f6e35cf2e45  (/blah/foo.so+0x11fe45)
-  match = re.match('^( *#[0-9]+ *0x[0-9a-f]+) *\((.*)\+(0x[0-9a-f]+)\)', line)
+  match = re.match('^( *#([0-9]+) *0x[0-9a-f]+) *\((.*)\+(0x[0-9a-f]+)\)', line)
   if match:
-    binary = match.group(2)
-    addr = match.group(3)
+    frameno = match.group(2)
+    binary = match.group(3)
+    addr = match.group(4)
+    addr = patch_address(frameno, addr)
     if not pipes.has_key(binary):
       pipes[binary] = subprocess.Popen(["addr2line", "-f", "-e", binary],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
@@ -36,13 +53,15 @@ def symbolize_addr2line(line):
 
 def symbolize_atos(line):
   #0 0x7f6e35cf2e45  (/blah/foo.so+0x11fe45)
-  match = re.match('^( *#[0-9]+ *)(0x[0-9a-f]+) *\((.*)\+(0x[0-9a-f]+)\)', line)
+  match = re.match('^( *#([0-9]+) *)(0x[0-9a-f]+) *\((.*)\+(0x[0-9a-f]+)\)', line)
   if match:
     #print line
     prefix = match.group(1)
-    addr = match.group(2)
-    binary = match.group(3)
-    offset = match.group(4)
+    frameno = match.group(2)
+    addr = match.group(3)
+    binary = match.group(4)
+    offset = match.group(5)
+    addr = patch_address(frameno, addr)
     load_addr = int(addr, 16) - int(offset, 16)
     if not pipes.has_key(binary):
       #print "atos -o %s -l %s" % (binary, hex(load_addr))
