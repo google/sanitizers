@@ -1045,6 +1045,34 @@ TEST(AddressSanitizer, StrNCpyOOBTest) {
   free(from);
 }
 
+static const char *kOverlapErrorMessage = "strcpy-param-overlap";
+
+TEST(AddressSanitizer, StrArgsOverlapTest) {
+  size_t size = Ident(100);
+  char *str = Ident((char*)malloc(size));
+
+#if 0
+  // Check "memcpy". Use Ident() to avoid inlining.
+  memset(str, 'z', size);
+  Ident(memcpy)(str + 1, str + 11, 10);
+  Ident(memcpy)(str, str, 0);
+  EXPECT_DEATH(Ident(memcpy)(str, str + 14, 15), kOverlapErrorMessage);
+  EXPECT_DEATH(Ident(memcpy)(str + 14, str, 15), kOverlapErrorMessage);
+  EXPECT_DEATH(Ident(memcpy)(str + 20, str + 20, 1), kOverlapErrorMessage);
+#endif
+
+  // Check "strncpy".
+  memset(str, 'z', size);
+  strncpy(str, str + 10, 10);
+  EXPECT_DEATH(strncpy(str, str + 9, 10), kOverlapErrorMessage);
+  EXPECT_DEATH(strncpy(str + 9, str, 10), kOverlapErrorMessage);
+  str[10] = '\0';
+  strncpy(str + 11, str, 20);
+  EXPECT_DEATH(strncpy(str + 10, str, 20), kOverlapErrorMessage);
+
+  free(str);
+}
+
 // At the moment we instrument memcpy/memove/memset calls at compile time so we
 // can't handle OOB error if these functions are called by pointer, see disabled
 // MemIntrinsicCallByPointerTest below

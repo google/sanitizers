@@ -80,6 +80,26 @@ static void AccessAddress(uintptr_t address, bool isWrite) {
   ACCESS_MEMORY_RANGE(offset, size, true); \
 } while (0);
 
+// Behavior of functions like "memcpy" or "strcpy" is undefined
+// if memory intervals overlap. We report error in this case.
+// Macro is used to avoid creation of new frames.
+static inline bool RangesOverlap(const char *offset1, const char *offset2,
+                                 size_t length) {
+  return !((offset1 + length <= offset2) || (offset2 + length <= offset1));
+}
+#define CHECK_RANGES_OVERLAP(_offset1, _offset2, length) do { \
+  const char *offset1 = (const char*)_offset1; \
+  const char *offset2 = (const char*)_offset2; \
+  if (RangesOverlap((const char*)offset1, (const char*)offset2, \
+                    length)) { \
+    Printf("ERROR: AddressSanitizer strcpy-param-overlap: " \
+           "memory ranges [%p,%p) and [%p, %p) overlap\n", \
+           offset1, offset1 + length, offset2, offset2 + length); \
+    PRINT_CURRENT_STACK(); \
+    ShowStatsAndAbort(); \
+  } \
+} while (0);
+
 static inline void ensure_asan_inited() {
   CHECK(!asan_init_is_running);
   if (!asan_inited) {
@@ -126,10 +146,9 @@ void *WRAP(memcpy)(void *to, const void *from, size_t size) {
   }
   ensure_asan_inited();
   if (FLAG_replace_intrin) {
+    CHECK_RANGES_OVERLAP(to, from, size);
     ASAN_WRITE_RANGE(from, size);
     ASAN_READ_RANGE(to, size);
-    // TODO(samsonov): Check here that read and write intervals
-    // do not overlap.
   }
   return real_memcpy(to, from, size);
 }
@@ -179,6 +198,7 @@ char *WRAP(strncpy)(char *to, const char *from, size_t size) {
     if (from_size > size) {
       from_size = size;
     }
+    CHECK_RANGES_OVERLAP(to, from, from_size);
     ASAN_READ_RANGE(from, from_size);
     ASAN_WRITE_RANGE(to, size);
   }
