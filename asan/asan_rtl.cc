@@ -80,22 +80,6 @@ bool   FLAG_stats;
 size_t FLAG_max_malloc_fill_size = 0;
 bool FLAG_use_fake_stack;
 
-
-// -------------------------- Printf ---------------- {{{1
-static FILE *asan_out = NULL;
-
-void Printf(const char *format, ...) {
-  const int kLen = 1024 * 4;
-  char buffer[kLen];
-  va_list args;
-  va_start(args, format);
-  vsnprintf(buffer, kLen, format, args);
-  fwrite(buffer, 1, real_strlen(buffer), asan_out);
-  fflush(asan_out);
-  va_end(args);
-}
-
-
 // -------------------------- Globals --------------------- {{{1
 int asan_inited;
 bool asan_init_is_running;
@@ -121,7 +105,7 @@ pthread_create_f        real_pthread_create;
 // -------------------------- Misc ---------------- {{{1
 void ShowStatsAndAbort() {
   PrintAccumulatedStats();
-  abort();
+  ASAN_DIE;
 }
 
 static void PrintBytes(const char *before, uintptr_t *a) {
@@ -287,7 +271,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
     return;
   }
   // Write the first message using the bullet-proof write.
-  if (13 != write(2, "ASAN:SIGSEGV\n", 13)) abort();
+  if (13 != write(2, "ASAN:SIGSEGV\n", 13)) ASAN_DIE;
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
@@ -303,7 +287,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
 
 static void     ASAN_OnSIGILL(int, siginfo_t *siginfo, void *context) {
   // Write the first message using the bullet-proof write.
-  if (12 != write(2, "ASAN:SIGILL\n", 12)) abort();
+  if (12 != write(2, "ASAN:SIGILL\n", 12)) ASAN_DIE;
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
@@ -574,13 +558,12 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   PrintBytes("  ", (uintptr_t*)(aligned_shadow+2*kWordSize));
   PrintBytes("  ", (uintptr_t*)(aligned_shadow+3*kWordSize));
   PrintBytes("  ", (uintptr_t*)(aligned_shadow+4*kWordSize));
-  abort();
+  ASAN_DIE;
 }
 
 void __asan_init() {
   if (asan_inited) return;
   asan_init_is_running = true;
-  asan_out = stderr;
 
   // Make sure we are not statically linked.
   AsanDoesNotSupportStaticLinkage();

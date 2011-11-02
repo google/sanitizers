@@ -151,7 +151,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   if (res == (uint8_t*)-1) {
     OutOfMemoryMessage(__FUNCTION__, size);
     PRINT_CURRENT_STACK();
-    _exit(EXIT_FAILURE);
+    ASAN_DIE;
   }
   PoisonShadow((uintptr_t)res, size, kAsanHeapLeftRedzoneMagic);
   if (FLAG_debug) {
@@ -600,7 +600,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   if (needed_size > kMaxAllowedMallocSize) {
     OutOfMemoryMessage(__FUNCTION__, size);
     stack->PrintStack();
-    abort();
+    ASAN_DIE;
   }
 
   uint8_t size_class = SizeToSizeClass(needed_size);

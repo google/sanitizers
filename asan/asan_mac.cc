@@ -29,4 +29,8 @@ void *asan_mmap(void *addr, size_t length, int prot, int flags,
   return mmap(addr, length, prot, flags, fd, offset);
 }
 
+ssize_t asan_write(int fd, const void *buf, size_t count) {
+  return write(fd, buf, count);
+}
+
 }  // namespace __asan

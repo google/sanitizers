@@ -16,6 +16,7 @@
 
 #include <stdint.h>  // for __WORDSIZE
 #include <stdlib.h>  // for size_t
+#include <unistd.h>  // for _exit
 
 // All internal functions in asan reside inside the __asan namespace
 // to avoid namespace collisions with the user programs.
@@ -30,10 +31,12 @@ void ReplaceSystemMalloc();
 void CheckFailed(const char *cond, const char *file, int line);
 void *asan_mmap(void *addr, size_t length, int prot, int flags,
                                     int fd, uint64_t offset);
+ssize_t asan_write(int fd, const void *buf, size_t count);
 void ShowStatsAndAbort();
 bool DescribeAddrIfGlobal(uintptr_t addr);
 void *AsanDoesNotSupportStaticLinkage();
 
+void RawWrite(const char *buffer);
 void Printf(const char *format, ...);
 
 extern size_t FLAG_quarantine_size;
@@ -59,15 +62,24 @@ extern bool asan_init_is_running;
 
 enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 
+#ifndef ASAN_DIE
+#define ASAN_DIE _exit(EXIT_FAILURE)
+#endif  // ASAN_DIE
+
 #define CHECK(cond) do { if (!(cond)) { \
   CheckFailed(#cond, __FILE__, __LINE__); \
 }}while(0)
 
-#if __WORDSIZE == 64
-  #define PP "0x%012lx"
-#else
-  #define PP "0x%08lx"
-#endif
+#define RAW_CHECK_MSG(expr, msg) do { \
+  if (!(expr)) { \
+    RawWrite(msg); \
+    ASAN_DIE; \
+  } \
+} while (0)
+
+#define RAW_CHECK(expr) RAW_CHECK_MSG(expr, #expr)
+
+#define PP "%p"
 
 #define ASAN_ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 

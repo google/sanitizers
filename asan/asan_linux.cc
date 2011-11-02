@@ -38,4 +38,8 @@ void *asan_mmap(void *addr, size_t length, int prot, int flags,
 # endif
 }
 
+ssize_t asan_write(int fd, const void *buf, size_t count) {
+  return (ssize_t)syscall(SYS_write, fd, buf, count);
+}
+
 }  // namespace __asan
