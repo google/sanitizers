@@ -675,6 +675,9 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     PoisonMemoryPartialRightRedzone(addr + rounded_size - REDZONE,
                                     size & (REDZONE - 1));
   }
+  if (size <= FLAG_max_malloc_fill_size) {
+    real_memset((void*)addr, 0, rounded_size);
+  }
   return (uint8_t*)addr;
 }
 

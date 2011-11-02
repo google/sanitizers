@@ -74,9 +74,10 @@ size_t FLAG_malloc_context_size = kMallocContextSize;
 uintptr_t FLAG_large_malloc;
 bool   FLAG_lazy_shadow;
 bool   FLAG_handle_segv;
-bool FLAG_replace_str;
-bool FLAG_replace_intrin;
-bool FLAG_stats;
+bool   FLAG_replace_str;
+bool   FLAG_replace_intrin;
+bool   FLAG_stats;
+size_t FLAG_max_malloc_fill_size = 0;
 bool FLAG_use_fake_stack;
 
 
@@ -589,6 +590,9 @@ void __asan_init() {
   FLAG_malloc_context_size =
       IntFlagValue(options, "malloc_context_size=", kMallocContextSize);
   CHECK(FLAG_malloc_context_size <= kMallocContextSize);
+
+  FLAG_max_malloc_fill_size =
+      IntFlagValue(options, "max_malloc_fill_size=", 0);
 
   FLAG_v = IntFlagValue(options, "verbosity=", 0);
 
