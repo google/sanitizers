@@ -104,7 +104,7 @@ pthread_create_f        real_pthread_create;
 
 // -------------------------- Misc ---------------- {{{1
 void ShowStatsAndAbort() {
-  PrintAccumulatedStats();
+  __asan_print_accumulated_stats();
   ASAN_DIE;
 }
 
@@ -334,7 +334,7 @@ static int64_t IntFlagValue(const char *flags, const char *flag,
 
 static void asan_atexit() {
   Printf("AddressSanitizer exit stats:\n");
-  PrintAccumulatedStats();
+  __asan_print_accumulated_stats();
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
@@ -543,7 +543,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
 
   uintptr_t shadow_addr = MemToShadow(addr);
   Printf("==%d== ABORTING\n", getpid());
-  PrintAccumulatedStats();
+  __asan_print_accumulated_stats();
   Printf("Shadow byte and word:\n");
   Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
   uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);

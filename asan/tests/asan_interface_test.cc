@@ -64,13 +64,13 @@ TEST(AddressSanitizerInterface, GetAllocatedSizeAndOwnershipTest) {
   delete int_ptr;
 }
 
-TEST(AddressSanitizerInterface, DISABLED_EnableStatisticsTest) {
+TEST(AddressSanitizerInterface, EnableStatisticsTest) {
   __asan_enable_statistics(true);
   EXPECT_EQ(true, __asan_enable_statistics(false));
   EXPECT_EQ(false, __asan_enable_statistics(false));
 }
 
-TEST(AddressSanitizerInterface, DISABLED_GetCurrentAllocatedBytesTest) {
+TEST(AddressSanitizerInterface, GetCurrentAllocatedBytesTest) {
   size_t before_malloc, after_malloc, after_free;
   char *array;
   const size_t kMallocSize = 100;
@@ -94,8 +94,8 @@ TEST(AddressSanitizerInterface, DISABLED_GetCurrentAllocatedBytesTest) {
 }
 
 static const size_t kManyThreadsMallocSizes[] = {5, 1UL<<10, 1UL<<20, 357};
-static const size_t kManyThreadsIterations = 150;
-static const size_t kManyThreadsNumThreads = 150;
+static const size_t kManyThreadsIterations = 250;
+static const size_t kManyThreadsNumThreads = 200;
 
 void *ManyThreadsWithStatsWorker(void *arg) {
   for (size_t iter = 0; iter < kManyThreadsIterations; iter++) {
@@ -103,13 +103,10 @@ void *ManyThreadsWithStatsWorker(void *arg) {
       free(Ident(malloc(kManyThreadsMallocSizes[size_index])));
     }
   }
-  if ((size_t)arg % 15 == 0) {
-    __asan_print_accumulated_stats();
-  }
   return 0;
 }
 
-TEST(AddressSanitizerInterface, DISABLED_ManyThreadsWithStatsStressTest) {
+TEST(AddressSanitizerInterface, ManyThreadsWithStatsStressTest) {
   size_t before_test, after_test, i;
   pthread_t threads[kManyThreadsNumThreads];
   __asan_enable_statistics(true);
@@ -123,5 +120,7 @@ TEST(AddressSanitizerInterface, DISABLED_ManyThreadsWithStatsStressTest) {
   }
   after_test = __asan_get_current_allocated_bytes();
   __asan_enable_statistics(false);
-  __asan_print_accumulated_stats();
+  // ASan stats also reflect memory usage of internal ASan RTL structs,
+  // so we can't check for equality here.
+  EXPECT_LT(after_test, before_test + (1UL<<20));
 }

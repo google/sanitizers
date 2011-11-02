@@ -14,6 +14,7 @@
 #include "asan_interceptors.h"
 #include "asan_interface.h"
 #include "asan_internal.h"
+#include "asan_lock.h"
 #include "asan_stats.h"
 #include "asan_thread_registry.h"
 
@@ -63,8 +64,22 @@ void AsanStats::Print() {
          malloc_large, malloc_small_slow);
 }
 
-void PrintAccumulatedStats() {
-  asanThreadRegistry().GetAccumulatedStats().Print();
+static inline void PrintDisabledStatsHint() {
+  static bool disabled_stats_hint_printed = false;
+  if (!FLAG_stats && !disabled_stats_hint_printed) {
+    Printf("HINT: ASan doesn't collect stats. Set ASAN_OPTIONS=stats=1 or "
+           "call __asan_enable_statistics(true)\n");
+    disabled_stats_hint_printed = true;
+  }
+}
+
+static void PrintAccumulatedStats() {
+  AsanStats stats = asanThreadRegistry().GetAccumulatedStats();
+  // Use lock to keep reports from mixing up.
+  static AsanLock print_lock;
+  ScopedLock lock(&print_lock);
+  PrintDisabledStatsHint();
+  stats.Print();
 }
 
 }  // namespace __asan
@@ -73,7 +88,7 @@ void PrintAccumulatedStats() {
 using namespace __asan;  // NOLINT
 
 size_t __asan_get_current_allocated_bytes() {
-  return 0;
+  return asanThreadRegistry().GetCurrentAllocatedBytes();
 }
 
 bool __asan_enable_statistics(bool enable) {
@@ -83,4 +98,5 @@ bool __asan_enable_statistics(bool enable) {
 }
 
 void __asan_print_accumulated_stats() {
+  PrintAccumulatedStats();
 }

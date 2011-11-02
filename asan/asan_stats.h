@@ -56,9 +56,6 @@ struct AsanStats {
   void Print();
 };
 
-// Prints merged thread-local stats.
-void PrintAccumulatedStats();
-
 }  // namespace __asan
 
 #endif  // ASAN_STATS_H

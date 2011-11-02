@@ -45,11 +45,14 @@ class AsanThreadRegistry {
   // Flushes all thread-local stats to accumulated stats, and returns
   // a copy of accumulated stats.
   AsanStats GetAccumulatedStats();
+  size_t GetCurrentAllocatedBytes();
 
   AsanThreadSummary *FindByTid(int tid);
   AsanThread *FindThreadByStackAddress(uintptr_t addr);
 
  private:
+  void UpdateAccumulatedStatsUnlocked();
+
   static const int kMaxNumberOfThreads = (1 << 22);  // 4M
   AsanThreadSummary *thread_summaries_[kMaxNumberOfThreads];
   AsanThread main_thread_;

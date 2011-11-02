@@ -90,13 +90,14 @@ AsanStats *AsanThreadRegistry::GetCurrentThreadStats() {
 
 AsanStats AsanThreadRegistry::GetAccumulatedStats() {
   ScopedLock lock(&mu_);
-  for (int tid = 0; tid < n_threads_; tid++) {
-    AsanThread *t = thread_summaries_[tid]->thread();
-    if (t != NULL) {
-      t->stats().FlushToStats(&accumulated_stats_);
-    }
-  }
+  UpdateAccumulatedStatsUnlocked();
   return accumulated_stats_;
+}
+
+size_t AsanThreadRegistry::GetCurrentAllocatedBytes() {
+  ScopedLock lock(&mu_);
+  UpdateAccumulatedStatsUnlocked();
+  return accumulated_stats_.malloced - accumulated_stats_.freed;
 }
 
 AsanThreadSummary *AsanThreadRegistry::FindByTid(int tid) {
@@ -116,6 +117,15 @@ AsanThread *AsanThreadRegistry::FindThreadByStackAddress(uintptr_t addr) {
     }
   }
   return 0;
+}
+
+void AsanThreadRegistry::UpdateAccumulatedStatsUnlocked() {
+  for (int tid = 0; tid < n_threads_; tid++) {
+    AsanThread *t = thread_summaries_[tid]->thread();
+    if (t != NULL) {
+      t->stats().FlushToStats(&accumulated_stats_);
+    }
+  }
 }
 
 }  // namespace __asan
