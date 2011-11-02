@@ -490,7 +490,7 @@ class MallocInfo {
       AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
       thread_stats->real_frees++;
       thread_stats->really_freed += m->used_size;
-      thread_stats->really_freed_by_size[Log2(m->Size())]++;
+      thread_stats->really_freed_by_size[m->SizeClass()]++;
     }
   }
 
@@ -515,7 +515,7 @@ class MallocInfo {
       AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
       thread_stats->mmaps++;
       thread_stats->mmaped += mmap_size;
-      thread_stats->mmaped_by_size[Log2(size)] += n_chunks;
+      thread_stats->mmaped_by_size[size_class] += n_chunks;
     }
     AsanChunk *res = NULL;
     for (size_t i = 0; i < n_chunks; i++) {
@@ -621,7 +621,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     thread_stats->mallocs++;
     thread_stats->malloced += size;
     thread_stats->malloced_redzones += size_to_allocate - size;
-    thread_stats->malloced_by_size[Log2(size_to_allocate)]++;
+    thread_stats->malloced_by_size[size_class]++;
   }
 
   AsanChunk *m = NULL;
@@ -712,7 +712,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
     thread_stats->frees++;
     thread_stats->freed += m->used_size;
-    thread_stats->freed_by_size[Log2(m->Size())]++;
+    thread_stats->freed_by_size[m->SizeClass()]++;
   }
 
   m->chunk_state = CHUNK_QUARANTINE;
