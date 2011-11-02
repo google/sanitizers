@@ -79,8 +79,6 @@ enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 
 #define RAW_CHECK(expr) RAW_CHECK_MSG(expr, #expr)
 
-#define PP "%p"
-
 #define ASAN_ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
 const size_t kWordSize = __WORDSIZE / 8;

@@ -155,7 +155,7 @@ static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   }
   PoisonShadow((uintptr_t)res, size, kAsanHeapLeftRedzoneMagic);
   if (FLAG_debug) {
-    Printf("ASAN_MMAP: ["PP", "PP")\n", res, res + size);
+    Printf("ASAN_MMAP: [%p, %p)\n", res, res + size);
   }
   return res;
 }
@@ -239,7 +239,7 @@ struct AsanChunk: public ChunkBase {
 
   void DescribeAddress(uintptr_t addr, size_t access_size) {
     size_t offset;
-    Printf(""PP" is located ", addr);
+    Printf("%p is located ", addr);
     if (AddrIsInside(addr, access_size, &offset)) {
       Printf("%ld bytes inside of", offset);
     } else if (AddrIsAtLeft(addr, access_size, &offset)) {
@@ -249,7 +249,7 @@ struct AsanChunk: public ChunkBase {
     } else {
       Printf(" somewhere around (this is AddressSanitizer bug!)");
     }
-    Printf(" %lu-byte region ["PP","PP")\n",
+    Printf(" %lu-byte region [%p,%p)\n",
            used_size, beg(), beg() + used_size);
   }
 };
@@ -689,7 +689,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
     CHECK(malloc_info.FindPageGroup((uintptr_t)ptr));
   }
 
-  // Printf("Deallocate "PP"\n", ptr);
+  // Printf("Deallocate %p\n", ptr);
   AsanChunk *m = PtrToChunk((uintptr_t)ptr);
   if (m->chunk_state == CHUNK_QUARANTINE) {
     Printf("attempting double-free on %p:\n", ptr);
@@ -853,7 +853,7 @@ inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
 }
 
 void AsanFakeStack::FifoList::FifoPush(uintptr_t a) {
-  // Printf("T%d push "PP"\n", asanThreadRegistry().GetCurrent()->tid(), a);
+  // Printf("T%d push %p\n", asanThreadRegistry().GetCurrent()->tid(), a);
   FifoNode *node = (FifoNode*)a;
   CHECK(node);
   node->next = 0;
@@ -908,7 +908,7 @@ void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
                                              PROT_READ | PROT_WRITE,
                                              MAP_PRIVATE | MAP_ANON, -1, 0);
   CHECK(new_mem != (uintptr_t)-1);
-  // Printf("T%d new_mem[%ld]: "PP"-"PP" mmap %ld\n",
+  // Printf("T%d new_mem[%ld]: %p-%p mmap %ld\n",
   //       asanThreadRegistry().GetCurrent()->tid(),
   //       size_class, new_mem, new_mem + ClassMmapSize(size_class),
   //       ClassMmapSize(size_class));
@@ -957,7 +957,7 @@ size_t __asan_stack_malloc(size_t size, size_t real_stack) {
     return real_stack;
   }
   size_t ptr = t->FakeStack().AllocateStack(size);
-  // Printf("__asan_stack_malloc "PP" %ld "PP"\n", ptr, size, real_stack);
+  // Printf("__asan_stack_malloc %p %ld %p\n", ptr, size, real_stack);
   return ptr;
 }
 
@@ -973,7 +973,7 @@ void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
     // The whole thread fake stack has been destructed anyway.
     return;
   }
-  // Printf("__asan_stack_free   "PP" %ld "PP"\n", ptr, size, real_stack);
+  // Printf("__asan_stack_free   %p %ld %p\n", ptr, size, real_stack);
   t->FakeStack().DeallocateStack(ptr, size);
 }
 

@@ -56,7 +56,7 @@ class ProcSelfMaps {
                    filename, ASAN_ARRAY_SIZE(mapping.name));
       mapping.name[ASAN_ARRAY_SIZE(mapping.name) - 1] = 0;
       if (FLAG_v >= 2) {
-        Printf("[%ld] ["PP","PP"] off "PP" %s\n", map_size_,
+        Printf("[%ld] [%p,%p] off %p %s\n", map_size_,
                mapping.beg, mapping.end, mapping.offset, mapping.name);
       }
       map_size_++;

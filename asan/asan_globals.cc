@@ -74,7 +74,7 @@ struct Global {
   bool DescribeAddrIfMyRedZone(uintptr_t addr) {
     if (addr < beg - kGlobalAndStackRedzone) return false;
     if (addr >= beg + GetAlignedSize() + kGlobalAndStackRedzone) return false;
-    Printf(""PP" is located ", addr);
+    Printf("%p is located ", addr);
     if (addr < beg) {
       Printf("%d bytes to the left", beg - addr);
     } else if (addr >= beg + size) {
@@ -106,7 +106,7 @@ bool DescribeAddrIfGlobal(uintptr_t addr) {
     Global &g = i->second;
     CHECK(i->first == g.beg);
     if (FLAG_report_globals >= 2)
-      Printf("Search Global: beg="PP" size=%ld name=%s\n",
+      Printf("Search Global: beg=%p size=%ld name=%s\n",
              g.beg, g.size, g.name);
     res |= g.DescribeAddrIfMyRedZone(addr);
   }
@@ -135,7 +135,7 @@ void __asan_register_global(uintptr_t addr, size_t size,
   g.beg = addr;
   g.name = name;
   if (FLAG_report_globals >= 2)
-    Printf("Added Global: beg="PP" size=%ld name=%s\n",
+    Printf("Added Global: beg=%p size=%ld name=%s\n",
            g.beg, g.size, g.name);
   g.PoisonRedZones();
   (*g_all_globals)[addr] = g;

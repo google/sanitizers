@@ -111,7 +111,7 @@ void ShowStatsAndAbort() {
 static void PrintBytes(const char *before, uintptr_t *a) {
   uint8_t *bytes = (uint8_t*)a;
   size_t byte_num = (__WORDSIZE) / 8;
-  Printf("%s"PP":", before, (uintptr_t)a);
+  Printf("%s%p:", before, (uintptr_t)a);
   for (size_t i = 0; i < byte_num; i++) {
     Printf(" %lx%lx", bytes[i] >> 4, bytes[i] & 15);
   }
@@ -151,7 +151,7 @@ static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
 static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
   CHECK((beg % kPageSize) == 0);
   CHECK(((end + 1) % kPageSize) == 0);
-  // Printf("mmap_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
+  // Printf("mmap_range %p %p %ld\n", beg, end, (end - beg) / kPageSize);
   return mmap_pages(beg, (end - beg + 1) / kPageSize, mem_type);
 }
 
@@ -159,7 +159,7 @@ static char *mmap_range(uintptr_t beg, uintptr_t end, const char *mem_type) {
 static void protect_range(uintptr_t beg, uintptr_t end) {
   CHECK((beg % kPageSize) == 0);
   CHECK(((end+1) % kPageSize) == 0);
-  // Printf("protect_range "PP" "PP" %ld\n", beg, end, (end - beg) / kPageSize);
+  // Printf("protect_range %p %p %ld\n", beg, end, (end - beg) / kPageSize);
   void *res = asan_mmap((void*)beg, end - beg + 1,
                    PROT_NONE,
                    MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, 0, 0);
@@ -184,7 +184,7 @@ static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
   buf[0] = 0;
   strncat(buf, frame_descr,
           std::min(kBufSize, static_cast<intptr_t>(name_end - frame_descr)));
-  Printf("Address "PP" is located at offset %ld "
+  Printf("Address %p is located at offset %ld "
          "in frame <%s> of T%d's stack:\n",
          addr, offset, buf, t->tid());
   // Report the number of stack objects.
@@ -275,7 +275,7 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
 
-  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address "PP""
+  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
          " (pc %p sp %p bp %p ax %p T%d)\n",
          getpid(), addr, pc, sp, bp, ax,
          asanThreadRegistry().GetCurrent()->tid());
@@ -521,10 +521,10 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   }
 
   Printf("==%d== ERROR: AddressSanitizer %s on address "
-         ""PP" at pc 0x%lx bp 0x%lx sp 0x%lx\n",
+         "%p at pc 0x%lx bp 0x%lx sp 0x%lx\n",
          getpid(), bug_descr, addr, pc, bp, sp);
 
-  Printf("%s of size %d at "PP" thread T%d\n",
+  Printf("%s of size %d at %p thread T%d\n",
           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
           access_size, addr, asanThreadRegistry().GetCurrent()->tid());
 
@@ -545,7 +545,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   Printf("==%d== ABORTING\n", getpid());
   __asan_print_accumulated_stats();
   Printf("Shadow byte and word:\n");
-  Printf("  "PP": %x\n", shadow_addr, *(unsigned char*)shadow_addr);
+  Printf("  %p: %x\n", shadow_addr, *(unsigned char*)shadow_addr);
   uintptr_t aligned_shadow = shadow_addr & ~(kWordSize - 1);
   PrintBytes("  ", (uintptr_t*)(aligned_shadow));
   Printf("More shadow bytes:\n");
@@ -634,15 +634,15 @@ void __asan_init() {
   MaybeInstallSigaction(SIGILL, ASAN_OnSIGILL);
 
   if (FLAG_v) {
-    Printf("|| `["PP", "PP"]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
-    Printf("|| `["PP", "PP"]` || HighShadow ||\n",
+    Printf("|| `[%p, %p]` || HighMem    ||\n", kHighMemBeg, kHighMemEnd);
+    Printf("|| `[%p, %p]` || HighShadow ||\n",
            kHighShadowBeg, kHighShadowEnd);
-    Printf("|| `["PP", "PP"]` || ShadowGap  ||\n",
+    Printf("|| `[%p, %p]` || ShadowGap  ||\n",
            kShadowGapBeg, kShadowGapEnd);
-    Printf("|| `["PP", "PP"]` || LowShadow  ||\n",
+    Printf("|| `[%p, %p]` || LowShadow  ||\n",
            kLowShadowBeg, kLowShadowEnd);
-    Printf("|| `["PP", "PP"]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
-    Printf("MemToShadow(shadow): "PP" "PP" "PP" "PP"\n",
+    Printf("|| `[%p, %p]` || LowMem     ||\n", kLowMemBeg, kLowMemEnd);
+    Printf("MemToShadow(shadow): %p %p %p %p\n",
            MEM_TO_SHADOW(kLowShadowBeg),
            MEM_TO_SHADOW(kLowShadowEnd),
            MEM_TO_SHADOW(kHighShadowBeg),
