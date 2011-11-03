@@ -62,7 +62,7 @@ void AsanThreadRegistry::RegisterThread(AsanThread *thread, int parent_tid,
 
 void AsanThreadRegistry::UnregisterThread(AsanThread *thread) {
   ScopedLock lock(&mu_);
-  thread->stats().FlushToStats(&accumulated_stats_);
+  FlushToAccumulatedStatsUnlocked(&thread->stats());
   AsanThreadSummary *summary = thread->summary();
   CHECK(summary);
   summary->set_thread(NULL);
@@ -83,9 +83,9 @@ void AsanThreadRegistry::SetCurrent(AsanThread *t) {
   CHECK(pthread_getspecific(tls_key_) == t);
 }
 
-AsanStats *AsanThreadRegistry::GetCurrentThreadStats() {
+AsanStats &AsanThreadRegistry::GetCurrentThreadStats() {
   AsanThread *t = GetCurrent();
-  return (t) ? &(t->stats()) : &main_thread_.stats();
+  return (t) ? t->stats() : main_thread_.stats();
 }
 
 AsanStats AsanThreadRegistry::GetAccumulatedStats() {
@@ -123,8 +123,19 @@ void AsanThreadRegistry::UpdateAccumulatedStatsUnlocked() {
   for (int tid = 0; tid < n_threads_; tid++) {
     AsanThread *t = thread_summaries_[tid]->thread();
     if (t != NULL) {
-      t->stats().FlushToStats(&accumulated_stats_);
+      FlushToAccumulatedStatsUnlocked(&t->stats());
     }
+  }
+}
+
+void AsanThreadRegistry::FlushToAccumulatedStatsUnlocked(AsanStats *stats) {
+  // AsanStats consists of variables of type size_t only.
+  size_t *dst = (size_t*)&accumulated_stats_;
+  size_t *src = (size_t*)stats;
+  size_t num_fields = sizeof(AsanStats) / sizeof(size_t);
+  for (size_t i = 0; i < num_fields; i++) {
+    dst[i] += src[i];
+    src[i] = 0;
   }
 }
 

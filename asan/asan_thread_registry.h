@@ -39,9 +39,9 @@ class AsanThreadRegistry {
   AsanThread *GetCurrent();
   void SetCurrent(AsanThread *t);
 
-  // Returns pointer to stats for GetCurrent(), or pointer to stats for
+  // Returns stats for GetCurrent(), or stats for
   // T0 if GetCurrent() returns NULL.
-  AsanStats *GetCurrentThreadStats();
+  AsanStats &GetCurrentThreadStats();
   // Flushes all thread-local stats to accumulated stats, and returns
   // a copy of accumulated stats.
   AsanStats GetAccumulatedStats();
@@ -52,6 +52,9 @@ class AsanThreadRegistry {
 
  private:
   void UpdateAccumulatedStatsUnlocked();
+  // Adds values of all counters in "stats" to accumulated stats,
+  // and fills "stats" with zeroes.
+  void FlushToAccumulatedStatsUnlocked(AsanStats *stats);
 
   static const int kMaxNumberOfThreads = (1 << 22);  // 4M
   AsanThreadSummary *thread_summaries_[kMaxNumberOfThreads];

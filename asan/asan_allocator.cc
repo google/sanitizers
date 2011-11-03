@@ -487,10 +487,10 @@ class MallocInfo {
     free_lists_[size_class] = m;
 
     if (FLAG_stats) {
-      AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
-      thread_stats->real_frees++;
-      thread_stats->really_freed += m->used_size;
-      thread_stats->really_freed_by_size[m->SizeClass()]++;
+      AsanStats &thread_stats = asanThreadRegistry().GetCurrentThreadStats();
+      thread_stats.real_frees++;
+      thread_stats.really_freed += m->used_size;
+      thread_stats.really_freed_by_size[m->SizeClass()]++;
     }
   }
 
@@ -512,10 +512,10 @@ class MallocInfo {
     CHECK(n_chunks > 0);
     uint8_t *mem = MmapNewPagesAndPoisonShadow(mmap_size);
     if (FLAG_stats) {
-      AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
-      thread_stats->mmaps++;
-      thread_stats->mmaped += mmap_size;
-      thread_stats->mmaped_by_size[size_class] += n_chunks;
+      AsanStats &thread_stats = asanThreadRegistry().GetCurrentThreadStats();
+      thread_stats.mmaps++;
+      thread_stats.mmaped += mmap_size;
+      thread_stats.mmaped_by_size[size_class] += n_chunks;
     }
     AsanChunk *res = NULL;
     for (size_t i = 0; i < n_chunks; i++) {
@@ -615,13 +615,12 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
   }
 
   AsanThread *t = asanThreadRegistry().GetCurrent();
-  AsanStats *thread_stats = NULL;
+  AsanStats &thread_stats = asanThreadRegistry().GetCurrentThreadStats();
   if (FLAG_stats) {
-    thread_stats = asanThreadRegistry().GetCurrentThreadStats();
-    thread_stats->mallocs++;
-    thread_stats->malloced += size;
-    thread_stats->malloced_redzones += size_to_allocate - size;
-    thread_stats->malloced_by_size[size_class]++;
+    thread_stats.mallocs++;
+    thread_stats.malloced += size;
+    thread_stats.malloced_redzones += size_to_allocate - size;
+    thread_stats.malloced_by_size[size_class]++;
   }
 
   AsanChunk *m = NULL;
@@ -629,8 +628,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     // get directly from global storage.
     m = malloc_info.AllocateChunks(size_class, 1);
     if (FLAG_stats) {
-      CHECK(thread_stats);
-      thread_stats->malloc_large++;
+      thread_stats.malloc_large++;
     }
   } else {
     // get from the thread-local storage.
@@ -640,8 +638,7 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
       // n_new_chunks = std::min((size_t)32, n_new_chunks);
       *fl = malloc_info.AllocateChunks(size_class, n_new_chunks);
       if (FLAG_stats) {
-        CHECK(thread_stats);
-        thread_stats->malloc_small_slow++;
+        thread_stats.malloc_small_slow++;
       }
     }
     m = *fl;
@@ -712,10 +709,10 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
   PoisonShadow((uintptr_t)ptr, rounded_size, kAsanHeapFreeMagic);
 
   if (FLAG_stats) {
-    AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
-    thread_stats->frees++;
-    thread_stats->freed += m->used_size;
-    thread_stats->freed_by_size[m->SizeClass()]++;
+    AsanStats &thread_stats = asanThreadRegistry().GetCurrentThreadStats();
+    thread_stats.frees++;
+    thread_stats.freed += m->used_size;
+    thread_stats.freed_by_size[m->SizeClass()]++;
   }
 
   m->chunk_state = CHUNK_QUARANTINE;
@@ -737,9 +734,9 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
                            AsanStackTrace *stack) {
   CHECK(old_ptr && new_size);
   if (FLAG_stats) {
-    AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
-    thread_stats->reallocs++;
-    thread_stats->realloced += new_size;
+    AsanStats &thread_stats = asanThreadRegistry().GetCurrentThreadStats();
+    thread_stats.reallocs++;
+    thread_stats.realloced += new_size;
   }
   AsanChunk *m = PtrToChunk((uintptr_t)old_ptr);
   CHECK(m->chunk_state == CHUNK_ALLOCATED);

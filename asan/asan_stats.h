@@ -49,9 +49,6 @@ struct AsanStats {
   // Default ctor for thread-local stats.
   AsanStats();
 
-  // Adds values of all counters to counters in "stats",
-  // and fills current counters with zeroes.
-  void FlushToStats(AsanStats *stats);
   // Prints formatted stats to stderr.
   void Print();
 };

@@ -25,17 +25,6 @@ AsanStats::AsanStats() {
   real_memset(this, 0, sizeof(AsanStats));
 }
 
-void AsanStats::FlushToStats(AsanStats *stats) {
-  // AsanStats consists of variables of type size_t only.
-  size_t *dst = (size_t*)stats;
-  size_t *src = (size_t*)this;
-  size_t num_fields = sizeof(AsanStats) / sizeof(size_t);
-  for (size_t i = 0; i < num_fields; i++) {
-    dst[i] += src[i];
-    src[i] = 0;
-  }
-}
-
 static void PrintMallocStatsArray(const char *prefix,
                                   size_t (&array)[kNumberOfSizeClasses]) {
   Printf("%s", prefix);
