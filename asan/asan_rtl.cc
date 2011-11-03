@@ -358,7 +358,6 @@ void *operator new(size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 void *operator new[](size_t size, std::nothrow_t const&) { OPERATOR_NEW_BODY; }
 
 #define OPERATOR_DELETE_BODY \
-  if (!ptr) return;\
   GET_STACK_TRACE_HERE_FOR_FREE(ptr);\
   asan_free(ptr, &stack);
 

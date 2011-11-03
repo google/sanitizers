@@ -735,12 +735,7 @@ static void Deallocate(uint8_t *ptr, AsanStackTrace *stack) {
 
 static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
                            AsanStackTrace *stack) {
-  if (!old_ptr) {
-    return Allocate(0, new_size, stack);
-  }
-  if (new_size == 0) {
-    return NULL;
-  }
+  CHECK(old_ptr && new_size);
   if (FLAG_stats) {
     AsanStats *thread_stats = asanThreadRegistry().GetCurrentThreadStats();
     thread_stats->reallocs++;
@@ -756,32 +751,71 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
   return new_ptr;
 }
 
+}  // namespace __asan
 
+// Malloc hooks declaration.
+// ASAN_NEW_HOOK(ptr, size) is called immediately after
+//   allocation of "size" bytes, which returned "ptr".
+// ASAN_DELETE_HOOK(ptr) is called immediately before
+//   deallocation of "ptr".
+// If ASAN_NEW_HOOK or ASAN_DELETE_HOOK is defined, user
+// program must provide implementation of this hook.
+// If macro is undefined, the hook is no-op.
+#ifdef ASAN_NEW_HOOK
+extern "C" void ASAN_NEW_HOOK(void *ptr, size_t size);
+#else
+static inline void ASAN_NEW_HOOK(void *ptr, size_t size) { }
+#endif
+
+#ifdef ASAN_DELETE_HOOK
+extern "C" void ASAN_DELETE_HOOK(void *ptr);
+#else
+static inline void ASAN_DELETE_HOOK(void *ptr) { }
+#endif
+
+namespace __asan {
 
 void *asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack) {
-  return (void*)Allocate(alignment, size, stack);
+  void *ptr = (void*)Allocate(alignment, size, stack);
+  ASAN_NEW_HOOK(ptr, size);
+  return ptr;
 }
 
 void asan_free(void *ptr, AsanStackTrace *stack) {
+  ASAN_DELETE_HOOK(ptr);
   Deallocate((uint8_t*)ptr, stack);
 }
 
 void *asan_malloc(size_t size, AsanStackTrace *stack) {
-  return (void*)Allocate(0, size, stack);
+  void *ptr = (void*)Allocate(0, size, stack);
+  ASAN_NEW_HOOK(ptr, size);
+  return ptr;
 }
 
 void *asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
-  uint8_t *res = Allocate(0, nmemb * size, stack);
-  real_memset(res, 0, nmemb * size);
-  return (void*)res;
+  void *ptr = (void*)Allocate(0, nmemb * size, stack);
+  real_memset(ptr, 0, nmemb * size);
+  ASAN_NEW_HOOK(ptr, nmemb * size);
+  return ptr;
 }
 
 void *asan_realloc(void *p, size_t size, AsanStackTrace *stack) {
+  if (p == NULL) {
+    void *ptr = (void*)Allocate(0, size, stack);
+    ASAN_NEW_HOOK(ptr, size);
+    return ptr;
+  } else if (size == 0) {
+    ASAN_DELETE_HOOK(p);
+    Deallocate((uint8_t*)p, stack);
+    return NULL;
+  }
   return Reallocate((uint8_t*)p, size, stack);
 }
 
 void *asan_valloc(size_t size, AsanStackTrace *stack) {
-  return Allocate(kPageSize, size, stack);
+  void *ptr = (void*)Allocate(kPageSize, size, stack);
+  ASAN_NEW_HOOK(ptr, size);
+  return ptr;
 }
 
 void *asan_pvalloc(size_t size, AsanStackTrace *stack) {
@@ -790,13 +824,17 @@ void *asan_pvalloc(size_t size, AsanStackTrace *stack) {
     // pvalloc(0) should allocate one page.
     size = kPageSize;
   }
-  return Allocate(kPageSize, size, stack);
+  void *ptr = (void*)Allocate(kPageSize, size, stack);
+  ASAN_NEW_HOOK(ptr, size);
+  return ptr;
 }
 
 int asan_posix_memalign(void **memptr, size_t alignment, size_t size,
                           AsanStackTrace *stack) {
-  *memptr = Allocate(alignment, size, stack);
-  CHECK(IsAligned((uintptr_t)*memptr, alignment));
+  void *ptr = Allocate(alignment, size, stack);
+  CHECK(IsAligned((uintptr_t)ptr, alignment));
+  ASAN_NEW_HOOK(ptr, size);
+  *memptr = ptr;
   return 0;
 }
 
