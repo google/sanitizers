@@ -14,7 +14,15 @@ for t in  *.tmpl; do
       so=$c_so.$b.O$O.so
       $CXX $CXXFLAGS -g -m$b -fasan -O$O $c.cc -o $exe
       [ -e "$c_so.cc" ] && $CXX $CXXFLAGS -g -m$b -fasan -O$O $c_so.cc -fPIC -shared -o $so
-      ./$exe 2>&1 | $SYMBOLIZER 2> /dev/null | c++filt | ./match_output.py $t || exit 1
+      # If there's an OS-specific template, use it.
+      # Please minimize the use of OS-specific templates.
+      if [ -e "$t.$OS" ]
+      then
+        actual_t="$t.$OS"
+      else
+        actual_t="$t"
+      fi
+      ./$exe 2>&1 | $SYMBOLIZER 2> /dev/null | c++filt | ./match_output.py $actual_t || exit 1
       echo $exe
       rm ./$exe
       [ -e "$so" ] && rm ./$so
