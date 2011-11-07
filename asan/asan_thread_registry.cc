@@ -35,7 +35,8 @@ static void DestroyAsanTsd(void *tsd) {
 AsanThreadRegistry::AsanThreadRegistry(LinkerInitialized x)
     : main_thread_(x),
       main_thread_summary_(x),
-      accumulated_stats_(x) { }
+      accumulated_stats_(x),
+      mu_(x) { }
 
 void AsanThreadRegistry::Init() {
   CHECK(0 == pthread_key_create(&tls_key_, DestroyAsanTsd));

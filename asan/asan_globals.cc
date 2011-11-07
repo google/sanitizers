@@ -90,7 +90,7 @@ struct Global {
   static AsanLock mu_;
 };
 
-AsanLock Global::mu_;
+AsanLock Global::mu_(LINKER_INITIALIZED);
 
 typedef std::map<uintptr_t, Global> MapOfGlobals;
 static MapOfGlobals *g_all_globals = NULL;

@@ -16,6 +16,9 @@
 
 #include "asan_internal.h"
 
+// The locks in ASan are global objects and they are never destroyed to avoid
+// at-exit races (that is, a lock is being used by other threads while the main
+// thread is doing atexit destructors).
 
 #ifdef __APPLE__
 #include <pthread.h>
@@ -24,12 +27,11 @@
 namespace __asan {
 class AsanLock {
  public:
-  AsanLock() {
-    mu_ = OS_SPINLOCK_INIT;
-    is_locked_ = false;
-    owner_ = 0;
-  }
-  ~AsanLock() {}
+  explicit AsanLock(LinkerInitialized) :
+    mu_(OS_SPINLOCK_INIT),
+    is_locked_(false),
+    owner_(0) {}
+
   void Lock() {
     CHECK(owner_ != pthread_self());
     OSSpinLockLock(&mu_);
@@ -59,13 +61,11 @@ class AsanLock {
 namespace __asan {
 class AsanLock {
  public:
-  AsanLock() {
-    pthread_mutex_init(&mu_, NULL);
-    // pthread_spin_init(&mu_, NULL);
-  }
-  ~AsanLock() {
-    pthread_mutex_destroy(&mu_);
-    // pthread_spin_destroy(&mu_);
+  explicit AsanLock(LinkerInitialized) {
+    // We assume that pthread_mutex_t initialized to all zeroes is a valid
+    // unlocked mutex. We can not use PTHREAD_MUTEX_INITIALIZER as it triggers
+    // a gcc warning:
+    // extended initializer lists only available with -std=c++0x or -std=gnu++0x
   }
   void Lock() {
     pthread_mutex_lock(&mu_);

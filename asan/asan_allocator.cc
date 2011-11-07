@@ -324,6 +324,9 @@ struct PageGroup {
 
 class MallocInfo {
  public:
+
+  explicit MallocInfo(LinkerInitialized x) : mu_(x) { }
+
   AsanChunk *AllocateChunks(uint8_t size_class, size_t n_chunks) {
     AsanChunk *m = NULL;
     AsanChunk **fl = &free_lists_[size_class];
@@ -545,7 +548,7 @@ class MallocInfo {
   int n_page_groups_;  // atomic
 };
 
-static MallocInfo malloc_info;
+static MallocInfo malloc_info(LINKER_INITIALIZED);
 
 void AsanThreadLocalMallocStorage::CommitBack() {
   malloc_info.SwallowThreadLocalMallocStorage(this, true);

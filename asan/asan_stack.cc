@@ -104,7 +104,7 @@ class ProcSelfMaps {
 };
 
 static ProcSelfMaps proc_self_maps;
-AsanLock ProcSelfMaps::mu_;
+AsanLock ProcSelfMaps::mu_(LINKER_INITIALIZED);
 
 
 void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {

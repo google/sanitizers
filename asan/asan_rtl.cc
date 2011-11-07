@@ -536,7 +536,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   if (curr_thread) {
     Printf("%s of size %d at %p thread T%d\n",
            access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-           access_size, addr, curr_thread);
+           access_size, addr, curr_thread->tid());
   } else {
     Printf("%s of size %d at %p <unknown thread>\n",
            access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",

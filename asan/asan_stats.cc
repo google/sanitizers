@@ -65,7 +65,7 @@ static inline void PrintDisabledStatsHint() {
 static void PrintAccumulatedStats() {
   AsanStats stats = asanThreadRegistry().GetAccumulatedStats();
   // Use lock to keep reports from mixing up.
-  static AsanLock print_lock;
+  static AsanLock print_lock(LINKER_INITIALIZED);
   ScopedLock lock(&print_lock);
   PrintDisabledStatsHint();
   stats.Print();
