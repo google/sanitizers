@@ -62,10 +62,11 @@ static const size_t kMaxAllowedMallocSize = 8UL << 30;  // 8G
 #endif
 
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
+  AsanThread *t = asanThreadRegistry().GetCurrent();
+  CHECK(t);
   Printf("==%d== ERROR: AddressSanitizer failed to allocate "
          "0x%lx (%lu) bytes (%s) in T%d\n",
-         getpid(), size, size, mem_type,
-         asanThreadRegistry().GetCurrent()->tid());
+         getpid(), size, size, mem_type, t->tid());
 }
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {
@@ -560,7 +561,8 @@ static void Describe(uintptr_t addr, size_t access_size) {
   AsanStackTrace alloc_stack;
   AsanStackTrace::UncompressStack(&alloc_stack, m->compressed_alloc_stack(),
                                   m->compressed_alloc_stack_size());
-
+  AsanThread *t = asanThreadRegistry().GetCurrent();
+  CHECK(t);
   if (m->free_tid >= 0) {
     AsanThreadSummary *free_thread =
         asanThreadRegistry().FindByTid(m->free_tid);
@@ -573,13 +575,13 @@ static void Describe(uintptr_t addr, size_t access_size) {
            alloc_thread->tid());
 
     alloc_stack.PrintStack();
-    asanThreadRegistry().GetCurrent()->summary()->Announce();
+    t->summary()->Announce();
     free_thread->Announce();
     alloc_thread->Announce();
   } else {
     Printf("allocated by thread T%d here:\n", alloc_thread->tid());
     alloc_stack.PrintStack();
-    asanThreadRegistry().GetCurrent()->summary()->Announce();
+    t->summary()->Announce();
     alloc_thread->Announce();
   }
 }
