@@ -32,6 +32,19 @@ extern "C" {
   void __asan_register_global(uintptr_t addr, size_t size, const char *name)
       __attribute__((visibility("default")));
 
+  // This structure describes an instrumented global variable.
+  struct __asan_global {
+    size_t beg;                // The address of the global.
+    size_t size;               // The original size of the global.
+    size_t size_with_redzone;  // The size with the redzone.
+    const char *name;          // Name as a C string.
+  };
+
+  // This function should be called by the instrumented code.
+  // gets an array of structures describing globals.
+  void __asan_register_globals(__asan_global *globals, size_t n)
+      __attribute__((visibility("default")));
+
   // These two functions are used by the instrumented code in the
   // use-after-return mode. __asan_stack_malloc allocates size bytes of
   // fake stack and asan_free deallocates it. real_stack is a pointer to
