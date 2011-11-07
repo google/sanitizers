@@ -56,7 +56,7 @@ static const uintptr_t kRetiredStackFrameMagic = 0x45E0360E;
 
 static const char *kAsanModuleCtorName = "asan.module_ctor";
 static const char *kAsanReportErrorTemplate = "__asan_report_";
-static const char *kAsanRegisterGlobalName = "__asan_register_global";
+static const char *kAsanRegisterGlobalsName = "__asan_register_globals";
 static const char *kAsanInitName = "__asan_init";
 static const char *kAsanMappingOffsetName = "__asan_mapping_offset";
 static const char *kAsanMappingScaleName = "__asan_mapping_scale";
@@ -455,7 +455,7 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
         G->getLinkage() != GlobalVariable::CommonLinkage  &&
         G->getLinkage() != GlobalVariable::PrivateLinkage  &&
         G->getLinkage() != GlobalVariable::InternalLinkage
-        ) {
+       ) {
       // do we care about other linkages?
       continue;
     }
@@ -479,74 +479,85 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
       StringRef Section(G->getSection());
       if ((Section.find("__OBJC,") == 0) ||
           (Section.find("__DATA, __objc_") == 0)) {
-         DEBUG(dbgs() << "Ignoring ObjC runtime global: " << *G);
-         continue;
+        DEBUG(dbgs() << "Ignoring ObjC runtime global: " << *G);
+        continue;
       }
     }
-
 
     GlobalsToChange.push_back(G);
   }
 
-  if (GlobalsToChange.empty())
-    return false;
+  size_t n = GlobalsToChange.size();
+  if (n == 0) return false;
+
+  // A global is described by a structure
+  //   size_t beg;
+  //   size_t size;
+  //   size_t size_with_redzone;
+  //   const char *name;
+  // We initialize an array of such structures and pass it to a run-time call.
+  StructType *GlobalStructTy = StructType::get(IntptrTy, IntptrTy,
+                                               IntptrTy, IntptrTy, NULL);
+  SmallVector<Constant *, 16> Initializers(n);
 
   IRBuilder<> IRB(CtorInsertBefore);
 
-  for (size_t i = 0, n = GlobalsToChange.size(); i < n; i++) {
+  for (size_t i = 0; i < n; i++) {
     GlobalVariable *G = GlobalsToChange[i];
     PointerType *PtrTy = cast<PointerType>(G->getType());
     Type *Ty = PtrTy->getElementType();
     uint64_t SizeInBytes = TD->getTypeStoreSizeInBits(Ty) / 8;
-    uint64_t right_redzone_size = RedzoneSize +
+    uint64_t RightRedzoneSize = RedzoneSize +
         (RedzoneSize - (SizeInBytes % RedzoneSize));
-    Type *RightRedZoneTy = ArrayType::get(IRB.getInt8Ty(), right_redzone_size);
+    Type *RightRedZoneTy = ArrayType::get(IRB.getInt8Ty(), RightRedzoneSize);
 
-    StructType *new_ty = StructType::get(
-        Ty, RightRedZoneTy, NULL);
-    Constant *new_initializer = ConstantStruct::get(
-        new_ty,
-        G->getInitializer(),
-        Constant::getNullValue(RightRedZoneTy),
-        NULL);
+    StructType *NewTy = StructType::get(Ty, RightRedZoneTy, NULL);
+    Constant *NewInitializer = ConstantStruct::get(
+        NewTy, G->getInitializer(),
+        Constant::getNullValue(RightRedZoneTy), NULL);
 
-    GlobalVariable *orig_name_glob =
-        createPrivateGlobalForString(M, G->getName());
+    GlobalVariable *Name = createPrivateGlobalForString(M, G->getName());
 
     // Create a new global variable with enough space for a redzone.
-    GlobalVariable *new_global = new GlobalVariable(
-        M, new_ty, G->isConstant(), G->getLinkage(),
-        new_initializer,
-        "",
-        G, G->isThreadLocal());
-    new_global->copyAttributesFrom(G);
-    new_global->setAlignment(RedzoneSize);
+    GlobalVariable *NewGlobal = new GlobalVariable(
+        M, NewTy, G->isConstant(), G->getLinkage(),
+        NewInitializer, "", G, G->isThreadLocal());
+    NewGlobal->copyAttributesFrom(G);
+    NewGlobal->setAlignment(RedzoneSize);
 
-    Constant *Indices[2];
-    Indices[0] = IRB.getInt32(0);
-    Indices[1] = IRB.getInt32(0);
+    Value *Indices2[2];
+    Indices2[0] = IRB.getInt32(0);
+    Indices2[1] = IRB.getInt32(0);
 
     G->replaceAllUsesWith(
-        ConstantExpr::getGetElementPtr(new_global, Indices, 2));
-    new_global->takeName(G);
+        ConstantExpr::getGetElementPtr(NewGlobal, Indices2, 2));
+    NewGlobal->takeName(G);
     G->eraseFromParent();
 
-    Value *asan_register_global = M.getOrInsertFunction(
-        kAsanRegisterGlobalName, IRB.getVoidTy(),
-        IntptrTy, IntptrTy, IntptrTy, NULL);
-    cast<Function>(asan_register_global)->setLinkage(
-        Function::ExternalLinkage);
-
-    IRB.CreateCall3(asan_register_global,
-                    IRB.CreatePointerCast(new_global, IntptrTy),
-                    ConstantInt::get(IntptrTy, SizeInBytes),
-                    IRB.CreatePointerCast(orig_name_glob, IntptrTy));
-
-    DEBUG(dbgs() << "NEW GLOBAL:\n" << *new_global);
+    Initializers[i] = ConstantStruct::get(
+        GlobalStructTy,
+        ConstantExpr::getPointerCast(NewGlobal, IntptrTy),
+        ConstantInt::get(IntptrTy, SizeInBytes),
+        ConstantInt::get(IntptrTy, SizeInBytes + RightRedzoneSize),
+        ConstantExpr::getPointerCast(Name, IntptrTy),
+        NULL);
+    DEBUG(dbgs() << "NEW GLOBAL:\n" << *NewGlobal);
   }
 
-  DEBUG(dbgs() << M);
+  ArrayType *ArrayOfGlobalStructTy = ArrayType::get(GlobalStructTy, n);
+  GlobalVariable *AllGlobals = new GlobalVariable(
+      M, ArrayOfGlobalStructTy, false, GlobalVariable::PrivateLinkage,
+      ConstantArray::get(ArrayOfGlobalStructTy, Initializers), "");
 
+  Function *AsanRegisterGlobals = cast<Function>(M.getOrInsertFunction(
+      kAsanRegisterGlobalsName, IRB.getVoidTy(), IntptrTy, IntptrTy, NULL));
+  AsanRegisterGlobals->setLinkage(Function::ExternalLinkage);
+
+  IRB.CreateCall2(AsanRegisterGlobals,
+                  IRB.CreatePointerCast(AllGlobals, IntptrTy),
+                  ConstantInt::get(IntptrTy, n));
+
+  DEBUG(dbgs() << M);
   return true;
 }
 
