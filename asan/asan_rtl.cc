@@ -274,17 +274,10 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   if (13 != asan_write(2, "ASAN:SIGSEGV\n", 13)) ASAN_DIE;
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
-  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
-  if (curr_thread) {
-    Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
-           " (pc %p sp %p bp %p ax %p T%d)\n",
-           getpid(), addr, pc, sp, bp, ax,
-           curr_thread->tid());
-  } else {
-    Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
-           " (pc %p sp %p bp %p ax %p <unknown thread>)\n",
-           getpid(), addr, pc, sp, bp, ax);
-  }
+  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
+         " (pc %p sp %p bp %p ax %p T%d)\n",
+         getpid(), addr, pc, sp, bp, ax,
+         asanThreadRegistry().GetCurrentTidOrMinusOne());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax, false, pc, bp);
   stack.PrintStack();
@@ -532,16 +525,9 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
          "%p at pc 0x%lx bp 0x%lx sp 0x%lx\n",
          getpid(), bug_descr, addr, pc, bp, sp);
 
-  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
-  if (curr_thread) {
-    Printf("%s of size %d at %p thread T%d\n",
-           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-           access_size, addr, curr_thread->tid());
-  } else {
-    Printf("%s of size %d at %p <unknown thread>\n",
-           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-           access_size, addr);
-  }
+  Printf("%s of size %d at %p thread T%d\n",
+         access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
+         access_size, addr, asanThreadRegistry().GetCurrentTidOrMinusOne());
 
   if (FLAG_debug) {
     PrintBytes("PC: ", (uintptr_t*)pc);

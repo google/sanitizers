@@ -39,6 +39,11 @@ class AsanThreadRegistry {
   AsanThread *GetCurrent();
   void SetCurrent(AsanThread *t);
 
+  int GetCurrentTidOrMinusOne() {
+    AsanThread *t = GetCurrent();
+    return t ? t->tid() : -1;
+  }
+
   // Returns stats for GetCurrent(), or stats for
   // T0 if GetCurrent() returns NULL.
   AsanStats &GetCurrentThreadStats();
