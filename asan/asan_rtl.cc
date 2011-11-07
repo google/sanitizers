@@ -274,11 +274,17 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   if (13 != asan_write(2, "ASAN:SIGSEGV\n", 13)) ASAN_DIE;
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
-
-  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
-         " (pc %p sp %p bp %p ax %p T%d)\n",
-         getpid(), addr, pc, sp, bp, ax,
-         asanThreadRegistry().GetCurrent()->tid());
+  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
+  if (curr_thread) {
+    Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
+           " (pc %p sp %p bp %p ax %p T%d)\n",
+           getpid(), addr, pc, sp, bp, ax,
+           curr_thread->tid());
+  } else {
+    Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
+           " (pc %p sp %p bp %p ax %p <unknown thread>)\n",
+           getpid(), addr, pc, sp, bp, ax);
+  }
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax, false, pc, bp);
   stack.PrintStack();
@@ -374,8 +380,9 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
                          void *(*start_routine) (void *), void *arg) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
-  new(t) AsanThread(asanThreadRegistry().GetCurrent()->tid(),
-                    start_routine, arg, &stack);
+  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
+  CHECK(curr_thread);
+  new(t) AsanThread(curr_thread->tid(), start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
@@ -419,7 +426,9 @@ int WRAP(sigaction)(int signum, const struct sigaction *act,
 
 static void UnpoisonStackFromHereToTop() {
   int local_stack;
-  uintptr_t top = asanThreadRegistry().GetCurrent()->stack_top();
+  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
+  CHECK(curr_thread);
+  uintptr_t top = curr_thread->stack_top();
   uintptr_t bottom = ((uintptr_t)&local_stack - kPageSize) & ~(kPageSize-1);
   uintptr_t top_shadow = MemToShadow(top);
   uintptr_t bot_shadow = MemToShadow(bottom);
@@ -523,9 +532,16 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
          "%p at pc 0x%lx bp 0x%lx sp 0x%lx\n",
          getpid(), bug_descr, addr, pc, bp, sp);
 
-  Printf("%s of size %d at %p thread T%d\n",
-          access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-          access_size, addr, asanThreadRegistry().GetCurrent()->tid());
+  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
+  if (curr_thread) {
+    Printf("%s of size %d at %p thread T%d\n",
+           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
+           access_size, addr, curr_thread);
+  } else {
+    Printf("%s of size %d at %p <unknown thread>\n",
+           access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
+           access_size, addr);
+  }
 
   if (FLAG_debug) {
     PrintBytes("PC: ", (uintptr_t*)pc);
