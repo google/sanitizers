@@ -339,8 +339,7 @@ static void asan_atexit() {
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
-  Report("CHECK failed: %s at %s:%d, pid=%d\n",
-         cond, file, line);
+  Report("CHECK failed: %s at %s:%d\n", cond, file, line);
   PRINT_CURRENT_STACK();
   ShowStatsAndAbort();
 }
