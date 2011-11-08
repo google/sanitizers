@@ -339,7 +339,8 @@ static void asan_atexit() {
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
-  Printf("CHECK failed: %s at %s:%d\n", cond, file, line);
+  Printf("==%d== CHECK failed: %s at %s:%d, pid=%d\n",
+         getpid(), cond, file, line);
   PRINT_CURRENT_STACK();
   ShowStatsAndAbort();
 }
