@@ -1005,6 +1005,45 @@ TEST(AddressSanitizer, StrLenOOBTest) {
   free(heap_string);
 }
 
+TEST(AddressSanitizer, StrNLenOOBTest) {
+  size_t size = Ident(123);
+  char *str = Ident((char*)malloc(size));
+  memset(str, 'z', size);
+  // Normal strnlen calls.
+  Ident(strnlen(str - 1, 0));
+  Ident(strnlen(str, size));
+  Ident(strnlen(str + size - 1, 1));
+  str[size - 1] = '\0';
+  Ident(strnlen(str, 2 * size));
+  // Argument points to not allocated memory.
+  EXPECT_DEATH(Ident(strnlen(str - 1, 1)), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strnlen(str + size, 1)), RightOOBErrorMessage(0));
+  // Overwrite the terminating '\0' and hit unallocated memory.
+  str[size - 1] = 'z';
+  EXPECT_DEATH(Ident(strnlen(str, size + 1)), RightOOBErrorMessage(0));
+  free(str);
+}
+
+TEST(AddressSanitizer, StrDupOOBTest) {
+  size_t size = Ident(42);
+  char *str = Ident((char*)malloc(size));
+  char *new_str;
+  memset(str, 'z', size);
+  // Normal strdup calls.
+  str[size - 1] = '\0';
+  new_str = strdup(str);
+  free(new_str);
+  new_str = strdup(str + size - 1);
+  free(new_str);
+  // Argument points to not allocated memory.
+  EXPECT_DEATH(Ident(strdup(str - 1)), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strdup(str + size)), RightOOBErrorMessage(0));
+  // Overwrite the terminating '\0' and hit unallocated memory.
+  str[size - 1] = 'z';
+  EXPECT_DEATH(Ident(strdup(str)), RightOOBErrorMessage(0));
+  free(str);
+}
+
 TEST(AddressSanitizer, StrCpyOOBTest) {
   size_t to_size = Ident(30);
   size_t from_size = Ident(6);  // less than to_size

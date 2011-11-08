@@ -20,6 +20,7 @@
 #include "asan_stack.h"
 #include "asan_stats.h"
 
+#include <algorithm>
 #include <dlfcn.h>
 #include <string.h>
 
@@ -31,16 +32,10 @@ memmove_f     real_memmove;
 memset_f      real_memset;
 strchr_f      real_strchr;
 strcpy_f      real_strcpy;
+strdup_f      real_strdup;
 strlen_f      real_strlen;
 strncpy_f     real_strncpy;
-
-// This implementation is used in interceptors of
-// glibc str* functions to instrument memory range accesses.
-static size_t __asan_strnlen(const char *s, size_t maxlen) {
-  size_t i = 0;
-  while (i < maxlen && s[i]) i++;
-  return i;
-}
+strnlen_f     real_strnlen;
 
 // Instruments read/write access to a single byte in memory.
 // On error calls __asan_report_error, which aborts the program.
@@ -134,8 +129,10 @@ void InitializeAsanInterceptors() {
 #endif
   INTERCEPT_FUNCTION(strchr);
   INTERCEPT_FUNCTION(strcpy);  // NOLINT
+  INTERCEPT_FUNCTION(strdup);
   INTERCEPT_FUNCTION(strlen);
   INTERCEPT_FUNCTION(strncpy);
+  INTERCEPT_FUNCTION(strnlen);
   if (FLAG_v > 0) {
     Printf("AddressSanitizer: libc interceptors initialized\n");
   }
@@ -213,6 +210,15 @@ char *WRAP(strcpy)(char *to, const char *from) {  // NOLINT
   return real_strcpy(to, from);
 }
 
+char *WRAP(strdup)(const char *s) {
+  ensure_asan_inited();
+  if (FLAG_replace_str) {
+    size_t length = real_strlen(s);
+    ASAN_READ_RANGE(s, length + 1);
+  }
+  return real_strdup(s);
+}
+
 size_t WRAP(strlen)(const char *s) {
   // strlen is called from malloc_default_purgeable_zone()
   // in __asan::ReplaceSystemAlloc() on Mac.
@@ -220,9 +226,6 @@ size_t WRAP(strlen)(const char *s) {
     return real_strlen(s);
   }
   ensure_asan_inited();
-  // TODO(samsonov): We should predict possible OOB access in
-  // real_strlen() call, and instrument its arguments
-  // beforehand.
   size_t length = real_strlen(s);
   if (FLAG_replace_str) {
     ASAN_READ_RANGE(s, length + 1);
@@ -233,15 +236,19 @@ size_t WRAP(strlen)(const char *s) {
 char *WRAP(strncpy)(char *to, const char *from, size_t size) {
   ensure_asan_inited();
   if (FLAG_replace_str) {
-    // TODO(samsonov): We should be able to find *the first*
-    // OOB access that happens in __asan_strlen.
-    size_t from_size = __asan_strnlen(from, size) + 1;
-    if (from_size > size) {
-      from_size = size;
-    }
+    size_t from_size = std::min(size, real_strnlen(from, size) + 1);
     CHECK_RANGES_OVERLAP(to, from, from_size);
     ASAN_READ_RANGE(from, from_size);
     ASAN_WRITE_RANGE(to, size);
   }
   return real_strncpy(to, from, size);
+}
+
+size_t WRAP(strnlen)(const char *s, size_t maxlen) {
+  ensure_asan_inited();
+  size_t length = real_strnlen(s, maxlen);
+  if (FLAG_replace_str) {
+    ASAN_READ_RANGE(s, std::min(length + 1, maxlen));
+  }
+  return length;
 }

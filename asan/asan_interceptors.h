@@ -57,8 +57,10 @@ void *WRAP(memmove)(void *to, const void *from, size_t size);
 void *WRAP(memset)(void *block, int c, size_t size);
 const char *WRAP(strchr)(const char *string, int c);
 char *WRAP(strcpy)(char *to, const char *from);  // NOLINT
+char *WRAP(strdup)(const char *s);
 size_t WRAP(strlen)(const char *s);
 char *WRAP(strncpy)(char *to, const char *from, size_t size);
+size_t WRAP(strnlen)(const char *s, size_t maxlen);
 #endif
 
 namespace __asan {
@@ -69,8 +71,10 @@ typedef void* (*memmove_f)(void *to, const void *from, size_t size);
 typedef void* (*memset_f)(void *block, int c, size_t size);
 typedef const char* (*strchr_f)(const char *string, int c);
 typedef char* (*strcpy_f)(char *to, const char *from);
+typedef char* (*strdup_f)(const char *s);
 typedef size_t (*strlen_f)(const char *s);
 typedef char* (*strncpy_f)(char *to, const char *from, size_t size);
+typedef size_t (*strnlen_f)(const char *s, size_t maxlen);
 
 // __asan::real_X() holds pointer to library implementation of X().
 extern index_f          real_index;
@@ -79,8 +83,10 @@ extern memmove_f        real_memmove;
 extern memset_f         real_memset;
 extern strchr_f         real_strchr;
 extern strcpy_f         real_strcpy;
+extern strdup_f         real_strdup;
 extern strlen_f         real_strlen;
 extern strncpy_f        real_strncpy;
+extern strnlen_f        real_strnlen;
 
 // __asan::internal_X() is the implementation of X() for use in RTL.
 size_t internal_strlen(const char *s);
