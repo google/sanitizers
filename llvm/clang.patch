@@ -109,7 +109,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -3520,6 +3526,56 @@
+@@ -3520,6 +3526,57 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -121,6 +121,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    asan_int_fns.push_back(std::string("___asan_report_store") + pow_of_2[i]);
 +  }
 +  asan_int_fns.push_back("___asan_register_global");
++  asan_int_fns.push_back("___asan_register_globals");
 +  if (Args.hasArg(options::OPT_fasan) &&
 +      !Args.hasArg(options::OPT_dynamiclib) && !Args.hasArg(options::OPT_bundle)) {
 +    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
@@ -166,7 +167,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3558,6 +3614,8 @@
+@@ -3558,6 +3615,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -175,7 +176,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4389,6 +4447,27 @@
+@@ -4389,6 +4448,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
