@@ -141,14 +141,11 @@ static void PoisonMemoryPartialRightRedzone(uintptr_t mem, size_t size) {
                                   kAsanHeapRightRedzoneMagic);
 }
 
-static size_t total_mmaped = 0;
-
 static uint8_t *MmapNewPagesAndPoisonShadow(size_t size) {
   CHECK(IsAligned(size, kPageSize));
   uint8_t *res = (uint8_t*)asan_mmap(0, size,
                    PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANON, -1, 0);
-  total_mmaped += size;
   if (res == (uint8_t*)-1) {
     OutOfMemoryMessage(__FUNCTION__, size);
     PRINT_CURRENT_STACK();
@@ -1040,8 +1037,4 @@ size_t __asan_get_allocated_size(const void *p) {
     ShowStatsAndAbort();
   }
   return allocated_size;
-}
-
-size_t __asan_total_mmaped() {
-  return total_mmaped;
 }

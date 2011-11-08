@@ -286,14 +286,16 @@ void *ThreadedQuarantineTestWorker(void *unused) {
 // destroyed.
 TEST(AddressSanitizer, ThreadedQuarantineTest) {
   const int n_threads = 3000;
-  size_t mmaped1 = __asan_total_mmaped();
+  bool old_flag_stats = __asan_enable_statistics(true);
+  size_t mmaped1 = __asan_get_heap_size();
   for (int i = 0; i < n_threads; i++) {
     pthread_t t;
     pthread_create(&t, NULL, ThreadedQuarantineTestWorker, 0);
     pthread_join(t, 0);
-    size_t mmaped2 = __asan_total_mmaped();
+    size_t mmaped2 = __asan_get_heap_size();
     EXPECT_LT(mmaped2 - mmaped1, 320U * (1 << 20));
   }
+  __asan_enable_statistics(old_flag_stats);
 }
 
 void *ThreadedOneSizeMallocStress(void *unused) {
