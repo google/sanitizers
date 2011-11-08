@@ -196,11 +196,13 @@ static bool DescribeStackAddress(uintptr_t addr, uintptr_t access_size) {
   for (size_t i = 0; i < n_objects; i++) {
     size_t beg, size, len;
     beg  = strtol(p, &p, 10);
-    CHECK(beg > 0);
     size = strtol(p, &p, 10);
-    CHECK(size > 0);
     len  = strtol(p, &p, 10);
-    CHECK(*p == ' ');
+    if (beg <= 0 || size <= 0 || len < 0 || *p != ' ') {
+      Printf("AddressSanitizer can't parse the stack frame descriptor: |%s|\n",
+             frame_descr);
+      break;
+    }
     p++;
     buf[0] = 0;
     strncat(buf, p, std::min((size_t)kBufSize, len));
