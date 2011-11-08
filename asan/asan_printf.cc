@@ -124,13 +124,28 @@ static void VSNPrintf(char *buff, int buff_length,
   AppendChar(&buff, buff_end, '\0');
 }
 
-void Printf(const char *format, ...) {
+void VPrintf(const char *format, va_list args) {
   const int kLen = 1024 * 4;
   char buffer[kLen];
-  va_list args;
-  va_start(args, format);
   VSNPrintf(buffer, kLen, format, args);
   RawWrite(buffer);
+}
+
+void Printf(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  VPrintf(format, args);
+  va_end(args);
+}
+
+// Like Printf, but prints the current PID before the output string.
+// TODO(glider): this should be done using a single RawWrite call. To do so,
+// we'll need to make VSNPrintf return the number of characters.
+void Report(const char *format, ...) {
+  Printf("==%d== ", getpid());
+  va_list args;
+  va_start(args, format);
+  VPrintf(format, args);
   va_end(args);
 }
 

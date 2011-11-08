@@ -127,9 +127,9 @@ static void *asan_thread_start(void *arg) {
 
 // ---------------------- mmap -------------------- {{{1
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
-  Printf("==%d== ERROR: AddressSanitizer failed to allocate "
+  Report("ERROR: AddressSanitizer failed to allocate "
          "0x%lx (%ld) bytes of %s\n",
-         getpid(), size, size, mem_type);
+         size, size, mem_type);
 }
 
 static char *mmap_pages(size_t start_page, size_t n_pages, const char *mem_type,
@@ -276,9 +276,9 @@ static void     ASAN_OnSIGSEGV(int, siginfo_t *siginfo, void *context) {
   if (13 != asan_write(2, "ASAN:SIGSEGV\n", 13)) ASAN_DIE;
   uintptr_t pc, sp, bp, ax;
   GetPcSpBpAx(context, &pc, &sp, &bp, &ax);
-  Printf("==%d== ERROR: AddressSanitizer crashed on unknown address %p"
+  Report("ERROR: AddressSanitizer crashed on unknown address %p"
          " (pc %p sp %p bp %p ax %p T%d)\n",
-         getpid(), addr, pc, sp, bp, ax,
+         addr, pc, sp, bp, ax,
          asanThreadRegistry().GetCurrentTidOrMinusOne());
   Printf("AddressSanitizer can not provide additional info. ABORTING\n");
   GET_STACK_TRACE_WITH_PC_AND_BP(kStackTraceMax, false, pc, bp);
@@ -339,8 +339,8 @@ static void asan_atexit() {
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
-  Printf("==%d== CHECK failed: %s at %s:%d, pid=%d\n",
-         getpid(), cond, file, line);
+  Report("CHECK failed: %s at %s:%d, pid=%d\n",
+         cond, file, line);
   PRINT_CURRENT_STACK();
   ShowStatsAndAbort();
 }
@@ -524,9 +524,9 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
     }
   }
 
-  Printf("==%d== ERROR: AddressSanitizer %s on address "
+  Report("ERROR: AddressSanitizer %s on address "
          "%p at pc 0x%lx bp 0x%lx sp 0x%lx\n",
-         getpid(), bug_descr, addr, pc, bp, sp);
+         bug_descr, addr, pc, bp, sp);
 
   Printf("%s of size %d at %p thread T%d\n",
          access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
@@ -546,7 +546,7 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
   DescribeAddress(addr, access_size);
 
   uintptr_t shadow_addr = MemToShadow(addr);
-  Printf("==%d== ABORTING\n", getpid());
+  Report("ABORTING\n");
   __asan_print_accumulated_stats();
   Printf("Shadow byte and word:\n");
   Printf("  %p: %x\n", shadow_addr, *(unsigned char*)shadow_addr);
@@ -691,7 +691,6 @@ void __asan_init() {
   asanThreadRegistry().GetMain()->ThreadStart();
 
   if (FLAG_v) {
-    Printf("==%d== AddressSanitizer r%s Init done ***\n",
-           getpid(), ASAN_REVISION);
+    Report("AddressSanitizer r%s Init done ***\n", ASAN_REVISION);
   }
 }

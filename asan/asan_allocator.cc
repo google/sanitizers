@@ -64,9 +64,9 @@ static const size_t kMaxAllowedMallocSize = 8UL << 30;  // 8G
 static void OutOfMemoryMessage(const char *mem_type, size_t size) {
   AsanThread *t = asanThreadRegistry().GetCurrent();
   CHECK(t);
-  Printf("==%d== ERROR: AddressSanitizer failed to allocate "
+  Report("ERROR: AddressSanitizer failed to allocate "
          "0x%lx (%lu) bytes (%s) in T%d\n",
-         getpid(), size, size, mem_type, t->tid());
+         size, size, mem_type, t->tid());
 }
 
 static inline bool IsAligned(uintptr_t a, uintptr_t alignment) {

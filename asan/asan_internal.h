@@ -38,6 +38,7 @@ void *AsanDoesNotSupportStaticLinkage();
 
 void RawWrite(const char *buffer);
 void Printf(const char *format, ...);
+void Report(const char *format, ...);
 
 extern size_t FLAG_quarantine_size;
 extern int    FLAG_demangle;

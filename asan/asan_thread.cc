@@ -46,9 +46,9 @@ void *AsanThread::ThreadStart() {
   fake_stack_.Init(stack_size());
   if (FLAG_v >= 1) {
     int local = 0;
-    Printf("T%d: stack [%p,%p) size 0x%lx; local=%p\n",
-            tid(), stack_bottom_, stack_top_,
-            stack_top_ - stack_bottom_, &local);
+    Report("T%d: stack [%p,%p) size 0x%lx; local=%p\n",
+           tid(), stack_bottom_, stack_top_,
+           stack_top_ - stack_bottom_, &local);
   }
   CHECK(AddrIsInMem(stack_bottom_));
   CHECK(AddrIsInMem(stack_top_));
@@ -67,7 +67,7 @@ void *AsanThread::ThreadStart() {
   malloc_storage().CommitBack();
 
   if (FLAG_v >= 1) {
-    Printf("T%d exited\n", tid());
+    Report("T%d exited\n", tid());
   }
 
   return res;
