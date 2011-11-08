@@ -19,7 +19,7 @@
 // The full explanation of the memory mapping could be found here:
 // http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerAlgorithm
 
-#ifdef ASAN_FLEXIBLE_MAPPING_AND_OFFSET
+#if ASAN_FLEXIBLE_MAPPING_AND_OFFSET == 1
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_scale;
 extern __attribute__((visibility("default"))) uintptr_t __asan_mapping_offset;
 #define SHADOW_SCALE (__asan_mapping_scale)
