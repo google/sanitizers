@@ -101,6 +101,12 @@ size_t AsanThreadRegistry::GetCurrentAllocatedBytes() {
   return accumulated_stats_.malloced - accumulated_stats_.freed;
 }
 
+size_t AsanThreadRegistry::GetHeapSize() {
+  ScopedLock lock(&mu_);
+  UpdateAccumulatedStatsUnlocked();
+  return accumulated_stats_.mmaped;
+}
+
 AsanThreadSummary *AsanThreadRegistry::FindByTid(int tid) {
   CHECK(tid >= 0);
   CHECK(tid < n_threads_);

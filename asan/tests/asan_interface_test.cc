@@ -93,6 +93,42 @@ TEST(AddressSanitizerInterface, GetCurrentAllocatedBytesTest) {
   free(array);
 }
 
+// This test is run in a separate process, so that large malloced
+// chunk won't remain in the free lists after the test.
+// Note: use ASSERT_* instead of EXPECT_* here.
+void RunGetHeapSizeTestAndDie() {
+  size_t old_heap_size, new_heap_size, heap_growth;
+  // We unlikely have have chunk of this size in free list.
+  static const size_t kLargeMallocSize = 1 << 29;  // 512M
+  __asan_enable_statistics(true);
+  old_heap_size = __asan_get_heap_size();
+  fprintf(stderr, "allocating %zu bytes:\n", kLargeMallocSize);
+  free(Ident(malloc(kLargeMallocSize)));
+  new_heap_size = __asan_get_heap_size();
+  heap_growth = new_heap_size - old_heap_size;
+  fprintf(stderr, "heap growth after first malloc: %zu\n", heap_growth);
+  ASSERT_GE(heap_growth, kLargeMallocSize);
+  ASSERT_LE(heap_growth, 2 * kLargeMallocSize);
+
+  // Now large chunk should fall into free list, and can be
+  // allocated without increasing heap size.
+  old_heap_size = new_heap_size;
+  free(Ident(malloc(kLargeMallocSize)));
+  heap_growth = __asan_get_heap_size() - old_heap_size;
+  fprintf(stderr, "heap growth after second malloc: %zu\n", heap_growth);
+  ASSERT_LT(heap_growth, kLargeMallocSize);
+
+  __asan_enable_statistics(false);
+  // Test passed. Now die with expected double-free.
+  int *x = Ident(new int);
+  delete Ident(x);
+  delete Ident(x);
+}
+
+TEST(AddressSanitizerInterface, GetHeapSizeTest) {
+  EXPECT_DEATH(RunGetHeapSizeTestAndDie(), "double-free");
+}
+
 static const size_t kManyThreadsMallocSizes[] = {5, 1UL<<10, 1UL<<20, 357};
 static const size_t kManyThreadsIterations = 250;
 static const size_t kManyThreadsNumThreads = 200;
