@@ -112,6 +112,15 @@ size_t internal_strlen(const char *s) {
   return i;
 }
 
+size_t internal_strnlen(const char *s, size_t maxlen) {
+  if (real_strnlen != NULL) {
+    return real_strnlen(s, maxlen);
+  }
+  size_t i = 0;
+  while (i < maxlen && s[i]) i++;
+  return i;
+}
+
 void InitializeAsanInterceptors() {
 #ifndef __APPLE__
   INTERCEPT_FUNCTION(index);
@@ -132,7 +141,9 @@ void InitializeAsanInterceptors() {
   INTERCEPT_FUNCTION(strdup);
   INTERCEPT_FUNCTION(strlen);
   INTERCEPT_FUNCTION(strncpy);
+#ifndef __APPLE__
   INTERCEPT_FUNCTION(strnlen);
+#endif
   if (FLAG_v > 0) {
     Printf("AddressSanitizer: libc interceptors initialized\n");
   }
@@ -236,7 +247,7 @@ size_t WRAP(strlen)(const char *s) {
 char *WRAP(strncpy)(char *to, const char *from, size_t size) {
   ensure_asan_inited();
   if (FLAG_replace_str) {
-    size_t from_size = std::min(size, real_strnlen(from, size) + 1);
+    size_t from_size = std::min(size, internal_strnlen(from, size) + 1);
     CHECK_RANGES_OVERLAP(to, from, from_size);
     ASAN_READ_RANGE(from, from_size);
     ASAN_WRITE_RANGE(to, size);
@@ -244,6 +255,7 @@ char *WRAP(strncpy)(char *to, const char *from, size_t size) {
   return real_strncpy(to, from, size);
 }
 
+#ifndef __APPLE__
 size_t WRAP(strnlen)(const char *s, size_t maxlen) {
   ensure_asan_inited();
   size_t length = real_strnlen(s, maxlen);
@@ -252,3 +264,4 @@ size_t WRAP(strnlen)(const char *s, size_t maxlen) {
   }
   return length;
 }
+#endif

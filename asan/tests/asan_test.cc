@@ -1005,6 +1005,7 @@ TEST(AddressSanitizer, StrLenOOBTest) {
   free(heap_string);
 }
 
+#ifndef __APPLE__
 TEST(AddressSanitizer, StrNLenOOBTest) {
   size_t size = Ident(123);
   char *str = Ident((char*)malloc(size));
@@ -1023,6 +1024,7 @@ TEST(AddressSanitizer, StrNLenOOBTest) {
   EXPECT_DEATH(Ident(strnlen(str, size + 1)), RightOOBErrorMessage(0));
   free(str);
 }
+#endif
 
 TEST(AddressSanitizer, StrDupOOBTest) {
   size_t size = Ident(42);

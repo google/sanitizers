@@ -60,7 +60,6 @@ char *WRAP(strcpy)(char *to, const char *from);  // NOLINT
 char *WRAP(strdup)(const char *s);
 size_t WRAP(strlen)(const char *s);
 char *WRAP(strncpy)(char *to, const char *from, size_t size);
-size_t WRAP(strnlen)(const char *s, size_t maxlen);
 #endif
 
 namespace __asan {
@@ -90,6 +89,7 @@ extern strnlen_f        real_strnlen;
 
 // __asan::internal_X() is the implementation of X() for use in RTL.
 size_t internal_strlen(const char *s);
+size_t internal_strnlen(const char *s, size_t maxlen);
 
 // Initializes pointers to str*/mem* functions.
 void InitializeAsanInterceptors();
