@@ -36,13 +36,17 @@
 #ifdef __APPLE__
 #include "mach_override.h"
 #define WRAP(x) wrap_##x
+#define WRAPPER_NAME(x) "wrap_"#x
+#define OVERRIDE_FUNCTION(oldfunc, newfunc)                             \
+  CHECK(0 == mach_override_ptr((void*)(oldfunc),                        \
+                               (void*)(newfunc),                        \
+                               (void**)&real_##oldfunc));               \
+  CHECK(real_##oldfunc != NULL);
 #define INTERCEPT_FUNCTION(func)                                        \
-  CHECK(0 == mach_override_ptr((void*)(func),                           \
-                               (void*)WRAP(func),                       \
-                               (void**)&real_##func));          \
-  CHECK(__asan::real_##func != NULL);
+  OVERRIDE_FUNCTION(func, WRAP(func))
 #else
 #define WRAP(x) x
+#define WRAPPER_NAME(x) #x
 #define INTERCEPT_FUNCTION(func)                                        \
   CHECK((real_##func = (func##_f)dlsym(RTLD_NEXT, #func)));
 #endif
@@ -51,22 +55,30 @@
 void *WRAP(memcpy)(void *to, const void *from, size_t size);
 void *WRAP(memmove)(void *to, const void *from, size_t size);
 void *WRAP(memset)(void *block, int c, size_t size);
+const char *WRAP(strchr)(const char *string, int c);
+char *WRAP(strcpy)(char *to, const char *from);  // NOLINT
 size_t WRAP(strlen)(const char *s);
 char *WRAP(strncpy)(char *to, const char *from, size_t size);
 #endif
 
 namespace __asan {
 
+typedef void* (*index_f)(const char *string, int c);
 typedef void* (*memcpy_f)(void *to, const void *from, size_t size);
 typedef void* (*memmove_f)(void *to, const void *from, size_t size);
 typedef void* (*memset_f)(void *block, int c, size_t size);
+typedef const char* (*strchr_f)(const char *string, int c);
+typedef char* (*strcpy_f)(char *to, const char *from);
 typedef size_t (*strlen_f)(const char *s);
 typedef char* (*strncpy_f)(char *to, const char *from, size_t size);
 
 // __asan::real_X() holds pointer to library implementation of X().
+extern index_f          real_index;
 extern memcpy_f         real_memcpy;
 extern memmove_f        real_memmove;
 extern memset_f         real_memset;
+extern strchr_f         real_strchr;
+extern strcpy_f         real_strcpy;
 extern strlen_f         real_strlen;
 extern strncpy_f        real_strncpy;
 

@@ -25,9 +25,12 @@
 
 namespace __asan {
 
+index_f       real_index;
 memcpy_f      real_memcpy;
 memmove_f     real_memmove;
 memset_f      real_memset;
+strchr_f      real_strchr;
+strcpy_f      real_strcpy;
 strlen_f      real_strlen;
 strncpy_f     real_strncpy;
 
@@ -116,6 +119,11 @@ size_t internal_strlen(const char *s) {
 
 void InitializeAsanInterceptors() {
 #ifndef __APPLE__
+  INTERCEPT_FUNCTION(index);
+#else
+  OVERRIDE_FUNCTION(index, WRAP(strchr));
+#endif
+#ifndef __APPLE__
   INTERCEPT_FUNCTION(memcpy);
   INTERCEPT_FUNCTION(memmove);
   INTERCEPT_FUNCTION(memset);
@@ -124,6 +132,8 @@ void InitializeAsanInterceptors() {
   real_memmove = memmove;
   real_memset = memset;
 #endif
+  INTERCEPT_FUNCTION(strchr);
+  INTERCEPT_FUNCTION(strcpy);  // NOLINT
   INTERCEPT_FUNCTION(strlen);
   INTERCEPT_FUNCTION(strncpy);
   if (FLAG_v > 0) {
@@ -135,6 +145,12 @@ void InitializeAsanInterceptors() {
 
 // ---------------------- Wrappers ---------------- {{{1
 using namespace __asan;  // NOLINT
+
+#ifndef __APPLE__
+const char *WRAP(index)(const char *string, int c)
+  __attribute__((alias(WRAPPER_NAME(strchr))));
+#endif
+
 #if 0
 // Interceptors for memcpy/memmove/memset are disabled for now.
 // They are handled by the LLVM module anyway.
@@ -171,10 +187,35 @@ void *WRAP(memset)(void *block, int c, size_t size) {
 }
 #endif
 
+const char *WRAP(strchr)(const char *string, int c) {
+  ensure_asan_inited();
+  const char *result = real_strchr(string, c);
+  if (FLAG_replace_str) {
+    size_t bytes_read = (result ? result - string : real_strlen(string)) + 1;
+    ASAN_READ_RANGE(string, bytes_read);
+  }
+  return result;
+}
+
+char *WRAP(strcpy)(char *to, const char *from) {  // NOLINT
+  // strcpy is called from malloc_default_purgeable_zone()
+  // in __asan::ReplaceSystemAlloc() on Mac.
+  if (asan_init_is_running) {
+    return real_strcpy(to, from);
+  }
+  ensure_asan_inited();
+  if (FLAG_replace_str) {
+    size_t from_size = real_strlen(from) + 1;
+    CHECK_RANGES_OVERLAP(to, from, from_size);
+    ASAN_READ_RANGE(from, from_size);
+    ASAN_WRITE_RANGE(to, from_size);
+  }
+  return real_strcpy(to, from);
+}
+
 size_t WRAP(strlen)(const char *s) {
-  // strlen is called during __asan_init() from library
-  // functions on Mac: malloc_default_purgeable_zone()
-  // in ReplaceSystemAlloc().
+  // strlen is called from malloc_default_purgeable_zone()
+  // in __asan::ReplaceSystemAlloc() on Mac.
   if (asan_init_is_running) {
     return real_strlen(s);
   }

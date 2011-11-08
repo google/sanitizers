@@ -1005,6 +1005,29 @@ TEST(AddressSanitizer, StrLenOOBTest) {
   free(heap_string);
 }
 
+TEST(AddressSanitizer, StrCpyOOBTest) {
+  size_t to_size = Ident(30);
+  size_t from_size = Ident(6);  // less than to_size
+  char *to = Ident((char*)malloc(to_size));
+  char *from = Ident((char*)malloc(from_size));
+  // Normal strcpy calls.
+  strcpy(from, "hello");
+  strcpy(to, from);
+  strcpy(to + to_size - from_size, from);
+  // Length of "from" is too small.
+  EXPECT_DEATH(Ident(strcpy(from, "hello2")), RightOOBErrorMessage(0));
+  // "to" or "from" points to not allocated memory.
+  EXPECT_DEATH(Ident(strcpy(to - 1, from)), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strcpy(to, from - 1)), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strcpy(to, from + from_size)), RightOOBErrorMessage(0));
+  EXPECT_DEATH(Ident(strcpy(to + to_size, from)), RightOOBErrorMessage(0));
+  // Overwrite the terminating '\0' character and hit unallocated memory.
+  from[from_size - 1] = '!';
+  EXPECT_DEATH(Ident(strcpy(to, from)), RightOOBErrorMessage(0));
+  free(to);
+  free(from);
+}
+
 TEST(AddressSanitizer, StrNCpyOOBTest) {
   size_t to_size = Ident(20);
   size_t from_size = Ident(6);  // less than to_size
@@ -1045,6 +1068,29 @@ TEST(AddressSanitizer, StrNCpyOOBTest) {
   free(from);
 }
 
+typedef char*(*PointerToStrChr)(const char*, int);
+void RunStrChrTest(PointerToStrChr StrChr) {
+  size_t size = Ident(100);
+  char *str = Ident((char*)malloc(size));
+  memset(str, 'z', size);
+  str[10] = 'q';
+  str[11] = '\0';
+  EXPECT_EQ(str, StrChr(str, 'z'));
+  EXPECT_EQ(str + 10, StrChr(str, 'q'));
+  EXPECT_EQ(NULL, StrChr(str, 'a'));
+  // StrChr argument points to not allocated memory.
+  EXPECT_DEATH(Ident(StrChr(str - 1, 'z')), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(StrChr(str + size, 'z')), RightOOBErrorMessage(0));
+  // Overwrite the terminator and hit not allocated memory.
+  str[11] = 'z';
+  EXPECT_DEATH(Ident(StrChr(str, 'a')), RightOOBErrorMessage(0));
+  free(str);
+}
+TEST(AddressSanitizer, StrChrAndIndexOOBTest) {
+  RunStrChrTest(&strchr);
+  RunStrChrTest(&index);
+}
+
 static const char *kOverlapErrorMessage = "strcpy-param-overlap";
 
 TEST(AddressSanitizer, StrArgsOverlapTest) {
@@ -1060,6 +1106,14 @@ TEST(AddressSanitizer, StrArgsOverlapTest) {
   EXPECT_DEATH(Ident(memcpy)(str + 14, str, 15), kOverlapErrorMessage);
   EXPECT_DEATH(Ident(memcpy)(str + 20, str + 20, 1), kOverlapErrorMessage);
 #endif
+
+  // Check "strcpy".
+  memset(str, 'z', size);
+  str[9] = '\0';
+  strcpy(str + 10, str);
+  EXPECT_DEATH(strcpy(str + 9, str), kOverlapErrorMessage);
+  EXPECT_DEATH(strcpy(str, str + 4), kOverlapErrorMessage);
+  strcpy(str, str + 5);
 
   // Check "strncpy".
   memset(str, 'z', size);
