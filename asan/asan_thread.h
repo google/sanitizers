@@ -90,6 +90,7 @@ class AsanThread {
  private:
 
   void SetThreadStackTopAndBottom();
+  void ClearShadowForThreadStack();
   AsanThreadSummary *summary_;
   void *(*start_routine_) (void *param);
   void *arg_;

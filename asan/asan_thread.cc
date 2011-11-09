@@ -39,6 +39,16 @@ AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),
 AsanThread::~AsanThread() {
   asanThreadRegistry().UnregisterThread(this);
   FakeStack().Cleanup();
+  // We also clear the shadow on thread destruction because
+  // some code may still be executing in later TSD destructors
+  // and we don't want it to have any poisoned stack.
+  ClearShadowForThreadStack();
+}
+
+void AsanThread::ClearShadowForThreadStack() {
+  uintptr_t shadow_bot = MemToShadow(stack_bottom_);
+  uintptr_t shadow_top = MemToShadow(stack_top_);
+  real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 }
 
 void *AsanThread::ThreadStart() {
@@ -50,13 +60,11 @@ void *AsanThread::ThreadStart() {
            tid(), stack_bottom_, stack_top_,
            stack_top_ - stack_bottom_, &local, pthread_self());
   }
+
   CHECK(AddrIsInMem(stack_bottom_));
   CHECK(AddrIsInMem(stack_top_));
 
-  // clear the shadow state for the entire stack.
-  uintptr_t shadow_bot = MemToShadow(stack_bottom_);
-  uintptr_t shadow_top = MemToShadow(stack_top_);
-  real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
+  ClearShadowForThreadStack();
 
   if (!start_routine_) {
     // start_routine_ == NULL if we're on the main thread or on one of the
