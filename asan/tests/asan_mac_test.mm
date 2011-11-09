@@ -1,5 +1,9 @@
-#import <stdio.h>
-#import <string.h>
+// Mac OS X 10.6 or higher only.
+#include <dispatch/dispatch.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #import <CoreFoundation/CFBase.h>
 #import <Foundation/NSObject.h>
@@ -53,3 +57,23 @@ char kStartupStr[] =
 }
 
 @end
+
+void worker_do_alloc(int size) {
+  char *mem = malloc(size);
+  mem[size] = 0;  // BOOM
+  free(mem);
+}
+
+// Test the Grand Central Dispatch. See
+// http://developer.apple.com/library/ios/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
+// for the reference.
+void TestGCDRunBlock() {
+  dispatch_queue_t queue = dispatch_get_global_queue(0,0);
+  dispatch_block_t block = ^{ worker_do_alloc(1024); };
+  // dispatch_async() runs the task on a worker thread that does not go through
+  // pthread_create(). We need to verify that AddressSanitizer notices that the
+  // thread has started.
+  dispatch_async(queue, block);
+  // This is hacky. Need to wait for the worker instead.
+  sleep(1);
+}

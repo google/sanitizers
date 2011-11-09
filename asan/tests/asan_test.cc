@@ -1650,6 +1650,12 @@ TEST(AddressSanitizerMac, DISABLED_CFAllocatorMallocZoneDoubleFree) {
   EXPECT_DEATH(CFAllocatorMallocZoneDoubleFree(), "attempting double-free");
 }
 
+TEST(AddressSanitizerMac, DISABLED_GCDRunBlock) {
+  // Make sure the whole ASan report is printed, i.e. that we don't die
+  // on a CHECK.
+  EXPECT_DEATH(TestGCDRunBlock(), "Shadow byte and word");
+}
+
 void *MallocIntrospectionLockWorker(void *_) {
   const int kNumPointers = 100;
   int i;
