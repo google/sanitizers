@@ -216,7 +216,7 @@ struct AsanChunk: public ChunkBase {
   }
 
   bool AddrIsAtLeft(uintptr_t addr, size_t access_size, size_t *offset) {
-    if (addr >= (uintptr_t)this && addr < beg()) {
+    if (addr < beg()) {
       *offset = beg() - addr;
       return true;
     }
@@ -224,8 +224,7 @@ struct AsanChunk: public ChunkBase {
   }
 
   bool AddrIsAtRight(uintptr_t addr, size_t access_size, size_t *offset) {
-    if (addr + access_size >= beg() + used_size &&
-        addr < (uintptr_t)this + Size() + REDZONE) {
+    if (addr + access_size >= beg() + used_size) {
       if (addr <= beg() + used_size)
         *offset = 0;
       else
@@ -312,12 +311,11 @@ struct PageGroup {
   uintptr_t beg;
   uintptr_t end;
   size_t size_of_chunk;
+  uintptr_t last_chunk;
   bool InRange(uintptr_t addr) {
     return addr >= beg && addr < end;
   }
 };
-
-
 
 class MallocInfo {
  public:
@@ -438,6 +436,25 @@ class MallocInfo {
     return NULL;
   }
 
+  // We have an address between two chunks, and we want to report just one.
+  AsanChunk *ChooseChunk(uintptr_t addr,
+                         AsanChunk *left_chunk, AsanChunk *right_chunk) {
+    // Prefer an allocated chunk or a chunk from quarantine.
+    if (left_chunk->chunk_state == CHUNK_AVAILABLE &&
+        right_chunk->chunk_state != CHUNK_AVAILABLE)
+      return right_chunk;
+    if (right_chunk->chunk_state == CHUNK_AVAILABLE &&
+        left_chunk->chunk_state != CHUNK_AVAILABLE)
+      return left_chunk;
+    // Choose based on offset.
+    uintptr_t l_offset = 0, r_offset = 0;
+    CHECK(left_chunk->AddrIsAtRight(addr, 1, &l_offset));
+    CHECK(right_chunk->AddrIsAtLeft(addr, 1, &r_offset));
+    if (l_offset < r_offset)
+      return left_chunk;
+    return right_chunk;
+  }
+
   AsanChunk *FindChunkByAddr(uintptr_t addr) {
     PageGroup *g = FindPageGroupUnlocked(addr);
     if (!g) return 0;
@@ -451,25 +468,23 @@ class MallocInfo {
           m->chunk_state == CHUNK_AVAILABLE ||
           m->chunk_state == CHUNK_QUARANTINE);
     uintptr_t offset = 0;
-    if (m->AddrIsInside(addr, 1, &offset) ||
-        m->AddrIsAtRight(addr, 1, &offset))
+    if (m->AddrIsInside(addr, 1, &offset))
       return m;
-    bool is_at_left = m->AddrIsAtLeft(addr, 1, &offset);
-    CHECK(is_at_left);
-    if (this_chunk_addr == g->beg) {
-      // leftmost chunk
-      return m;
+
+    if (m->AddrIsAtRight(addr, 1, &offset)) {
+      if (this_chunk_addr == g->last_chunk)  // rightmost chunk
+        return m;
+      uintptr_t right_chunk_addr = this_chunk_addr + g->size_of_chunk;
+      CHECK(g->InRange(right_chunk_addr));
+      return ChooseChunk(addr, m, (AsanChunk*)right_chunk_addr);
+    } else {
+      CHECK(m->AddrIsAtLeft(addr, 1, &offset));
+      if (this_chunk_addr == g->beg)  // leftmost chunk
+        return m;
+      uintptr_t left_chunk_addr = this_chunk_addr - g->size_of_chunk;
+      CHECK(g->InRange(left_chunk_addr));
+      return ChooseChunk(addr, (AsanChunk*)left_chunk_addr, m);
     }
-    uintptr_t left_chunk_addr = this_chunk_addr - g->size_of_chunk;
-    CHECK(g->InRange(left_chunk_addr));
-    AsanChunk *l = (AsanChunk*)left_chunk_addr;
-    uintptr_t l_offset = 0;
-    bool is_at_right = l->AddrIsAtRight(addr, 1, &l_offset);
-    CHECK(is_at_right);
-    if (l_offset < offset) {
-      return l;
-    }
-    return m;
   }
 
   void QuarantinePop() {
@@ -531,6 +546,7 @@ class MallocInfo {
     pg->beg = (uintptr_t)mem;
     pg->end = pg->beg + mmap_size;
     pg->size_of_chunk = size;
+    pg->last_chunk = (uintptr_t)(mem + size * (n_chunks - 1));
     int page_group_idx = AtomicInc(&n_page_groups_) - 1;
     CHECK(page_group_idx < (int)ASAN_ARRAY_SIZE(page_groups_));
     page_groups_[page_group_idx] = pg;
