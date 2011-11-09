@@ -76,10 +76,16 @@ AsanThread *AsanThreadRegistry::GetMain() {
 AsanThread *AsanThreadRegistry::GetCurrent() {
   CHECK(tls_key_created_);
   AsanThread *thread = (AsanThread*)pthread_getspecific(tls_key_);
+  if (!thread && FLAG_v >= 2) {
+    Report("GetCurrent: NULL for thread %p\n", pthread_self());
+  }
   return thread;
 }
 
 void AsanThreadRegistry::SetCurrent(AsanThread *t) {
+  if (FLAG_v >=2) {
+    Report("SetCurrent: %p for thread %p\n", t, pthread_self());
+  }
   CHECK(0 == pthread_setspecific(tls_key_, t));
   CHECK(pthread_getspecific(tls_key_) == t);
 }
