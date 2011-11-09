@@ -687,20 +687,15 @@ void __asan_init() {
   INTERCEPT_FUNCTION(signal);
   INTERCEPT_FUNCTION(longjmp);
   INTERCEPT_FUNCTION(_longjmp);
-#ifndef __APPLE__
-  // siglongjmp for x86 looks as follows:
-  // 2f8a8:       8b 44 24 04             mov    0x4(%esp),%eax
-  // 2f8ac:       83 78 48 00             cmpl   $0x0,0x48(%eax)
-  // 2f8b0:       0f 85 76 ba 13 00       jne    16b32c <___udivmoddi4+0x19ec>
-  // 2f8b6:       eb 3f                   jmp    2f8f7 <_longjmp+0x3f>
-  // Instead of handling those instructions in mach_override we assume that
-  // patching longjmp is sufficient.
-  // TODO(glider): need a test for this.
-  INTERCEPT_FUNCTION(siglongjmp);
-#endif
   INTERCEPT_FUNCTION(__cxa_throw);
   INTERCEPT_FUNCTION(pthread_create);
+#ifdef __APPLE__
   INTERCEPT_FUNCTION(dispatch_async_f);
+#else
+  // On Darwin siglongjmp tailcalls longjmp, so we don't want to intercept it
+  // there.
+  INTERCEPT_FUNCTION(siglongjmp);
+#endif
 
   MaybeInstallSigaction(SIGSEGV, ASAN_OnSIGSEGV);
   MaybeInstallSigaction(SIGBUS, ASAN_OnSIGSEGV);
