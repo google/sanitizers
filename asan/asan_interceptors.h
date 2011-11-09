@@ -68,7 +68,7 @@ typedef void* (*index_f)(const char *string, int c);
 typedef void* (*memcpy_f)(void *to, const void *from, size_t size);
 typedef void* (*memmove_f)(void *to, const void *from, size_t size);
 typedef void* (*memset_f)(void *block, int c, size_t size);
-typedef const char* (*strchr_f)(const char *string, int c);
+typedef char* (*strchr_f)(const char *str, int c);
 typedef char* (*strcpy_f)(char *to, const char *from);
 typedef char* (*strdup_f)(const char *s);
 typedef size_t (*strlen_f)(const char *s);
