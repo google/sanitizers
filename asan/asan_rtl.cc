@@ -45,8 +45,10 @@
 
 #ifdef __APPLE__
 #include <CoreFoundation/CFBase.h>
-#include <setjmp.h>
+// TODO(glider): need to check if the OS X version is 10.6 or greater.
+#include <dispatch/dispatch.h>
 #include <malloc/malloc.h>
+#include <setjmp.h>
 #endif
 
 
@@ -94,6 +96,13 @@ typedef longjmp_f siglongjmp_f;
 typedef void (*__cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
+#ifdef __APPLE__
+typedef void (*dispatch_function_t)(void *block);
+typedef int (*dispatch_async_f_f)(dispatch_queue_t dq, void *ctxt,
+                                  dispatch_function_t func);
+dispatch_async_f_f real_dispatch_async_f;
+#endif
+
 sigaction_f             real_sigaction;
 signal_f                real_signal;
 longjmp_f               real_longjmp;
@@ -381,6 +390,66 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
+#ifdef __APPLE__
+// Support for dispatch_async_f and dispatch_async (which calls
+// dispatch_async_f) from libdispatch on Mac OS.
+// TODO(glider): libdispatch API contains other functions that we don't support
+// yet.
+//
+// I (glider) was referring to
+// git://github.com/DrPizza/libdispatch.git/libdispatch/src/queue.c
+// while making this change.
+// The reference manual for Grand Central Dispatch is available at
+// http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
+
+// A wrapper for the ObjC blocks.
+typedef struct {
+  void *block;
+  dispatch_function_t func;
+  int parent_tid;
+} asan_block_context_t;
+
+extern "C"
+void asan_dispatch_call_block_and_release(void *block) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *context = (asan_block_context_t*)block;
+
+  AsanThread *t = asanThreadRegistry().GetCurrent();
+  if (t) {
+    // We've already executed a job on this worker thread. Let's recycle the
+    // AsanThread object.
+    // TODO(glider): in this case we may lose some info about it. Maybe we
+    // should keep a reference counter for each AsanThread object instead of
+    // deleting them manually?
+    CHECK(t != asanThreadRegistry().GetMain());
+    delete t;
+  }
+  t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
+  new(t) AsanThread(context->parent_tid,
+                    /*start_routine*/NULL, /*arg*/NULL, &stack);
+  asanThreadRegistry().SetCurrent(t);
+  // Call the original dispatcher for the block.
+  context->func(context->block);
+  asan_free(context, &stack);
+}
+
+extern "C"
+int WRAP(dispatch_async_f)(dispatch_queue_t dq,
+                           void *ctxt,
+                           dispatch_function_t func) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt =
+      (asan_block_context_t*) asan_malloc(sizeof(asan_block_context_t), &stack);
+  asan_ctxt->block = ctxt;
+  asan_ctxt->func = func;
+  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
+  CHECK(curr_thread);
+  asan_ctxt->parent_tid = curr_thread->tid();
+  return real_dispatch_async_f(dq, (void*)asan_ctxt,
+                               asan_dispatch_call_block_and_release);
+}
+#endif  // __APPLE__
+
 static bool MySignal(int signum) {
   if (signum == SIGILL) return true;
   if (FLAG_handle_segv && signum == SIGSEGV) return true;
@@ -631,6 +700,7 @@ void __asan_init() {
 #endif
   INTERCEPT_FUNCTION(__cxa_throw);
   INTERCEPT_FUNCTION(pthread_create);
+  INTERCEPT_FUNCTION(dispatch_async_f);
 
   MaybeInstallSigaction(SIGSEGV, ASAN_OnSIGSEGV);
   MaybeInstallSigaction(SIGBUS, ASAN_OnSIGSEGV);

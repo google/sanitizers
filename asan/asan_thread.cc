@@ -59,6 +59,9 @@ void *AsanThread::ThreadStart() {
   real_memset((void*)shadow_bot, 0, shadow_top - shadow_bot);
 
   if (!start_routine_) {
+    // start_routine_ == NULL if we're on the main thread or on one of the
+    // OS X libdispatch worker threads. But nobody is supposed to call
+    // ThreadStart() for the worker threads.
     CHECK(tid() == 0);
     return 0;
   }
