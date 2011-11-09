@@ -451,14 +451,9 @@ bool AddressSanitizer::insertGlobalRedzones(Module &M) {
 
     if (!Ty->isSized()) continue;
     if (!G->hasInitializer()) continue;
-    if (G->getLinkage() != GlobalVariable::ExternalLinkage &&
-        G->getLinkage() != GlobalVariable::CommonLinkage  &&
-        G->getLinkage() != GlobalVariable::PrivateLinkage  &&
-        G->getLinkage() != GlobalVariable::InternalLinkage
-       ) {
-      // do we care about other linkages?
+    if (GlobalVariable::mayBeOverridden(G->getLinkage()) ||
+        G->getLinkage() == GlobalVariable::AppendingLinkage)
       continue;
-    }
     // For now, just ignore this Alloca if the alignment is large.
     if (G->getAlignment() > RedzoneSize) continue;
 
@@ -606,6 +601,13 @@ bool AddressSanitizer::runOnModule(Module &M) {
   // Redzone used for stack and globals is at least 32 bytes.
   // For scales 6 and 7, the redzone has to be 64 and 128 bytes respectively.
   RedzoneSize = std::max(32, (int)(1 << MappingScale));
+
+  bool Res = false;
+
+  if (ClGlobals)
+    Res |= insertGlobalRedzones(M);
+
+  // Tell the run-time the current values of mapping offset and scale.
   GlobalValue *asan_mapping_offset =
       new GlobalVariable(M, IntptrTy, true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(IntptrTy, MappingOffset),
@@ -614,15 +616,10 @@ bool AddressSanitizer::runOnModule(Module &M) {
       new GlobalVariable(M, IntptrTy, true, GlobalValue::LinkOnceODRLinkage,
                          ConstantInt::get(IntptrTy, MappingScale),
                          kAsanMappingScaleName);
-
   // Read these globals, otherwise they may be optimized away.
   IRB.CreateLoad(asan_mapping_scale, true);
   IRB.CreateLoad(asan_mapping_offset, true);
 
-  bool Res = false;
-
-  if (ClGlobals)
-    Res |= insertGlobalRedzones(M);
 
   for (Module::iterator F = M.begin(), E = M.end(); F != E; ++F) {
     if (F->isDeclaration()) continue;
