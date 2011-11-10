@@ -1656,6 +1656,12 @@ TEST(AddressSanitizerMac, DISABLED_GCDRunBlock) {
   EXPECT_DEATH(TestGCDRunBlock(), "Shadow byte and word");
 }
 
+TEST(AddressSanitizerMac, DISABLED_GCDReuseWqthreads) {
+  // Make sure the whole ASan report is printed, i.e. that we don't die
+  // on a CHECK.
+  EXPECT_DEATH(TestGCDReuseWqthreads(), "Shadow byte and word");
+}
+
 void *MallocIntrospectionLockWorker(void *_) {
   const int kNumPointers = 100;
   int i;

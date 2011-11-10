@@ -60,20 +60,40 @@ char kStartupStr[] =
 
 void worker_do_alloc(int size) {
   char *mem = malloc(size);
+  mem[0] = 0; // Ok
+  free(mem);
+}
+
+void worker_do_crash(int size) {
+  char *mem = malloc(size);
   mem[size] = 0;  // BOOM
   free(mem);
 }
 
 // Test the Grand Central Dispatch. See
-// http://developer.apple.com/library/ios/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
+// http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
 // for the reference.
 void TestGCDRunBlock() {
   dispatch_queue_t queue = dispatch_get_global_queue(0,0);
-  dispatch_block_t block = ^{ worker_do_alloc(1024); };
+  dispatch_block_t block = ^{ worker_do_crash(1024); };
   // dispatch_async() runs the task on a worker thread that does not go through
   // pthread_create(). We need to verify that AddressSanitizer notices that the
   // thread has started.
   dispatch_async(queue, block);
-  // This is hacky. Need to wait for the worker instead.
+  // TODO(glider): this is hacky. Need to wait for the worker instead.
+  sleep(1);
+}
+
+// libdispatch spawns a rather small number of threads and reuses them. We need
+// to make sure AddressSanitizer handles the reusing correctly.
+void TestGCDReuseWqthreads() {
+  dispatch_queue_t queue = dispatch_get_global_queue(0,0);
+  dispatch_block_t block_alloc = ^{ worker_do_alloc(1024); };
+  dispatch_block_t block_crash = ^{ worker_do_crash(1024); };
+  for (int i = 0; i < 100; i++) {
+    dispatch_async(queue, block_alloc);
+  }
+  dispatch_async(queue, block_crash);
+  // TODO(glider): this is hacky. Need to wait for the workers instead.
   sleep(1);
 }
