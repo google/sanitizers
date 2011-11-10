@@ -16,6 +16,9 @@
 #include "asan_interface.h"
 #include "asan_internal.h"
 #include "asan_lock.h"
+#ifdef __APPLE__
+#include "asan_mac.h"
+#endif
 #include "asan_mapping.h"
 #include "asan_stack.h"
 #include "asan_stats.h"
@@ -42,15 +45,6 @@
 #include <sys/resource.h>
 #include <unistd.h>
 // must not include <setjmp.h> on Linux
-
-#ifdef __APPLE__
-#include <CoreFoundation/CFBase.h>
-// TODO(glider): need to check if the OS X version is 10.6 or greater.
-#include <dispatch/dispatch.h>
-#include <malloc/malloc.h>
-#include <setjmp.h>
-#endif
-
 
 #ifndef ASAN_NEEDS_SEGV
 # define ASAN_NEEDS_SEGV 1
@@ -97,9 +91,6 @@ typedef void (*__cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
 #ifdef __APPLE__
-typedef void (*dispatch_function_t)(void *block);
-typedef int (*dispatch_async_f_f)(dispatch_queue_t dq, void *ctxt,
-                                  dispatch_function_t func);
 dispatch_async_f_f real_dispatch_async_f;
 #endif
 
@@ -389,66 +380,6 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
   new(t) AsanThread(curr_thread->tid(), start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
-
-#ifdef __APPLE__
-// Support for dispatch_async_f and dispatch_async (which calls
-// dispatch_async_f) from libdispatch on Mac OS.
-// TODO(glider): libdispatch API contains other functions that we don't support
-// yet.
-//
-// I (glider) was referring to
-// git://github.com/DrPizza/libdispatch.git/libdispatch/src/queue.c
-// while making this change.
-// The reference manual for Grand Central Dispatch is available at
-// http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
-
-// A wrapper for the ObjC blocks.
-typedef struct {
-  void *block;
-  dispatch_function_t func;
-  int parent_tid;
-} asan_block_context_t;
-
-extern "C"
-void asan_dispatch_call_block_and_release(void *block) {
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
-  asan_block_context_t *context = (asan_block_context_t*)block;
-
-  AsanThread *t = asanThreadRegistry().GetCurrent();
-  if (t) {
-    // We've already executed a job on this worker thread. Let's reuse the
-    // AsanThread object.
-    CHECK(t != asanThreadRegistry().GetMain());
-    // Flush the statistics and update the current thread's tid.
-    asanThreadRegistry().UnregisterThread(t);
-    asanThreadRegistry().RegisterThread(t, context->parent_tid, &stack);
-  } else {
-    t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
-    new(t) AsanThread(context->parent_tid,
-                      /*start_routine*/NULL, /*arg*/NULL, &stack);
-    asanThreadRegistry().SetCurrent(t);
-  }
-  // Call the original dispatcher for the block.
-  context->func(context->block);
-  asan_free(context, &stack);
-}
-
-extern "C"
-int WRAP(dispatch_async_f)(dispatch_queue_t dq,
-                           void *ctxt,
-                           dispatch_function_t func) {
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
-  asan_block_context_t *asan_ctxt =
-      (asan_block_context_t*) asan_malloc(sizeof(asan_block_context_t), &stack);
-  asan_ctxt->block = ctxt;
-  asan_ctxt->func = func;
-  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
-  CHECK(curr_thread);
-  asan_ctxt->parent_tid = curr_thread->tid();
-  return real_dispatch_async_f(dq, (void*)asan_ctxt,
-                               asan_dispatch_call_block_and_release);
-}
-#endif  // __APPLE__
 
 static bool MySignal(int signum) {
   if (signum == SIGILL) return true;

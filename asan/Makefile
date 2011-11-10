@@ -120,7 +120,7 @@ LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 
 
 ifeq ($(PLATFORM),Darwin)
-RTL_HDR=$(RTL_HDR_COMMON) mach_override.h
+RTL_HDR=$(RTL_HDR_COMMON) mach_override.h asan_mac.h
 LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) \
 	    $(BIN)/asan_mac$(SUFF).o \
 	    $(BIN)/asan_malloc_mac$(SUFF).o \
