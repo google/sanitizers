@@ -155,7 +155,7 @@ void InitializeAsanInterceptors() {
 using namespace __asan;  // NOLINT
 
 #ifndef __APPLE__
-char *WRAP(index)(const char *string, int c)
+const char *WRAP(index)(const char *string, int c)
   __attribute__((alias(WRAPPER_NAME(strchr))));
 #endif
 
@@ -195,7 +195,7 @@ void *WRAP(memset)(void *block, int c, size_t size) {
 }
 #endif
 
-char *WRAP(strchr)(const char *str, int c) {
+const char *WRAP(strchr)(const char *str, int c) {
   ensure_asan_inited();
   char *result = real_strchr(str, c);
   if (FLAG_replace_str) {
