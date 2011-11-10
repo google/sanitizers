@@ -25,7 +25,7 @@
 namespace __asan {
 
 class AsanThread;
-class AsanStackTrace;
+struct AsanStackTrace;
 
 void ReplaceSystemMalloc();
 void CheckFailed(const char *cond, const char *file, int line);
