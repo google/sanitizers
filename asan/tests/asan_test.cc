@@ -332,6 +332,35 @@ TEST(AddressSanitizer, SigactionTest) {
   free(Ident(x));
 }
 
+void *TSDWorker(void *test_key) {
+  if (test_key) {
+    pthread_setspecific(*(pthread_key_t*)test_key, (void*)0xfeedface);
+  }
+  return NULL;
+}
+
+void TSDDestructor(void *tsd) {
+  // Spawning a thread will check that the current thread id is not -1.
+  pthread_t th;
+  pthread_create(&th, NULL, TSDWorker, NULL);
+  pthread_join(th, NULL);
+}
+
+// This tests triggers the thread-specific data destruction fiasco which occurs
+// if we don't manage the TSD destructors ourselves. We create a new pthread
+// key with a non-NULL destructor which is likely to be put after the destructor
+// of AsanThread in the list of destructors.
+// In this case the TSD for AsanThread will be destroyed before TSDDestructor
+// is called for the child thread, and a CHECK will fail when we call
+// pthread_create() to spawn the grandchild.
+TEST(AddressSanitizer, DISABLED_TSDTest) {
+  pthread_t th;
+  pthread_key_t test_key;
+  pthread_key_create(&test_key, TSDDestructor);
+  pthread_create(&th, NULL, TSDWorker, &test_key);
+  pthread_join(th, NULL);
+}
+
 template<class T>
 void OOBTest() {
   char expected_str[100];
