@@ -135,6 +135,14 @@ void AsanStackTrace::PrintStack(uintptr_t *addr, size_t size) {
 }
 #endif  // ASAN_USE_SYSINFO
 
+#ifdef __arm__
+#define UNWIND_STOP _URC_END_OF_STACK
+#define UNWIND_CONTINUE _URC_OK
+#else
+#define UNWIND_STOP _URC_NORMAL_STOP
+#define UNWIND_CONTINUE _URC_NO_REASON
+#endif
+
 // ----------------------- AsanStackTrace ----------------------------- {{{1
 _Unwind_Reason_Code AsanStackTrace::Unwind_Trace(
     struct _Unwind_Context *ctx, void *param) {
@@ -144,8 +152,10 @@ _Unwind_Reason_Code AsanStackTrace::Unwind_Trace(
   if (b->size > 0 || pc == b->trace[0]) {
     b->trace[b->size++] = pc;
   }
-  if (b->size == b->max_size) return _URC_NORMAL_STOP;
-  return _URC_NO_REASON;
+  if (b->size == b->max_size) return UNWIND_STOP;
+  // Sanity check:
+  if (b->full_frame_count++ > b->max_size * 2) return UNWIND_STOP;
+  return UNWIND_CONTINUE;
 }
 
 uintptr_t AsanStackTrace::GetCurrentPc() {

@@ -53,6 +53,7 @@ struct AsanStackTrace {
                             uint32_t *compressed, size_t size);
   static void UncompressStack(AsanStackTrace *stack,
                               uint32_t *compressed, size_t size);
+  size_t full_frame_count;
 };
 
 }  // namespace __asan
@@ -68,6 +69,7 @@ struct AsanStackTrace {
     uintptr_t saved_pc = pc;                        \
     uintptr_t saved_bp = bp;                        \
     stack.size = 0;                                 \
+    stack.full_frame_count = 0;                     \
     stack.trace[0] = saved_pc;                      \
     if ((max_s) > 1) {                              \
       stack.max_size = max_s;                       \
