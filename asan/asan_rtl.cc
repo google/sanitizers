@@ -416,18 +416,18 @@ void asan_dispatch_call_block_and_release(void *block) {
 
   AsanThread *t = asanThreadRegistry().GetCurrent();
   if (t) {
-    // We've already executed a job on this worker thread. Let's recycle the
+    // We've already executed a job on this worker thread. Let's reuse the
     // AsanThread object.
-    // TODO(glider): in this case we may lose some info about it. Maybe we
-    // should keep a reference counter for each AsanThread object instead of
-    // deleting them manually?
     CHECK(t != asanThreadRegistry().GetMain());
-    delete t;
+    // Flush the statistics and update the current thread's tid.
+    asanThreadRegistry().UnregisterThread(t);
+    asanThreadRegistry().RegisterThread(t, context->parent_tid, &stack);
+  } else {
+    t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
+    new(t) AsanThread(context->parent_tid,
+                      /*start_routine*/NULL, /*arg*/NULL, &stack);
+    asanThreadRegistry().SetCurrent(t);
   }
-  t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
-  new(t) AsanThread(context->parent_tid,
-                    /*start_routine*/NULL, /*arg*/NULL, &stack);
-  asanThreadRegistry().SetCurrent(t);
   // Call the original dispatcher for the block.
   context->func(context->block);
   asan_free(context, &stack);
