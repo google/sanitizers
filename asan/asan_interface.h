@@ -80,6 +80,13 @@ extern "C" {
   // All these chunks count toward the heap size. Currently, allocator never
   // releases memory to OS (instead, it just puts freed chunks to free lists).
   size_t __asan_get_heap_size();
+  // Number of bytes, mmaped by asan allocator, which can be used to fulfill
+  // allocation requests. When a user program frees memory chunk, it can first
+  // fall into quarantine and will count toward __asan_get_free_bytes() later.
+  size_t __asan_get_free_bytes();
+  // Number of bytes in unmapped pages, that are released to OS. Currently,
+  // always returns 0.
+  size_t __asan_get_unmapped_bytes();
   // Turns on/off statistics update. Returns the previous value.
   bool __asan_enable_statistics(bool enable);
   // Prints accumulated stats to stderr. Used for debugging.

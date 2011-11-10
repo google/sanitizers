@@ -94,10 +94,16 @@ TEST(AddressSanitizerInterface, GetCurrentAllocatedBytesTest) {
   __asan_enable_statistics(old_stats_value);
 }
 
+static void DoDoubleFree() {
+  int *x = Ident(new int);
+  delete Ident(x);
+  delete Ident(x);
+}
+
 // This test is run in a separate process, so that large malloced
 // chunk won't remain in the free lists after the test.
 // Note: use ASSERT_* instead of EXPECT_* here.
-void RunGetHeapSizeTestAndDie() {
+static void RunGetHeapSizeTestAndDie() {
   size_t old_heap_size, new_heap_size, heap_growth;
   // We unlikely have have chunk of this size in free list.
   static const size_t kLargeMallocSize = 1 << 29;  // 512M
@@ -120,13 +126,57 @@ void RunGetHeapSizeTestAndDie() {
   ASSERT_LT(heap_growth, kLargeMallocSize);
 
   // Test passed. Now die with expected double-free.
-  int *x = Ident(new int);
-  delete Ident(x);
-  delete Ident(x);
+  DoDoubleFree();
 }
 
 TEST(AddressSanitizerInterface, GetHeapSizeTest) {
   EXPECT_DEATH(RunGetHeapSizeTestAndDie(), "double-free");
+}
+
+// Note: use ASSERT_* instead of EXPECT_* here.
+static void DoLargeMallocForGetFreeBytesTestAndDie() {
+  size_t old_free_bytes, new_free_bytes;
+  static const size_t kLargeMallocSize = 1 << 29;  // 512M
+  __asan_enable_statistics(true);
+  // If we malloc and free a large memory chunk, it will not fall
+  // into quarantine and will be available for future requests.
+  old_free_bytes = __asan_get_free_bytes();
+  fprintf(stderr, "allocating %zu bytes:\n", kLargeMallocSize);
+  fprintf(stderr, "free bytes before malloc: %zu\n", old_free_bytes);
+  free(Ident(malloc(kLargeMallocSize)));
+  new_free_bytes = __asan_get_free_bytes();
+  fprintf(stderr, "free bytes after malloc and free: %zu\n", new_free_bytes);
+  ASSERT_GE(new_free_bytes, old_free_bytes + kLargeMallocSize);
+  // Test passed.
+  DoDoubleFree();
+}
+
+TEST(AddressSanitizerInterface, GetFreeBytesTest) {
+  static const size_t kNumOfChunks = 100;
+  static const size_t kChunkSize = 100;
+  char *chunks[kNumOfChunks];
+  size_t i;
+  size_t old_free_bytes, new_free_bytes;
+  bool old_stats_value = __asan_enable_statistics(true);
+  // Allocate a small chunk. Now allocator probably has a lot of these
+  // chunks to fulfill future requests. So, future requests will decrease
+  // the number of free bytes.
+  chunks[0] = Ident((char*)malloc(kChunkSize));
+  old_free_bytes = __asan_get_free_bytes();
+  for (i = 1; i < kNumOfChunks; i++) {
+    chunks[i] = Ident((char*)malloc(kChunkSize));
+    new_free_bytes = __asan_get_free_bytes();
+    EXPECT_LT(new_free_bytes, old_free_bytes);
+    old_free_bytes = new_free_bytes;
+  }
+  // Deleting these chunks will move them to quarantine, number of free
+  // bytes won't increase.
+  for (i = 0; i < kNumOfChunks; i++) {
+    free(chunks[i]);
+    EXPECT_EQ(old_free_bytes, __asan_get_free_bytes());
+  }
+  EXPECT_DEATH(DoLargeMallocForGetFreeBytesTestAndDie(), "double-free");
+  __asan_enable_statistics(old_stats_value);
 }
 
 static const size_t kManyThreadsMallocSizes[] = {5, 1UL<<10, 1UL<<20, 357};

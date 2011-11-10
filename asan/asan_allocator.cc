@@ -506,6 +506,7 @@ class MallocInfo {
       AsanStats &thread_stats = asanThreadRegistry().GetCurrentThreadStats();
       thread_stats.real_frees++;
       thread_stats.really_freed += m->used_size;
+      thread_stats.really_freed_redzones += m->Size() - m->used_size;
       thread_stats.really_freed_by_size[m->SizeClass()]++;
     }
   }

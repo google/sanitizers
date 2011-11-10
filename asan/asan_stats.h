@@ -32,6 +32,7 @@ struct AsanStats {
   size_t freed;
   size_t real_frees;
   size_t really_freed;
+  size_t really_freed_redzones;
   size_t reallocs;
   size_t realloced;
   size_t mmaps;

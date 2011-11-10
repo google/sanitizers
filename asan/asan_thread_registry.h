@@ -52,6 +52,7 @@ class AsanThreadRegistry {
   AsanStats GetAccumulatedStats();
   size_t GetCurrentAllocatedBytes();
   size_t GetHeapSize();
+  size_t GetFreeBytes();
 
   AsanThreadSummary *FindByTid(int tid);
   AsanThread *FindThreadByStackAddress(uintptr_t addr);

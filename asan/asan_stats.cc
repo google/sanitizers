@@ -84,6 +84,14 @@ size_t __asan_get_heap_size() {
   return asanThreadRegistry().GetHeapSize();
 }
 
+size_t __asan_get_free_bytes() {
+  return asanThreadRegistry().GetFreeBytes();
+}
+
+size_t __asan_get_unmapped_bytes() {
+  return 0;
+}
+
 bool __asan_enable_statistics(bool enable) {
   bool old_flag = FLAG_stats;
   FLAG_stats = enable;

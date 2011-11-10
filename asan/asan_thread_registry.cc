@@ -113,6 +113,16 @@ size_t AsanThreadRegistry::GetHeapSize() {
   return accumulated_stats_.mmaped;
 }
 
+size_t AsanThreadRegistry::GetFreeBytes() {
+  ScopedLock lock(&mu_);
+  UpdateAccumulatedStatsUnlocked();
+  return accumulated_stats_.mmaped
+         - accumulated_stats_.malloced
+         - accumulated_stats_.malloced_redzones
+         + accumulated_stats_.really_freed
+         + accumulated_stats_.really_freed_redzones;
+}
+
 AsanThreadSummary *AsanThreadRegistry::FindByTid(int tid) {
   CHECK(tid >= 0);
   CHECK(tid < n_threads_);
