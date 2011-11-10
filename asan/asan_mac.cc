@@ -31,6 +31,7 @@
 namespace __asan {
 
 extern dispatch_async_f_f real_dispatch_async_f;
+extern dispatch_after_f_f real_dispatch_after_f;
 
 // No-op. Mac does not support static linkage anyway.
 void *AsanDoesNotSupportStaticLinkage() {
@@ -46,8 +47,11 @@ ssize_t asan_write(int fd, const void *buf, size_t count) {
   return write(fd, buf, count);
 }
 
-// Support for dispatch_async_f and dispatch_async (which uses
-// dispatch_async_f) from libdispatch on Mac OS.
+// Support for the following functions from libdispatch on Mac OS:
+//   dispatch_async_f()
+//   dispatch_async()
+//   dispatch_after_f()
+//   dispatch_after()
 // TODO(glider): libdispatch API contains other functions that we don't support
 // yet.
 //
@@ -85,18 +89,38 @@ void asan_dispatch_call_block_and_release(void *block) {
 
 using namespace __asan;  // NOLINT
 
+// Wrap |ctxt| and |func| into an asan_block_context_t.
+// The caller retains control of the allocated context.
 extern "C"
-int WRAP(dispatch_async_f)(dispatch_queue_t dq,
-                           void *ctxt,
-                           dispatch_function_t func) {
-  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+asan_block_context_t *alloc_asan_context(void *ctxt, dispatch_function_t func,
+                                         AsanStackTrace *stack) {
   asan_block_context_t *asan_ctxt =
-      (asan_block_context_t*) asan_malloc(sizeof(asan_block_context_t), &stack);
+      (asan_block_context_t*) asan_malloc(sizeof(asan_block_context_t), stack);
   asan_ctxt->block = ctxt;
   asan_ctxt->func = func;
   AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
   CHECK(curr_thread);
   asan_ctxt->parent_tid = curr_thread->tid();
+  return asan_ctxt;
+}
+
+extern "C"
+int WRAP(dispatch_async_f)(dispatch_queue_t dq,
+                           void *ctxt,
+                           dispatch_function_t func) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
   return real_dispatch_async_f(dq, (void*)asan_ctxt,
+                               asan_dispatch_call_block_and_release);
+}
+
+extern "C"
+int WRAP(dispatch_after_f)(dispatch_time_t when,
+                           dispatch_queue_t dq,
+                           void *ctxt,
+                           dispatch_function_t func) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  return real_dispatch_after_f(when, dq, (void*)asan_ctxt,
                                asan_dispatch_call_block_and_release);
 }

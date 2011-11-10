@@ -23,6 +23,9 @@
 typedef void (*dispatch_function_t)(void *block);
 typedef int (*dispatch_async_f_f)(dispatch_queue_t dq, void *ctxt,
                                   dispatch_function_t func);
+typedef int (*dispatch_after_f_f)(dispatch_time_t when,
+                                  dispatch_queue_t dq, void *ctxt,
+                                  dispatch_function_t func);
 
 // A wrapper for the ObjC blocks used to support libdispatch.
 typedef struct {
@@ -33,6 +36,11 @@ typedef struct {
 
 extern "C"
 int WRAP(dispatch_async_f)(dispatch_queue_t dq,
+                           void *ctxt,
+                           dispatch_function_t func);
+extern "C"
+int WRAP(dispatch_after_f)(dispatch_time_t when,
+                           dispatch_queue_t dq,
                            void *ctxt,
                            dispatch_function_t func);
 

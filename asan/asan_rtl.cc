@@ -92,6 +92,7 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
 #ifdef __APPLE__
 dispatch_async_f_f real_dispatch_async_f;
+dispatch_after_f_f real_dispatch_after_f;
 #endif
 
 sigaction_f             real_sigaction;
@@ -622,6 +623,7 @@ void __asan_init() {
   INTERCEPT_FUNCTION(pthread_create);
 #ifdef __APPLE__
   INTERCEPT_FUNCTION(dispatch_async_f);
+  INTERCEPT_FUNCTION(dispatch_after_f);
 #else
   // On Darwin siglongjmp tailcalls longjmp, so we don't want to intercept it
   // there.
