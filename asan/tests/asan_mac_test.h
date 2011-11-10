@@ -5,4 +5,5 @@ extern "C" {
   void CFAllocatorMallocZoneDoubleFree();
   void TestGCDRunBlock();
   void TestGCDReuseWqthreads();
+  void TestGCDDispatchAfter();
 }

@@ -97,3 +97,15 @@ void TestGCDReuseWqthreads() {
   // TODO(glider): this is hacky. Need to wait for the workers instead.
   sleep(1);
 }
+
+void TestGCDDispatchAfter() {
+  dispatch_queue_t queue = dispatch_get_global_queue(0,0);
+  dispatch_block_t block_crash = ^{ worker_do_crash(1024); };
+  // Schedule the event one second from the current time.
+  dispatch_time_t milestone =
+      dispatch_time(DISPATCH_TIME_NOW, 1LL * NSEC_PER_SEC);
+  dispatch_after(milestone, queue, block_crash);
+  // Let's wait for a bit longer now.
+  // TODO(glider): this is still hacky.
+  sleep(2);
+}
