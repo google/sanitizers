@@ -65,16 +65,16 @@ TEST(AddressSanitizerInterface, GetAllocatedSizeAndOwnershipTest) {
 }
 
 TEST(AddressSanitizerInterface, EnableStatisticsTest) {
-  __asan_enable_statistics(true);
+  bool old_stats_value = __asan_enable_statistics(true);
   EXPECT_EQ(true, __asan_enable_statistics(false));
-  EXPECT_EQ(false, __asan_enable_statistics(false));
+  EXPECT_EQ(false, __asan_enable_statistics(old_stats_value));
 }
 
 TEST(AddressSanitizerInterface, GetCurrentAllocatedBytesTest) {
   size_t before_malloc, after_malloc, after_free;
   char *array;
   const size_t kMallocSize = 100;
-  __asan_enable_statistics(true);
+  bool old_stats_value = __asan_enable_statistics(true);
   before_malloc = __asan_get_current_allocated_bytes();
 
   array = Ident((char*)malloc(kMallocSize));
@@ -91,6 +91,7 @@ TEST(AddressSanitizerInterface, GetCurrentAllocatedBytesTest) {
   EXPECT_EQ(before_malloc, after_malloc);
 
   free(array);
+  __asan_enable_statistics(old_stats_value);
 }
 
 // This test is run in a separate process, so that large malloced
@@ -118,7 +119,6 @@ void RunGetHeapSizeTestAndDie() {
   fprintf(stderr, "heap growth after second malloc: %zu\n", heap_growth);
   ASSERT_LT(heap_growth, kLargeMallocSize);
 
-  __asan_enable_statistics(false);
   // Test passed. Now die with expected double-free.
   int *x = Ident(new int);
   delete Ident(x);
@@ -145,7 +145,7 @@ void *ManyThreadsWithStatsWorker(void *arg) {
 TEST(AddressSanitizerInterface, ManyThreadsWithStatsStressTest) {
   size_t before_test, after_test, i;
   pthread_t threads[kManyThreadsNumThreads];
-  __asan_enable_statistics(true);
+  bool old_stats_value = __asan_enable_statistics(true);
   before_test = __asan_get_current_allocated_bytes();
   for (i = 0; i < kManyThreadsNumThreads; i++) {
     pthread_create(&threads[i], 0,
@@ -155,8 +155,8 @@ TEST(AddressSanitizerInterface, ManyThreadsWithStatsStressTest) {
     pthread_join(threads[i], 0);
   }
   after_test = __asan_get_current_allocated_bytes();
-  __asan_enable_statistics(false);
   // ASan stats also reflect memory usage of internal ASan RTL structs,
   // so we can't check for equality here.
   EXPECT_LT(after_test, before_test + (1UL<<20));
+  __asan_enable_statistics(old_stats_value);
 }
