@@ -247,7 +247,12 @@ void GetPcSpBpAx(void *context,
   *ax = ucontext->uc_mcontext->__ss.__eax;
 # endif  // __WORDSIZE
 #else  // assume linux
-# if __WORDSIZE == 64
+# if defined(__arm__)
+  *pc = ucontext->uc_mcontext.arm_pc;
+  *bp = ucontext->uc_mcontext.arm_fp;
+  *sp = ucontext->uc_mcontext.arm_sp;
+  *ax = ucontext->uc_mcontext.arm_r0;
+# elif __WORDSIZE == 64
   *pc = ucontext->uc_mcontext.gregs[REG_RIP];
   *bp = ucontext->uc_mcontext.gregs[REG_RBP];
   *sp = ucontext->uc_mcontext.gregs[REG_RSP];
