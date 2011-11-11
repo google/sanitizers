@@ -17,8 +17,6 @@
 #include "asan_thread.h"
 #include "asan_thread_registry.h"
 
-#include <limits.h>
-
 namespace __asan {
 
 static AsanThreadRegistry asan_thread_registry(__asan::LINKER_INITIALIZED);
@@ -27,36 +25,11 @@ AsanThreadRegistry &asanThreadRegistry() {
   return asan_thread_registry;
 }
 
-// Dark magic below. In order to be able to notice that we're not handling
-// some thread creation routines (e.g. on Mac OS) we want to distinguish the
-// thread that used to have a corresponding AsanThread object from the thread
-// that never had one. That's why upon AsanThread destruction we set the
-// pthread_key value to some odd number (that's not a valid pointer), instead
-// of NULL.
-// Because the TSD destructor for a non-NULL key value is called iteratively,
-// we increase the value by two, keeping it an invalid pointer.
-// Because the TSD implementations are allowed to call such a destructor
-// infinitely (see
-// http://pubs.opengroup.org/onlinepubs/009604499/functions/pthread_key_create.html
-// ), we exit the program after a certain number of iterations.
 static void DestroyAsanTsd(void *tsd) {
-  intptr_t iter = (intptr_t)tsd;
-  if (iter % 2 == 0) {
-    // The pointer is valid.
-    AsanThread *t = (AsanThread*)tsd;
-    if (t != asanThreadRegistry().GetMain()) {
-      delete t;
-    }
-    iter = 1;
-  } else {
-    // The pointer is invalid -- we've already destroyed the TSD before.
-    // If |iter| is too big, we're in the infinite loop. This should be
-    // impossible on the systems AddressSanitizer was tested on.
-    CHECK(iter < 4 * PTHREAD_DESTRUCTOR_ITERATIONS);
-    iter += 2;
+  AsanThread *t = (AsanThread*)tsd;
+  if (t != asanThreadRegistry().GetMain()) {
+    delete t;
   }
-  CHECK(0 == pthread_setspecific(asanThreadRegistry().GetTlsKey(),
-                                 (void*)iter));
 }
 
 AsanThreadRegistry::AsanThreadRegistry(LinkerInitialized x)
@@ -103,20 +76,10 @@ AsanThread *AsanThreadRegistry::GetMain() {
 AsanThread *AsanThreadRegistry::GetCurrent() {
   CHECK(tls_key_created_);
   AsanThread *thread = (AsanThread*)pthread_getspecific(tls_key_);
-  if ((!thread || (intptr_t)thread % 2) && FLAG_v >= 2) {
-    Report("GetCurrent: %p for thread %p\n", thread, pthread_self());
+  if (!thread && FLAG_v >= 2) {
+    Report("GetCurrent: NULL for thread %p\n", pthread_self());
   }
-  if ((intptr_t)thread % 2) {
-    // Invalid pointer -- we've deleted the TSD already. Fall back to the main
-    // thread.
-    // TODO(glider): if the code in the client TSD destructor calls
-    // pthread_create(), we'll set the parent tid of the spawned thread to T0,
-    // although the creation stack will belong to the current thread. This may
-    // confuse the user, but is quite unlikely.
-    return GetMain();
-  } else {
-    return thread;
-  }
+  return thread;
 }
 
 void AsanThreadRegistry::SetCurrent(AsanThread *t) {
@@ -130,10 +93,6 @@ void AsanThreadRegistry::SetCurrent(AsanThread *t) {
 AsanStats &AsanThreadRegistry::GetCurrentThreadStats() {
   AsanThread *t = GetCurrent();
   return (t) ? t->stats() : main_thread_.stats();
-}
-
-pthread_key_t AsanThreadRegistry::GetTlsKey() {
-  return tls_key_;
 }
 
 AsanStats AsanThreadRegistry::GetAccumulatedStats() {

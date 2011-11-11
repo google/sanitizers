@@ -38,7 +38,6 @@ class AsanThreadRegistry {
   // Get the current thread. May return NULL.
   AsanThread *GetCurrent();
   void SetCurrent(AsanThread *t);
-  pthread_key_t GetTlsKey();
 
   int GetCurrentTidOrMinusOne() {
     AsanThread *t = GetCurrent();
