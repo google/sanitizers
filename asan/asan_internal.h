@@ -37,6 +37,7 @@ bool DescribeAddrIfGlobal(uintptr_t addr);
 void *AsanDoesNotSupportStaticLinkage();
 
 void RawWrite(const char *buffer);
+int SNPrint(char *buffer, size_t length, const char *format, ...);
 void Printf(const char *format, ...);
 void Report(const char *format, ...);
 
