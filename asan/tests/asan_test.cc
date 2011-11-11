@@ -353,7 +353,7 @@ void TSDDestructor(void *tsd) {
 // In this case the TSD for AsanThread will be destroyed before TSDDestructor
 // is called for the child thread, and a CHECK will fail when we call
 // pthread_create() to spawn the grandchild.
-TEST(AddressSanitizer, DISABLED_TSDTest) {
+TEST(AddressSanitizer, TSDTest) {
   pthread_t th;
   pthread_key_t test_key;
   pthread_key_create(&test_key, TSDDestructor);
