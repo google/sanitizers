@@ -235,7 +235,7 @@ $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
 	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC $(PIE) $(CFLAGS)
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
-	$(CXX) $(PIE) -fPIC -O0 -c -o $@ -g $< -I../third_party \
+	$(CXX) $(PIE) $(CFLAGS) -fPIC -O0 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
 		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV) \
@@ -244,7 +244,7 @@ $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 		$(ASAN_FLAGS)
 
 $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile
-	$(CC) $(PIE) -fPIC -O0 -c -o $@ -g $< -I../third_party \
+	$(CC) $(PIE) $(CFLAGS) -fPIC -O0 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
 		$(ASAN_FLAGS)
