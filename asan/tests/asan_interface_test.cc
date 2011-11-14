@@ -33,7 +33,6 @@ TEST(AddressSanitizerInterface, GetAllocatedSizeAndOwnershipTest) {
   const size_t kArraySize = 100;
   char *array = Ident((char*)malloc(kArraySize));
   int *int_ptr = Ident(new int);
-  size_t alloc_size;
 
   // Allocated memory is owned by allocator. Allocated size should be
   // equal to requested size.

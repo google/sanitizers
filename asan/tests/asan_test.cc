@@ -19,7 +19,7 @@
 #include <setjmp.h>
 #include <assert.h>
 
-#if defined(__i386__) or defined(__x86_64__) 
+#if defined(__i386__) or defined(__x86_64__)
 #include <emmintrin.h>
 #endif
 
@@ -82,7 +82,6 @@ class ObjdumpOfMyself {
       is_correct = false;
     }
     // cut the objdump into functions
-    size_t pos;
     string fn, next_fn;
     size_t next_start;
     for (size_t start = fn_start(objdump, 0, &fn);
@@ -821,7 +820,7 @@ TEST(AddressSanitizer, ThreadStackReuseTest) {
   pthread_join(t, 0);
 }
 
-#if defined(__i386__) or defined(__x86_64__) 
+#if defined(__i386__) or defined(__x86_64__)
 TEST(AddressSanitizer, Store128Test) {
   char *a = Ident((char*)malloc(Ident(12)));
   char *p = a;
