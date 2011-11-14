@@ -74,7 +74,7 @@ void worker_do_crash(int size) {
 // http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
 // for the reference.
 void TestGCDRunBlock() {
-  dispatch_queue_t queue = dispatch_get_global_queue(0,0);
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
   dispatch_block_t block = ^{ worker_do_crash(1024); };
   // dispatch_async() runs the task on a worker thread that does not go through
   // pthread_create(). We need to verify that AddressSanitizer notices that the
@@ -87,7 +87,7 @@ void TestGCDRunBlock() {
 // libdispatch spawns a rather small number of threads and reuses them. We need
 // to make sure AddressSanitizer handles the reusing correctly.
 void TestGCDReuseWqthreads() {
-  dispatch_queue_t queue = dispatch_get_global_queue(0,0);
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
   dispatch_block_t block_alloc = ^{ worker_do_alloc(1024); };
   dispatch_block_t block_crash = ^{ worker_do_crash(1024); };
   for (int i = 0; i < 100; i++) {
@@ -99,7 +99,7 @@ void TestGCDReuseWqthreads() {
 }
 
 void TestGCDDispatchAfter() {
-  dispatch_queue_t queue = dispatch_get_global_queue(0,0);
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
   dispatch_block_t block_crash = ^{ worker_do_crash(1024); };
   // Schedule the event one second from the current time.
   dispatch_time_t milestone =
@@ -108,4 +108,16 @@ void TestGCDDispatchAfter() {
   // Let's wait for a bit longer now.
   // TODO(glider): this is still hacky.
   sleep(2);
+}
+
+void worker_do_deallocate(void *ptr) {
+  free(ptr);
+}
+
+void CallFreeOnWorkqueue(void *tsd) {
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
+  dispatch_block_t block_dealloc = ^{ worker_do_deallocate(tsd); };
+  dispatch_async(queue, block_dealloc);
+  // Do not wait for the worker to free the memory -- nobody is going to touch
+  // it.
 }

@@ -359,6 +359,7 @@ TEST(AddressSanitizer, DISABLED_TSDTest) {
   pthread_key_create(&test_key, TSDDestructor);
   pthread_create(&th, NULL, TSDWorker, &test_key);
   pthread_join(th, NULL);
+  pthread_key_delete(test_key);
 }
 
 template<class T>
@@ -1745,6 +1746,23 @@ TEST(AddressSanitizerMac, MallocIntrospectionLock) {
     }
     pthread_join(forker, 0);
   }
+}
+
+void *TSDAllocWorker(void *test_key) {
+  if (test_key) {
+    void *mem = malloc(10);
+    pthread_setspecific(*(pthread_key_t*)test_key, mem);
+  }
+  return NULL;
+}
+
+TEST(AddressSanitizerMac, DISABLED_TSDWorkqueueTest) {
+  pthread_t th;
+  pthread_key_t test_key;
+  pthread_key_create(&test_key, CallFreeOnWorkqueue);
+  pthread_create(&th, NULL, TSDAllocWorker, &test_key);
+  pthread_join(th, NULL);
+  pthread_key_delete(test_key);
 }
 #endif  // __APPLE__
 
