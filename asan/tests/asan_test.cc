@@ -18,7 +18,10 @@
 #include <stdint.h>
 #include <setjmp.h>
 #include <assert.h>
+
+#if defined(__i386__) or defined(__x86_64__) 
 #include <emmintrin.h>
+#endif
 
 #include "asan_test_config.h"
 #include "asan_test_utils.h"
@@ -769,6 +772,7 @@ TEST(AddressSanitizer, SigLongJmpTest) {
   }
 }
 
+#ifdef __EXCEPTIONS
 __attribute__((noinline))
 void ThrowFunc() {
   // create three red zones for these two stack objects.
@@ -790,6 +794,7 @@ TEST(AddressSanitizer, CxxExceptionTest) {
   } catch(...) {}
   TouchStackFunc();
 }
+#endif
 
 void *ThreadStackReuseFunc1(void *unused) {
   // create three red zones for these two stack objects.
@@ -816,6 +821,7 @@ TEST(AddressSanitizer, ThreadStackReuseTest) {
   pthread_join(t, 0);
 }
 
+#if defined(__i386__) or defined(__x86_64__) 
 TEST(AddressSanitizer, Store128Test) {
   char *a = Ident((char*)malloc(Ident(12)));
   char *p = a;
@@ -829,6 +835,7 @@ TEST(AddressSanitizer, Store128Test) {
                "located 0 bytes to the right of 12-byte");
   free(a);
 }
+#endif
 
 static string RightOOBErrorMessage(int oob_distance) {
   assert(oob_distance >= 0);
@@ -1622,6 +1629,7 @@ TEST(AddressSanitizer, ThreadedStressStackReuseTest) {
   }
 }
 
+#ifdef __EXCEPTIONS
 __attribute__((noinline))
 static void StackReuseAndException() {
   int large_stack[1000];
@@ -1638,6 +1646,7 @@ TEST(AddressSanitizer, DISABLED_StressStackReuseAndExceptionsTest) {
     }
   }
 }
+#endif
 
 TEST(AddressSanitizer, MlockTest) {
   EXPECT_EQ(0, mlockall(MCL_CURRENT));
