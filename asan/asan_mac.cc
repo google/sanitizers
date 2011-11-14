@@ -75,6 +75,8 @@ void asan_dispatch_call_block_and_release(void *block) {
     asanThreadRegistry().UnregisterThread(t);
     asanThreadRegistry().RegisterThread(t, context->parent_tid, &stack);
   } else {
+    // A worker job cannot be executed on a dying thread.
+    CHECK(!asanThreadRegistry().IsCurrentThreadDying());
     t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
     new(t) AsanThread(context->parent_tid,
                       /*start_routine*/NULL, /*arg*/NULL, &stack);
@@ -99,8 +101,8 @@ asan_block_context_t *alloc_asan_context(void *ctxt, dispatch_function_t func,
   asan_ctxt->block = ctxt;
   asan_ctxt->func = func;
   AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
-  CHECK(curr_thread);
-  asan_ctxt->parent_tid = curr_thread->tid();
+  CHECK(curr_thread || asanThreadRegistry().IsCurrentThreadDying());
+  asan_ctxt->parent_tid = asanThreadRegistry().GetCurrentTidOrMinusOne();
   return asan_ctxt;
 }
 
