@@ -214,7 +214,11 @@ static inline int CharCmp(unsigned char c1, unsigned char c2) {
 }
 
 int WRAP(strcmp)(const char *s1, const char *s2) {
-  ensure_asan_inited();
+  // strcmp is called from malloc_default_purgeable_zone()
+  // in __asan::ReplaceSystemAlloc() on Mac.
+  if (asan_init_is_running) {
+    return real_strcmp(s1, s2);
+  }
   unsigned char c1, c2;
   size_t i;
   for (i = 0; ; i++) {
@@ -267,7 +271,11 @@ size_t WRAP(strlen)(const char *s) {
 }
 
 int WRAP(strncmp)(const char *s1, const char *s2, size_t size) {
-  ensure_asan_inited();
+  // strncmp is called from malloc_default_purgeable_zone()
+  // in __asan::ReplaceSystemAlloc() on Mac.
+  if (asan_init_is_running) {
+    return real_strncmp(s1, s2, size);
+  }
   unsigned char c1 = 0, c2 = 0;
   size_t i;
   for (i = 0; i < size; i++) {
