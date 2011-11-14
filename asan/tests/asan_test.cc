@@ -1162,6 +1162,85 @@ TEST(AddressSanitizer, StrChrAndIndexOOBTest) {
   RunStrChrTest(&index);
 }
 
+TEST(AddressSanitizer, StrCmpAndFriendsLogicTest) {
+  // strcmp
+  EXPECT_EQ(0, strcmp("", ""));
+  EXPECT_EQ(0, strcmp("abcd", "abcd"));
+  EXPECT_EQ(-1, strcmp("ab", "ac"));
+  EXPECT_EQ(-1, strcmp("abc", "abcd"));
+  EXPECT_EQ(1, strcmp("acc", "abc"));
+  EXPECT_EQ(1, strcmp("abcd", "abc"));
+
+  // strncmp
+  EXPECT_EQ(0, strncmp("a", "b", 0));
+  EXPECT_EQ(0, strncmp("abcd", "abcd", 10));
+  EXPECT_EQ(0, strncmp("abcd", "abcef", 3));
+  EXPECT_EQ(-1, strncmp("abcde", "abcfa", 4));
+  EXPECT_EQ(-1, strncmp("a", "b", 5));
+  EXPECT_EQ(-1, strncmp("bc", "bcde", 4));
+  EXPECT_EQ(1, strncmp("xyz", "xyy", 10));
+  EXPECT_EQ(1, strncmp("baa", "aaa", 1));
+  EXPECT_EQ(1, strncmp("zyx", "", 2));
+}
+
+static inline char* MallocAndMemsetString(size_t size) {
+  char *s = Ident((char*)malloc(size));
+  memset(s, 'z', size);
+  return s;
+}
+
+TEST(AddressSanitizer, StrCmpOOBTest) {
+  size_t size = Ident(100);
+  char *s1 = MallocAndMemsetString(size);
+  char *s2 = MallocAndMemsetString(size);
+  s1[size - 1] = '\0';
+  s2[size - 1] = '\0';
+  // Normal strcmp calls
+  Ident(strcmp(s1, s2));
+  Ident(strcmp(s1, s2 + size - 1));
+  Ident(strcmp(s1 + size - 1, s2 + size - 1));
+  s1[size - 1] = 'z';
+  s2[size - 1] = 'x';
+  Ident(strcmp(s1, s2));
+  // One of arguments points to not allocated memory.
+  EXPECT_DEATH(Ident(strcmp)(s1 - 1, s2), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strcmp)(s1, s2 - 1), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strcmp)(s1 + size, s2), RightOOBErrorMessage(0));
+  EXPECT_DEATH(Ident(strcmp)(s1, s2 + size), RightOOBErrorMessage(0));
+  // Hit unallocated memory and die.
+  s2[size - 1] = 'z';
+  EXPECT_DEATH(Ident(strcmp)(s1, s1), RightOOBErrorMessage(0));
+  EXPECT_DEATH(Ident(strcmp)(s1 + size - 1, s2), RightOOBErrorMessage(0));
+  free(s1);
+  free(s2);
+}
+
+TEST(AddressSanitizer, StrNCmpOOBTest) {
+  size_t size = Ident(100);
+  char *s1 = MallocAndMemsetString(size);
+  char *s2 = MallocAndMemsetString(size);
+  s1[size - 1] = '\0';
+  s2[size - 1] = '\0';
+  // Normal strncmp calls
+  Ident(strncmp(s1, s2, size + 2));
+  s1[size - 1] = 'z';
+  s2[size - 1] = 'x';
+  Ident(strncmp(s1 + size - 2, s2 + size - 2, size));
+  s2[size - 1] = 'z';
+  Ident(strncmp(s1 - 1, s2 - 1, 0));
+  Ident(strncmp(s1 + size - 1, s2 + size - 1, 1));
+  // One of arguments points to not allocated memory.
+  EXPECT_DEATH(Ident(strncmp)(s1 - 1, s2, 1), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strncmp)(s1, s2 - 1, 1), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(strncmp)(s1 + size, s2, 1), RightOOBErrorMessage(0));
+  EXPECT_DEATH(Ident(strncmp)(s1, s2 + size, 1), RightOOBErrorMessage(0));
+  // Hit unallocated memory and die.
+  EXPECT_DEATH(Ident(strncmp)(s1 + 1, s2 + 1, size), RightOOBErrorMessage(0));
+  EXPECT_DEATH(Ident(strncmp)(s1 + size - 1, s2, 2), RightOOBErrorMessage(0));
+  free(s1);
+  free(s2);
+}
+
 static const char *kOverlapErrorMessage = "strcpy-param-overlap";
 
 TEST(AddressSanitizer, StrArgsOverlapTest) {

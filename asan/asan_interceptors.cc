@@ -31,9 +31,11 @@ memcpy_f      real_memcpy;
 memmove_f     real_memmove;
 memset_f      real_memset;
 strchr_f      real_strchr;
+strcmp_f      real_strcmp;
 strcpy_f      real_strcpy;
 strdup_f      real_strdup;
 strlen_f      real_strlen;
+strncmp_f     real_strncmp;
 strncpy_f     real_strncpy;
 strnlen_f     real_strnlen;
 
@@ -137,9 +139,11 @@ void InitializeAsanInterceptors() {
   real_memset = memset;
 #endif
   INTERCEPT_FUNCTION(strchr);
+  INTERCEPT_FUNCTION(strcmp);
   INTERCEPT_FUNCTION(strcpy);  // NOLINT
   INTERCEPT_FUNCTION(strdup);
   INTERCEPT_FUNCTION(strlen);
+  INTERCEPT_FUNCTION(strncmp);
   INTERCEPT_FUNCTION(strncpy);
 #ifndef __APPLE__
   INTERCEPT_FUNCTION(strnlen);
@@ -205,6 +209,24 @@ const char *WRAP(strchr)(const char *str, int c) {
   return result;
 }
 
+static inline int CharCmp(unsigned char c1, unsigned char c2) {
+  return (c1 == c2) ? 0 : (c1 < c2) ? -1 : 1;
+}
+
+int WRAP(strcmp)(const char *s1, const char *s2) {
+  ensure_asan_inited();
+  unsigned char c1, c2;
+  size_t i;
+  for (i = 0; ; i++) {
+    c1 = (unsigned char)s1[i];
+    c2 = (unsigned char)s2[i];
+    if (c1 != c2 || c1 == '\0') break;
+  }
+  ASAN_READ_RANGE(s1, i + 1);
+  ASAN_READ_RANGE(s2, i + 1);
+  return CharCmp(c1, c2);
+}
+
 char *WRAP(strcpy)(char *to, const char *from) {  // NOLINT
   // strcpy is called from malloc_default_purgeable_zone()
   // in __asan::ReplaceSystemAlloc() on Mac.
@@ -242,6 +264,20 @@ size_t WRAP(strlen)(const char *s) {
     ASAN_READ_RANGE(s, length + 1);
   }
   return length;
+}
+
+int WRAP(strncmp)(const char *s1, const char *s2, size_t size) {
+  ensure_asan_inited();
+  unsigned char c1 = 0, c2 = 0;
+  size_t i;
+  for (i = 0; i < size; i++) {
+    c1 = (unsigned char)s1[i];
+    c2 = (unsigned char)s2[i];
+    if (c1 != c2 || c1 == '\0') break;
+  }
+  ASAN_READ_RANGE(s1, std::min(i + 1, size));
+  ASAN_READ_RANGE(s2, std::min(i + 1, size));
+  return CharCmp(c1, c2);
 }
 
 char *WRAP(strncpy)(char *to, const char *from, size_t size) {

@@ -56,9 +56,11 @@ void *WRAP(memcpy)(void *to, const void *from, size_t size);
 void *WRAP(memmove)(void *to, const void *from, size_t size);
 void *WRAP(memset)(void *block, int c, size_t size);
 const char *WRAP(strchr)(const char *string, int c);
+int WRAP(strcmp)(const char *s1, const char *s2);
 char *WRAP(strcpy)(char *to, const char *from);  // NOLINT
 char *WRAP(strdup)(const char *s);
 size_t WRAP(strlen)(const char *s);
+int WRAP(strncmp)(const char *s1, const char *s2, size_t size);
 char *WRAP(strncpy)(char *to, const char *from, size_t size);
 #endif
 
@@ -69,9 +71,11 @@ typedef void* (*memcpy_f)(void *to, const void *from, size_t size);
 typedef void* (*memmove_f)(void *to, const void *from, size_t size);
 typedef void* (*memset_f)(void *block, int c, size_t size);
 typedef char* (*strchr_f)(const char *str, int c);
+typedef int (*strcmp_f)(const char *s1, const char *s2);
 typedef char* (*strcpy_f)(char *to, const char *from);
 typedef char* (*strdup_f)(const char *s);
 typedef size_t (*strlen_f)(const char *s);
+typedef int (*strncmp_f)(const char *s1, const char *s2, size_t size);
 typedef char* (*strncpy_f)(char *to, const char *from, size_t size);
 typedef size_t (*strnlen_f)(const char *s, size_t maxlen);
 
@@ -81,9 +85,11 @@ extern memcpy_f         real_memcpy;
 extern memmove_f        real_memmove;
 extern memset_f         real_memset;
 extern strchr_f         real_strchr;
+extern strcmp_f         real_strcmp;
 extern strcpy_f         real_strcpy;
 extern strdup_f         real_strdup;
 extern strlen_f         real_strlen;
+extern strncmp_f        real_strncmp;
 extern strncpy_f        real_strncpy;
 extern strnlen_f        real_strnlen;
 
