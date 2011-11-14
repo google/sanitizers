@@ -382,8 +382,9 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   AsanThread *t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
   AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
-  CHECK(curr_thread);
-  new(t) AsanThread(curr_thread->tid(), start_routine, arg, &stack);
+  CHECK(curr_thread || asanThreadRegistry().IsCurrentThreadDying());
+  new(t) AsanThread(asanThreadRegistry().GetCurrentTidOrMinusOne(),
+                    start_routine, arg, &stack);
   return real_pthread_create(thread, attr, asan_thread_start, t);
 }
 
