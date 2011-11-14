@@ -17,21 +17,42 @@ OS=$(shell uname)
 ROOT=$(shell pwd)
 PLATFORM=$(shell uname)
 
-CXX=g++ -Wall -fvisibility=hidden
-CC=gcc -Wall -fvisibility=hidden
-CLEANROOM_CXX=g++ -Wall
+ifeq ($(ARCH), arm)
+# Example make command line:
+# CROSSTOOL=$HOME/x-tools/arm-unknown-linux-gnueabi/ PATH=$CROSSTOOL/bin:$PATH make ARCH=arm asan_test
+CLANG_FLAGS= \
+	-ccc-host-triple arm-unknown-linux-gnueabi \
+	-march=armv7-a -mfloat-abi=softfp -mfp=neon \
+	-ccc-gcc-name arm-unknown-linux-gnueabi-g++ \
+	-I$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4/include \
+	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4 \
+	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4/arm-unknown-linux-gnueabi \
+	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/include \
+	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/include
+CC=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-gcc 
+CXX=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-g++
+else
+CLANG_FLAGS=
+CC=gcc
+CXX=g++
+endif
 
 CLANG_SRC=$(ROOT)/../clang_src
 CLANG_BUILD=$(ROOT)/../clang_build_$(OS)/Release+Asserts
-CLANG_CXX=$(CLANG_BUILD)/bin/clang++
+CLANG_CC=$(CLANG_BUILD)/bin/clang $(CLANG_FLAGS)
+CLANG_CXX=$(CLANG_BUILD)/bin/clang++ $(CLANG_FLAGS)
 CLANG_LIB=$(CLANG_BUILD)/lib
+
+CFLAGS:=-Wall -fvisibility=hidden
+
+CLEANROOM_CXX=$(CXX) -Wall
 
 INSTALL_DIR=../asan_clang_$(OS)
 BIN=bin_$(OS)
 
 LIBS=#-lpthread -ldl
-BITS=64
-SUFF=$(BITS)
+ARCH=x86_64
+
 ASAN_STACK=1
 ASAN_GLOBALS=1
 ASAN_USE_CALL=1
@@ -42,8 +63,27 @@ ASAN_HAS_EXCEPTIONS=1
 ASAN_FLEXIBLE_MAPPING_AND_OFFSET=0
 ASAN_HAS_BLACKLIST=1
 ASAN_NEEDS_SEGV=1
-
 ASAN_PIE=0
+
+ifeq ($(ARCH), x86)
+BITS=32
+SUFF=$(BITS)
+CFLAGS:=$(CFLAGS) -m$(BITS)
+endif
+
+ifeq ($(ARCH), x86_64)
+BITS=64
+SUFF=$(BITS)
+CFLAGS:=$(CFLAGS) -m$(BITS)
+endif
+
+ifeq ($(ARCH), arm)
+BITS=32
+SUFF=_arm
+CFLAGS:=$(CFLAGS) -march=armv7-a
+ASAN_HAS_EXCEPTIONS=0
+endif
+
 PIE=
 ifeq ($(ASAN_PIE), 1)
   PIE=-fPIE -pie
@@ -135,7 +175,7 @@ endif
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
-GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)-$(BITS)
+GTEST_MAKE_DIR=$(GTEST_ROOT)/make-$(OS)$(SUFF)
 GTEST_LIB=$(GTEST_MAKE_DIR)/gtest-all.o
 
 all: b64 b32
@@ -151,14 +191,14 @@ t32: b32
 	$(BIN)/asan_test32
 
 b64: | $(BIN)
-	$(MAKE) BITS=64 asan_test asan_benchmarks
+	$(MAKE) ARCH=x86_64 asan_test asan_benchmarks
 b32: | $(BIN)
-	$(MAKE) BITS=32 asan_test asan_benchmarks
+	$(MAKE) ARCH=x86 asan_test asan_benchmarks
 
 lib32:
-	$(MAKE) BITS=32 lib
+	$(MAKE) ARCH=x86_64 lib
 lib64:
-	$(MAKE) BITS=64 lib
+	$(MAKE) ARCH=x86 lib
 
 $(BIN):
 	mkdir -p $(BIN)
@@ -183,19 +223,19 @@ install_lib: | $(INSTALL_DIR)
 	cp -v $(CLANG_BUILD)/lib/libasan*.a $(INSTALL_DIR)/lib
 
 $(BIN)/asan_noinst_test$(SUFF).o: tests/asan_noinst_test.cc $(RTL_HDR) Makefile
-	$(CLEANROOM_CXX) $(PIE) -m$(BITS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
+	$(CLEANROOM_CXX) $(PIE) $(CFLAGS) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@
 
 $(BIN)/asan_break_optimization$(SUFF).o: tests/asan_break_optimization.cc Makefile
-	$(CLEANROOM_CXX) $(PIE) -m$(BITS) -c $< -O0 -o $@
+	$(CLEANROOM_CXX) $(PIE) $(CFLAGS) -c $< -O0 -o $@
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.cc $(RTL_HDR) Makefile
-	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ $(PIE) -m$(BITS)
+	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ $(PIE) $(CFLAGS)
 
 $(BIN)/%_test$(SUFF).o: tests/%_test.mm $(RTL_HDR) Makefile
-	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC $(PIE) -m$(BITS)
+	$(ASAN_CXX) $(GTEST_INCLUDE) -I. -g -c $< -O2 -o $@ -ObjC $(PIE) $(CFLAGS)
 
 $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
-	$(CXX) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
+	$(CXX) $(PIE) -fPIC -O0 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
 		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV) \
@@ -204,7 +244,7 @@ $(BIN)/%$(SUFF).o: %.cc $(RTL_HDR) Makefile
 		$(ASAN_FLAGS)
 
 $(BIN)/%$(SUFF).o: %.c $(RTL_HDR) Makefile
-	$(CC) $(PIE) -m$(BITS) -fPIC -O3 -c -o $@ -g $< -I../third_party \
+	$(CC) $(PIE) -fPIC -O0 -c -o $@ -g $< -I../third_party \
 		-DASAN_REVISION=\"$(SVNVERSION)\" \
 		-DASAN_USE_SYSINFO=1 \
 		$(ASAN_FLAGS)
@@ -219,7 +259,7 @@ lib: $(LIBASAN_A)
 
 $(LIBASAN_A): $(BIN) $(CLANG_LIB) $(LIBASAN_OBJ) Makefile
 	ar ru $@ $(LIBASAN_OBJ)
-	$(CXX) -shared -m$(BITS) $(LIBASAN_OBJ) $(LD_FLAGS) -o $(BIN)/libasan$(BITS).so
+	$(CXX) -shared $(CFLAGS) $(LIBASAN_OBJ) $(LD_FLAGS) -o $(BIN)/libasan$(SUFF).so
 
 
 TEST_OBJECTS_COMMON=\
@@ -241,11 +281,11 @@ TEST_OBJECTS=$(TEST_OBJECTS_COMMON)
 endif
 
 $(BIN)/asan_test$(SUFF): $(TEST_OBJECTS) $(LIBASAN_A) Makefile tests/asan_test.ignore $(GTEST_LIB)
-	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(TEST_OBJECTS) \
+	$(ASAN_LD) $(PIE) $(CFLAGS) -g -O3 $(TEST_OBJECTS) \
 		$(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB) $(ASAN_LD_TAIL)
 
 $(BIN)/asan_benchmarks$(SUFF): $(BENCHMARK_OBJECTS) $(LIBASAN_A) Makefile $(GTEST_LIB)
-	$(ASAN_LD) $(PIE) -m$(BITS) -g -O3 $(BENCHMARK_OBJECTS) \
+	$(ASAN_LD) $(PIE) $(CFLAGS) -g -O3 $(BENCHMARK_OBJECTS) \
 		$(LD_FLAGS) -o $@ $(LIBS) $(GTEST_LIB) $(ASAN_LD_TAIL)
 
 asan_test: $(BIN)/asan_test$(SUFF)
@@ -256,7 +296,7 @@ asan_benchmarks: $(BIN)/asan_benchmarks$(SUFF)
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) -m$(BITS) -g -w" \
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(PIE) $(CFLAGS) -g -w" \
 	  CXX="$(CLANG_ASAN_CXX)"
 
 RTL_LINT_FITLER=-readability/casting,-readability/check,-build/include,-build/header_guard,-build/class,-legal/copyright
