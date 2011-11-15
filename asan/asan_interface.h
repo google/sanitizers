@@ -61,6 +61,10 @@ extern "C" {
                            uintptr_t addr, bool is_write, size_t access_size)
     __attribute__((visibility("default")));
 
+  // Sets the exit code to use when reporting an error.
+  // Returns the old value.
+  int __asan_set_error_exit_code(int exit_code);
+
   // Returns the estimated number of bytes that will be reserved by allocator
   // for request of "size" bytes. If ASan allocator can't allocate that much
   // memory, returns the maximal possible allocation size, otherwise returns

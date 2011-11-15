@@ -57,6 +57,7 @@ extern bool   FLAG_replace_intrin;
 extern bool   FLAG_fast_unwind;
 extern bool   FLAG_use_fake_stack;
 extern size_t FLAG_max_malloc_fill_size;
+extern int    FLAG_exitcode;
 
 extern int asan_inited;
 // Used to avoid infinite recursion in __asan_init().
@@ -65,7 +66,7 @@ extern bool asan_init_is_running;
 enum LinkerInitialized { LINKER_INITIALIZED = 0 };
 
 #ifndef ASAN_DIE
-#define ASAN_DIE _exit(EXIT_FAILURE)
+#define ASAN_DIE _exit(FLAG_exitcode)
 #endif  // ASAN_DIE
 
 #define CHECK(cond) do { if (!(cond)) { \

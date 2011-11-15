@@ -209,3 +209,13 @@ TEST(AddressSanitizerInterface, ManyThreadsWithStatsStressTest) {
   EXPECT_LT(after_test, before_test + (1UL<<20));
   __asan_enable_statistics(old_stats_value);
 }
+
+TEST(AddressSanitizerInterface, ExitCode) {
+  int original_exit_code = __asan_set_error_exit_code(7);
+  EXPECT_EXIT(DoDoubleFree(), ::testing::ExitedWithCode(7), "");
+  EXPECT_EQ(7, __asan_set_error_exit_code(8));
+  EXPECT_EXIT(DoDoubleFree(), ::testing::ExitedWithCode(8), "");
+  EXPECT_EQ(8, __asan_set_error_exit_code(original_exit_code));
+  EXPECT_EXIT(DoDoubleFree(),
+              ::testing::ExitedWithCode(original_exit_code), "");
+}

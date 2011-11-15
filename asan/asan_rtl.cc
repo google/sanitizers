@@ -74,7 +74,8 @@ bool   FLAG_replace_str;
 bool   FLAG_replace_intrin;
 bool   FLAG_stats;
 size_t FLAG_max_malloc_fill_size = 0;
-bool FLAG_use_fake_stack;
+bool   FLAG_use_fake_stack;
+int    FLAG_exitcode = EXIT_FAILURE;
 
 // -------------------------- Globals --------------------- {{{1
 int asan_inited;
@@ -490,6 +491,12 @@ int munlockall(void) {
 }  // extern "C"
 
 // ---------------------- Interface ---------------- {{{1
+int __asan_set_error_exit_code(int exit_code) {
+  int old = FLAG_exitcode;
+  FLAG_exitcode = exit_code;
+  return old;
+}
+
 void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
                          uintptr_t addr, bool is_write, size_t access_size) {
   // Do not print more than one report, otherwise they will mix up.
@@ -608,6 +615,7 @@ void __asan_init() {
   FLAG_replace_str = IntFlagValue(options, "replace_str=", 1);
   FLAG_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
   FLAG_use_fake_stack = IntFlagValue(options, "use_fake_stack=", 1);
+  FLAG_exitcode = IntFlagValue(options, "exitcode=", EXIT_FAILURE);
 
   if (FLAG_atexit) {
     atexit(asan_atexit);
