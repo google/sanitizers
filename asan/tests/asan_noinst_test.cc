@@ -85,7 +85,11 @@ static void MallocStress(size_t n) {
 
 
 TEST(AddressSanitizer, NoInstMallocTest) {
+#ifdef __arm__
+  MallocStress(300000);
+#else
   MallocStress(1000000);
+#endif
 }
 
 static void PrintShadow(const char *tag, uintptr_t ptr, size_t size) {
