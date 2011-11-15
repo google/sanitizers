@@ -98,7 +98,7 @@ void TestGCDDispatchSync() {
 
 // libdispatch spawns a rather small number of threads and reuses them. We need
 // to make sure AddressSanitizer handles the reusing correctly.
-void TestGCDReuseWqthreads() {
+void TestGCDReuseWqthreadsAsync() {
   dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
   dispatch_block_t block_alloc = ^{ worker_do_alloc(1024); };
   dispatch_block_t block_crash = ^{ worker_do_crash(1024); };
@@ -106,6 +106,23 @@ void TestGCDReuseWqthreads() {
     dispatch_async(queue, block_alloc);
   }
   dispatch_async(queue, block_crash);
+  // TODO(glider): this is hacky. Need to wait for the workers instead.
+  sleep(1);
+}
+
+// Try to trigger abnormal behaviour of dispatch_sync() being unhandled by us.
+void TestGCDReuseWqthreadsSync() {
+  dispatch_queue_t queue[4];
+  queue[0] = dispatch_get_global_queue(2, 0);
+  queue[1] = dispatch_get_global_queue(0, 0);
+  queue[2] = dispatch_get_global_queue(-2, 0);
+  queue[3] = dispatch_queue_create("my_queue", NULL);
+  dispatch_block_t block_alloc = ^{ worker_do_alloc(1024); };
+  dispatch_block_t block_crash = ^{ worker_do_crash(1024); };
+  for (int i = 0; i < 1000; i++) {
+    dispatch_sync(queue[i % 4], block_alloc);
+  }
+  dispatch_sync(queue[3], block_crash);
   // TODO(glider): this is hacky. Need to wait for the workers instead.
   sleep(1);
 }

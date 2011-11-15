@@ -6,7 +6,8 @@ extern "C" {
   void CallFreeOnWorkqueue(void *mem);
   void TestGCDDispatchAsync();
   void TestGCDDispatchSync();
-  void TestGCDReuseWqthreads();
+  void TestGCDReuseWqthreadsAsync();
+  void TestGCDReuseWqthreadsSync();
   void TestGCDDispatchAfter();
   void TestGCDInTSDDestructor();
 }

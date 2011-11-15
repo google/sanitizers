@@ -1780,10 +1780,16 @@ TEST(AddressSanitizerMac, DISABLED_GCDDispatchSync) {
 }
 
 
-TEST(AddressSanitizerMac, DISABLED_GCDReuseWqthreads) {
+TEST(AddressSanitizerMac, DISABLED_GCDReuseWqthreadsAsync) {
   // Make sure the whole ASan report is printed, i.e. that we don't die
   // on a CHECK.
-  EXPECT_DEATH(TestGCDReuseWqthreads(), "Shadow byte and word");
+  EXPECT_DEATH(TestGCDReuseWqthreadsAsync(), "Shadow byte and word");
+}
+
+TEST(AddressSanitizerMac, DISABLED_GCDReuseWqthreadsSync) {
+  // Make sure the whole ASan report is printed, i.e. that we don't die
+  // on a CHECK.
+  EXPECT_DEATH(TestGCDReuseWqthreadsSync(), "Shadow byte and word");
 }
 
 TEST(AddressSanitizerMac, DISABLED_GCDDispatchAfter) {
