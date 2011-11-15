@@ -195,9 +195,9 @@ b64: | $(BIN)
 b32: | $(BIN)
 	$(MAKE) ARCH=x86 asan_test asan_benchmarks
 
-lib32:
-	$(MAKE) ARCH=x86_64 lib
 lib64:
+	$(MAKE) ARCH=x86_64 lib
+lib32:
 	$(MAKE) ARCH=x86 lib
 
 $(BIN):
