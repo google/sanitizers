@@ -150,3 +150,44 @@ void CallFreeOnWorkqueue(void *tsd) {
   // Do not wait for the worker to free the memory -- nobody is going to touch
   // it.
 }
+
+void TestGCDSourceEvent() {
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
+  dispatch_source_t timer =
+      dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+  // Schedule the timer one second from the current time.
+  dispatch_time_t milestone =
+      dispatch_time(DISPATCH_TIME_NOW, 1LL * NSEC_PER_SEC);
+
+  dispatch_source_set_timer(timer, milestone, DISPATCH_TIME_FOREVER, 0);
+  char *mem = malloc(10);
+  dispatch_source_set_event_handler(timer, ^{
+    mem[10] = 1;
+  });
+  dispatch_resume(timer);
+  sleep(2);
+}
+
+void TestGCDSourceCancel() {
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
+  dispatch_source_t timer =
+      dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+  // Schedule the timer one second from the current time.
+  dispatch_time_t milestone =
+      dispatch_time(DISPATCH_TIME_NOW, 1LL * NSEC_PER_SEC);
+
+  dispatch_source_set_timer(timer, milestone, DISPATCH_TIME_FOREVER, 0);
+  char *mem = malloc(10);
+  // Both dispatch_source_set_cancel_handler() and
+  // dispatch_source_set_event_handler() use dispatch_barrier_async_f().
+  // It's tricky to test dispatch_source_set_cancel_handler() separately,
+  // so we test both here.
+  dispatch_source_set_event_handler(timer, ^{
+    dispatch_source_cancel(timer);
+  });
+  dispatch_source_set_cancel_handler(timer, ^{
+    mem[10] = 1;
+  });
+  dispatch_resume(timer);
+  sleep(2);
+}
