@@ -4,7 +4,8 @@ extern "C" {
   void CFAllocatorMallocDoubleFree();
   void CFAllocatorMallocZoneDoubleFree();
   void CallFreeOnWorkqueue(void *mem);
-  void TestGCDRunBlock();
+  void TestGCDDispatchAsync();
+  void TestGCDDispatchSync();
   void TestGCDReuseWqthreads();
   void TestGCDDispatchAfter();
   void TestGCDInTSDDestructor();

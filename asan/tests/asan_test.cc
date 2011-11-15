@@ -1767,11 +1767,18 @@ TEST(AddressSanitizerMac, DISABLED_CFAllocatorMallocZoneDoubleFree) {
   EXPECT_DEATH(CFAllocatorMallocZoneDoubleFree(), "attempting double-free");
 }
 
-TEST(AddressSanitizerMac, DISABLED_GCDRunBlock) {
+TEST(AddressSanitizerMac, DISABLED_GCDDispatchAsync) {
   // Make sure the whole ASan report is printed, i.e. that we don't die
   // on a CHECK.
-  EXPECT_DEATH(TestGCDRunBlock(), "Shadow byte and word");
+  EXPECT_DEATH(TestGCDDispatchAsync(), "Shadow byte and word");
 }
+
+TEST(AddressSanitizerMac, DISABLED_GCDDispatchSync) {
+  // Make sure the whole ASan report is printed, i.e. that we don't die
+  // on a CHECK.
+  EXPECT_DEATH(TestGCDDispatchSync(), "Shadow byte and word");
+}
+
 
 TEST(AddressSanitizerMac, DISABLED_GCDReuseWqthreads) {
   // Make sure the whole ASan report is printed, i.e. that we don't die

@@ -70,16 +70,28 @@ void worker_do_crash(int size) {
   free(mem);
 }
 
-// Test the Grand Central Dispatch. See
+// Tests for the Grand Central Dispatch. See
 // http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
 // for the reference.
-void TestGCDRunBlock() {
+
+void TestGCDDispatchAsync() {
   dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
   dispatch_block_t block = ^{ worker_do_crash(1024); };
   // dispatch_async() runs the task on a worker thread that does not go through
   // pthread_create(). We need to verify that AddressSanitizer notices that the
   // thread has started.
   dispatch_async(queue, block);
+  // TODO(glider): this is hacky. Need to wait for the worker instead.
+  sleep(1);
+}
+
+void TestGCDDispatchSync() {
+  dispatch_queue_t queue = dispatch_get_global_queue(2, 0);
+  dispatch_block_t block = ^{ worker_do_crash(1024); };
+  // dispatch_sync() runs the task on a worker thread that does not go through
+  // pthread_create(). We need to verify that AddressSanitizer notices that the
+  // thread has started.
+  dispatch_sync(queue, block);
   // TODO(glider): this is hacky. Need to wait for the worker instead.
   sleep(1);
 }
