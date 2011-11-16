@@ -96,6 +96,7 @@ dispatch_async_f_f real_dispatch_async_f;
 dispatch_sync_f_f real_dispatch_sync_f;
 dispatch_after_f_f real_dispatch_after_f;
 dispatch_barrier_async_f_f real_dispatch_barrier_async_f;
+dispatch_group_async_f_f real_dispatch_group_async_f;
 pthread_workqueue_additem_np_f real_pthread_workqueue_additem_np;
 #endif
 
@@ -644,6 +645,7 @@ void __asan_init() {
   INTERCEPT_FUNCTION(dispatch_sync_f);
   INTERCEPT_FUNCTION(dispatch_after_f);
   INTERCEPT_FUNCTION(dispatch_barrier_async_f);
+  INTERCEPT_FUNCTION(dispatch_group_async_f);
   // We don't need to intercept pthread_workqueue_additem_np() to support the
   // libdispatch API, but it helps us to debug the unsupported functions. Let's
   // intercept it only during verbose runs.

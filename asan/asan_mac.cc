@@ -34,6 +34,7 @@ extern dispatch_async_f_f real_dispatch_async_f;
 extern dispatch_sync_f_f real_dispatch_sync_f;
 extern dispatch_after_f_f real_dispatch_after_f;
 extern dispatch_barrier_async_f_f real_dispatch_barrier_async_f;
+extern dispatch_group_async_f_f real_dispatch_group_async_f;
 extern pthread_workqueue_additem_np_f real_pthread_workqueue_additem_np;
 
 // No-op. Mac does not support static linkage anyway.
@@ -57,6 +58,8 @@ ssize_t asan_write(int fd, const void *buf, size_t count) {
 //   dispatch_sync()
 //   dispatch_after_f()
 //   dispatch_after()
+//   dispatch_group_async_f()
+//   dispatch_group_async()
 // TODO(glider): libdispatch API contains other functions that we don't support
 // yet.
 //
@@ -131,6 +134,7 @@ asan_block_context_t *alloc_asan_context(void *ctxt, dispatch_function_t func,
   return asan_ctxt;
 }
 
+// TODO(glider): can we reduce code duplication by introducing a macro?
 extern "C"
 int WRAP(dispatch_async_f)(dispatch_queue_t dq,
                            void *ctxt,
@@ -182,19 +186,35 @@ void WRAP(dispatch_barrier_async_f)(dispatch_queue_t dq,
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
   if (FLAG_v >= 2) {
-    Report("dispatch_barrier_async_f: %p\n", asan_ctxt);
+    Report("dispatch_barrier_async_f(): context: %p, pthread_self: %p\n",
+           asan_ctxt, pthread_self());
     PRINT_CURRENT_STACK();
   }
   real_dispatch_barrier_async_f(dq, (void*)asan_ctxt,
                                 asan_dispatch_call_block_and_release);
 }
 
-// The following stuff was extremely helpful while looking for the unhandled
-// functions that spawned jobs on Chromium shutdown. If the verbosity level is
-// 2 or greater, we wrap pthread_workqueue_additem_np() in order to find the
-// points of worker thread creation (each of such threads may be used to run
-// several tasks, that's why this is not enough to support the whole libdispatch
-// API.
+extern "C"
+void WRAP(dispatch_group_async_f)(dispatch_group_t group,
+                                  dispatch_queue_t dq,
+                                  void *ctxt, dispatch_function_t func) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  if (FLAG_v >= 2) {
+    Report("dispatch_group_async_f(): context: %p, pthread_self: %p\n",
+           asan_ctxt, pthread_self());
+    PRINT_CURRENT_STACK();
+  }
+  real_dispatch_group_async_f(group, dq, (void*)asan_ctxt,
+                              asan_dispatch_call_block_and_release);
+}
+
+// The following stuff has been extremely helpful while looking for the
+// unhandled functions that spawned jobs on Chromium shutdown. If the verbosity
+// level is 2 or greater, we wrap pthread_workqueue_additem_np() in order to
+// find the points of worker thread creation (each of such threads may be used
+// to run several tasks, that's why this is not enough to support the whole
+// libdispatch API.
 extern "C"
 void *wrap_workitem_func(void *arg) {
   if (FLAG_v >= 2) {

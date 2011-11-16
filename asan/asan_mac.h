@@ -35,6 +35,9 @@ typedef int (*dispatch_after_f_f)(dispatch_time_t when,
 typedef void (*dispatch_barrier_async_f_f)(dispatch_queue_t dq,
                                            void *ctxt,
                                            dispatch_function_t func);
+typedef void (*dispatch_group_async_f_f)(dispatch_group_t group,
+                                         dispatch_queue_t dq,
+                                         void *ctxt, dispatch_function_t func);
 typedef int (*pthread_workqueue_additem_np_f)(pthread_workqueue_t workq,
     void *(*workitem_func)(void *), void * workitem_arg,
     pthread_workitem_handle_t * itemhandlep, unsigned int *gencountp);
@@ -49,6 +52,14 @@ typedef struct {
 
 
 extern "C" {
+// dispatch_barrier_async_f() is not declared in <dispatch/dispatch.h>.
+void dispatch_barrier_async_f(dispatch_queue_t dq,
+                              void *ctxt, dispatch_function_t func);
+// Neither is pthread_workqueue_additem_np().
+int pthread_workqueue_additem_np(pthread_workqueue_t workq,
+    void *(*workitem_func)(void *), void * workitem_arg,
+    pthread_workitem_handle_t * itemhandlep, unsigned int *gencountp);
+
 int WRAP(dispatch_async_f)(dispatch_queue_t dq,
                            void *ctxt,
                            dispatch_function_t func);
@@ -59,19 +70,11 @@ int WRAP(dispatch_after_f)(dispatch_time_t when,
                            dispatch_queue_t dq,
                            void *ctxt,
                            dispatch_function_t func);
-
-// dispatch_barrier_async_f() is not declared in <dispatch/dispatch.h>.
-void dispatch_barrier_async_f(dispatch_queue_t dq,
-                              void *ctxt, dispatch_function_t func);
-// Neither is pthread_workqueue_additem_np().
-int pthread_workqueue_additem_np(pthread_workqueue_t workq,
-    void *(*workitem_func)(void *), void * workitem_arg,
-    pthread_workitem_handle_t * itemhandlep, unsigned int *gencountp);
-
-
 void WRAP(dispatch_barrier_async_f)(dispatch_queue_t dq,
                                     void *ctxt, dispatch_function_t func);
-
+void WRAP(dispatch_group_async_f)(dispatch_group_t group,
+                                  dispatch_queue_t dq,
+                                  void *ctxt, dispatch_function_t func);
 int WRAP(pthread_workqueue_additem_np)(pthread_workqueue_t workq,
     void *(*workitem_func)(void *), void * workitem_arg,
     pthread_workitem_handle_t * itemhandlep, unsigned int *gencountp);
