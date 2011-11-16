@@ -53,21 +53,12 @@ void AsanStats::Print() {
          malloc_large, malloc_small_slow);
 }
 
-static inline void PrintDisabledStatsHint() {
-  static bool disabled_stats_hint_printed = false;
-  if (!FLAG_stats && !disabled_stats_hint_printed) {
-    Printf("HINT: ASan doesn't collect stats. Set ASAN_OPTIONS=stats=1 or "
-           "call __asan_enable_statistics(true)\n");
-    disabled_stats_hint_printed = true;
-  }
-}
-
 static void PrintAccumulatedStats() {
+  if (!FLAG_stats) return;
   AsanStats stats = asanThreadRegistry().GetAccumulatedStats();
   // Use lock to keep reports from mixing up.
   static AsanLock print_lock(LINKER_INITIALIZED);
   ScopedLock lock(&print_lock);
-  PrintDisabledStatsHint();
   stats.Print();
 }
 
