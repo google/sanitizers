@@ -128,7 +128,9 @@ void AsanThreadRegistry::SetCurrent(AsanThread *t) {
   if (FLAG_v >=2) {
     Report("SetCurrent: %p for thread %p\n", t, pthread_self());
   }
-  CHECK(pthread_getspecific(tls_key_) == NULL);
+  // Make sure we do not reset the current AsanThread.
+  intptr_t old_key = (intptr_t)pthread_getspecific(tls_key_);
+  CHECK(!old_key || old_key % 2);
   CHECK(0 == pthread_setspecific(tls_key_, t));
   CHECK(pthread_getspecific(tls_key_) == t);
 }
