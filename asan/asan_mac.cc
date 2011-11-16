@@ -34,6 +34,7 @@ extern dispatch_async_f_f real_dispatch_async_f;
 extern dispatch_sync_f_f real_dispatch_sync_f;
 extern dispatch_after_f_f real_dispatch_after_f;
 extern dispatch_barrier_async_f_f real_dispatch_barrier_async_f;
+extern pthread_workqueue_additem_np_f real_pthread_workqueue_additem_np;
 
 // No-op. Mac does not support static linkage anyway.
 void *AsanDoesNotSupportStaticLinkage() {
@@ -80,7 +81,11 @@ extern "C"
 void asan_dispatch_call_block_and_release(void *block) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   asan_block_context_t *context = (asan_block_context_t*)block;
-
+  if (FLAG_v >= 2) {
+    Report("asan_dispatch_call_block_and_release(): "
+           "context: %p, pthread_self: %p\n",
+           block, pthread_self());
+  }
   AsanThread *t = asanThreadRegistry().GetCurrent();
   if (t) {
     // We've already executed a job on this worker thread. Let's reuse the
@@ -89,14 +94,14 @@ void asan_dispatch_call_block_and_release(void *block) {
       // Flush the statistics and update the current thread's tid.
       asanThreadRegistry().UnregisterThread(t);
       asanThreadRegistry().RegisterThread(t, context->parent_tid, &stack);
-    } else {
-      // The worker is being executed on the main thread -- we are draining
-      // the dispatch queue.
-      // TODO(glider): any checks here?
     }
+    // Otherwise the worker is being executed on the main thread -- we are
+    // draining the dispatch queue.
+    // TODO(glider): any checks for that?
   } else {
-    // A worker job cannot be executed on a dying thread.
-    CHECK(!asanThreadRegistry().IsCurrentThreadDying());
+    // It's incorrect to assert that the current thread is not dying: at least
+    // the callbacks from dispatch_sync() are sometimes called after the TSD is
+    // destroyed.
     t = (AsanThread*)asan_malloc(sizeof(AsanThread), &stack);
     new(t) AsanThread(context->parent_tid,
                       /*start_routine*/NULL, /*arg*/NULL, &stack);
@@ -132,6 +137,11 @@ int WRAP(dispatch_async_f)(dispatch_queue_t dq,
                            dispatch_function_t func) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  if (FLAG_v >= 2) {
+    Report("dispatch_async_f(): context: %p, pthread_self: %p\n",
+        asan_ctxt, pthread_self());
+    PRINT_CURRENT_STACK();
+  }
   return real_dispatch_async_f(dq, (void*)asan_ctxt,
                                asan_dispatch_call_block_and_release);
 }
@@ -142,6 +152,11 @@ int WRAP(dispatch_sync_f)(dispatch_queue_t dq,
                           dispatch_function_t func) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  if (FLAG_v >= 2) {
+    Report("dispatch_sync_f(): context: %p, pthread_self: %p\n",
+        asan_ctxt, pthread_self());
+    PRINT_CURRENT_STACK();
+  }
   return real_dispatch_sync_f(dq, (void*)asan_ctxt,
                               asan_dispatch_call_block_and_release);
 }
@@ -153,6 +168,10 @@ int WRAP(dispatch_after_f)(dispatch_time_t when,
                            dispatch_function_t func) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  if (FLAG_v >= 2) {
+    Report("dispatch_after_f: %p\n", asan_ctxt);
+    PRINT_CURRENT_STACK();
+  }
   return real_dispatch_after_f(when, dq, (void*)asan_ctxt,
                                asan_dispatch_call_block_and_release);
 }
@@ -162,20 +181,31 @@ void WRAP(dispatch_barrier_async_f)(dispatch_queue_t dq,
                                     void *ctxt, dispatch_function_t func) {
   GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
   asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  if (FLAG_v >= 2) {
+    Report("dispatch_barrier_async_f: %p\n", asan_ctxt);
+    PRINT_CURRENT_STACK();
+  }
   real_dispatch_barrier_async_f(dq, (void*)asan_ctxt,
                                 asan_dispatch_call_block_and_release);
 }
 
-#if 0
-// TODO(glider): the following stuff was extremely helpful while looking for
-// the unhandled functions that spawned jobs on Chromium shutdown.
-// Maybe the following code should be put under #ifdef DEBUG.
+// The following stuff was extremely helpful while looking for the unhandled
+// functions that spawned jobs on Chromium shutdown. If the verbosity level is
+// 2 or greater, we wrap pthread_workqueue_additem_np() in order to find the
+// points of worker thread creation (each of such threads may be used to run
+// several tasks, that's why this is not enough to support the whole libdispatch
+// API.
 extern "C"
 void *wrap_workitem_func(void *arg) {
-  Report("wrap_workitem_func: %p, pthread_self: %p\n", arg, pthread_self());
+  if (FLAG_v >= 2) {
+    Report("wrap_workitem_func: %p, pthread_self: %p\n", arg, pthread_self());
+  }
   asan_block_context_t *ctxt = (asan_block_context_t*)arg;
   worker_t fn = (worker_t)(ctxt->func);
-  return fn(ctxt->block);
+  void *result =  fn(ctxt->block);
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_free(arg, &stack);
+  return result;
 }
 
 extern "C"
@@ -187,13 +217,11 @@ int WRAP(pthread_workqueue_additem_np)(pthread_workqueue_t workq,
       (asan_block_context_t*) asan_malloc(sizeof(asan_block_context_t), &stack);
   asan_ctxt->block = workitem_arg;
   asan_ctxt->func = (dispatch_function_t)workitem_func;
-  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
   asan_ctxt->parent_tid = asanThreadRegistry().GetCurrentTidOrMinusOne();
-
-  Report("pthread_workqueue_additem_np: %p\n", asan_ctxt);
-  PRINT_CURRENT_STACK();
-
+  if (FLAG_v >= 2) {
+    Report("pthread_workqueue_additem_np: %p\n", asan_ctxt);
+    PRINT_CURRENT_STACK();
+  }
   return real_pthread_workqueue_additem_np(workq, wrap_workitem_func, asan_ctxt,
                                            itemhandlep, gencountp);
 }
-#endif
