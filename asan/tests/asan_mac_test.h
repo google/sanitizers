@@ -12,4 +12,5 @@ extern "C" {
   void TestGCDInTSDDestructor();
   void TestGCDSourceEvent();
   void TestGCDSourceCancel();
+  void TestGCDGroupAsync();
 }

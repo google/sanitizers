@@ -191,3 +191,13 @@ void TestGCDSourceCancel() {
   dispatch_resume(timer);
   sleep(2);
 }
+
+void TestGCDGroupAsync() {
+  dispatch_queue_t queue = dispatch_get_global_queue(0, 0);
+  dispatch_group_t group = dispatch_group_create(); 
+  char *mem = malloc(10);
+  dispatch_group_async(group, queue, ^{
+    mem[10] = 1;
+  });
+  dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+}

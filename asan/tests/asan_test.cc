@@ -1810,6 +1810,13 @@ TEST(AddressSanitizerMac, DISABLED_GCDSourceCancel) {
   EXPECT_DEATH(TestGCDSourceCancel(), "Shadow byte and word");
 }
 
+TEST(AddressSanitizerMac, DISABLED_GCDGroupAsync) {
+  // Make sure the whole ASan report is printed, i.e. that we don't die
+  // on a CHECK.
+  EXPECT_DEATH(TestGCDGroupAsync(), "Shadow byte and word");
+}
+
+
 void *MallocIntrospectionLockWorker(void *_) {
   const int kNumPointers = 100;
   int i;
