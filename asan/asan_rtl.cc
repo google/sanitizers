@@ -93,7 +93,9 @@ typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
                               void *(*start_routine) (void *), void *arg);
 #ifdef __APPLE__
 dispatch_async_f_f real_dispatch_async_f;
+dispatch_sync_f_f real_dispatch_sync_f;
 dispatch_after_f_f real_dispatch_after_f;
+dispatch_barrier_async_f_f real_dispatch_barrier_async_f;
 #endif
 
 sigaction_f             real_sigaction;
@@ -346,7 +348,8 @@ static void asan_atexit() {
 }
 
 void CheckFailed(const char *cond, const char *file, int line) {
-  Report("CHECK failed: %s at %s:%d\n", cond, file, line);
+  Report("CHECK failed: %s at %s:%d, pthread_self=%p\n",
+         cond, file, line, pthread_self());
   PRINT_CURRENT_STACK();
   ShowStatsAndAbort();
 }
@@ -637,7 +640,9 @@ void __asan_init() {
   INTERCEPT_FUNCTION(pthread_create);
 #ifdef __APPLE__
   INTERCEPT_FUNCTION(dispatch_async_f);
+  INTERCEPT_FUNCTION(dispatch_sync_f);
   INTERCEPT_FUNCTION(dispatch_after_f);
+  INTERCEPT_FUNCTION(dispatch_barrier_async_f);
 #else
   // On Darwin siglongjmp tailcalls longjmp, so we don't want to intercept it
   // there.

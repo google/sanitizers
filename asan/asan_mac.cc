@@ -31,7 +31,9 @@
 namespace __asan {
 
 extern dispatch_async_f_f real_dispatch_async_f;
+extern dispatch_sync_f_f real_dispatch_sync_f;
 extern dispatch_after_f_f real_dispatch_after_f;
+extern dispatch_barrier_async_f_f real_dispatch_barrier_async_f;
 
 // No-op. Mac does not support static linkage anyway.
 void *AsanDoesNotSupportStaticLinkage() {
@@ -50,16 +52,29 @@ ssize_t asan_write(int fd, const void *buf, size_t count) {
 // Support for the following functions from libdispatch on Mac OS:
 //   dispatch_async_f()
 //   dispatch_async()
+//   dispatch_sync_f()
+//   dispatch_sync()
 //   dispatch_after_f()
 //   dispatch_after()
 // TODO(glider): libdispatch API contains other functions that we don't support
 // yet.
 //
-// I (glider) was referring to
-// git://github.com/DrPizza/libdispatch.git/libdispatch/src/queue.c
-// while making this change.
+// dispatch_sync() and dispatch_sync_f() are synchronous, although chances are
+// they can cause jobs to run on a thread different from the current one.
+// TODO(glider): if so, we need a test for this (otherwise we should remove
+// them).
+//
+// The following functions use dispatch_barrier_async_f() (which isn't a library
+// function but is exported) and are thus supported:
+//   dispatch_source_set_cancel_handler_f()
+//   dispatch_source_set_cancel_handler()
+//   dispatch_source_set_event_handler_f()
+//   dispatch_source_set_event_handler()
+//
 // The reference manual for Grand Central Dispatch is available at
-// http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
+//   http://developer.apple.com/library/mac/#documentation/Performance/Reference/GCD_libdispatch_Ref/Reference/reference.html
+// The implementation details are at
+//   http://libdispatch.macosforge.org/trac/browser/trunk/src/queue.c
 
 extern "C"
 void asan_dispatch_call_block_and_release(void *block) {
@@ -70,10 +85,15 @@ void asan_dispatch_call_block_and_release(void *block) {
   if (t) {
     // We've already executed a job on this worker thread. Let's reuse the
     // AsanThread object.
-    CHECK(t != asanThreadRegistry().GetMain());
-    // Flush the statistics and update the current thread's tid.
-    asanThreadRegistry().UnregisterThread(t);
-    asanThreadRegistry().RegisterThread(t, context->parent_tid, &stack);
+    if (t != asanThreadRegistry().GetMain()) {
+      // Flush the statistics and update the current thread's tid.
+      asanThreadRegistry().UnregisterThread(t);
+      asanThreadRegistry().RegisterThread(t, context->parent_tid, &stack);
+    } else {
+      // The worker is being executed on the main thread -- we are draining
+      // the dispatch queue.
+      // TODO(glider): any checks here?
+    }
   } else {
     // A worker job cannot be executed on a dying thread.
     CHECK(!asanThreadRegistry().IsCurrentThreadDying());
@@ -117,6 +137,16 @@ int WRAP(dispatch_async_f)(dispatch_queue_t dq,
 }
 
 extern "C"
+int WRAP(dispatch_sync_f)(dispatch_queue_t dq,
+                          void *ctxt,
+                          dispatch_function_t func) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  return real_dispatch_sync_f(dq, (void*)asan_ctxt,
+                              asan_dispatch_call_block_and_release);
+}
+
+extern "C"
 int WRAP(dispatch_after_f)(dispatch_time_t when,
                            dispatch_queue_t dq,
                            void *ctxt,
@@ -126,3 +156,44 @@ int WRAP(dispatch_after_f)(dispatch_time_t when,
   return real_dispatch_after_f(when, dq, (void*)asan_ctxt,
                                asan_dispatch_call_block_and_release);
 }
+
+extern "C"
+void WRAP(dispatch_barrier_async_f)(dispatch_queue_t dq,
+                                    void *ctxt, dispatch_function_t func) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt = alloc_asan_context(ctxt, func, &stack);
+  real_dispatch_barrier_async_f(dq, (void*)asan_ctxt,
+                                asan_dispatch_call_block_and_release);
+}
+
+#if 0
+// TODO(glider): the following stuff was extremely helpful while looking for
+// the unhandled functions that spawned jobs on Chromium shutdown.
+// Maybe the following code should be put under #ifdef DEBUG.
+extern "C"
+void *wrap_workitem_func(void *arg) {
+  Report("wrap_workitem_func: %p, pthread_self: %p\n", arg, pthread_self());
+  asan_block_context_t *ctxt = (asan_block_context_t*)arg;
+  worker_t fn = (worker_t)(ctxt->func);
+  return fn(ctxt->block);
+}
+
+extern "C"
+int WRAP(pthread_workqueue_additem_np)(pthread_workqueue_t workq,
+    void *(*workitem_func)(void *), void * workitem_arg,
+    pthread_workitem_handle_t * itemhandlep, unsigned int *gencountp) {
+  GET_STACK_TRACE_HERE(kStackTraceMax, /*fast_unwind*/false);
+  asan_block_context_t *asan_ctxt =
+      (asan_block_context_t*) asan_malloc(sizeof(asan_block_context_t), &stack);
+  asan_ctxt->block = workitem_arg;
+  asan_ctxt->func = (dispatch_function_t)workitem_func;
+  AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
+  asan_ctxt->parent_tid = asanThreadRegistry().GetCurrentTidOrMinusOne();
+
+  Report("pthread_workqueue_additem_np: %p\n", asan_ctxt);
+  PRINT_CURRENT_STACK();
+
+  return real_pthread_workqueue_additem_np(workq, wrap_workitem_func, asan_ctxt,
+                                           itemhandlep, gencountp);
+}
+#endif
