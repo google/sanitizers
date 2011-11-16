@@ -57,6 +57,10 @@ static void DestroyAsanTsd(void *tsd) {
   }
   CHECK(0 == pthread_setspecific(asanThreadRegistry().GetTlsKey(),
                                  (void*)iter));
+  if (FLAG_v >= 2) {
+    Report("DestroyAsanTsd: writing %p to the TSD slot of thread %p\n",
+           (void*)iter, pthread_self());
+  }
 }
 
 AsanThreadRegistry::AsanThreadRegistry(LinkerInitialized x)
@@ -124,6 +128,7 @@ void AsanThreadRegistry::SetCurrent(AsanThread *t) {
   if (FLAG_v >=2) {
     Report("SetCurrent: %p for thread %p\n", t, pthread_self());
   }
+  CHECK(pthread_getspecific(tls_key_) == NULL);
   CHECK(0 == pthread_setspecific(tls_key_, t));
   CHECK(pthread_getspecific(tls_key_) == t);
 }
