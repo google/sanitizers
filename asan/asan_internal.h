@@ -18,6 +18,11 @@
 #include <stdlib.h>  // for size_t
 #include <unistd.h>  // for _exit
 
+#ifdef ADDRESS_SANITIZER
+# error "The AddressSanitizer run-time should not be"
+        " instrumented by AddressSanitizer"
+#endif
+
 // All internal functions in asan reside inside the __asan namespace
 // to avoid namespace collisions with the user programs.
 // Seperate namespace also makes it simpler to distinguish the asan run-time
