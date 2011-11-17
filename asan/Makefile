@@ -102,7 +102,7 @@ COMMON_ASAN_DEFINES=\
 		-DASAN_NEEDS_SEGV=$(ASAN_NEEDS_SEGV) \
 		-DASAN_HAS_BLACKLIST=$(ASAN_HAS_BLACKLIST)
 
-CLANG_ASAN_CXX=$(CLANG_CXX) -fasan \
+CLANG_ASAN_CXX=$(CLANG_CXX) -faddress-sanitizer \
 		$(BLACKLIST)  \
 		-mllvm -asan-stack=$(ASAN_STACK)      \
 		-mllvm -asan-globals=$(ASAN_GLOBALS)  \
@@ -112,10 +112,10 @@ CLANG_ASAN_CXX=$(CLANG_CXX) -fasan \
 		-mllvm -asan-use-after-return=$(ASAN_UAR) \
 		$(COMMON_ASAN_DEFINES)
 
-CLANG_ASAN_LD=$(CLANG_CXX) -fasan
+CLANG_ASAN_LD=$(CLANG_CXX) -faddress-sanitizer
 
 GCC_ASAN_PATH=SET_FROM_COMMAND_LINE
-GCC_ASAN_CXX=$(GCC_ASAN_PATH)/g++ -fasan \
+GCC_ASAN_CXX=$(GCC_ASAN_PATH)/g++ -faddress-sanitizer \
 	     $(COMMON_ASAN_DEFINES) \
 	     -DADDRESS_SANITIZER=1
 GCC_ASAN_LD=$(GCC_ASAN_PATH)/g++ -ldl -lpthread

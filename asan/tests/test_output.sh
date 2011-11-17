@@ -7,13 +7,14 @@ SYMBOLIZER=../../scripts/asan_symbolize.py
 
 for t in  *.tmpl; do
   for b in 32 64; do
-    for O in 0 1 2 3; do
+    for O in 1 2 3; do
+      # TODO: reinstate -O0, if that's really needed.
       c=`basename $t .tmpl`
       c_so=$c-so
       exe=$c.$b.O$O
       so=$c_so.$b.O$O.so
-      $CXX $CXXFLAGS -g -m$b -fasan -O$O $c.cc -o $exe
-      [ -e "$c_so.cc" ] && $CXX $CXXFLAGS -g -m$b -fasan -O$O $c_so.cc -fPIC -shared -o $so
+      $CXX $CXXFLAGS -g -m$b -faddress-sanitizer -O$O $c.cc -o $exe
+      [ -e "$c_so.cc" ] && $CXX $CXXFLAGS -g -m$b -faddress-sanitizer -O$O $c_so.cc -fPIC -shared -o $so
       # If there's an OS-specific template, use it.
       # Please minimize the use of OS-specific templates.
       if [ -e "$t.$OS" ]

@@ -1,121 +1,25 @@
-Index: include/llvm/Transforms/Instrumentation.h
-===================================================================
---- include/llvm/Transforms/Instrumentation.h	(revision 143407)
-+++ include/llvm/Transforms/Instrumentation.h	(working copy)
-@@ -31,6 +31,9 @@
- ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
-                                    bool Use402Format = false);
- 
-+// Insert AddressSanitizer (address sanity checking) instrumentation
-+ModulePass *createAddressSanitizerPass();
-+
- } // End llvm namespace
- 
- #endif
-Index: include/llvm/InitializePasses.h
-===================================================================
---- include/llvm/InitializePasses.h	(revision 143407)
-+++ include/llvm/InitializePasses.h	(working copy)
-@@ -96,6 +96,7 @@
- void initializeEdgeProfilerPass(PassRegistry&);
- void initializePathProfilerPass(PassRegistry&);
- void initializeGCOVProfilerPass(PassRegistry&);
-+void initializeAddressSanitizerPass(PassRegistry&);
- void initializeEarlyCSEPass(PassRegistry&);
- void initializeExpandISelPseudosPass(PassRegistry&);
- void initializeFindUsedTypesPass(PassRegistry&);
-Index: lib/Transforms/Instrumentation/Instrumentation.cpp
-===================================================================
---- lib/Transforms/Instrumentation/Instrumentation.cpp	(revision 143407)
-+++ lib/Transforms/Instrumentation/Instrumentation.cpp	(working copy)
-@@ -24,6 +24,7 @@
-   initializeOptimalEdgeProfilerPass(Registry);
-   initializePathProfilerPass(Registry);
-   initializeGCOVProfilerPass(Registry);
-+  initializeAddressSanitizerPass(Registry);
- }
- 
- /// LLVMInitializeInstrumentation - C binding for
-Index: lib/Transforms/Instrumentation/CMakeLists.txt
-===================================================================
---- lib/Transforms/Instrumentation/CMakeLists.txt	(revision 143407)
-+++ lib/Transforms/Instrumentation/CMakeLists.txt	(working copy)
-@@ -1,4 +1,5 @@
- add_llvm_library(LLVMInstrumentation
-+  AddressSanitizer.cpp
-   EdgeProfiling.cpp
-   GCOVProfiling.cpp
-   Instrumentation.cpp
-Index: lib/Transforms/IPO/PassManagerBuilder.cpp
-===================================================================
---- lib/Transforms/IPO/PassManagerBuilder.cpp	(revision 143407)
-+++ lib/Transforms/IPO/PassManagerBuilder.cpp	(working copy)
-@@ -24,6 +24,7 @@
- #include "llvm/Analysis/Verifier.h"
- #include "llvm/Target/TargetLibraryInfo.h"
- #include "llvm/Transforms/Scalar.h"
-+#include "llvm/Transforms/Instrumentation.h"
- #include "llvm/Transforms/IPO.h"
- #include "llvm/ADT/SmallVector.h"
- #include "llvm/Support/ManagedStatic.h"
-@@ -101,6 +102,7 @@
-       MPM.add(Inliner);
-       Inliner = 0;
-     }
-+    MPM.add(createAddressSanitizerPass());      // AddressSanitizer
-     return;
-   }
- 
-@@ -161,6 +163,8 @@
-   MPM.add(createMemCpyOptPass());             // Remove memcpy / form memset
-   MPM.add(createSCCPPass());                  // Constant prop with SCCP
- 
-+  MPM.add(createAddressSanitizerPass());      // AddressSanitizer
-+
-   // Run instcombine after redundancy elimination to exploit opportunities
-   // opened up by them.
-   MPM.add(createInstructionCombiningPass());
-@@ -340,4 +344,3 @@
-   PassManagerBase *LPM = unwrap(PM);
-   Builder->populateLTOPassManager(*LPM, Internalize, RunInliner);
- }
--
-Index: tools/clang/include/clang/Driver/Options.td
-===================================================================
---- tools/clang/include/clang/Driver/Options.td	(revision 143407)
-+++ tools/clang/include/clang/Driver/Options.td	(working copy)
-@@ -261,6 +261,7 @@
- def faccess_control : Flag<"-faccess-control">, Group<f_Group>;
- def fallow_unsupported : Flag<"-fallow-unsupported">, Group<f_Group>;
- def fapple_kext : Flag<"-fapple-kext">, Group<f_Group>;
-+def fasan : Flag<"-fasan">, Group<f_Group>;
- def fasm : Flag<"-fasm">, Group<f_Group>;
- 
- def fasm_blocks : Flag<"-fasm-blocks">, Group<f_Group>;
 Index: tools/clang/lib/Driver/Tools.cpp
 ===================================================================
---- tools/clang/lib/Driver/Tools.cpp	(revision 143407)
+--- tools/clang/lib/Driver/Tools.cpp	(revision 144800)
 +++ tools/clang/lib/Driver/Tools.cpp	(working copy)
-@@ -1113,6 +1113,12 @@
+@@ -1112,6 +1112,10 @@
    // FIXME: Implement custom jobs for internal actions.
    CmdArgs.push_back("-cc1");
  
-+  if (Args.hasArg(options::OPT_fasan)) {
++  if (Args.hasArg(options::OPT_faddress_sanitizer)) {
 +    CmdArgs.push_back("-DADDRESS_SANITIZER=1");
-+    CmdArgs.push_back("-mllvm");
-+    CmdArgs.push_back("-asan=1");
 +  }
 +
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -2439,6 +2445,39 @@
+@@ -2464,6 +2468,39 @@
      }
    }
  
 +  // AddressSanitizer Support.
 +  if (isa<LinkJobAction>(JA)) {
-+    if (Args.hasArg(options::OPT_fasan) && !Args.hasArg(options::OPT_shared)) {
++    if (Args.hasArg(options::OPT_faddress_sanitizer) && !Args.hasArg(options::OPT_shared)) {
 +      const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
 +      std::string libasan;
 +      if (libasan_from_env) {
@@ -149,7 +53,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    const std::string customGCCName = D.getCCCGenericGCCName();
    const char *GCCName;
    if (!customGCCName.empty())
-@@ -3520,6 +3559,67 @@
+@@ -3545,6 +3582,67 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -162,7 +66,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +  }
 +  asan_int_fns.push_back("___asan_register_global");
 +  asan_int_fns.push_back("___asan_register_globals");
-+  if (Args.hasArg(options::OPT_fasan) &&
++  if (Args.hasArg(options::OPT_faddress_sanitizer) &&
 +      !Args.hasArg(options::OPT_dynamiclib) && !Args.hasArg(options::OPT_bundle)) {
 +    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
 +    std::string libasan;
@@ -203,7 +107,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    }
 +    getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
 +  }
-+  if (Args.hasArg(options::OPT_fasan) &&
++  if (Args.hasArg(options::OPT_faddress_sanitizer) &&
 +      (Args.hasArg(options::OPT_dynamiclib) || (Args.hasArg(options::OPT_bundle)))) {
 +    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("___asan_init");
@@ -217,7 +121,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3558,6 +3658,8 @@
+@@ -3583,6 +3681,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -226,12 +130,12 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4389,6 +4491,27 @@
+@@ -4425,6 +4525,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
 +  // AddressSanitizer Support.
-+  if (Args.hasArg(options::OPT_fasan) && !Args.hasArg(options::OPT_shared)) {
++  if (Args.hasArg(options::OPT_faddress_sanitizer) && !Args.hasArg(options::OPT_shared)) {
 +    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
 +    std::string libasan;
 +    if (libasan_from_env) {
