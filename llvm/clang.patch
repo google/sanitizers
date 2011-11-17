@@ -149,7 +149,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    const std::string customGCCName = D.getCCCGenericGCCName();
    const char *GCCName;
    if (!customGCCName.empty())
-@@ -3520,6 +3559,57 @@
+@@ -3520,6 +3559,67 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -182,6 +182,16 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    CmdArgs.push_back("_malloc_default_purgeable_zone");
 +    CmdArgs.push_back("-U");
 +    CmdArgs.push_back("_malloc_zone_memalign");
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("_dispatch_async_f");
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("_dispatch_sync_f");
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("_dispatch_group_async_f");
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("_dispatch_barrier_async_f");
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back("_dispatch_after_f");
 +    // TODO(glider): do we need to always depend on Foundation?
 +    CmdArgs.push_back("-framework");
 +    CmdArgs.push_back("Foundation");
@@ -207,7 +217,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3558,6 +3648,8 @@
+@@ -3558,6 +3658,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -216,7 +226,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4389,6 +4481,27 @@
+@@ -4389,6 +4491,27 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
