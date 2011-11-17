@@ -129,7 +129,16 @@ asan_block_context_t *alloc_asan_context(void *ctxt, dispatch_function_t func,
   asan_ctxt->block = ctxt;
   asan_ctxt->func = func;
   AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
-  CHECK(curr_thread || asanThreadRegistry().IsCurrentThreadDying());
+  if (FLAG_debug) {
+    // Sometimes at Chromium teardown this assertion is violated:
+    //  -- a task is created via dispatch_async() on the "CFMachPort"
+    //     thread while doing _dispatch_queue_drain();
+    //  -- a task is created via dispatch_async_f() on the
+    //     "com.apple.root.default-overcommit-priority" thread while doing
+    //     _dispatch_dispose().
+    // TODO(glider): find out what's going on.
+    CHECK(curr_thread || asanThreadRegistry().IsCurrentThreadDying());
+  }
   asan_ctxt->parent_tid = asanThreadRegistry().GetCurrentTidOrMinusOne();
   return asan_ctxt;
 }
