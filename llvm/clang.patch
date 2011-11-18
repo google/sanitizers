@@ -53,7 +53,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    const std::string customGCCName = D.getCCCGenericGCCName();
    const char *GCCName;
    if (!customGCCName.empty())
-@@ -3545,6 +3582,67 @@
+@@ -3545,6 +3582,76 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -74,10 +74,19 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +      libasan = libasan_from_env;
 +    } else {
 +      libasan = getToolChain().getDriver().Dir + "/../lib/libasan";
-+      if (getToolChain().getArch() == llvm::Triple::x86)
++      switch(getToolChain().getArch()) {
++      case llvm::Triple::x86:
 +        libasan += "32.a";
-+      else
++        break;
++      case llvm::Triple::x86_64:
 +        libasan += "64.a";
++        break;
++      case llvm::Triple::arm:
++        libasan += "_arm.a";
++        break;
++      default:
++        libasan += "_arch_unsupported.a";
++      }
 +    }
 +    CmdArgs.push_back(Args.MakeArgString(libasan));
 +    CmdArgs.push_back("-lpthread");
@@ -121,7 +130,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3583,6 +3681,8 @@
+@@ -3583,6 +3690,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -130,7 +139,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4425,6 +4525,27 @@
+@@ -4425,6 +4534,36 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
@@ -141,11 +150,20 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    if (libasan_from_env) {
 +      libasan = libasan_from_env;
 +    } else {
-+      libasan = ToolChain.getDriver().Dir + "/../lib/libasan";
-+      if (ToolChain.getArch() == llvm::Triple::x86)
++      libasan = getToolChain().getDriver().Dir + "/../lib/libasan";
++      switch(getToolChain().getArch()) {
++      case llvm::Triple::x86:
 +        libasan += "32.a";
-+      else
++        break;
++      case llvm::Triple::x86_64:
 +        libasan += "64.a";
++        break;
++      case llvm::Triple::arm:
++        libasan += "_arm.a";
++        break;
++      default:
++        libasan += "_arch_unsupported.a";
++      }
 +    }
 +    CmdArgs.push_back(Args.MakeArgString(libasan));
 +    CmdArgs.push_back("-lpthread");

@@ -24,11 +24,16 @@ CLANG_FLAGS= \
 	-ccc-host-triple arm-unknown-linux-gnueabi \
 	-march=armv7-a -mfloat-abi=softfp -mfp=neon \
 	-ccc-gcc-name arm-unknown-linux-gnueabi-g++ \
+	-B$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4 \
+	-B$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/lib \
 	-I$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4/include \
 	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4 \
 	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4/arm-unknown-linux-gnueabi \
 	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/include \
-	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/include
+	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/include \
+	-L$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4 \
+	-L$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/lib \
+	-L$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/lib
 CC=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-gcc 
 CXX=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-g++
 else
