@@ -44,8 +44,8 @@ endif
 
 CLANG_SRC=$(ROOT)/../clang_src
 CLANG_BUILD=$(ROOT)/../clang_build_$(OS)/Release+Asserts
-CLANG_CC=$(CLANG_BUILD)/bin/clang $(CLANG_FLAGS)
-CLANG_CXX=$(CLANG_BUILD)/bin/clang++ $(CLANG_FLAGS)
+CLANG_CC=$(CLANG_BUILD)/bin/clang $(CLANG_FLAGS) -DADDRESS_SANITIZER=1
+CLANG_CXX=$(CLANG_BUILD)/bin/clang++ $(CLANG_FLAGS) -DADDRESS_SANITIZER=1
 CLANG_LIB=$(CLANG_BUILD)/lib
 
 CFLAGS:=-Wall -fvisibility=hidden
