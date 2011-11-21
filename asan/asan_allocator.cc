@@ -616,10 +616,9 @@ static uint8_t *Allocate(size_t alignment, size_t size, AsanStackTrace *stack) {
     needed_size += alignment;
   }
   CHECK(IsAligned(needed_size, REDZONE));
-  if (needed_size > kMaxAllowedMallocSize) {
-    OutOfMemoryMessage(__FUNCTION__, size);
-    stack->PrintStack();
-    ASAN_DIE;
+  if (size > kMaxAllowedMallocSize || needed_size > kMaxAllowedMallocSize) {
+    Report("WARNING: AddressSanitizer failed to allocate %p bytes\n", size);
+    return 0;
   }
 
   uint8_t size_class = SizeToSizeClass(needed_size);
@@ -762,8 +761,10 @@ static uint8_t *Reallocate(uint8_t *old_ptr, size_t new_size,
   size_t old_size = m->used_size;
   size_t memcpy_size = std::min(new_size, old_size);
   uint8_t *new_ptr = Allocate(0, new_size, stack);
-  real_memcpy(new_ptr, old_ptr, memcpy_size);
-  Deallocate(old_ptr, stack);
+  if (new_ptr) {
+    real_memcpy(new_ptr, old_ptr, memcpy_size);
+    Deallocate(old_ptr, stack);
+  }
   return new_ptr;
 }
 
@@ -810,7 +811,8 @@ void *asan_malloc(size_t size, AsanStackTrace *stack) {
 
 void *asan_calloc(size_t nmemb, size_t size, AsanStackTrace *stack) {
   void *ptr = (void*)Allocate(0, nmemb * size, stack);
-  real_memset(ptr, 0, nmemb * size);
+  if (ptr)
+    real_memset(ptr, 0, nmemb * size);
   ASAN_NEW_HOOK(ptr, nmemb * size);
   return ptr;
 }
