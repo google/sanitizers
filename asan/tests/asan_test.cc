@@ -1816,7 +1816,6 @@ TEST(AddressSanitizerMac, DISABLED_GCDGroupAsync) {
   EXPECT_DEATH(TestGCDGroupAsync(), "Shadow byte and word");
 }
 
-
 void *MallocIntrospectionLockWorker(void *_) {
   const int kNumPointers = 100;
   int i;

@@ -365,16 +365,18 @@ void ReplaceSystemMalloc() {
   // Make sure the default allocator was replaced.
   CHECK(malloc_default_zone() == &asan_zone);
 
-  static CFAllocatorContext asan_context =
-      { /*version*/ 0, /*info*/ &asan_zone,
-        /*retain*/ NULL, /*release*/ NULL,
-        /*copyDescription*/NULL,
-        /*allocate*/ &cf_malloc,
-        /*reallocate*/ &cf_realloc,
-        /*deallocate*/ &cf_free,
-        /*preferredSize*/ NULL };
-  CFAllocatorRef cf_asan =
-      CFAllocatorCreate(kCFAllocatorUseContext, &asan_context);
-  CFAllocatorSetDefault(cf_asan);
+  if (FLAG_replace_cfallocator) {
+    static CFAllocatorContext asan_context =
+        { /*version*/ 0, /*info*/ &asan_zone,
+          /*retain*/ NULL, /*release*/ NULL,
+          /*copyDescription*/NULL,
+          /*allocate*/ &cf_malloc,
+          /*reallocate*/ &cf_realloc,
+          /*deallocate*/ &cf_free,
+          /*preferredSize*/ NULL };
+    CFAllocatorRef cf_asan =
+        CFAllocatorCreate(kCFAllocatorUseContext, &asan_context);
+    CFAllocatorSetDefault(cf_asan);
+  }
 }
 }  // namespace __asan

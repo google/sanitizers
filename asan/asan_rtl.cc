@@ -72,6 +72,7 @@ bool   FLAG_lazy_shadow;
 bool   FLAG_handle_segv;
 bool   FLAG_replace_str;
 bool   FLAG_replace_intrin;
+bool   FLAG_replace_cfallocator;  // Used on Mac only.
 bool   FLAG_stats;
 size_t FLAG_max_malloc_fill_size = 0;
 bool   FLAG_use_fake_stack;
@@ -615,6 +616,7 @@ void __asan_init() {
   FLAG_symbolize = IntFlagValue(options, "symbolize=", 1);
   FLAG_demangle = IntFlagValue(options, "demangle=", 1);
   FLAG_debug = IntFlagValue(options, "debug=", 0);
+  FLAG_replace_cfallocator = IntFlagValue(options, "replace_cfallocator=", 1);
   FLAG_fast_unwind = IntFlagValue(options, "fast_unwind=", 1);
   FLAG_mt = IntFlagValue(options, "mt=", 1);
   FLAG_replace_str = IntFlagValue(options, "replace_str=", 1);
