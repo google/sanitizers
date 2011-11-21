@@ -13,68 +13,19 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -2464,6 +2468,39 @@
-     }
-   }
+@@ -2303,6 +2307,100 @@
+   Args.ClaimAllArgs(options::OPT_emit_llvm);
+ }
  
-+  // AddressSanitizer Support.
-+  if (isa<LinkJobAction>(JA)) {
-+    if (Args.hasArg(options::OPT_faddress_sanitizer) && !Args.hasArg(options::OPT_shared)) {
-+      const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
-+      std::string libasan;
-+      if (libasan_from_env) {
-+        libasan = libasan_from_env;
-+      } else {
-+        libasan = getToolChain().getDriver().Dir + "/../lib/libasan";
-+        switch(getToolChain().getArch()) {
-+        case llvm::Triple::x86:
-+          libasan += "32.a";
-+          break;
-+        case llvm::Triple::x86_64:
-+          libasan += "64.a";
-+          break;
-+        case llvm::Triple::arm:
-+          libasan += "_arm.a";
-+          break;
-+        default:
-+          libasan += "_arch_unsupported.a";
-+        }
-+      }
-+      CmdArgs.push_back(Args.MakeArgString(libasan));
-+      CmdArgs.push_back("-lpthread");
-+      CmdArgs.push_back("-ldl");
-+      CmdArgs.push_back("-export-dynamic");
-+ 
-+      getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
-+    }
-+  }
-+
-+
-   const std::string customGCCName = D.getCCCGenericGCCName();
-   const char *GCCName;
-   if (!customGCCName.empty())
-@@ -3545,6 +3582,76 @@
- 
-   Args.AddAllArgs(CmdArgs, options::OPT_L);
- 
-+  // AddressSanitizer Support.
-+  std::vector<std::string> asan_int_fns;
-+  std::string pow_of_2[5] = {"1", "2", "4", "8", "16"};
-+  for (int i = 0; i < 5; i++) {
-+    asan_int_fns.push_back(std::string("___asan_report_load") + pow_of_2[i]);
-+    asan_int_fns.push_back(std::string("___asan_report_store") + pow_of_2[i]);
-+  }
-+  asan_int_fns.push_back("___asan_register_global");
-+  asan_int_fns.push_back("___asan_register_globals");
-+  if (Args.hasArg(options::OPT_faddress_sanitizer) &&
-+      !Args.hasArg(options::OPT_dynamiclib) && !Args.hasArg(options::OPT_bundle)) {
-+    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
-+    std::string libasan;
-+    if (libasan_from_env) {
-+      libasan = libasan_from_env;
-+    } else {
-+      libasan = getToolChain().getDriver().Dir + "/../lib/libasan";
-+      switch(getToolChain().getArch()) {
++static void addLibasan(const ToolChain &TC, const ArgList &Args,
++                       ArgStringList &CmdArgs) {
++  const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
++  std::string libasan;
++  if (libasan_from_env) {
++    libasan = libasan_from_env;
++  } else {
++    libasan = TC.getDriver().Dir + "/../lib/libasan";
++    switch(TC.getArch()) {
 +      case llvm::Triple::x86:
 +        libasan += "32.a";
 +        break;
@@ -86,51 +37,118 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +        break;
 +      default:
 +        libasan += "_arch_unsupported.a";
-+      }
 +    }
-+    CmdArgs.push_back(Args.MakeArgString(libasan));
++  }
++  CmdArgs.push_back(Args.MakeArgString(libasan));
++}
++
++static void addAsanForLinux(const ToolChain &TC, const ArgList &Args,
++                            ArgStringList &CmdArgs) {
++  addLibasan(TC, Args, CmdArgs);
++  CmdArgs.push_back("-lpthread");
++  CmdArgs.push_back("-ldl");
++  CmdArgs.push_back("-export-dynamic");
++  TC.AddCXXStdlibLibArgs(Args, CmdArgs);
++}
++
++const char *AsanIfaceFns[12] = {
++  "___asan_report_load1",
++  "___asan_report_load2",
++  "___asan_report_load4",
++  "___asan_report_load8",
++  "___asan_report_load16",
++  "___asan_report_store1",
++  "___asan_report_store2",
++  "___asan_report_store4",
++  "___asan_report_store8",
++  "___asan_report_store16",
++  "___asan_register_global",
++  "___asan_register_globals",
++};
++
++const int AsanIfaceFnsSize = sizeof(AsanIfaceFns) / sizeof(char*);
++
++const char *AsanDarwinDeps[7] = {
++  "_malloc_default_purgeable_zone",
++  "_malloc_zone_memalign",
++  "_dispatch_async_f",
++  "_dispatch_sync_f",
++  "_dispatch_group_async_f",
++  "_dispatch_barrier_async_f",
++  "_dispatch_after_f",
++};
++
++const int AsanDarwinDepsSize = sizeof(AsanDarwinDeps) / sizeof(char*);
++
++static void addAsanForDarwinExe(const ToolChain &TC, const ArgList &Args,
++                                ArgStringList &CmdArgs) {
++    addLibasan(TC, Args, CmdArgs);
 +    CmdArgs.push_back("-lpthread");
 +    CmdArgs.push_back("-ldl");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_malloc_default_purgeable_zone");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_malloc_zone_memalign");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_dispatch_async_f");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_dispatch_sync_f");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_dispatch_group_async_f");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_dispatch_barrier_async_f");
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("_dispatch_after_f");
 +    // TODO(glider): do we need to always depend on Foundation?
 +    CmdArgs.push_back("-framework");
 +    CmdArgs.push_back("Foundation");
-+    for (std::vector<std::string>::const_iterator it = asan_int_fns.begin();
-+         it != asan_int_fns.end();
-+         ++it) {
-+      CmdArgs.push_back("-u");
-+      CmdArgs.push_back(Args.MakeArgString(it->c_str()));
-+    }
-+    getToolChain().AddCXXStdlibLibArgs(Args, CmdArgs);
-+  }
-+  if (Args.hasArg(options::OPT_faddress_sanitizer) &&
-+      (Args.hasArg(options::OPT_dynamiclib) || (Args.hasArg(options::OPT_bundle)))) {
-+    CmdArgs.push_back("-U");
-+    CmdArgs.push_back("___asan_init");
-+    for (std::vector<std::string>::iterator it = asan_int_fns.begin();
-+         it != asan_int_fns.end();
-+         ++it) {
++    int index;
++    for (index = 0; index < AsanDarwinDepsSize; ++index) {
 +      CmdArgs.push_back("-U");
-+      CmdArgs.push_back(Args.MakeArgString(it->c_str()));
++      CmdArgs.push_back(Args.MakeArgString(AsanDarwinDeps[index]));
++    }
++    for (index = 0; index < AsanIfaceFnsSize; ++index) {
++      CmdArgs.push_back("-u");
++      CmdArgs.push_back(Args.MakeArgString(AsanIfaceFns[index]));
++    }
++    TC.AddCXXStdlibLibArgs(Args, CmdArgs);
++}
++
++static void addAsanForDarwinDynamicLib(const ToolChain &unused_TC,
++                                       const ArgList &Args,
++                                       ArgStringList &CmdArgs) {
++  CmdArgs.push_back("-U");
++  CmdArgs.push_back("___asan_init");
++  for (int index = 0; index < AsanIfaceFnsSize; ++index) {
++    CmdArgs.push_back("-U");
++    CmdArgs.push_back(Args.MakeArgString(AsanIfaceFns[index]));
++  }
++}
++
+ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
+                            const InputInfo &Output,
+                            const InputInfoList &Inputs,
+@@ -2464,6 +2562,15 @@
+     }
+   }
+ 
++  // AddressSanitizer support.
++  if (isa<LinkJobAction>(JA)) {
++    if (Args.hasArg(options::OPT_faddress_sanitizer) &&
++        !Args.hasArg(options::OPT_shared)) {
++      addAsanForLinux(getToolChain(), Args, CmdArgs);
++    }
++  }
++
++
+   const std::string customGCCName = D.getCCCGenericGCCName();
+   const char *GCCName;
+   if (!customGCCName.empty())
+@@ -3545,6 +3652,17 @@
+ 
+   Args.AddAllArgs(CmdArgs, options::OPT_L);
+ 
++  // AddressSanitizer support.
++  if (Args.hasArg(options::OPT_faddress_sanitizer)) {
++    if (!Args.hasArg(options::OPT_dynamiclib) &&
++        !Args.hasArg(options::OPT_bundle)) {
++      addAsanForDarwinExe(getToolChain(), Args, CmdArgs);
++    }
++    if (Args.hasArg(options::OPT_dynamiclib) ||
++        Args.hasArg(options::OPT_bundle)) {
++      addAsanForDarwinDynamicLib(getToolChain(), Args, CmdArgs);
 +    }
 +  }
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3583,6 +3690,8 @@
+@@ -3583,6 +3701,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -139,38 +157,14 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4425,6 +4534,36 @@
+@@ -4425,6 +4545,12 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
-+  // AddressSanitizer Support.
-+  if (Args.hasArg(options::OPT_faddress_sanitizer) && !Args.hasArg(options::OPT_shared)) {
-+    const char *libasan_from_env = getenv("ASAN_LIB");  // temporary
-+    std::string libasan;
-+    if (libasan_from_env) {
-+      libasan = libasan_from_env;
-+    } else {
-+      libasan = getToolChain().getDriver().Dir + "/../lib/libasan";
-+      switch(getToolChain().getArch()) {
-+      case llvm::Triple::x86:
-+        libasan += "32.a";
-+        break;
-+      case llvm::Triple::x86_64:
-+        libasan += "64.a";
-+        break;
-+      case llvm::Triple::arm:
-+        libasan += "_arm.a";
-+        break;
-+      default:
-+        libasan += "_arch_unsupported.a";
-+      }
-+    }
-+    CmdArgs.push_back(Args.MakeArgString(libasan));
-+    CmdArgs.push_back("-lpthread");
-+    CmdArgs.push_back("-ldl");
-+    CmdArgs.push_back("-export-dynamic");
-+
-+    ToolChain.AddCXXStdlibLibArgs(Args, CmdArgs);
++  // AddressSanitizer support.
++  if (Args.hasArg(options::OPT_faddress_sanitizer) &&
++      !Args.hasArg(options::OPT_shared)) {
++    addAsanForLinux(getToolChain(), Args, CmdArgs);
 +  }
 +
    if (D.CCCIsCXX && !Args.hasArg(options::OPT_nostdlib)) {
