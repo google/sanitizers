@@ -70,6 +70,7 @@ size_t FLAG_malloc_context_size = kMallocContextSize;
 uintptr_t FLAG_large_malloc;
 bool   FLAG_lazy_shadow;
 bool   FLAG_handle_segv;
+bool   FLAG_handle_sigill;
 bool   FLAG_replace_str;
 bool   FLAG_replace_intrin;
 bool   FLAG_replace_cfallocator;  // Used on Mac only.
@@ -396,7 +397,7 @@ int WRAP(pthread_create)(pthread_t *thread, const pthread_attr_t *attr,
 }
 
 static bool MySignal(int signum) {
-  if (signum == SIGILL) return true;
+  if (FLAG_handle_sigill && signum == SIGILL) return true;
   if (FLAG_handle_segv && signum == SIGSEGV) return true;
 #ifdef __APPLE__
   if (FLAG_handle_segv && signum == SIGBUS) return true;
@@ -612,6 +613,7 @@ void __asan_init() {
   FLAG_lazy_shadow = IntFlagValue(options, "lazy_shadow=", 0);
   FLAG_handle_segv = IntFlagValue(options, "handle_segv=",
                                          ASAN_NEEDS_SEGV);
+  FLAG_handle_sigill = IntFlagValue(options, "handle_sigill=", 0);
   FLAG_stats = IntFlagValue(options, "stats=", 0);
   FLAG_symbolize = IntFlagValue(options, "symbolize=", 1);
   FLAG_demangle = IntFlagValue(options, "demangle=", 1);
