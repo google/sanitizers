@@ -45,8 +45,8 @@ namespace __asan {
 
 #define  REDZONE FLAG_redzone
 static const size_t kMinAllocSize = REDZONE * 2;
-static const size_t kMinMmapSize  = kPageSize * 1024;
-static const uint64_t kMaxAvailableRam = 32ULL << 30;  // 32G
+static const size_t kMinMmapSize  = 4UL << 20;  // 4M
+static const uint64_t kMaxAvailableRam = 128ULL << 30;  // 128G
 static const size_t kMaxThreadLocalQuarantine = 1 << 20;  // 1M
 static const size_t kMaxSizeForThreadLocalFreeList = 1 << 17;
 
