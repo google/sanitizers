@@ -92,7 +92,7 @@ typedef longjmp_f _longjmp_f;
 typedef longjmp_f siglongjmp_f;
 typedef void (*__cxa_throw_f)(void *, void *, void *);
 typedef int (*pthread_create_f)(pthread_t *thread, const pthread_attr_t *attr,
-                              void *(*start_routine) (void *), void *arg);
+                                void *(*start_routine) (void *), void *arg);
 #ifdef __APPLE__
 dispatch_async_f_f real_dispatch_async_f;
 dispatch_sync_f_f real_dispatch_sync_f;

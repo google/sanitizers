@@ -22,8 +22,6 @@
 #include "asan_internal.h"
 #include "asan_stack.h"
 
-#define UNIMPLEMENTED() CHECK("unimplemented" && 0)
-
 // Similar code is used in Google Perftools,
 // http://code.google.com/p/google-perftools.
 
