@@ -13,7 +13,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -2303,6 +2307,100 @@
+@@ -2303,6 +2307,96 @@
    Args.ClaimAllArgs(options::OPT_emit_llvm);
  }
  
@@ -93,10 +93,6 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +      CmdArgs.push_back("-U");
 +      CmdArgs.push_back(Args.MakeArgString(AsanDarwinDeps[index]));
 +    }
-+    for (index = 0; index < AsanIfaceFnsSize; ++index) {
-+      CmdArgs.push_back("-u");
-+      CmdArgs.push_back(Args.MakeArgString(AsanIfaceFns[index]));
-+    }
 +    TC.AddCXXStdlibLibArgs(Args, CmdArgs);
 +}
 +
@@ -114,7 +110,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
  void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
                             const InputInfo &Output,
                             const InputInfoList &Inputs,
-@@ -2464,6 +2562,15 @@
+@@ -2464,6 +2558,15 @@
      }
    }
  
@@ -130,7 +126,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    const std::string customGCCName = D.getCCCGenericGCCName();
    const char *GCCName;
    if (!customGCCName.empty())
-@@ -3545,6 +3652,17 @@
+@@ -3545,6 +3648,17 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -148,7 +144,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3583,6 +3701,8 @@
+@@ -3583,6 +3697,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -157,7 +153,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4425,6 +4545,12 @@
+@@ -4425,6 +4541,12 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
