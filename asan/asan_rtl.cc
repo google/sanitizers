@@ -336,6 +336,29 @@ ASAN_REPORT_ERROR(store, true, 4)
 ASAN_REPORT_ERROR(store, true, 8)
 ASAN_REPORT_ERROR(store, true, 16)
 
+// Force the linker to keep the symbols for various ASan interface functions.
+// We want to keep those in the executable in order to let the instrumented
+// dynamic libraries access the symbol even if it is not used by the executable
+// itself. This should help if the build system is removing dead code at link
+// time.
+extern "C"
+void __asan_force_interface_symbols() {
+  volatile int fake_condition = 0;  // prevent dead condition elimination.
+  if (fake_condition) {
+    __asan_report_load1(NULL);
+    __asan_report_load2(NULL);
+    __asan_report_load4(NULL);
+    __asan_report_load8(NULL);
+    __asan_report_load16(NULL);
+    __asan_report_store1(NULL);
+    __asan_report_store2(NULL);
+    __asan_report_store4(NULL);
+    __asan_report_store8(NULL);
+    __asan_report_store16(NULL);
+    __asan_register_global(0, 0, NULL);
+    __asan_register_globals(NULL, 0);
+  }
+}
 
 // -------------------------- Init ------------------- {{{1
 static int64_t IntFlagValue(const char *flags, const char *flag,
@@ -718,6 +741,7 @@ void __asan_init() {
 
   asanThreadRegistry().Init();
   asanThreadRegistry().GetMain()->ThreadStart();
+  __asan_force_interface_symbols();  // no-op.
 
   if (FLAG_v) {
     Report("AddressSanitizer r%s Init done ***\n", ASAN_REVISION);
