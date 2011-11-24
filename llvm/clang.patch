@@ -13,7 +13,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    // Add the "effective" target triple.
    CmdArgs.push_back("-triple");
    std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
-@@ -2303,6 +2307,96 @@
+@@ -2303,6 +2307,79 @@
    Args.ClaimAllArgs(options::OPT_emit_llvm);
  }
  
@@ -68,18 +68,6 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +
 +const int AsanIfaceFnsSize = sizeof(AsanIfaceFns) / sizeof(char*);
 +
-+const char *AsanDarwinDeps[7] = {
-+  "_malloc_default_purgeable_zone",
-+  "_malloc_zone_memalign",
-+  "_dispatch_async_f",
-+  "_dispatch_sync_f",
-+  "_dispatch_group_async_f",
-+  "_dispatch_barrier_async_f",
-+  "_dispatch_after_f",
-+};
-+
-+const int AsanDarwinDepsSize = sizeof(AsanDarwinDeps) / sizeof(char*);
-+
 +static void addAsanForDarwinExe(const ToolChain &TC, const ArgList &Args,
 +                                ArgStringList &CmdArgs) {
 +    addLibasan(TC, Args, CmdArgs);
@@ -88,11 +76,6 @@ Index: tools/clang/lib/Driver/Tools.cpp
 +    // TODO(glider): do we need to always depend on Foundation?
 +    CmdArgs.push_back("-framework");
 +    CmdArgs.push_back("Foundation");
-+    int index;
-+    for (index = 0; index < AsanDarwinDepsSize; ++index) {
-+      CmdArgs.push_back("-U");
-+      CmdArgs.push_back(Args.MakeArgString(AsanDarwinDeps[index]));
-+    }
 +    TC.AddCXXStdlibLibArgs(Args, CmdArgs);
 +}
 +
@@ -110,7 +93,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
  void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
                             const InputInfo &Output,
                             const InputInfoList &Inputs,
-@@ -2464,6 +2558,15 @@
+@@ -2464,6 +2541,15 @@
      }
    }
  
@@ -126,7 +109,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    const std::string customGCCName = D.getCCCGenericGCCName();
    const char *GCCName;
    if (!customGCCName.empty())
-@@ -3545,6 +3648,17 @@
+@@ -3545,6 +3631,17 @@
  
    Args.AddAllArgs(CmdArgs, options::OPT_L);
  
@@ -144,7 +127,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (Args.hasArg(options::OPT_fopenmp))
      // This is more complicated in gcc...
      CmdArgs.push_back("-lgomp");
-@@ -3583,6 +3697,8 @@
+@@ -3583,6 +3680,8 @@
      getDarwinToolChain().AddLinkRuntimeLibArgs(Args, CmdArgs);
    }
  
@@ -153,7 +136,7 @@ Index: tools/clang/lib/Driver/Tools.cpp
    if (!Args.hasArg(options::OPT_A) &&
        !Args.hasArg(options::OPT_nostdlib) &&
        !Args.hasArg(options::OPT_nostartfiles)) {
-@@ -4425,6 +4541,12 @@
+@@ -4425,6 +4524,12 @@
  
    AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
  
