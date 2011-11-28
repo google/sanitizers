@@ -163,9 +163,6 @@ const char *WRAP(index)(const char *str, int c)
   __attribute__((alias(WRAPPER_NAME(strchr))));
 #endif
 
-#if 0
-// Interceptors for memcpy/memmove/memset are disabled for now.
-// They are handled by the LLVM module anyway.
 void *WRAP(memcpy)(void *to, const void *from, size_t size) {
   // memcpy is called during __asan_init() from the internals
   // of printf(...).
@@ -197,7 +194,6 @@ void *WRAP(memset)(void *block, int c, size_t size) {
   }
   return real_memset(block, c, size);
 }
-#endif
 
 const char *WRAP(strchr)(const char *str, int c) {
   ensure_asan_inited();
