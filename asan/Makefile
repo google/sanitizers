@@ -17,29 +17,55 @@ OS=$(shell uname)
 ROOT=$(shell pwd)
 PLATFORM=$(shell uname)
 
-ifeq ($(ARCH), arm)
-# Example make command line:
-# CROSSTOOL=$HOME/x-tools/arm-unknown-linux-gnueabi/ PATH=$CROSSTOOL/bin:$PATH make ARCH=arm asan_test
-CLANG_FLAGS= \
-	-ccc-host-triple arm-unknown-linux-gnueabi \
-	-march=armv7-a -mfloat-abi=softfp -mfp=neon \
-	-ccc-gcc-name arm-unknown-linux-gnueabi-g++ \
-	-B$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4 \
-	-B$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/lib \
-	-I$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4/include \
-	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4 \
-	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4/arm-unknown-linux-gnueabi \
-	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/include \
-	-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/include \
-	-L$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4 \
-	-L$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/lib \
-	-L$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/lib
-CC=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-gcc 
-CXX=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-g++
-else
+# Everything is built with system toolchain by default
 CLANG_FLAGS=
 CC=gcc
 CXX=g++
+
+ifeq ($(ARCH), android)
+  ANDROID_CFLAGS= \
+		-DANDROID \
+		-D__WORDSIZE=32 \
+		-I$(ANDROID_BUILD_TOP)/external/stlport/stlport \
+		-I$(ANDROID_BUILD_TOP)/bionic \
+		-I$(ANDROID_BUILD_TOP)/bionic/libstdc++/include \
+		-I$(ANDROID_BUILD_TOP)/bionic/libc/arch-arm/include \
+		-I$(ANDROID_BUILD_TOP)/bionic/libc/include \
+		-I$(ANDROID_BUILD_TOP)/bionic/libc/kernel/common \
+		-I$(ANDROID_BUILD_TOP)/bionic/libc/kernel/arch-arm \
+		-I$(ANDROID_BUILD_TOP)/bionic/libm/include \
+		-I$(ANDROID_BUILD_TOP)/bionic/libm/include/arm \
+		-I$(ANDROID_BUILD_TOP)/bionic/libthread_db/include \
+		-L$(ANDROID_PRODUCT_OUT)/obj/lib
+  CLANG_FLAGS= \
+		-ccc-host-triple arm-elf-eabi -mabi=aapcs-linux \
+		-D__compiler_offsetof=__builtin_offsetof \
+		-D__ELF__=1 \
+		-ccc-gcc-name arm-linux-androideabi-g++ \
+		$(ANDROID_CFLAGS)
+  CC=$(ANDROID_EABI_TOOLCHAIN)/arm-linux-androideabi-gcc $(ANDROID_CFLAGS)
+  CXX=$(ANDROID_EABI_TOOLCHAIN)/arm-linux-androideabi-g++ $(ANDROID_CFLAGS)
+endif
+
+ifeq ($(ARCH), arm)
+  # Example make command line:
+  # CROSSTOOL=$HOME/x-tools/arm-unknown-linux-gnueabi/ PATH=$CROSSTOOL/bin:$PATH make ARCH=arm asan_test
+  CLANG_FLAGS= \
+		-ccc-host-triple arm-unknown-linux-gnueabi \
+		-march=armv7-a -mfloat-abi=softfp -mfp=neon \
+		-ccc-gcc-name arm-unknown-linux-gnueabi-g++ \
+		-B$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4 \
+		-B$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/lib \
+		-I$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4/include \
+		-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4 \
+		-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/include/c++/4.4.4/arm-unknown-linux-gnueabi \
+		-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/include \
+		-I$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/include \
+		-L$(CROSSTOOL)/lib/gcc/arm-unknown-linux-gnueabi/4.4.4 \
+		-L$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/lib \
+		-L$(CROSSTOOL)/arm-unknown-linux-gnueabi/sys-root/usr/lib
+  CC=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-gcc 
+  CXX=$(CROSSTOOL)/bin/arm-unknown-linux-gnueabi-g++
 endif
 
 CLANG_SRC=$(ROOT)/../clang_src
@@ -86,6 +112,13 @@ ifeq ($(ARCH), arm)
 BITS=32
 SUFF=_arm
 CFLAGS:=$(CFLAGS) -march=armv7-a
+ASAN_HAS_EXCEPTIONS=0
+endif
+
+ifeq ($(ARCH), android)
+BITS=32
+SUFF=_android
+CFLAGS:=$(CFLAGS)
 ASAN_HAS_EXCEPTIONS=0
 endif
 
@@ -177,7 +210,6 @@ LIBASAN_OBJ=$(LIBASAN_OBJ_COMMON) \
 	    $(BIN)/asan_linux$(SUFF).o \
 	    $(BIN)/asan_malloc_linux$(SUFF).o
 endif
-
 
 GTEST_ROOT=$(ROOT)/../third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
@@ -298,7 +330,7 @@ asan_test: $(BIN)/asan_test$(SUFF)
 
 asan_benchmarks: $(BIN)/asan_benchmarks$(SUFF)
 
-# for now, build gtest with clang/asan even if we use a differetn compiler.
+# for now, build gtest with clang/asan even if we use a different compiler.
 $(GTEST_LIB):
 	mkdir -p $(GTEST_MAKE_DIR) && \
 	cd $(GTEST_MAKE_DIR) && \
