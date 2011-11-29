@@ -23,10 +23,35 @@
 
 #define INTERCEPTOR_ATTRIBUTE __attribute__((visibility("default")))
 
+#ifdef ANDROID
+struct MallocDebug {
+  void* (*malloc)(size_t bytes);
+  void  (*free)(void* mem);
+  void* (*calloc)(size_t n_elements, size_t elem_size);
+  void* (*realloc)(void* oldMem, size_t bytes);
+  void* (*memalign)(size_t alignment, size_t bytes);
+};
+
+const MallocDebug asan_malloc_dispatch __attribute__((aligned(32))) =
+{
+  malloc, free, calloc, realloc, memalign
+};
+
+extern "C" const MallocDebug* __libc_malloc_dispatch;
+
+namespace __asan {
+void ReplaceSystemMalloc() {
+  __libc_malloc_dispatch = &asan_malloc_dispatch;
+}
+}  // namespace __asan
+
+#else // ANDROID
+
 namespace __asan {
 void ReplaceSystemMalloc() {
 }
 }  // namespace __asan
+#endif // ANDROID
 
 // ---------------------- Replacement functions ---------------- {{{1
 using namespace __asan;  // NOLINT
