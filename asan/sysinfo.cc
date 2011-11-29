@@ -95,7 +95,7 @@
 //      true.
 // ----------------------------------------------------------------------
 bool HasPosixThreads() {
-#if defined(__linux__)
+#if defined(__linux__) and !defined(ANDROID)
 #ifndef _CS_GNU_LIBPTHREAD_VERSION
 #define _CS_GNU_LIBPTHREAD_VERSION 3
 #endif
