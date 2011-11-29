@@ -14,13 +14,11 @@
 
 #include "asan_internal.h"
 
-#include <elf.h>
-#include <link.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
-extern ElfW(Dyn) _DYNAMIC[];
+extern char _DYNAMIC[];
 
 namespace __asan {
 
