@@ -38,7 +38,7 @@ ifeq ($(ARCH), android)
 		-I$(ANDROID_BUILD_TOP)/bionic/libthread_db/include \
 		-L$(ANDROID_PRODUCT_OUT)/obj/lib
   CLANG_FLAGS= \
-		-ccc-host-triple arm-elf-eabi -mabi=aapcs-linux \
+		-ccc-host-triple arm-linux-androideabi \
 		-D__compiler_offsetof=__builtin_offsetof \
 		-D__ELF__=1 \
 		-ccc-gcc-name arm-linux-androideabi-g++ \
