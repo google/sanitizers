@@ -38,7 +38,7 @@ AsanThread::AsanThread(int parent_tid, void *(*start_routine) (void *),
 
 AsanThread::~AsanThread() {
   asanThreadRegistry().UnregisterThread(this);
-  FakeStack().Cleanup();
+  fake_stack().Cleanup();
   // We also clear the shadow on thread destruction because
   // some code may still be executing in later TSD destructors
   // and we don't want it to have any poisoned stack.
@@ -90,7 +90,7 @@ const char *AsanThread::GetFrameNameByAddr(uintptr_t addr, uintptr_t *offset) {
   if (AddrIsInStack(addr)) {
     bottom = stack_bottom();
   } else {
-    bottom = FakeStack().AddrIsInFakeStack(addr);
+    bottom = fake_stack().AddrIsInFakeStack(addr);
     CHECK(bottom);
     is_fake_stack = true;
   }

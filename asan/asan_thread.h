@@ -81,7 +81,7 @@ class AsanThread {
     return addr >= stack_bottom_ && addr < stack_top_;
   }
 
-  AsanFakeStack &FakeStack() { return fake_stack_; }
+  FakeStack &fake_stack() { return fake_stack_; }
   AsanThreadLocalMallocStorage &malloc_storage() { return malloc_storage_; }
   AsanStats &stats() { return stats_; }
 
@@ -97,7 +97,7 @@ class AsanThread {
   uintptr_t  stack_top_;
   uintptr_t  stack_bottom_;
 
-  AsanFakeStack fake_stack_;
+  FakeStack fake_stack_;
   AsanThreadLocalMallocStorage malloc_storage_;
   AsanStats stats_;
 };

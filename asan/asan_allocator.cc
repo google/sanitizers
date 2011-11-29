@@ -873,22 +873,19 @@ void __asan_mz_force_unlock() {
 }
 
 // ---------------------- Fake stack-------------------- {{{1
-AsanFakeStack::AsanFakeStack()
-    : stack_size_(0), alive_(false) {
+FakeStack::FakeStack() {
   CHECK(real_memset);
-  real_memset(allocated_size_classes_,
-              0, sizeof(allocated_size_classes_));
-  real_memset(size_classes_, 0, sizeof(size_classes_));
+  real_memset(this, 0, sizeof(*this));
 }
 
-bool AsanFakeStack::AddrIsInSizeClass(uintptr_t addr, size_t size_class) {
+bool FakeStack::AddrIsInSizeClass(uintptr_t addr, size_t size_class) {
   uintptr_t mem = allocated_size_classes_[size_class];
   uintptr_t size = ClassMmapSize(size_class);
   bool res = mem && addr >= mem && addr < mem + size;
   return res;
 }
 
-uintptr_t AsanFakeStack::AddrIsInFakeStack(uintptr_t addr) {
+uintptr_t FakeStack::AddrIsInFakeStack(uintptr_t addr) {
   if (!alive_) return 0;
   for (size_t i = 0; i < kNumberOfSizeClasses; i++) {
     if (AddrIsInSizeClass(addr, i)) return allocated_size_classes_[i];
@@ -897,10 +894,13 @@ uintptr_t AsanFakeStack::AddrIsInFakeStack(uintptr_t addr) {
 }
 
 // We may want to compute this during compilation.
-inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
+inline size_t FakeStack::ComputeSizeClass(size_t alloc_size) {
   size_t rounded_size = RoundUpToPowerOfTwo(alloc_size);
   size_t log = Log2(rounded_size);
   CHECK(alloc_size <= (1UL << log));
+  if (!(alloc_size > (1UL << (log-1)))) {
+    Printf("alloc_size %ld log %ld\n", alloc_size, log);
+  }
   CHECK(alloc_size > (1UL << (log-1)));
   size_t res = log < kMinStackFrameSizeLog ? 0 : log - kMinStackFrameSizeLog;
   CHECK(res < kNumberOfSizeClasses);
@@ -908,40 +908,38 @@ inline size_t AsanFakeStack::ComputeSizeClass(size_t alloc_size) {
   return res;
 }
 
-void AsanFakeStack::FifoList::FifoPush(uintptr_t a) {
-  // Printf("T%d push %p\n", asanThreadRegistry().GetCurrent()->tid(), a);
-  FifoNode *node = (FifoNode*)a;
+void FakeFrameFifo::FifoPush(FakeFrame *node) {
   CHECK(node);
   node->next = 0;
-  if (first == 0 && last == 0) {
-    first = last = node;
+  if (first_ == 0 && last_ == 0) {
+    first_ = last_ = node;
   } else {
-    CHECK(first);
-    CHECK(last);
-    last->next = node;
-    last = node;
+    CHECK(first_);
+    CHECK(last_);
+    last_->next = node;
+    last_ = node;
   }
 }
 
-uintptr_t AsanFakeStack::FifoList::FifoPop() {
-  CHECK(first && last && "Exhausted fake stack");
-  FifoNode *res = 0;
-  if (first == last) {
-    res = first;
-    first = last = 0;
+FakeFrame *FakeFrameFifo::FifoPop() {
+  CHECK(first_ && last_ && "Exhausted fake stack");
+  FakeFrame *res = 0;
+  if (first_ == last_) {
+    res = first_;
+    first_ = last_ = 0;
   } else {
-    res = first;
-    first = first->next;
+    res = first_;
+    first_ = first_->next;
   }
-  return (uintptr_t)res;
+  return res;
 }
 
-void AsanFakeStack::Init(size_t stack_size) {
+void FakeStack::Init(size_t stack_size) {
   stack_size_ = stack_size;
   alive_ = true;
 }
 
-void AsanFakeStack::Cleanup() {
+void FakeStack::Cleanup() {
   alive_ = false;
   for (size_t i = 0; i < kNumberOfSizeClasses; i++) {
     uintptr_t mem = allocated_size_classes_[i];
@@ -954,11 +952,11 @@ void AsanFakeStack::Cleanup() {
   }
 }
 
-size_t AsanFakeStack::ClassMmapSize(size_t size_class) {
+size_t FakeStack::ClassMmapSize(size_t size_class) {
   return RoundUpToPowerOfTwo(stack_size_);
 }
 
-void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
+void FakeStack::AllocateOneSizeClass(size_t size_class) {
   CHECK(ClassMmapSize(size_class) >= kPageSize);
   uintptr_t new_mem = (uintptr_t)asan_mmap(0, ClassMmapSize(size_class),
                                              PROT_READ | PROT_WRITE,
@@ -971,33 +969,51 @@ void AsanFakeStack::AllocateOneSizeClass(size_t size_class) {
   size_t i;
   for (i = 0; i < ClassMmapSize(size_class);
        i += ClassSize(size_class)) {
-    size_classes_[size_class].FifoPush(new_mem + i);
+    size_classes_[size_class].FifoPush((FakeFrame*)(new_mem + i));
   }
   CHECK(i == ClassMmapSize(size_class));
   allocated_size_classes_[size_class] = new_mem;
 }
 
-uintptr_t AsanFakeStack::AllocateStack(size_t size) {
+uintptr_t FakeStack::AllocateStack(size_t size, size_t real_stack) {
   CHECK(alive_);
-  CHECK(size <= kMaxStackMallocSize);
+  CHECK(size <= kMaxStackMallocSize && size > 1);
   size_t size_class = ComputeSizeClass(size);
   if (!allocated_size_classes_[size_class]) {
     AllocateOneSizeClass(size_class);
   }
-  uintptr_t ptr = size_classes_[size_class].FifoPop();
-  CHECK(ptr);
+  FakeFrame *fake_frame = size_classes_[size_class].FifoPop();
+  CHECK(fake_frame);
+  fake_frame->size_minus_one = size - 1;
+  fake_frame->real_stack = real_stack;
+  while (FakeFrame *top = call_stack_.top()) {
+    if (top->real_stack > real_stack) break;
+    call_stack_.LifoPop();
+    DeallocateFrame(top);
+  }
+  call_stack_.LifoPush(fake_frame);
+  uintptr_t ptr = (uintptr_t)fake_frame;
   PoisonShadow(ptr, size, 0);
   return ptr;
 }
 
-void AsanFakeStack::DeallocateStack(uintptr_t ptr, size_t size) {
+void FakeStack::DeallocateFrame(FakeFrame *fake_frame) {
   CHECK(alive_);
+  size_t size = fake_frame->size_minus_one + 1;
   size_t size_class = ComputeSizeClass(size);
   CHECK(allocated_size_classes_[size_class]);
+  uintptr_t ptr = (uintptr_t)fake_frame;
   CHECK(AddrIsInSizeClass(ptr, size_class));
   CHECK(AddrIsInSizeClass(ptr + size - 1, size_class));
+  size_classes_[size_class].FifoPush(fake_frame);
+}
+
+void FakeStack::OnFree(size_t ptr, size_t size, size_t real_stack) {
+  FakeFrame *fake_frame = (FakeFrame*)ptr;
+  CHECK(fake_frame->magic = kRetiredStackFrameMagic);
+  CHECK(fake_frame->descr != 0);
+  CHECK(fake_frame->size_minus_one == size - 1);
   PoisonShadow(ptr, size, kAsanStackAfterReturnMagic);
-  size_classes_[size_class].FifoPush(ptr);
 }
 
 }  // namespace __asan
@@ -1012,27 +1028,17 @@ size_t __asan_stack_malloc(size_t size, size_t real_stack) {
     // TSD is gone, use the real stack.
     return real_stack;
   }
-  size_t ptr = t->FakeStack().AllocateStack(size);
+  size_t ptr = t->fake_stack().AllocateStack(size, real_stack);
   // Printf("__asan_stack_malloc %p %ld %p\n", ptr, size, real_stack);
   return ptr;
 }
 
 void __asan_stack_free(size_t ptr, size_t size, size_t real_stack) {
   if (!FLAG_use_fake_stack) return;
-  if (ptr == real_stack) {
-    // we returned the real stack in __asan_stack_malloc, so do nothing now.
-    return;
+  if (ptr != real_stack) {
+    FakeStack::OnFree(ptr, size, real_stack);
   }
-  AsanThread *t = asanThreadRegistry().GetCurrent();
-  if (!t) {
-    // TSD is gone between __asan_stack_malloc and here.
-    // The whole thread fake stack has been destructed anyway.
-    return;
-  }
-  // Printf("__asan_stack_free   %p %ld %p\n", ptr, size, real_stack);
-  t->FakeStack().DeallocateStack(ptr, size);
 }
-
 
 // ASan allocator doesn't reserve extra bytes, so normally we would
 // just return "size".

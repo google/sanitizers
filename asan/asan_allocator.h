@@ -41,7 +41,6 @@ class AsanChunkFifoList {
   size_t size_;
 };
 
-
 struct AsanThreadLocalMallocStorage {
   explicit AsanThreadLocalMallocStorage(LinkerInitialized x)
       : quarantine_(x) { }
@@ -55,20 +54,56 @@ struct AsanThreadLocalMallocStorage {
   void CommitBack();
 };
 
+// Fake stack frame contains local variables of one function.
+// This struct should fit into a stack redzone (32 bytes).
+struct FakeFrame {
+  uintptr_t magic;  // Modified by the instrumented code.
+  uintptr_t descr;  // Modified by the instrumented code.
+  FakeFrame *next;
+  uint64_t real_stack     : 48;
+  uint64_t size_minus_one : 16;
+};
+
+struct FakeFrameFifo {
+ public:
+  void FifoPush(FakeFrame *node);
+  FakeFrame *FifoPop();
+ private:
+  FakeFrame *first_, *last_;
+};
+
+class FakeFrameLifo {
+ public:
+  void LifoPush(FakeFrame *node) {
+    node->next = top_;
+    top_ = node;
+  }
+  void LifoPop() {
+    CHECK(top_);
+    top_ = top_->next;
+  }
+  FakeFrame *top() { return top_; }
+ private:
+  FakeFrame *top_;
+};
+
 // For each thread we create a fake stack and place stack objects on this fake
 // stack instead of the real stack. The fake stack is not really a stack but
 // a fast malloc-like allocator so that when a function exits the fake stack
 // is not poped but remains there for quite some time until gets used again.
 // So, we poison the objects on the fake stack when function returns.
 // It helps us find use-after-return bugs.
-class AsanFakeStack {
+// We can not rely on __asan_stack_free being called on every function exit,
+// so we maintain a lifo list of all current fake frames and update it on every
+// call to __asan_stack_malloc.
+class FakeStack {
  public:
-  AsanFakeStack();
-  explicit AsanFakeStack(LinkerInitialized) { }
+  FakeStack();
+  explicit FakeStack(LinkerInitialized) {}
   void Init(size_t stack_size);
   void Cleanup();
-  uintptr_t AllocateStack(size_t size);
-  void DeallocateStack(uintptr_t ptr, size_t size);
+  uintptr_t AllocateStack(size_t size, size_t real_stack);
+  static void OnFree(size_t ptr, size_t size, size_t real_stack);
   // Return the bottom of the maped region.
   uintptr_t AddrIsInFakeStack(uintptr_t addr);
  private:
@@ -87,25 +122,17 @@ class AsanFakeStack {
     return 1UL << (size_class + kMinStackFrameSizeLog);
   }
 
+  void DeallocateFrame(FakeFrame *fake_frame);
+
   size_t ComputeSizeClass(size_t alloc_size);
   void AllocateOneSizeClass(size_t size_class);
-
-  struct FifoNode {
-    uintptr_t padding[2];  // Used by the instrumentation code.
-    FifoNode *next;
-  };
-
-  struct FifoList {
-    FifoNode *first, *last;
-    void FifoPush(uintptr_t a);
-    uintptr_t FifoPop();
-  };
 
   size_t stack_size_;
   bool   alive_;
 
   uintptr_t allocated_size_classes_[kNumberOfSizeClasses];
-  FifoList size_classes_[kNumberOfSizeClasses];
+  FakeFrameFifo size_classes_[kNumberOfSizeClasses];
+  FakeFrameLifo call_stack_;
 };
 
 void *asan_memalign(size_t alignment, size_t size, AsanStackTrace *stack);

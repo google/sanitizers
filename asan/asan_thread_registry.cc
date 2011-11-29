@@ -191,7 +191,7 @@ AsanThread *AsanThreadRegistry::FindThreadByStackAddress(uintptr_t addr) {
   for (int tid = 0; tid < n_threads_; tid++) {
     AsanThread *t = thread_summaries_[tid]->thread();
     if (!t) continue;
-    if (t->FakeStack().AddrIsInFakeStack(addr) || t->AddrIsInStack(addr)) {
+    if (t->fake_stack().AddrIsInFakeStack(addr) || t->AddrIsInStack(addr)) {
       return t;
     }
   }
