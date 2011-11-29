@@ -32,8 +32,7 @@ struct MallocDebug {
   void* (*memalign)(size_t alignment, size_t bytes);
 };
 
-const MallocDebug asan_malloc_dispatch __attribute__((aligned(32))) =
-{
+const MallocDebug asan_malloc_dispatch __attribute__((aligned(32))) = {
   malloc, free, calloc, realloc, memalign
 };
 
@@ -45,13 +44,13 @@ void ReplaceSystemMalloc() {
 }
 }  // namespace __asan
 
-#else // ANDROID
+#else  // ANDROID
 
 namespace __asan {
 void ReplaceSystemMalloc() {
 }
 }  // namespace __asan
-#endif // ANDROID
+#endif  // ANDROID
 
 // ---------------------- Replacement functions ---------------- {{{1
 using namespace __asan;  // NOLINT
