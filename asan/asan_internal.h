@@ -18,6 +18,10 @@
 #include <stdlib.h>  // for size_t
 #include <unistd.h>  // for _exit
 
+#ifdef ANDROID
+#include <sys/atomics.h>
+#endif
+
 #ifdef ADDRESS_SANITIZER
 # error "The AddressSanitizer run-time should not be"
         " instrumented by AddressSanitizer"
@@ -145,12 +149,20 @@ PoisonShadowPartialRightRedzone(unsigned char *shadow,
 // -------------------------- Atomic ---------------- {{{1
 static inline int AtomicInc(int *a) {
   if (!FLAG_mt) return ++(*a);
+#ifdef ANDROID
+  return __atomic_inc(a) + 1;
+#else
   return __sync_add_and_fetch(a, 1);
+#endif
 }
 
 static inline int AtomicDec(int *a) {
   if (!FLAG_mt) return --(*a);
+#ifdef ANDROID
+  return __atomic_dec(a) - 1;
+#else
   return __sync_add_and_fetch(a, -1);
+#endif
 }
 
 }  // namespace __asan
