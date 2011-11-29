@@ -43,16 +43,9 @@ strnlen_f     real_strnlen;
 // On error calls __asan_report_error, which aborts the program.
 __attribute__((noinline))
 static void AccessAddress(uintptr_t address, bool isWrite) {
-  const size_t kAccessSize = 1;
-  uint8_t *shadow_address = (uint8_t*)MemToShadow(address);
-  int8_t shadow_value = *shadow_address;
-  if (shadow_value) {
-    uint8_t last_accessed_byte = (address & (SHADOW_GRANULARITY - 1))
-                                 + kAccessSize - 1;
-    if (last_accessed_byte >= shadow_value) {
-      GET_BP_PC_SP;
-      __asan_report_error(pc, bp, sp, address, isWrite, kAccessSize);
-    }
+  if (__asan_address_is_poisoned((void*)address)) {
+    GET_BP_PC_SP;
+    __asan_report_error(pc, bp, sp, address, isWrite, /* access_size */ 1);
   }
 }
 

@@ -156,6 +156,7 @@ LIBASAN_OBJ_COMMON=$(BIN)/asan_rtl$(SUFF).o \
 	    $(BIN)/asan_allocator$(SUFF).o  \
 	    $(BIN)/asan_globals$(SUFF).o  \
 	    $(BIN)/asan_interceptors$(SUFF).o  \
+	    $(BIN)/asan_poisoning$(SUFF).o  \
 	    $(BIN)/asan_printf$(SUFF).o  \
 	    $(BIN)/asan_stack$(SUFF).o  \
 	    $(BIN)/asan_stats$(SUFF).o  \

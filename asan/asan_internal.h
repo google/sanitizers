@@ -64,6 +64,7 @@ extern bool   FLAG_fast_unwind;
 extern bool   FLAG_use_fake_stack;
 extern size_t FLAG_max_malloc_fill_size;
 extern int    FLAG_exitcode;
+extern bool   FLAG_allow_user_poisoning;
 
 extern int asan_inited;
 // Used to avoid infinite recursion in __asan_init().
@@ -115,6 +116,7 @@ const int kAsanStackMidRedzoneMagic = 0xf2;
 const int kAsanStackRightRedzoneMagic = 0xf3;
 const int kAsanStackPartialRedzoneMagic = 0xf4;
 const int kAsanStackAfterReturnMagic = 0xf5;
+const int kAsanUserPoisonedMemoryMagic = 0xf7;
 const int kAsanGlobalRedzoneMagic = 0xf9;
 
 static const uintptr_t kCurrentStackFrameMagic = 0x41B58AB3;

@@ -219,3 +219,137 @@ TEST(AddressSanitizerInterface, ExitCode) {
   EXPECT_EXIT(DoDoubleFree(),
               ::testing::ExitedWithCode(original_exit_code), "");
 }
+
+static const char* kUseAfterPoisonErrorMessage = "use-after-poison";
+
+#define ACCESS(ptr, offset) Ident(*(ptr + offset))
+
+#define DIE_ON_ACCESS(ptr, offset) \
+    EXPECT_DEATH(Ident(*(ptr + offset)), kUseAfterPoisonErrorMessage)
+
+TEST(AddressSanitizerInterface, SimplePoisonMemoryRegionTest) {
+  char *array = Ident((char*)malloc(120));
+  // poison array[40..80)
+  ASAN_POISON_MEMORY_REGION(array + 40, 40);
+  ACCESS(array, 39);
+  ACCESS(array, 80);
+  DIE_ON_ACCESS(array, 40);
+  DIE_ON_ACCESS(array, 60);
+  DIE_ON_ACCESS(array, 79);
+  ASAN_UNPOISON_MEMORY_REGION(array + 40, 40);
+  // access previously poisoned memory.
+  ACCESS(array, 40);
+  ACCESS(array, 79);
+  free(array);
+}
+
+TEST(AddressSanitizerInterface, OverlappingPoisonMemoryRegionTest) {
+  char *array = Ident((char*)malloc(120));
+  // Poison [0..40) and [80..120)
+  ASAN_POISON_MEMORY_REGION(array, 40);
+  ASAN_POISON_MEMORY_REGION(array + 80, 40);
+  DIE_ON_ACCESS(array, 20);
+  ACCESS(array, 60);
+  DIE_ON_ACCESS(array, 100);
+  // Poison whole array - [0..120)
+  ASAN_POISON_MEMORY_REGION(array, 120);
+  DIE_ON_ACCESS(array, 60);
+  // Unpoison [24..96)
+  ASAN_UNPOISON_MEMORY_REGION(array + 24, 72);
+  DIE_ON_ACCESS(array, 23);
+  ACCESS(array, 24);
+  ACCESS(array, 60);
+  ACCESS(array, 95);
+  DIE_ON_ACCESS(array, 96);
+  free(array);
+}
+
+TEST(AddressSanitizerInterface, PushAndPopWithPoisoningTest) {
+  // Vector of capacity 20
+  char *vec = Ident((char*)malloc(20));
+  ASAN_POISON_MEMORY_REGION(vec, 20);
+  for (size_t i = 0; i < 7; i++) {
+    // Simulate push_back.
+    ASAN_UNPOISON_MEMORY_REGION(vec + i, 1);
+    ACCESS(vec, i);
+    DIE_ON_ACCESS(vec, i + 1);
+  }
+  for (size_t i = 7; i > 0; i--) {
+    // Simulate pop_back.
+    ASAN_POISON_MEMORY_REGION(vec + i - 1, 1);
+    DIE_ON_ACCESS(vec, i - 1);
+    if (i > 1) ACCESS(vec, i - 2);
+  }
+  free(vec);
+}
+
+// Make sure that each aligned block of size "2^granularity" doesn't have
+// "true" value before "false" value.
+static void MakeShadowValid(bool *shadow, int length, int granularity) {
+  bool can_be_poisoned = true;
+  for (int i = length - 1; i >= 0; i--) {
+    can_be_poisoned &= shadow[i];
+    shadow[i] &= can_be_poisoned;
+    if (i % (1 << granularity) == 0) {
+      can_be_poisoned = true;
+    }
+  }
+}
+
+TEST(AddressSanitizerInterface, PoisoningStressTest) {
+  const size_t kSize = 24;
+  bool expected[kSize];
+  char *arr = Ident((char*)malloc(kSize));
+  for (size_t l1 = 0; l1 < kSize; l1++) {
+    for (size_t s1 = 1; l1 + s1 <= kSize; s1++) {
+      for (size_t l2 = 0; l2 < kSize; l2++) {
+        for (size_t s2 = 1; l2 + s2 <= kSize; s2++) {
+          // Poison [l1, l1+s1), [l2, l2+s2) and check result.
+          ASAN_UNPOISON_MEMORY_REGION(arr, kSize);
+          ASAN_POISON_MEMORY_REGION(arr + l1, s1);
+          ASAN_POISON_MEMORY_REGION(arr + l2, s2);
+          memset(expected, false, kSize);
+          memset(expected + l1, true, s1);
+          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          memset(expected + l2, true, s2);
+          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          for (size_t i = 0; i < kSize; i++) {
+            ASSERT_EQ(expected[i], __asan_address_is_poisoned(arr + i));
+          }
+          // Unpoison [l1, l1+s1) and [l2, l2+s2) and check result.
+          ASAN_POISON_MEMORY_REGION(arr, kSize);
+          ASAN_UNPOISON_MEMORY_REGION(arr + l1, s1);
+          ASAN_UNPOISON_MEMORY_REGION(arr + l2, s2);
+          memset(expected, true, kSize);
+          memset(expected + l1, false, s1);
+          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          memset(expected + l2, false, s2);
+          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          for (size_t i = 0; i < kSize; i++) {
+            ASSERT_EQ(expected[i], __asan_address_is_poisoned(arr + i));
+          }
+        }
+      }
+    }
+  }
+}
+
+static const char *kInvalidPoisonMessage = "invalid-poison-memory-range";
+static const char *kInvalidUnpoisonMessage = "invalid-unpoison-memory-range";
+
+TEST(AddressSanitizerInterface, DISABLED_InvalidPoisonAndUnpoisonCallsTest) {
+  char *array = Ident((char*)malloc(120));
+  ASAN_UNPOISON_MEMORY_REGION(array, 120);
+  // Try to unpoison not owned memory
+  EXPECT_DEATH(ASAN_UNPOISON_MEMORY_REGION(array, 121),
+               kInvalidUnpoisonMessage);
+  EXPECT_DEATH(ASAN_UNPOISON_MEMORY_REGION(array - 1, 120),
+               kInvalidUnpoisonMessage);
+
+  ASAN_POISON_MEMORY_REGION(array, 120);
+  // Try to poison not owned memory.
+  EXPECT_DEATH(ASAN_POISON_MEMORY_REGION(array, 121), kInvalidPoisonMessage);
+  EXPECT_DEATH(ASAN_POISON_MEMORY_REGION(array - 1, 120),
+               kInvalidPoisonMessage);
+  free(array);
+}

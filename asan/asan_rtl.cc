@@ -78,6 +78,7 @@ bool   FLAG_stats;
 size_t FLAG_max_malloc_fill_size = 0;
 bool   FLAG_use_fake_stack;
 int    FLAG_exitcode = EXIT_FAILURE;
+bool   FLAG_allow_user_poisoning;
 
 // -------------------------- Globals --------------------- {{{1
 int asan_inited;
@@ -561,6 +562,9 @@ void __asan_report_error(uintptr_t pc, uintptr_t bp, uintptr_t sp,
       case kAsanStackAfterReturnMagic:
         bug_descr = "stack-use-after-return";
         break;
+      case kAsanUserPoisonedMemoryMagic:
+        bug_descr = "use-after-poison";
+        break;
       case kAsanGlobalRedzoneMagic:
         bug_descr = "global-buffer-overflow";
         break;
@@ -648,6 +652,8 @@ void __asan_init() {
   FLAG_replace_intrin = IntFlagValue(options, "replace_intrin=", 0);
   FLAG_use_fake_stack = IntFlagValue(options, "use_fake_stack=", 1);
   FLAG_exitcode = IntFlagValue(options, "exitcode=", EXIT_FAILURE);
+  FLAG_allow_user_poisoning = IntFlagValue(options,
+                                           "allow_user_poisoning=", 1);
 
   if (FLAG_atexit) {
     atexit(asan_atexit);
