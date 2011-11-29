@@ -27,6 +27,11 @@ void *AsanDoesNotSupportStaticLinkage() {
   return &_DYNAMIC;
 }
 
+#ifdef ANDROID
+#define SYS_mmap2 __NR_mmap2
+#define SYS_write __NR_write
+#endif
+
 void *asan_mmap(void *addr, size_t length, int prot, int flags,
                 int fd, uint64_t offset) {
 # if __WORDSIZE == 64
