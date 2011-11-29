@@ -29,8 +29,8 @@ class AsanLock {
  public:
   explicit AsanLock(LinkerInitialized) :
     mu_(OS_SPINLOCK_INIT),
-    is_locked_(false),
-    owner_(0) {}
+    owner_(0),
+    is_locked_(false) {}
 
   void Lock() {
     CHECK(owner_ != pthread_self());
