@@ -36,15 +36,23 @@ namespace __asan {
 class AsanThread;
 struct AsanStackTrace;
 
-void ReplaceSystemMalloc();
+//  asan_rtl.cc
 void CheckFailed(const char *cond, const char *file, int line);
-void *asan_mmap(void *addr, size_t length, int prot, int flags,
-                                    int fd, uint64_t offset);
-ssize_t asan_write(int fd, const void *buf, size_t count);
 void ShowStatsAndAbort();
-bool DescribeAddrIfGlobal(uintptr_t addr);
-void *AsanDoesNotSupportStaticLinkage();
 
+//  asan_globals.cc
+bool DescribeAddrIfGlobal(uintptr_t addr);
+
+//  asan_malloc_linux.cc / asan_malloc_mac.cc
+void ReplaceSystemMalloc();
+
+//  asan_linux.cc / asan_mac.cc
+void *AsanDoesNotSupportStaticLinkage();
+void *asan_mmap(void *addr, size_t length, int prot, int flags,
+                int fd, uint64_t offset);
+ssize_t asan_write(int fd, const void *buf, size_t count);
+
+//  asan_printf.cc
 void RawWrite(const char *buffer);
 int SNPrint(char *buffer, size_t length, const char *format, ...);
 void Printf(const char *format, ...);
