@@ -1,2 +1,2 @@
 #!/bin/bash
-LLVM_REV=144800
+LLVM_REV=145532

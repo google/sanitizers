@@ -4,4 +4,5 @@ export THISDIR=`dirname $0`
 svn co -r$LLVM_REV http://llvm.org/svn/llvm-project/llvm/trunk clang_src
 cd clang_src/tools
 svn co -r$LLVM_REV http://llvm.org/svn/llvm-project/cfe/trunk clang
-
+cd ..
+svn co -r$LLVM_REV http://llvm.org/svn/llvm-project/compiler-rt/trunk compiler-rt
