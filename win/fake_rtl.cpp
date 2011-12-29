@@ -26,10 +26,16 @@ extern "C" {
 
 #define CHECK(x) assert(x)
 
-const size_t SHADOW_START = 512 * 1024 * 1024,
+const size_t SHADOW_START  = 512 * 1024 * 1024,
              SHADOW_SIZE   = 512 * 1024 * 1024,
-             RESTRICT_LOW  = 0x24000000,
-             RESTRICT_HIGH = 0x28000000;
+             SHADOW_SHIFT  = 3;
+
+const size_t MemToShadow(size_t x) {
+  return SHADOW_START + (x >> SHADOW_SHIFT);
+}
+
+const size_t RESTRICT_LOW  = MemToShadow(SHADOW_START),
+             RESTRICT_HIGH = MemToShadow(SHADOW_START + SHADOW_SIZE);
 
 extern "C" int __asan_init() {
   static void * shadow_at;
