@@ -40,31 +40,40 @@ const size_t RESTRICT_LOW  = MemToShadow(SHADOW_START),
 extern "C" int __asan_init() {
   static void * shadow_at;
   if (shadow_at == NULL) {
-    // Reserve the whole shadow.
-    shadow_at = VirtualAlloc(
-        (void*)SHADOW_START, SHADOW_SIZE,
-        MEM_RESERVE, PAGE_READWRITE);
-    assert((size_t)shadow_at == SHADOW_START);
+    if (RESTRICT_LOW != 0) {
+      // Reserve the whole shadow.
+      shadow_at = VirtualAlloc(
+          (void*)SHADOW_START, SHADOW_SIZE,
+          MEM_RESERVE, PAGE_READWRITE);
+      assert((size_t)shadow_at == SHADOW_START);
 
-    void *allocated;
+      void *allocated;
 
-    // Commit the low-shadow.
-    allocated = VirtualAlloc(
-        (void*)SHADOW_START, RESTRICT_LOW - SHADOW_START,
-        MEM_COMMIT, PAGE_READWRITE);
-    assert((size_t)allocated == SHADOW_START);
+      // Commit the low-shadow.
+      allocated = VirtualAlloc(
+          (void*)SHADOW_START, RESTRICT_LOW - SHADOW_START,
+          MEM_COMMIT, PAGE_READWRITE);
+      assert((size_t)allocated == SHADOW_START);
 
-    // Commit the low-shadow.
-    allocated = VirtualAlloc(
-        (void*)RESTRICT_HIGH, SHADOW_START + SHADOW_SIZE - RESTRICT_HIGH,
-        MEM_COMMIT, PAGE_READWRITE);
-    assert((size_t)allocated == RESTRICT_HIGH);
+      // Commit the high-shadow.
+      allocated = VirtualAlloc(
+          (void*)RESTRICT_HIGH, SHADOW_START + SHADOW_SIZE - RESTRICT_HIGH,
+          MEM_COMMIT, PAGE_READWRITE);
+      assert((size_t)allocated == RESTRICT_HIGH);
 
-    // Restrict the RESTRICT region.
-    allocated = VirtualAlloc(
-        (void*)RESTRICT_LOW, RESTRICT_HIGH - RESTRICT_LOW,
-        MEM_COMMIT, PAGE_NOACCESS);
-    assert((size_t)allocated == RESTRICT_LOW);
+      // Restrict the RESTRICT region.
+      allocated = VirtualAlloc(
+          (void*)RESTRICT_LOW, RESTRICT_HIGH - RESTRICT_LOW,
+          MEM_COMMIT, PAGE_NOACCESS);
+      assert((size_t)allocated == RESTRICT_LOW);
+    } else {
+      // Only commit the high-shadow as there's no low-shadow.
+      // TODO(timurrrr): should we PAGE_NOACCESS the RESTRICT_ section? How?
+      shadow_at = VirtualAlloc(
+          (void*)RESTRICT_HIGH, SHADOW_SIZE - RESTRICT_HIGH,
+          MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+      assert((size_t)shadow_at == RESTRICT_HIGH);
+    }
 
     printf("Successfully allocated the shadow memory!\n");
   }
