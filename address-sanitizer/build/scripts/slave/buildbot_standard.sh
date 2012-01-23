@@ -43,8 +43,8 @@ echo @@@BUILD_STEP test llvm@@@
 make check-all
 
 echo @@@BUILD_STEP build asan@@@
+CLANG_BUILD=`pwd`/Release+Asserts
 cd ../llvm/projects/compiler-rt/lib/asan/
-CLANG_BUILD=../../../../../llvm-build/Release+Asserts
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j16
 
