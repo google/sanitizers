@@ -12,6 +12,7 @@ def bash(path):
 
 BOT_ASSIGNMENT = {
     'linux': bash('buildbot_standard.sh'),
+    'mac10.6': bash('buildbot_standard.sh'),
 }
 
 def Main():
