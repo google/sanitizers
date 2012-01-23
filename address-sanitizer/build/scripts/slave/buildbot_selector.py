@@ -11,7 +11,7 @@ def bash(path):
     return 'bash ' + os.path.join(THIS_DIR, path)
 
 BOT_ASSIGNMENT = {
-    'buildbot-full': bash('buildbot_standard.sh'),
+    'linux': bash('buildbot_standard.sh'),
 }
 
 def Main():
