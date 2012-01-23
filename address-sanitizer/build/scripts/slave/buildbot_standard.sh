@@ -44,8 +44,9 @@ make check-all
 
 echo @@@BUILD_STEP build asan@@@
 cd ../llvm/projects/compiler-rt/lib/asan/
-make -f Makefile.old get_third_party
-make -f Makefile.old -j16
+CLANG_BUILD=../../../../../llvm-build/Release+Asserts
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j16
 
 echo @@@BUILD_STEP test asan@@@
-make -f Makefile.old -j16 test
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j16 test
