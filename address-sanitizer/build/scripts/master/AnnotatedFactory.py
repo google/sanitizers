@@ -13,7 +13,7 @@ f1 = factory.BuildFactory()
 f1.addStep(ShellCommand(command='svn up ../../../scripts',
                         timeout=60,
                         name='update scripts',
-                        descriptions='update scripts'))
+                        description='update scripts'))
 
 f1.addStep(chromium_step.AnnotatedCommand,
            name='annotate',
