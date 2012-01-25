@@ -4,6 +4,7 @@ set -x
 set -e
 set -u
 
+
 echo @@@BUILD_STEP clobber@@@
 rm -rf llvm-build
 
@@ -40,7 +41,7 @@ cd llvm-build
 make -j16
 
 echo @@@BUILD_STEP test llvm@@@
-make check-all
+make check-all || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP build asan@@@
 CLANG_BUILD=`pwd`/Release+Asserts
@@ -49,4 +50,4 @@ make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j16
 
 echo @@@BUILD_STEP test asan@@@
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j16 test
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD test  || echo @@@STEP_FAILURE@@@
