@@ -14,11 +14,28 @@
 
 # This file is a part of AddressSanitizer, an address sanity checker.
 
+PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
+ifeq ($(PLATFORM), Windows)
+	CC=cl
+	CC_OUT=/Fe
+	CFLAGS=/TC /Zi /nologo
+	POST_CFLAGS=/link "/INCREMENTAL:NO"
+else ifeq ($(PLATFORM), Linux)
+	CC=gcc
+	CC_OUT=-o
+	CFLAGS=-g
+	POST_CFLAGS=
+endif
+EXTRA_CFLAGS=
+
 RUN_TEST_TARGETS=$(patsubst %.c,run_%_test,$(wildcard *.c))
-CC=gcc
 
 all: run_all_tests
 .PHONY: all
+
+clean:
+	rm -rf *.pdb *.ilk *.exe *.obj
+.PHONY: clean
 
 run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
@@ -29,7 +46,7 @@ run_%_crash_test: %_crash_test.exe
 	@echo "$< - PASSED"
 
 %_test.exe: %.c
-	$(CC) $< -o $@
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $< $(POST_CFLAGS)
 	@# Automatically removes the file at the end of the run? Oh wow!
 
 run_all_tests: $(RUN_TEST_TARGETS)
