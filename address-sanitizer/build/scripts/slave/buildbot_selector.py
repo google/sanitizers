@@ -15,6 +15,11 @@ BOT_ASSIGNMENT = {
     'mac10.6': bash('buildbot_standard.sh'),
 }
 
+BOT_ADDITIONAL_ENV = {
+    'linux': {},
+    'mac10.6': { 'MAX_MAKE_JOBS': '1' },
+}
+
 def Main():
   builder = os.environ.get('BUILDBOT_BUILDERNAME')
   cmd = BOT_ASSIGNMENT.get(builder)
@@ -25,7 +30,12 @@ def Main():
   print "%s runs: %s\n" % (builder, cmd)
   sys.stdout.flush()
 
-  retcode = subprocess.call(cmd, env=os.environ, shell=True)
+  bot_env = os.environ
+  add_env = BOT_ADDITIONAL_ENV.get(builder)
+  for var in add_env:
+    bot_env[var] = add_env[var]
+
+  retcode = subprocess.call(cmd, env=bot_env, shell=True)
   sys.exit(retcode)
 
 

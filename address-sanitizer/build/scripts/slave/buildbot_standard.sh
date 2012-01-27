@@ -18,6 +18,8 @@ if [ "x$BUILDBOT_REVISION" != "x" ]; then
   REV_ARG="-r$BUILDBOT_REVISION"
 fi
 
+MAKE_JOBS=${MAX_MAKE_JOBS:-16}
+
 if [ -d llvm ]; then
   svn up llvm $REV_ARG
   if [ "x$REV_ARG" == "x" ]; then
@@ -38,7 +40,7 @@ echo @@@BUILD_STEP build llvm@@@
 mkdir llvm-build
 cd llvm-build
 ../llvm/configure --enable-optimized
-make -j16
+make -j$MAKE_JOBS
 
 echo @@@BUILD_STEP test llvm@@@
 make check-all || echo @@@STEP_FAILURE@@@
@@ -47,7 +49,7 @@ echo @@@BUILD_STEP build asan@@@
 CLANG_BUILD=`pwd`/Release+Asserts
 cd ../llvm/projects/compiler-rt/lib/asan/
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j16
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j$MAKE_JOBS
 
 echo @@@BUILD_STEP test asan@@@
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD test  || echo @@@STEP_FAILURE@@@
