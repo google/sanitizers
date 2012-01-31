@@ -51,5 +51,11 @@ cd ../llvm/projects/compiler-rt/lib/asan/
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j$MAKE_JOBS
 
-echo @@@BUILD_STEP test asan@@@
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD test  || echo @@@STEP_FAILURE@@@
+echo @@@BUILD_STEP asan test32@@@
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD t32  || echo @@@STEP_FAILURE@@@
+
+echo @@@BUILD_STEP asan test64@@@
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD t64  || echo @@@STEP_FAILURE@@@
+
+echo @@@BUILD_STEP asan output_tests@@@
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD output_tests  || echo @@@STEP_FAILURE@@@
