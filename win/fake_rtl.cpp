@@ -94,6 +94,10 @@ extern "C" void __asan_register_globals(void *globals, size_t n) {
   printf("__asan_register_globals is a fake\n");
 }
 
+extern "C" void __asan_unregister_globals(void *globals, size_t n) {
+  printf("__asan_unregister_globals is a fake\n");
+}
+
 void * __asan_malloc(size_t size) {
   printf("__asan_malloc(size=%d) called\n", size);
   return NULL;

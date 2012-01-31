@@ -1,5 +1,5 @@
 Build and run like this:
   clang fake_rtl_test.c -c -faddress-sanitizer && \
-    cl fake_rtl.cpp /nologo /c /Fofake_rtl.obj && \
-    link /nologo fake_rtl_test.o fake_rtl.obj  && \
+    cl fake_rtl.cpp /nologo /Zi /c /Fofake_rtl.obj && \
+    link /nologo /debug fake_rtl_test.o fake_rtl.obj  && \
     fake_rtl_test.exe
