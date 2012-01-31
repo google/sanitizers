@@ -43,7 +43,7 @@ cd llvm-build
 make -j$MAKE_JOBS
 
 echo @@@BUILD_STEP test llvm@@@
-make check-all || echo @@@STEP_FAILURE@@@
+make check-all || echo @@@STEP_WARNINGS@@@
 
 echo @@@BUILD_STEP build asan@@@
 CLANG_BUILD=`pwd`/Release+Asserts
