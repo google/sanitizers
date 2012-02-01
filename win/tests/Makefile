@@ -1,4 +1,4 @@
-# Copyright 2011 Google Inc.
+# Copyright 2012 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
 ifeq ($(PLATFORM), Windows)
+	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
 	CC=cl
 	CC_OUT=/Fe
 	CFLAGS=/TC /Zi /nologo
@@ -41,12 +42,15 @@ run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
 
+# TODO(timurrrr): check the output against a pattern?
 run_%_crash_test: %_crash_test.exe
 	@! $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 	@echo "$< - PASSED"
 
+.PHONY: run_%_test
+
 %_test.exe: %.c
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $< $(POST_CFLAGS)
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT) $@ $< $(POST_CFLAGS)
 	@# Automatically removes the file at the end of the run? Oh wow!
 
 run_all_tests: $(RUN_TEST_TARGETS)
@@ -55,5 +59,3 @@ run_all_tests: $(RUN_TEST_TARGETS)
 	@echo "Please note that the crash reports above are expected, e.g. glibc printing to tty"
 	@echo "Cleaning up..."
 .PHONY: run_all_tests
-
-# .PHONE: run_%_test  # TODO?

@@ -15,9 +15,11 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-#include <stdio.h>
+#include "common.h"
 
 int main(void) {
-  printf("Hello, world!\n");
+  int *buffer = (int*)calloc(42, sizeof(int));
+  buffer[42] = 42;
+  free(buffer);
   return 0;
 }

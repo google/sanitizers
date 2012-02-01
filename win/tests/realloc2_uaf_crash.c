@@ -15,9 +15,14 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-#include <stdio.h>
+#include "common.h"
 
 int main(void) {
-  printf("Hello, world!\n");
+  char *buffer = (char*)realloc(NULL, 32),
+       *stale = buffer;
+  buffer = (char*)realloc(buffer, 64);
+  // The 'stale' may now point to a free'd memory.
+  stale[0] = 42;
+  free(buffer);
   return 0;
 }

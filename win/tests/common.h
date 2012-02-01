@@ -1,4 +1,4 @@
-/* Copyright 2011 Google Inc.
+/* Copyright 2012 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,5 +15,6 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
+#include <assert.h>
 #include <malloc.h>
 #include <stdio.h>

@@ -1,4 +1,4 @@
-/* Copyright 2011 Google Inc.
+/* Copyright 2012 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,11 @@ int main(void) {
   p = (int*)malloc(128);
   p = (int*)realloc(p, 2048 * sizeof(int));
   p[1024] = 0;
+  free(p);
+
+  p = (int*)calloc(16, sizeof(int));
+  assert(p[8] == 0);
+  p[15]++;
   free(p);
 
   return 0;
