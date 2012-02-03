@@ -5,14 +5,12 @@ set -e
 set -u
 
 
-echo @@@BUILD_STEP clobber@@@
-rm -rf llvm-build
-
-echo @@@BUILD_STEP update@@@
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
+  echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
 fi
 
+echo @@@BUILD_STEP update@@@
 REV_ARG=
 if [ "$BUILDBOT_REVISION" != "" ]; then
   REV_ARG="-r$BUILDBOT_REVISION"
@@ -37,6 +35,7 @@ else
 fi
 
 echo @@@BUILD_STEP build llvm@@@
+rm -rf llvm-build
 mkdir llvm-build
 cd llvm-build
 ../llvm/configure --enable-optimized
