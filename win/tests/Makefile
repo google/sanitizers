@@ -18,7 +18,7 @@ PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/
 ifeq ($(PLATFORM), Windows)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
 	# Currently, I run
-	# make CC=clang.exe CC_OUT=-c -o CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan*.obj -j
+	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan*.obj -j
 	CC=cl
 	CC_OUT=/c /Fo
 	CFLAGS=/TC /Zi /nologo
