@@ -23,7 +23,7 @@ ifeq ($(PLATFORM), Windows)
 	CC_OUT=/c /Fo
 	CFLAGS=/TC /Zi /nologo
 	LINK=link
-	LINK_FLAGS=/nologo /INCREMENTAL:NO
+	LINK_FLAGS=/debug /nologo /INCREMENTAL:NO
 	LINK_OUT=/OUT:
 	EXTRA_OBJ=
 else ifeq ($(PLATFORM), Linux)
