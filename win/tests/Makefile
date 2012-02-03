@@ -17,15 +17,23 @@
 PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
 ifeq ($(PLATFORM), Windows)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
+	# Currently, I run
+	# make CC=clang.exe CC_OUT=-c -o CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan*.obj -j
 	CC=cl
-	CC_OUT=/Fe
+	CC_OUT=/c /Fo
 	CFLAGS=/TC /Zi /nologo
-	POST_CFLAGS=/link "/INCREMENTAL:NO"
+	LINK=link
+	LINK_FLAGS=/nologo /INCREMENTAL:NO
+	LINK_OUT=/OUT:
+	EXTRA_OBJ=
 else ifeq ($(PLATFORM), Linux)
 	CC=gcc
-	CC_OUT=-o
+	CC_OUT=-c -o
 	CFLAGS=-g
-	POST_CFLAGS=
+	LINK=gcc
+	LINK_FLAGS=
+	LINK_OUT=-o
+	EXTRA_OBJ=
 endif
 EXTRA_CFLAGS=
 
@@ -49,8 +57,11 @@ run_%_crash_test: %_crash_test.exe
 
 .PHONY: run_%_test
 
-%_test.exe: %.c
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT) $@ $< $(POST_CFLAGS)
+%_test.exe: %.obj
+	$(LINK) $(LINK_FLAGS) $(LINK_OUT)$@ $< $(EXTRA_OBJ)
+
+%.obj: %.c
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!
 
 run_all_tests: $(RUN_TEST_TARGETS)
