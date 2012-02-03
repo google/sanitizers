@@ -27,6 +27,9 @@ ifeq ($(PLATFORM), Windows)
 	LINK_OUT=/OUT:
 	EXTRA_OBJ=
 else ifeq ($(PLATFORM), Linux)
+	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
+	# Currently, I run
+	# make CC=clang CFLAGS=-faddress-sanitizer EXTRA_OBJ="<path_to_rtl>/libasan64.so -lpthread -ldl" -j
 	CC=gcc
 	CC_OUT=-c -o
 	CFLAGS=-g
