@@ -11,11 +11,13 @@ def bash(path):
     return 'bash ' + os.path.join(THIS_DIR, path)
 
 BOT_ASSIGNMENT = {
+    'win': bash('buildbot_standard.bat'),
     'linux': bash('buildbot_standard.sh'),
     'mac10.6': bash('buildbot_standard.sh'),
 }
 
 BOT_ADDITIONAL_ENV = {
+    'win': {},
     'linux': {},
     'mac10.6': { 'MAX_MAKE_JOBS': '1' },
 }
