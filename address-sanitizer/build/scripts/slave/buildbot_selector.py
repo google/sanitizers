@@ -10,8 +10,11 @@ THIS_DIR=os.path.dirname(sys.argv[0])
 def bash(path):
     return 'bash ' + os.path.join(THIS_DIR, path)
 
+def cmd_call(path):
+    return 'call ' + os.path.join(THIS_DIR, path)
+
 BOT_ASSIGNMENT = {
-    'win': bash('buildbot_standard.bat'),
+    'win': cmd_call('buildbot_standard.bat'),
     'linux': bash('buildbot_standard.sh'),
     'mac10.6': bash('buildbot_standard.sh'),
 }
