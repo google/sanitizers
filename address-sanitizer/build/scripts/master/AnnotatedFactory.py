@@ -20,4 +20,4 @@ f1.addStep(chromium_step.AnnotatedCommand,
            description='annotate',
            timeout=1200,
            haltOnFailure=True,
-           command='../../../scripts/slave/buildbot_selector.py')
+           command='python ../../../scripts/slave/buildbot_selector.py')
