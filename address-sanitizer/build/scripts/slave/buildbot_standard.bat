@@ -17,7 +17,7 @@ call svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang %REV_ARG
 call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk/lib/asan asan_rtl %REV_ARG% || goto :DIE
 call svn co http://address-sanitizer.googlecode.com/svn/trunk/win/tests win_tests || goto :DIE
 
-@@@BUILD_STEP build llvm@@@
+echo @@@BUILD_STEP build llvm@@@
 rmdir /S /Q llvm-build
 mkdir llvm-build || goto :DIE
 cd llvm-build
