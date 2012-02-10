@@ -14,7 +14,10 @@
 
 # This file is a part of AddressSanitizer, an address sanity checker.
 
-PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
+ifeq ($(PLATFORM), )
+	PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
+endif
+
 ifeq ($(PLATFORM), Windows)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
 	# Currently, I run
