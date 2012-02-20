@@ -18,10 +18,16 @@ call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk/lib/asan asan_rtl
 call svn co http://address-sanitizer.googlecode.com/svn/trunk/win/tests win_tests || goto :DIE
 
 echo @@@BUILD_STEP build llvm@@@
-rmdir /S /Q llvm-build
-mkdir llvm-build || goto :DIE
+:: TODO(timurrrr)
+:: if [ "$BUILDBOT_CLOBBER" != "" ]; then
+::   rmdir /S /Q llvm-build
+::   mkdir llvm-build || goto :DIE
+:: else
+mkdir llvm-build
+:: TODO(timurrrr): Is this enough to force a full re-configure?
+del llvm-build\CMakeCache.txt
+:: endif
 cd llvm-build
-:: TODO(timurrrr) make this incremental?
 cmake ..\llvm || goto :DIE
 devenv LLVM.sln /Build Debug /Project clang || goto :DIE
 cd ..
