@@ -59,7 +59,7 @@ run_%_pass_test: %_pass_test.exe
 # TODO(timurrrr): check the output against a pattern?
 run_%_crash_test: %_crash_test.exe
 	@! $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
-	@echo "$< - PASSED"
+	@echo "$< - PASSED (CRASHED AS EXPECTED)"
 
 .PHONY: run_%_test
 

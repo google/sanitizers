@@ -15,12 +15,21 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-// NOTE: Don't put <windows.h> here as it's large and not needed for tiny tests.
+#include <windows.h>
 
-#include <assert.h>
-#include <malloc.h>
-#include <stdio.h>
+#include "common.h"
 
-#define CHECK(x) do { if (!(x)) { \
-  printf("Oops: %s @ %s:%d\n", #x, __FILE__, __LINE__); abort(); \
-} } while(0)
+DWORD WINAPI thread_proc(void *context) {
+  char stack_buffer[42];
+  for (int i = 0; i < sizeof(stack_buffer); ++i)
+    stack_buffer[i] = 42;
+  return 0;
+}
+
+int main(void) {
+  DWORD tid = -1;
+  HANDLE thr = CreateThread(NULL, 0, thread_proc, NULL, 0, &tid);
+  CHECK(thr > 0);
+  CHECK(WAIT_OBJECT_0 == WaitForSingleObject(thr, INFINITE));
+  return 0;
+}
