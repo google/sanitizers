@@ -38,7 +38,7 @@ echo @@@BUILD_STEP build asan RTL@@@
 cd asan_rtl
 :: This only compiles, not links.
 del *.obj || goto :DIE
-cl /nologo /MP /Zi /c *.cc || goto :DIE
+cl /nologo /MP /MTd /Zi /c *.cc || goto :DIE
 cd ..
 
 echo @@@BUILD_STEP asan test@@@
