@@ -44,11 +44,14 @@ make -j$MAKE_JOBS
 echo @@@BUILD_STEP test llvm@@@
 make check-all || echo @@@STEP_WARNINGS@@@
 
-echo @@@BUILD_STEP build asan@@@
+echo @@@BUILD_STEP prepare for building asan@@@
 CLANG_BUILD=`pwd`/Release+Asserts
 cd ../llvm/projects/compiler-rt/lib/asan/
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
+echo @@@BUILD_STEP lint@@@
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD lint
+
+echo @@@BUILD_STEP build asan@@@
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j$MAKE_JOBS
 
 echo @@@BUILD_STEP asan test32@@@
