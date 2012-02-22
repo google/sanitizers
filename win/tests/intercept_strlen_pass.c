@@ -15,14 +15,10 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-// NOTE: Don't put <windows.h> here as it's large and not needed for tiny tests.
+#include "common.h"
 
-#include <assert.h>
-#include <malloc.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#define CHECK(x) do { if (!(x)) { \
-  printf("Oops: %s @ %s:%d\n", #x, __FILE__, __LINE__); abort(); \
-} } while(0)
+int main(void) {
+  char str[] = "Hello!";
+  CHECK(6 == strlen(str));
+  printf("PASS\n");
+}
