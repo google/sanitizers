@@ -48,6 +48,7 @@ echo @@@BUILD_STEP build asan@@@
 CLANG_BUILD=`pwd`/Release+Asserts
 cd ../llvm/projects/compiler-rt/lib/asan/
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD get_third_party
+make -f Makefile.old CLANG_BUILD=$CLANG_BUILD lint
 make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j$MAKE_JOBS
 
 echo @@@BUILD_STEP asan test32@@@
