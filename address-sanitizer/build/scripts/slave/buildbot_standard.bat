@@ -5,7 +5,12 @@
 echo @@@BUILD_STEP update@@@
 :: TODO(timurrrr)
 ::if [ "$BUILDBOT_CLOBBER" != "" ]; then
-::rmdir /S /Q asan
+::  echo @@@BUILD_STEP clobber build@@@
+::  rmdir /S /Q asan_rtl || goto :DIE
+::  rmdir /S /Q llvm || goto :DIE
+::  rmdir /S /Q llvm-build || goto :DIE
+::  mkdir llvm-build || goto :DIE
+::  rmdir /S /Q win_tests || goto :DIE
 ::fi
 
 set REV_ARG=
@@ -17,18 +22,14 @@ call svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang %REV_ARG
 call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk/lib/asan asan_rtl %REV_ARG% || goto :DIE
 call svn co http://address-sanitizer.googlecode.com/svn/trunk/win/tests win_tests || goto :DIE
 
-echo @@@BUILD_STEP build llvm@@@
-:: TODO(timurrrr)
-:: if [ "$BUILDBOT_CLOBBER" != "" ]; then
-::   rmdir /S /Q llvm-build
-::   mkdir llvm-build || goto :DIE
-:: else
 mkdir llvm-build
+
+echo @@@BUILD_STEP cmake llvm@@@
 :: TODO(timurrrr): Is this enough to force a full re-configure?
 del llvm-build\CMakeCache.txt
-:: endif
 cd llvm-build
 cmake ..\llvm || goto :DIE
+echo @@@BUILD_STEP build llvm@@@
 devenv LLVM.sln /Build Debug /Project clang || goto :DIE
 cd ..
 
