@@ -23,13 +23,16 @@ DWORD WINAPI thread_proc(void *context) {
   char stack_buffer[42];
   for (int i = 0; i < sizeof(stack_buffer); ++i)
     stack_buffer[i] = 42;
-  return 0;
+  return 0x42;
 }
 
 int main(void) {
-  DWORD tid = -1;
+  DWORD tid = -1, exitcode;
   HANDLE thr = CreateThread(NULL, 0, thread_proc, NULL, 0, &tid);
   CHECK(thr > 0);
   CHECK(WAIT_OBJECT_0 == WaitForSingleObject(thr, INFINITE));
+
+  GetExitCodeThread(thr, &exitcode);
+  CHECK(exitcode == 0x42);
   return 0;
 }
