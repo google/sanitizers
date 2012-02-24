@@ -44,7 +44,7 @@ del *.pdb *.obj *.lib || goto :DIE
 :: /MD <- Multi-Threaded CRT with dynamic linking
 :: /Zi <- generate debug info
 :: /D_CRTIMP="" <- cut off the __declspec(dllimport) from malloc & friends
-cl /nologo /MP /MD /Zi /D_CRTIMP="" /c *.cc interception/*.cc || goto :DIE
+cl /nologo /MP /MD /Zi /c *.cc interception/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
 cd ..
 
