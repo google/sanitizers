@@ -63,7 +63,7 @@ run_%_crash_test: %_crash_test.exe
 
 .PHONY: run_%_test
 
-%_test.exe: %.obj
+%_test.exe: %.obj $(EXTRA_OBJ)
 	$(LINK) $(LINK_FLAGS) $(LINK_OUT)$@ $< $(EXTRA_OBJ)
 
 %.obj: %.c
