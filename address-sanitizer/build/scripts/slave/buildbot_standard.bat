@@ -38,18 +38,19 @@ cd ..
 echo @@@BUILD_STEP build asan RTL@@@
 cd asan_rtl
 :: This only compiles, not links.
-del *.pdb *.obj || goto :DIE
+del *.pdb *.obj *.lib || goto :DIE
 
 :: /MP <- parallel buidling
 :: /MD <- Multi-Threaded CRT with dynamic linking
 :: /Zi <- generate debug info
 :: /D_CRTIMP="" <- cut off the __declspec(dllimport) from malloc & friends
 cl /nologo /MP /MD /Zi /D_CRTIMP="" /c *.cc interception/*.cc || goto :DIE
+lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
 cd ..
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests
-C:\cygwin\bin\make PLATFORM=Windows CC=../llvm-build/bin/Debug/clang.exe CC_OUT='-g -D_CRTIMP="" -D_MT -D_DLL -c -o' CFLAGS=-faddress-sanitizer EXTRA_OBJ=../asan_rtl/*.obj || goto :DIE
+C:\cygwin\bin\make PLATFORM=Windows CC=../llvm-build/bin/Debug/clang.exe CC_OUT='-g -D_CRTIMP="" -D_MT -D_DLL -c -o' CFLAGS=-faddress-sanitizer EXTRA_OBJ=../asan_rtl/asan_rtl.lib || goto :DIE
 cd ..
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
