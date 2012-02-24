@@ -50,7 +50,7 @@ cd ..
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests
-C:\cygwin\bin\make PLATFORM=Windows CC=../llvm-build/bin/Debug/clang.exe CC_OUT='-g -D_CRTIMP="" -D_MT -D_DLL -c -o' CFLAGS=-faddress-sanitizer EXTRA_OBJ=../asan_rtl/asan_rtl.lib || goto :DIE
+C:\cygwin\bin\make PLATFORM=Windows CC=../llvm-build/bin/Debug/clang.exe CC_OUT='-g -D_CRTIMP="" -D_KERNEL32_="" -D_MT -D_DLL -c -o' CFLAGS=-faddress-sanitizer EXTRA_OBJ=../asan_rtl/asan_rtl.lib || goto :DIE
 cd ..
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
