@@ -30,6 +30,7 @@ int main(void) {
   p = (int*)calloc(16, sizeof(int));
   assert(p[8] == 0);
   p[15]++;
+  assert(16 * sizeof(int) == _msize(p));
   free(p);
 
   return 0;
