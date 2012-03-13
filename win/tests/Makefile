@@ -66,7 +66,7 @@ run_%_crash_test: %_crash_test.exe
 %_test.exe: %.obj $(EXTRA_OBJ)
 	$(LINK) $(LINK_FLAGS) $(LINK_OUT)$@ $< $(EXTRA_OBJ)
 
-%.obj: %.c
+%.obj: %.c common.h
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!
 
