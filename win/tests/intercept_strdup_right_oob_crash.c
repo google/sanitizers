@@ -18,8 +18,8 @@
 #include "common.h"
 
 int main(void) {
-  char *ptr = _strdup("Hello");
+  volatile char *ptr = _strdup("Hello");
   int subscript = 6;
   ptr[subscript] = 42;
-  free(ptr);
+  free(break_optimization(ptr));
 }

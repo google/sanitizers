@@ -18,8 +18,8 @@
 #include "common.h"
 
 int main(void) {
-  int *x = (int*)malloc(42 * sizeof(int));
+  volatile int *x = (int*)malloc(42 * sizeof(int));
   printf("Some random value: %d\n", *x);
-  free(x + 1);
+  free(break_optimization(x + 1));
   return 0;
 }

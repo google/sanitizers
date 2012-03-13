@@ -21,8 +21,7 @@
 
 DWORD WINAPI thread_proc(void *context) {
   int subscript = -1;
-  char stack_buffer[42];
-  // TODO(timurrrr): the thread ID is printed as T-1
+  volatile char stack_buffer[42];
   stack_buffer[subscript] = 42;
   return 0;
 }

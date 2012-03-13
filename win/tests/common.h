@@ -26,3 +26,8 @@
 #define CHECK(x) do { if (!(x)) { \
   printf("Oops: %s @ %s:%d\n", #x, __FILE__, __LINE__); abort(); \
 } } while(0)
+
+__declspec(noinline)
+void* break_optimization(volatile void *p) {
+  return (void*)p;
+}

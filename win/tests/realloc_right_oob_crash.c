@@ -18,8 +18,8 @@
 #include "common.h"
 
 int main(void) {
-  char *buffer = (char*)realloc(NULL, 42);
+  volatile char *buffer = (char*)realloc(NULL, 42);
   buffer[42] = 42;
-  free(buffer);
+  free(break_optimization(buffer));
   return 0;
 }
