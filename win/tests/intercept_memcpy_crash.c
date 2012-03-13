@@ -20,6 +20,6 @@
 int main(void) {
   volatile char buff1[6] = "Hello!",
                 buff2[6];
-  memcpy(break_optimization(buff2), break_optimization(buff1), 7);
+  memcpy(ident(buff2), ident(buff1), 7);
   printf("Shouldn't get here %s vs %s\n", buff1, buff2);
 }

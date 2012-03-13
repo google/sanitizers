@@ -19,5 +19,5 @@
 
 int main(void) {
   volatile char str[6] = "Hello!";  // No '\0' at the end!
-  volatile int len = strlen(break_optimization(str));
+  volatile int len = strlen(ident(str));
 }

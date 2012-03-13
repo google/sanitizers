@@ -20,7 +20,7 @@
 int main(void) {
   volatile char *buffer = (char*)realloc(NULL, 32),
                 *stale = buffer;
-  buffer = (char*)realloc(break_optimization(buffer), 64);
+  buffer = (char*)realloc(ident(buffer), 64);
   // The 'stale' may now point to a free'd memory.
   stale[0] = 42;
   free_noopt(buffer);

@@ -23,14 +23,14 @@ int main(void) {
   free_noopt(p);
 
   p = (int*)malloc(128);
-  p = (int*)realloc(break_optimization(p), 2048 * sizeof(int));
+  p = (int*)realloc(ident(p), 2048 * sizeof(int));
   p[1024] = 0;
   free_noopt(p);
 
   p = (int*)calloc(16, sizeof(int));
   assert(p[8] == 0);
   p[15]++;
-  assert(16 * sizeof(int) == _msize(break_optimization(p)));
+  assert(16 * sizeof(int) == _msize(ident(p)));
   free_noopt(p);
 
   return 0;

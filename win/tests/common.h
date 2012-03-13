@@ -28,10 +28,10 @@
 } } while(0)
 
 __declspec(noinline)
-void* break_optimization(volatile void *p) {
+void* ident(volatile void *p) {
   return (void*)p;
 }
 
 void free_noopt(volatile void *p) {
-  free(break_optimization(p));
+  free(ident(p));
 }
