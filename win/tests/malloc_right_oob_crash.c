@@ -20,6 +20,6 @@
 int main(void) {
   volatile char *buffer = (char*)malloc(42);
   buffer[42] = 42;
-  free(break_optimization(buffer));
+  free_noopt(buffer);
   return 0;
 }

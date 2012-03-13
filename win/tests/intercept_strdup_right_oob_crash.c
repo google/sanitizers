@@ -21,5 +21,5 @@ int main(void) {
   volatile char *ptr = _strdup("Hello");
   int subscript = 6;
   ptr[subscript] = 42;
-  free(break_optimization(ptr));
+  free_noopt(ptr);
 }

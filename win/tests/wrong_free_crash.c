@@ -20,6 +20,6 @@
 int main(void) {
   volatile int *x = (int*)malloc(42 * sizeof(int));
   printf("Some random value: %d\n", *x);
-  free(break_optimization(x + 1));
+  free_noopt(x + 1);
   return 0;
 }

@@ -19,10 +19,10 @@
 
 #include "common.h"
 
-char *other_thread_stack_object = NULL;
+volatile char *other_thread_stack_object = NULL;
 
 DWORD WINAPI thread_proc(void *context) {
-  char stack_buffer[42];
+  volatile char stack_buffer[42];
   other_thread_stack_object = &stack_buffer[13];
   // TODO: Do we need an extra test for ExitThread(0); ?
   return 0;

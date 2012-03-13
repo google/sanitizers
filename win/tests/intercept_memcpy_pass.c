@@ -18,7 +18,11 @@
 #include "common.h"
 
 int main(void) {
-  char buff1[6] = "Hello!",
-       buff2[6];
-  memcpy(buff2, buff1, 6);
+  volatile char buff1[6] = "Hello!",
+                buff2[6];
+  memcpy(break_optimization(buff2), break_optimization(buff1), 6);
+  if (buff1[2] != buff2[2]) {
+    printf("Ooops!\n");
+    return 1;
+  }
 }

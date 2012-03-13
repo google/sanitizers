@@ -18,6 +18,6 @@
 #include "common.h"
 
 int main(void) {
-  char *ptr = _strdup("Hello");
-  free(ptr);
+  volatile char *ptr = _strdup("Hello");
+  free_noopt(ptr);
 }

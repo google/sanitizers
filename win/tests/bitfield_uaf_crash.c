@@ -25,8 +25,8 @@ typedef struct _S {
 } S;
 
 int main(void) {
-  S *s = (S*)malloc(sizeof(S));
-  free(s);
+  volatile S *s = (S*)malloc(sizeof(S));
+  free_noopt(s);
   s->bf2 = 2;
   return 0;
 }

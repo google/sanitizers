@@ -25,11 +25,11 @@ typedef struct _S {
 } S;
 
 int main(void) {
-  S *s = (S*)malloc(sizeof(S));
+  volatile S *s = (S*)malloc(sizeof(S));
   s->bf1 = 1;
   s->bf2 = 2;
   s->bf3 = 3;
   s->bf4 = 4;
-  free(s);
+  free_noopt(s);
   return 0;
 }

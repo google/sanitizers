@@ -18,11 +18,11 @@
 #include "common.h"
 
 int main(void) {
-  char *buffer = (char*)realloc(NULL, 32),
-       *stale = buffer;
-  buffer = (char*)realloc(buffer, 64);
+  volatile char *buffer = (char*)realloc(NULL, 32),
+                *stale = buffer;
+  buffer = (char*)realloc(break_optimization(buffer), 64);
   // The 'stale' may now point to a free'd memory.
   stale[0] = 42;
-  free(buffer);
+  free_noopt(buffer);
   return 0;
 }

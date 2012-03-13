@@ -19,6 +19,10 @@
 
 int main(void) {
   char str[] = "Hello!";
-  CHECK(6 == strlen(str));
-  printf("PASS\n");
+  if (6 == strlen(str)) {
+    printf("PASS\n");
+  } else {
+    printf("FAIL\n");
+    return 1;
+  }
 }

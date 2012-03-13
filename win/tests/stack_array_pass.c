@@ -19,7 +19,7 @@
 
 int main(void) {
   int subscript = 1;
-  char buffer[42];
+  volatile char buffer[42];
   buffer[subscript] = 42;
   return 0;
 }

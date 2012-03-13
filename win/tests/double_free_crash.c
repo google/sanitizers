@@ -19,7 +19,7 @@
 
 int main(void) {
   volatile int *x = (int*)malloc(42 * sizeof(int));
-  free(break_optimization(x));
-  free(break_optimization(x));
+  free_noopt(x);
+  free_noopt(x);
   return 0;
 }

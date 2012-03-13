@@ -18,7 +18,7 @@
 #include "common.h"
 
 int main(void) {
-  static const char *foo = "foobarspam";
+  volatile static const char *foo = "foobarspam";
   printf("Global string is `%s`\n", foo);
   return 0;
 }

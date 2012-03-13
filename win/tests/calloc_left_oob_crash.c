@@ -18,8 +18,8 @@
 #include "common.h"
 
 int main(void) {
-  int *buffer = (int*)calloc(42, sizeof(int));
+  volatile int *buffer = (int*)calloc(42, sizeof(int));
   buffer[-1] = 42;
-  free(buffer);
+  free_noopt(buffer);
   return 0;
 }

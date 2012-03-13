@@ -18,20 +18,20 @@
 #include "common.h"
 
 int main(void) {
-  int *p = (int*)malloc(1024 * sizeof(int));
+  volatile int *p = (int*)malloc(1024 * sizeof(int));
   p[512] = 0;
-  free(p);
+  free_noopt(p);
 
   p = (int*)malloc(128);
-  p = (int*)realloc(p, 2048 * sizeof(int));
+  p = (int*)realloc(break_optimization(p), 2048 * sizeof(int));
   p[1024] = 0;
-  free(p);
+  free_noopt(p);
 
   p = (int*)calloc(16, sizeof(int));
   assert(p[8] == 0);
   p[15]++;
-  assert(16 * sizeof(int) == _msize(p));
-  free(p);
+  assert(16 * sizeof(int) == _msize(break_optimization(p)));
+  free_noopt(p);
 
   return 0;
 }

@@ -20,7 +20,7 @@
 #include "common.h"
 
 DWORD WINAPI thread_proc_1(void *context) {
-  int cnt1, cnt2, cnt3;
+  volatile int cnt1, cnt2, cnt3;
   cnt1 = 1;
   cnt2 = 2;
   cnt3 = 3;
@@ -28,7 +28,7 @@ DWORD WINAPI thread_proc_1(void *context) {
 }
 
 DWORD WINAPI thread_proc_2(void *context) {
-  char stack_buffer[42];
+  volatile char stack_buffer[42];
   for (int i = 0; i < sizeof(stack_buffer); ++i)
     stack_buffer[i] = 42;
   return 0;

@@ -20,6 +20,6 @@
 int main(void) {
   volatile int *buffer = (int*)calloc(42, sizeof(int));
   buffer[42] = 42;
-  free(break_optimization(buffer));
+  free_noopt(buffer);
   return 0;
 }

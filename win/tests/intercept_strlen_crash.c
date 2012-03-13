@@ -18,6 +18,6 @@
 #include "common.h"
 
 int main(void) {
-  char str[6] = "Hello!";  // No '\0' at the end!
-  strlen(str);
+  volatile char str[6] = "Hello!";  // No '\0' at the end!
+  volatile int len = strlen(break_optimization(str));
 }
