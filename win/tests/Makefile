@@ -26,8 +26,8 @@ ifeq ($(PLATFORM), Windows)
 	CC_OUT=/c /Fo
 	CFLAGS=/TC /Zi /nologo
 	LINK=link
-	LINK_FLAGS=/debug /nologo /INCREMENTAL:NO
-	LINK_OUT=/OUT:
+	LINK_FLAGS=/debug /nologo /incremental:no
+	LINK_OUT=/out:
 	EXTRA_OBJ=
 else ifeq ($(PLATFORM), Linux)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
