@@ -55,6 +55,10 @@ run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
 
+run_%_stress_test: %_stress_test.exe
+	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
+	@echo "$< - PASSED"
+
 # TODO(timurrrr): check the output against a pattern?
 run_%_crash_test: %_crash_test.exe
 	@! $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
