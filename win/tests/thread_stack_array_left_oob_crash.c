@@ -27,8 +27,7 @@ DWORD WINAPI thread_proc(void *context) {
 }
 
 int main(void) {
-  DWORD tid = -1;
-  HANDLE thr = CreateThread(NULL, 0, thread_proc, NULL, 0, &tid);
+  HANDLE thr = CreateThread(NULL, 0, thread_proc, NULL, 0, NULL);
   CHECK(thr > 0);
   CHECK(WAIT_OBJECT_0 == WaitForSingleObject(thr, INFINITE));
   return 0;
