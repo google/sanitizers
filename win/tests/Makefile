@@ -23,7 +23,6 @@ ifeq ($(PLATFORM), Windows)
 	# Currently, I run
 	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan*.obj -j
 	CC=cl
-	CC_OUT=/c /Fo
 	CFLAGS=/TC /Zi /nologo
 	LINK=link
 	LINK_FLAGS=/debug /nologo /incremental:no
@@ -34,13 +33,13 @@ else ifeq ($(PLATFORM), Linux)
 	# Currently, I run
 	# make CC=clang CFLAGS=-faddress-sanitizer EXTRA_OBJ="<path_to_rtl>/libasan64.so -lpthread -ldl" -j
 	CC=gcc
-	CC_OUT=-c -o
 	CFLAGS=-g
 	LINK=gcc
 	LINK_FLAGS=
 	LINK_OUT=-o
 	EXTRA_OBJ=
 endif
+CC_OUT=-c -o
 EXTRA_CFLAGS=
 
 RUN_TEST_TARGETS=$(patsubst %.c,run_%_test,$(wildcard *.c))
