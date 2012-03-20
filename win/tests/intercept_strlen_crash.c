@@ -18,6 +18,7 @@
 #include "common.h"
 
 int main(void) {
-  volatile char str[6] = "Hello!";  // No '\0' at the end!
-  volatile int len = strlen(ident(str));
+  volatile char str[6] = "Hello";
+  str[5] = '!';  // No '\0' at the end!
+  volatile int len = strlen((const char*)ident(str));
 }

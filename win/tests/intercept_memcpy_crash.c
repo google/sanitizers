@@ -18,7 +18,7 @@
 #include "common.h"
 
 int main(void) {
-  volatile char buff1[6] = "Hello!",
+  volatile char buff1[6] = "Hello",
                 buff2[6];
   memcpy(ident(buff2), ident(buff1), 7);
   printf("Shouldn't get here %s vs %s\n", buff1, buff2);
