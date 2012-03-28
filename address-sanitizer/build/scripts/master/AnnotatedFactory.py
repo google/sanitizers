@@ -10,6 +10,11 @@ import masterutil
 
 f1 = factory.BuildFactory()
 
+f1.addStep(ShellCommand(command='svn cleanup ../../../scripts',
+                        timeout=60,
+                        name='cleanup scripts',
+                        description='cleanup scripts'))
+
 f1.addStep(ShellCommand(command='svn up ../../../scripts',
                         timeout=60,
                         name='update scripts',
