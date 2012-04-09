@@ -33,5 +33,20 @@ int main(void) {
   assert(16 * sizeof(int) == _msize(ident(p)));
   free_noopt(p);
 
+#if 0
+  // Currently fails to build due to http://llvm.org/bugs/show_bug.cgi?id=12332
+  p = new int;
+  p[0] = 42;
+  delete p;
+#endif
+
+  p = new int[42];
+  p[15]++;
+#if 0
+  // Intentionally leak now - delete[] currently fails to build due to
+  // http://llvm.org/bugs/show_bug.cgi?id=12333
+  delete [] p;
+#endif
+
   return 0;
 }
