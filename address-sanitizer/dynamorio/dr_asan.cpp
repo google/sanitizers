@@ -154,7 +154,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // 2) Put the memory access size / is_write into XCX
   //    Currently, DR substitutes the PC of the faulting instruction with the
   //    uninstrumented address, so the ASan RTL sees the original instruction
-  unsigned char size_and_type;
+  unsigned char size_and_type = -1;
   switch (access_size) {
     case OPSZ_8: size_and_type = 3; break;
     case OPSZ_4: size_and_type = 2; break;
@@ -167,11 +167,20 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, mov_st(drcontext, opnd_create_reg(DR_REG_XCX),
                 OPND_CREATE_INT32(size_and_type)));
   // 3) Send SIGILL to be handled by ASan RTL 
+#if 0
   instrlist_meta_fault_preinsert(bb, i,
                                  INSTR_XL8(
                                      INSTR_CREATE_ud2a(drcontext),
                                      instr_get_app_pc(i))
                                 );
+#else
+  PREF(i,
+                                 INSTR_XL8(
+                                     INSTR_CREATE_ud2a(drcontext),
+                                     instr_get_app_pc(i))
+                                );
+
+#endif
   // TODO: review and commit the asan_rtl.cc change accounting for this.
 
   PREF(i, OK_label);
