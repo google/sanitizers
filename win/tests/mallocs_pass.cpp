@@ -40,11 +40,11 @@ int main(void) {
   delete p;
 #endif
 
+#if 0
+  // Currently fails to build due to http://llvm.org/bugs/show_bug.cgi?id=12332
   p = new int[42];
   p[15]++;
-#if 0
-  // Intentionally leak now - delete[] currently fails to build due to
-  // http://llvm.org/bugs/show_bug.cgi?id=12333
+  // delete[] also fails to mangle due to http://llvm.org/bugs/show_bug.cgi?id=12333
   delete [] p;
 #endif
 
