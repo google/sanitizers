@@ -118,6 +118,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   dr_save_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
 
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
+  // TODO: on x64, we need to do something a bit different.
   PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
                 OPND_CREATE_MEM32(R1,0x20000000)));
   PRE(i, test(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R2_8)));
@@ -151,37 +152,15 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // Trap code:
   // 1) Restore the original access address in XAX 
   dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
-  // 2) Put the memory access size / is_write into XCX
-  //    Currently, DR substitutes the PC of the faulting instruction with the
-  //    uninstrumented address, so the ASan RTL sees the original instruction
-  unsigned char size_and_type = -1;
-  switch (access_size) {
-    case OPSZ_8: size_and_type = 3; break;
-    case OPSZ_4: size_and_type = 2; break;
-    case OPSZ_2: size_and_type = 1; break;
-    case OPSZ_1: size_and_type = 0; break;
-    default: CHECK(0);
-  }
-  if (is_write)
-    size_and_type |= 8;
-  PRE(i, mov_st(drcontext, opnd_create_reg(DR_REG_XCX),
-                OPND_CREATE_INT32(size_and_type)));
-  // 3) Send SIGILL to be handled by ASan RTL 
-#if 0
-  instrlist_meta_fault_preinsert(bb, i,
-                                 INSTR_XL8(
-                                     INSTR_CREATE_ud2a(drcontext),
-                                     instr_get_app_pc(i))
-                                );
-#else
-  PREF(i,
-                                 INSTR_XL8(
-                                     INSTR_CREATE_ud2a(drcontext),
-                                     instr_get_app_pc(i))
-                                );
-
-#endif
-  // TODO: review and commit the asan_rtl.cc change accounting for this.
+  // 2) Pass the original address as an argument...
+  PRE(i, mov_st(drcontext,
+                opnd_create_reg(DR_REG_XSP),
+                // WTF? Should be
+                //OPND_CREATE_MEMPTR(DR_REG_XSP, 0),
+                opnd_create_reg(DR_REG_XAX)));
+  // 3) Call the right __asan_report_{load,store}{1,2,4,8}
+  // TODO: need to find out the call address via drsyms.
+  PREF(i, INSTR_CREATE_call(drcontext, OPND_CREATE_INT32(0x42)));
 
   PREF(i, OK_label);
   // Restore the registers and flags.
@@ -206,13 +185,13 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   // TOFILE: `tag` should be (byte*) ?
 
   // TODO: auto whitelist
-  const unsigned int WHITELIST[] = {
-    0x08052ae4,
-    ~0};
+  const void* WHITELIST[] = {
+    (void*)0x08052ae4,
+    0};
   for (int w = 0; ; w++) {
-    if (WHITELIST[w] == (unsigned int)tag)  // in the whitelist
+    if (WHITELIST[w] == tag)  // in the whitelist
       break;
-    else if (WHITELIST[w] == ~0u)  // not in whitelist
+    else if (WHITELIST[w] == 0)  // not in whitelist
       return DR_EMIT_DEFAULT;
   }
 
@@ -275,9 +254,17 @@ void event_exit() {
   dr_printf("==DRASAN== DONE\n");
 }
 
+void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
+  dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
+            info->full_path, info->start, info->end);
+  // TODO: store info's in a sorted container (set?)
+  // to simplify `lookup(pc)` and `lookup(symbol)`.
+}
+
 DR_EXPORT void dr_init(client_id_t id) {
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
   dr_register_restore_state_ex_event(event_restore_state);
+  dr_register_module_load_event(module_loaded);
   dr_printf("==DRASAN== Starting!\n");
 }
