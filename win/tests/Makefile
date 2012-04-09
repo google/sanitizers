@@ -42,7 +42,7 @@ endif
 CC_OUT=-c -o
 EXTRA_CFLAGS=
 
-RUN_TEST_TARGETS=$(patsubst %.c,run_%_test,$(wildcard *.c))
+RUN_TEST_TARGETS=$(patsubst %.cpp,run_%_test,$(wildcard *.cpp))
 
 all: run_all_tests
 .PHONY: all
@@ -69,7 +69,7 @@ run_%_crash_test: %_crash_test.exe
 %_test.exe: %.obj $(EXTRA_OBJ)
 	$(LINK) $(LINK_FLAGS) $(LINK_OUT)$@ $< $(EXTRA_OBJ)
 
-%.obj: %.c common.h
+%.obj: %.cpp common.h
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!
 
