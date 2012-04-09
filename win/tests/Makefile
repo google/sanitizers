@@ -32,9 +32,9 @@ else ifeq ($(PLATFORM), Linux)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
 	# Currently, I run
 	# make CC=clang CFLAGS=-faddress-sanitizer EXTRA_OBJ="<path_to_rtl>/libasan64.so -lpthread -ldl" -j
-	CC=gcc
+	CC=g++
 	CFLAGS=-g
-	LINK=gcc
+	LINK=g++
 	LINK_FLAGS=
 	LINK_OUT=-o
 	EXTRA_OBJ=
