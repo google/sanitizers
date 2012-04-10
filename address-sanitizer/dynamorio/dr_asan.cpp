@@ -123,9 +123,14 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   dr_save_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
 
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
-  // TODO: on x64, we need to do something a bit different.
+#if __WORDSIZE == 32
   PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
                 OPND_CREATE_MEM32(R1,0x20000000)));
+#else
+  PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
+                OPND_CREATE_INTPTR(1ull << 44)));
+  PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
+#endif
   PRE(i, test(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R2_8)));
 
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
@@ -201,25 +206,29 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   // TODO: only start instrumentation after asan_init finishes.
 
   if (mi == NULL) {
-    // WTF?
+    // TODO: WTF?
     return DR_EMIT_DEFAULT;
   } else {
     string &mod_name = *mi->path;
     if (mod_name.find("/libc") != string::npos)
       return DR_EMIT_DEFAULT;
-    if (mod_name.find(".so") != string::npos)
+    if (mod_name.find("/lib/ld") == 0)
       return DR_EMIT_DEFAULT;
-    if (mod_name.find("factorial") == string::npos)
+    if (mod_name.find("/lib/libpthread") == 0)
+      return DR_EMIT_DEFAULT;
+    if (mod_name.find("pintest_so.so") == string::npos &&
+        mod_name.find("/usr/lib/") != 0 &&
+        mod_name.find("/lib/") != 0)
       return DR_EMIT_DEFAULT;
   }
 
 #if defined(VERBOSE)
-  dr_printf("BB to be instrumented: %p; translating = %s\n",
-            tag, translating ? "true" : "false");
+  dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
+            tag, mi->path->c_str(), translating ? "true" : "false");
   instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
 #else
   if (translating == false)
-    dr_printf("Instrumenting BB at %p\n", tag);
+    dr_printf("Instrumenting BB at %p [from %s]\n", tag, mi->path->c_str());
 #endif
 
   for (instr_t *i = instrlist_first(bb); i != NULL; i = instr_get_next(i)) {
