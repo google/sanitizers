@@ -223,6 +223,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   }
 
 #if defined(VERBOSE)
+  dr_printf("============================================================\n");
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
             tag, mi->path->c_str(), translating ? "true" : "false");
   instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
