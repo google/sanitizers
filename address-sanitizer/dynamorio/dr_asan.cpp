@@ -135,12 +135,13 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 #if __WORDSIZE == 32
   PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
                 OPND_CREATE_MEM32(R1,0x20000000)));
+  PRE(i, test(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R2_8)));
 #else
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
                 OPND_CREATE_INTPTR(1ull << 44)));
   PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
+  PRE(i, cmp(drcontext, OPND_CREATE_MEMPTR(R2,0), OPND_CREATE_INT8(0)));
 #endif
-  PRE(i, test(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R2_8)));
 
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
   PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
@@ -172,11 +173,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // 1) Restore the original access address in XAX 
   dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
   // 2) Pass the original address as an argument...
-  PRE(i, mov_st(drcontext,
-                opnd_create_reg(DR_REG_XSP),
-                // WTF? Should be
-                //OPND_CREATE_MEMPTR(DR_REG_XSP, 0),
-                opnd_create_reg(DR_REG_XAX)));
+  PRE(i, push(drcontext, opnd_create_reg(DR_REG_XAX)));
   // 3) Call the right __asan_report_{load,store}{1,2,4,8}
   int sz_idx = -1;
   switch (access_size) {
@@ -187,7 +184,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     case OPSZ_16: sz_idx = 4; break;
   }
   AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
-  PRE(i, call(drcontext, OPND_CREATE_INT32(on_error)));
+  PRE(i, call(drcontext, opnd_create_pc((byte*)on_error)));
 
   PREF(i, OK_label);
   // Restore the registers and flags.
