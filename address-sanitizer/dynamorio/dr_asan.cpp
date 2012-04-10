@@ -171,9 +171,9 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 
   // Trap code:
   // 1) Restore the original access address in XAX 
-  dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+  dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
   // 2) Pass the original address as an argument...
-  PRE(i, push(drcontext, opnd_create_reg(DR_REG_XAX)));
+  PRE(i, push(drcontext, opnd_create_reg(R1)));
   // 3) Call the right __asan_report_{load,store}{1,2,4,8}
   int sz_idx = -1;
   switch (access_size) {
