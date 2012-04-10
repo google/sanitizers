@@ -19,6 +19,10 @@
 
 #include "dr_api.h"
 
+#include <string>
+#include <vector>
+using namespace std;
+
 #define TESTALL(mask, var) (((mask) & (var)) == (mask))
 #define TESTANY(mask, var) (((mask) & (var)) != 0)
 
@@ -37,6 +41,17 @@
 #if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
 # define VERBOSE
 #endif
+
+struct ModuleInfo {
+  string *path;
+  // NOTE: On Linux the module may not be contiguous: there may be gaps
+  // containing other objects between start and end. Use the segments array to
+  // examine each mapped region on Linux.
+  // Short-term solution: append more recently loaded modules to the back of the
+  // vector and do full linear search from the back.
+  app_pc start, end;
+};
+vector<ModuleInfo> g_modules;
 
 bool OperandIsInteresting(opnd_t opnd) {
   // TOTHINK: we may access waaaay beyound the stack, do we need to check it?
@@ -70,16 +85,6 @@ bool WantToInstrument(instr_t *instr) {
   }
 
   return false;
-}
-
-bool
-event_restore_state(void *drcontext, bool restore_memory,
-                    dr_restore_state_info_t *info)
-{
-  // This guy is called each time our instrumentation generates a fault.
-
-  // TODO: do we need anything smarter?
-  return true;
 }
 
 #define PRE(at, what) instrlist_meta_preinsert(bb, at, INSTR_CREATE_##what);
@@ -182,16 +187,29 @@ static dr_emit_flags_t
 event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                   bool for_trace, bool translating)
 {
-  // TOFILE: `tag` should be (byte*) ?
+  // TOFILE: `tag` should be (byte*)? or app_pc?
 
-  // TODO: auto whitelist
-  const void* WHITELIST[] = {
-    (void*)0x08052ae4,
-    0};
-  for (int w = 0; ; w++) {
-    if (WHITELIST[w] == tag)  // in the whitelist
+  ModuleInfo *mi = NULL;
+  for (vector<ModuleInfo>::iterator i = g_modules.begin();
+       i != g_modules.end(); ++i) {
+    if (i->start <= (app_pc)tag && (app_pc)tag < i->end) {
+      mi = &*i;
       break;
-    else if (WHITELIST[w] == 0)  // not in whitelist
+    }
+  }
+
+  // TODO: only start instrumentation after asan_init finishes.
+
+  if (mi == NULL) {
+    // WTF?
+    return DR_EMIT_DEFAULT;
+  } else {
+    string &mod_name = *mi->path;
+    if (mod_name.find("/libc") != string::npos)
+      return DR_EMIT_DEFAULT;
+    if (mod_name.find(".so") != string::npos)
+      return DR_EMIT_DEFAULT;
+    if (mod_name.find("factorial") == string::npos)
       return DR_EMIT_DEFAULT;
   }
 
@@ -257,14 +275,26 @@ void event_exit() {
 void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
   dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
-  // TODO: store info's in a sorted container (set?)
-  // to simplify `lookup(pc)` and `lookup(symbol)`.
+
+  ModuleInfo mi;
+  mi.start = info->start;
+  mi.end   = info->end;
+  mi.path  = new string(info->full_path);
+  // TODO: grab a lock
+  g_modules.push_back(mi);
+}
+
+void module_unloaded(void *drcontext, const module_data_t *info) {
+  dr_printf("==DRASAN== Unloaded module: %s [%p...%p]\n",
+            info->full_path, info->start, info->end);
+  // TODO: cleanup
+  CHECK(!"Not implemented");
 }
 
 DR_EXPORT void dr_init(client_id_t id) {
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
-  dr_register_restore_state_ex_event(event_restore_state);
   dr_register_module_load_event(module_loaded);
+  dr_register_module_unload_event(module_unloaded);
   dr_printf("==DRASAN== Starting!\n");
 }
