@@ -51,17 +51,6 @@ struct AsanCallbacks {
 // TODO: on Windows, we may have multiple RTLs in one process.
 AsanCallbacks g_callbacks = {0};
 
-struct ModuleInfo {
-  string *path;
-  // NOTE: On Linux the module may not be contiguous: there may be gaps
-  // containing other objects between start and end. Use the segments array to
-  // examine each mapped region on Linux.
-  // Short-term solution: append more recently loaded modules to the back of the
-  // vector and do full linear search from the back.
-  app_pc start, end;
-};
-vector<ModuleInfo> g_modules;
-
 bool OperandIsInteresting(opnd_t opnd) {
   // TOTHINK: we may access waaaay beyound the stack, do we need to check it?
   return
@@ -74,6 +63,14 @@ bool OperandIsInteresting(opnd_t opnd) {
 }
 
 bool WantToInstrument(instr_t *instr) {
+  switch (instr_get_opcode(instr)) {
+  case OP_xadd:
+    // TODO: support std::ios_base::Init::Init()
+    // e.g. `std::cout << "Hello!\n";`
+    // f0 41 0f c1 07          lock xadd %eax,(%r15)
+    return false;
+  }
+
   if (instr_ok_to_mangle(instr) == false)  // TODO: WTF is this?
     return false;
 
@@ -136,10 +133,6 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 
   // TODO: support std::ios_base::Init::Init()
   // e.g. `std::cout << "Hello!\n";`
-  if (opnd_is_base_disp(op) != 0) {
-    // f0 41 0f c1 07          lock xadd %eax,(%r15)
-    return;
-  }
   if (R1 == DR_REG_INVALID) {
     // 80 3d 18 0b 20 00 00 cmp    <rel> 0x00007f0d996c0010 $0x00
     return;
@@ -205,6 +198,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     case OPSZ_16: sz_idx = 4; break;
   }
   AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
+  // TODO: enforce on_error != NULL when we link the RTL in the binary.
   PRE(i, call(drcontext, opnd_create_pc((byte*)on_error)));
   // TODO: we end up with no symbols in the ASan report stacks because we do
   // post-process symbolization and the DRASan frames have PCs not present in
@@ -235,40 +229,36 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 {
   // TOFILE: `tag` should be (byte*)? or app_pc?
 
-  ModuleInfo *mi = NULL;
-  for (vector<ModuleInfo>::iterator i = g_modules.begin();
-       i != g_modules.end(); ++i) {
-    if (i->start <= (app_pc)tag && (app_pc)tag < i->end) {
-      mi = &*i;
-      break;
-    }
-  }
+  // TODO: only start instrumentation after asan_init finishes or force a call
+  // to asan_init() on the first bb and discard translations afterwards?
 
-  // TODO: only start instrumentation after asan_init finishes.
-
-  if (mi == NULL) {
+  module_data_t *md = dr_lookup_module((byte*)tag);
+  if (md == NULL) {
     // TODO: WTF?
     return DR_EMIT_DEFAULT;
-  } else {
-    string &mod_name = *mi->path;
-    if (mod_name.find("/libc") != string::npos)
-      return DR_EMIT_DEFAULT;
-    if (mod_name.find("/lib/ld") == 0)
-      return DR_EMIT_DEFAULT;
-    if (mod_name.find("/lib/libpthread") == 0)
-      return DR_EMIT_DEFAULT;
-    if (mod_name.find("pintest_so.so") == string::npos &&
-        mod_name.find("/usr/lib/") != 0 &&
-        mod_name.find("/lib/") != 0)
-      return DR_EMIT_DEFAULT;
   }
+  string mod_name(md->full_path);
+  dr_free_module_data(md);
+
+  if (mod_name.find("/libc") != string::npos)
+    return DR_EMIT_DEFAULT;
+  if (mod_name.find("pintest_so.so") == string::npos &&
+      mod_name.find("/usr/lib/") != 0 &&
+      mod_name.find("/lib/") != 0)
+    return DR_EMIT_DEFAULT;
+
+  // TODO: these fail probably because asan_init was not called yet.
+  if (mod_name.find("/lib/ld") == 0)
+    return DR_EMIT_DEFAULT;
+  if (mod_name.find("/lib/libpthread") == 0)
+    return DR_EMIT_DEFAULT;
 
   // TODO: blacklist RTL functions.
 
 #if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
-            tag, mi->path->c_str(), translating ? "true" : "false");
+            tag, mod_name.c_str(), translating ? "true" : "false");
   instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
 #elif defined(VERBOSE)
   if (translating == false)
@@ -324,14 +314,14 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 }
 
 void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
-  // TODO: grab a lock
 #if defined(VERBOSE)
   dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
 #endif
 
-  if (g_modules.size() == 0) {
-    // First module - always the app?
+  static int loaded_modules = 0;
+  if (loaded_modules++ == 0) {
+    // TODO: First module - always the app?
     for (int is_write = 0; is_write < 2; ++is_write) {
       for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
         int size = 1 << size_l2;
@@ -358,12 +348,6 @@ void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
       }
     }
   }
-
-  ModuleInfo mi;
-  mi.start = info->start;
-  mi.end   = info->end;
-  mi.path  = new string(info->full_path);
-  g_modules.push_back(mi);
 }
 
 void module_unloaded(void *drcontext, const module_data_t *info) {
