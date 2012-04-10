@@ -120,10 +120,30 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 #endif
   }
 
+#if 0
+  dr_printf("==DRASAN== DEBUG: %d %d %d %d\n",
+            opnd_is_memory_reference(op),
+            opnd_is_base_disp(op),
+            opnd_get_index(op),
+            opnd_is_far_memory_reference(op)
+            );
+#endif
+
   reg_id_t R1 = opnd_get_base(op),  // Register #2 memory address is already there!
            R1_8 = reg_32_to_opsz(R1, OPSZ_1),  // TODO: on x64?
            R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
            R2_8 = reg_32_to_opsz(R2, OPSZ_1);
+
+  // TODO: support std::ios_base::Init::Init()
+  if (opnd_is_base_disp(op) != 0) {
+    // f0 41 0f c1 07          lock xadd %eax,(%r15)
+    return;
+  }
+  if (R1 == DR_REG_INVALID) {
+    // 80 3d 18 0b 20 00 00 cmp    <rel> 0x00007f0d996c0010 $0x00
+    return;
+  }
+
   CHECK(reg_to_pointer_sized(R1) == R1);  // otherwise R2 may be wrong.
 
   // Save the current values of R1 and R2.
@@ -236,12 +256,12 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       return DR_EMIT_DEFAULT;
   }
 
-#if defined(VERBOSE)
+#if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
             tag, mi->path->c_str(), translating ? "true" : "false");
   instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
-#else
+#elif defined(VERBOSE)
   if (translating == false)
     dr_printf("Instrumenting BB at %p [from %s]\n", tag, mi->path->c_str());
 #endif
