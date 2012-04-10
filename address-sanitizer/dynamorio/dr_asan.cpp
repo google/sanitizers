@@ -18,6 +18,7 @@
 // Implementation of DynamoRIO instrumentation for ASan
 
 #include "dr_api.h"
+#include "dr/ext/drsyms/drsyms.h"
 
 #include <string>
 #include <vector>
@@ -41,6 +42,14 @@ using namespace std;
 #if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
 # define VERBOSE
 #endif
+
+struct AsanCallbacks {
+  typedef void (*Report)(void*);
+  Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
+};
+
+// TODO: on Windows, we may have multiple RTLs in one process.
+AsanCallbacks g_callbacks = {0};
 
 struct ModuleInfo {
   string *path;
@@ -169,8 +178,16 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
                 //OPND_CREATE_MEMPTR(DR_REG_XSP, 0),
                 opnd_create_reg(DR_REG_XAX)));
   // 3) Call the right __asan_report_{load,store}{1,2,4,8}
-  // TODO: need to find out the call address via drsyms.
-  PREF(i, INSTR_CREATE_call(drcontext, OPND_CREATE_INT32(0x42)));
+  int sz_idx = -1;
+  switch (access_size) {
+    case OPSZ_1:  sz_idx = 0; break;
+    case OPSZ_2:  sz_idx = 1; break;
+    case OPSZ_4:  sz_idx = 2; break;
+    case OPSZ_8:  sz_idx = 3; break;
+    case OPSZ_16: sz_idx = 4; break;
+  }
+  AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
+  PRE(i, call(drcontext, OPND_CREATE_INT32(on_error)));
 
   PREF(i, OK_label);
   // Restore the registers and flags.
@@ -278,19 +295,46 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   return DR_EMIT_DEFAULT;
 }
 
-void event_exit() {
-  dr_printf("==DRASAN== DONE\n");
-}
-
 void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
+  // TODO: grab a lock
+#if defined(VERBOSE)
   dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
+#endif
+
+  if (g_modules.size() == 0) {
+    // First module - always the app?
+    for (int is_write = 0; is_write < 2; ++is_write) {
+      for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
+        int size = 1 << size_l2;
+        size_t offset = -1;
+
+        char name_buffer[128];
+        dr_snprintf(name_buffer, sizeof(name_buffer),
+                    "__asan_report_%s%d",
+                    is_write ? "store" : "load", size);
+        #ifdef VERBOSE_VERBOSE
+          dr_printf("Searching %s...\r", name_buffer);
+        #endif
+        if (DRSYM_SUCCESS != drsym_lookup_symbol(info->full_path,
+                                                 name_buffer,
+                                                 &offset, 0)) {
+          dr_printf("Couldn't find `%s` in %s\n", name_buffer, info->full_path);
+          continue;
+        }
+        #ifdef VERBOSE_VERBOSE
+          dr_printf("Found %s @ %p\n", name_buffer, info->start + offset);
+        #endif
+        g_callbacks.report[is_write][size_l2] =
+            (AsanCallbacks::Report)(info->start + offset);
+      }
+    }
+  }
 
   ModuleInfo mi;
   mi.start = info->start;
   mi.end   = info->end;
   mi.path  = new string(info->full_path);
-  // TODO: grab a lock
   g_modules.push_back(mi);
 }
 
@@ -301,7 +345,13 @@ void module_unloaded(void *drcontext, const module_data_t *info) {
   CHECK(!"Not implemented");
 }
 
+void event_exit() {
+  dr_printf("==DRASAN== DONE\n");
+  drsym_exit();
+}
+
 DR_EXPORT void dr_init(client_id_t id) {
+  drsym_init(NULL);
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
   dr_register_module_load_event(module_loaded);
