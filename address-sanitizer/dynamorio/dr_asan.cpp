@@ -135,6 +135,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
            R2_8 = reg_32_to_opsz(R2, OPSZ_1);
 
   // TODO: support std::ios_base::Init::Init()
+  // e.g. `std::cout << "Hello!\n";`
   if (opnd_is_base_disp(op) != 0) {
     // f0 41 0f c1 07          lock xadd %eax,(%r15)
     return;
@@ -205,6 +206,12 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   }
   AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
   PRE(i, call(drcontext, opnd_create_pc((byte*)on_error)));
+  // TODO: we end up with no symbols in the ASan report stacks because we do
+  // post-process symbolization and the DRASan frames have PCs not present in
+  // the binary.
+  // We may want to get back to ud2a handling in the RTL as we did before as we
+  // can set translation field to the original instruction in DR and make stacks
+  // look very sane.
 
   PREF(i, OK_label);
   // Restore the registers and flags.
@@ -256,6 +263,8 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       return DR_EMIT_DEFAULT;
   }
 
+  // TODO: blacklist RTL functions.
+
 #if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
@@ -284,7 +293,9 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
         if (!OperandIsInteresting(op) || opnd_get_base(op) == DR_REG_NULL)
           continue;
 
-        CHECK(!instrumented_anything);  // TODO CMPS may not pass this check.
+        // TODO: CMPS may not pass this check.
+        // Probably, should use drutil_expand_rep_string
+        CHECK(!instrumented_anything);
         instrumented_anything = true;
         InstrumentMops(drcontext, bb, i, op, false);
       }
