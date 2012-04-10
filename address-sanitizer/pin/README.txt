@@ -17,7 +17,8 @@ Running:
  2. Run it, the error will not be detected:
    % ./a.out
  3. Run it with the pin tool, the error should be detected:
-   % ../../../pin -t obj-intel64/asan_pin.so -- ./a.outa
+   (from the source/tools/SimpleExamples directory)
+   % ../../../pin -t obj-intel64/asan_pin.so -- ../../../../a.out
    ...
    ==13070== ERROR: AddressSanitizer heap-buffer-overflow ...
 
