@@ -157,35 +157,39 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   }
 
 #if 0
-  dr_printf("==DRASAN== DEBUG: %d %d %d %d\n",
+  dr_printf("==DRASAN== DEBUG: %d %d %d %d %d %d\n",
             opnd_is_memory_reference(op),
             opnd_is_base_disp(op),
             opnd_get_index(op),
-            opnd_is_far_memory_reference(op)
+            opnd_is_far_memory_reference(op),
+            opnd_is_reg_pointer_sized(op),
+            opnd_get_disp(op)
             );
 #endif
 
-  reg_id_t R1 = DR_REG_XAX,
-           R1_8 = reg_32_to_opsz(R1, OPSZ_1),  // TODO: on x64?
-           // TODO: R2 could also be the index reg for op, pick one that isn't.
-           R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
-           R2_8 = reg_32_to_opsz(R2, OPSZ_1);
-
-  // TODO: support std::ios_base::Init::Init()
-  // e.g. `std::cout << "Hello!\n";`
-  if (R1 == DR_REG_INVALID) {
-    // 80 3d 18 0b 20 00 00 cmp    <rel> 0x00007f0d996c0010 $0x00
-    return;
+  reg_id_t R1;
+  bool address_in_R1 = false;
+  if (opnd_is_base_disp(op) && opnd_get_disp(op) == 0) {
+    // TODO: is this the correct condition above?
+    address_in_R1 = true;
+    R1 = opnd_get_base(op);
+  } else {
+    R1 = DR_REG_XAX;
   }
+  reg_id_t R1_8 = reg_32_to_opsz(R1, OPSZ_1);  // TODO: x64?
 
   CHECK(reg_is_pointer_sized(R1));  // otherwise R2 may be wrong.
+  // TODO: R2 could also be the index reg for op, pick one that isn't.
+  reg_id_t R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
+           R2_8 = reg_32_to_opsz(R2, OPSZ_1);
 
   // Save the current values of R1 and R2.
   dr_save_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
   // TODO: Something smarter than spilling a "fixed" register R2?
   dr_save_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
 
-  CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
+  if (!address_in_R1)
+    CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
 #if __WORDSIZE == 32
   PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
@@ -210,6 +214,8 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   if (access_size != OPSZ_8) {
     // Slowpath to support accesses smaller than pointer-sized.
     dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
+    // TODO: drutil_insert_get_mem_addr ? Note that R2_8 now contains the
+    // shadow byte...
     PRE(i, and(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(7)));
     switch (access_size) {
       case OPSZ_4:
@@ -231,10 +237,13 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // Trap code:
   // 1) Restore the original access address in R1.
   // Restore both R1 and R2 as the original address may depend on either of
-  // them. TODO: probably it's not necessary to always restore both registers.
+  // them. Probably it's not necessary to always restore both, but this is
+  // only executed once in a app lifetime, so don't bother much yet.
   dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
-  dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
-  CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
+  if (!address_in_R1) {
+    dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
+    CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
+  }
   // 2) Pass the original address as an argument...
   // TODO: Check the Windows calling convention.
 #if __WORDSIZE == 32
