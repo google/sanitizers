@@ -201,7 +201,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
                 OPND_CREATE_INTPTR(1ull << 44)));
   PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
-  PRE(i, cmp(drcontext, OPND_CREATE_MEMPTR(R2,0), OPND_CREATE_INT8(0)));
+  PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(0)));
 #endif
 
   // TODO: Idea: look at lea + jecxz instruction to avoid flags usage.  Might be
@@ -216,8 +216,10 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   if (access_size != OPSZ_8) {
     // Slowpath to support accesses smaller than pointer-sized.
     dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
-    // TODO: drutil_insert_get_mem_addr ? Note that R2_8 now contains the
-    // shadow byte...
+    if (!address_in_R1) {
+      // TODO: assuming R2 is not scratched here.
+      CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
+    }
     PRE(i, and(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(7)));
     switch (access_size) {
       case OPSZ_4:
