@@ -51,6 +51,46 @@ struct AsanCallbacks {
 // TODO: on Windows, we may have multiple RTLs in one process.
 AsanCallbacks g_callbacks = {0};
 
+void InitializeAsanCallbacks() {
+  static bool initialized = false;
+
+  if (initialized)
+    return;
+  initialized = true;
+
+  module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
+  CHECK(app);
+
+  for (int is_write = 0; is_write < 2; ++is_write) {
+    for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
+      int size = 1 << size_l2;
+      size_t offset = -1;
+
+      char name_buffer[128];
+      dr_snprintf(name_buffer, sizeof(name_buffer),
+                  "__asan_report_%s%d",
+                  is_write ? "store" : "load", size);
+      #ifdef VERBOSE_VERBOSE
+      dr_printf("Searching %s...\r", name_buffer);
+      #endif
+      // FIXME: Use dr_get_proc_address() instead.
+      if (DRSYM_SUCCESS != drsym_lookup_symbol(app->full_path,
+                                               name_buffer,
+                                               &offset, 0)) {
+        dr_printf("Couldn't find `%s` in %s\n", name_buffer, app->full_path);
+        continue;
+      }
+      #ifdef VERBOSE_VERBOSE
+      dr_printf("Found %s @ %p\n", name_buffer, app->start + offset);
+      #endif
+      g_callbacks.report[is_write][size_l2] =
+          (AsanCallbacks::Report)(app->start + offset);
+    }
+  }
+
+  dr_free_module_data(app);
+}
+
 bool OperandIsInteresting(opnd_t opnd) {
   // TOTHINK: we may access waaaay beyound the stack, do we need to check it?
   return
@@ -328,44 +368,7 @@ void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
   dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
 #endif
-
-  static int loaded_modules = 0;
-  if (loaded_modules++ == 0) {
-    // FIXME: Use dr_get_application_name() to check if it's the app module.
-    for (int is_write = 0; is_write < 2; ++is_write) {
-      for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
-        int size = 1 << size_l2;
-        size_t offset = -1;
-
-        char name_buffer[128];
-        dr_snprintf(name_buffer, sizeof(name_buffer),
-                    "__asan_report_%s%d",
-                    is_write ? "store" : "load", size);
-        #ifdef VERBOSE_VERBOSE
-          dr_printf("Searching %s...\r", name_buffer);
-        #endif
-        // FIXME: Use dr_get_proc_address() instead.
-        if (DRSYM_SUCCESS != drsym_lookup_symbol(info->full_path,
-                                                 name_buffer,
-                                                 &offset, 0)) {
-          dr_printf("Couldn't find `%s` in %s\n", name_buffer, info->full_path);
-          continue;
-        }
-        #ifdef VERBOSE_VERBOSE
-          dr_printf("Found %s @ %p\n", name_buffer, info->start + offset);
-        #endif
-        g_callbacks.report[is_write][size_l2] =
-            (AsanCallbacks::Report)(info->start + offset);
-      }
-    }
-  }
-}
-
-void module_unloaded(void *drcontext, const module_data_t *info) {
-  dr_printf("==DRASAN== Unloaded module: %s [%p...%p]\n",
-            info->full_path, info->start, info->end);
-  // TODO: cleanup
-  CHECK(!"Not implemented");
+  InitializeAsanCallbacks();
 }
 
 void event_exit() {
@@ -378,6 +381,5 @@ DR_EXPORT void dr_init(client_id_t id) {
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
   dr_register_module_load_event(module_loaded);
-  dr_register_module_unload_event(module_unloaded);
   dr_printf("==DRASAN== Starting!\n");
 }
