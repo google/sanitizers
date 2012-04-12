@@ -71,8 +71,7 @@ bool WantToInstrument(instr_t *instr) {
     return false;
   }
 
-  if (instr_ok_to_mangle(instr) == false)  // TODO: WTF is this?
-    return false;
+  CHECK(instr_ok_to_mangle(instr) == true);
 
   if (instr_reads_memory(instr)) {
     for (int s = 0; s < instr_num_srcs(instr); s++) {
@@ -106,14 +105,13 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // instructions that don't change flags.
 
   if (!TESTALL(EFLAGS_WRITE_6, flags) || TESTANY(EFLAGS_READ_6, flags)) {
-    // TODO: for some reason, spilling eflags makes ASAN RTL
-    // a bit crazy: it detects a simple OOB write as use-after-free...
 #if 0
 #if defined(VERBOSE_VERBOSE)
     dr_printf("Spilling eflags...\n");
 #endif
     need_to_restore_eflags = true;
     dr_save_arith_flags(drcontext, bb, i, SPILL_SLOT_3);
+    // FIXME: Spill XAX where the flags are actually stored.
 #endif
   }
 
@@ -128,6 +126,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 
   reg_id_t R1 = opnd_get_base(op),  // Register #2 memory address is already there!
            R1_8 = reg_32_to_opsz(R1, OPSZ_1),  // TODO: on x64?
+           // TODO: R2 could also be the index reg for op, pick one that isn't.
            R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
            R2_8 = reg_32_to_opsz(R2, OPSZ_1);
 
@@ -138,13 +137,14 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     return;
   }
 
-  CHECK(reg_to_pointer_sized(R1) == R1);  // otherwise R2 may be wrong.
+  CHECK(reg_is_pointer_sized(R1));  // otherwise R2 may be wrong.
 
   // Save the current values of R1 and R2.
   dr_save_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
   // TODO: Something smarter than spilling a "fixed" register R2?
   dr_save_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
 
+  // FIXME: use drutil_insert_get_mem_addr()
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
 #if __WORDSIZE == 32
   PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
@@ -157,6 +157,10 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, cmp(drcontext, OPND_CREATE_MEMPTR(R2,0), OPND_CREATE_INT8(0)));
 #endif
 
+  // TODO: Idea: look at lea + jecxz instruction to avoid flags usage.  Might be
+  // too complicated to always get ecx if it's the base reg, though.  Also,
+  // jecxz is an old instruction, we need to double check it's performance on
+  // new microarchitectures.
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
   PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
 
@@ -186,7 +190,9 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // Trap code:
   // 1) Restore the original access address in XAX 
   dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
+  // FIXME: Use drutil_insert_get_mem_addr here?
   // 2) Pass the original address as an argument...
+  // FIXME: use RDI on Linux x64; check the Windows convention too.
   PRE(i, push(drcontext, opnd_create_reg(R1)));
   // 3) Call the right __asan_report_{load,store}{1,2,4,8}
   int sz_idx = -1;
@@ -198,6 +204,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     case OPSZ_16: sz_idx = 4; break;
   }
   AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
+  // TODO: this trashes the stack, likely debugger-unfriendly.
   // TODO: enforce on_error != NULL when we link the RTL in the binary.
   PRE(i, call(drcontext, opnd_create_pc((byte*)on_error)));
   // TODO: we end up with no symbols in the ASan report stacks because we do
@@ -234,7 +241,8 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 
   module_data_t *md = dr_lookup_module((byte*)tag);
   if (md == NULL) {
-    // TODO: WTF?
+    // We're in the JIT code.
+    // TODO: test & handle
     return DR_EMIT_DEFAULT;
   }
   string mod_name(md->full_path);
@@ -275,6 +283,8 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
               instr_get_app_pc(i) - (byte*)tag, flags);
 #endif
 
+    // TODO: drutil_expand_rep_string/_ex, otherwise we're only checking
+    // the first mop. However, we probably only want the first and the last one?
     if (instr_reads_memory(i)) {
       // Instrument memory reads
       bool instrumented_anything = false;
@@ -321,7 +331,7 @@ void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
 
   static int loaded_modules = 0;
   if (loaded_modules++ == 0) {
-    // TODO: First module - always the app?
+    // FIXME: Use dr_get_application_name() to check if it's the app module.
     for (int is_write = 0; is_write < 2; ++is_write) {
       for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
         int size = 1 << size_l2;
@@ -334,6 +344,7 @@ void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
         #ifdef VERBOSE_VERBOSE
           dr_printf("Searching %s...\r", name_buffer);
         #endif
+        // FIXME: Use dr_get_proc_address() instead.
         if (DRSYM_SUCCESS != drsym_lookup_symbol(info->full_path,
                                                  name_buffer,
                                                  &offset, 0)) {
