@@ -143,7 +143,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   uint flags = instr_get_arith_flags(i);
   // TODO: do something smarter with flags and spills in general?
   // For example, spill them only once for a sequence of instrumented
-  // instructions that don't change flags.
+  // instructions that don't change/read flags.
 
   if (!TESTALL(EFLAGS_WRITE_6, flags) || TESTANY(EFLAGS_READ_6, flags)) {
 #if 0
@@ -151,8 +151,10 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     dr_printf("Spilling eflags...\n");
 #endif
     need_to_restore_eflags = true;
-    dr_save_arith_flags(drcontext, bb, i, SPILL_SLOT_3);
-    // FIXME: Spill XAX where the flags are actually stored.
+    // TODO: Maybe sometimes don't need to 'seto'.
+    dr_save_arith_flags(drcontext, bb, i, SPILL_SLOT_1);
+    dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_3);
+    dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
 #endif
   }
 
@@ -281,7 +283,9 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 #if defined(VERBOSE_VERBOSE)
     dr_printf("Restoring eflags\n");
 #endif
-    dr_restore_arith_flags(drcontext, bb, i, SPILL_SLOT_3);
+    dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+    dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_3);
+    dr_restore_arith_flags(drcontext, bb, i, SPILL_SLOT_1);
   }
 
   // The original instruction is left untouched. The above instrumentation is just
