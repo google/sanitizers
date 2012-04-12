@@ -18,6 +18,7 @@
 // Implementation of DynamoRIO instrumentation for ASan
 
 #include "dr_api.h"
+#include "dr/ext/drutil/drutil.h"
 #include "dr/ext/drsyms/drsyms.h"
 
 #include <string>
@@ -37,7 +38,7 @@ using namespace std;
 
 #define CHECK(condition) CHECK_IMPL(condition, __FILE__, __LINE__)
 
-//#define VERBOSE_VERBOSE
+#define VERBOSE_VERBOSE
 
 #if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
 # define VERBOSE
@@ -73,7 +74,7 @@ void InitializeAsanCallbacks() {
       #ifdef VERBOSE_VERBOSE
       dr_printf("Searching %s...\r", name_buffer);
       #endif
-      // FIXME: Use dr_get_proc_address() instead.
+      // TODO: Use dr_get_proc_address() instead?
       if (DRSYM_SUCCESS != drsym_lookup_symbol(app->full_path,
                                                name_buffer,
                                                &offset, 0)) {
@@ -164,7 +165,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
             );
 #endif
 
-  reg_id_t R1 = opnd_get_base(op),  // Register #2 memory address is already there!
+  reg_id_t R1 = DR_REG_XAX,
            R1_8 = reg_32_to_opsz(R1, OPSZ_1),  // TODO: on x64?
            // TODO: R2 could also be the index reg for op, pick one that isn't.
            R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
@@ -184,7 +185,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // TODO: Something smarter than spilling a "fixed" register R2?
   dr_save_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
 
-  // FIXME: use drutil_insert_get_mem_addr()
+  CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
 #if __WORDSIZE == 32
   PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
@@ -228,9 +229,12 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   }
 
   // Trap code:
-  // 1) Restore the original access address in XAX 
+  // 1) Restore the original access address in R1.
+  // Restore both R1 and R2 as the original address may depend on either of
+  // them. TODO: probably it's not necessary to always restore both registers.
   dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
-  // FIXME: Use drutil_insert_get_mem_addr here?
+  dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
+  CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   // 2) Pass the original address as an argument...
   // FIXME: use RDI on Linux x64; check the Windows convention too.
   PRE(i, push(drcontext, opnd_create_reg(R1)));

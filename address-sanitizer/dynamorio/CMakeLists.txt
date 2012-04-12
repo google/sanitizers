@@ -7,6 +7,7 @@ if (NOT DynamoRIO_FOUND)
   message(FATAL_ERROR "DynamoRIO package required to build")
 endif(NOT DynamoRIO_FOUND)
 
-use_DynamoRIO_extension(dr_asan drsyms) 
+use_DynamoRIO_extension(dr_asan drsyms)
+use_DynamoRIO_extension(dr_asan drutil)
 
 configure_DynamoRIO_client(dr_asan)
