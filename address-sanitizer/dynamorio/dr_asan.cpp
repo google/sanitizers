@@ -38,7 +38,7 @@ using namespace std;
 
 #define CHECK(condition) CHECK_IMPL(condition, __FILE__, __LINE__)
 
-#define VERBOSE_VERBOSE
+//#define VERBOSE_VERBOSE
 
 #if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
 # define VERBOSE
@@ -236,8 +236,13 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
   CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   // 2) Pass the original address as an argument...
-  // FIXME: use RDI on Linux x64; check the Windows convention too.
+  // TODO: Check the Windows calling convention.
+#if __WORDSIZE == 32
   PRE(i, push(drcontext, opnd_create_reg(R1)));
+#else
+  if (R1 != DR_REG_RDI)
+    PRE(i, mov_ld(drcontext, opnd_create_reg(DR_REG_RDI), opnd_create_reg(R1)));
+#endif
   // 3) Call the right __asan_report_{load,store}{1,2,4,8}
   int sz_idx = -1;
   switch (access_size) {
