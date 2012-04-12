@@ -296,12 +296,10 @@ static dr_emit_flags_t
 event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                   bool for_trace, bool translating)
 {
-  // TOFILE: `tag` should be (byte*)? or app_pc?
-
   // TODO: only start instrumentation after asan_init finishes or force a call
   // to asan_init() on the first bb and discard translations afterwards?
-
-  module_data_t *md = dr_lookup_module((byte*)tag);
+  app_pc orig_pc = dr_fragment_app_pc(tag);
+  module_data_t *md = dr_lookup_module(orig_pc);
   if (md == NULL) {
     // We're in the JIT code.
     // TODO: test & handle
@@ -328,11 +326,11 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 #if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
-            tag, mod_name.c_str(), translating ? "true" : "false");
+            orig_pc, mod_name.c_str(), translating ? "true" : "false");
   instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
 #elif defined(VERBOSE)
   if (translating == false)
-    dr_printf("Instrumenting BB at %p [from %s]\n", tag, mi->path->c_str());
+    dr_printf("Instrumenting BB at %p [from %s]\n", orig_pc, mi->path->c_str());
 #endif
 
   for (instr_t *i = instrlist_first(bb); i != NULL; i = instr_get_next(i)) {
@@ -342,7 +340,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 #if defined(VERBOSE_VERBOSE)
     uint flags = instr_get_arith_flags(i);
     dr_printf("+%d -> to be instrumented! [flags = 0x%08X]\n",
-              instr_get_app_pc(i) - (byte*)tag, flags);
+              instr_get_app_pc(i) - orig_pc, flags);
 #endif
 
     // TODO: drutil_expand_rep_string/_ex, otherwise we're only checking
@@ -379,8 +377,8 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   }
 
 #if defined(VERBOSE_VERBOSE)
-  dr_printf("\nFinished instrumenting dynamorio_basic_block(tag="PFX")\n", tag);
-  instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
+  dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", tag);
+  instrlist_disassemble(drcontext, orig_pc, bb, STDOUT);
 #endif
   return DR_EMIT_DEFAULT;
 }
