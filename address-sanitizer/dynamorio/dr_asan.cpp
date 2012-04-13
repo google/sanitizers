@@ -206,6 +206,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // too complicated to always get ecx if it's the base reg, though.  Also,
   // jecxz is an old instruction, we need to double check it's performance on
   // new microarchitectures.
+  // TODO: move the slow path to the end of the BB to improve the ICache usage.
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
   PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
 
@@ -224,16 +225,15 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
         PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
         break;
       case OPSZ_2:
-        PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(2)));
+        PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(1)));
         break;
       case OPSZ_1:
-        PRE(i, inc(drcontext, opnd_create_reg(R1)));
         break;
       default:
         CHECK(0);
     }
     PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
-    PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
+    PRE(i, jcc(drcontext, OP_jl_short, opnd_create_instr(OK_label)));
   }
 
   // Trap code:
