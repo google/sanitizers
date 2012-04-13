@@ -180,12 +180,12 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     // TODO: reuse some spare register? e.g. r15 on x64
     R1 = DR_REG_XAX;
   }
-  reg_id_t R1_8 = reg_32_to_opsz(R1, OPSZ_1);  // TODO: x64?
+  CHECK(reg_is_pointer_sized(R1));  // otherwise R1_8 and R2 may be wrong.
+  reg_id_t R1_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R1), R1), OPSZ_1);
 
-  CHECK(reg_is_pointer_sized(R1));  // otherwise R2 may be wrong.
   // TODO: R2 could also be the index reg for op, pick one that isn't.
   reg_id_t R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
-           R2_8 = reg_32_to_opsz(R2, OPSZ_1);
+           R2_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R2), R2), OPSZ_1);
 
   // Save the current values of R1 and R2.
   dr_save_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
