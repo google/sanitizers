@@ -60,7 +60,10 @@ void InitializeAsanCallbacks() {
   initialized = true;
 
   module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
-  CHECK(app);
+  if (!app) {
+    dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
+    CHECK(app);
+  }
 
   for (int is_write = 0; is_write < 2; ++is_write) {
     for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
@@ -211,9 +214,15 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
   PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
 
-  opnd_size_t access_size = opnd_get_size(op);
-  CHECK(access_size != OPSZ_NA);
-  if (access_size != OPSZ_8) {
+  opnd_size_t op_size = opnd_get_size(op);
+  CHECK(op_size != OPSZ_NA);
+  uint access_size = opnd_size_in_bytes(op_size);
+  if (access_size > 8) {
+    // TODO: handle larger accesses
+    access_size = 8;
+  }
+
+  if (access_size < 8) {
     PRE(i, mov_ld(drcontext, opnd_create_reg(R1), OPND_CREATE_MEMPTR(R2,0)));
     PRE(i, mov_ld(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R1_8)));
     // Slowpath to support accesses smaller than pointer-sized.
@@ -224,17 +233,9 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
       CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
     }
     PRE(i, and(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(7)));
-    switch (access_size) {
-      case OPSZ_4:
-        PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
-        break;
-      case OPSZ_2:
-        PRE(i, add(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(1)));
-        break;
-      case OPSZ_1:
-        break;
-      default:
-        CHECK(0);
+    if (access_size > 1) {
+      PRE(i, add(drcontext, opnd_create_reg(R1),
+                 OPND_CREATE_INT8(access_size - 1)));
     }
     PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
     PRE(i, jcc(drcontext, OP_jb_short, opnd_create_instr(OK_label)));
@@ -259,14 +260,18 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     PRE(i, mov_ld(drcontext, opnd_create_reg(DR_REG_RDI), opnd_create_reg(R1)));
 #endif
   // 3) Call the right __asan_report_{load,store}{1,2,4,8}
-  int sz_idx = -1;
-  switch (access_size) {
-    case OPSZ_1:  sz_idx = 0; break;
-    case OPSZ_2:  sz_idx = 1; break;
-    case OPSZ_4:  sz_idx = 2; break;
-    case OPSZ_8:  sz_idx = 3; break;
-    case OPSZ_16: sz_idx = 4; break;
+  int sz_idx = 0;
+  // Log2-analog below.
+  // TODO: in rare weird cases like OPSZ_6 we'll be reporting wrong access
+  // sizes (e.g. 4-byte instead of 6-byte).
+  {
+    uint as = access_size;
+    while (as > 1) {
+      sz_idx++;
+      as /= 2;
+    }
   }
+  CHECK(sz_idx < 5);
   AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
   // TODO: this trashes the stack, likely debugger-unfriendly.
   // TODO: enforce on_error != NULL when we link the RTL in the binary.
@@ -402,14 +407,26 @@ void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
 }
 
 void event_exit() {
+#if defined(VERBOSE)
   dr_printf("==DRASAN== DONE\n");
+#endif
   drsym_exit();
 }
 
 DR_EXPORT void dr_init(client_id_t id) {
+  string app_name = dr_get_application_name();
+  // TODO: make the blacklist cmd-adjustable.
+  if (app_name == "python" ||
+      app_name == "bash" || app_name == "sh" ||
+      app_name == "true" || app_name == "exit" ||
+      app_name == "yes" || app_name == "echo")
+    return;
+
   drsym_init(NULL);
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
   dr_register_module_load_event(module_loaded);
+#if defined(VERBOSE)
   dr_printf("==DRASAN== Starting!\n");
+#endif
 }
