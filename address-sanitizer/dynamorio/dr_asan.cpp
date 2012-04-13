@@ -105,10 +105,9 @@ bool OperandIsInteresting(opnd_t opnd) {
 
 bool WantToInstrument(instr_t *instr) {
   switch (instr_get_opcode(instr)) {
-  case OP_xadd:
-    // TODO: support std::ios_base::Init::Init()
-    // e.g. `std::cout << "Hello!\n";`
-    // f0 41 0f c1 07          lock xadd %eax,(%r15)
+  // TODO: support the instructions excluded below:
+  case OP_rep_cmps:
+    // f3 a6    rep cmps %ds:(%rsi) %es:(%rdi) %rsi %rdi %rcx -> %rsi %rdi %rcx
     return false;
   }
 
@@ -146,7 +145,6 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // instructions that don't change/read flags.
 
   if (!TESTALL(EFLAGS_WRITE_6, flags) || TESTANY(EFLAGS_READ_6, flags)) {
-#if 0
 #if defined(VERBOSE_VERBOSE)
     dr_printf("Spilling eflags...\n");
 #endif
@@ -155,7 +153,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     dr_save_arith_flags(drcontext, bb, i, SPILL_SLOT_1);
     dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_3);
     dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
-#endif
+    // TODO: sometimes don't want to spill XAX here?
   }
 
 #if 0
@@ -341,12 +339,16 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 
 #if defined(VERBOSE_VERBOSE)
     uint flags = instr_get_arith_flags(i);
-    dr_printf("+%d -> to be instrumented! [flags = 0x%08X]\n",
-              instr_get_app_pc(i) - orig_pc, flags);
+    dr_printf("+%d -> to be instrumented! [opcode=%d, flags = 0x%08X]\n",
+              instr_get_app_pc(i) - orig_pc, instr_get_opcode(i), flags);
 #endif
 
     // TODO: drutil_expand_rep_string/_ex, otherwise we're only checking
     // the first mop. However, we probably only want the first and the last one?
+
+    // TODO: Some instructions (e.g. lock xadd) may read & write the same memory
+    // location. Optimize the instrumentation to only check the write.
+
     if (instr_reads_memory(i)) {
       // Instrument memory reads
       bool instrumented_anything = false;
@@ -377,6 +379,8 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       }
     }
   }
+
+  // TODO: optimize away redundant restore-spill pairs?
 
 #if defined(VERBOSE_VERBOSE)
   dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", tag);
