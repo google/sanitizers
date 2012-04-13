@@ -22,6 +22,7 @@
 #include "dr/ext/drsyms/drsyms.h"
 
 #include <string>
+#include <set>
 #include <vector>
 using namespace std;
 
@@ -166,7 +167,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
             opnd_get_index(op),
             opnd_is_far_memory_reference(op),
             opnd_is_reg_pointer_sized(op),
-            opnd_get_disp(op)
+            opnd_is_base_disp(op) ? opnd_get_disp(op) : -1
             );
 #endif
 
@@ -179,14 +180,43 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     R1 = opnd_get_base(op);
   } else {
     // TODO: reuse some spare register? e.g. r15 on x64
+    // TODO: might be used as a non-mem-ref register?
     R1 = DR_REG_XAX;
   }
   CHECK(reg_is_pointer_sized(R1));  // otherwise R1_8 and R2 may be wrong.
   reg_id_t R1_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R1), R1), OPSZ_1);
 
   // TODO: R2 could also be the index reg for op, pick one that isn't.
-  reg_id_t R2 = (R1 == DR_REG_XCX ? DR_REG_XDX : DR_REG_XCX),
+  reg_id_t GPR_TO_USE_FOR_R2[] = {
+    DR_REG_XAX, DR_REG_XBX, DR_REG_XCX, DR_REG_XDX
+    // Don't forget to update the +4 below if you add anything else!
+  };
+  set<reg_id_t> unused_registers(GPR_TO_USE_FOR_R2, GPR_TO_USE_FOR_R2+4);
+  unused_registers.erase(R1);
+  if (is_write) {
+    for (int _o = 0; _o < instr_num_dsts(i); ++_o) {
+      opnd_t o = instr_get_dst(i, _o);
+      if (opnd_is_base_disp(o)) {
+        unused_registers.erase(opnd_get_base(o));
+        // TODO: opnd_get_index always OK?
+        unused_registers.erase(opnd_get_index(o));
+      }
+    }
+  } else {
+    for (int _o = 0; _o < instr_num_srcs(i); ++_o) {
+      opnd_t o = instr_get_src(i, _o);
+      if (opnd_is_base_disp(o)) {
+        unused_registers.erase(opnd_get_base(o));
+        // TODO: opnd_get_index always OK?
+        unused_registers.erase(opnd_get_index(o));
+      }
+    }
+  }
+
+  CHECK(unused_registers.size() > 0);
+  reg_id_t R2 = *unused_registers.begin(),
            R2_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R2), R2), OPSZ_1);
+  CHECK(R1 != R2);
 
   // Save the current values of R1 and R2.
   dr_save_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
