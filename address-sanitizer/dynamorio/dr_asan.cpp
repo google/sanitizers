@@ -174,6 +174,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     address_in_R1 = true;
     R1 = opnd_get_base(op);
   } else {
+    // TODO: reuse some spare register? e.g. r15 on x64
     R1 = DR_REG_XAX;
   }
   reg_id_t R1_8 = reg_32_to_opsz(R1, OPSZ_1);  // TODO: x64?
@@ -213,7 +214,10 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   opnd_size_t access_size = opnd_get_size(op);
   CHECK(access_size != OPSZ_NA);
   if (access_size != OPSZ_8) {
+    PRE(i, mov_ld(drcontext, opnd_create_reg(R1), OPND_CREATE_MEMPTR(R2,0)));
+    PRE(i, mov_ld(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R1_8)));
     // Slowpath to support accesses smaller than pointer-sized.
+    // TODO: do we need to restore R1 if address_in_R1 == false?
     dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
     if (!address_in_R1) {
       // TODO: assuming R2 is not scratched here.
@@ -233,7 +237,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
         CHECK(0);
     }
     PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
-    PRE(i, jcc(drcontext, OP_jl_short, opnd_create_instr(OK_label)));
+    PRE(i, jcc(drcontext, OP_jb_short, opnd_create_instr(OK_label)));
   }
 
   // Trap code:
