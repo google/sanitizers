@@ -172,7 +172,8 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 
   reg_id_t R1;
   bool address_in_R1 = false;
-  if (opnd_is_base_disp(op) && opnd_get_disp(op) == 0) {
+  if (opnd_is_base_disp(op) && opnd_get_disp(op) == 0 &&
+      !opnd_is_abs_addr(op) && !opnd_is_rel_addr(op)) {
     // TODO: is this the correct condition above?
     address_in_R1 = true;
     R1 = opnd_get_base(op);
@@ -363,7 +364,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       bool instrumented_anything = false;
       for (int s = 0; s < instr_num_srcs(i); s++) {
         opnd_t op = instr_get_src(i, s);
-        if (!OperandIsInteresting(op) || opnd_get_base(op) == DR_REG_NULL)
+        if (!OperandIsInteresting(op))
           continue;
 
         // TODO: CMPS may not pass this check.
@@ -379,7 +380,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       bool instrumented_anything = false;
       for (int d = 0; d < instr_num_dsts(i); d++) {
         opnd_t op = instr_get_dst(i, d);
-        if (!OperandIsInteresting(op) || opnd_get_base(op) == DR_REG_NULL)
+        if (!OperandIsInteresting(op))
           continue;
 
         CHECK(!instrumented_anything);
