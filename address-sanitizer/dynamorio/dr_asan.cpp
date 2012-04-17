@@ -44,6 +44,10 @@ using namespace std;
 # define VERBOSE
 #endif
 
+#ifndef BINARY_INSTRUMENTED
+# define BINARY_INSTRUMENTED 1
+#endif
+
 struct AsanCallbacks {
   typedef void (*Report)(void*);
   Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
@@ -51,6 +55,8 @@ struct AsanCallbacks {
 
 // TODO: on Windows, we may have multiple RTLs in one process.
 AsanCallbacks g_callbacks = {0};
+
+static string app_path;
 
 void InitializeAsanCallbacks() {
   static bool initialized = false;
@@ -64,6 +70,7 @@ void InitializeAsanCallbacks() {
     dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
     CHECK(app);
   }
+  app_path = app->full_path;
 
   for (int is_write = 0; is_write < 2; ++is_write) {
     for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
@@ -351,28 +358,42 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
     // TODO: test & handle
     return DR_EMIT_DEFAULT;
   }
-  string mod_name(md->full_path);
+  string mod_path(md->full_path);
   dr_free_module_data(md);
 
-  if (mod_name.find("/libc") != string::npos)
+  // Blacklist some libraries which are not instrumentation-friendly or we just
+  // don't bother:
+  if (mod_path.find("/libc-") != string::npos)
     return DR_EMIT_DEFAULT;
-  if (mod_name.find("pintest_so.so") == string::npos &&
-      mod_name.find("/usr/lib/") != 0 &&
-      mod_name.find("/lib/") != 0)
+  // TODO: do we bother about libpthread ?
+  if (mod_path.find("/lib/libpthread") == 0)
+    return DR_EMIT_DEFAULT;
+  // TODO: ld fails on some apps (e.g. googleurl_unittests) probably because
+  // asan_init was not called yet.
+  if (mod_path.find("/lib/ld") == 0)
+    return DR_EMIT_DEFAULT;
+  // Don't instrument DR.
+  if (mod_path.find("/libdynamorio") != string::npos ||
+      mod_path.find("/libdrpreload") != string::npos)
     return DR_EMIT_DEFAULT;
 
-  // TODO: these fail probably because asan_init was not called yet.
-  if (mod_name.find("/lib/ld") == 0)
-    return DR_EMIT_DEFAULT;
-  if (mod_name.find("/lib/libpthread") == 0)
+  // Don't instrument anything outside /lib or /usr/lib except for pintest_so.so
+  // TODO: adjustable whitelist?
+  if (mod_path.find("pintest_so.so") == string::npos &&
+      mod_path.find("/usr/lib/") != 0 &&
+      mod_path.find("/lib/") != 0)
     return DR_EMIT_DEFAULT;
 
-  // TODO: blacklist RTL functions.
+  if (mod_path == app_path) {
+    if (BINARY_INSTRUMENTED)
+      return DR_EMIT_DEFAULT;
+    // TODO: blacklist RTL functions.
+  }
 
 #if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
-            orig_pc, mod_name.c_str(), translating ? "true" : "false");
+            orig_pc, mod_path.c_str(), translating ? "true" : "false");
   instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
 #elif defined(VERBOSE)
   if (translating == false)
@@ -440,7 +461,6 @@ void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
   dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
 #endif
-  InitializeAsanCallbacks();
 }
 
 void event_exit() {
@@ -457,6 +477,7 @@ DR_EXPORT void dr_init(client_id_t id) {
       app_name == "true" || app_name == "exit" ||
       app_name == "yes" || app_name == "echo")
     return;
+  InitializeAsanCallbacks();
 
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
