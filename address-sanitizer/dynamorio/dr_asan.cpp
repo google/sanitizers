@@ -228,16 +228,10 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   if (!address_in_R1)
     CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
-#if __WORDSIZE == 32
-  PRE(i, mov_ld(drcontext, opnd_create_reg(R2),
-                OPND_CREATE_MEM32(R1,0x20000000)));
-  PRE(i, test(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R2_8)));
-#else
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
-                OPND_CREATE_INTPTR(1ull << 44)));
+                 OPND_CREATE_INTPTR(IF_X64_ELSE(1ull << 44, 1 << 29))));
   PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
   PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(0)));
-#endif
 
   // TODO: Idea: look at lea + jecxz instruction to avoid flags usage.  Might be
   // too complicated to always get ecx if it's the base reg, though.  Also,
@@ -256,6 +250,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   }
 
   if (access_size < 8) {
+    // TODO: the second memory load in not necessary, see the prev load.
     PRE(i, mov_ld(drcontext, opnd_create_reg(R1), OPND_CREATE_MEMPTR(R2,0)));
     PRE(i, mov_ld(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R1_8)));
     // Slowpath to support accesses smaller than pointer-sized.
@@ -273,7 +268,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
                  OPND_CREATE_INT8(access_size - 1)));
     }
     PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
-    PRE(i, jcc(drcontext, OP_jb_short, opnd_create_instr(OK_label)));
+    PRE(i, jcc(drcontext, OP_jl_short, opnd_create_instr(OK_label)));
   }
 
   // Trap code:
