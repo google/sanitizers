@@ -168,10 +168,11 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 #endif
     need_to_restore_eflags = true;
     // TODO: Maybe sometimes don't need to 'seto'.
-    dr_save_arith_flags(drcontext, bb, i, SPILL_SLOT_1);
+    // TODO: Maybe sometimes don't want to spill XAX here?
+    dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+    dr_save_arith_flags_to_xax(drcontext, bb, i);
     dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_3);
     dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
-    // TODO: sometimes don't want to spill XAX here?
   }
 
 #if 0
@@ -216,7 +217,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 
   CHECK(unused_registers.size() > 0);
   reg_id_t R2 = *unused_registers.begin(),
-           R2_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R2), R2), OPSZ_1);
+           R2_8 = reg_resize_to_opsz(R2, OPSZ_1);
   CHECK(R1 != R2);
 
   // Save the current values of R1 and R2.
@@ -336,9 +337,11 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
 #if defined(VERBOSE_VERBOSE)
     dr_printf("Restoring eflags\n");
 #endif
+    // TODO: Check if it's reverse to the dr_restore_reg above and optimize.
     dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
     dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_3);
-    dr_restore_arith_flags(drcontext, bb, i, SPILL_SLOT_1);
+    dr_restore_arith_flags_from_xax(drcontext, bb, i);
+    dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
   }
 
   // The original instruction is left untouched. The above instrumentation is just
