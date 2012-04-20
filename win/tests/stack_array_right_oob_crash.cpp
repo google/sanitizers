@@ -21,5 +21,13 @@ int main(void) {
   int subscript = 42;
   volatile char buffer[42];
   buffer[subscript] = 42;
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: Address [[ADDR]] is located at offset {{.*}} in frame <main>
   return 0;
 }

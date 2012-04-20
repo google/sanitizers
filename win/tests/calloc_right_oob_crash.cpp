@@ -20,6 +20,16 @@
 int main(void) {
   volatile int *buffer = (int*)calloc(42, sizeof(int));
   buffer[42] = 42;
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer heap-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 4 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: [[ADDR]] is located 0 bytes to the right of 168-byte region
+// CHECK: allocated by thread T0 here:
+// CHECK:   #0 {{.*}} calloc
   free_noopt(buffer);
   return 0;
 }

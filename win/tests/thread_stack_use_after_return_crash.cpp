@@ -35,6 +35,12 @@ int main(void) {
   CHECK(other_thread_stack_object != NULL);
 
   // TODO: ASan doesn't generate a crash stack here at the momoent.
+  printf("TODO: no output!\n");
+  fflush(stdout);
+// CHECK: TODO: no output
   *other_thread_stack_object = 42;
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
   return 0;
 }
