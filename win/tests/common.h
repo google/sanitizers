@@ -35,3 +35,8 @@ void* ident(volatile void *p) {
 void free_noopt(volatile void *p) {
   free(ident(p));
 }
+
+void UNREACHABLE() {
+  printf("This code should be unreachable\n");
+  fflush(stdout);
+}
