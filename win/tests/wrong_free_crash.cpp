@@ -21,5 +21,12 @@ int main(void) {
   volatile int *x = (int*)malloc(42 * sizeof(int));
   printf("Some random value: %d\n", *x);
   free_noopt(x + 1);
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer attempting free on address which was not malloc()-ed
+// CHECK:   #0 {{.*}} free
+// CHECK:   #{{[12]}} {{.*}} main
   return 0;
 }

@@ -21,4 +21,13 @@ int main(void) {
   volatile char str[6] = "Hello";
   str[5] = '!';  // No '\0' at the end!
   volatile int len = strlen((const char*)ident(str));
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: READ of size 1 at [[ADDR]] thread T0
+// CHECK:   #{{[01]}} {{.*}}strlen
+// CHECK:   #{{[12]}} {{.*}} main
+// CHECK: Address [[ADDR]] is located at offset {{.*}} in frame <main>
 }

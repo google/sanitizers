@@ -21,5 +21,12 @@ int main(void) {
   volatile char buff1[6] = "Hello",
                 buff2[6];
   memcpy(ident(buff2), ident(buff1), 7);
-  printf("Shouldn't get here %s vs %s\n", buff1, buff2);
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: Address [[ADDR]] is located at offset {{.*}} in frame <main>
 }

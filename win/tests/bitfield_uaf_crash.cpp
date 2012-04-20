@@ -28,5 +28,16 @@ int main(void) {
   volatile S *s = (S*)malloc(sizeof(S));
   free_noopt(s);
   s->bf2 = 2;
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer heap-use-after-free on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: READ of size 4 at [[ADDR]]
+// CHECK:   #0 {{.*}} main
+// CHECK: [[ADDR]] is located 0 bytes inside of 4-byte region
+// CHECK: freed by thread T0 here:
+// CHECK:   #0 {{.*}} free
+// CHECK:   {{#[0-9]+}} {{.*}} main
   return 0;
 }

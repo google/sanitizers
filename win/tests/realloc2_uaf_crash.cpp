@@ -23,6 +23,18 @@ int main(void) {
   buffer = (char*)realloc(ident(buffer), 64);
   // The 'stale' may now point to a free'd memory.
   stale[0] = 42;
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer heap-use-after-free on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: [[ADDR]] is located 0 bytes inside of 32-byte region
+// CHECK: freed by thread T0 here:
+// CHECK:   #0 {{.*}} realloc
+// CHECK: previously allocated by thread T0 here:
+// CHECK:   #0 {{.*}} realloc
   free_noopt(buffer);
   return 0;
 }

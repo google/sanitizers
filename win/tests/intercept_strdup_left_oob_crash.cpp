@@ -21,5 +21,16 @@ int main(void) {
   volatile char *ptr = _strdup("Hello");
   int subscript = -1;
   ptr[subscript] = 42;
+
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
+
+// CHECK: AddressSanitizer heap-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: [[ADDR]] is located 1 bytes to the left of 6-byte region
+// CHECK: allocated by thread T0 here:
+// CHECK:   #0 {{.*}} malloc
+// CHECK:   #1 {{.*}} _strdup
   free_noopt(ptr);
 }

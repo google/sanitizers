@@ -21,7 +21,7 @@ endif
 ifeq ($(PLATFORM), Windows)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
 	# Currently, I run
-	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan*.obj -j
+	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan_rtl.lib -j
 	CC=cl
 	CFLAGS=/TC /Zi /nologo
 	LINK=link
@@ -41,28 +41,37 @@ else ifeq ($(PLATFORM), Linux)
 endif
 CC_OUT=-c -o
 EXTRA_CFLAGS=
+FILECHECK=
 
-RUN_TEST_TARGETS=$(patsubst %.cpp,run_%_test,$(wildcard *.cpp))
+RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,$(wildcard *.cpp))
 
 all: run_all_tests
 .PHONY: all
 
 clean:
-	rm -rf *.pdb *.ilk *.exe *.obj *.exe.manifest *.exp *.lib *.suo
+	rm -rf *.pdb *.ilk *.exe *.obj *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean
 
 run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
+
+check_%_pass_test: run_%_pass_test
 	@echo "$< - PASSED"
 
 run_%_stress_test: %_stress_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
 
-# TODO(timurrrr): check the output against a pattern?
-run_%_crash_test: %_crash_test.exe
-	@! $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
-	@echo "$< - PASSED (CRASHED AS EXPECTED)"
+%_crash_test.output: %_crash_test.exe
+	@! $(TEST_COMMAND_PREFIX) ./$< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
+
+run_%_crash_test: %_crash_test.output
+	@cat $^
+	@echo "$< - CRASHED AS EXPECTED"
+
+check_%_crash_test: %_crash_test.output %_crash.cpp
+	@$(FILECHECK) -input-file=$^
+	@echo "$< - PASSED (CRASHED WITH THE CORRECT OUTPUT)"
 
 .PHONY: run_%_test
 
