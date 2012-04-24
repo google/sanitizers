@@ -42,9 +42,8 @@ cd asan_rtl
 del *.pdb *.obj *.lib || goto :DIE
 
 :: /MP <- parallel buidling
-:: /MD\/MT <- Multi-Threaded CRT with dynamic\static linking
+:: /MT <- Multi-Threaded CRT with static linking
 :: /Zi <- generate debug info
-:: /D_CRTIMP="" <- cut off the __declspec(dllimport) from malloc & friends
 cl /nologo /MP /MT /Zi /c *.cc interception/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
 cd ..
