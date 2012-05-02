@@ -18,28 +18,20 @@
 #include "common.h"
 
 int main(void) {
-  volatile int *p = (int*)malloc(1024 * sizeof(int));
-  p[512] = 0;
-  free_noopt(p);
+  volatile char *buffer = new char;
+  delete buffer;
+  *buffer = 42;
 
-  p = (int*)malloc(128);
-  p = (int*)realloc(ident(p), 2048 * sizeof(int));
-  p[1024] = 0;
-  free_noopt(p);
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
 
-  p = (int*)calloc(16, sizeof(int));
-  assert(p[8] == 0);
-  p[15]++;
-  assert(16 * sizeof(int) == _msize(ident(p)));
-  free_noopt(p);
-
-  p = new int;
-  *p = 42;
-  delete p;
-
-  p = new int[42];
-  p[15]++;
-  delete [] p;
-
+// CHECK: AddressSanitizer heap-use-after-free on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: [[ADDR]] is located 0 bytes inside of 1-byte region
+// CHECK: freed by thread T0 here:
+// CHECK:   #0 {{.*}} operator delete
+// CHECK: previously allocated by thread T0 here:
+// CHECK:   #0 {{.*}} operator new
   return 0;
 }

@@ -17,29 +17,30 @@
 
 #include "common.h"
 
+class Parent {
+ public:
+  int field;
+};
+
+class Child : public Parent {
+ public:
+  int extra_field;
+};
+
 int main(void) {
-  volatile int *p = (int*)malloc(1024 * sizeof(int));
-  p[512] = 0;
-  free_noopt(p);
+  Parent *p = new Parent;
+  Child *c = (Child*)p;  // Intentional error here!
+  c->extra_field = 42;
 
-  p = (int*)malloc(128);
-  p = (int*)realloc(ident(p), 2048 * sizeof(int));
-  p[1024] = 0;
-  free_noopt(p);
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
 
-  p = (int*)calloc(16, sizeof(int));
-  assert(p[8] == 0);
-  p[15]++;
-  assert(16 * sizeof(int) == _msize(ident(p)));
-  free_noopt(p);
-
-  p = new int;
-  *p = 42;
+// CHECK: AddressSanitizer heap-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 4 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} main
+// CHECK: [[ADDR]] is located 0 bytes to the right of 4-byte region
+// CHECK: allocated by thread T0 here:
+// CHECK:   #0 {{.*}} operator new
   delete p;
-
-  p = new int[42];
-  p[15]++;
-  delete [] p;
-
   return 0;
 }
