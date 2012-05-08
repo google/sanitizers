@@ -20,10 +20,12 @@
 #include "dr_api.h"
 #include "drutil.h"
 
+#include <algorithm>
 #include <string>
 #include <set>
 #include <vector>
-using namespace std;
+
+using std::string;
 
 #define TESTALL(mask, var) (((mask) & (var)) == (mask))
 #define TESTANY(mask, var) (((mask) & (var)) != 0)
@@ -38,6 +40,7 @@ using namespace std;
 
 #define CHECK(condition) CHECK_IMPL(condition, __FILE__, __LINE__)
 
+//#define VERBOSE
 //#define VERBOSE_VERBOSE
 
 #if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
@@ -48,21 +51,58 @@ using namespace std;
 # define BINARY_INSTRUMENTED 1
 #endif
 
+namespace {
+
 struct AsanCallbacks {
   typedef void (*Report)(void*);
   Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
 };
 
+class ModuleData {
+ public:
+  ModuleData();
+  ModuleData(const module_data_t *info);
+  // Yes, we want default copy, assign, and dtor semantics.
+
+ public:
+  app_pc start_;
+  app_pc end_;
+  // Full path to the module.
+  string path_;
+  bool should_instrument_;
+  bool executed_;
+};
+
 // TODO: on Windows, we may have multiple RTLs in one process.
 AsanCallbacks g_callbacks = {0};
 
-static string app_path;
+string g_app_path;
+
+// A vector of loaded modules sorted by module bounds.  We lookup the current PC
+// in here from the bb event.  This is better than an rb tree because the lookup
+// is faster and the bb event occurs far more than the module load event.
+std::vector<ModuleData> g_module_list;
+
+ModuleData::ModuleData()
+  : start_(NULL),
+    end_(NULL),
+    path_(""),
+    should_instrument_(false),
+    executed_(false)
+{}
+
+ModuleData::ModuleData(const module_data_t *info)
+  : start_(info->start),
+    end_(info->end),
+    path_(info->full_path),
+    // We'll check the black/white lists later and adjust this.
+    should_instrument_(true),
+    executed_(false)
+{}
 
 void InitializeAsanCallbacks() {
   static bool initialized = false;
-
-  if (initialized)
-    return;
+  CHECK(!initialized);
   initialized = true;
 
   module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
@@ -70,7 +110,7 @@ void InitializeAsanCallbacks() {
     dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
     CHECK(app);
   }
-  app_path = app->full_path;
+  g_app_path = app->full_path;
 
   for (int is_write = 0; is_write < 2; ++is_write) {
     for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
@@ -153,7 +193,7 @@ bool WantToInstrument(instr_t *instr) {
 #define PRE(at, what) instrlist_meta_preinsert(bb, at, INSTR_CREATE_##what);
 #define PREF(at, what) instrlist_meta_preinsert(bb, at, what);
 
-static void InstrumentMops(void *drcontext, instrlist_t *bb,
+void InstrumentMops(void *drcontext, instrlist_t *bb,
                            instr_t *i, opnd_t op, bool is_write)
 {
   bool need_to_restore_eflags = false;
@@ -209,7 +249,7 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
     DR_REG_XAX, DR_REG_XBX, DR_REG_XCX, DR_REG_XDX
     // Don't forget to update the +4 below if you add anything else!
   };
-  set<reg_id_t> unused_registers(GPR_TO_USE_FOR_R2, GPR_TO_USE_FOR_R2+4);
+  std::set<reg_id_t> unused_registers(GPR_TO_USE_FOR_R2, GPR_TO_USE_FOR_R2+4);
   unused_registers.erase(R1);
   for (int j = 0; j < opnd_num_regs_used(op); j++) {
     unused_registers.erase(opnd_get_reg_used(op, j));
@@ -343,59 +383,97 @@ static void InstrumentMops(void *drcontext, instrlist_t *bb,
   // a prefix.
 }
 
-static dr_emit_flags_t
-event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
-                  bool for_trace, bool translating)
-{
-  // TODO: only start instrumentation after asan_init finishes or force a call
-  // to asan_init() on the first bb and discard translations afterwards?
-  app_pc orig_pc = dr_fragment_app_pc(tag);
-  module_data_t *md = dr_lookup_module(orig_pc);
-  if (md == NULL) {
-    // We're in the JIT code.
-    // TODO: test & handle
-    return DR_EMIT_DEFAULT;
+// For use with binary search.  Modules shouldn't overlap, so we shouldn't have
+// to look at end_.  If that can happen, we won't support such an application.
+bool ModuleDataCompareStart(const ModuleData &left,
+                                   const ModuleData &right) {
+  return left.start_ < right.start_;
+}
+
+// Look up the module containing PC.  Should be relatively fast, as its called
+// for each bb instrumentation.
+ModuleData *LookupModuleByPC(app_pc pc) {
+  ModuleData fake_mod_data;
+  fake_mod_data.start_ = pc;
+  std::vector<ModuleData>::iterator it =
+      lower_bound(g_module_list.begin(), g_module_list.end(), fake_mod_data,
+                  ModuleDataCompareStart);
+  if (it == g_module_list.end())
+    return NULL;
+  if (pc < it->start_)
+    --it;
+  CHECK(it->start_ <= pc);
+  if (pc >= it->end_) {
+    // We're past the end of this module.  We shouldn't be in the next module,
+    // or lower_bound lied to us.
+    ++it;
+    CHECK(it == g_module_list.end() || pc < it->start_);
+    return NULL;
   }
-  string mod_path(md->full_path);
-  dr_free_module_data(md);
 
-  // Blacklist some libraries which are not instrumentation-friendly or we just
-  // don't bother:
-  if (mod_path.find("/libc-") != string::npos)
-    return DR_EMIT_DEFAULT;
-  // TODO: do we bother about libpthread ?
-  if (mod_path.find("/lib/libpthread") == 0)
-    return DR_EMIT_DEFAULT;
-  // TODO: ld fails on some apps (e.g. googleurl_unittests) probably because
-  // asan_init was not called yet.
-  if (mod_path.find("/lib/ld") == 0)
-    return DR_EMIT_DEFAULT;
-  // Don't instrument DR.
-  if (mod_path.find("/libdynamorio") != string::npos ||
-      mod_path.find("/libdrpreload") != string::npos)
-    return DR_EMIT_DEFAULT;
+  // OK, we found the module.
+  return &*it;
+}
 
-  // Don't instrument anything outside /lib or /usr/lib except for pintest_so.so
-  // TODO: adjustable whitelist?
-  if (mod_path.find("pintest_so.so") == string::npos &&
-      mod_path.find("/usr/lib/") != 0 &&
-      mod_path.find("/lib/") != 0)
-    return DR_EMIT_DEFAULT;
+bool ShouldInstrumentNonModuleCode() {
+  // TODO(rnk): Turning this on hits CHECK(t->chunk_state == CHUNK_AVAILABLE) in
+  // asan_allocator.cc.  Perhaps there's a bug in our instru that we hit in
+  // JITed code, or like the libc issue, the ASan RTL calls some non-module code
+  // and instrumenting it is bad.
+  return false;  // TODO(rnk): Should be a flag.
+}
 
-  if (mod_path == app_path) {
-    if (BINARY_INSTRUMENTED)
+bool ShouldInstrumentModule(ModuleData *mod_data) {
+  // TODO(rnk): Flags for blacklist would get wired in here.
+  const string &path = mod_data->path_;
+  if (path == g_app_path) {
+    return false;
+  }
+  if (path.find("/libc-") != string::npos) {
+    // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
+    // can't map to the shadow space.
+    return false;
+  }
+  return true;
+}
+
+// TODO(rnk): Make sure we instrument after __asan_init.
+
+dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
+                                  bool for_trace, bool translating) {
+  app_pc pc = dr_fragment_app_pc(tag);
+
+  ModuleData *mod_data = LookupModuleByPC(pc);
+  if (mod_data != NULL) {
+    // This module is on a blacklist.
+    if (!mod_data->should_instrument_) {
       return DR_EMIT_DEFAULT;
-    // TODO: blacklist RTL functions.
+    }
+  } else if (!ShouldInstrumentNonModuleCode()) {
+    return DR_EMIT_DEFAULT;
   }
 
-#if defined(VERBOSE_VERBOSE)
+#if defined(VERBOSE)
+# if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
+# endif
+  string mod_path = (mod_data ? mod_data->path_ : "<no module, JITed?>");
+  if (mod_data && !mod_data->executed_) {
+    mod_data->executed_ = true;  // Nevermind this race.
+    dr_printf("Executing from new module: %s\n", mod_path.c_str());
+  }
   dr_printf("BB to be instrumented: %p [from %s]; translating = %s\n",
-            orig_pc, mod_path.c_str(), translating ? "true" : "false");
-  instrlist_disassemble(drcontext, (byte*)tag, bb, STDOUT);
-#elif defined(VERBOSE)
-  if (translating == false)
-    dr_printf("Instrumenting BB at %p [from %s]\n", orig_pc, mi->path->c_str());
+            pc, mod_path.c_str(), translating ? "true" : "false");
+  if (mod_data) {
+    // Match standard asan trace format for free symbols.
+    // #0 0x7f6e35cf2e45  (/blah/foo.so+0x11fe45)
+    dr_printf(" #0 %p (%s+%p)\n", pc,
+              mod_data->path_.c_str(),
+              pc - mod_data->start_);
+  }
+# if defined(VERBOSE_VERBOSE)
+  instrlist_disassemble(drcontext, pc, bb, STDOUT);
+# endif
 #endif
 
   for (instr_t *i = instrlist_first(bb); i != NULL; i = instr_get_next(i)) {
@@ -403,6 +481,7 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       continue;
 
 #if defined(VERBOSE_VERBOSE)
+    app_pc orig_pc = dr_fragment_app_pc(tag);
     uint flags = instr_get_arith_flags(i);
     dr_printf("+%d -> to be instrumented! [opcode=%d, flags = 0x%08X]\n",
               instr_get_app_pc(i) - orig_pc, instr_get_opcode(i), flags);
@@ -448,17 +527,47 @@ event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   // TODO: optimize away redundant restore-spill pairs?
 
 #if defined(VERBOSE_VERBOSE)
-  dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", tag);
-  instrlist_disassemble(drcontext, orig_pc, bb, STDOUT);
+  app_pc pc = dr_fragment_app_pc(tag);
+  dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", pc);
+  instrlist_disassemble(drcontext, pc, bb, STDOUT);
 #endif
   return DR_EMIT_DEFAULT;
 }
 
-void module_loaded(void *drcontext, const module_data_t *info, bool loaded) {
+void event_module_load(void *drcontext, const module_data_t *info, bool loaded) {
+  // Insert the module into the list while maintaining the ordering.
+  ModuleData mod_data(info);
+  std::vector<ModuleData>::iterator it =
+      upper_bound(g_module_list.begin(), g_module_list.end(), mod_data,
+                  ModuleDataCompareStart);
+  it = g_module_list.insert(it, mod_data);
+  // Check if we should instrument this module.
+  it->should_instrument_ = ShouldInstrumentModule(&*it);
+
 #if defined(VERBOSE)
-  dr_printf("==DRASAN== Loaded module: %s [%p...%p]\n",
+  dr_printf("==DRASAN== Loaded module: %s [%p...%p], instrumentation is %s\n",
+            info->full_path, info->start, info->end,
+            it->should_instrument_ ? "on" : "off");
+#endif
+}
+
+void event_module_unload(void *drcontext, const module_data_t *info) {
+#if defined(VERBOSE)
+  dr_printf("==DRASAN== Unloaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
 #endif
+
+  // Remove the module from the list.
+  ModuleData mod_data(info);
+  std::vector<ModuleData>::iterator it =
+      lower_bound(g_module_list.begin(), g_module_list.end(), mod_data,
+                  ModuleDataCompareStart);
+  // It's a bug if we didn't actually find the module.
+  CHECK(it != g_module_list.end() &&
+        it->start_ == mod_data.start_ &&
+        it->end_ == mod_data.end_ &&
+        it->path_ == mod_data.path_);
+  g_module_list.erase(it);
 }
 
 void event_exit() {
@@ -467,19 +576,28 @@ void event_exit() {
 #endif
 }
 
+}  // namespace
+
 DR_EXPORT void dr_init(client_id_t id) {
   string app_name = dr_get_application_name();
+  // This blacklist will still run these apps through DR's code cache.  On the
+  // other hand, we are able to follow children of these apps.
+  // TODO(rnk): Once DR has detach, we could just detach here.  Alternatively,
+  // if DR had a fork or exec hook to let us decide there, that would be nice.
   // TODO: make the blacklist cmd-adjustable.
   if (app_name == "python" ||
       app_name == "bash" || app_name == "sh" ||
       app_name == "true" || app_name == "exit" ||
       app_name == "yes" || app_name == "echo")
     return;
+
   InitializeAsanCallbacks();
 
+  // Standard DR events.
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
-  dr_register_module_load_event(module_loaded);
+  dr_register_module_load_event(event_module_load);
+  dr_register_module_unload_event(event_module_unload);
 #if defined(VERBOSE)
   dr_printf("==DRASAN== Starting!\n");
 #endif
