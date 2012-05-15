@@ -44,7 +44,7 @@ del *.pdb *.obj *.lib || goto :DIE
 :: /MP <- parallel buidling
 :: /MT <- Multi-Threaded CRT with static linking
 :: /Zi <- generate debug info
-cl /nologo /MP /MT /Zi /c *.cc interception/*.cc || goto :DIE
+cl /nologo /MP /MT /Zi /I.. /c *.cc ../interception/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
 cd ..
 
