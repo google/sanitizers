@@ -209,6 +209,7 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
     need_to_restore_eflags = true;
     // TODO: Maybe sometimes don't need to 'seto'.
     // TODO: Maybe sometimes don't want to spill XAX here?
+    // TODO: No need to spill XAX here if XAX is not used in the BB.
     dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
     dr_save_arith_flags_to_xax(drcontext, bb, i);
     dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_3);
