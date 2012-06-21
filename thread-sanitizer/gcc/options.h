@@ -1,5 +1,5 @@
-/* GCC instrumentation plugin for ThreadSanitizer
- * Copyright (c) 2011, Google Inc. All rights reserved.
+/* GCC instrumentation plugin for ThreadSanitizer.
+ * Copyright (c) 2012, Google Inc. All rights reserved.
  * Author: Dmitry Vyukov (dvyukov)
  *
  * It is free software; you can redistribute it and/or modify it under
