@@ -333,6 +333,7 @@ instrument_expr (gimple_stmt_iterator gsi, tree expr, int is_write)
       && tcode != MEM_REF)
     return;
 
+  func_mops++;
   stmt = gsi_stmt (gsi);
   loc = gimple_location (stmt);
   rhs = is_vptr_store (stmt, expr, is_write);
@@ -359,14 +360,14 @@ instrument_gimple (gimple_stmt_iterator gsi)
   unsigned i;
   gimple stmt;
   enum gimple_code gcode;
-  tree rhs;
-  tree lhs;
+  tree rhs, lhs;
 
   stmt = gsi_stmt (gsi);
   gcode = gimple_code (stmt);
   if (gcode == GIMPLE_CALL)
     {
-      func_calls += 1;
+      if (gimple_call_fndecl (stmt) != get_init_decl ())
+        func_calls++;
     }
   else if (gcode == GIMPLE_ASSIGN)
     {
