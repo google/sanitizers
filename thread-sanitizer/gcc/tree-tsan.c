@@ -296,7 +296,7 @@ instrument_expr (gimple_stmt_iterator gsi, tree expr, int is_write)
       /* The var does not live in memory -> no possibility of races.  */
       || (tcode == VAR_DECL
           && TREE_ADDRESSABLE (expr) == 0
-          && DECL_EXTERNAL (expr) == 0)
+          && TREE_STATIC (expr) == 0)
       /* Not implemented.  */
       || TREE_CODE (TREE_TYPE (expr)) == RECORD_TYPE
       /* Not implemented.  */

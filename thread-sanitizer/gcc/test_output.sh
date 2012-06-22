@@ -14,8 +14,8 @@ make
 ROOTDIR=$(dirname $0)
 
 CC=gcc
-CXX=gcc++
-CFLAGS="-std=gnu99 -g -O1 -fPIE -fplugin=./libtsan.so"
+CXX=g++
+CFLAGS="-g -O1 -fPIE -fno-builtin -fplugin=./libtsan.so"
 LDFLAGS="-pie -lpthread -ldl $TSAN_RT/rtl/libtsan.a"
 
 test_file() {
@@ -24,7 +24,11 @@ test_file() {
   echo ----- TESTING $(basename $1)
   OBJ=$SRC.o
   EXE=$SRC.exe
-  $COMPILER $SRC $CFLAGS -c -o $OBJ
+  ADDFLAGS=""
+  if [ "$COMPILER" == "gcc" ]; then
+     ADDFLAGS="-std=gnu99"
+  fi
+  $COMPILER $SRC $CFLAGS $ADDFLAGS -c -o $OBJ
   $COMPILER $OBJ $LDFLAGS -o $EXE
   RES=$(TSAN_OPTIONS="atexit_sleep_ms=0" $EXE 2>&1 || true)
   if [ "$3" != "" ]; then
@@ -40,6 +44,10 @@ if [ "$1" == "" ]; then
   for c in $TSAN_RT/output_tests/*.{c,cc}; do
     if [[ $c == */failing_* ]]; then
       echo SKIPPING FAILING TEST $c
+      continue
+    fi
+    if [[ $c == */static_init* ]]; then
+      echo SKIPPING STATIC INIT TEST $c
       continue
     fi
     COMPILER=$CXX
