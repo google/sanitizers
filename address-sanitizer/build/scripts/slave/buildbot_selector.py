@@ -17,12 +17,14 @@ BOT_ASSIGNMENT = {
     'win': cmd_call('buildbot_standard.bat'),
     'linux': bash('buildbot_standard.sh'),
     'mac10.6': bash('buildbot_standard.sh'),
+    'mac10.7': bash('buildbot_standard.sh'),
 }
 
 BOT_ADDITIONAL_ENV = {
     'win': {},
-    'linux': {},
+    'linux': { 'CHECK_TSAN': '1' },
     'mac10.6': { 'MAX_MAKE_JOBS': '1' },
+    'mac10.7': { 'MAX_MAKE_JOBS': '2' },
 }
 
 def Main():
