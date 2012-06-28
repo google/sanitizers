@@ -1,0 +1,13 @@
+add_llvm_library(LLVMInstrumentation
+  AddressSanitizer.cpp
+  EdgeProfiling.cpp
+  FunctionBlackList.cpp
+  GCOVProfiling.cpp
+  Instrumentation.cpp
+  OptimalEdgeProfiling.cpp
+  PathProfiling.cpp
+  ProfilingUtils.cpp
+  ThreadSanitizer.cpp
+  )
+
+add_dependencies(LLVMInstrumentation intrinsics_gen)
