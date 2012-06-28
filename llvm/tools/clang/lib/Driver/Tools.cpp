@@ -2241,6 +2241,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_address_sanitizer, false))
     CmdArgs.push_back("-faddress-sanitizer");
 
+  if (Args.hasFlag(options::OPT_fmemory_sanitizer,
+                   options::OPT_fno_memory_sanitizer, false))
+    CmdArgs.push_back("-fmemory-sanitizer");
+
   if (Args.hasFlag(options::OPT_fthread_sanitizer,
                    options::OPT_fno_thread_sanitizer, false))
     CmdArgs.push_back("-fthread-sanitizer");

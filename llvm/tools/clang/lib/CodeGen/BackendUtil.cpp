@@ -132,6 +132,11 @@ static void addAddressSanitizerPass(const PassManagerBuilder &Builder,
   PM.add(createAddressSanitizerPass());
 }
 
+static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
+                                    PassManagerBase &PM) {
+  PM.add(createMemorySanitizerPass());
+}
+
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
                                    PassManagerBase &PM) {
   PM.add(createThreadSanitizerPass());
@@ -179,6 +184,13 @@ void EmitAssemblyHelper::CreatePasses() {
                            addAddressSanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addAddressSanitizerPass);
+  }
+
+  if (LangOpts.MemorySanitizer) {
+    PMBuilder.addExtension(PassManagerBuilder::EP_ScalarOptimizerLate,
+                           addMemorySanitizerPass);
+    PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
+                           addMemorySanitizerPass);
   }
 
   if (LangOpts.ThreadSanitizer) {

@@ -299,6 +299,9 @@ def fapple_pragma_pack : Flag<"-fapple-pragma-pack">, Group<f_Group>, Flags<[CC1
 def faddress_sanitizer : Flag<"-faddress-sanitizer">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable AddressSanitizer instrumentation (memory error detection)">;
 def fno_address_sanitizer : Flag<"-fno-address-sanitizer">, Group<f_Group>, Flags<[CC1Option]>;
+def fmemory_sanitizer : Flag<"-fmemory-sanitizer">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Enable MemorySanitizer instrumentation (memory error detection)">;
+def fno_memory_sanitizer : Flag<"-fno-memory-sanitizer">, Group<f_Group>, Flags<[CC1Option]>;
 def fthread_sanitizer : Flag<"-fthread-sanitizer">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable ThreadSanitizer instrumentation (race detection)">;
 def fno_thread_sanitizer : Flag<"-fno-thread-sanitizer">, Group<f_Group>, Flags<[CC1Option]>;
