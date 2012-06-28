@@ -25,6 +25,7 @@ void llvm::initializeInstrumentation(PassRegistry &Registry) {
   initializePathProfilerPass(Registry);
   initializeGCOVProfilerPass(Registry);
   initializeAddressSanitizerPass(Registry);
+  initializeMemorySanitizerPass(Registry);
   initializeThreadSanitizerPass(Registry);
 }
 

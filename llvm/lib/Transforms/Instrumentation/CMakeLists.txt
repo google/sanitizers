@@ -3,6 +3,7 @@ add_llvm_library(LLVMInstrumentation
   EdgeProfiling.cpp
   FunctionBlackList.cpp
   GCOVProfiling.cpp
+  MemorySanitizer.cpp
   Instrumentation.cpp
   OptimalEdgeProfiling.cpp
   PathProfiling.cpp
