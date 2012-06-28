@@ -1,3 +1,5 @@
+ROOT=$(shell pwd)
+
 GTEST_ROOT=third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_BUILD_DIR=$(GTEST_ROOT)/build
@@ -8,23 +10,24 @@ MSAN_PIN_DIR=$(PIN)/source/tools/SimpleExamples
 MSAN_PIN_SO=$(MSAN_PIN_DIR)/obj-intel64/msan_pin.so
 
 #CXX=$(HOME)/llvm_msan/build/Release+Asserts/bin/clang++
-CXX=clang++
+CLANG_BUILD=$(ROOT)/../../../../build/Release+Asserts
+CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1 -fno-exceptions
 LDFLAGS=-pie -lpthread
 # MSAN_DEBUG=-mllvm -debug-only=msan
 
-all: msan_test pin
+all: msan_test # pin
 
-msan_test: msan_test.cc msan.a $(GTEST_LIB) -ldl
-	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -fmemory-sanitizer $^ -o $@ $(LDFLAGS)
+msan_test: msan_test.cc msan.a $(GTEST_LIB)
+	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -fmemory-sanitizer $^ -o $@ -ldl $(LDFLAGS)
 
 msan.a: msan.o interception.o
 	ar ru $@ $^
 
 msan.o: msan.cc msan_linux_inl.h
-	$(CXX) $(CXXFLAGS) -c $< -o $@ -Ithird_party
+	$(CXX) $(CXXFLAGS) -c $< -o $@ -I..
 
-interception.o: third_party/interception/interception_linux.cc
+interception.o: ../interception/interception_linux.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 pin: $(MSAN_PIN_SO)
@@ -38,16 +41,11 @@ t:
 
 # Do once: cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ~/llvm_msan/
 
-clang:
-	cd ~/llvm_msan/cmake_build; make -j16 > /dev/null
-#	cd ~/llvm_msan/build; make -j16 > /dev/null
-
 install_deps:
 	rm -rf third_party
 	mkdir third_party
 	(cd third_party && \
-	svn co -r613 http://googletest.googlecode.com/svn/trunk googletest &&\
-	svn co  http://llvm.org/svn/llvm-project/compiler-rt/trunk/lib/interception)
+	svn co -r613 http://googletest.googlecode.com/svn/trunk googletest)
 
 
 gtest: $(GTEST_LIB)
