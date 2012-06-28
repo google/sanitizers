@@ -1,0 +1,30 @@
+add_clang_library(clangDriver
+  Action.cpp
+  Arg.cpp
+  ArgList.cpp
+  CC1AsOptions.cpp
+  Compilation.cpp
+  Driver.cpp
+  DriverOptions.cpp
+  Job.cpp
+  Option.cpp
+  OptTable.cpp
+  Phases.cpp
+  Tool.cpp
+  ToolChain.cpp
+  ToolChains.cpp
+  WindowsToolChain.cpp
+  Tools.cpp
+  Types.cpp
+  )
+
+add_dependencies(clangDriver
+  ClangAttrList
+  ClangDiagnosticDriver
+  ClangDriverOptions
+  ClangCC1AsOptions
+  )
+
+target_link_libraries(clangDriver
+  clangBasic
+  )

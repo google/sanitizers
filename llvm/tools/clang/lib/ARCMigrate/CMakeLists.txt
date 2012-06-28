@@ -1,0 +1,35 @@
+add_clang_library(clangARCMigrate
+  ARCMT.cpp
+  ARCMTActions.cpp
+  FileRemapper.cpp
+  ObjCMT.cpp
+  PlistReporter.cpp
+  TransAPIUses.cpp
+  TransARCAssign.cpp
+  TransAutoreleasePool.cpp
+  TransBlockObjCVariable.cpp
+  TransEmptyStatementsAndDealloc.cpp
+  TransformActions.cpp
+  Transforms.cpp
+  TransGCAttrs.cpp
+  TransGCCalls.cpp
+  TransProperties.cpp
+  TransRetainReleaseDealloc.cpp
+  TransUnbridgedCasts.cpp
+  TransUnusedInitDelegate.cpp
+  TransZeroOutPropsInDealloc.cpp
+  )
+
+add_dependencies(clangARCMigrate
+  ClangAttrClasses
+  ClangAttrList
+  ClangDeclNodes
+  ClangStmtNodes)
+
+target_link_libraries(clangARCMigrate
+  clangBasic
+  clangAST
+  clangParse
+  clangFrontend
+  clangRewrite
+  )
