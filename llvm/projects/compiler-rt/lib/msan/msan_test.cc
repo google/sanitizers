@@ -330,7 +330,7 @@ TEST(MemorySanitizer, fread) {
 }
 
 extern "C" {
-NOINLINE void ZZZZZZZZZZZZZZZZ() {
+NOINLINE void ZZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);
 
   // v_s1 = ReturnPoisoned<S1>();
@@ -341,7 +341,7 @@ NOINLINE void ZZZZZZZZZZZZZZZZ() {
 }
 
 TEST(MemorySanitizer, ZZZTest) {
-  ZZZZZZZZZZZZZZZZ();
+  ZZZZZZZZZZZZZZZ();
 }
 
 int main(int argc, char **argv) {
