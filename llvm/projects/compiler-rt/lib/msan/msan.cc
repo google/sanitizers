@@ -226,7 +226,7 @@ void __msan_poison(void *a, uptr size) {
   memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
 }
 
-void __msan_copy_poison(void *dst, void *src, uptr size) {
+void __msan_copy_poison(void *dst, const void *src, uptr size) {
   memcpy((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }

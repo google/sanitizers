@@ -2,11 +2,15 @@
 #define MSAN_INTERFACE_H
 typedef long uptr;
 typedef unsigned long long u64;
+
+#ifdef __cplusplus
 extern "C" {
+#endif
+
 void __msan_init();
 void __msan_warning();
 void __msan_unpoison(void *a, uptr size);
-void __msan_copy_poison(void *dst, void *src, uptr size);
+void __msan_copy_poison(void *dst, const void *src, uptr size);
 void __msan_poison(void *a, uptr size);
 
 void __msan_clear_on_return();
@@ -23,6 +27,8 @@ void __msan_print_shadow(void *x, int size);
 void __msan_print_param_shadow();
 int  __msan_has_dynamic_component();
 
-
+#ifdef __cplusplus
 }  // extern "C"
+#endif
+
 #endif
