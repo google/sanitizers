@@ -331,6 +331,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (TypeSize != 8  && TypeSize != 16 &&
         TypeSize != 32 && TypeSize != 64 && TypeSize != 128) {
       // Ignore all unusual sizes.
+      setShadow(&I, getCleanShadow(dyn_cast<Value>(&I)));
       return ;
     }
 
