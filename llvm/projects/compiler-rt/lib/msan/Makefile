@@ -13,6 +13,7 @@ MSAN_PIN_SO=$(MSAN_PIN_DIR)/obj-intel64/msan_pin.so
 CLANG_BUILD=$(ROOT)/../../../../build/Release+Asserts
 CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1 -fno-exceptions
+RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding
 LDFLAGS=-pie -lpthread
 # MSAN_DEBUG=-mllvm -debug-only=msan
 
@@ -25,10 +26,10 @@ msan.a: msan.o interception.o
 	ar ru $@ $^
 
 msan.o: msan.cc msan_linux_inl.h
-	$(CXX) $(CXXFLAGS) -c $< -o $@ -I..
+	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ -I..
 
 interception.o: ../interception/interception_linux.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@
 
 pin: $(MSAN_PIN_SO)
 

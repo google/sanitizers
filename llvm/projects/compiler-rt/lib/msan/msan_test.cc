@@ -274,10 +274,7 @@ TEST(MemorySanitizer, DynMem) {
   S4 x = 0;
   S4 *y = GetPoisoned<S4>();
   memcpy(y, &x, g_one * sizeof(S4));
-  if (__msan_has_dynamic_component())
-    v_s4 = *y;
-  else
-    EXPECT_POISONED(v_s4 = *y);
+  v_s4 = *y;
 }
 
 static char *DynRetTestStr;

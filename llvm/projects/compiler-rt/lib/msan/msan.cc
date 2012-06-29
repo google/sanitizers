@@ -42,7 +42,7 @@ static const uptr kWordSize   = sizeof(void*);
 // Globals.
 static int msan_inited = 0;
 static int msan_exit_code = 67;
-static int msan_poison_in_malloc = 0;
+static int msan_poison_in_malloc = 1;
 static THREAD_LOCAL int msan_expect_umr = 0;
 static THREAD_LOCAL int msan_expected_umr_found = 0;
 
@@ -92,6 +92,18 @@ INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, FILE *file) {
   return res;
 }
 
+INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
+  void* res = REAL(memcpy)(dest, src, n);
+  __msan_copy_poison(dest, src, n);
+  return res;
+}
+
+INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
+  void* res = REAL(memset)(s, c, n);
+  __msan_unpoison(s, n);
+  return res;
+}
+
 INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
   if (alignment & (alignment - 1))
     return EINVAL;
@@ -132,7 +144,7 @@ void *MsanReallocate(void *oldp, size_t size, size_t alignment, bool zeroise) {
     p[-1] = (u64)mem;
     // Printf("MSAN POISONS on malloc [%p, %p) rbeg: %p\n", beg, end, mem);
     if (zeroise) {
-      memset(beg, 0, size);
+      REAL(memset)(beg, 0, size);
     } else {
       if (msan_poison_in_malloc)
         __msan_poison(beg, end - beg);
@@ -143,7 +155,7 @@ void *MsanReallocate(void *oldp, size_t size, size_t alignment, bool zeroise) {
   if (old_size) {
     size_t min_size = size < old_size ? size : old_size;
     if (mem) {
-      memcpy(mem, oldp, min_size);
+      REAL(memcpy)(mem, oldp, min_size);
       __msan_copy_poison(mem, oldp, min_size);
     }
     __msan_unpoison(oldp, old_size);
@@ -212,6 +224,8 @@ void __msan_init() {
   CHECK(INTERCEPT_FUNCTION(realloc));
   CHECK(INTERCEPT_FUNCTION(free));
   CHECK(INTERCEPT_FUNCTION(fread));
+  CHECK(INTERCEPT_FUNCTION(memcpy));
+  CHECK(INTERCEPT_FUNCTION(memset));
 
   msan_inited = 1;
   // Printf("MemorySanitizer init done\n");
@@ -220,14 +234,14 @@ void __msan_init() {
 // Interface.
 
 void __msan_unpoison(void *a, uptr size) {
-  memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 void __msan_poison(void *a, uptr size) {
-  memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
+  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
-  memcpy((void*)MEM_TO_SHADOW((uptr)dst),
+  REAL(memcpy)((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
