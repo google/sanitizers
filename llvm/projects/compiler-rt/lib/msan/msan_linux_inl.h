@@ -22,14 +22,6 @@ static const uptr kBad1End    = kShadowBeg - 1;
 static const uptr kBad2Beg    = kShadowEnd + 1;
 static const uptr kBad2End    = kMemBeg - 1;
 
-
-void Printf(const char *format, ...) {
-  va_list args;
-  va_start(args, format);
-  vfprintf(stderr, format, args);
-  va_end(args);
-}
-
 void *Mmap(void *addr, uptr length, int prot, int flags,
                     int fd, u64 offset) {
 # if __WORDSIZE == 64

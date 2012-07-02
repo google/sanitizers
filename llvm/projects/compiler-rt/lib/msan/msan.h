@@ -13,7 +13,6 @@ void *Mmap(void *addr, uptr length, int prot, int flags,
                     int fd, u64 offset);
 void CatProcSelfMaps();
 bool InitShadow(bool prot1, bool prot2, bool map_shadow);
-void Printf(const char *format, ...);
 char *GetProcSelfMaps();
 }
 

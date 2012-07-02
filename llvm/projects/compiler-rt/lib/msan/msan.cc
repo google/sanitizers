@@ -1,5 +1,6 @@
 #include "msan_interface.h"
 #include "msan.h"
+#include "sanitizer_common/sanitizer_common.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,12 +11,9 @@
 
 #include <interception/interception.h>
 
-#define NOINLINE      __attribute__((noinline))
-#define Printf printf
-
 #define THREAD_LOCAL __thread
 
-static const uptr kWordSize   = sizeof(void*);
+using namespace __sanitizer;
 
 // Globals.
 static int msan_inited = 0;
