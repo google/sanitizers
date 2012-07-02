@@ -1,7 +1,8 @@
 #ifndef MSAN_INTERFACE_H
 #define MSAN_INTERFACE_H
-typedef long uptr;
-typedef unsigned long long u64;
+#include "sanitizer_common/sanitizer_interface_defs.h"
+
+using __sanitizer::uptr;
 
 #ifdef __cplusplus
 extern "C" {

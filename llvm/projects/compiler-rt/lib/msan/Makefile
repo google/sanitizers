@@ -9,6 +9,21 @@ PIN=$(HOME)/pin_msan
 MSAN_PIN_DIR=$(PIN)/source/tools/SimpleExamples
 MSAN_PIN_SO=$(MSAN_PIN_DIR)/obj-intel64/msan_pin.so
 
+
+COMMON=../sanitizer_common
+RTL_HDR=$(wildcard *.h) \
+	$(wildcard $(INTERCEPTION)/*.h) \
+	$(wildcard $(COMMON)/*.h)
+
+LIBMSAN_SRC=msan.cc
+INTERCEPTION_SRC=$(wildcard $(INTERCEPTION)/*.cc)
+COMMON_SRC=$(wildcard $(COMMON)/*.cc)
+
+LIBMSAN_OBJ=$(patsubst %.cc,%.o,$(LIBMSAN_SRC)) \
+	    $(patsubst $(INTERCEPTION)/%.cc,%.o,$(INTERCEPTION_SRC)) \
+	    $(patsubst $(COMMON)/%.cc,%.o,$(COMMON_SRC))
+
+
 #CXX=$(HOME)/llvm_msan/build/Release+Asserts/bin/clang++
 CLANG_BUILD=$(ROOT)/../../../../build/Release+Asserts
 CXX=$(CLANG_BUILD)/bin/clang++
@@ -20,16 +35,18 @@ LDFLAGS=-pie -lpthread
 all: msan_test # pin
 
 msan_test: msan_test.cc msan.a $(GTEST_LIB)
-	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -fmemory-sanitizer $^ -o $@ -ldl $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -I.. -fmemory-sanitizer $^ -o $@ -ldl $(LDFLAGS)
 
-msan.a: msan.o interception.o
+msan.a: $(LIBMSAN_OBJ)
 	ar ru $@ $^
 
-msan.o: msan.cc msan_linux_inl.h
+%.o: %.cc $(RTL_HDR)
 	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ -I..
 
-interception.o: ../interception/interception_linux.cc
+%.o: ../interception/%.cc
 	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@
+%.o: $(COMMON)/%.cc
+	$(CXX) $(RTL_CXXFLAGS) -I.. -c $< -o $@
 
 pin: $(MSAN_PIN_SO)
 

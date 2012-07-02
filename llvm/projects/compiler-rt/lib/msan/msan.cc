@@ -30,9 +30,6 @@
 #include <interception/interception.h>
 
 #define NOINLINE      __attribute__((noinline))
-#define DCHECK assert
-#define CHECK assert
-#define CHECK_LT(a, b) CHECK((a) < (b))
 #define Printf printf
 
 #define THREAD_LOCAL __thread
@@ -254,7 +251,7 @@ void __msan_set_expect_umr(int expect_umr) {
   } else if (!msan_expected_umr_found) {
     Printf("Expected UMR not found\n");
     GdbBackTrace();
-    __msan::Die();
+    Die();
   }
   msan_expect_umr = expect_umr;
 }

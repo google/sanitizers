@@ -51,9 +51,6 @@ static int MsanClose(int fd) {
     return syscall(__NR_close, fd);
 }
 
-void Die() {
-  _exit(1);
-}
 
 bool ProtectRange(uptr beg, uptr end) {
   return  beg == (uptr)Mmap((void*)(beg), end - beg,
@@ -109,3 +106,15 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
 }
 
 }
+
+namespace __sanitizer {
+void Die() {
+  _exit(1);
+}
+
+void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {
+  Printf("MemorySanitizer CHECK failed: %s:%d \"%s\" (%zx, %zx)\n",
+             file, line, cond, (uptr)v1, (uptr)v2);
+  Die();
+}
+}  // namespace
