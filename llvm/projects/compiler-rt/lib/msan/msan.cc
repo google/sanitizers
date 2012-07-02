@@ -1,31 +1,12 @@
 #include "msan_interface.h"
 #include "msan.h"
 
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-
-#include <asm/prctl.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <sys/mman.h>
-#include <sys/prctl.h>
-#include <sys/syscall.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/resource.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sched.h>
-#include <dlfcn.h>
-
-#include <assert.h>
 
 #include <interception/interception.h>
 
