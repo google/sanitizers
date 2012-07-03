@@ -455,7 +455,59 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitAShr(BinaryOperator &I) { handleShift(I); }
   void visitLShr(BinaryOperator &I) { handleShift(I); }
 
+  void handleMemSet(MemSetInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Ptr = I.getArgOperand(0);
+    Value *Val = I.getArgOperand(1);
+    Value *ShadowPtr = getShadowPtr(Ptr, Val->getType(), IRB);
+    Value *ShadowVal = getCleanShadow(Val);
+    Value *Size = I.getArgOperand(2);
+    unsigned Align = I.getAlignment();
+    bool isVolatile = I.isVolatile();
+
+    CallInst *NewCI = IRB.CreateMemSet(ShadowPtr, ShadowVal, Size, Align, isVolatile);
+  }
+
+  void handleMemCpy(MemCpyInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Dst = I.getArgOperand(0);
+    Value *Src = I.getArgOperand(1);
+    Type *ElementType = dyn_cast<PointerType>(Dst->getType())->getElementType();
+    Value *ShadowDst = getShadowPtr(Dst, ElementType, IRB);
+    Value *ShadowSrc = getShadowPtr(Src, ElementType, IRB);
+    Value *Size = I.getArgOperand(2);
+    unsigned Align = I.getAlignment();
+    bool isVolatile = I.isVolatile();
+
+    CallInst *NewCI = IRB.CreateMemCpy(ShadowDst, ShadowSrc, Size, Align, isVolatile);
+    // TODO: insert check if volatile
+  }
+
+  void handleMemMove(MemMoveInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Dst = I.getArgOperand(0);
+    Value *Src = I.getArgOperand(1);
+    Type *ElementType = dyn_cast<PointerType>(Dst->getType())->getElementType();
+    Value *ShadowDst = getShadowPtr(Dst, ElementType, IRB);
+    Value *ShadowSrc = getShadowPtr(Src, ElementType, IRB);
+    Value *Size = I.getArgOperand(2);
+    unsigned Align = I.getAlignment();
+    bool isVolatile = I.isVolatile();
+
+    CallInst *NewCI = IRB.CreateMemMove(ShadowDst, ShadowSrc, Size, Align, isVolatile);
+    // TODO: insert check if volatile
+  }
+
   void visitCallInst(CallInst &I) {
+    if (isa<IntrinsicInst>(I)) {
+      if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
+        handleMemSet(*MemSet);
+      else if (MemCpyInst* MemCpy = dyn_cast<MemCpyInst>(&I))
+        handleMemCpy(*MemCpy);
+      else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
+        handleMemMove(*MemMove);
+      return;
+    }
     IRBuilder<> IRB(&I);
     size_t n = I.getNumArgOperands();
     unsigned ArgOffset = 0;
