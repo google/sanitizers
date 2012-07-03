@@ -14,6 +14,15 @@ void *Mmap(void *addr, uptr length, int prot, int flags,
 void CatProcSelfMaps();
 bool InitShadow(bool prot1, bool prot2, bool map_shadow);
 char *GetProcSelfMaps();
+void InitializeInterceptors();
+
+void *MsanReallocate(void *oldp, uptr size,
+                     uptr alignment, bool zeroise);
+void MsanDeallocate(void *ptr);
+void GdbBackTrace();  // FIXME
+
+extern int msan_inited;
+
 }
 
 #endif  // MSAN_H
