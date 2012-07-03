@@ -130,7 +130,7 @@ void __msan_init() {
     }
   }
   __msan::InitializeInterceptors();
-  __msan::InstallSIGILLHandler();
+  __msan::InstallTrapHandler();
   msan_inited = 1;
   // Printf("MemorySanitizer init done\n");
 }

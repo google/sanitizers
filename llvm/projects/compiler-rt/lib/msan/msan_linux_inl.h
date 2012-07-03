@@ -113,7 +113,7 @@ static void MsanTrap(int, siginfo_t *siginfo, void *context) {
   ucontext->uc_mcontext.gregs[REG_RIP] += 2;
 }
 
-void InstallSIGILLHandler() {
+void InstallTrapHandler() {
   struct sigaction sigact;
   internal_memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = MsanTrap;
