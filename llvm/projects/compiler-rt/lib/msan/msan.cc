@@ -1,11 +1,9 @@
 #include "msan_interface.h"
 #include "msan.h"
 #include "sanitizer_common/sanitizer_common.h"
+#include "sanitizer_common/sanitizer_libc.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
 #include <errno.h>
 
 #include <interception/interception.h>
@@ -30,15 +28,11 @@ static const int kMsanMallocMagic = 0xCA4D;
 
 
 static bool IsRunningUnderPin() {
-  return strstr(__msan::GetProcSelfMaps(), "/pinbin") != 0;
+  return internal_strstr(__msan::GetProcSelfMaps(), "/pinbin") != 0;
 }
 
-static inline void GdbBackTrace() {
-  char cmd[100];
-  sprintf(cmd, "gdb -q --batch -ex bt /proc/%d/exe %d "
-          "> /dev/stderr",
-          GetPid(), GetPid());
-  system(cmd);
+namespace __msan {
+static inline void GdbBackTrace();  // FIXME
 }
 
 void __msan_warning() {
@@ -48,7 +42,7 @@ void __msan_warning() {
     return;
   }
   Printf("***UMR***\n");
-  GdbBackTrace();
+  __msan::GdbBackTrace();
   if (msan_exit_code >= 0) {
     Printf("Exiting\n");
     Die();
@@ -228,7 +222,7 @@ void __msan_set_expect_umr(int expect_umr) {
     msan_expected_umr_found = 0;
   } else if (!msan_expected_umr_found) {
     Printf("Expected UMR not found\n");
-    GdbBackTrace();
+    __msan::GdbBackTrace();
     Die();
   }
   msan_expect_umr = expect_umr;

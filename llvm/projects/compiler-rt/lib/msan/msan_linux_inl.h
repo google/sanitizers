@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <unwind.h>
 
@@ -95,6 +96,14 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
     return shadow == kShadowBeg;
   }
   return true;
+}
+
+static inline void GdbBackTrace() {
+  char cmd[100];
+  sprintf(cmd, "gdb -q --batch -ex bt /proc/%d/exe %d "
+          "> /dev/stderr",
+          GetPid(), GetPid());
+  system(cmd);
 }
 
 }
