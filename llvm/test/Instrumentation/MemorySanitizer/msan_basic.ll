@@ -133,3 +133,48 @@ entry:
 ; CHECK: }
 
 
+; memset
+define void @MemSet(i8* nocapture %x) nounwind uwtable {
+entry:
+  call void @llvm.memset.p0i8.i64(i8* %x, i8 42, i64 10, i32 1, i1 false)
+  ret void
+}
+
+declare void @llvm.memset.p0i8.i64(i8* nocapture, i8, i64, i32, i1) nounwind
+
+; CHECK: define void @MemSet
+; CHECK: call void @llvm.memset.p0i8.i64
+; CHECK: call void @llvm.memset.p0i8.i64
+; CHECK: }
+
+
+; memcpy
+define void @MemCpy(i8* nocapture %x, i8* nocapture %y) nounwind uwtable {
+entry:
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %x, i8* %y, i64 10, i32 1, i1 false)
+  ret void
+}
+
+declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
+
+; CHECK: define void @MemCpy
+; CHECK: call void @llvm.memcpy.p0i8.p0i8.i64
+; CHECK: call void @llvm.memcpy.p0i8.p0i8.i64
+; CHECK: }
+
+
+; memmove
+define void @MemMove(i8* nocapture %x, i8* nocapture %y) nounwind uwtable {
+entry:
+  call void @llvm.memmove.p0i8.p0i8.i64(i8* %x, i8* %y, i64 10, i32 1, i1 false)
+  ret void
+}
+
+declare void @llvm.memmove.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
+
+; CHECK: define void @MemMove
+; CHECK: call void @llvm.memmove.p0i8.p0i8.i64
+; CHECK: call void @llvm.memmove.p0i8.p0i8.i64
+; CHECK: }
+
+
