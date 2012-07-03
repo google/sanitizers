@@ -473,8 +473,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
     // Now, get the shadow for the RetVal.
     if (I.getType()->isSized()) {
+      IRBuilder<> IRBBefore(&I);
+      // Untill we have full dynamic coverage, make sure the retval shadow is 0.
+      Value *Base = getShadowPtrForRetval(&I, IRBBefore);
+      IRBBefore.CreateStore(getCleanShadow(&I), Base);
       IRBuilder<> IRBAfter(I.getNextNode());
-      Value *Base = getShadowPtrForRetval(&I, IRBAfter);
       setShadow(&I, IRBAfter.CreateLoad(Base));
     }
 
