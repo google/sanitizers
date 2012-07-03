@@ -149,6 +149,11 @@ void __msan_copy_poison(void *dst, const void *src, uptr size) {
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
+void __msan_move_poison(void *dst, const void *src, uptr size) {
+  internal_memmove((void*)MEM_TO_SHADOW((uptr)dst),
+         (void*)MEM_TO_SHADOW((uptr)src), size);
+}
+
 void __msan_set_exit_code(int exit_code) {
   msan_exit_code = exit_code;
 }
@@ -163,21 +168,28 @@ void __msan_set_expect_umr(int expect_umr) {
   msan_expect_umr = expect_umr;
 }
 
-void __msan_print_shadow(void *x, int size) {
+void __msan_print_shadow(const void *x, uptr size) {
   unsigned char *s = (unsigned char*)MEM_TO_SHADOW((uptr)x);
   for (uptr i = 0; i < (uptr)size; i++) {
-    Printf("%02x ", s[i]);
+    Printf("%x ", s[i]);
   }
   Printf("\n");
 }
 
 void __msan_print_param_shadow() {
   for (int i = 0; i < 4; i++) {
-    Printf("%016llx ", __msan_param_tls[i]);
+    Printf("%llx ", __msan_param_tls[i]);
   }
   Printf("\n");
 }
 
+sptr __msan_test_shadow(const void *x, uptr size) {
+  const char* s = (char*)x;
+  for (sptr i = 0; i < size; ++i)
+    if (s[i])
+      return i;
+  return -1;
+}
 
 int __msan_set_poison_in_malloc(int do_poison) {
   int old = msan_poison_in_malloc;

@@ -44,6 +44,19 @@ void *internal_memcpy(void *dest, const void *src, uptr n) {
   return dest;
 }
 
+void *internal_memmove(void *dest, const void *src, uptr n) {
+  char *d = (char*)dest;
+  char *s = (char*)src;
+  if (d <= s) {
+    for (sptr i = 0; i < n; ++i)
+      d[i] = s[i];
+  } else {
+    for (sptr i = n - 1; i >= 0; --i)
+      d[i] = s[i];
+  }
+  return dest;
+}
+
 void *internal_memset(void* s, int c, uptr n) {
   // The next line prevents Clang from making a call to memset() instead of the
   // loop below.

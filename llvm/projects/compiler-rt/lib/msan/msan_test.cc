@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 typedef unsigned char      U1;
 typedef unsigned short     U2;
 typedef unsigned int       U4;
@@ -327,6 +331,59 @@ TEST(MemorySanitizer, fread) {
   v_s1 = x[31];
   fclose(f);
   delete x;
+}
+
+TEST(MemorySanitizer, read) {
+  char *x = new char[32];
+  int fd = open("/proc/self/stat", O_RDONLY);
+  assert(fd > 0);
+  int sz = read(fd, x, 32);
+  assert(sz == 32);
+  v_s1 = x[0];
+  v_s1 = x[16];
+  v_s1 = x[31];
+  close(fd);
+  delete x;
+}
+
+TEST(MemorySanitizer, memcpy) {
+  char* x = new char[2];
+  char* y = new char[2];
+  x[0] = 1;
+  x[1] = *GetPoisoned<char>();
+  memcpy(y, x, 2);
+  v_s4 = y[0];
+  EXPECT_POISONED(v_s4 = y[1]);
+}
+
+TEST(MemorySanitizer, memmove) {
+  char* x = new char[2];
+  char* y = new char[2];
+  x[0] = 1;
+  x[1] = *GetPoisoned<char>();
+  memmove(y, x, 2);
+  v_s4 = y[0];
+  EXPECT_POISONED(v_s4 = y[1]);
+}
+
+TEST(MemorySanitizer, strcpy) {
+  char* x = new char[3];
+  char* y = new char[3];
+  x[0] = 'a'; x[1] = *GetPoisoned<char>(1, 1); x[2] = 0;
+  strcpy(y, x);
+  v_s4 = y[0];
+  EXPECT_POISONED(v_s4 = y[1]);
+  v_s4 = y[2];
+}
+
+TEST(MemorySanitizer, strncpy) {
+  char* x = new char[3];
+  char* y = new char[3];
+  x[0] = 'a'; x[1] = *GetPoisoned<char>(1, 1); x[2] = 0;
+  strncpy(y, x, 2);
+  v_s4 = y[0];
+  EXPECT_POISONED(v_s4 = y[1]);
+  EXPECT_POISONED(v_s4 = y[2]);
 }
 
 extern "C" {

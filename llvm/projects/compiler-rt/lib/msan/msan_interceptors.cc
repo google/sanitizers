@@ -5,7 +5,17 @@
 // ACHTUNG! No system header includes in this file.
 
 typedef uptr size_t;
+typedef sptr ssize_t;
 using namespace __msan;
+
+#define CHECK_UNPOISONED(x, n) \
+  do { \
+  sptr offset = __msan_test_shadow(x, n); \
+  if (offset >= 0) { \
+  Printf("UMR in %s at offset %d\n", __FUNCTION__, offset); \
+  __msan_warning(); \
+  } \
+  } while (0)
 
 INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, void *file) {
   size_t res = REAL(fread)(ptr, size, nmemb, file);
@@ -14,9 +24,22 @@ INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, void *file) {
   return res;
 }
 
+INTERCEPTOR(ssize_t, read, int fd, void *ptr, size_t count) {
+  ssize_t res = REAL(read)(fd, ptr, count);
+  if (res > 0)
+    __msan_unpoison(ptr, res);
+  return res;
+}
+
 INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
   void* res = REAL(memcpy)(dest, src, n);
   __msan_copy_poison(dest, src, n);
+  return res;
+}
+
+INTERCEPTOR(void*, memmove, void* dest, const void* src, size_t n) {
+  void* res = REAL(memmove)(dest, src, n);
+  __msan_move_poison(dest, src, n);
   return res;
 }
 
@@ -36,6 +59,35 @@ INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
 INTERCEPTOR(void, free, void *ptr) {
   if (ptr == 0) return;
   MsanDeallocate(ptr);
+}
+
+INTERCEPTOR(size_t, strlen, const char* s) {
+  size_t res = REAL(strlen)(s);
+  // CHECK_UNPOISONED(s, res + 1);
+  return res;
+}
+
+INTERCEPTOR(size_t, strnlen, const char* s, size_t n) {
+  size_t res = REAL(strnlen)(s, n);
+  size_t scan_size = (res == n) ? res : res + 1;
+  // CHECK_UNPOISONED(s, scan_size);
+  return res;
+}
+
+INTERCEPTOR(char*, strcpy, char* dest, const char* src) {
+  size_t n = REAL(strlen)(src);
+  char* res = REAL(strcpy)(dest, src);
+  __msan_copy_poison(dest, src, n + 1);
+  return res;
+}
+
+INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
+  size_t copy_size = REAL(strnlen)(src, n);
+  if (copy_size < n)
+    copy_size++; // trailing \0
+  char* res = REAL(strncpy)(dest, src, n);
+  __msan_copy_poison(dest, src, copy_size);
+  return res;
 }
 
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
@@ -73,8 +125,14 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(realloc));
   CHECK(INTERCEPT_FUNCTION(free));
   CHECK(INTERCEPT_FUNCTION(fread));
+  CHECK(INTERCEPT_FUNCTION(read));
   CHECK(INTERCEPT_FUNCTION(memcpy));
   CHECK(INTERCEPT_FUNCTION(memset));
+  CHECK(INTERCEPT_FUNCTION(memmove));
+  CHECK(INTERCEPT_FUNCTION(strcpy));
+  CHECK(INTERCEPT_FUNCTION(strncpy));
+  CHECK(INTERCEPT_FUNCTION(strlen));
+  CHECK(INTERCEPT_FUNCTION(strnlen));
 
 }
 }  // namespace __msan
