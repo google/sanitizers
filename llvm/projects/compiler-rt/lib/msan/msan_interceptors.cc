@@ -1,9 +1,8 @@
 #include "msan.h"
 #include "sanitizer_common/sanitizer_common.h"
-// #include "sanitizer_common/sanitizer_libc.h"
-
 #include <interception/interception.h>
-#include <errno.h>  // FIXME
+
+// ACHTUNG! No system header includes in this file.
 
 typedef uptr size_t;
 using namespace __msan;
@@ -28,11 +27,9 @@ INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
 }
 
 INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
-  if (alignment & (alignment - 1))
-    return EINVAL;
+  CHECK_EQ(alignment & (alignment - 1), 0);
   *memptr = MsanReallocate(0, size, alignment, false);
-  if (!memptr)
-    return ENOMEM;
+  CHECK_NE(memptr, 0);
   return 0;
 }
 
