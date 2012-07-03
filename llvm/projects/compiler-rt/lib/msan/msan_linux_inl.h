@@ -98,7 +98,7 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
   return true;
 }
 
-static inline void GdbBackTrace() {
+void GdbBackTrace() {
   char cmd[100];
   sprintf(cmd, "gdb -q --batch -ex bt /proc/%d/exe %d "
           "> /dev/stderr",

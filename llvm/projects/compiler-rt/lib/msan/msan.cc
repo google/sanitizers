@@ -3,17 +3,19 @@
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 
-#include <stdio.h>
-#include <errno.h>
-
 #include <interception/interception.h>
+
+// ACHTUNG! No system header includes in this file.
 
 #define THREAD_LOCAL __thread
 
 using namespace __sanitizer;
 
+DECLARE_REAL(int, posix_memalign, void **memptr, uptr alignment, uptr size);
+DECLARE_REAL(void, free, void *ptr);
+
+
 // Globals.
-static int msan_inited = 0;
 static int msan_exit_code = 67;
 static int msan_poison_in_malloc = 1;
 static THREAD_LOCAL int msan_expect_umr = 0;
@@ -31,10 +33,6 @@ static bool IsRunningUnderPin() {
   return internal_strstr(__msan::GetProcSelfMaps(), "/pinbin") != 0;
 }
 
-namespace __msan {
-static inline void GdbBackTrace();  // FIXME
-}
-
 void __msan_warning() {
   if (msan_expect_umr) {
     // Printf("Expected UMR\n");
@@ -49,51 +47,16 @@ void __msan_warning() {
   }
 }
 
-static void *MsanReallocate(void *oldp, size_t size,
-                            size_t alignment, bool zeroise);
-static void MsanDeallocate(void *ptr);
+namespace __msan {
+int msan_inited = 0;
 
-
-INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, FILE *file) {
-  size_t res = REAL(fread)(ptr, size, nmemb, file);
-  if (res > 0)
-    __msan_unpoison(ptr, res * size);
-  return res;
-}
-
-INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
-  void* res = REAL(memcpy)(dest, src, n);
-  __msan_copy_poison(dest, src, n);
-  return res;
-}
-
-INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
-  void* res = REAL(memset)(s, c, n);
-  __msan_unpoison(s, n);
-  return res;
-}
-
-INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
-  if (alignment & (alignment - 1))
-    return EINVAL;
-  *memptr = MsanReallocate(0, size, alignment, false);
-  if (!memptr)
-    return ENOMEM;
-  return 0;
-}
-
-INTERCEPTOR(void, free, void *ptr) {
-  if (ptr == 0) return;
-  MsanDeallocate(ptr);
-}
-
-void *MsanReallocate(void *oldp, size_t size, size_t alignment, bool zeroise) {
+void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
   __msan_init();
   CHECK(msan_inited);
-  size_t extra_bytes = 2 * sizeof(u64*);
+  uptr extra_bytes = 2 * sizeof(u64*);
   if (alignment > extra_bytes)
     extra_bytes = alignment;
-  size_t old_size = 0;
+  uptr old_size = 0;
   void *real_oldp = 0;
   if (oldp) {
     char *beg = (char*)(oldp);
@@ -103,7 +66,7 @@ void *MsanReallocate(void *oldp, size_t size, size_t alignment, bool zeroise) {
     char *end = beg + size;
     real_oldp = (void*)p[-1];
   }
-  void *mem = NULL;
+  void *mem = 0;
   int res = REAL(posix_memalign)(&mem, alignment, size + extra_bytes);
   if (res == 0) {
     char *beg = (char*)mem + extra_bytes;
@@ -113,7 +76,7 @@ void *MsanReallocate(void *oldp, size_t size, size_t alignment, bool zeroise) {
     p[-1] = (u64)mem;
     // Printf("MSAN POISONS on malloc [%p, %p) rbeg: %p\n", beg, end, mem);
     if (zeroise) {
-      REAL(memset)(beg, 0, size);
+      internal_memset(beg, 0, size);
     } else {
       if (msan_poison_in_malloc)
         __msan_poison(beg, end - beg);
@@ -122,9 +85,9 @@ void *MsanReallocate(void *oldp, size_t size, size_t alignment, bool zeroise) {
   }
 
   if (old_size) {
-    size_t min_size = size < old_size ? size : old_size;
+    uptr min_size = size < old_size ? size : old_size;
     if (mem) {
-      REAL(memcpy)(mem, oldp, min_size);
+      internal_memcpy(mem, oldp, min_size);
       __msan_copy_poison(mem, oldp, min_size);
     }
     __msan_unpoison(oldp, old_size);
@@ -137,7 +100,7 @@ void MsanDeallocate(void *ptr) {
   __msan_init();
   char *beg = (char*)(ptr);
   u64 *p = (u64 *)beg;
-  size_t size = p[-2] >> 16;
+  uptr size = p[-2] >> 16;
   CHECK((p[-2] & 0xffffULL) == kMsanMallocMagic);
   char *end = beg + size;
   // Printf("MSAN UNPOISONS on free [%p, %p)\n", beg, end);
@@ -145,29 +108,9 @@ void MsanDeallocate(void *ptr) {
   REAL(free((void*)p[-1]));
 }
 
-INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
-  if (!msan_inited) {
-    // Hack: dlsym calls calloc before REAL(calloc) is retrieved from dlsym.
-    const size_t kCallocPoolSize = 1024;
-    static uptr calloc_memory_for_dlsym[kCallocPoolSize];
-    static size_t allocated;
-    size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
-    void *mem = (void*)&calloc_memory_for_dlsym[allocated];
-    allocated += size_in_words;
-    CHECK(allocated < kCallocPoolSize);
-    return mem;
-  }
 
-  return MsanReallocate(0, nmemb * size, sizeof(u64), true);
-}
 
-INTERCEPTOR(void *, realloc, void *ptr, size_t size) {
-  return MsanReallocate(ptr, size, sizeof(u64), false);
-}
-
-INTERCEPTOR(void *, malloc, size_t size) {
-  return MsanReallocate(0, size, sizeof(u64), false);
-}
+}  // namespace __msan
 
 
 extern "C"
@@ -186,16 +129,7 @@ void __msan_init() {
       Die();
     }
   }
-
-  CHECK(INTERCEPT_FUNCTION(posix_memalign));
-  CHECK(INTERCEPT_FUNCTION(malloc));
-  CHECK(INTERCEPT_FUNCTION(calloc));
-  CHECK(INTERCEPT_FUNCTION(realloc));
-  CHECK(INTERCEPT_FUNCTION(free));
-  CHECK(INTERCEPT_FUNCTION(fread));
-  CHECK(INTERCEPT_FUNCTION(memcpy));
-  CHECK(INTERCEPT_FUNCTION(memset));
-
+  __msan::InitializeInterceptors();
   msan_inited = 1;
   // Printf("MemorySanitizer init done\n");
 }
@@ -203,14 +137,14 @@ void __msan_init() {
 // Interface.
 
 void __msan_unpoison(void *a, uptr size) {
-  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 void __msan_poison(void *a, uptr size) {
-  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), -1, size);
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
-  REAL(memcpy)((void*)MEM_TO_SHADOW((uptr)dst),
+  internal_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
@@ -230,7 +164,7 @@ void __msan_set_expect_umr(int expect_umr) {
 
 void __msan_print_shadow(void *x, int size) {
   unsigned char *s = (unsigned char*)MEM_TO_SHADOW((uptr)x);
-  for (size_t i = 0; i < (size_t)size; i++) {
+  for (uptr i = 0; i < (uptr)size; i++) {
     Printf("%02x ", s[i]);
   }
   Printf("\n");
