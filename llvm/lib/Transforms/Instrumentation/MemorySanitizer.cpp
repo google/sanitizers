@@ -465,7 +465,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     unsigned Align = I.getAlignment();
     bool isVolatile = I.isVolatile();
 
-    CallInst *NewCI = IRB.CreateMemSet(ShadowPtr, ShadowVal, Size, Align, isVolatile);
+    IRB.CreateMemSet(ShadowPtr, ShadowVal, Size, Align, isVolatile);
   }
 
   void handleMemCpy(MemCpyInst &I) {
@@ -479,8 +479,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     unsigned Align = I.getAlignment();
     bool isVolatile = I.isVolatile();
 
-    CallInst *NewCI = IRB.CreateMemCpy(ShadowDst, ShadowSrc, Size, Align, isVolatile);
-    // TODO: insert check if volatile
+    IRB.CreateMemCpy(ShadowDst, ShadowSrc, Size, Align, isVolatile);
   }
 
   void handleMemMove(MemMoveInst &I) {
@@ -494,8 +493,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     unsigned Align = I.getAlignment();
     bool isVolatile = I.isVolatile();
 
-    CallInst *NewCI = IRB.CreateMemMove(ShadowDst, ShadowSrc, Size, Align, isVolatile);
-    // TODO: insert check if volatile
+    IRB.CreateMemMove(ShadowDst, ShadowSrc, Size, Align, isVolatile);
   }
 
   void visitCallInst(CallInst &I) {
