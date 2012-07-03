@@ -3,17 +3,15 @@
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 
-#include <stdio.h>
-
 #include <interception/interception.h>
+
+// ACHTUNG! No system header includes in this file.
 
 #define THREAD_LOCAL __thread
 
 using namespace __sanitizer;
 
-DECLARE_REAL(int, posix_memalign, void **memptr, size_t alignment, size_t size);
-DECLARE_REAL(void*, memset, void *s, int c, size_t n);
-DECLARE_REAL(void*, memcpy, void* dest, const void* src, size_t n);
+DECLARE_REAL(int, posix_memalign, void **memptr, uptr alignment, uptr size);
 DECLARE_REAL(void, free, void *ptr);
 
 
@@ -68,7 +66,7 @@ void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
     char *end = beg + size;
     real_oldp = (void*)p[-1];
   }
-  void *mem = NULL;
+  void *mem = 0;
   int res = REAL(posix_memalign)(&mem, alignment, size + extra_bytes);
   if (res == 0) {
     char *beg = (char*)mem + extra_bytes;
@@ -78,7 +76,7 @@ void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
     p[-1] = (u64)mem;
     // Printf("MSAN POISONS on malloc [%p, %p) rbeg: %p\n", beg, end, mem);
     if (zeroise) {
-      REAL(memset)(beg, 0, size);
+      internal_memset(beg, 0, size);
     } else {
       if (msan_poison_in_malloc)
         __msan_poison(beg, end - beg);
@@ -89,7 +87,7 @@ void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
   if (old_size) {
     uptr min_size = size < old_size ? size : old_size;
     if (mem) {
-      REAL(memcpy)(mem, oldp, min_size);
+      internal_memcpy(mem, oldp, min_size);
       __msan_copy_poison(mem, oldp, min_size);
     }
     __msan_unpoison(oldp, old_size);
@@ -139,14 +137,14 @@ void __msan_init() {
 // Interface.
 
 void __msan_unpoison(void *a, uptr size) {
-  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 void __msan_poison(void *a, uptr size) {
-  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), -1, size);
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
-  REAL(memcpy)((void*)MEM_TO_SHADOW((uptr)dst),
+  internal_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
