@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <unistd.h>
 #include <unwind.h>
 
@@ -104,6 +105,20 @@ void GdbBackTrace() {
           "> /dev/stderr",
           GetPid(), GetPid());
   system(cmd);
+}
+
+static void MsanTrap(int, siginfo_t *siginfo, void *context) {
+  __msan_warning();
+  ucontext_t *ucontext = (ucontext_t*)context;
+  ucontext->uc_mcontext.gregs[REG_RIP] += 2;
+}
+
+void InstallSIGILLHandler() {
+  struct sigaction sigact;
+  internal_memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = MsanTrap;
+  sigact.sa_flags = SA_SIGINFO;
+  CHECK(0 == sigaction(SIGILL, &sigact, 0));
 }
 
 }

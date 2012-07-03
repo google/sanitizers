@@ -33,7 +33,7 @@ CXXFLAGS=-fPIE -g -O1 -fno-exceptions
 RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding
 LDFLAGS=-pie -lpthread
 MSAN_EXTRA_OPT=
-MSAN_OPT=-fmemory-sanitizer
+MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT)
 # MSAN_DEBUG=-mllvm -debug-only=msan
 CLANG_VERSION=3.2
 ARCH=x86_64
