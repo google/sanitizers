@@ -171,10 +171,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   struct ShadowAndInsertPoint {
     Instruction *Shadow;
-    Instruction *InsertBefore;
+    Instruction *OrigIns;
     ShadowAndInsertPoint(Instruction *S, Instruction *I) :
-      Shadow(S), InsertBefore(I) { }
-    ShadowAndInsertPoint() : Shadow(0), InsertBefore(0) { }
+      Shadow(S), OrigIns(I) { }
+    ShadowAndInsertPoint() : Shadow(0), OrigIns(0) { }
   };
   SmallVector<ShadowAndInsertPoint, 16> InstrumentationSet;
 
@@ -206,12 +206,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Materialize checks.
     for (size_t i = 0, n = InstrumentationSet.size(); i < n; i++) {
       Instruction *Shadow = InstrumentationSet[i].Shadow;
-      Instruction *InsertBefore = InstrumentationSet[i].InsertBefore;
-      IRBuilder<> IRB(InsertBefore);
+      Instruction *OrigIns = InstrumentationSet[i].OrigIns;
+      IRBuilder<> IRB(OrigIns);
       Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
       Instruction *CheckTerm = splitBlockAndInsertIfThen(Cmp);
       IRBuilder<> IRB2(CheckTerm);
-      IRB2.CreateCall(MS.WarningFn);
+      Instruction *Call = IRB2.CreateCall(MS.WarningFn);
+
+      Call->setDebugLoc(OrigIns->getDebugLoc());
       DEBUG(dbgs() << "  SHAD : " << *Shadow << "\n");
       DEBUG(dbgs() << "  CHECK: " << *Cmp << "\n");
     }
@@ -316,11 +318,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   // Remember the place where a check for ShadowVal should be inserted.
-  void insertCheck(Value *ShadowVal, Instruction *InsertBefore) {
+  void insertCheck(Value *ShadowVal, Instruction *OrigIns) {
     if (!ShadowVal) return;
     Instruction *Shadow = dyn_cast<Instruction>(ShadowVal);
     if (!Shadow) return;
-    InstrumentationSet.push_back(ShadowAndInsertPoint(Shadow, InsertBefore));
+    InstrumentationSet.push_back(ShadowAndInsertPoint(Shadow, OrigIns));
   }
 
   //------------------- Visitors.
