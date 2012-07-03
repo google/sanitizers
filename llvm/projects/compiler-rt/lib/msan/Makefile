@@ -40,6 +40,17 @@ msan_test: msan_test.cc msan.a $(GTEST_LIB)
 msan.a: $(LIBMSAN_OBJ)
 	ar ru $@ $^
 
+CLANG_VERSION=3.2
+ARCH=x86_64
+OS=$(shell uname | tr '[A-Z]' '[a-z]')
+LIBMSAN_INST_DIR=$(CLANG_BUILD)/lib/clang/$(CLANG_VERSION)/lib/$(OS)
+LIBMSAN_A=$(LIBMSAN_INST_DIR)/libclang_rt.msan-$(ARCH).a
+
+install: $(LIBMSAN_A)
+
+$(LIBMSAN_A): msan.a
+	cp $< $@
+
 %.o: %.cc $(RTL_HDR)
 	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ -I..
 

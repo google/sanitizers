@@ -1408,6 +1408,8 @@ static void addTsanRTLinux(const ToolChain &TC, const ArgList &Args,
                     options::OPT_fno_thread_sanitizer, false))
     return;
   if (!Args.hasArg(options::OPT_shared)) {
+    if (!Args.hasArg(options::OPT_pie))
+      TC.getDriver().Diag(diag::err_drv_tsan_msan_require_pie);
     // LibTsan is "libclang_rt.tsan-<ArchName>.a" in the Linux library
     // resource directory.
     SmallString<128> LibTsan(TC.getDriver().ResourceDir);
@@ -1415,6 +1417,29 @@ static void addTsanRTLinux(const ToolChain &TC, const ArgList &Args,
                             (Twine("libclang_rt.tsan-") +
                              TC.getArchName() + ".a"));
     CmdArgs.push_back(Args.MakeArgString(LibTsan));
+    CmdArgs.push_back("-lpthread");
+    CmdArgs.push_back("-ldl");
+    CmdArgs.push_back("-export-dynamic");
+  }
+}
+
+/// If MemorySanitizer is enabled, add appropriate linker flags (Linux).
+/// This needs to be called before we add the C run-time (malloc, etc).
+static void addMsanRTLinux(const ToolChain &TC, const ArgList &Args,
+                           ArgStringList &CmdArgs) {
+  if (!Args.hasFlag(options::OPT_fmemory_sanitizer,
+                    options::OPT_fno_memory_sanitizer, false))
+    return;
+  if (!Args.hasArg(options::OPT_shared)) {
+    if (!Args.hasArg(options::OPT_pie))
+      TC.getDriver().Diag(diag::err_drv_tsan_msan_require_pie);
+    // LibMsan is "libclang_rt.msan-<ArchName>.a" in the Linux library
+    // resource directory.
+    SmallString<128> LibMsan(TC.getDriver().ResourceDir);
+    llvm::sys::path::append(LibMsan, "lib", "linux",
+                            (Twine("libclang_rt.msan-") +
+                             TC.getArchName() + ".a"));
+    CmdArgs.push_back(Args.MakeArgString(LibMsan));
     CmdArgs.push_back("-lpthread");
     CmdArgs.push_back("-ldl");
     CmdArgs.push_back("-export-dynamic");
@@ -4390,7 +4415,9 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   // symbols may appear. Mark all of them as dynamic_lookup.
   // Linking executables is handled in lib/Driver/ToolChains.cpp.
   if (Args.hasFlag(options::OPT_faddress_sanitizer,
-                   options::OPT_fno_address_sanitizer, false)) {
+                   options::OPT_fno_address_sanitizer, false) ||
+      Args.hasFlag(options::OPT_fmemory_sanitizer,
+                   options::OPT_fno_memory_sanitizer, false)) {
     if (Args.hasArg(options::OPT_dynamiclib) ||
         Args.hasArg(options::OPT_bundle)) {
       CmdArgs.push_back("-undefined");
@@ -5520,6 +5547,7 @@ void linuxtools::Link::ConstructJob(Compilation &C, const JobAction &JA,
   // Call this before we add the C run-time.
   addAsanRTLinux(getToolChain(), Args, CmdArgs);
   addTsanRTLinux(getToolChain(), Args, CmdArgs);
+  addMsanRTLinux(getToolChain(), Args, CmdArgs);
 
   if (!Args.hasArg(options::OPT_nostdlib)) {
     if (!Args.hasArg(options::OPT_nodefaultlibs)) {
