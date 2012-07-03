@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <unistd.h>
 #include <errno.h>
 
 #include <interception/interception.h>
@@ -38,7 +37,7 @@ static inline void GdbBackTrace() {
   char cmd[100];
   sprintf(cmd, "gdb -q --batch -ex bt /proc/%d/exe %d "
           "> /dev/stderr",
-          getpid(), getpid());
+          GetPid(), GetPid());
   system(cmd);
 }
 
@@ -52,7 +51,7 @@ void __msan_warning() {
   GdbBackTrace();
   if (msan_exit_code >= 0) {
     Printf("Exiting\n");
-    _exit(msan_exit_code);
+    Die();
   }
 }
 

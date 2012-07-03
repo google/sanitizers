@@ -101,7 +101,7 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
 
 namespace __sanitizer {
 void Die() {
-  _exit(1);
+  _exit(msan_exit_code);
 }
 
 void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {
