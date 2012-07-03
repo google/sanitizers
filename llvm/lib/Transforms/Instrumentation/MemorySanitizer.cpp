@@ -52,6 +52,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
 #include "llvm/Function.h"
+#include "llvm/InlineAsm.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
@@ -156,7 +157,10 @@ bool MemorySanitizer::doInitialization(Module &M) {
   // FIXME: this function should have "Cold" calling conv,
   // which is not yet implemented. Alternatively, we may use llvm.trap.
   if (ClUseTrap) {
-    WarningFn = Intrinsic::getDeclaration(&M, Intrinsic::trap);
+    // WarningFn = Intrinsic::getDeclaration(&M, Intrinsic::trap);
+    // We use inline asm because Intrinsic::trap is treated as never return.
+    WarningFn = InlineAsm::get(FunctionType::get(Type::getVoidTy(*C), false),
+                                  StringRef("ud2"), StringRef(""), true);
   } else {
     WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
   }
@@ -220,8 +224,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
       Instruction *CheckTerm = splitBlockAndInsertIfThen(Cmp);
       IRBuilder<> IRB2(CheckTerm);
-      Instruction *Call = IRB2.CreateCall(MS.WarningFn);
-
+      CallInst *Call = IRB2.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
       DEBUG(dbgs() << "  SHAD : " << *Shadow << "\n");
       DEBUG(dbgs() << "  CHECK: " << *Cmp << "\n");
