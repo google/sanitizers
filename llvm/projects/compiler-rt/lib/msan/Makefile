@@ -32,21 +32,24 @@ CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1 -fno-exceptions
 RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding
 LDFLAGS=-pie -lpthread
+MSAN_EXTRA_OPT=
+MSAN_OPT=-fmemory-sanitizer
 # MSAN_DEBUG=-mllvm -debug-only=msan
-
-all: msan_test # pin
-
-msan_test: msan_test.cc msan.a $(GTEST_LIB)
-	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -I.. -fmemory-sanitizer $^ -o $@ -ldl $(LDFLAGS)
-
-msan.a: $(LIBMSAN_OBJ)
-	ar ru $@ $^
-
 CLANG_VERSION=3.2
 ARCH=x86_64
 OS=$(shell uname | tr '[A-Z]' '[a-z]')
 LIBMSAN_INST_DIR=$(CLANG_BUILD)/lib/clang/$(CLANG_VERSION)/lib/$(OS)
 LIBMSAN_A=$(LIBMSAN_INST_DIR)/libclang_rt.msan-$(ARCH).a
+
+all: msan_test # pin
+
+msan_test: msan_test.cc $(GTEST_LIB) $(LIBMSAN_A)
+	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -I.. $(MSAN_OPT) \
+		$< $(GTEST_LIB) -o $@ -ldl $(LDFLAGS)
+
+msan.a: $(LIBMSAN_OBJ)
+	ar ru $@ $^
+
 
 install: $(LIBMSAN_A)
 
@@ -87,4 +90,4 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS)" CFLAGS="$(CFLAGS)" CC=$(CC) CXX=$(CXX)
 
 clean: 
-	rm -f *.o msan_test
+	rm -f *.o msan_test $(LIBMSAN_A)

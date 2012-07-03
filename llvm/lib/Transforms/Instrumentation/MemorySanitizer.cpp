@@ -52,6 +52,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
 #include "llvm/Function.h"
+#include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
@@ -66,6 +67,10 @@
 #include "llvm/Type.h"
 
 using namespace llvm;
+
+static cl::opt<bool> ClUseTrap("msan-use-trap",
+       cl::desc("use llbm.trap instead of __msan_warning"),
+       cl::Hidden, cl::init(false));
 
 namespace {
 
@@ -150,7 +155,11 @@ bool MemorySanitizer::doInitialization(Module &M) {
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
   // which is not yet implemented. Alternatively, we may use llvm.trap.
-  WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
+  if (ClUseTrap) {
+    WarningFn = Intrinsic::getDeclaration(&M, Intrinsic::trap);
+  } else {
+    WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
+  }
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
