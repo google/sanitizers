@@ -90,6 +90,13 @@ INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
   return res;
 }
 
+INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
+  char* res = REAL(gcvt)(number, ndigit, buf);
+  size_t n = REAL(strlen)(buf);
+  __msan_unpoison(buf, n + 1);
+  return res;
+}
+
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
   if (!msan_inited) {
     // Hack: dlsym calls calloc before REAL(calloc) is retrieved from dlsym.
@@ -133,6 +140,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(strncpy));
   CHECK(INTERCEPT_FUNCTION(strlen));
   CHECK(INTERCEPT_FUNCTION(strnlen));
+  CHECK(INTERCEPT_FUNCTION(gcvt));
 
 }
 }  // namespace __msan
