@@ -504,6 +504,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         handleMemCpy(*MemCpy);
       else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
         handleMemMove(*MemMove);
+      else
+        // Unhandled intrinsic: mark retval as clean.
+        visitInstruction(I);
       return;
     }
     IRBuilder<> IRB(&I);
