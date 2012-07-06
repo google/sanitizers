@@ -101,6 +101,10 @@ void MsanDeallocate(void *ptr) {
   char *beg = (char*)(ptr);
   u64 *p = (u64 *)beg;
   uptr size = p[-2] >> 16;
+  if ((p[-2] & 0xffffULL) != kMsanMallocMagic) {
+    Printf("ZZZ: %p\n", ptr);
+    Abort();
+  }
   CHECK((p[-2] & 0xffffULL) == kMsanMallocMagic);
   char *end = beg + size;
   // Printf("MSAN UNPOISONS on free [%p, %p)\n", beg, end);

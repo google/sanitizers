@@ -1,4 +1,5 @@
 #include "msan_interface.h"
+#include "msandr_test_so.h"
 #include "gtest/gtest.h"
 
 #include <stdlib.h>
@@ -399,6 +400,13 @@ NOINLINE void ZZZZZZZZZZZZZZ() {
 
 TEST(MemorySanitizer, ZZZTest) {
   ZZZZZZZZZZZZZZ();
+}
+
+TEST(MemorySanitizerDr, StoreInDSOTest) {
+  char* s = new char[10];
+  my_memfill(s, 9);
+  v_s1 = s[5];
+  EXPECT_POISONED(v_s1 = s[9]);
 }
 
 int main(int argc, char **argv) {
