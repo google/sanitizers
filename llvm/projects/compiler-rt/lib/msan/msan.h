@@ -7,6 +7,9 @@
 #define MEM_TO_SHADOW(mem) ((mem) & ~0x400000000000ULL)
 
 namespace __msan {
+extern int msan_inited;
+extern bool msan_init_is_running;
+
 uptr ReadFromFile(const char *path, char *buff, uptr size);
 bool ProtectRange(uptr beg, uptr end);
 void *Mmap(void *addr, uptr length, int prot, int flags,

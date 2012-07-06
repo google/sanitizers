@@ -49,6 +49,7 @@ void __msan_warning() {
 
 namespace __msan {
 int msan_inited = 0;
+bool msan_init_is_running;
 
 void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
   __msan_init();
@@ -117,6 +118,7 @@ extern "C"
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
+  msan_init_is_running = 1;
   main_thread_param_tls = __msan_param_tls;
   msan_running_under_pin = IsRunningUnderPin();
   // Must call it here for PIN to intercept it.
@@ -131,8 +133,9 @@ void __msan_init() {
   }
   __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
-  msan_inited = 1;
   // Printf("MemorySanitizer init done\n");
+  msan_init_is_running = 0;
+  msan_inited = 1;
 }
 
 // Interface.

@@ -8,6 +8,13 @@ typedef uptr size_t;
 typedef sptr ssize_t;
 using namespace __msan;
 
+#define ENSURE_MSAN_INITED() do { \
+    CHECK(!msan_init_is_running);       \
+  if (!msan_inited) { \
+    __msan_init(); \
+  } \
+} while (0)
+
 #define CHECK_UNPOISONED(x, n) \
   do { \
   sptr offset = __msan_test_shadow(x, n); \
@@ -18,6 +25,7 @@ using namespace __msan;
   } while (0)
 
 INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, void *file) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(fread)(ptr, size, nmemb, file);
   if (res > 0)
     __msan_unpoison(ptr, res * size);
@@ -25,6 +33,7 @@ INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, void *file) {
 }
 
 INTERCEPTOR(ssize_t, read, int fd, void *ptr, size_t count) {
+  ENSURE_MSAN_INITED();
   ssize_t res = REAL(read)(fd, ptr, count);
   if (res > 0)
     __msan_unpoison(ptr, res);
@@ -32,18 +41,21 @@ INTERCEPTOR(ssize_t, read, int fd, void *ptr, size_t count) {
 }
 
 INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
+  ENSURE_MSAN_INITED();
   void* res = REAL(memcpy)(dest, src, n);
   __msan_copy_poison(dest, src, n);
   return res;
 }
 
 INTERCEPTOR(void*, memmove, void* dest, const void* src, size_t n) {
+  ENSURE_MSAN_INITED();
   void* res = REAL(memmove)(dest, src, n);
   __msan_move_poison(dest, src, n);
   return res;
 }
 
 INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
+  ENSURE_MSAN_INITED();
   void* res = REAL(memset)(s, c, n);
   __msan_unpoison(s, n);
   return res;
@@ -57,17 +69,20 @@ INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
 }
 
 INTERCEPTOR(void, free, void *ptr) {
+  ENSURE_MSAN_INITED();
   if (ptr == 0) return;
   MsanDeallocate(ptr);
 }
 
 INTERCEPTOR(size_t, strlen, const char* s) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(strlen)(s);
   // CHECK_UNPOISONED(s, res + 1);
   return res;
 }
 
 INTERCEPTOR(size_t, strnlen, const char* s, size_t n) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(strnlen)(s, n);
   size_t scan_size = (res == n) ? res : res + 1;
   // CHECK_UNPOISONED(s, scan_size);
@@ -75,6 +90,7 @@ INTERCEPTOR(size_t, strnlen, const char* s, size_t n) {
 }
 
 INTERCEPTOR(char*, strcpy, char* dest, const char* src) {
+  ENSURE_MSAN_INITED();
   size_t n = REAL(strlen)(src);
   char* res = REAL(strcpy)(dest, src);
   __msan_copy_poison(dest, src, n + 1);
@@ -82,6 +98,7 @@ INTERCEPTOR(char*, strcpy, char* dest, const char* src) {
 }
 
 INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
+  ENSURE_MSAN_INITED();
   size_t copy_size = REAL(strnlen)(src, n);
   if (copy_size < n)
     copy_size++; // trailing \0
@@ -91,6 +108,7 @@ INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
 }
 
 INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
+  ENSURE_MSAN_INITED();
   char* res = REAL(gcvt)(number, ndigit, buf);
   size_t n = REAL(strlen)(buf);
   __msan_unpoison(buf, n + 1);
@@ -98,6 +116,7 @@ INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
 }
 
 INTERCEPTOR(char*, strcat, char* dest, const char* src) {
+  ENSURE_MSAN_INITED();
   size_t src_size = REAL(strlen)(src);
   size_t dest_size = REAL(strlen)(dest);
   char* res = REAL(strcat)(dest, src);
@@ -106,6 +125,7 @@ INTERCEPTOR(char*, strcat, char* dest, const char* src) {
 }
 
 INTERCEPTOR(char*, strncat, char* dest, const char* src, size_t n) {
+  ENSURE_MSAN_INITED();
   size_t dest_size = REAL(strlen)(dest);
   size_t copy_size = REAL(strlen)(src);
   if (copy_size < n)
@@ -116,6 +136,7 @@ INTERCEPTOR(char*, strncat, char* dest, const char* src, size_t n) {
 }
 
 INTERCEPTOR(char*, getenv, char* name) {
+  ENSURE_MSAN_INITED();
   char* res = REAL(getenv)(name);
   if (res)
     __msan_unpoison(res, REAL(strlen)(res) + 1);
