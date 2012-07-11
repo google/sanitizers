@@ -141,18 +141,24 @@ void __msan_init() {
 // Interface.
 
 void __msan_unpoison(void *a, uptr size) {
+  if ((uptr)a < 0x7f0000000000) return;
   internal_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 void __msan_poison(void *a, uptr size) {
+  if ((uptr)a < 0x7f0000000000) return;
   internal_memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
+  if ((uptr)dst < 0x7f0000000000) return;
+  if ((uptr)src < 0x7f0000000000) return;
   internal_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
 void __msan_move_poison(void *dst, const void *src, uptr size) {
+  if ((uptr)dst < 0x7f0000000000) return;
+  if ((uptr)src < 0x7f0000000000) return;
   internal_memmove((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
