@@ -124,7 +124,7 @@ void __msan_init() {
   // Must call it here for PIN to intercept it.
   __msan_clear_on_return();
   if (!msan_running_under_pin) {
-    if (!InitShadow(true, true, true)) {
+    if (!InitShadow(/*true*/ false, true, true)) {
       Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
       Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
       CatProcSelfMaps();
