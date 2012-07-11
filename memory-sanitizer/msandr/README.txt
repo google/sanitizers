@@ -10,4 +10,4 @@ Building:
       cmake -DDynamoRIO_DIR=`pwd`/../dr/build/cmake .. && make -j10)
 
 Running:
-  ./dr/build/bin/drrun -client ./build/libmsandr.so 0 "" -- test
+  LD_USE_LOAD_BIAS=1 ./dr/build/bin/drrun -client ./build/libmsandr.so 0 "" -- test

@@ -1,4 +1,4 @@
-/* Copyright 2011 Google Inc.
+/* Copyright 2012 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-// This file is a part of AddressSanitizer, an address sanity checker.
+// This file is a part of MemorySanitizer.
 
-// Implementation of DynamoRIO instrumentation for ASan
+// Implementation of DynamoRIO instrumentation for MSan
 
 #include "dr_api.h"
 #include "drutil.h"
@@ -40,8 +40,8 @@ using std::string;
 
 #define CHECK(condition) CHECK_IMPL(condition, __FILE__, __LINE__)
 
-//#define VERBOSE
-//#define VERBOSE_VERBOSE
+// #define VERBOSE
+// #define VERBOSE_VERBOSE
 
 #if defined(VERBOSE_VERBOSE) && !defined(VERBOSE)
 # define VERBOSE
@@ -52,11 +52,6 @@ using std::string;
 #endif
 
 namespace {
-
-struct AsanCallbacks {
-  typedef void (*Report)(void*);
-  Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
-};
 
 class ModuleData {
  public:
@@ -72,9 +67,6 @@ class ModuleData {
   bool should_instrument_;
   bool executed_;
 };
-
-// TODO: on Windows, we may have multiple RTLs in one process.
-AsanCallbacks g_callbacks = {0};
 
 string g_app_path;
 
@@ -99,45 +91,6 @@ ModuleData::ModuleData(const module_data_t *info)
     should_instrument_(true),
     executed_(false)
 {}
-
-void InitializeAsanCallbacks() {
-  static bool initialized = false;
-  CHECK(!initialized);
-  initialized = true;
-
-  module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
-  if (!app) {
-    dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
-    CHECK(app);
-  }
-  g_app_path = app->full_path;
-
-  for (int is_write = 0; is_write < 2; ++is_write) {
-    for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
-      int size = 1 << size_l2;
-
-      char name_buffer[128];
-      dr_snprintf(name_buffer, sizeof(name_buffer),
-                  "__asan_report_%s%d",
-                  is_write ? "store" : "load", size);
-      #ifdef VERBOSE_VERBOSE
-      dr_printf("Searching %s...\r", name_buffer);
-      #endif
-      void (*report_func)() = dr_get_proc_address(app->handle, name_buffer);
-      if (report_func == NULL) {
-        dr_printf("Couldn't find `%s` in %s\n", name_buffer, app->full_path);
-        continue;
-      }
-      #ifdef VERBOSE_VERBOSE
-      dr_printf("Found %s @ %p\n", name_buffer, report_func);
-      #endif
-      g_callbacks.report[is_write][size_l2] =
-          (AsanCallbacks::Report)(report_func);
-    }
-  }
-
-  dr_free_module_data(app);
-}
 
 // Currently, we are only interested in base+index+displacement memory operands
 // that don't use XSP or XBP as the base.  These are most likely to be involved
@@ -170,14 +123,6 @@ bool WantToInstrument(instr_t *instr) {
   }
 
   CHECK(instr_ok_to_mangle(instr) == true);
-
-  if (instr_reads_memory(instr)) {
-    for (int s = 0; s < instr_num_srcs(instr); s++) {
-      opnd_t op = instr_get_src(instr, s);
-      if (OperandIsInteresting(op))
-        return true;
-    }
-  }
 
   if (instr_writes_memory(instr)) {
     for (int d = 0; d < instr_num_dsts(instr); d++) {
@@ -217,7 +162,7 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   }
 
 #if 0
-  dr_printf("==DRASAN== DEBUG: %d %d %d %d %d %d\n",
+  dr_printf("==DRMSAN== DEBUG: %d %d %d %d %d %d\n",
             opnd_is_memory_reference(op),
             opnd_is_base_disp(op),
             opnd_get_index(op),
@@ -268,103 +213,22 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
 
   if (!address_in_R1)
     CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
-  PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
-  PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
-                 OPND_CREATE_INTPTR(IF_X64_ELSE(1ull << 44, 1 << 29))));
-  PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
-  PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(0)));
-
-  // TODO: Idea: look at lea + jecxz instruction to avoid flags usage.  Might be
-  // too complicated to always get ecx if it's the base reg, though.  Also,
-  // jecxz is an old instruction, we need to double check it's performance on
-  // new microarchitectures.
-  // TODO: move the slow path to the end of the BB to improve the ICache usage.
-  instr_t *OK_label = INSTR_CREATE_label(drcontext);
-  PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
-
+  PRE(i, mov_imm(drcontext, opnd_create_reg(R2), OPND_CREATE_INT64(0xffffbfffffffffff)));
+  PRE(i, and(drcontext, opnd_create_reg(R1), opnd_create_reg(R2)));
+  // There is no mov_st of a 64-bit immediate, so...
   opnd_size_t op_size = opnd_get_size(op);
   CHECK(op_size != OPSZ_NA);
   uint access_size = opnd_size_in_bytes(op_size);
-  if (access_size > 8) {
-    // TODO: handle larger accesses
-    access_size = 8;
-  }
-
-  if (access_size < 8) {
-    // TODO: the second memory load in not necessary, see the prev load.
-    PRE(i, mov_ld(drcontext, opnd_create_reg(R1), OPND_CREATE_MEMPTR(R2,0)));
-    PRE(i, mov_ld(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R1_8)));
-    // Slowpath to support accesses smaller than pointer-sized.
-    // TODO: do we need to restore R1 if address_in_R1 == false?
-    dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
-    if (!address_in_R1) {
-      // Assuming R2 is not clobbered here, which is true unless op has a
-      // segment.
-      CHECK(opnd_get_segment(op) == DR_REG_NULL);
-      CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
-    }
-    PRE(i, and(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(7)));
-    if (access_size > 1) {
-      PRE(i, add(drcontext, opnd_create_reg(R1),
-                 OPND_CREATE_INT8(access_size - 1)));
-    }
-    PRE(i, cmp(drcontext, opnd_create_reg(R1_8), opnd_create_reg(R2_8)));
-    PRE(i, jcc(drcontext, OP_jl_short, opnd_create_instr(OK_label)));
-  }
-
-  // Trap code:
-  // 1) Restore the original access address in R1.
-  // Restore both R1 and R2 as the original address may depend on either of
-  // them. Probably it's not necessary to always restore both, but this is
-  // only executed once in a app lifetime, so don't bother much yet.
-  dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
-  if (!address_in_R1) {
-    dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
-    CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
-  }
-  // 2) Pass the original address as an argument...
-#if __WORDSIZE == 32
-  PRE(i, push(drcontext, opnd_create_reg(R1)));
-#else
-  // timurrrr: You've meant IF_WINDOWS_ELSE(DR_REG_RCX, DR_REG_RDI)?
-  reg_id_t regparm_0 = IF_X64_ELSE(DR_REG_RDI, DR_REG_RCX);
-  if (R1 != regparm_0)
-    PRE(i, mov_ld(drcontext, opnd_create_reg(regparm_0), opnd_create_reg(R1)));
-#endif
-  // 3) Call the right __asan_report_{load,store}{1,2,4,8}
-  int sz_idx = 0;
-  // Log2-analog below.
-  // TODO: in rare weird cases like OPSZ_6 we'll be reporting wrong access
-  // sizes (e.g. 4-byte instead of 6-byte).
-  {
-    uint as = access_size;
-    while (as > 1) {
-      sz_idx++;
-      as /= 2;
+  if (access_size <= 4) {
+    PRE(i, mov_st(drcontext, opnd_create_base_disp(R1, DR_REG_NULL, 0, 0, op_size),
+            opnd_create_immed_int((ptr_int_t)0, op_size)));
+  } else {
+    // FIXME: tail?
+    for (uint ofs = 0; ofs < access_size; ofs += 4) {
+      PRE(i, mov_st(drcontext, OPND_CREATE_MEM32(R1, ofs), OPND_CREATE_INT32(0)));
     }
   }
-  CHECK(sz_idx < 5);
-  AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
-  // TODO: this trashes the stack, likely debugger-unfriendly.
-  // TODO: enforce on_error != NULL when we link the RTL in the binary.
-  // TODO: Align the stack.
-  PRE(i, call(drcontext, opnd_create_pc((byte*)on_error)));
-  // TODO: we end up with no symbols in the ASan report stacks because we do
-  // post-process symbolization and the DRASan frames have PCs not present in
-  // the binary.
-  // We may want to get back to ud2a handling in the RTL as we did before as we
-  // can set translation field to the original instruction in DR and make stacks
-  // look very sane.
-  //
-  // Alternatively, we can put the app PC as the return address:
-  //   push instr_get_app_pc(i)
-  //   jmp __asan_report_XXX
-  // On X64 it has to be:
-  //   push (uint32_t)app_pc
-  //   mov  (uint32_t)(app_pc >> 32) %(rsp,4)
-  //   jmp __asan_report_XXX
 
-  PREF(i, OK_label);
   // Restore the registers and flags.
   dr_restore_reg(drcontext, bb, i, R1, SPILL_SLOT_1);
   dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
@@ -474,6 +338,10 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   }
 # if defined(VERBOSE_VERBOSE)
   instrlist_disassemble(drcontext, pc, bb, STDOUT);
+  instr_t *instr;
+  for (instr = instrlist_first(bb); instr; instr = instr_get_next(instr)) {
+    dr_printf("opcode: %d\n", instr_get_opcode(instr));
+  }
 # endif
 #endif
 
@@ -488,39 +356,18 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
               instr_get_app_pc(i) - orig_pc, instr_get_opcode(i), flags);
 #endif
 
-    // TODO: drutil_expand_rep_string/_ex, otherwise we're only checking
-    // the first mop. However, we probably only want the first and the last one?
-
-    // TODO: Some instructions (e.g. lock xadd) may read & write the same memory
-    // location. Optimize the instrumentation to only check the write.
-
-    if (instr_reads_memory(i)) {
-      // Instrument memory reads
-      bool instrumented_anything = false;
-      for (int s = 0; s < instr_num_srcs(i); s++) {
-        opnd_t op = instr_get_src(i, s);
-        if (!OperandIsInteresting(op))
-          continue;
-
-        // TODO: CMPS may not pass this check.
-        // Probably, should use drutil_expand_rep_string
-        CHECK(!instrumented_anything);
-        instrumented_anything = true;
-        InstrumentMops(drcontext, bb, i, op, false);
-      }
-    }
-
     if (instr_writes_memory(i)) {
       // Instrument memory writes
-      bool instrumented_anything = false;
+      // bool instrumented_anything = false;
       for (int d = 0; d < instr_num_dsts(i); d++) {
         opnd_t op = instr_get_dst(i, d);
-        if (!OperandIsInteresting(op))
-          continue;
+        // if (!OperandIsInteresting(op))
+        //   continue;
 
-        CHECK(!instrumented_anything);
-        instrumented_anything = true;
+        // CHECK(!instrumented_anything);
+        // instrumented_anything = true;
         InstrumentMops(drcontext, bb, i, op, true);
+        break; // only instrumenting the first dst
       }
     }
   }
@@ -528,7 +375,7 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   // TODO: optimize away redundant restore-spill pairs?
 
 #if defined(VERBOSE_VERBOSE)
-  app_pc pc = dr_fragment_app_pc(tag);
+  pc = dr_fragment_app_pc(tag);
   dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", pc);
   instrlist_disassemble(drcontext, pc, bb, STDOUT);
 #endif
@@ -546,7 +393,7 @@ void event_module_load(void *drcontext, const module_data_t *info, bool loaded) 
   it->should_instrument_ = ShouldInstrumentModule(&*it);
 
 #if defined(VERBOSE)
-  dr_printf("==DRASAN== Loaded module: %s [%p...%p], instrumentation is %s\n",
+  dr_printf("==DRMSAN== Loaded module: %s [%p...%p], instrumentation is %s\n",
             info->full_path, info->start, info->end,
             it->should_instrument_ ? "on" : "off");
 #endif
@@ -554,7 +401,7 @@ void event_module_load(void *drcontext, const module_data_t *info, bool loaded) 
 
 void event_module_unload(void *drcontext, const module_data_t *info) {
 #if defined(VERBOSE)
-  dr_printf("==DRASAN== Unloaded module: %s [%p...%p]\n",
+  dr_printf("==DRMSAN== Unloaded module: %s [%p...%p]\n",
             info->full_path, info->start, info->end);
 #endif
 
@@ -573,7 +420,7 @@ void event_module_unload(void *drcontext, const module_data_t *info) {
 
 void event_exit() {
 #if defined(VERBOSE)
-  dr_printf("==DRASAN== DONE\n");
+  dr_printf("==DRMSAN== DONE\n");
 #endif
 }
 
@@ -592,14 +439,12 @@ DR_EXPORT void dr_init(client_id_t id) {
       app_name == "yes" || app_name == "echo")
     return;
 
-  InitializeAsanCallbacks();
-
   // Standard DR events.
   dr_register_exit_event(event_exit);
   dr_register_bb_event(event_basic_block);
   dr_register_module_load_event(event_module_load);
   dr_register_module_unload_event(event_module_unload);
 #if defined(VERBOSE)
-  dr_printf("==DRASAN== Starting!\n");
+  dr_printf("==DRMSAN== Starting!\n");
 #endif
 }
