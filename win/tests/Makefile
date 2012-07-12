@@ -49,7 +49,7 @@ all: run_all_tests
 .PHONY: all
 
 clean:
-	rm -rf *.pdb *.ilk *.exe *.obj *.exe.manifest *.exp *.lib *.suo *.output
+	rm -rf *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean
 
 run_%_pass_test: %_pass_test.exe
