@@ -33,7 +33,8 @@ using std::string;
 #define CHECK_IMPL(condition, file, line) \
     do { \
       if (!(condition)) { \
-        dr_printf("Check failed: `%s`\nat %s:%d\n", #condition, file, line); \
+        dr_fprintf(STDERR, "Check failed: `%s`\nat %s:%d\n", #condition, \
+                   file, line); \
         dr_abort(); \
       } \
     } while(0)  // TODO: stacktrace
@@ -56,6 +57,7 @@ namespace {
 struct AsanCallbacks {
   typedef void (*Report)(void*);
   Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
+  void (*__asan_init)(void);
 };
 
 class ModuleData {
@@ -136,6 +138,14 @@ void InitializeAsanCallbacks() {
     }
   }
 
+  // DR uses LD_PRELOAD to take over, and currently __asan_init is run before DR
+  // initializes.  This is good because it sets up the shadow memory for us, but
+  // could change in the future if DR gets early injection.  Just to be safe, we
+  // call __asan_init, which is a nop if it's already initialized.  We also use
+  // this pointer to detect modules that use asan instrumentation.
+  g_callbacks.__asan_init = dr_get_proc_address(app->handle, "__asan_init");
+  g_callbacks.__asan_init();
+
   dr_free_module_data(app);
 }
 
@@ -166,6 +176,9 @@ bool WantToInstrument(instr_t *instr) {
   // TODO: support the instructions excluded below:
   case OP_rep_cmps:
     // f3 a6    rep cmps %ds:(%rsi) %es:(%rdi) %rsi %rdi %rcx -> %rsi %rdi %rcx
+    return false;
+
+  case OP_prefetcht0:  // WTF?
     return false;
   }
 
@@ -240,6 +253,11 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
     // TODO: reuse some spare register? e.g. r15 on x64
     // TODO: might be used as a non-mem-ref register?
     R1 = DR_REG_XAX;
+  }
+  if (!reg_is_pointer_sized(R1)) {
+    // This happened for OP_prefetcht0.
+    instr_disassemble(drcontext, i, STDERR);
+    dr_fprintf(STDERR, "\n");
   }
   CHECK(reg_is_pointer_sized(R1));  // otherwise R1_8 and R2 may be wrong.
   reg_id_t R1_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R1), R1), OPSZ_1);
@@ -344,11 +362,31 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
     }
   }
   CHECK(sz_idx < 5);
-  AsanCallbacks::Report on_error = g_callbacks.report[is_write][sz_idx];
+  AsanCallbacks::Report *on_error = &g_callbacks.report[is_write][sz_idx];
   // TODO: this trashes the stack, likely debugger-unfriendly.
   // TODO: enforce on_error != NULL when we link the RTL in the binary.
   // TODO: Align the stack.
-  PRE(i, call(drcontext, opnd_create_pc((byte*)on_error)));
+#if __WORDSIZE == 32
+  // Push the app PC as the return address:
+  //   push instr_get_app_pc(i)
+  //   jmp __asan_report_XXX
+  PRE(i, push(drcontext, OPND_CREATE_INT32(instr_get_app_pc(i))));
+  PRE(i, jmp(drcontext, opnd_create_pc((byte*)*on_error)));
+#else
+  // 64-bit has two problems: reachability, and no 64-bit immediate push.  So,
+  // we split the push into a push+mov_st, and jump through the client's memory,
+  // which DR guarantees to be reachable from the code cache.
+  //   push (uint32_t)app_pc
+  //   mov  (uint32_t)(app_pc >> 32) %(rsp,4)
+  //   jmp  g_callbacks_report_XXX(%rip)
+  app_pc pc = instr_get_app_pc(i);
+  int lo = (int)(ptr_int_t)pc;
+  int hi = (int)((ptr_int_t)pc >> 32);
+  PRE(i, push_imm(drcontext, OPND_CREATE_INT32(lo)));
+  PRE(i, mov_st(drcontext, OPND_CREATE_MEM32(DR_REG_XSP, 4),
+                OPND_CREATE_INT32(hi)));
+  PRE(i, jmp_ind(drcontext, opnd_create_rel_addr((byte*)on_error, OPSZ_PTR)));
+#endif
   // TODO: we end up with no symbols in the ASan report stacks because we do
   // post-process symbolization and the DRASan frames have PCs not present in
   // the binary.
@@ -356,13 +394,6 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   // can set translation field to the original instruction in DR and make stacks
   // look very sane.
   //
-  // Alternatively, we can put the app PC as the return address:
-  //   push instr_get_app_pc(i)
-  //   jmp __asan_report_XXX
-  // On X64 it has to be:
-  //   push (uint32_t)app_pc
-  //   mov  (uint32_t)(app_pc >> 32) %(rsp,4)
-  //   jmp __asan_report_XXX
 
   PREF(i, OK_label);
   // Restore the registers and flags.
@@ -421,6 +452,10 @@ bool ShouldInstrumentNonModuleCode() {
   // asan_allocator.cc.  Perhaps there's a bug in our instru that we hit in
   // JITed code, or like the libc issue, the ASan RTL calls some non-module code
   // and instrumenting it is bad.
+  //
+  // Another thing that doesn't work: gettimeofday goes to vdso area and causes
+  // our instru to fault.  We can probably exclude just vdso and instrument
+  // normal JITed code.
   return false;  // TODO(rnk): Should be a flag.
 }
 
@@ -430,7 +465,14 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   if (path == g_app_path) {
     return false;
   }
-  if (path.find("/libc-") != string::npos) {
+  if (path.find("/libc-") != string::npos ||
+      path.find("/ld-") != string::npos ||
+      path.find("libosmesa") != string::npos ||
+      // ASan i#80: Don't instrument compiler instrumented code.
+      // TODO: We can check if the module imports __asan_init, but we'll need DR
+      // support or a bunch of ELF parsing routines in dr_asan.
+      path.find("libppGoogleNaClPluginChrome") != string::npos ||
+      path.find("/libpthread") != string::npos) {
     // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
     // can't map to the shadow space.
     return false;
@@ -438,27 +480,18 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   return true;
 }
 
-// TODO(rnk): Make sure we instrument after __asan_init.
-
 dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                                   bool for_trace, bool translating) {
   app_pc pc = dr_fragment_app_pc(tag);
-
   ModuleData *mod_data = LookupModuleByPC(pc);
-  if (mod_data != NULL) {
-    // This module is on a blacklist.
-    if (!mod_data->should_instrument_) {
-      return DR_EMIT_DEFAULT;
-    }
-  } else if (!ShouldInstrumentNonModuleCode()) {
+  if (mod_data == NULL && !ShouldInstrumentNonModuleCode())
     return DR_EMIT_DEFAULT;
-  }
-
+  CHECK(mod_data->should_instrument_);
+  string mod_path = (mod_data ? mod_data->path_ : "<no module, JITed?>");
 #if defined(VERBOSE)
 # if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
 # endif
-  string mod_path = (mod_data ? mod_data->path_ : "<no module, JITed?>");
   if (mod_data && !mod_data->executed_) {
     mod_data->executed_ = true;  // Nevermind this race.
     dr_printf("Executing from new module: %s\n", mod_path.c_str());
@@ -494,7 +527,11 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
     // TODO: Some instructions (e.g. lock xadd) may read & write the same memory
     // location. Optimize the instrumentation to only check the write.
 
-    if (instr_reads_memory(i)) {
+    if (instr_reads_memory(i)
+        // Don't instrument reads in libX for now.  XChangeProperty has a small
+        // buffer overread.
+        && mod_path.find("libX") == string::npos
+        ) {
       // Instrument memory reads
       bool instrumented_anything = false;
       for (int s = 0; s < instr_num_srcs(i); s++) {
@@ -528,7 +565,6 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   // TODO: optimize away redundant restore-spill pairs?
 
 #if defined(VERBOSE_VERBOSE)
-  app_pc pc = dr_fragment_app_pc(tag);
   dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", pc);
   instrlist_disassemble(drcontext, pc, bb, STDOUT);
 #endif
@@ -544,6 +580,9 @@ void event_module_load(void *drcontext, const module_data_t *info, bool loaded) 
   it = g_module_list.insert(it, mod_data);
   // Check if we should instrument this module.
   it->should_instrument_ = ShouldInstrumentModule(&*it);
+  if (!it->should_instrument_) {
+    dr_module_set_should_instrument(info->handle, false);
+  }
 
 #if defined(VERBOSE)
   dr_printf("==DRASAN== Loaded module: %s [%p...%p], instrumentation is %s\n",
