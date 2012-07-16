@@ -371,11 +371,6 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   if (path == g_app_path) {
     return false;
   }
-  if (path.find("/libc-") != string::npos) {
-    // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
-    // can't map to the shadow space.
-    return false;
-  }
   return true;
 }
 
@@ -425,7 +420,6 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   for (instr_t *i = instrlist_first(bb); i != NULL; i = instr_get_next(i)) {
     int opcode = instr_get_opcode(i);
     if (opcode == OP_ret || opcode == OP_ret_far) {
-      dr_printf("instrumenting return\n");
       InstrumentReturn(drcontext, bb, i);
       continue;
     }
