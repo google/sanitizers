@@ -528,7 +528,9 @@ DR_EXPORT void dr_init(client_id_t id) {
   dr_switch_to_app_state(drcontext);
   msan_retval_tls_offset = __msan_get_retval_tls_offset();
   dr_switch_to_dr_state(drcontext);
+#if defined(VERBOSE)
   dr_printf("__msan_retval_tls offset: %d\n", msan_retval_tls_offset);
+#endif
 
   // Standard DR events.
   dr_register_exit_event(event_exit);
