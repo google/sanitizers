@@ -471,6 +471,7 @@ void event_module_load(void *drcontext, const module_data_t *info, bool loaded) 
   it = g_module_list.insert(it, mod_data);
   // Check if we should instrument this module.
   it->should_instrument_ = ShouldInstrumentModule(&*it);
+  dr_module_set_should_instrument(info->handle, it->should_instrument_);
 
 #if defined(VERBOSE)
   dr_printf("==DRMSAN== Loaded module: %s [%p...%p], instrumentation is %s\n",
