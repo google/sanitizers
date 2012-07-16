@@ -138,10 +138,6 @@ void __msan_init() {
     }
   }
 
-  if (msan_running_under_pin || msan_running_under_dr) {
-    Printf("Dynamic component detected: %s\n", msan_running_under_pin ? "PIN" :
-        (msan_running_under_dr ? "DynamoRio" : "???"));
-  }
   __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
   // Printf("MemorySanitizer init done\n");
