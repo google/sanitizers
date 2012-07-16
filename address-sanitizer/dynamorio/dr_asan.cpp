@@ -430,9 +430,7 @@ ModuleData *LookupModuleByPC(app_pc pc) {
   std::vector<ModuleData>::iterator it =
       lower_bound(g_module_list.begin(), g_module_list.end(), fake_mod_data,
                   ModuleDataCompareStart);
-  if (it == g_module_list.end())
-    return NULL;
-  if (pc < it->start_)
+  if (it == g_module_list.end() || pc < it->start_)
     --it;
   CHECK(it->start_ <= pc);
   if (pc >= it->end_) {
