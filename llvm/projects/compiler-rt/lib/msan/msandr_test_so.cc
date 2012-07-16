@@ -6,5 +6,6 @@ void dso_memfill(char* s, unsigned n) {
 }
 
 int dso_callfn(int (*fn)(void)) {
-  return fn();
+  volatile int x = fn();
+  return x;
 }

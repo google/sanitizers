@@ -22,6 +22,7 @@ static THREAD_LOCAL int msan_expect_umr = 0;
 static THREAD_LOCAL int msan_expected_umr_found = 0;
 
 static int msan_running_under_pin = 0;
+static int msan_running_under_dr = 0;
 THREAD_LOCAL long long __msan_param_tls[100];
 THREAD_LOCAL long long __msan_retval_tls[8];
 static long long *main_thread_param_tls;
@@ -31,6 +32,10 @@ static const int kMsanMallocMagic = 0xCA4D;
 
 static bool IsRunningUnderPin() {
   return internal_strstr(__msan::GetProcSelfMaps(), "/pinbin") != 0;
+}
+
+static bool IsRunningUnderDr() {
+  return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
 }
 
 void __msan_warning() {
@@ -121,6 +126,7 @@ void __msan_init() {
   msan_init_is_running = 1;
   main_thread_param_tls = __msan_param_tls;
   msan_running_under_pin = IsRunningUnderPin();
+  msan_running_under_dr = IsRunningUnderDr();
   // Must call it here for PIN to intercept it.
   __msan_clear_on_return();
   if (!msan_running_under_pin) {
@@ -130,6 +136,11 @@ void __msan_init() {
       CatProcSelfMaps();
       Die();
     }
+  }
+
+  if (msan_running_under_pin || msan_running_under_dr) {
+    Printf("Dynamic component detected: %s\n", msan_running_under_pin ? "PIN" :
+        (msan_running_under_dr ? "DynamoRio" : "???"));
   }
   __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
@@ -209,12 +220,27 @@ int __msan_set_poison_in_malloc(int do_poison) {
 void __msan_break_optimization(void *x) { }
 
 int  __msan_has_dynamic_component() {
-  return msan_running_under_pin;
+  return msan_running_under_pin || msan_running_under_dr;
 }
 
 NOINLINE
 void __msan_clear_on_return() {
   __msan_param_tls[0] = 0;
+}
+
+static void* get_tls_base() {
+  unsigned long long p;
+  asm("mov %%fs:0, %0"
+      : "=r"(p) ::);
+  return (void*)p;
+}
+
+int __msan_get_retval_tls_offset() {
+  // volatile here is needed to avoid UB, because the compiler thinks that we are doing address
+  // arithmetics on unrelated pointers, and takes some shortcuts
+  volatile sptr retval_tls_p = (sptr)&__msan_retval_tls;
+  volatile sptr tls_base_p = (sptr)get_tls_base();
+  return retval_tls_p - tls_base_p;
 }
 
 #include "msan_linux_inl.h"

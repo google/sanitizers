@@ -20,6 +20,8 @@
 #include "dr_api.h"
 #include "drutil.h"
 
+#include <sys/mman.h>
+
 #include <algorithm>
 #include <string>
 #include <set>
@@ -70,6 +72,8 @@ class ModuleData {
 
 string g_app_path;
 
+int msan_retval_tls_offset;
+
 // A vector of loaded modules sorted by module bounds.  We lookup the current PC
 // in here from the bb event.  This is better than an rb tree because the lookup
 // is faster and the bb event occurs far more than the module load event.
@@ -91,6 +95,51 @@ ModuleData::ModuleData(const module_data_t *info)
     should_instrument_(true),
     executed_(false)
 {}
+
+int (*__msan_get_retval_tls_offset)();
+
+void InitializeMSanCallbacks() {
+  module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
+  if (!app) {
+    dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
+    CHECK(app);
+  }
+
+  const char* callback_name = "__msan_get_retval_tls_offset";
+  __msan_get_retval_tls_offset = (int(*)())dr_get_proc_address(app->handle, callback_name);
+  if (__msan_get_retval_tls_offset == NULL) {
+    dr_printf("Couldn't find `%s` in %s\n", callback_name, app->full_path);
+    CHECK(__msan_get_retval_tls_offset);
+  }
+}
+
+// typedef unsigned long uptr;
+
+// #define MEM_TO_SHADOW(mem) ((mem) & ~0x400000000000ULL)
+// static const uptr kMemBeg     = 0x7f0000000000;
+// static const uptr kMemEnd     = 0x7fffffffffff;
+// static const uptr kShadowBeg  = MEM_TO_SHADOW(kMemBeg);
+// static const uptr kShadowEnd  = MEM_TO_SHADOW(kMemEnd);
+// static const uptr kBad1Beg    = 0x200000;
+// static const uptr kBad1End    = kShadowBeg - 1;
+// static const uptr kBad2Beg    = kShadowEnd + 1;
+// static const uptr kBad2End    = kMemBeg - 1;
+
+// void InitializeMSanShadow() {
+//   void* shadow = mmap((void*)kShadowBeg,
+//       kShadowEnd - kShadowBeg,
+//       PROT_READ | PROT_WRITE,
+//       MAP_PRIVATE | MAP_ANON |
+//       MAP_FIXED | MAP_NORESERVE,
+//       0, 0);
+//   CHECK(shadow == (void*)kShadowBeg);
+
+//   void* bad2 = mmap((void*)(kBad2Beg), kBad2End - kBad2Beg,
+//       PROT_NONE,
+//       MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE,
+//       -1, 0);
+//   CHECK(bad2 == (void*)kBad2Beg);
+// }
 
 // Currently, we are only interested in base+index+displacement memory operands
 // that don't use XSP or XBP as the base.  These are most likely to be involved
@@ -248,6 +297,34 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   // a prefix.
 }
 
+
+void InstrumentReturn(void *drcontext, instrlist_t *bb,
+                           instr_t *i)
+{
+
+  instr_t* instr;
+
+  dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+
+  // FIXME: I hope this does not change the flags.
+  bool res = dr_insert_get_seg_base(drcontext, bb, i, DR_SEG_FS, DR_REG_XAX);
+  CHECK(res);
+
+  // TODO: unpoison more bytes?
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM32(DR_REG_XAX, msan_retval_tls_offset),
+          OPND_CREATE_INT32(0)));
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM32(DR_REG_XAX, msan_retval_tls_offset + 4),
+          OPND_CREATE_INT32(0)));
+
+  dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+
+  // The original instruction is left untouched. The above instrumentation is just
+  // a prefix.
+}
+
+
 // For use with binary search.  Modules shouldn't overlap, so we shouldn't have
 // to look at end_.  If that can happen, we won't support such an application.
 bool ModuleDataCompareStart(const ModuleData &left,
@@ -346,6 +423,13 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 #endif
 
   for (instr_t *i = instrlist_first(bb); i != NULL; i = instr_get_next(i)) {
+    int opcode = instr_get_opcode(i);
+    if (opcode == OP_ret || opcode == OP_ret_far) {
+      dr_printf("instrumenting return\n");
+      InstrumentReturn(drcontext, bb, i);
+      continue;
+    }
+
     if (!WantToInstrument(i))
       continue;
 
@@ -438,6 +522,19 @@ DR_EXPORT void dr_init(client_id_t id) {
       app_name == "true" || app_name == "exit" ||
       app_name == "yes" || app_name == "echo")
     return;
+
+  InitializeMSanCallbacks();
+  // FIXME: the shadow is initialized earlier when DR calls one of our wrapper functions
+  // This may change one day.
+  // TODO: make this more robust.
+  // InitializeMSanShadow();
+
+  void* drcontext = dr_get_current_drcontext();
+
+  dr_switch_to_app_state(drcontext);
+  msan_retval_tls_offset = __msan_get_retval_tls_offset();
+  dr_switch_to_dr_state(drcontext);
+  dr_printf("__msan_retval_tls offset: %d\n", msan_retval_tls_offset);
 
   // Standard DR events.
   dr_register_exit_event(event_exit);
