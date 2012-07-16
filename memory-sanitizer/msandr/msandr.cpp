@@ -104,6 +104,8 @@ void InitializeMSanCallbacks() {
     dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
     CHECK(app);
   }
+  g_app_path = app->full_path;
+
 
   const char* callback_name = "__msan_get_retval_tls_offset";
   __msan_get_retval_tls_offset = (int(*)())dr_get_proc_address(app->handle, callback_name);
@@ -340,9 +342,9 @@ ModuleData *LookupModuleByPC(app_pc pc) {
   std::vector<ModuleData>::iterator it =
       lower_bound(g_module_list.begin(), g_module_list.end(), fake_mod_data,
                   ModuleDataCompareStart);
-  if (it == g_module_list.end())
-    return NULL;
-  if (pc < it->start_)
+  // if (it == g_module_list.end())
+  //   return NULL;
+  if (it == g_module_list.end() || pc < it->start_)
     --it;
   CHECK(it->start_ <= pc);
   if (pc >= it->end_) {
