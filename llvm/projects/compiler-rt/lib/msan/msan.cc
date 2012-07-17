@@ -45,7 +45,8 @@ void __msan_warning() {
     return;
   }
   Printf("***UMR***\n");
-  __msan::GdbBackTrace();
+  msan_running_under_dr ?
+    __msan::BacktraceStackTrace() : __msan::GdbBackTrace();
   if (msan_exit_code >= 0) {
     Printf("Exiting\n");
     Die();
@@ -178,7 +179,8 @@ void __msan_set_expect_umr(int expect_umr) {
     msan_expected_umr_found = 0;
   } else if (!msan_expected_umr_found) {
     Printf("Expected UMR not found\n");
-    __msan::GdbBackTrace();
+    msan_running_under_dr ?
+      __msan::BacktraceStackTrace() : __msan::GdbBackTrace();
     Die();
   }
   msan_expect_umr = expect_umr;

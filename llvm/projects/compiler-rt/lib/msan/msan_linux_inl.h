@@ -12,6 +12,9 @@
 #include <signal.h>
 #include <unistd.h>
 #include <unwind.h>
+#include <execinfo.h>
+
+#include "sanitizer_common/sanitizer_procmaps.h"
 
 namespace __msan {
 
@@ -105,6 +108,30 @@ void GdbBackTrace() {
           "> /dev/stderr",
           GetPid(), GetPid());
   system(cmd);
+}
+
+void PrintStack(uptr *addr, uptr size) {
+  ProcessMaps proc_maps;
+  uptr frame_num = 0;
+  for (uptr i = 0; i < size && addr[i]; i++) {
+    uptr pc = addr[i];
+    uptr offset;
+    char filename[4096];
+    if (proc_maps.GetObjectNameAndOffset(pc, &offset,
+            filename, sizeof(filename))) {
+      Printf("    #%zu 0x%zx (%s+0x%zx)\n", frame_num, pc, filename,
+          offset);
+    } else {
+      Printf("    #%zu 0x%zx\n", frame_num, pc);
+    }
+    frame_num++;
+  }
+}
+
+void BacktraceStackTrace() {
+  uptr buffer[50];
+  int res = backtrace((void**)buffer, 50);
+  PrintStack(buffer, 50);
 }
 
 static void MsanTrap(int, siginfo_t *siginfo, void *context) {
