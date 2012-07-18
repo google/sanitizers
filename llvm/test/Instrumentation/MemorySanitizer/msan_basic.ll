@@ -178,3 +178,16 @@ declare void @llvm.memmove.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32,
 ; CHECK: }
 
 
+; Check that we propagate shadow for "select"
+
+define i32 @Select(i32 %a, i32 %b, i32 %c) nounwind uwtable readnone {
+entry:
+  %tobool = icmp ne i32 %c, 0
+  %cond = select i1 %tobool, i32 %a, i32 %b
+  ret i32 %cond
+}
+
+; CHECK: define i32 @Select
+; CHECK: select
+; CHECK-NEXT: select
+; CHECK: }

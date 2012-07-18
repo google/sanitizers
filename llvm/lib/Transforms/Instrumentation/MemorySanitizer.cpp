@@ -565,6 +565,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, getCleanShadow(&I));
   }
 
+  void visitSelectInst(SelectInst& I) {
+    IRBuilder<> IRB(&I);
+    setShadow(&I,  IRB.CreateSelect(I.getCondition(),
+            getShadow(I.getTrueValue()), getShadow(I.getFalseValue()),
+            "_msprop"));
+  }
+
   void visitInstruction(Instruction &I) {
     // Everything else: stop propagating and check for poisoned shadow.
     DEBUG(dbgs() << "DEFAULT: " << I << "\n");
