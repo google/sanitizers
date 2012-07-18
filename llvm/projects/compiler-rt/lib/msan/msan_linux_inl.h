@@ -110,6 +110,7 @@ void GdbBackTrace() {
   system(cmd);
 }
 
+// TODO: move ASan stacktrace-related code to sanitizer_common and reuse it here
 void PrintStack(uptr *addr, uptr size) {
   ProcessMaps proc_maps;
   uptr frame_num = 0;
