@@ -18,6 +18,7 @@ DECLARE_REAL(void, free, void *ptr);
 // Globals.
 static int msan_exit_code = 67;
 static int msan_poison_in_malloc = 1;
+static int msan_poison_with_zeroes = 0;
 static THREAD_LOCAL int msan_expect_umr = 0;
 static THREAD_LOCAL int msan_expected_umr_found = 0;
 
@@ -45,8 +46,7 @@ void __msan_warning() {
     return;
   }
   Printf("***UMR***\n");
-  msan_running_under_dr ?
-    __msan::BacktraceStackTrace() : __msan::GdbBackTrace();
+  __msan::BacktraceStackTrace();
   if (msan_exit_code >= 0) {
     Printf("Exiting\n");
     Die();
@@ -154,7 +154,7 @@ void __msan_unpoison(void *a, uptr size) {
 }
 void __msan_poison(void *a, uptr size) {
   if ((uptr)a < 0x7f0000000000) return;
-  internal_memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a), msan_poison_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
@@ -179,8 +179,7 @@ void __msan_set_expect_umr(int expect_umr) {
     msan_expected_umr_found = 0;
   } else if (!msan_expected_umr_found) {
     Printf("Expected UMR not found\n");
-    msan_running_under_dr ?
-      __msan::BacktraceStackTrace() : __msan::GdbBackTrace();
+    __msan::BacktraceStackTrace();
     Die();
   }
   msan_expect_umr = expect_umr;
