@@ -10,6 +10,7 @@ MSAN_PIN_DIR=$(PIN)/source/tools/SimpleExamples
 MSAN_PIN_SO=$(MSAN_PIN_DIR)/obj-intel64/msan_pin.so
 
 
+INTERCEPTION=../interception
 COMMON=../sanitizer_common
 RTL_HDR=$(wildcard *.h) \
 	$(wildcard $(INTERCEPTION)/*.h) \
@@ -93,4 +94,4 @@ $(GTEST_LIB):
 	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS)" CFLAGS="$(CFLAGS)" CC=$(CC) CXX=$(CXX)
 
 clean: 
-	rm -f *.o msan_test $(LIBMSAN_A)
+	rm -f *.o msan_test msan.a $(LIBMSAN_A)
