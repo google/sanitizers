@@ -110,9 +110,23 @@ void InitializeAsanCallbacks() {
   module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
   if (!app) {
     dr_printf("%s - oops, dr_lookup_module_by_name failed!\n", dr_get_application_name());
-    CHECK(app);
+    dr_abort();
   }
   g_app_path = app->full_path;
+
+  // DR uses LD_PRELOAD to take over, and currently __asan_init is run before DR
+  // initializes. This is good because it sets up the shadow memory for us, but
+  // could change in the future if DR gets early injection. Just to be safe, we
+  // call __asan_init, which is a nop if it's already initialized. We also use
+  // this pointer to detect modules that use asan instrumentation.
+  g_callbacks.__asan_init = dr_get_proc_address(app->handle, "__asan_init");
+  if (g_callbacks.__asan_init == NULL) {
+    dr_fprintf(STDERR, "FATAL: Couldn't find __asan_init in the application"
+               " binary! (%s)\nAre you sure it's instrumented by ASan?\n",
+               app->full_path);
+    dr_abort();
+  }
+  g_callbacks.__asan_init();
 
   for (int is_write = 0; is_write < 2; ++is_write) {
     for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
@@ -127,7 +141,7 @@ void InitializeAsanCallbacks() {
       #endif
       void (*report_func)() = dr_get_proc_address(app->handle, name_buffer);
       if (report_func == NULL) {
-        dr_printf("Couldn't find `%s` in %s\n", name_buffer, app->full_path);
+        dr_printf("WARNING: Couldn't find `%s` in %s\n", name_buffer, app->full_path);
         continue;
       }
       #ifdef VERBOSE_VERBOSE
@@ -137,14 +151,6 @@ void InitializeAsanCallbacks() {
           (AsanCallbacks::Report)(report_func);
     }
   }
-
-  // DR uses LD_PRELOAD to take over, and currently __asan_init is run before DR
-  // initializes.  This is good because it sets up the shadow memory for us, but
-  // could change in the future if DR gets early injection.  Just to be safe, we
-  // call __asan_init, which is a nop if it's already initialized.  We also use
-  // this pointer to detect modules that use asan instrumentation.
-  g_callbacks.__asan_init = dr_get_proc_address(app->handle, "__asan_init");
-  g_callbacks.__asan_init();
 
   dr_free_module_data(app);
 }
@@ -463,16 +469,21 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   if (path == g_app_path) {
     return false;
   }
+
+  // TODO(timurrrr): investigate each exclusion.
   if (path.find("/libc-") != string::npos ||
       path.find("/ld-") != string::npos ||
-      path.find("libosmesa") != string::npos ||
-      // ASan i#80: Don't instrument compiler instrumented code.
-      // TODO: We can check if the module imports __asan_init, but we'll need DR
-      // support or a bunch of ELF parsing routines in dr_asan.
-      path.find("libppGoogleNaClPluginChrome") != string::npos ||
+      path.find("/libosmesa") != string::npos ||
       path.find("/libpthread") != string::npos) {
     // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
     // can't map to the shadow space.
+    return false;
+  }
+  if (path.find("/libppGoogleNaClPluginChrome") != string::npos) {
+    // TODO(rnk): Don't instrument modules which were already instrumented by
+    // the compiler ASan. We can check if the module imports __asan_init, but
+    // we'll need DR support or a bunch of ELF parsing routines in dr_asan.
+    // See http://code.google.com/p/address-sanitizer/issues/detail?id=80
     return false;
   }
   return true;
