@@ -18,10 +18,12 @@ DECLARE_REAL(void, free, void *ptr);
 // Globals.
 static int msan_exit_code = 67;
 static int msan_poison_in_malloc = 1;
+static int msan_poison_with_zeroes = 0;
 static THREAD_LOCAL int msan_expect_umr = 0;
 static THREAD_LOCAL int msan_expected_umr_found = 0;
 
 static int msan_running_under_pin = 0;
+static int msan_running_under_dr = 0;
 THREAD_LOCAL long long __msan_param_tls[100];
 THREAD_LOCAL long long __msan_retval_tls[8];
 static long long *main_thread_param_tls;
@@ -33,6 +35,10 @@ static bool IsRunningUnderPin() {
   return internal_strstr(__msan::GetProcSelfMaps(), "/pinbin") != 0;
 }
 
+static bool IsRunningUnderDr() {
+  return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
+}
+
 void __msan_warning() {
   if (msan_expect_umr) {
     // Printf("Expected UMR\n");
@@ -40,7 +46,7 @@ void __msan_warning() {
     return;
   }
   Printf("***UMR***\n");
-  __msan::GdbBackTrace();
+  __msan::BacktraceStackTrace();
   if (msan_exit_code >= 0) {
     Printf("Exiting\n");
     Die();
@@ -121,16 +127,18 @@ void __msan_init() {
   msan_init_is_running = 1;
   main_thread_param_tls = __msan_param_tls;
   msan_running_under_pin = IsRunningUnderPin();
+  msan_running_under_dr = IsRunningUnderDr();
   // Must call it here for PIN to intercept it.
   __msan_clear_on_return();
   if (!msan_running_under_pin) {
-    if (!InitShadow(true, true, true)) {
+    if (!InitShadow(/*true*/ false, true, true)) {
       Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
       Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
       CatProcSelfMaps();
       Die();
     }
   }
+
   __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
   // Printf("MemorySanitizer init done\n");
@@ -141,18 +149,24 @@ void __msan_init() {
 // Interface.
 
 void __msan_unpoison(void *a, uptr size) {
+  if ((uptr)a < 0x7f0000000000) return;
   internal_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 void __msan_poison(void *a, uptr size) {
-  internal_memset((void*)MEM_TO_SHADOW((uptr)a), -1, size);
+  if ((uptr)a < 0x7f0000000000) return;
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a), msan_poison_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
+  if ((uptr)dst < 0x7f0000000000) return;
+  if ((uptr)src < 0x7f0000000000) return;
   internal_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
 void __msan_move_poison(void *dst, const void *src, uptr size) {
+  if ((uptr)dst < 0x7f0000000000) return;
+  if ((uptr)src < 0x7f0000000000) return;
   internal_memmove((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
@@ -165,7 +179,7 @@ void __msan_set_expect_umr(int expect_umr) {
     msan_expected_umr_found = 0;
   } else if (!msan_expected_umr_found) {
     Printf("Expected UMR not found\n");
-    __msan::GdbBackTrace();
+    __msan::BacktraceStackTrace();
     Die();
   }
   msan_expect_umr = expect_umr;
@@ -203,12 +217,27 @@ int __msan_set_poison_in_malloc(int do_poison) {
 void __msan_break_optimization(void *x) { }
 
 int  __msan_has_dynamic_component() {
-  return msan_running_under_pin;
+  return msan_running_under_pin || msan_running_under_dr;
 }
 
 NOINLINE
 void __msan_clear_on_return() {
   __msan_param_tls[0] = 0;
+}
+
+static void* get_tls_base() {
+  unsigned long long p;
+  asm("mov %%fs:0, %0"
+      : "=r"(p) ::);
+  return (void*)p;
+}
+
+int __msan_get_retval_tls_offset() {
+  // volatile here is needed to avoid UB, because the compiler thinks that we are doing address
+  // arithmetics on unrelated pointers, and takes some shortcuts
+  volatile sptr retval_tls_p = (sptr)&__msan_retval_tls;
+  volatile sptr tls_base_p = (sptr)get_tls_base();
+  return retval_tls_p - tls_base_p;
 }
 
 #include "msan_linux_inl.h"

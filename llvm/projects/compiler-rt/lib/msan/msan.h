@@ -23,6 +23,7 @@ void *MsanReallocate(void *oldp, uptr size,
                      uptr alignment, bool zeroise);
 void MsanDeallocate(void *ptr);
 void GdbBackTrace();  // FIXME
+void BacktraceStackTrace();
 void InstallTrapHandler();
 
 extern int msan_inited;

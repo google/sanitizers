@@ -33,6 +33,9 @@ void __msan_print_shadow(const void *x, int size);
 void __msan_print_param_shadow();
 int  __msan_has_dynamic_component();
 
+// Returns x such that %fs:x is the first byte of __msan_retval_tls.
+int  __msan_get_retval_tls_offset();
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

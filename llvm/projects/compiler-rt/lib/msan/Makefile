@@ -31,7 +31,7 @@ CLANG_BUILD=$(ROOT)/../../../../build/Release+Asserts
 CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1 -fno-exceptions
 RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding
-LDFLAGS=-pie -lpthread
+LDFLAGS=-pie
 MSAN_EXTRA_OPT=
 MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT)
 # MSAN_DEBUG=-mllvm -debug-only=msan
@@ -43,9 +43,12 @@ LIBMSAN_A=$(LIBMSAN_INST_DIR)/libclang_rt.msan-$(ARCH).a
 
 all: msan_test # pin
 
-msan_test: msan_test.cc $(GTEST_LIB) $(LIBMSAN_A)
+libmsandr_test.so: msandr_test_so.cc $(GTEST_LIB)
+	$(CXX) -shared -fPIC -g -O1 $< -o $@
+
+msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBMSAN_A)
 	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -I.. $(MSAN_OPT) \
-		$< $(GTEST_LIB) -o $@ -ldl $(LDFLAGS)
+		$< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) -Wl,-rpath=$(ROOT)
 
 msan.a: $(LIBMSAN_OBJ)
 	ar ru $@ $^
@@ -70,7 +73,7 @@ $(MSAN_PIN_SO): msan_pin.cpp
 	cd $(MSAN_PIN_DIR) && make
 
 t:
-	(ulimit -s 4096; make clean && make -j 10 2> log && ./msan_test )
+	(ulimit -s 4096; make clean && make -j 10 2> log && ./msan_test --gtest_filter=-MemorySanitizerDr.*)
 
 
 # Do once: cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ~/llvm_msan/
