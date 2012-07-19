@@ -127,7 +127,11 @@ void InitializeAsanCallbacks() {
                app->full_path);
     dr_abort();
   }
+
+  void *dc = dr_get_current_drcontext();
+  dr_switch_to_app_state(dc);
   g_callbacks.__asan_init();
+  dr_switch_to_dr_state(dc);
 
   for (int is_write = 0; is_write < 2; ++is_write) {
     for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
@@ -474,7 +478,6 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   // TODO(timurrrr): investigate each exclusion.
   if (path.find("/libc-") != string::npos ||
       path.find("/ld-") != string::npos ||
-      path.find("/libosmesa") != string::npos ||
       path.find("/libpthread") != string::npos) {
     // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
     // can't map to the shadow space.
