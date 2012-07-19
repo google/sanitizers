@@ -107,13 +107,13 @@ INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
   return res;
 }
 
-// INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
-//   ENSURE_MSAN_INITED();
-//   char* res = REAL(gcvt)(number, ndigit, buf);
-//   size_t n = REAL(strlen)(buf);
-//   __msan_unpoison(buf, n + 1);
-//   return res;
-// }
+INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
+  ENSURE_MSAN_INITED();
+  char* res = REAL(gcvt)(number, ndigit, buf);
+  size_t n = REAL(strlen)(buf);
+  __msan_unpoison(buf, n + 1);
+  return res;
+}
 
 INTERCEPTOR(char*, strcat, char* dest, const char* src) {
   ENSURE_MSAN_INITED();
@@ -187,7 +187,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(strncpy));
   CHECK(INTERCEPT_FUNCTION(strlen));
   CHECK(INTERCEPT_FUNCTION(strnlen));
-  // CHECK(INTERCEPT_FUNCTION(gcvt));
+  CHECK(INTERCEPT_FUNCTION(gcvt));
   CHECK(INTERCEPT_FUNCTION(strcat));
   CHECK(INTERCEPT_FUNCTION(strncat));
   CHECK(INTERCEPT_FUNCTION(getenv));
