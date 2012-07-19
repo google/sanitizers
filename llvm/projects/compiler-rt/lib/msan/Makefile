@@ -73,7 +73,7 @@ $(MSAN_PIN_SO): msan_pin.cpp
 	cd $(MSAN_PIN_DIR) && make
 
 t:
-	(ulimit -s 4096; make clean && make -j 10 2> log && ./msan_test )
+	(ulimit -s 4096; make clean && make -j 10 2> log && ./msan_test --gtest_filter=-MemorySanitizerDr.*)
 
 
 # Do once: cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ~/llvm_msan/
