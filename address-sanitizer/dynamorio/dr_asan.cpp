@@ -119,6 +119,7 @@ void InitializeAsanCallbacks() {
   // could change in the future if DR gets early injection. Just to be safe, we
   // call __asan_init, which is a nop if it's already initialized. We also use
   // this pointer to detect modules that use asan instrumentation.
+  // TODO(eugenis): will it work with the correct TLS this way?
   g_callbacks.__asan_init = dr_get_proc_address(app->handle, "__asan_init");
   if (g_callbacks.__asan_init == NULL) {
     dr_fprintf(STDERR, "FATAL: Couldn't find __asan_init in the application"
