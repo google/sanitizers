@@ -72,6 +72,9 @@ using namespace llvm;
 static cl::opt<bool> ClUseTrap("msan-use-trap",
        cl::desc("use trap (ud2) instead of __msan_warning"),
        cl::Hidden, cl::init(true));
+static cl::opt<bool> ClPoisonStack("msan-poison-stack",
+       cl::desc("poison uninitialized stack variables"),
+       cl::Hidden, cl::init(true));
 
 namespace {
 
@@ -561,8 +564,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void visitAllocaInst(AllocaInst &I) {
-    // FIXME: poison the allocated object. Not implemented yet.
     setShadow(&I, getCleanShadow(&I));
+    if (ClPoisonStack) {
+      IRBuilder<> IRB(I.getNextNode());
+      Value *ShadowBase = getShadowPtr(&I, I.getType(), IRB);
+      uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
+      IRB.CreateMemSet(ShadowBase, IRB.getInt8(0), Size, I.getAlignment());
+    }
   }
 
   void visitSelectInst(SelectInst& I) {
