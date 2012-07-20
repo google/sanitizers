@@ -70,8 +70,8 @@
 using namespace llvm;
 
 static cl::opt<bool> ClUseTrap("msan-use-trap",
-       cl::desc("use llbm.trap instead of __msan_warning"),
-       cl::Hidden, cl::init(false));
+       cl::desc("use trap (ud2) instead of __msan_warning"),
+       cl::Hidden, cl::init(true));
 
 namespace {
 
