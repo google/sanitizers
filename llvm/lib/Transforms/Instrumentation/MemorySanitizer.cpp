@@ -240,6 +240,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // dbgs() << " notSized() " << *V << "\n";
       return NULL;
     }
+    // For integer type, shadow is the same as the original type.
+    // This may return weird-sized types like i1.
+    if (IntegerType* it = dyn_cast<IntegerType>(OrigTy))
+      return it;
     uint32_t TypeSize = MS.TD->getTypeStoreSizeInBits(OrigTy);
     return IntegerType::get(*MS.C, TypeSize);
   }
@@ -437,6 +441,48 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitAdd(BinaryOperator &I) { handleShadowOr(I); }
   void visitSub(BinaryOperator &I) { handleShadowOr(I); }
   void visitXor(BinaryOperator &I) { handleShadowOr(I); }
+
+  void handleICmpEQ(ICmpInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *A = I.getOperand(0);
+    Value *B = I.getOperand(1);
+    Value *Sa = getShadow(A);
+    Value *Sb = getShadow(B);
+    if (A->getType()->isPointerTy())
+      A = IRB.CreatePointerCast(A, MS.IntptrTy);
+    if (B->getType()->isPointerTy())
+      B = IRB.CreatePointerCast(B, MS.IntptrTy);
+    // A == B  <==>  (C = A^B) == 0
+    // Sc = Sa | Sb
+    Value *C = IRB.CreateXor(A, B);
+    Value *Sc = IRB.CreateOr(Sa, Sb);
+    // Now dealing with i = (C == 0) comparison.
+    // Result is defined if one of the following is true
+    // * there is a defined 1 bit in C
+    // * C is fully defined and == 0
+    // Si = !(C & ~Sc) && Sc
+    Value* Zero = ConstantInt::get(A->getType(), 0);
+    Value* MinusOne = ConstantInt::get(A->getType(), -1, /* isSigned */ true);
+    Value* Si = IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
+        IRB.CreateICmpEQ(IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
+    setShadow(&I, Si);
+  }
+
+  void handleICmpNE(ICmpInst &I) {
+    // TODO: implement this
+    visitInstruction(I);
+  }
+
+  void visitICmpInst(ICmpInst &I) {
+    switch (I.getSignedPredicate()) {
+    case llvm::CmpInst::ICMP_EQ:
+      handleICmpEQ(I); break;
+    case llvm::CmpInst::ICMP_NE:
+      handleICmpNE(I); break;
+    default:
+      visitInstruction(I);
+    }
+  }
 
   void handleShift(BinaryOperator &I) {
     IRBuilder<> IRB(&I);

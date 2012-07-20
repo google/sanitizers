@@ -240,4 +240,8 @@ int __msan_get_retval_tls_offset() {
   return retval_tls_p - tls_base_p;
 }
 
+void __msan_partial_poison(void* data, void* shadow, uptr size) {
+  internal_memcpy((void*)MEM_TO_SHADOW((uptr)data), shadow, size);
+}
+
 #include "msan_linux_inl.h"
