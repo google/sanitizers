@@ -73,6 +73,10 @@ static cl::opt<bool> ClUseTrap("msan-use-trap",
        cl::desc("use trap (ud2) instead of __msan_warning"),
        cl::Hidden, cl::init(true));
 
+static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
+       cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
+       cl::Hidden, cl::init(true));
+
 namespace {
 
 /// MemorySanitizer: instrument the code in module to find uninitialized reads.
@@ -442,7 +446,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitSub(BinaryOperator &I) { handleShadowOr(I); }
   void visitXor(BinaryOperator &I) { handleShadowOr(I); }
 
-  void handleICmpEQ(ICmpInst &I) {
+  void handleEqualityComparison(ICmpInst &I) {
     IRBuilder<> IRB(&I);
     Value *A = I.getOperand(0);
     Value *B = I.getOperand(1);
@@ -453,10 +457,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (B->getType()->isPointerTy())
       B = IRB.CreatePointerCast(B, MS.IntptrTy);
     // A == B  <==>  (C = A^B) == 0
+    // A != B  <==>  (C = A^B) != 0
     // Sc = Sa | Sb
     Value *C = IRB.CreateXor(A, B);
     Value *Sc = IRB.CreateOr(Sa, Sb);
-    // Now dealing with i = (C == 0) comparison.
+    // Now dealing with i = (C == 0) comparison (or C != 0, does not matter now)
     // Result is defined if one of the following is true
     // * there is a defined 1 bit in C
     // * C is fully defined and == 0
@@ -468,20 +473,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, Si);
   }
 
-  void handleICmpNE(ICmpInst &I) {
-    // TODO: implement this
-    visitInstruction(I);
-  }
-
   void visitICmpInst(ICmpInst &I) {
-    switch (I.getSignedPredicate()) {
-    case llvm::CmpInst::ICMP_EQ:
-      handleICmpEQ(I); break;
-    case llvm::CmpInst::ICMP_NE:
-      handleICmpNE(I); break;
-    default:
+    if (ClHandleICmp && I.isEquality())
+      handleEqualityComparison(I);
+    else
       visitInstruction(I);
-    }
   }
 
   void handleShift(BinaryOperator &I) {
