@@ -611,7 +611,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRBuilder<> IRB(I.getNextNode());
       Value *ShadowBase = getShadowPtr(&I, I.getType(), IRB);
       uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
-      IRB.CreateMemSet(ShadowBase, IRB.getInt8(0), Size, I.getAlignment());
+      IRB.CreateMemSet(ShadowBase, IRB.getInt8(0xff), Size, I.getAlignment());
     }
   }
 
