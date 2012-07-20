@@ -196,6 +196,33 @@ TEST(MemorySanitizer, AndOr) {
   EXPECT_POISONED(v_u4 = *GetPoisoned<bool>() & *GetPoisoned<bool>());
 }
 
+template<class T>
+static void testNot(T value, T shadow) {
+  __msan_partial_poison(&value, &shadow, sizeof(T));
+  volatile bool v_T = !value;
+}
+
+TEST(MemorySanitizer, Not) {
+  testNot<U4>(0x0, 0x0);
+  testNot<U4>(0xFFFFFFFF, 0x0);
+  EXPECT_POISONED(testNot<U4>(0xFFFFFFFF, 0xFFFFFFFF));
+  testNot<U4>(0xFF000000, 0x0FFFFFFF);
+  testNot<U4>(0xFF000000, 0x00FFFFFF);
+  testNot<U4>(0xFF000000, 0x0000FFFF);
+  testNot<U4>(0xFF000000, 0x00000000);
+  EXPECT_POISONED(testNot<U4>(0xFF000000, 0xFF000000));
+  testNot<U4>(0xFF800000, 0xFF000000);
+  EXPECT_POISONED(testNot<U4>(0x00008000, 0x00008000));
+
+  testNot<U1>(0x0, 0x0);
+  testNot<U1>(0xFF, 0xFE);
+  testNot<U1>(0xFF, 0x0);
+  EXPECT_POISONED(testNot<U1>(0xFF, 0xFF));
+
+  EXPECT_POISONED(testNot<void*>((void*)0xFFFFFF, (void*)(-1)));
+  testNot<void*>((void*)0xFFFFFF, (void*)(-2));
+}
+
 TEST(MemorySanitizer, Shift) {
   U4 *up = GetPoisoned<U4>();
   ((U1*)up)[0] = 0;
