@@ -57,7 +57,6 @@ namespace {
 struct AsanCallbacks {
   typedef void (*Report)(void*);
   Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
-  void (*__asan_init)(void);
 };
 
 class ModuleData {
@@ -79,6 +78,7 @@ class ModuleData {
 AsanCallbacks g_callbacks = {0};
 
 string g_app_path;
+bool should_instrument_app = false;
 
 // A vector of loaded modules sorted by module bounds.  We lookup the current PC
 // in here from the bb event.  This is better than an rb tree because the lookup
@@ -119,19 +119,30 @@ void InitializeAsanCallbacks() {
   // could change in the future if DR gets early injection. Just to be safe, we
   // call __asan_init, which is a nop if it's already initialized. We also use
   // this pointer to detect modules that use asan instrumentation.
-  // TODO(eugenis): will it work with the correct TLS this way?
-  g_callbacks.__asan_init = dr_get_proc_address(app->handle, "__asan_init");
-  if (g_callbacks.__asan_init == NULL) {
+  void (*app_asan_init)(void);
+  app_asan_init = dr_get_proc_address(app->handle, "__asan_init");
+  if (app_asan_init == NULL) {
     dr_fprintf(STDERR, "FATAL: Couldn't find __asan_init in the application"
                " binary! (%s)\nAre you sure it's instrumented by ASan?\n",
                app->full_path);
     dr_abort();
   }
-
   void *dc = dr_get_current_drcontext();
   dr_switch_to_app_state(dc);
-  g_callbacks.__asan_init();
+  app_asan_init();
   dr_switch_to_dr_state(dc);
+
+  if (dr_get_proc_address(app->handle, "__asan_address_is_poisoned") == NULL) {
+    // Special case: we do want to instrument the main binary if it is not
+    // instruemnted. However, it's rather tricky to check.
+    // Instead, we can link the non-instruemnted binary with a fake runtime
+    // which only maps shadow memory and nothing else. Such a runtime will never
+    // export __asan_address_is_poisoned which is exported by the real asanified
+    // binaries.
+    should_instrument_app = true;
+    dr_fprintf(STDERR, "INFO: Not found __asan_address_is_poisoned, "
+               "will instrument the main module too.\n");
+  }
 
   for (int is_write = 0; is_write < 2; ++is_write) {
     for (int size_l2 = 0; size_l2 < 5; ++size_l2) {
@@ -472,7 +483,7 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   // TODO(rnk): Flags for blacklist would get wired in here.
   const string &path = mod_data->path_;
   if (path == g_app_path) {
-    return false;
+    return should_instrument_app;
   }
 
   // TODO(timurrrr): investigate each exclusion.
@@ -496,11 +507,16 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
 dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                                   bool for_trace, bool translating) {
   app_pc pc = dr_fragment_app_pc(tag);
+  // TODO(timurrrr): do we really need to run the slow LookupModuleByPC anymore?
   ModuleData *mod_data = LookupModuleByPC(pc);
   if (mod_data == NULL && !ShouldInstrumentNonModuleCode())
     return DR_EMIT_DEFAULT;
-  CHECK(mod_data->should_instrument_);
   string mod_path = (mod_data ? mod_data->path_ : "<no module, JITed?>");
+  if (!mod_data->should_instrument_) {
+    dr_fprintf(STDERR, "WTF? should_instrument_==false in %s, module=`%s`\n",
+               __FUNCTION__, mod_path.c_str());
+    return DR_EMIT_DEFAULT;
+  }
 #if defined(VERBOSE)
 # if defined(VERBOSE_VERBOSE)
   dr_printf("============================================================\n");
