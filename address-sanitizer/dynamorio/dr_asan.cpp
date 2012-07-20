@@ -494,6 +494,12 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
     // can't map to the shadow space.
     return false;
   }
+  if (path.find("/libosmesa") != string::npos) {
+    // Don't instrument Mesa as it crashes DRT under DRASan. Might be related to
+    // the DRT/Mesa problems we see under Valgrind...
+    // TODO(timurrrr): investigate.
+    return false;
+  }
   if (path.find("/libppGoogleNaClPluginChrome") != string::npos) {
     // TODO(rnk): Don't instrument modules which were already instrumented by
     // the compiler ASan. We can check if the module imports __asan_init, but
