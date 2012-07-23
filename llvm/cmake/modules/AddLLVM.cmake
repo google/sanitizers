@@ -1,3 +1,4 @@
+include(LLVMParseArguments)
 include(LLVMProcessSources)
 include(LLVM-Config)
 
@@ -65,8 +66,8 @@ ${name} ignored.")
       set_target_properties( ${name} PROPERTIES EXCLUDE_FROM_ALL ON)
     else()
       install(TARGETS ${name}
-	LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-	ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+        LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+        ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
     endif()
   endif()
 
@@ -233,6 +234,7 @@ function(configure_lit_site_cfg input output)
   set(LLVM_SOURCE_DIR ${LLVM_MAIN_SRC_DIR})
   set(LLVM_BINARY_DIR ${LLVM_BINARY_DIR})
   set(LLVM_TOOLS_DIR "${LLVM_TOOLS_BINARY_DIR}/%(build_config)s")
+  set(LLVM_LIBS_DIR "${LLVM_BINARY_DIR}/lib/%(build_config)s")
   set(PYTHON_EXECUTABLE ${PYTHON_EXECUTABLE})
   set(ENABLE_SHARED ${LLVM_SHARED_LIBS_ENABLED})
   set(SHLIBPATH_VAR ${SHLIBPATH_VAR})
@@ -247,4 +249,51 @@ function(configure_lit_site_cfg input output)
   set(HOST_ARCH ${CMAKE_HOST_SYSTEM_PROCESSOR})
 
   configure_file(${input} ${output} @ONLY)
+endfunction()
+
+# A raw function to create a lit target. This is used to implement the testuite
+# management functions.
+function(add_lit_target target comment)
+  parse_arguments(ARG "PARAMS;DEPENDS;ARGS" "" ${ARGN})
+  set(LIT_ARGS "${ARG_ARGS} ${LLVM_LIT_ARGS}")
+  separate_arguments(LIT_ARGS)
+  set(LIT_COMMAND
+    ${PYTHON_EXECUTABLE}
+    ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py
+    --param build_config=${CMAKE_CFG_INTDIR}
+    --param build_mode=${RUNTIME_BUILD_MODE}
+    ${LIT_ARGS}
+    )
+  foreach(param ${ARG_PARAMS})
+    list(APPEND LIT_COMMAND --param ${param})
+  endforeach()
+  add_custom_target(${target}
+    COMMAND ${LIT_COMMAND} ${ARG_DEFAULT_ARGS}
+    COMMENT "${comment}"
+    )
+
+  # It would be nice to use the DEPENDS clause in add_custom_target above, but
+  # that has bugs with the CMake 2.8.0 installed on Ubuntu Lucid when the entry
+  # in the depends is another custom target. Instead we add them through an
+  # explicit add_dependencies.
+  add_dependencies(${target} ${ARG_DEPENDS})
+endfunction()
+
+# A function to add a set of lit test suites to be driven through 'check-*' targets.
+function(add_lit_testsuite target comment)
+  parse_arguments(ARG "PARAMS;DEPENDS;ARGS" "" ${ARGN})
+
+  # Register the testsuites, params and depends for the global check rule.
+  set_property(GLOBAL APPEND PROPERTY LLVM_LIT_TESTSUITES ${ARG_DEFAULT_ARGS})
+  set_property(GLOBAL APPEND PROPERTY LLVM_LIT_PARAMS ${ARG_PARAMS})
+  set_property(GLOBAL APPEND PROPERTY LLVM_LIT_DEPENDS ${ARG_DEPENDS})
+  set_property(GLOBAL APPEND PROPERTY LLVM_LIT_EXTRA_ARGS ${ARG_ARGS})
+
+  # Produce a specific suffixed check rule.
+  add_lit_target(${target} ${comment}
+    ${ARG_DEFAULT_ARGS}
+    PARAMS ${ARG_PARAMS}
+    DEPENDS ${ARG_DEPENDS}
+    ARGS ${ARG_ARGS}
+    )
 endfunction()

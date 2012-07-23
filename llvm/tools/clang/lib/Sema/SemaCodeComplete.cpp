@@ -1955,6 +1955,19 @@ static void AddOrdinaryNameResults(Sema::ParserCompletionContext CCC,
       AddObjCExpressionResults(Results, true);
     }
 
+    if (SemaRef.getLangOpts().C11) {
+      // _Alignof
+      Builder.AddResultTypeChunk("size_t");
+      if (SemaRef.getASTContext().Idents.get("alignof").hasMacroDefinition())
+        Builder.AddTypedTextChunk("alignof");
+      else
+        Builder.AddTypedTextChunk("_Alignof");
+      Builder.AddChunk(CodeCompletionString::CK_LeftParen);
+      Builder.AddPlaceholderChunk("type");
+      Builder.AddChunk(CodeCompletionString::CK_RightParen);
+      Results.AddResult(Result(Builder.TakeString()));
+    }
+
     // sizeof expression
     Builder.AddResultTypeChunk("size_t");
     Builder.AddTypedTextChunk("sizeof");
@@ -2440,8 +2453,10 @@ static void AddTypedNameChunk(ASTContext &Context, const PrintingPolicy &Policy,
 
 CodeCompletionString *CodeCompletionResult::CreateCodeCompletionString(Sema &S,
                                          CodeCompletionAllocator &Allocator,
-                                         CodeCompletionTUInfo &CCTUInfo) {
-  return CreateCodeCompletionString(S.Context, S.PP, Allocator, CCTUInfo);
+                                         CodeCompletionTUInfo &CCTUInfo,
+                                         bool IncludeBriefComments) {
+  return CreateCodeCompletionString(S.Context, S.PP, Allocator, CCTUInfo,
+                                    IncludeBriefComments);
 }
 
 /// \brief If possible, create a new code completion string for the given
@@ -2454,7 +2469,8 @@ CodeCompletionString *
 CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
                                                  Preprocessor &PP,
                                            CodeCompletionAllocator &Allocator,
-                                           CodeCompletionTUInfo &CCTUInfo) {
+                                           CodeCompletionTUInfo &CCTUInfo,
+                                           bool IncludeBriefComments) {
   CodeCompletionBuilder Result(Allocator, CCTUInfo, Priority, Availability);
   
   PrintingPolicy Policy = getCompletionPrintingPolicy(Ctx, PP);
@@ -2524,7 +2540,14 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
   assert(Kind == RK_Declaration && "Missed a result kind?");
   NamedDecl *ND = Declaration;
   Result.addParentContext(ND->getDeclContext());
-                          
+
+  if (IncludeBriefComments) {
+    // Add documentation comment, if it exists.
+    if (const RawComment *RC = Ctx.getRawCommentForDecl(ND)) {
+      Result.addBriefComment(RC->getBriefText(Ctx));
+    }
+  }
+
   if (StartsNestedNameSpecifier) {
     Result.AddTypedTextChunk(
                       Result.getAllocator().CopyString(ND->getNameAsString()));
@@ -4442,34 +4465,28 @@ static void AddObjCExpressionResults(ResultBuilder &Results, bool NeedAt) {
   Builder.AddTextChunk("\"");
   Results.AddResult(Result(Builder.TakeString()));
 
-  // @[ objects, ... ]
+  // @[objects, ...]
   Builder.AddResultTypeChunk("NSArray *");
   Builder.AddTypedTextChunk(OBJC_AT_KEYWORD_NAME(NeedAt,"["));
-  Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddPlaceholderChunk("objects, ...");
-  Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddChunk(CodeCompletionString::CK_RightBracket);
   Results.AddResult(Result(Builder.TakeString()));
 
-  // @{ key : object, ... }
+  // @{key : object, ...}
   Builder.AddResultTypeChunk("NSDictionary *");
   Builder.AddTypedTextChunk(OBJC_AT_KEYWORD_NAME(NeedAt,"{"));
-  Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddPlaceholderChunk("key");
   Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddChunk(CodeCompletionString::CK_Colon);
   Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddPlaceholderChunk("object, ...");
-  Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddChunk(CodeCompletionString::CK_RightBrace);
   Results.AddResult(Result(Builder.TakeString()));
 
-  // @( expression )
+  // @(expression)
   Builder.AddResultTypeChunk("id");
   Builder.AddTypedTextChunk(OBJC_AT_KEYWORD_NAME(NeedAt, "("));
-  Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddPlaceholderChunk("expression");
-  Builder.AddChunk(CodeCompletionString::CK_HorizontalSpace);
   Builder.AddChunk(CodeCompletionString::CK_RightParen);
   Results.AddResult(Result(Builder.TakeString()));
 }

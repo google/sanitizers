@@ -137,8 +137,17 @@ DeduceTemplateArguments(Sema &S,
 /// of a non-type template parameter, return the declaration of that
 /// non-type template parameter.
 static NonTypeTemplateParmDecl *getDeducedParameterFromExpr(Expr *E) {
-  if (ImplicitCastExpr *IC = dyn_cast<ImplicitCastExpr>(E))
-    E = IC->getSubExpr();
+  // If we are within an alias template, the expression may have undergone
+  // any number of parameter substitutions already.
+  while (1) {
+    if (ImplicitCastExpr *IC = dyn_cast<ImplicitCastExpr>(E))
+      E = IC->getSubExpr();
+    else if (SubstNonTypeTemplateParmExpr *Subst =
+               dyn_cast<SubstNonTypeTemplateParmExpr>(E))
+      E = Subst->getReplacement();
+    else
+      break;
+  }
 
   if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E))
     return dyn_cast<NonTypeTemplateParmDecl>(DRE->getDecl());
@@ -2172,8 +2181,9 @@ Sema::DeduceTemplateArguments(ClassTemplatePartialSpecializationDecl *Partial,
                                     TemplateArgs, Info, Deduced))
     return Result;
 
+  SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(), Deduced.end());
   InstantiatingTemplate Inst(*this, Partial->getLocation(), Partial,
-                             Deduced.data(), Deduced.size(), Info);
+                             DeducedArgs, Info);
   if (Inst)
     return TDK_InstantiationDepth;
 
@@ -2257,8 +2267,9 @@ Sema::SubstituteExplicitTemplateArguments(
   // Enter a new template instantiation context where we check the
   // explicitly-specified template arguments against this function template,
   // and then substitute them into the function parameter types.
+  SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(), Deduced.end());
   InstantiatingTemplate Inst(*this, FunctionTemplate->getLocation(),
-                             FunctionTemplate, Deduced.data(), Deduced.size(),
+                             FunctionTemplate, DeducedArgs,
            ActiveTemplateInstantiation::ExplicitTemplateArgumentSubstitution,
                              Info);
   if (Inst)
@@ -2425,6 +2436,16 @@ CheckOriginalCallArgDeduction(Sema &S, Sema::OriginalCallArg OriginalArg,
     
     Qualifiers AQuals = A.getQualifiers();
     Qualifiers DeducedAQuals = DeducedA.getQualifiers();
+
+    // Under Objective-C++ ARC, the deduced type may have implicitly been
+    // given strong lifetime. If so, update the original qualifiers to
+    // include this strong lifetime.
+    if (S.getLangOpts().ObjCAutoRefCount &&
+        DeducedAQuals.getObjCLifetime() == Qualifiers::OCL_Strong &&
+        AQuals.getObjCLifetime() == Qualifiers::OCL_None) {
+      AQuals.setObjCLifetime(Qualifiers::OCL_Strong);
+    }
+
     if (AQuals == DeducedAQuals) {
       // Qualifiers match; there's nothing to do.
     } else if (!DeducedAQuals.compatiblyIncludes(AQuals)) {
@@ -2503,8 +2524,9 @@ Sema::FinishTemplateArgumentDeduction(FunctionTemplateDecl *FunctionTemplate,
 
   // Enter a new template instantiation context while we instantiate the
   // actual function declaration.
+  SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(), Deduced.end());
   InstantiatingTemplate Inst(*this, FunctionTemplate->getLocation(),
-                             FunctionTemplate, Deduced.data(), Deduced.size(),
+                             FunctionTemplate, DeducedArgs,
               ActiveTemplateInstantiation::DeducedTemplateArgumentSubstitution,
                              Info);
   if (Inst)
@@ -3464,6 +3486,41 @@ namespace {
       return E;
     }
   };
+
+  /// Determine whether the specified type (which contains an 'auto' type
+  /// specifier) is dependent. This is not trivial, because the 'auto' specifier
+  /// itself claims to be type-dependent.
+  bool isDependentAutoType(QualType Ty) {
+    while (1) {
+      QualType Pointee = Ty->getPointeeType();
+      if (!Pointee.isNull()) {
+        Ty = Pointee;
+      } else if (const MemberPointerType *MPT = Ty->getAs<MemberPointerType>()){
+        if (MPT->getClass()->isDependentType())
+          return true;
+        Ty = MPT->getPointeeType();
+      } else if (const FunctionProtoType *FPT = Ty->getAs<FunctionProtoType>()){
+        for (FunctionProtoType::arg_type_iterator I = FPT->arg_type_begin(),
+                                                  E = FPT->arg_type_end();
+             I != E; ++I)
+          if ((*I)->isDependentType())
+            return true;
+        Ty = FPT->getResultType();
+      } else if (Ty->isDependentSizedArrayType()) {
+        return true;
+      } else if (const ArrayType *AT = Ty->getAsArrayTypeUnsafe()) {
+        Ty = AT->getElementType();
+      } else if (Ty->getAs<DependentSizedExtVectorType>()) {
+        return true;
+      } else if (const VectorType *VT = Ty->getAs<VectorType>()) {
+        Ty = VT->getElementType();
+      } else {
+        break;
+      }
+    }
+    assert(Ty->getAs<AutoType>() && "didn't find 'auto' in auto type");
+    return false;
+  }
 }
 
 /// \brief Deduce the type for an auto type-specifier (C++0x [dcl.spec.auto]p6)
@@ -3486,7 +3543,7 @@ Sema::DeduceAutoType(TypeSourceInfo *Type, Expr *&Init,
     Init = result.take();
   }
 
-  if (Init->isTypeDependent()) {
+  if (Init->isTypeDependent() || isDependentAutoType(Type->getType())) {
     Result = Type;
     return DAR_Succeeded;
   }
@@ -3517,10 +3574,10 @@ Sema::DeduceAutoType(TypeSourceInfo *Type, Expr *&Init,
 
   TemplateDeductionInfo Info(Context, Loc);
 
-  InitListExpr * InitList = dyn_cast<InitListExpr>(Init);
+  InitListExpr *InitList = dyn_cast<InitListExpr>(Init);
   if (InitList) {
     for (unsigned i = 0, e = InitList->getNumInits(); i < e; ++i) {
-      if (DeduceTemplateArgumentByListElement(*this, &TemplateParams, 
+      if (DeduceTemplateArgumentByListElement(*this, &TemplateParams,
                                               TemplArg,
                                               InitList->getInit(i),
                                               Info, Deduced, TDF))
@@ -3531,7 +3588,7 @@ Sema::DeduceAutoType(TypeSourceInfo *Type, Expr *&Init,
                                                   FuncParam, InitType, Init,
                                                   TDF))
       return DAR_Failed;
-    
+
     if (DeduceTemplateArgumentsByTypeMatch(*this, &TemplateParams, FuncParam,
                                            InitType, Info, Deduced, TDF))
       return DAR_Failed;
@@ -4074,8 +4131,9 @@ Sema::getMoreSpecializedPartialSpecialization(
                                             /*PartialOrdering=*/true,
                                             /*RefParamComparisons=*/0);
   if (Better1) {
+    SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(),Deduced.end());
     InstantiatingTemplate Inst(*this, PS2->getLocation(), PS2,
-                               Deduced.data(), Deduced.size(), Info);
+                               DeducedArgs, Info);
     Better1 = !::FinishTemplateArgumentDeduction(*this, PS2,
                                                  PS1->getTemplateArgs(),
                                                  Deduced, Info);
@@ -4090,8 +4148,9 @@ Sema::getMoreSpecializedPartialSpecialization(
                                             /*PartialOrdering=*/true,
                                             /*RefParamComparisons=*/0);
   if (Better2) {
+    SmallVector<TemplateArgument, 4> DeducedArgs(Deduced.begin(),Deduced.end());
     InstantiatingTemplate Inst(*this, PS1->getLocation(), PS1,
-                               Deduced.data(), Deduced.size(), Info);
+                               DeducedArgs, Info);
     Better2 = !::FinishTemplateArgumentDeduction(*this, PS1,
                                                  PS2->getTemplateArgs(),
                                                  Deduced, Info);
@@ -4122,9 +4181,17 @@ MarkUsedTemplateParameters(ASTContext &Ctx,
   if (const PackExpansionExpr *Expansion = dyn_cast<PackExpansionExpr>(E))
     E = Expansion->getPattern();
 
-  // Skip through any implicit casts we added while type-checking.
-  while (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(E))
-    E = ICE->getSubExpr();
+  // Skip through any implicit casts we added while type-checking, and any
+  // substitutions performed by template alias expansion.
+  while (1) {
+    if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(E))
+      E = ICE->getSubExpr();
+    else if (const SubstNonTypeTemplateParmExpr *Subst =
+               dyn_cast<SubstNonTypeTemplateParmExpr>(E))
+      E = Subst->getReplacement();
+    else
+      break;
+  }
 
   // FIXME: if !OnlyDeduced, we have to walk the whole subexpression to
   // find other occurrences of template parameters.

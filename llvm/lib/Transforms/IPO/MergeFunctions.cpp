@@ -45,22 +45,22 @@
 
 #define DEBUG_TYPE "mergefunc"
 #include "llvm/Transforms/IPO.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Constants.h"
+#include "llvm/IRBuilder.h"
 #include "llvm/InlineAsm.h"
 #include "llvm/Instructions.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/Operator.h"
 #include "llvm/Pass.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetData.h"
@@ -389,7 +389,7 @@ bool FunctionComparator::enumerate(const Value *V1, const Value *V2) {
     if (!C2) return false;
     // TODO: constant expressions with GEP or references to F1 or F2.
     if (C1->isNullValue() && C2->isNullValue() &&
-	isEquivalentType(C1->getType(), C2->getType()))
+        isEquivalentType(C1->getType(), C2->getType()))
       return true;
     // Try bitcasting C2 to C1's type. If the bitcast is legal and returns C1
     // then they must have equal bit patterns.

@@ -133,7 +133,7 @@ bool Process::StandardErrIsDisplayed() {
 }
 
 bool Process::FileDescriptorIsDisplayed(int fd) {
-  DWORD Mode;	// Unused
+  DWORD Mode;  // Unused
   return (GetConsoleMode((HANDLE)_get_osfhandle(fd), &Mode) != 0);
 }
 
@@ -153,13 +153,17 @@ unsigned Process::StandardErrColumns() {
   return Columns;
 }
 
-// It always has colors.
-bool Process::StandardErrHasColors() {
-  return StandardErrIsDisplayed();
+// The terminal always has colors.
+bool Process::FileDescriptorHasColors(int fd) {
+  return FileDescriptorIsDisplayed(fd);
 }
 
 bool Process::StandardOutHasColors() {
-  return StandardOutIsDisplayed();
+  return FileDescriptorHasColors(1);
+}
+
+bool Process::StandardErrHasColors() {
+  return FileDescriptorHasColors(2);
 }
 
 namespace {

@@ -109,6 +109,11 @@ def DSRA     : shift_rotate_imm64<0x3b, 0x00, "dsra", sra>;
 def DSLLV    : shift_rotate_reg<0x14, 0x00, "dsllv", shl, CPU64Regs>;
 def DSRLV    : shift_rotate_reg<0x16, 0x00, "dsrlv", srl, CPU64Regs>;
 def DSRAV    : shift_rotate_reg<0x17, 0x00, "dsrav", sra, CPU64Regs>;
+let Pattern = []<dag> in {
+def DSLL32   : shift_rotate_imm64<0x3c, 0x00, "dsll32", shl>;
+def DSRL32   : shift_rotate_imm64<0x3e, 0x00, "dsrl32", srl>;
+def DSRA32   : shift_rotate_imm64<0x3f, 0x00, "dsra32", sra>;
+}
 }
 // Rotate Instructions
 let Predicates = [HasMips64r2, HasStandardEncoding],
@@ -168,7 +173,7 @@ def SCD_P8 : SCBase<0x3c, "scd", CPU64Regs, mem64>,
 }
 
 /// Jump and Branch Instructions
-def JR64   : JumpFR<0x00, 0x08, "jr", CPU64Regs>;
+def JR64   : IndirectBranch<CPU64Regs>;
 def BEQ64  : CBranch<0x04, "beq", seteq, CPU64Regs>;
 def BNE64  : CBranch<0x05, "bne", setne, CPU64Regs>;
 def BGEZ64 : CBranchZero<0x01, 1, "bgez", setge, CPU64Regs>;

@@ -207,7 +207,7 @@ bool InstCombiner::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
           // Conservatively clear the optional flags, since they may not be
           // preserved by the reassociation.
           if (MaintainNoSignedWrap(I, B, C) &&
-	      (!Op0 || (isa<BinaryOperator>(Op0) && Op0->hasNoSignedWrap()))) {
+              (!Op0 || (isa<BinaryOperator>(Op0) && Op0->hasNoSignedWrap()))) {
             // Note: this is only valid because SimplifyBinOp doesn't look at
             // the operands to Op0.
             I.clearSubclassOptionalData();
@@ -1106,54 +1106,89 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
 
 
 
-static bool IsOnlyNullComparedAndFreed(Value *V, SmallVectorImpl<WeakVH> &Users,
-                                       int Depth = 0) {
-  if (Depth == 8)
-    return false;
+static bool
+isAllocSiteRemovable(Instruction *AI, SmallVectorImpl<WeakVH> &Users) {
+  SmallVector<Instruction*, 4> Worklist;
+  Worklist.push_back(AI);
 
-  for (Value::use_iterator UI = V->use_begin(), UE = V->use_end();
-       UI != UE; ++UI) {
-    User *U = *UI;
-    if (isFreeCall(U)) {
-      Users.push_back(U);
-      continue;
-    }
-    if (ICmpInst *ICI = dyn_cast<ICmpInst>(U)) {
-      if (ICI->isEquality() && isa<ConstantPointerNull>(ICI->getOperand(1))) {
-        Users.push_back(ICI);
+  do {
+    Instruction *PI = Worklist.pop_back_val();
+    for (Value::use_iterator UI = PI->use_begin(), UE = PI->use_end(); UI != UE;
+         ++UI) {
+      Instruction *I = cast<Instruction>(*UI);
+      switch (I->getOpcode()) {
+      default:
+        // Give up the moment we see something we can't handle.
+        return false;
+
+      case Instruction::BitCast:
+      case Instruction::GetElementPtr:
+        Users.push_back(I);
+        Worklist.push_back(I);
+        continue;
+
+      case Instruction::ICmp: {
+        ICmpInst *ICI = cast<ICmpInst>(I);
+        // We can fold eq/ne comparisons with null to false/true, respectively.
+        if (!ICI->isEquality() || !isa<ConstantPointerNull>(ICI->getOperand(1)))
+          return false;
+        Users.push_back(I);
         continue;
       }
-    }
-    if (BitCastInst *BCI = dyn_cast<BitCastInst>(U)) {
-      if (IsOnlyNullComparedAndFreed(BCI, Users, Depth+1)) {
-        Users.push_back(BCI);
+
+      case Instruction::Call:
+        // Ignore no-op and store intrinsics.
+        if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
+          switch (II->getIntrinsicID()) {
+          default:
+            return false;
+
+          case Intrinsic::memmove:
+          case Intrinsic::memcpy:
+          case Intrinsic::memset: {
+            MemIntrinsic *MI = cast<MemIntrinsic>(II);
+            if (MI->isVolatile() || MI->getRawDest() != PI)
+              return false;
+          }
+          // fall through
+          case Intrinsic::dbg_declare:
+          case Intrinsic::dbg_value:
+          case Intrinsic::invariant_start:
+          case Intrinsic::invariant_end:
+          case Intrinsic::lifetime_start:
+          case Intrinsic::lifetime_end:
+          case Intrinsic::objectsize:
+            Users.push_back(I);
+            continue;
+          }
+        }
+
+        if (isFreeCall(I)) {
+          Users.push_back(I);
+          continue;
+        }
+        return false;
+
+      case Instruction::Store: {
+        StoreInst *SI = cast<StoreInst>(I);
+        if (SI->isVolatile() || SI->getPointerOperand() != PI)
+          return false;
+        Users.push_back(I);
         continue;
       }
-    }
-    if (GetElementPtrInst *GEPI = dyn_cast<GetElementPtrInst>(U)) {
-      if (IsOnlyNullComparedAndFreed(GEPI, Users, Depth+1)) {
-        Users.push_back(GEPI);
-        continue;
       }
+      llvm_unreachable("missing a return?");
     }
-    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(U)) {
-      if (II->getIntrinsicID() == Intrinsic::lifetime_start ||
-          II->getIntrinsicID() == Intrinsic::lifetime_end) {
-        Users.push_back(II);
-        continue;
-      }
-    }
-    return false;
-  }
+  } while (!Worklist.empty());
   return true;
 }
 
-Instruction *InstCombiner::visitMalloc(Instruction &MI) {
+Instruction *InstCombiner::visitAllocSite(Instruction &MI) {
   // If we have a malloc call which is only used in any amount of comparisons
   // to null and free calls, delete the calls and replace the comparisons with
   // true or false as appropriate.
   SmallVector<WeakVH, 64> Users;
-  if (IsOnlyNullComparedAndFreed(&MI, Users)) {
+  if (isAllocSiteRemovable(&MI, Users)) {
     for (unsigned i = 0, e = Users.size(); i != e; ++i) {
       Instruction *I = cast_or_null<Instruction>(&*Users[i]);
       if (!I) continue;
@@ -1164,19 +1199,22 @@ Instruction *InstCombiner::visitMalloc(Instruction &MI) {
                                              C->isFalseWhenEqual()));
       } else if (isa<BitCastInst>(I) || isa<GetElementPtrInst>(I)) {
         ReplaceInstUsesWith(*I, UndefValue::get(I->getType()));
+      } else if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
+        if (II->getIntrinsicID() == Intrinsic::objectsize) {
+          ConstantInt *CI = cast<ConstantInt>(II->getArgOperand(1));
+          uint64_t DontKnow = CI->isZero() ? -1ULL : 0;
+          ReplaceInstUsesWith(*I, ConstantInt::get(I->getType(), DontKnow));
+        }
       }
       EraseInstFromFunction(*I);
     }
 
     if (InvokeInst *II = dyn_cast<InvokeInst>(&MI)) {
-      // Replace invoke with a NOOP intrinsic to maintain the original CFG
+      // Replace invoke with a NOP intrinsic to maintain the original CFG
       Module *M = II->getParent()->getParent()->getParent();
-      IntegerType *Ty = IntegerType::get(II->getContext(), 8);
-      ConstantInt *CI = ConstantInt::get(Ty, 0);
-      Value *Args[] = {CI, CI};
-      Function *F = Intrinsic::getDeclaration(M, Intrinsic::expect, Ty);
-      InvokeInst::Create(F, II->getNormalDest(), II->getUnwindDest(), Args,
-                         "dummy", II->getParent());
+      Function *F = Intrinsic::getDeclaration(M, Intrinsic::donothing);
+      InvokeInst::Create(F, II->getNormalDest(), II->getUnwindDest(),
+                         ArrayRef<Value *>(), "", II->getParent());
     }
     return EraseInstFromFunction(MI);
   }

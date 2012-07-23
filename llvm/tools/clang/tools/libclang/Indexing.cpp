@@ -353,7 +353,8 @@ static void clang_indexSourceFile_Impl(void *UserData) {
     CInvok->getDiagnosticOpts().IgnoreWarnings = true;
 
   ASTUnit *Unit = ASTUnit::create(CInvok.getPtr(), Diags,
-                                  /*CaptureDiagnostics=*/true);
+                                  /*CaptureDiagnostics=*/true,
+                                  /*UserFilesAreVolatile=*/true);
   OwningPtr<CXTUOwner> CXTU(new CXTUOwner(MakeCXTranslationUnit(CXXIdx, Unit)));
 
   // Recover resources if we crash before exiting this method.
@@ -369,7 +370,6 @@ static void clang_indexSourceFile_Impl(void *UserData) {
     IndexActionCleanup(IndexAction.get());
 
   bool Persistent = requestedToGetTU;
-  StringRef ResourceFilesPath = CXXIdx->getClangResourcesPath();
   bool OnlyLocalDecls = false;
   bool PrecompilePreamble = false;
   bool CacheCodeCompletionResults = false;
@@ -393,11 +393,13 @@ static void clang_indexSourceFile_Impl(void *UserData) {
                                                        IndexAction.get(),
                                                        Unit,
                                                        Persistent,
-                                                       ResourceFilesPath,
+                                                CXXIdx->getClangResourcesPath(),
                                                        OnlyLocalDecls,
                                                     /*CaptureDiagnostics=*/true,
                                                        PrecompilePreamble,
-                                                    CacheCodeCompletionResults);
+                                                    CacheCodeCompletionResults,
+                                 /*IncludeBriefCommentsInCodeCompletion=*/false,
+                                                 /*UserFilesAreVolatile=*/true);
   if (DiagTrap.hasErrorOccurred() && CXXIdx->getDisplayDiagnostics())
     printDiagsToStderr(Unit);
 

@@ -60,6 +60,14 @@ CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
     NumVBases(0), Bases(), VBases(), Definition(D), FirstFriend(0) {
 }
 
+CXXBaseSpecifier *CXXRecordDecl::DefinitionData::getBasesSlowCase() const {
+  return Bases.get(Definition->getASTContext().getExternalSource());
+}
+
+CXXBaseSpecifier *CXXRecordDecl::DefinitionData::getVBasesSlowCase() const {
+  return VBases.get(Definition->getASTContext().getExternalSource());
+}
+
 CXXRecordDecl::CXXRecordDecl(Kind K, TagKind TK, DeclContext *DC,
                              SourceLocation StartLoc, SourceLocation IdLoc,
                              IdentifierInfo *Id, CXXRecordDecl *PrevDecl)
@@ -757,7 +765,7 @@ NotASpecialMember:;
     // that does not explicitly have no lifetime makes the class a non-POD.
     // However, we delay setting PlainOldData to false in this case so that
     // Sema has a chance to diagnostic causes where the same class will be
-    // non-POD with Automatic Reference Counting but a POD without Instant Objects.
+    // non-POD with Automatic Reference Counting but a POD without ARC.
     // In this case, the class will become a non-POD class when we complete
     // the definition.
     ASTContext &Context = getASTContext();
@@ -1200,13 +1208,16 @@ void CXXRecordDecl::completeDefinition(CXXFinalOverriderMap *FinalOverriders) {
     // Objective-C Automatic Reference Counting:
     //   If a class has a non-static data member of Objective-C pointer
     //   type (or array thereof), it is a non-POD type and its
-    //   default constructor (if any), copy constructor, copy assignment
-    //   operator, and destructor are non-trivial.
+    //   default constructor (if any), copy constructor, move constructor,
+    //   copy assignment operator, move assignment operator, and destructor are
+    //   non-trivial.
     struct DefinitionData &Data = data();
     Data.PlainOldData = false;
     Data.HasTrivialDefaultConstructor = false;
     Data.HasTrivialCopyConstructor = false;
+    Data.HasTrivialMoveConstructor = false;
     Data.HasTrivialCopyAssignment = false;
+    Data.HasTrivialMoveAssignment = false;
     Data.HasTrivialDestructor = false;
     Data.HasIrrelevantDestructor = false;
   }
@@ -1997,15 +2008,17 @@ StaticAssertDecl *StaticAssertDecl::Create(ASTContext &C, DeclContext *DC,
                                            SourceLocation StaticAssertLoc,
                                            Expr *AssertExpr,
                                            StringLiteral *Message,
-                                           SourceLocation RParenLoc) {
+                                           SourceLocation RParenLoc,
+                                           bool Failed) {
   return new (C) StaticAssertDecl(DC, StaticAssertLoc, AssertExpr, Message,
-                                  RParenLoc);
+                                  RParenLoc, Failed);
 }
 
 StaticAssertDecl *StaticAssertDecl::CreateDeserialized(ASTContext &C, 
                                                        unsigned ID) {
   void *Mem = AllocateDeserializedDecl(C, ID, sizeof(StaticAssertDecl));
-  return new (Mem) StaticAssertDecl(0, SourceLocation(), 0, 0,SourceLocation());
+  return new (Mem) StaticAssertDecl(0, SourceLocation(), 0, 0,
+                                    SourceLocation(), false);
 }
 
 static const char *getAccessName(AccessSpecifier AS) {

@@ -41,15 +41,18 @@ static const enum raw_ostream::Colors savedColor =
 
 /// \brief Add highlights to differences in template strings.
 static void applyTemplateHighlighting(raw_ostream &OS, StringRef Str,
-                                      bool &Normal) {
+                                      bool &Normal, bool Bold) {
   for (unsigned i = 0, e = Str.size(); i < e; ++i)
     if (Str[i] != ToggleHighlight) {
       OS << Str[i];
     } else {
       if (Normal)
         OS.changeColor(templateColor, true);
-      else
+      else {
         OS.resetColor();
+        if (Bold)
+          OS.changeColor(savedColor, true);
+      }
       Normal = !Normal;
     }
 }
@@ -181,7 +184,7 @@ static void expandTabs(std::string &SourceLine, unsigned TabStop) {
 ///  characters will appear at (numbering the first column as 0).
 ///
 /// If a byte 'i' corresponds to muliple columns (e.g. the byte contains a tab
-///  character) then the the array will map that byte to the first column the
+///  character) then the array will map that byte to the first column the
 ///  tab appears at and the next value in the map will have been incremented
 ///  more than once.
 ///
@@ -586,6 +589,7 @@ static unsigned findEndOfWord(unsigned Start, StringRef Str,
 /// \param Column the column number at which the first character of \p
 /// Str will be printed. This will be non-zero when part of the first
 /// line has already been printed.
+/// \param Bold if the current text should be bold
 /// \param Indentation the number of spaces to indent any lines beyond
 /// the first line.
 /// \returns true if word-wrapping was required, or false if the
@@ -593,6 +597,7 @@ static unsigned findEndOfWord(unsigned Start, StringRef Str,
 static bool printWordWrapped(raw_ostream &OS, StringRef Str,
                              unsigned Columns,
                              unsigned Column = 0,
+                             bool Bold = false,
                              unsigned Indentation = WordWrapIndentation) {
   const unsigned Length = std::min(Str.find('\n'), Str.size());
   bool TextNormal = true;
@@ -620,7 +625,7 @@ static bool printWordWrapped(raw_ostream &OS, StringRef Str,
         Column += 1;
       }
       applyTemplateHighlighting(OS, Str.substr(WordStart, WordLength),
-                                TextNormal);
+                                TextNormal, Bold);
       Column += WordLength;
       continue;
     }
@@ -630,13 +635,13 @@ static bool printWordWrapped(raw_ostream &OS, StringRef Str,
     OS << '\n';
     OS.write(&IndentStr[0], Indentation);
     applyTemplateHighlighting(OS, Str.substr(WordStart, WordLength),
-                              TextNormal);
+                              TextNormal, Bold);
     Column = Indentation + WordLength;
     Wrapped = true;
   }
 
   // Append any remaning text from the message with its existing formatting.
-  applyTemplateHighlighting(OS, Str.substr(Length), TextNormal);
+  applyTemplateHighlighting(OS, Str.substr(Length), TextNormal, Bold);
 
   assert(TextNormal && "Text highlighted at end of diagnostic message.");
 
@@ -708,20 +713,27 @@ TextDiagnostic::printDiagnosticMessage(raw_ostream &OS,
                                        StringRef Message,
                                        unsigned CurrentColumn, unsigned Columns,
                                        bool ShowColors) {
+  bool Bold = false;
   if (ShowColors) {
     // Print warnings, errors and fatal errors in bold, no color
     switch (Level) {
-    case DiagnosticsEngine::Warning: OS.changeColor(savedColor, true); break;
-    case DiagnosticsEngine::Error:   OS.changeColor(savedColor, true); break;
-    case DiagnosticsEngine::Fatal:   OS.changeColor(savedColor, true); break;
+    case DiagnosticsEngine::Warning:
+    case DiagnosticsEngine::Error:
+    case DiagnosticsEngine::Fatal:
+      OS.changeColor(savedColor, true);
+      Bold = true;
+      break;
     default: break; //don't bold notes
     }
   }
 
   if (Columns)
-    printWordWrapped(OS, Message, Columns, CurrentColumn);
-  else
-    OS << Message;
+    printWordWrapped(OS, Message, Columns, CurrentColumn, Bold);
+  else {
+    bool Normal = true;
+    applyTemplateHighlighting(OS, Message, Normal, Bold);
+    assert(Normal && "Formatting should have returned to normal");
+  }
 
   if (ShowColors)
     OS.resetColor();
@@ -1112,23 +1124,28 @@ std::string TextDiagnostic::buildFixItInsertionLine(
   std::string FixItInsertionLine;
   if (Hints.empty() || !DiagOpts.ShowFixits)
     return FixItInsertionLine;
-  unsigned PrevHintEnd = 0;
+  unsigned PrevHintEndCol = 0;
 
   for (ArrayRef<FixItHint>::iterator I = Hints.begin(), E = Hints.end();
        I != E; ++I) {
     if (!I->CodeToInsert.empty()) {
       // We have an insertion hint. Determine whether the inserted
-      // code is on the same line as the caret.
+      // code contains no newlines and is on the same line as the caret.
       std::pair<FileID, unsigned> HintLocInfo
         = SM.getDecomposedExpansionLoc(I->RemoveRange.getBegin());
-      if (LineNo == SM.getLineNumber(HintLocInfo.first, HintLocInfo.second)) {
+      if (LineNo == SM.getLineNumber(HintLocInfo.first, HintLocInfo.second) &&
+          StringRef(I->CodeToInsert).find_first_of("\n\r") == StringRef::npos) {
         // Insert the new code into the line just below the code
         // that the user wrote.
-        unsigned HintColNo
+        // Note: When modifying this function, be very careful about what is a
+        // "column" (printed width, platform-dependent) and what is a
+        // "byte offset" (SourceManager "column").
+        unsigned HintByteOffset
           = SM.getColumnNumber(HintLocInfo.first, HintLocInfo.second) - 1;
-        // hint must start inside the source or right at the end
-        assert(HintColNo<static_cast<unsigned>(map.bytes())+1);
-        HintColNo = map.byteToColumn(HintColNo);
+
+        // The hint must start inside the source or right at the end
+        assert(HintByteOffset < static_cast<unsigned>(map.bytes())+1);
+        unsigned HintCol = map.byteToColumn(HintByteOffset);
 
         // If we inserted a long previous hint, push this one forwards, and add
         // an extra space to show that this is not part of the previous
@@ -1137,27 +1154,27 @@ std::string TextDiagnostic::buildFixItInsertionLine(
         //
         // Note that if this hint is located immediately after the previous
         // hint, no space will be added, since the location is more important.
-        if (HintColNo < PrevHintEnd)
-          HintColNo = PrevHintEnd + 1;
+        if (HintCol < PrevHintEndCol)
+          HintCol = PrevHintEndCol + 1;
 
-        // FIXME: if the fixit includes tabs or other characters that do not
-        //  take up a single column per byte when displayed then
-        //  I->CodeToInsert.size() is not a column number and we're mixing
-        //  units (columns + bytes). We should get printable versions
-        //  of each fixit before using them.
-        unsigned LastColumnModified
-          = HintColNo + I->CodeToInsert.size();
+        // FIXME: This function handles multibyte characters in the source, but
+        // not in the fixits. This assertion is intended to catch unintended
+        // use of multibyte characters in fixits. If we decide to do this, we'll
+        // have to track separate byte widths for the source and fixit lines.
+        assert((size_t)llvm::sys::locale::columnWidth(I->CodeToInsert) ==
+               I->CodeToInsert.size());
 
-        if (LastColumnModified <= static_cast<unsigned>(map.bytes()))
-          LastColumnModified = map.byteToColumn(LastColumnModified);
-
+        // This relies on one byte per column in our fixit hints.
+        // This should NOT use HintByteOffset, because the source might have
+        // Unicode characters in earlier columns.
+        unsigned LastColumnModified = HintCol + I->CodeToInsert.size();
         if (LastColumnModified > FixItInsertionLine.size())
           FixItInsertionLine.resize(LastColumnModified, ' ');
-        assert(HintColNo+I->CodeToInsert.size() <= FixItInsertionLine.size());
-        std::copy(I->CodeToInsert.begin(), I->CodeToInsert.end(),
-                  FixItInsertionLine.begin() + HintColNo);
 
-        PrevHintEnd = LastColumnModified;
+        std::copy(I->CodeToInsert.begin(), I->CodeToInsert.end(),
+                  FixItInsertionLine.begin() + HintCol);
+
+        PrevHintEndCol = LastColumnModified;
       } else {
         FixItInsertionLine.clear();
         break;

@@ -1167,6 +1167,11 @@ bool AsmParser::ParseStatement() {
 
   // Otherwise, we have a normal instruction or directive.
   if (IDVal[0] == '.' && IDVal != ".") {
+
+    // Target hook for parsing target specific directives.
+    if (!getTargetParser().ParseDirective(ID))
+      return false;
+
     // Assembler features
     if (IDVal == ".set" || IDVal == ".equ")
       return ParseDirectiveSet(IDVal, true);
@@ -1292,9 +1297,6 @@ bool AsmParser::ParseStatement() {
     if (Handler.first)
       return (*Handler.second)(Handler.first, IDVal, IDLoc);
 
-    // Target hook for parsing target specific directives.
-    if (!getTargetParser().ParseDirective(ID))
-      return false;
 
     return Error(IDLoc, "unknown directive");
   }
@@ -1395,7 +1397,7 @@ bool AsmParser::ParseCppHashLineFilenameComment(const SMLoc &L) {
   return false;
 }
 
-/// DiagHandler - will use the the last parsed cpp hash line filename comment
+/// DiagHandler - will use the last parsed cpp hash line filename comment
 /// for the Filename and LineNo if any in the diagnostic.
 void AsmParser::DiagHandler(const SMDiagnostic &Diag, void *Context) {
   const AsmParser *Parser = static_cast<const AsmParser*>(Context);
@@ -2996,7 +2998,7 @@ bool GenericAsmParser::ParseDirectiveCFISameValue(StringRef IDVal,
 /// ParseDirectiveCFIRestore
 /// ::= .cfi_restore register
 bool GenericAsmParser::ParseDirectiveCFIRestore(StringRef IDVal,
-						SMLoc DirectiveLoc) {
+                                                SMLoc DirectiveLoc) {
   int64_t Register = 0;
   if (ParseRegisterOrRegisterNumber(Register, DirectiveLoc))
     return true;
@@ -3009,7 +3011,7 @@ bool GenericAsmParser::ParseDirectiveCFIRestore(StringRef IDVal,
 /// ParseDirectiveCFIEscape
 /// ::= .cfi_escape expression[,...]
 bool GenericAsmParser::ParseDirectiveCFIEscape(StringRef IDVal,
-					       SMLoc DirectiveLoc) {
+                                               SMLoc DirectiveLoc) {
   std::string Values;
   int64_t CurrValue;
   if (getParser().ParseAbsoluteExpression(CurrValue))

@@ -98,31 +98,25 @@ TargetPassConfig *PPCTargetMachine::createPassConfig(PassManagerBase &PM) {
 
 bool PPCPassConfig::addPreRegAlloc() {
   if (!DisableCTRLoops && getOptLevel() != CodeGenOpt::None)
-    PM->add(createPPCCTRLoops());
+    addPass(createPPCCTRLoops());
 
   return false;
 }
 
 bool PPCPassConfig::addInstSelector() {
   // Install an instruction selector.
-  PM->add(createPPCISelDag(getPPCTargetMachine()));
+  addPass(createPPCISelDag(getPPCTargetMachine()));
   return false;
 }
 
 bool PPCPassConfig::addPreEmitPass() {
   // Must run branch selection immediately preceding the asm printer.
-  PM->add(createPPCBranchSelectionPass());
+  addPass(createPPCBranchSelectionPass());
   return false;
 }
 
 bool PPCTargetMachine::addCodeEmitter(PassManagerBase &PM,
                                       JITCodeEmitter &JCE) {
-  // FIXME: This should be moved to TargetJITInfo!!
-  if (Subtarget.isPPC64())
-    // Temporary workaround for the inability of PPC64 JIT to handle jump
-    // tables.
-    Options.DisableJumpTables = true;
-
   // Inform the subtarget that we are in JIT mode.  FIXME: does this break macho
   // writing?
   Subtarget.SetJITMode();

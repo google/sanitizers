@@ -18,9 +18,9 @@
 #include "DwarfCompileUnit.h"
 #include "llvm/Constants.h"
 #include "llvm/DebugInfo.h"
+#include "llvm/DIBuilder.h"
 #include "llvm/Module.h"
 #include "llvm/Instructions.h"
-#include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -33,10 +33,10 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Analysis/DIBuilder.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1382,7 +1382,7 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
                                        MF->getFunction()->getContext());
     recordSourceLine(FnStartDL.getLine(), FnStartDL.getCol(),
                      FnStartDL.getScope(MF->getFunction()->getContext()),
-                     0);
+                     DWARF2_LINE_DEFAULT_IS_STMT ? DWARF2_FLAG_IS_STMT : 0);
   }
 }
 
@@ -1421,6 +1421,12 @@ void DwarfDebug::endFunction(const MachineFunction *MF) {
       for (unsigned i = 0, e = Variables.getNumElements(); i != e; ++i) {
         DIVariable DV(Variables.getElement(i));
         if (!DV || !DV.Verify() || !ProcessedVars.insert(DV))
+          continue;
+        // Check that DbgVariable for DV wasn't created earlier, when
+        // findAbstractVariable() was called for inlined instance of DV.
+        LLVMContext &Ctx = DV->getContext();
+        DIVariable CleanDV = cleanseInlinedVariable(DV, Ctx);
+        if (AbstractVariables.lookup(CleanDV))
           continue;
         if (LexicalScope *Scope = LScopes.findAbstractScope(DV.getContext()))
           addScopeVariable(Scope, new DbgVariable(DV, NULL));

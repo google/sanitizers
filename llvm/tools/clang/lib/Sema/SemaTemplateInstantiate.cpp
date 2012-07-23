@@ -156,11 +156,11 @@ bool Sema::ActiveTemplateInstantiation::isInstantiationRecord() const {
   case ExceptionSpecInstantiation:
   case DefaultTemplateArgumentInstantiation:
   case DefaultFunctionArgumentInstantiation:
-    return true;
-      
   case ExplicitTemplateArgumentSubstitution:
   case DeducedTemplateArgumentSubstitution:
   case PriorTemplateArgumentSubstitution:
+    return true;
+
   case DefaultTemplateArgumentChecking:
     return false;
   }
@@ -214,12 +214,11 @@ InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
   }
 }
 
-Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
-                                         SourceLocation PointOfInstantiation,
-                                         TemplateDecl *Template,
-                                         const TemplateArgument *TemplateArgs,
-                                         unsigned NumTemplateArgs,
-                                         SourceRange InstantiationRange)
+Sema::InstantiatingTemplate::
+InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
+                      TemplateDecl *Template,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      SourceRange InstantiationRange)
   : SemaRef(SemaRef),
     SavedInNonInstantiationSFINAEContext(
                                      SemaRef.InNonInstantiationSFINAEContext)
@@ -232,35 +231,33 @@ Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
       = ActiveTemplateInstantiation::DefaultTemplateArgumentInstantiation;
     Inst.PointOfInstantiation = PointOfInstantiation;
     Inst.Entity = reinterpret_cast<uintptr_t>(Template);
-    Inst.TemplateArgs = TemplateArgs;
-    Inst.NumTemplateArgs = NumTemplateArgs;
+    Inst.TemplateArgs = TemplateArgs.data();
+    Inst.NumTemplateArgs = TemplateArgs.size();
     Inst.InstantiationRange = InstantiationRange;
     SemaRef.InNonInstantiationSFINAEContext = false;
     SemaRef.ActiveTemplateInstantiations.push_back(Inst);
   }
 }
 
-Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
-                                         SourceLocation PointOfInstantiation,
-                                      FunctionTemplateDecl *FunctionTemplate,
-                                        const TemplateArgument *TemplateArgs,
-                                                   unsigned NumTemplateArgs,
-                         ActiveTemplateInstantiation::InstantiationKind Kind,
-                                   sema::TemplateDeductionInfo &DeductionInfo,
-                                              SourceRange InstantiationRange)
+Sema::InstantiatingTemplate::
+InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
+                      FunctionTemplateDecl *FunctionTemplate,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      ActiveTemplateInstantiation::InstantiationKind Kind,
+                      sema::TemplateDeductionInfo &DeductionInfo,
+                      SourceRange InstantiationRange)
   : SemaRef(SemaRef),
     SavedInNonInstantiationSFINAEContext(
                                      SemaRef.InNonInstantiationSFINAEContext)
 {
-  Invalid = CheckInstantiationDepth(PointOfInstantiation,
-                                    InstantiationRange);
+  Invalid = CheckInstantiationDepth(PointOfInstantiation, InstantiationRange);
   if (!Invalid) {
     ActiveTemplateInstantiation Inst;
     Inst.Kind = Kind;
     Inst.PointOfInstantiation = PointOfInstantiation;
     Inst.Entity = reinterpret_cast<uintptr_t>(FunctionTemplate);
-    Inst.TemplateArgs = TemplateArgs;
-    Inst.NumTemplateArgs = NumTemplateArgs;
+    Inst.TemplateArgs = TemplateArgs.data();
+    Inst.NumTemplateArgs = TemplateArgs.size();
     Inst.DeductionInfo = &DeductionInfo;
     Inst.InstantiationRange = InstantiationRange;
     SemaRef.InNonInstantiationSFINAEContext = false;
@@ -271,54 +268,25 @@ Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
   }
 }
 
-Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
-                                         SourceLocation PointOfInstantiation,
-                          ClassTemplatePartialSpecializationDecl *PartialSpec,
-                                         const TemplateArgument *TemplateArgs,
-                                         unsigned NumTemplateArgs,
-                                    sema::TemplateDeductionInfo &DeductionInfo,
-                                         SourceRange InstantiationRange)
-  : SemaRef(SemaRef),
-    SavedInNonInstantiationSFINAEContext(
-                                     SemaRef.InNonInstantiationSFINAEContext)
-{
-  Invalid = false;
-    
-  ActiveTemplateInstantiation Inst;
-  Inst.Kind = ActiveTemplateInstantiation::DeducedTemplateArgumentSubstitution;
-  Inst.PointOfInstantiation = PointOfInstantiation;
-  Inst.Entity = reinterpret_cast<uintptr_t>(PartialSpec);
-  Inst.TemplateArgs = TemplateArgs;
-  Inst.NumTemplateArgs = NumTemplateArgs;
-  Inst.DeductionInfo = &DeductionInfo;
-  Inst.InstantiationRange = InstantiationRange;
-  SemaRef.InNonInstantiationSFINAEContext = false;
-  SemaRef.ActiveTemplateInstantiations.push_back(Inst);
-      
-  assert(!Inst.isInstantiationRecord());
-  ++SemaRef.NonInstantiationEntries;
-}
-
-Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
-                                          SourceLocation PointOfInstantiation,
-                                          ParmVarDecl *Param,
-                                          const TemplateArgument *TemplateArgs,
-                                          unsigned NumTemplateArgs,
-                                          SourceRange InstantiationRange)
+Sema::InstantiatingTemplate::
+InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
+                      ClassTemplatePartialSpecializationDecl *PartialSpec,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      sema::TemplateDeductionInfo &DeductionInfo,
+                      SourceRange InstantiationRange)
   : SemaRef(SemaRef),
     SavedInNonInstantiationSFINAEContext(
                                      SemaRef.InNonInstantiationSFINAEContext)
 {
   Invalid = CheckInstantiationDepth(PointOfInstantiation, InstantiationRange);
-
   if (!Invalid) {
     ActiveTemplateInstantiation Inst;
-    Inst.Kind
-      = ActiveTemplateInstantiation::DefaultFunctionArgumentInstantiation;
+    Inst.Kind = ActiveTemplateInstantiation::DeducedTemplateArgumentSubstitution;
     Inst.PointOfInstantiation = PointOfInstantiation;
-    Inst.Entity = reinterpret_cast<uintptr_t>(Param);
-    Inst.TemplateArgs = TemplateArgs;
-    Inst.NumTemplateArgs = NumTemplateArgs;
+    Inst.Entity = reinterpret_cast<uintptr_t>(PartialSpec);
+    Inst.TemplateArgs = TemplateArgs.data();
+    Inst.NumTemplateArgs = TemplateArgs.size();
+    Inst.DeductionInfo = &DeductionInfo;
     Inst.InstantiationRange = InstantiationRange;
     SemaRef.InNonInstantiationSFINAEContext = false;
     SemaRef.ActiveTemplateInstantiations.push_back(Inst);
@@ -327,66 +295,81 @@ Sema::InstantiatingTemplate::InstantiatingTemplate(Sema &SemaRef,
 
 Sema::InstantiatingTemplate::
 InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
-                      NamedDecl *Template,
-                      NonTypeTemplateParmDecl *Param,
-                      const TemplateArgument *TemplateArgs,
-                      unsigned NumTemplateArgs,
-                      SourceRange InstantiationRange) 
+                      ParmVarDecl *Param,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      SourceRange InstantiationRange)
   : SemaRef(SemaRef),
     SavedInNonInstantiationSFINAEContext(
                                      SemaRef.InNonInstantiationSFINAEContext)
 {
-  Invalid = false;
-  
-  ActiveTemplateInstantiation Inst;
-  Inst.Kind = ActiveTemplateInstantiation::PriorTemplateArgumentSubstitution;
-  Inst.PointOfInstantiation = PointOfInstantiation;
-  Inst.Template = Template;
-  Inst.Entity = reinterpret_cast<uintptr_t>(Param);
-  Inst.TemplateArgs = TemplateArgs;
-  Inst.NumTemplateArgs = NumTemplateArgs;
-  Inst.InstantiationRange = InstantiationRange;
-  SemaRef.InNonInstantiationSFINAEContext = false;
-  SemaRef.ActiveTemplateInstantiations.push_back(Inst);
-  
-  assert(!Inst.isInstantiationRecord());
-  ++SemaRef.NonInstantiationEntries;
+  Invalid = CheckInstantiationDepth(PointOfInstantiation, InstantiationRange);
+  if (!Invalid) {
+    ActiveTemplateInstantiation Inst;
+    Inst.Kind
+      = ActiveTemplateInstantiation::DefaultFunctionArgumentInstantiation;
+    Inst.PointOfInstantiation = PointOfInstantiation;
+    Inst.Entity = reinterpret_cast<uintptr_t>(Param);
+    Inst.TemplateArgs = TemplateArgs.data();
+    Inst.NumTemplateArgs = TemplateArgs.size();
+    Inst.InstantiationRange = InstantiationRange;
+    SemaRef.InNonInstantiationSFINAEContext = false;
+    SemaRef.ActiveTemplateInstantiations.push_back(Inst);
+  }
 }
 
 Sema::InstantiatingTemplate::
 InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
-                      NamedDecl *Template,
-                      TemplateTemplateParmDecl *Param,
-                      const TemplateArgument *TemplateArgs,
-                      unsigned NumTemplateArgs,
-                      SourceRange InstantiationRange) 
+                      NamedDecl *Template, NonTypeTemplateParmDecl *Param,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      SourceRange InstantiationRange)
   : SemaRef(SemaRef),
     SavedInNonInstantiationSFINAEContext(
                                      SemaRef.InNonInstantiationSFINAEContext)
 {
-  Invalid = false;
-  ActiveTemplateInstantiation Inst;
-  Inst.Kind = ActiveTemplateInstantiation::PriorTemplateArgumentSubstitution;
-  Inst.PointOfInstantiation = PointOfInstantiation;
-  Inst.Template = Template;
-  Inst.Entity = reinterpret_cast<uintptr_t>(Param);
-  Inst.TemplateArgs = TemplateArgs;
-  Inst.NumTemplateArgs = NumTemplateArgs;
-  Inst.InstantiationRange = InstantiationRange;
-  SemaRef.InNonInstantiationSFINAEContext = false;
-  SemaRef.ActiveTemplateInstantiations.push_back(Inst);
-  
-  assert(!Inst.isInstantiationRecord());
-  ++SemaRef.NonInstantiationEntries;
+  Invalid = CheckInstantiationDepth(PointOfInstantiation, InstantiationRange);
+  if (!Invalid) {
+    ActiveTemplateInstantiation Inst;
+    Inst.Kind = ActiveTemplateInstantiation::PriorTemplateArgumentSubstitution;
+    Inst.PointOfInstantiation = PointOfInstantiation;
+    Inst.Template = Template;
+    Inst.Entity = reinterpret_cast<uintptr_t>(Param);
+    Inst.TemplateArgs = TemplateArgs.data();
+    Inst.NumTemplateArgs = TemplateArgs.size();
+    Inst.InstantiationRange = InstantiationRange;
+    SemaRef.InNonInstantiationSFINAEContext = false;
+    SemaRef.ActiveTemplateInstantiations.push_back(Inst);
+  }
 }
 
 Sema::InstantiatingTemplate::
 InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
-                      TemplateDecl *Template,
-                      NamedDecl *Param,
-                      const TemplateArgument *TemplateArgs,
-                      unsigned NumTemplateArgs,
-                      SourceRange InstantiationRange) 
+                      NamedDecl *Template, TemplateTemplateParmDecl *Param,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      SourceRange InstantiationRange)
+  : SemaRef(SemaRef),
+    SavedInNonInstantiationSFINAEContext(
+                                     SemaRef.InNonInstantiationSFINAEContext)
+{
+  Invalid = CheckInstantiationDepth(PointOfInstantiation, InstantiationRange);
+  if (!Invalid) {
+    ActiveTemplateInstantiation Inst;
+    Inst.Kind = ActiveTemplateInstantiation::PriorTemplateArgumentSubstitution;
+    Inst.PointOfInstantiation = PointOfInstantiation;
+    Inst.Template = Template;
+    Inst.Entity = reinterpret_cast<uintptr_t>(Param);
+    Inst.TemplateArgs = TemplateArgs.data();
+    Inst.NumTemplateArgs = TemplateArgs.size();
+    Inst.InstantiationRange = InstantiationRange;
+    SemaRef.InNonInstantiationSFINAEContext = false;
+    SemaRef.ActiveTemplateInstantiations.push_back(Inst);
+  }
+}
+
+Sema::InstantiatingTemplate::
+InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
+                      TemplateDecl *Template, NamedDecl *Param,
+                      ArrayRef<TemplateArgument> TemplateArgs,
+                      SourceRange InstantiationRange)
   : SemaRef(SemaRef),
     SavedInNonInstantiationSFINAEContext(
                                      SemaRef.InNonInstantiationSFINAEContext)
@@ -398,8 +381,8 @@ InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
   Inst.PointOfInstantiation = PointOfInstantiation;
   Inst.Template = Template;
   Inst.Entity = reinterpret_cast<uintptr_t>(Param);
-  Inst.TemplateArgs = TemplateArgs;
-  Inst.NumTemplateArgs = NumTemplateArgs;
+  Inst.TemplateArgs = TemplateArgs.data();
+  Inst.NumTemplateArgs = TemplateArgs.size();
   Inst.InstantiationRange = InstantiationRange;
   SemaRef.InNonInstantiationSFINAEContext = false;
   SemaRef.ActiveTemplateInstantiations.push_back(Inst);
@@ -858,7 +841,7 @@ namespace {
   private:
     ExprResult transformNonTypeTemplateParmRef(NonTypeTemplateParmDecl *parm,
                                                SourceLocation loc,
-                                               const TemplateArgument &arg);
+                                               TemplateArgument arg);
   };
 }
 
@@ -1147,9 +1130,17 @@ TemplateInstantiator::TransformTemplateParmRefExpr(DeclRefExpr *E,
 ExprResult TemplateInstantiator::transformNonTypeTemplateParmRef(
                                                  NonTypeTemplateParmDecl *parm,
                                                  SourceLocation loc,
-                                                 const TemplateArgument &arg) {
+                                                 TemplateArgument arg) {
   ExprResult result;
   QualType type;
+
+  // If the argument is a pack expansion, the parameter must actually be a
+  // parameter pack, and we should substitute the pattern itself, producing
+  // an expression which contains an unexpanded parameter pack.
+  if (arg.isPackExpansion()) {
+    assert(parm->isParameterPack() && "pack expansion for non-pack");
+    arg = arg.getPackExpansionPattern();
+  }
 
   // The template argument itself might be an expression, in which
   // case we just return that expression.
@@ -1832,8 +1823,6 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
                        const MultiLevelTemplateArgumentList &TemplateArgs,
                        TemplateSpecializationKind TSK,
                        bool Complain) {
-  bool Invalid = false;
-
   CXXRecordDecl *PatternDef
     = cast_or_null<CXXRecordDecl>(Pattern->getDefinition());
   if (DiagnoseUninstantiableTemplate(*this, PointOfInstantiation, Instantiation,
@@ -1879,7 +1868,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
 
   // Do substitution on the base class specifiers.
   if (SubstBaseSpecifiers(Instantiation, Pattern, TemplateArgs))
-    Invalid = true;
+    Instantiation->setInvalidDecl();
 
   TemplateDeclInstantiator Instantiator(*this, Instantiation, TemplateArgs);
   SmallVector<Decl*, 4> Fields;
@@ -1905,7 +1894,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
       continue;
 
     if ((*Member)->isInvalidDecl()) {
-      Invalid = true; 
+      Instantiation->setInvalidDecl();
       continue;
     }
 
@@ -1929,14 +1918,22 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
           MSInfo->setTemplateSpecializationKind(TSK_ImplicitInstantiation);
           MSInfo->setPointOfInstantiation(PointOfInstantiation);
         }
+      } else if (StaticAssertDecl *SA = dyn_cast<StaticAssertDecl>(NewMember)) {
+        if (SA->isFailed()) {
+          // A static_assert failed. Bail out; instantiating this
+          // class is probably not meaningful.
+          Instantiation->setInvalidDecl();
+          break;
+        }
       }
 
       if (NewMember->isInvalidDecl())
-        Invalid = true;
+        Instantiation->setInvalidDecl();
     } else {
       // FIXME: Eventually, a NULL return will mean that one of the
-      // instantiations was a semantic disaster, and we'll want to set Invalid =
-      // true. For now, we expect to skip some members that we can't yet handle.
+      // instantiations was a semantic disaster, and we'll want to mark the
+      // declaration invalid.
+      // For now, we expect to skip some members that we can't yet handle.
     }
   }
 
@@ -1995,9 +1992,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
     Instantiation->setRBraceLoc(Pattern->getRBraceLoc());
   }
 
-  if (Instantiation->isInvalidDecl())
-    Invalid = true;
-  else {
+  if (!Instantiation->isInvalidDecl()) {
     // Instantiate any out-of-line class template partial
     // specializations now.
     for (TemplateDeclInstantiator::delayed_partial_spec_iterator 
@@ -2007,7 +2002,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
       if (!Instantiator.InstantiateClassTemplatePartialSpecialization(
                                                                 P->first,
                                                                 P->second)) {
-        Invalid = true;
+        Instantiation->setInvalidDecl();
         break;
       }
     }
@@ -2016,7 +2011,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
   // Exit the scope of this instantiation.
   SavedContext.pop();
 
-  if (!Invalid) {
+  if (!Instantiation->isInvalidDecl()) {
     Consumer.HandleTagDeclDefinition(Instantiation);
 
     // Always emit the vtable for an explicit instantiation definition
@@ -2025,7 +2020,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
       MarkVTableUsed(PointOfInstantiation, Instantiation, true);
   }
 
-  return Invalid;
+  return Instantiation->isInvalidDecl();
 }
 
 /// \brief Instantiate the definition of an enum from a given pattern.

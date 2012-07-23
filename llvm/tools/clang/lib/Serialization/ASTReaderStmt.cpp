@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Serialization/ASTReader.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/StmtVisitor.h"
@@ -161,9 +162,13 @@ void ASTStmtReader::VisitLabelStmt(LabelStmt *S) {
 
 void ASTStmtReader::VisitAttributedStmt(AttributedStmt *S) {
   VisitStmt(S);
+  uint64_t NumAttrs = Record[Idx++];
   AttrVec Attrs;
   Reader.ReadAttributes(F, Attrs, Record, Idx);
-  S->Attrs = Attrs;
+  (void)NumAttrs;
+  assert(NumAttrs == S->NumAttrs);
+  assert(NumAttrs == Attrs.size());
+  std::copy(Attrs.begin(), Attrs.end(), S->Attrs);
   S->SubStmt = Reader.ReadSubStmt();
   S->AttrLoc = ReadSourceLocation(Record, Idx);
 }
@@ -1647,7 +1652,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
 
     case STMT_ATTRIBUTED:
-      S = new (Context) AttributedStmt(Empty);
+      S = AttributedStmt::CreateEmpty(
+        Context,
+        /*NumAttrs*/Record[ASTStmtReader::NumStmtFields]);
       break;
 
     case STMT_IF:

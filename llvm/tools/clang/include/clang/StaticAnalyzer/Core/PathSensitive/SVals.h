@@ -68,7 +68,6 @@ protected:
 
 public:
   explicit SVal() : Data(0), Kind(0) {}
-  ~SVal() {}
 
   /// BufferTy - A temporary buffer to hold a set of SVals.
   typedef SmallVector<SVal,5> BufferTy;
@@ -326,16 +325,22 @@ class LocAsInteger : public NonLoc {
 public:
 
   Loc getLoc() const {
-    return cast<Loc>(((std::pair<SVal, uintptr_t>*) Data)->first);
+    const std::pair<SVal, uintptr_t> *D =
+      static_cast<const std::pair<SVal, uintptr_t> *>(Data);
+    return cast<Loc>(D->first);
   }
 
   const Loc& getPersistentLoc() const {
-    const SVal& V = ((std::pair<SVal, uintptr_t>*) Data)->first;
+    const std::pair<SVal, uintptr_t> *D =
+      static_cast<const std::pair<SVal, uintptr_t> *>(Data);
+    const SVal& V = D->first;
     return cast<Loc>(V);
   }
 
   unsigned getNumBits() const {
-    return ((std::pair<SVal, unsigned>*) Data)->second;
+    const std::pair<SVal, uintptr_t> *D =
+      static_cast<const std::pair<SVal, uintptr_t> *>(Data);
+    return D->second;
   }
 
   // Implement isa<T> support.
@@ -401,7 +406,7 @@ public:
 
 namespace loc {
 
-enum Kind { GotoLabelKind, MemRegionKind, ConcreteIntKind, ObjCPropRefKind };
+enum Kind { GotoLabelKind, MemRegionKind, ConcreteIntKind };
 
 class GotoLabel : public Loc {
 public:
@@ -477,28 +482,6 @@ public:
 
   static inline bool classof(const Loc* V) {
     return V->getSubKind() == ConcreteIntKind;
-  }
-};
-
-/// \brief Pseudo-location SVal used by the ExprEngine to simulate a "load" or
-/// "store" of an ObjC property for the dot syntax.
-class ObjCPropRef : public Loc {
-public:
-  explicit ObjCPropRef(const ObjCPropertyRefExpr *E)
-    : Loc(ObjCPropRefKind, E) {}
-
-  const ObjCPropertyRefExpr *getPropRefExpr() const {
-    return static_cast<const ObjCPropertyRefExpr *>(Data);
-  }
-
-  // Implement isa<T> support.
-  static inline bool classof(const SVal* V) {
-    return V->getBaseKind() == LocKind &&
-           V->getSubKind() == ObjCPropRefKind;
-  }
-
-  static inline bool classof(const Loc* V) {
-    return V->getSubKind() == ObjCPropRefKind;
   }
 };
 

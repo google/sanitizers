@@ -8,8 +8,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "DWARFContext.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 using namespace llvm;
@@ -140,30 +142,66 @@ DWARFCompileUnit *DWARFContext::getCompileUnitForOffset(uint32_t offset) {
   return 0;
 }
 
-DILineInfo DWARFContext::getLineInfoForAddress(uint64_t address) {
+DILineInfo DWARFContext::getLineInfoForAddress(uint64_t address,
+    DILineInfoSpecifier specifier) {
   // First, get the offset of the compile unit.
   uint32_t cuOffset = getDebugAranges()->findAddress(address);
   // Retrieve the compile unit.
   DWARFCompileUnit *cu = getCompileUnitForOffset(cuOffset);
   if (!cu)
-    return DILineInfo("<invalid>", 0, 0);
-  // Get the line table for this compile unit.
-  const DWARFDebugLine::LineTable *lineTable = getLineTableForCompileUnit(cu);
-  if (!lineTable)
-    return DILineInfo("<invalid>", 0, 0);
-  // Get the index of the row we're looking for in the line table.
-  uint64_t hiPC =
-    cu->getCompileUnitDIE()->getAttributeValueAsUnsigned(cu, DW_AT_high_pc,
-                                                         -1ULL);
-  uint32_t rowIndex = lineTable->lookupAddress(address, hiPC);
-  if (rowIndex == -1U)
-    return DILineInfo("<invalid>", 0, 0);
-
-  // From here, contruct the DILineInfo.
-  const DWARFDebugLine::Row &row = lineTable->Rows[rowIndex];
-  const std::string &fileName = lineTable->Prologue.FileNames[row.File-1].Name;
-
-  return DILineInfo(fileName.c_str(), row.Line, row.Column);
+    return DILineInfo();
+  SmallString<16> fileName("<invalid>");
+  SmallString<16> functionName("<invalid>");
+  uint32_t line = 0;
+  uint32_t column = 0;
+  if (specifier.needs(DILineInfoSpecifier::FunctionName)) {
+    const DWARFDebugInfoEntryMinimal *function_die =
+        cu->getFunctionDIEForAddress(address);
+    if (function_die) {
+      if (const char *name = function_die->getSubprogramName(cu))
+        functionName = name;
+    }
+  }
+  if (specifier.needs(DILineInfoSpecifier::FileLineInfo)) {
+    // Get the line table for this compile unit.
+    const DWARFDebugLine::LineTable *lineTable = getLineTableForCompileUnit(cu);
+    if (lineTable) {
+      // Get the index of the row we're looking for in the line table.
+      uint64_t hiPC = cu->getCompileUnitDIE()->getAttributeValueAsUnsigned(
+          cu, DW_AT_high_pc, -1ULL);
+      uint32_t rowIndex = lineTable->lookupAddress(address, hiPC);
+      if (rowIndex != -1U) {
+        const DWARFDebugLine::Row &row = lineTable->Rows[rowIndex];
+        // Take file/line info from the line table.
+        const DWARFDebugLine::FileNameEntry &fileNameEntry =
+            lineTable->Prologue.FileNames[row.File - 1];
+        fileName = fileNameEntry.Name;
+        if (specifier.needs(DILineInfoSpecifier::AbsoluteFilePath) &&
+            sys::path::is_relative(fileName.str())) {
+          // Append include directory of file (if it is present in line table)
+          // and compilation directory of compile unit to make path absolute.
+          const char *includeDir = 0;
+          if (uint64_t includeDirIndex = fileNameEntry.DirIdx) {
+            includeDir = lineTable->Prologue
+                         .IncludeDirectories[includeDirIndex - 1];
+          }
+          SmallString<16> absFileName;
+          if (includeDir == 0 || sys::path::is_relative(includeDir)) {
+            if (const char *compilationDir = cu->getCompilationDir())
+              sys::path::append(absFileName, compilationDir);
+          }
+          if (includeDir) {
+            sys::path::append(absFileName, includeDir);
+          }
+          sys::path::append(absFileName, fileName.str());
+          fileName = absFileName;
+        }
+        line = row.Line;
+        column = row.Column;
+      }
+    }
+  }
+  return DILineInfo(fileName, functionName, line, column);
 }
 
 void DWARFContextInMemory::anchor() { }

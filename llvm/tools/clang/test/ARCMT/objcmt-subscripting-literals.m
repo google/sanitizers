@@ -169,3 +169,55 @@ void test1(NSString *str) {
   arr = [NSArray arrayWithObjects: globStr, str, nil];
   arr = [NSArray arrayWithObject:globStr];
 }
+
+@interface Custom : NSObject
+- (id)objectAtIndex:(unsigned long)index;
+@end
+
+@interface Custom (Extended)
+- (id)objectAtIndexedSubscript:(unsigned)idx;
+@end
+
+@interface MutableCustom : Custom
+- (void)replaceObjectAtIndex:(unsigned long)index withObject:(id)anObject;
+@end
+
+@interface MutableCustom (Extended)
+- (void)setObject:(id)obj atIndexedSubscript:(unsigned)idx;
+@end
+
+@interface CustomUnavail : NSObject
+- (id)objectAtIndex:(unsigned long)index;
+@end
+
+@interface CustomUnavail (Extended)
+- (id)objectAtIndexedSubscript:(unsigned)idx __attribute__((unavailable));
+@end
+
+@interface MutableCustomUnavail : CustomUnavail
+- (void)replaceObjectAtIndex:(unsigned long)index withObject:(id)anObject;
+@end
+
+@interface MutableCustomUnavail (Extended)
+- (void)setObject:(id)obj atIndexedSubscript:(unsigned)idx __attribute__((unavailable));
+@end
+
+void test2() {
+  MutableCustom *mutc;
+  id o = [mutc objectAtIndex:4];
+  [mutc replaceObjectAtIndex:2 withObject:@"val"];
+
+  MutableCustomUnavail *mutcunaval;
+  o = [mutcunaval objectAtIndex:4];
+  [mutcunaval replaceObjectAtIndex:2 withObject:@"val"];
+}
+
+@interface NSLocale : NSObject
++ (id)systemLocale;
++ (id)currentLocale;
+- (id)objectForKey:(id)key;
+@end
+
+void test3(id key) {
+  id o = [[NSLocale currentLocale] objectForKey:key];
+}

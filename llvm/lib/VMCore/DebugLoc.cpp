@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/DebugLoc.h"
+#include "llvm/DebugInfo.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "LLVMContextImpl.h"
 using namespace llvm;
@@ -114,34 +115,19 @@ MDNode *DebugLoc::getAsMDNode(const LLVMContext &Ctx) const {
 
 /// getFromDILocation - Translate the DILocation quad into a DebugLoc.
 DebugLoc DebugLoc::getFromDILocation(MDNode *N) {
-  if (N == 0 || N->getNumOperands() != 4) return DebugLoc();
-  
-  MDNode *Scope = dyn_cast_or_null<MDNode>(N->getOperand(2));
+  DILocation Loc(N);
+  MDNode *Scope = Loc.getScope();
   if (Scope == 0) return DebugLoc();
-  
-  unsigned LineNo = 0, ColNo = 0;
-  if (ConstantInt *Line = dyn_cast_or_null<ConstantInt>(N->getOperand(0)))
-    LineNo = Line->getZExtValue();
-  if (ConstantInt *Col = dyn_cast_or_null<ConstantInt>(N->getOperand(1)))
-    ColNo = Col->getZExtValue();
-  
-  return get(LineNo, ColNo, Scope, dyn_cast_or_null<MDNode>(N->getOperand(3)));
+  return get(Loc.getLineNumber(), Loc.getColumnNumber(), Scope,
+             Loc.getOrigLocation());
 }
 
 /// getFromDILexicalBlock - Translate the DILexicalBlock into a DebugLoc.
 DebugLoc DebugLoc::getFromDILexicalBlock(MDNode *N) {
-  if (N == 0 || N->getNumOperands() < 3) return DebugLoc();
-  
-  MDNode *Scope = dyn_cast_or_null<MDNode>(N->getOperand(1));
+  DILexicalBlock LexBlock(N);
+  MDNode *Scope = LexBlock.getContext();
   if (Scope == 0) return DebugLoc();
-  
-  unsigned LineNo = 0, ColNo = 0;
-  if (ConstantInt *Line = dyn_cast_or_null<ConstantInt>(N->getOperand(2)))
-    LineNo = Line->getZExtValue();
-  if (ConstantInt *Col = dyn_cast_or_null<ConstantInt>(N->getOperand(3)))
-    ColNo = Col->getZExtValue();
-  
-  return get(LineNo, ColNo, Scope, NULL);
+  return get(LexBlock.getLineNumber(), LexBlock.getColumnNumber(), Scope, NULL);
 }
 
 void DebugLoc::dump(const LLVMContext &Ctx) const {
@@ -164,20 +150,8 @@ void DebugLoc::dump(const LLVMContext &Ctx) const {
 // DenseMap specialization
 //===----------------------------------------------------------------------===//
 
-DebugLoc DenseMapInfo<DebugLoc>::getEmptyKey() {
-  return DebugLoc::getEmptyKey();
-}
-
-DebugLoc DenseMapInfo<DebugLoc>::getTombstoneKey() {
-  return DebugLoc::getTombstoneKey();
-}
-
 unsigned DenseMapInfo<DebugLoc>::getHashValue(const DebugLoc &Key) {
   return static_cast<unsigned>(hash_combine(Key.LineCol, Key.ScopeIdx));
-}
-
-bool DenseMapInfo<DebugLoc>::isEqual(const DebugLoc &LHS, const DebugLoc &RHS) {
-  return LHS == RHS;
 }
 
 //===----------------------------------------------------------------------===//

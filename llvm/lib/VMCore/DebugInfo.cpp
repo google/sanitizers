@@ -112,16 +112,16 @@ Function *DIDescriptor::getFunctionField(unsigned Elt) const {
 }
 
 unsigned DIVariable::getNumAddrElements() const {
-  if (getVersion() <= llvm::LLVMDebugVersion8)
+  if (getVersion() <= LLVMDebugVersion8)
     return DbgNode->getNumOperands()-6;
-  if (getVersion() == llvm::LLVMDebugVersion9)
+  if (getVersion() == LLVMDebugVersion9)
     return DbgNode->getNumOperands()-7;
   return DbgNode->getNumOperands()-8;
 }
 
 /// getInlinedAt - If this variable is inlined then return inline location.
 MDNode *DIVariable::getInlinedAt() const {
-  if (getVersion() <= llvm::LLVMDebugVersion9)
+  if (getVersion() <= LLVMDebugVersion9)
     return NULL;
   return dyn_cast_or_null<MDNode>(DbgNode->getOperand(7));
 }
@@ -734,7 +734,7 @@ DIVariable llvm::cleanseInlinedVariable(MDNode *DV, LLVMContext &VMContext) {
   // Insert inlined scope as 7th element.
   for (unsigned i = 0, e = DV->getNumOperands(); i != e; ++i)
     i == 7 ? 
-      Elts.push_back(llvm::Constant::getNullValue(Type::getInt32Ty(VMContext))):
+      Elts.push_back(Constant::getNullValue(Type::getInt32Ty(VMContext))):
       Elts.push_back(DV->getOperand(i));
   return DIVariable(MDNode::get(VMContext, Elts));
 }
@@ -998,8 +998,6 @@ void DIDescriptor::print(raw_ostream &OS) const {
 
   if (this->isSubrange()) {
     DISubrange(DbgNode).printInternal(OS);
-  } else if (this->isScope()) {
-    DIScope(DbgNode).printInternal(OS);
   } else if (this->isCompileUnit()) {
     DICompileUnit(DbgNode).printInternal(OS);
   } else if (this->isFile()) {
@@ -1018,6 +1016,10 @@ void DIDescriptor::print(raw_ostream &OS) const {
     DIGlobalVariable(DbgNode).printInternal(OS);
   } else if (this->isVariable()) {
     DIVariable(DbgNode).printInternal(OS);
+  } else if (this->isObjCProperty()) {
+    DIObjCProperty(DbgNode).printInternal(OS);
+  } else if (this->isScope()) {
+    DIScope(DbgNode).printInternal(OS);
   }
 }
 
@@ -1079,12 +1081,7 @@ void DICompositeType::printInternal(raw_ostream &OS) const {
 }
 
 void DISubprogram::printInternal(raw_ostream &OS) const {
-  StringRef Res = getName();
-  if (!Res.empty())
-    OS << " [" << Res << ']';
-
   // TODO : Print context
-
   OS << " [line " << getLineNumber() << ']';
 
   if (isLocalToUnit())
@@ -1095,6 +1092,10 @@ void DISubprogram::printInternal(raw_ostream &OS) const {
 
   if (getScopeLineNumber() != getLineNumber())
     OS << " [scope " << getScopeLineNumber() << "]";
+
+  StringRef Res = getName();
+  if (!Res.empty())
+    OS << " [" << Res << ']';
 }
 
 void DIGlobalVariable::printInternal(raw_ostream &OS) const {
@@ -1119,6 +1120,15 @@ void DIVariable::printInternal(raw_ostream &OS) const {
     OS << " [" << Res << ']';
 
   OS << " [line " << getLineNumber() << ']';
+}
+
+void DIObjCProperty::printInternal(raw_ostream &OS) const {
+  StringRef Name = getObjCPropertyName();
+  if (!Name.empty())
+    OS << " [" << Name << ']';
+
+  OS << " [line " << getLineNumber()
+     << ", properties " << getUnsignedField(6) << ']';
 }
 
 static void printDebugLoc(DebugLoc DL, raw_ostream &CommentOS,
@@ -1156,29 +1166,3 @@ void DIVariable::printExtendedName(raw_ostream &OS) const {
     }
   }
 }
-
-//===----------------------------------------------------------------------===//
-// DIDescriptor: vtable anchors for all descriptors.
-//===----------------------------------------------------------------------===//
-
-void DIScope::anchor() { }
-
-void DICompileUnit::anchor() { }
-
-void DIFile::anchor() { }
-
-void DIType::anchor() { }
-
-void DIBasicType::anchor() { }
-
-void DIDerivedType::anchor() { }
-
-void DICompositeType::anchor() { }
-
-void DISubprogram::anchor() { }
-
-void DILexicalBlock::anchor() { }
-
-void DINameSpace::anchor() { }
-
-void DILexicalBlockFile::anchor() { }

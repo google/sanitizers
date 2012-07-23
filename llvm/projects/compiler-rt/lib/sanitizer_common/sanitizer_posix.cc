@@ -27,10 +27,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#ifdef ANDROID
-#include <sys/atomics.h>
-#endif
-
 namespace __sanitizer {
 
 // ------------- sanitizer_common.h
@@ -79,6 +75,18 @@ void *Mprotect(uptr fixed_addr, uptr size) {
                        MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE,
                        -1, 0);
 }
+
+void *MapFileToMemory(const char *file_name, uptr *buff_size) {
+  fd_t fd = internal_open(file_name, false);
+  CHECK_NE(fd, kInvalidFd);
+  uptr fsize = internal_filesize(fd);
+  CHECK_NE(fsize, (uptr)-1);
+  CHECK_GT(fsize, 0);
+  *buff_size = RoundUpTo(fsize, kPageSize);
+  void *map = internal_mmap(0, *buff_size, PROT_READ, MAP_PRIVATE, fd, 0);
+  return (map == MAP_FAILED) ? 0 : map;
+}
+
 
 static inline bool IntervalsAreSeparate(uptr start1, uptr end1,
                                         uptr start2, uptr end2) {
@@ -144,33 +152,11 @@ void Abort() {
 }
 
 int Atexit(void (*function)(void)) {
+#ifndef SANITIZER_GO
   return atexit(function);
-}
-
-int AtomicInc(int *a) {
-#ifdef ANDROID
-  return __atomic_inc(a) + 1;
 #else
-  return __sync_add_and_fetch(a, 1);
+  return 0;
 #endif
-}
-
-u16 AtomicExchange(u16 *a, u16 new_val) {
-  return __sync_lock_test_and_set(a, new_val);
-}
-
-u8 AtomicExchange(u8 *a, u8 new_val) {
-  return __sync_lock_test_and_set(a, new_val);
-}
-
-// -------------- sanitizer_libc.h
-
-int internal_sscanf(const char *str, const char *format, ...) {
-  va_list args;
-  va_start(args, format);
-  int res = vsscanf(str, format, args);
-  va_end(args);
-  return res;
 }
 
 }  // namespace __sanitizer

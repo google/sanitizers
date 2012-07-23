@@ -22,6 +22,7 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/CallGraph.h"
+#include "clang/Analysis/Analyses/LiveVariables.h"
 #include "clang/StaticAnalyzer/Frontend/CheckerRegistration.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Checkers/LocalCheckers.h"
@@ -57,6 +58,7 @@ STATISTIC(NumFunctionsAnalyzed, "The # of functions analysed (as top level).");
 STATISTIC(NumBlocksInAnalyzedFunctions,
                      "The # of basic blocks in the analyzed functions.");
 STATISTIC(PercentReachableBlocks, "The % of reachable basic blocks.");
+STATISTIC(MaxCFGSize, "The maximum number of basic blocks in a function.");
 
 //===----------------------------------------------------------------------===//
 // Special PathDiagnosticConsumers.
@@ -347,7 +349,7 @@ void AnalysisConsumer::HandleDeclsGallGraph(const unsigned LocalTUDeclsSize) {
   for (llvm::SmallVector<CallGraphNode*, 24>::reverse_iterator
          TI = TopLevelFunctions.rbegin(), TE = TopLevelFunctions.rend();
          TI != TE; ++TI)
-    BFSQueue.push_front(*TI);
+    BFSQueue.push_back(*TI);
 
   // BFS over all of the functions, while skipping the ones inlined into
   // the previously processed functions. Use external Visited set, which is
@@ -356,6 +358,13 @@ void AnalysisConsumer::HandleDeclsGallGraph(const unsigned LocalTUDeclsSize) {
   while(!BFSQueue.empty()) {
     CallGraphNode *N = BFSQueue.front();
     BFSQueue.pop_front();
+
+    // Push the children into the queue.
+    for (CallGraphNode::const_iterator CI = N->begin(),
+         CE = N->end(); CI != CE; ++CI) {
+      if (!Visited.count(*CI))
+        BFSQueue.push_back(*CI);
+    }
 
     // Skip the functions which have been processed already or previously
     // inlined.
@@ -377,12 +386,6 @@ void AnalysisConsumer::HandleDeclsGallGraph(const unsigned LocalTUDeclsSize) {
         Visited.insert(VN);
     }
     Visited.insert(N);
-
-    // Push the children into the queue.
-    for (CallGraphNode::const_iterator CI = N->begin(),
-                                       CE = N->end(); CI != CE; ++CI) {
-      BFSQueue.push_front(*CI);
-    }
   }
 }
 
@@ -486,6 +489,12 @@ void AnalysisConsumer::HandleCode(Decl *D, AnalysisMode Mode,
     return;
 
   DisplayFunction(D, Mode);
+  CFG *DeclCFG = Mgr->getCFG(D);
+  if (DeclCFG) {
+    unsigned CFGSize = DeclCFG->size();
+    MaxCFGSize = MaxCFGSize < CFGSize ? CFGSize : MaxCFGSize;
+  }
+
 
   // Clear the AnalysisManager of old AnalysisDeclContexts.
   Mgr->ClearContexts();
@@ -519,6 +528,10 @@ void AnalysisConsumer::ActionExprEngine(Decl *D, bool ObjCGCEnabled,
   // Construct the analysis engine.  First check if the CFG is valid.
   // FIXME: Inter-procedural analysis will need to handle invalid CFGs.
   if (!Mgr->getCFG(D))
+    return;
+
+  // See if the LiveVariables analysis scales.
+  if (!Mgr->getAnalysisDeclContext(D)->getAnalysis<RelaxedLiveVariables>())
     return;
 
   ExprEngine Eng(*Mgr, ObjCGCEnabled, VisitedCallees, &FunctionSummaries);

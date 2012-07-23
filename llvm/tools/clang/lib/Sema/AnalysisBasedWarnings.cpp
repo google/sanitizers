@@ -1061,6 +1061,9 @@ class ThreadSafetyReporter : public clang::thread_safety::ThreadSafetyHandler {
       case LEK_LockedAtEndOfFunction:
         DiagID = diag::warn_no_unlock;
         break;
+      case LEK_NotLockedAtEndOfFunction:
+        DiagID = diag::warn_expecting_locked;
+        break;
     }
     if (LocEndOfScope.isInvalid())
       LocEndOfScope = FunEndLocation;
@@ -1217,6 +1220,7 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   else {
     AC.getCFGBuildOptions()
       .setAlwaysAdd(Stmt::BinaryOperatorClass)
+      .setAlwaysAdd(Stmt::CompoundAssignOperatorClass)
       .setAlwaysAdd(Stmt::BlockExprClass)
       .setAlwaysAdd(Stmt::CStyleCastExprClass)
       .setAlwaysAdd(Stmt::DeclRefExprClass)

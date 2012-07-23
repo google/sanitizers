@@ -355,13 +355,14 @@ void CodeGenFunction::GenerateThunk(llvm::Function *Fn,
   llvm::Value *Callee = CGM.GetAddrOfFunction(GD, Ty, /*ForVTable=*/true);
 
 #ifndef NDEBUG
-  const CGFunctionInfo &CallFnInfo = 
-    CGM.getTypes().arrangeFunctionCall(ResultType, CallArgs, FPT->getExtInfo(),
+  const CGFunctionInfo &CallFnInfo =
+    CGM.getTypes().arrangeCXXMethodCall(CallArgs, FPT,
                                        RequiredArgs::forPrototypePlus(FPT, 1));
   assert(CallFnInfo.getRegParm() == FnInfo.getRegParm() &&
          CallFnInfo.isNoReturn() == FnInfo.isNoReturn() &&
          CallFnInfo.getCallingConvention() == FnInfo.getCallingConvention());
-  assert(similar(CallFnInfo.getReturnInfo(), CallFnInfo.getReturnType(),
+  assert(isa<CXXDestructorDecl>(MD) || // ignore dtor return types
+         similar(CallFnInfo.getReturnInfo(), CallFnInfo.getReturnType(),
                  FnInfo.getReturnInfo(), FnInfo.getReturnType()));
   assert(CallFnInfo.arg_size() == FnInfo.arg_size());
   for (unsigned i = 0, e = FnInfo.arg_size(); i != e; ++i)
@@ -571,12 +572,11 @@ CodeGenVTables::CreateVTableInitializer(const CXXRecordDecl *RD,
         if (!PureVirtualFn) {
           llvm::FunctionType *Ty = 
             llvm::FunctionType::get(CGM.VoidTy, /*isVarArg=*/false);
-          PureVirtualFn = 
-            CGM.CreateRuntimeFunction(Ty, "__cxa_pure_virtual");
-          PureVirtualFn = llvm::ConstantExpr::getBitCast(PureVirtualFn, 
-                                                         Int8PtrTy);
+          StringRef PureCallName = CGM.getCXXABI().GetPureVirtualCallName();
+          PureVirtualFn = CGM.CreateRuntimeFunction(Ty, PureCallName);
+          PureVirtualFn = llvm::ConstantExpr::getBitCast(PureVirtualFn,
+                                                         CGM.Int8PtrTy);
         }
-        
         Init = PureVirtualFn;
       } else {
         // Check if we should use a thunk.

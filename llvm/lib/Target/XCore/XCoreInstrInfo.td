@@ -741,14 +741,12 @@ let isCall=1,
 // All calls clobber the link register and the non-callee-saved registers:
 Defs = [R0, R1, R2, R3, R11, LR], Uses = [SP] in {
 def BL_u10 : _FU10<
-                  (outs),
-                  (ins calltarget:$target, variable_ops),
+                  (outs), (ins calltarget:$target),
                   "bl $target",
                   [(XCoreBranchLink immU10:$target)]>;
 
 def BL_lu10 : _FLU10<
-                  (outs),
-                  (ins calltarget:$target, variable_ops),
+                  (outs), (ins calltarget:$target),
                   "bl $target",
                   [(XCoreBranchLink immU20:$target)]>;
 }
@@ -950,10 +948,10 @@ def ENDIN_l2r : _FL2R<(outs GRRegs:$dst), (ins GRRegs:$src),
 // dgetreg
 def MSYNC_1r : _F1R<(outs), (ins GRRegs:$i),
                     "msync res[$i]",
-		    [(int_xcore_msync GRRegs:$i)]>;
+                    [(int_xcore_msync GRRegs:$i)]>;
 def MJOIN_1r : _F1R<(outs), (ins GRRegs:$i),
                     "mjoin res[$i]",
-		    [(int_xcore_mjoin GRRegs:$i)]>;
+                    [(int_xcore_mjoin GRRegs:$i)]>;
 
 let isBranch=1, isIndirectBranch=1, isTerminator=1, isBarrier = 1 in
 def BAU_1r : _F1R<(outs), (ins GRRegs:$addr),
@@ -988,7 +986,7 @@ def ECALLF_1r : _F1R<(outs), (ins GRRegs:$src),
 let isCall=1, 
 // All calls clobber the link register and the non-callee-saved registers:
 Defs = [R0, R1, R2, R3, R11, LR], Uses = [SP] in {
-def BLA_1r : _F1R<(outs), (ins GRRegs:$addr, variable_ops),
+def BLA_1r : _F1R<(outs), (ins GRRegs:$addr),
                  "bla $addr",
                  [(XCoreBranchLink GRRegs:$addr)]>;
 }
@@ -1038,7 +1036,7 @@ def GETET_0R : _F0R<(outs), (ins),
 
 def SSYNC_0r : _F0R<(outs), (ins),
                     "ssync",
-		    [(int_xcore_ssync)]>;
+                    [(int_xcore_ssync)]>;
 
 let isBranch=1, isIndirectBranch=1, isTerminator=1, isBarrier = 1,
     hasSideEffects = 1 in

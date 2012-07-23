@@ -484,7 +484,7 @@ bool FastISel::SelectGetElementPtr(const User *I) {
       if (const ConstantInt *CI = dyn_cast<ConstantInt>(Idx)) {
         if (CI->isZero()) continue;
         // N = N + Offset
-        TotalOffs += 
+        TotalOffs +=
           TD.getTypeAllocSize(Ty)*cast<ConstantInt>(CI)->getSExtValue();
         if (TotalOffs >= MaxOffs) {
           N = FastEmit_ri_(VT, ISD::ADD, N, NIsKill, TotalOffs, VT);
@@ -573,7 +573,10 @@ bool FastISel::SelectCall(const User *I) {
     // At -O0 we don't care about the lifetime intrinsics.
   case Intrinsic::lifetime_start:
   case Intrinsic::lifetime_end:
+    // The donothing intrinsic does, well, nothing.
+  case Intrinsic::donothing:
     return true;
+
   case Intrinsic::dbg_declare: {
     const DbgDeclareInst *DI = cast<DbgDeclareInst>(Call);
     if (!DIVariable(DI->getVariable()).Verify() ||
@@ -642,7 +645,7 @@ bool FastISel::SelectCall(const User *I) {
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL, II)
           .addCImm(CI).addImm(DI->getOffset())
           .addMetadata(DI->getVariable());
-      else 
+      else
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL, II)
           .addImm(CI->getZExtValue()).addImm(DI->getOffset())
           .addMetadata(DI->getVariable());
@@ -792,7 +795,7 @@ FastISel::SelectInstruction(const Instruction *I) {
     DL = DebugLoc();
     return true;
   }
-  // Remove dead code.  However, ignore call instructions since we've flushed 
+  // Remove dead code.  However, ignore call instructions since we've flushed
   // the local value map and recomputed the insert point.
   if (!isa<CallInst>(I)) {
     recomputeInsertPt();

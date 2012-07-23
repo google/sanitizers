@@ -98,7 +98,7 @@ public:
       VarArgsFPOffset(0),
       ArgumentStackSize(0),
       NumLocalDynamics(0) {}
-  
+
   bool getForceFramePointer() const { return ForceFramePointer;} 
   void setForceFramePointer(bool forceFP) { ForceFramePointer = forceFP; }
 
@@ -137,6 +137,7 @@ public:
 
   unsigned getNumLocalDynamicTLSAccesses() const { return NumLocalDynamics; }
   void incNumLocalDynamicTLSAccesses() { ++NumLocalDynamics; }
+
 };
 
 } // End llvm namespace

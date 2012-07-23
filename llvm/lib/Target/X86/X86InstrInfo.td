@@ -65,6 +65,8 @@ def SDTX86SetCC_C : SDTypeProfile<1, 2,
 
 def SDTX86sahf : SDTypeProfile<1, 1, [SDTCisVT<0, i32>, SDTCisVT<1, i8>]>;
 
+def SDTX86rdrand : SDTypeProfile<2, 0, [SDTCisInt<0>, SDTCisVT<1, i32>]>;
+
 def SDTX86cas : SDTypeProfile<0, 3, [SDTCisPtrTy<0>, SDTCisInt<1>,
                                      SDTCisVT<2, i8>]>;
 def SDTX86caspair : SDTypeProfile<0, 1, [SDTCisPtrTy<0>]>;
@@ -136,6 +138,9 @@ def X86setcc   : SDNode<"X86ISD::SETCC",    SDTX86SetCC>;
 def X86setcc_c : SDNode<"X86ISD::SETCC_CARRY", SDTX86SetCC_C>;
 
 def X86sahf    : SDNode<"X86ISD::SAHF",     SDTX86sahf>;
+
+def X86rdrand  : SDNode<"X86ISD::RDRAND",   SDTX86rdrand,
+                        [SDNPHasChain, SDNPSideEffect]>;
 
 def X86cas : SDNode<"X86ISD::LCMPXCHG_DAG", SDTX86cas,
                         [SDNPHasChain, SDNPInGlue, SDNPOutGlue, SDNPMayStore,
@@ -287,6 +292,20 @@ def X86Mem256AsmOperand : AsmOperandClass {
   let Name = "Mem256"; let PredicateMethod = "isMem256";
 }
 
+// Gather mem operands
+def X86MemVX32Operand : AsmOperandClass {
+  let Name = "MemVX32"; let PredicateMethod = "isMemVX32";
+}
+def X86MemVY32Operand : AsmOperandClass {
+  let Name = "MemVY32"; let PredicateMethod = "isMemVY32";
+}
+def X86MemVX64Operand : AsmOperandClass {
+  let Name = "MemVX64"; let PredicateMethod = "isMemVX64";
+}
+def X86MemVY64Operand : AsmOperandClass {
+  let Name = "MemVY64"; let PredicateMethod = "isMemVY64";
+}
+
 def X86AbsMemAsmOperand : AsmOperandClass {
   let Name = "AbsMem";
   let SuperClasses = [X86MemAsmOperand];
@@ -325,14 +344,20 @@ def f128mem : X86MemOperand<"printf128mem"> {
   let ParserMatchClass = X86Mem128AsmOperand; }
 def f256mem : X86MemOperand<"printf256mem">{ 
   let ParserMatchClass = X86Mem256AsmOperand; }
-def v128mem : Operand<iPTR> {
-  let PrintMethod = "printf128mem";
+
+// Gather mem operands
+def vx32mem : X86MemOperand<"printi32mem">{
   let MIOperandInfo = (ops ptr_rc, i8imm, VR128, i32imm, i8imm);
-  let ParserMatchClass = X86Mem128AsmOperand; }
-def v256mem : Operand<iPTR> {
-  let PrintMethod = "printf256mem";
+  let ParserMatchClass = X86MemVX32Operand; }
+def vy32mem : X86MemOperand<"printi32mem">{
   let MIOperandInfo = (ops ptr_rc, i8imm, VR256, i32imm, i8imm);
-  let ParserMatchClass = X86Mem256AsmOperand; }
+  let ParserMatchClass = X86MemVY32Operand; }
+def vx64mem : X86MemOperand<"printi64mem">{
+  let MIOperandInfo = (ops ptr_rc, i8imm, VR128, i32imm, i8imm);
+  let ParserMatchClass = X86MemVX64Operand; }
+def vy64mem : X86MemOperand<"printi64mem">{
+  let MIOperandInfo = (ops ptr_rc, i8imm, VR256, i32imm, i8imm);
+  let ParserMatchClass = X86MemVY64Operand; }
 }
 
 // A version of i8mem for use on x86-64 that uses GR64_NOREX instead of
@@ -1468,11 +1493,14 @@ let Predicates = [HasMOVBE] in {
 //
 let Predicates = [HasRDRAND], Defs = [EFLAGS] in {
   def RDRAND16r : I<0xC7, MRM6r, (outs GR16:$dst), (ins),
-                    "rdrand{w}\t$dst", []>, OpSize, TB;
+                    "rdrand{w}\t$dst",
+                    [(set GR16:$dst, EFLAGS, (X86rdrand))]>, OpSize, TB;
   def RDRAND32r : I<0xC7, MRM6r, (outs GR32:$dst), (ins),
-                    "rdrand{l}\t$dst", []>, TB;
+                    "rdrand{l}\t$dst",
+                    [(set GR32:$dst, EFLAGS, (X86rdrand))]>, TB;
   def RDRAND64r : RI<0xC7, MRM6r, (outs GR64:$dst), (ins),
-                     "rdrand{q}\t$dst", []>, TB;
+                     "rdrand{q}\t$dst",
+                     [(set GR64:$dst, EFLAGS, (X86rdrand))]>, TB;
 }
 
 //===----------------------------------------------------------------------===//

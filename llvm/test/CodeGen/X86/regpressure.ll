@@ -1,8 +1,8 @@
 ;; Both functions in this testcase should codegen to the same function, and
 ;; neither of them should require spilling anything to the stack.
 
-; RUN: llc < %s -march=x86 -stats |& \
-; RUN:   not grep {Number of register spills}
+; RUN: llc < %s -march=x86 -stats 2>&1 | \
+; RUN:   not grep "Number of register spills"
 
 ;; This can be compiled to use three registers if the loads are not
 ;; folded into the multiplies, 2 registers otherwise.

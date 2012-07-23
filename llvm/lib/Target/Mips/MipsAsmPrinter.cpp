@@ -13,29 +13,29 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "mips-asm-printer"
-#include "MipsAsmPrinter.h"
 #include "Mips.h"
+#include "MipsAsmPrinter.h"
 #include "MipsInstrInfo.h"
+#include "MipsMCInstLower.h"
 #include "InstPrinter/MipsInstPrinter.h"
 #include "MCTargetDesc/MipsBaseInfo.h"
-#include "llvm/BasicBlock.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/Instructions.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/BasicBlock.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/InlineAsm.h"
 #include "llvm/Instructions.h"
-#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
@@ -57,6 +57,25 @@ void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     PrintDebugValueComment(MI, OS);
     return;
   }
+
+  // Direct object specific instruction lowering
+  if (!OutStreamer.hasRawTextSupport())
+    switch (MI->getOpcode()) {
+    case Mips::DSLL:
+    case Mips::DSRL:
+    case Mips::DSRA:
+      assert(MI->getNumOperands() == 3 &&
+             "Invalid no. of machine operands for shift!");
+      assert(MI->getOperand(2).isImm());
+      int64_t Shift = MI->getOperand(2).getImm();
+      if (Shift > 31) {
+        MCInst TmpInst0;
+        MCInstLowering.LowerLargeShift(MI, TmpInst0, Shift - 32);
+        OutStreamer.EmitInstruction(TmpInst0);
+        return;
+      }
+      break;
+    }
 
   MachineBasicBlock::const_instr_iterator I = MI;
   MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
@@ -323,8 +342,8 @@ bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
         return true;
       O << MO.getImm() - 1;
       return false;
-    case 'z': // $0 if zero, regular printing otherwise
-    {
+    case 'z': {
+      // $0 if zero, regular printing otherwise
       if (MO.getType() != MachineOperand::MO_Immediate)
         return true;
       int64_t Val = MO.getImm();
@@ -333,6 +352,52 @@ bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       else
         O << "$0";
       return false;
+    }
+    case 'D': // Second part of a double word register operand
+    case 'L': // Low order register of a double word register operand
+    case 'M': // High order register of a double word register operand
+    {
+      if (OpNum == 0)
+        return true;
+      const MachineOperand &FlagsOP = MI->getOperand(OpNum - 1);
+      if (!FlagsOP.isImm())
+        return true;
+      unsigned Flags = FlagsOP.getImm();
+      unsigned NumVals = InlineAsm::getNumOperandRegisters(Flags);
+      // Number of registers represented by this operand. We are looking
+      // for 2 for 32 bit mode and 1 for 64 bit mode.
+      if (NumVals != 2) {
+        if (Subtarget->isGP64bit() && NumVals == 1 && MO.isReg()) {
+          unsigned Reg = MO.getReg();
+          O << '$' << MipsInstPrinter::getRegisterName(Reg);
+          return false;
+        }
+        return true;
+      }
+
+      unsigned RegOp = OpNum;
+      if (!Subtarget->isGP64bit()){
+        // Endianess reverses which register holds the high or low value
+        // between M and L.
+        switch(ExtraCode[0]) {
+        case 'M':
+          RegOp = (Subtarget->isLittle()) ? OpNum + 1 : OpNum;
+          break;
+        case 'L':
+          RegOp = (Subtarget->isLittle()) ? OpNum : OpNum + 1;
+          break;
+        case 'D': // Always the second part
+          RegOp = OpNum + 1;
+        }
+        if (RegOp >= MI->getNumOperands())
+          return true;
+        const MachineOperand &MO = MI->getOperand(RegOp);
+        if (!MO.isReg())
+          return true;
+        unsigned Reg = MO.getReg();
+        O << '$' << MipsInstPrinter::getRegisterName(Reg);
+        return false;
+      }
     }
     }
   }

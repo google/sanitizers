@@ -28,7 +28,9 @@ const int kTidBits = 13;
 const unsigned kMaxTid = 1 << kTidBits;
 const unsigned kMaxTidInClock = kMaxTid * 2;  // This includes msb 'freed' bit.
 const int kClkBits = 43;
+#ifndef TSAN_GO
 const int kShadowStackSize = 1024;
+#endif
 
 #ifdef TSAN_SHADOW_COUNT
 # if TSAN_SHADOW_COUNT == 2 \
@@ -52,24 +54,6 @@ const unsigned kShadowSize = 8;
 const bool kCollectStats = true;
 #else
 const bool kCollectStats = false;
-#endif
-
-#if TSAN_DEBUG
-#define DCHECK(a)       CHECK(a)
-#define DCHECK_EQ(a, b) CHECK_EQ(a, b)
-#define DCHECK_NE(a, b) CHECK_NE(a, b)
-#define DCHECK_LT(a, b) CHECK_LT(a, b)
-#define DCHECK_LE(a, b) CHECK_LE(a, b)
-#define DCHECK_GT(a, b) CHECK_GT(a, b)
-#define DCHECK_GE(a, b) CHECK_GE(a, b)
-#else
-#define DCHECK(a)
-#define DCHECK_EQ(a, b)
-#define DCHECK_NE(a, b)
-#define DCHECK_LT(a, b)
-#define DCHECK_LE(a, b)
-#define DCHECK_GT(a, b)
-#define DCHECK_GE(a, b)
 #endif
 
 // The following "build consistency" machinery ensures that all source files
@@ -137,9 +121,7 @@ T RoundUp(T p, int align) {
 
 struct MD5Hash {
   u64 hash[2];
-  bool operator==(const MD5Hash &other) const {
-    return hash[0] == other.hash[0] && hash[1] == other.hash[1];
-  }
+  bool operator==(const MD5Hash &other) const;
 };
 
 MD5Hash md5_hash(const void *data, uptr size);
@@ -153,30 +135,5 @@ class RegionAlloc;
 class StackTrace;
 
 }  // namespace __tsan
-
-extern "C" inline void *ALWAYS_INLINE
-memset(void *ptr, int v, uptr size) NOTHROW {
-  for (uptr i = 0; i < size; i++)
-    ((char*)ptr)[i] = (char)v;
-  return ptr;
-}
-
-extern "C" inline void *ALWAYS_INLINE
-memcpy(void *dst, const void *src, uptr size) NOTHROW {
-  for (uptr i = 0; i < size; i++)
-    ((char*)dst)[i] = ((char*)src)[i];
-  return dst;
-}
-
-extern "C" inline int ALWAYS_INLINE
-memcmp(const void *p1, const void *p2, uptr size) NOTHROW {
-  for (uptr i = 0; i < size; i++) {
-    if (((unsigned char*)p1)[i] < ((unsigned char*)p2)[i])
-      return -1;
-    if (((unsigned char*)p1)[i] > ((unsigned char*)p2)[i])
-      return 1;
-  }
-  return 0;
-}
 
 #endif  // TSAN_DEFS_H

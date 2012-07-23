@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/StmtVisitor.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/PrettyPrinter.h"
@@ -463,7 +464,7 @@ void StmtDumper::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *Node) {
     OS << " sizeof ";
     break;
   case UETT_AlignOf:
-    OS << " __alignof ";
+    OS << " alignof ";
     break;
   case UETT_VecStep:
     OS << " vec_step ";

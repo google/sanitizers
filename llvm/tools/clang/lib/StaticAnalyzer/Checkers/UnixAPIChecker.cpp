@@ -256,7 +256,7 @@ void UnixAPIChecker::BasicAllocationCheck(CheckerContext &C,
     (void) ReportZeroByteAllocation(C, falseState, arg, fn); 
     return;
   }
-  // Assume the the value is non-zero going forward.
+  // Assume the value is non-zero going forward.
   assert(trueState);
   if (trueState != state)
     C.addTransition(trueState);                           
@@ -292,7 +292,7 @@ void UnixAPIChecker::CheckCallocZero(CheckerContext &C,
     }
   }
 
-  // Assume the the value is non-zero going forward.
+  // Assume the value is non-zero going forward.
   assert(trueState);
   if (trueState != state)
     C.addTransition(trueState);
@@ -325,7 +325,11 @@ void UnixAPIChecker::CheckVallocZero(CheckerContext &C,
 
 void UnixAPIChecker::checkPreStmt(const CallExpr *CE,
                                   CheckerContext &C) const {
-  StringRef FName = C.getCalleeName(CE);
+  const FunctionDecl *FD = C.getCalleeDecl(CE);
+  if (!FD || FD->getKind() != Decl::Function)
+    return;
+
+  StringRef FName = C.getCalleeName(FD);
   if (FName.empty())
     return;
 

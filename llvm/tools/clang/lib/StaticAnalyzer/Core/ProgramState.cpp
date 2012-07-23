@@ -157,7 +157,7 @@ ProgramState::invalidateRegions(ArrayRef<const MemRegion *> Regions,
                                 const Expr *E, unsigned Count,
                                 const LocationContext *LCtx,
                                 StoreManager::InvalidatedSymbols *IS,
-                                const CallOrObjCMessage *Call) const {
+                                const CallEvent *Call) const {
   if (!IS) {
     StoreManager::InvalidatedSymbols invalidated;
     return invalidateRegionsImpl(Regions, E, Count, LCtx,
@@ -171,7 +171,7 @@ ProgramState::invalidateRegionsImpl(ArrayRef<const MemRegion *> Regions,
                                     const Expr *E, unsigned Count,
                                     const LocationContext *LCtx,
                                     StoreManager::InvalidatedSymbols &IS,
-                                    const CallOrObjCMessage *Call) const {
+                                    const CallEvent *Call) const {
   ProgramStateManager &Mgr = getStateManager();
   SubEngine* Eng = Mgr.getOwningEngine();
  
@@ -203,11 +203,11 @@ ProgramStateRef ProgramState::unbindLoc(Loc LV) const {
 }
 
 ProgramStateRef 
-ProgramState::enterStackFrame(const LocationContext *callerCtx,
-                              const StackFrameContext *calleeCtx) const {
-  const StoreRef &new_store =
-    getStateManager().StoreMgr->enterStackFrame(this, callerCtx, calleeCtx);
-  return makeWithStore(new_store);
+ProgramState::enterStackFrame(const CallEvent &Call,
+                              const StackFrameContext *CalleeCtx) const {
+  const StoreRef &NewStore =
+    getStateManager().StoreMgr->enterStackFrame(getStore(), Call, CalleeCtx);
+  return makeWithStore(NewStore);
 }
 
 SVal ProgramState::getSValAsScalarOrLoc(const MemRegion *R) const {
