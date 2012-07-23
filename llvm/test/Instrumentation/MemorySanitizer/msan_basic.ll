@@ -24,7 +24,7 @@ declare void @foo(...)
 ; CHECK: define void @LoadAndCmp
 ; CHECK: = load
 ; CHECK: = load
-; CHECK: call void @__msan_warning()
+; CHECK: call void asm sideeffect "ud2"
 ; CHECK: }
 
 ; Check that we store the shadow for the retval.
@@ -190,4 +190,29 @@ entry:
 ; CHECK: define i32 @Select
 ; CHECK: select
 ; CHECK-NEXT: select
+; CHECK: }
+
+
+define i8* @IntToPtr(i64 %x) nounwind uwtable readnone {
+entry:
+  %0 = inttoptr i64 %x to i8*
+  ret i8* %0
+}
+
+; CHECK: define i8* @IntToPtr
+; CHECK: load i64*{{.*}}__msan_param_tls
+; CHECK-NEXT: inttoptr
+; CHECK-NEXT: store i64{{.*}}__msan_retval_tls
+; CHECK: }
+
+
+define i8* @IntToPtr_ZExt(i16 %x) nounwind uwtable readnone {
+entry:
+  %0 = inttoptr i16 %x to i8*
+  ret i8* %0
+}
+
+; CHECK: define i8* @IntToPtr_ZExt
+; CHECK: zext
+; CHECK-NEXT: inttoptr
 ; CHECK: }

@@ -423,6 +423,17 @@ TEST(MemorySanitizer, strncpy) {
   EXPECT_POISONED(v_s4 = y[2]);
 }
 
+TEST(MemorySanitizer, ptrtoint) {
+  // Test that shadow is propagated through pointer-to-integer conversion.
+  void* p = (void*)0xABCD;
+  __msan_poison(((char*)&p) + 1, sizeof(p));
+  v_u1 = (((uptr)p) & 0xFF) == 0;
+
+  void* q = (void*)0xABCD;
+  __msan_poison(&q, sizeof(q) - 1);
+  EXPECT_POISONED(v_u1 = (((uptr)q) & 0xFF) == 0);
+}
+
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);
