@@ -1,12 +1,5 @@
 #include "msan.h"
 
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -14,8 +7,8 @@
 #include <unwind.h>
 #include <execinfo.h>
 
+#include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_procmaps.h"
-#include "sanitizer_common/sanitizer_libc.h"
 
 namespace __msan {
 
@@ -23,30 +16,10 @@ static const uptr kMemBeg     = 0x7f0000000000;
 static const uptr kMemEnd     = 0x7fffffffffff;
 static const uptr kShadowBeg  = MEM_TO_SHADOW(kMemBeg);
 static const uptr kShadowEnd  = MEM_TO_SHADOW(kMemEnd);
-static const uptr kBad1Beg    = 0x200000;
+static const uptr kBad1Beg    = 0x100000000;  // 4G
 static const uptr kBad1End    = kShadowBeg - 1;
 static const uptr kBad2Beg    = kShadowEnd + 1;
 static const uptr kBad2End    = kMemBeg - 1;
-
-static int MsanOpenReadonly(const char* filename) {
-    return syscall(__NR_open, filename, O_RDONLY);
-}
-
-static uptr MsanRead(int fd, void *buf, uptr count) {
-    return (uptr)syscall(__NR_read, fd, buf, count);
-}
-
-static int MsanClose(int fd) {
-    return syscall(__NR_close, fd);
-}
-
-
-bool ProtectRange(uptr beg, uptr end) {
-  return  beg == (uptr)internal_mmap((void*)(beg), end - beg,
-      PROT_NONE,
-      MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE,
-      -1, 0);
-}
 
 char *GetProcSelfMaps() {
   // FIXME
@@ -62,10 +35,10 @@ void CatProcSelfMaps() {
 }
 
 uptr ReadFromFile(const char *path, char *buff, uptr size) {
-  int fd = MsanOpenReadonly(path);
+  int fd = internal_open(path, false);
   if (fd < 0) return 0;
-  uptr res = MsanRead(fd, buff, size);
-  MsanClose(fd);
+  uptr res = internal_read(fd, buff, size);
+  internal_close(fd);
   return res;
 }
 
@@ -78,18 +51,13 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
     Printf("Bad1  : %12lx %12lx\n", kBad1Beg, kBad1End);
   }
 
-  if (prot1 && !ProtectRange(kBad1Beg, kBad1End))
+  if (prot1 && !Mprotect(kBad1Beg, kBad1End - kBad1Beg))
     return false;
-  if (prot2 && !ProtectRange(kBad2Beg, kBad2End))
+  if (prot2 && !Mprotect(kBad2Beg, kBad2End - kBad2Beg))
     return false;
   if (map_shadow) {
-    uptr shadow = (uptr)internal_mmap((void*)kShadowBeg,
-                                      kShadowEnd - kShadowBeg,
-                                      PROT_READ | PROT_WRITE,
-                                      MAP_PRIVATE | MAP_ANON |
-                                      MAP_FIXED | MAP_NORESERVE,
-                                      0, 0);
-    return shadow == kShadowBeg;
+    void *shadow = MmapFixedNoReserve(kShadowBeg, kShadowEnd - kShadowBeg);
+    return shadow == (void*)kShadowBeg;
   }
   return true;
 }

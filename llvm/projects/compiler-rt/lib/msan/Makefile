@@ -5,11 +5,6 @@ GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_BUILD_DIR=$(GTEST_ROOT)/build
 GTEST_LIB=$(GTEST_BUILD_DIR)/gtest-all.o
 
-PIN=$(HOME)/pin_msan
-MSAN_PIN_DIR=$(PIN)/source/tools/SimpleExamples
-MSAN_PIN_SO=$(MSAN_PIN_DIR)/obj-intel64/msan_pin.so
-
-
 INTERCEPTION=../interception
 COMMON=../sanitizer_common
 RTL_HDR=$(wildcard *.h) \
@@ -43,7 +38,7 @@ OS=$(shell uname | tr '[A-Z]' '[a-z]')
 LIBMSAN_INST_DIR=$(CLANG_BUILD)/lib/clang/$(CLANG_VERSION)/lib/$(OS)
 LIBMSAN_A=$(LIBMSAN_INST_DIR)/libclang_rt.msan-$(ARCH).a
 
-all: msan_test # pin
+all: msan_test
 
 libmsandr_test.so: msandr_test_so.cc $(GTEST_LIB)
 	$(CXX) -shared -fPIC -g -O1 $< -o $@
@@ -68,11 +63,6 @@ $(LIBMSAN_A): msan.a
 	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@
 %.o: $(COMMON)/%.cc
 	$(CXX) $(RTL_CXXFLAGS) -I.. -c $< -o $@
-
-pin: $(MSAN_PIN_SO)
-
-$(MSAN_PIN_SO): msan_pin.cpp
-	cd $(MSAN_PIN_DIR) && make
 
 t:
 	(ulimit -s 4096; make clean && make -j 10 2> log && ./msan_test --gtest_filter=-MemorySanitizerDr.*)
