@@ -28,19 +28,6 @@ static const uptr kBad1End    = kShadowBeg - 1;
 static const uptr kBad2Beg    = kShadowEnd + 1;
 static const uptr kBad2End    = kMemBeg - 1;
 
-static int MsanOpenReadonly(const char* filename) {
-    return syscall(__NR_open, filename, O_RDONLY);
-}
-
-static uptr MsanRead(int fd, void *buf, uptr count) {
-    return (uptr)syscall(__NR_read, fd, buf, count);
-}
-
-static int MsanClose(int fd) {
-    return syscall(__NR_close, fd);
-}
-
-
 bool ProtectRange(uptr beg, uptr end) {
   return  beg == (uptr)internal_mmap((void*)(beg), end - beg,
       PROT_NONE,
@@ -62,10 +49,10 @@ void CatProcSelfMaps() {
 }
 
 uptr ReadFromFile(const char *path, char *buff, uptr size) {
-  int fd = MsanOpenReadonly(path);
+  int fd = internal_open(path, false);
   if (fd < 0) return 0;
-  uptr res = MsanRead(fd, buff, size);
-  MsanClose(fd);
+  uptr res = internal_read(fd, buff, size);
+  internal_close(fd);
   return res;
 }
 
