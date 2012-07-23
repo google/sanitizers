@@ -473,6 +473,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value* MinusOne = ConstantInt::get(A->getType(), -1, /* isSigned */ true);
     Value* Si = IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
         IRB.CreateICmpEQ(IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
+    Si->setName("_msprop_icmp");
     setShadow(&I, Si);
   }
 
