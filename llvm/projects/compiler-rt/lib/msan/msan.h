@@ -28,6 +28,14 @@ void InstallTrapHandler();
 
 extern int msan_inited;
 
-}
+// Flags.
+struct Flags {
+  bool poison_with_zeroes;  // default: false
+  bool poison_in_malloc;  // default: true
+};
+
+extern Flags flags;
+
+}  // namespace __msan
 
 #endif  // MSAN_H

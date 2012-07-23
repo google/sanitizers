@@ -12,19 +12,10 @@
 
 using namespace __sanitizer;
 
-DECLARE_REAL(int, posix_memalign, void **memptr, uptr alignment, uptr size);
-DECLARE_REAL(void, free, void *ptr);
 
-// Flags.
-struct Flags {
-  bool poison_with_zeroes;  // default: false
-};
-
-static Flags flags;
 
 // Globals.
 static int msan_exit_code = 67;
-static int msan_poison_in_malloc = 1;
 static THREAD_LOCAL int msan_expect_umr = 0;
 static THREAD_LOCAL int msan_expected_umr_found = 0;
 
@@ -34,7 +25,6 @@ THREAD_LOCAL long long __msan_param_tls[100];
 THREAD_LOCAL long long __msan_retval_tls[8];
 static long long *main_thread_param_tls;
 
-static const int kMsanMallocMagic = 0xCA4D;
 
 
 static bool IsRunningUnderPin() {
@@ -60,69 +50,18 @@ void __msan_warning() {
 }
 
 namespace __msan {
+
+Flags flags = {
+  false,  // poison_with_zeroes
+  true,   // poison_in_malloc
+};
 int msan_inited = 0;
 bool msan_init_is_running;
 
-void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
-  __msan_init();
-  CHECK(msan_inited);
-  uptr extra_bytes = 2 * sizeof(u64*);
-  if (alignment > extra_bytes)
-    extra_bytes = alignment;
-  uptr old_size = 0;
-  void *real_oldp = 0;
-  if (oldp) {
-    char *beg = (char*)(oldp);
-    u64 *p = (u64 *)beg;
-    old_size = p[-2] >> 16;
-    CHECK((p[-2] & 0xffffULL) == kMsanMallocMagic);
-    char *end = beg + size;
-    real_oldp = (void*)p[-1];
-  }
-  void *mem = 0;
-  int res = REAL(posix_memalign)(&mem, alignment, size + extra_bytes);
-  if (res == 0) {
-    char *beg = (char*)mem + extra_bytes;
-    char *end = beg + size;
-    u64 *p = (u64 *)beg;
-    p[-2] = (size << 16) | kMsanMallocMagic;
-    p[-1] = (u64)mem;
-    // Printf("MSAN POISONS on malloc [%p, %p) rbeg: %p\n", beg, end, mem);
-    if (zeroise) {
-      internal_memset(beg, 0, size);
-    } else {
-      if (msan_poison_in_malloc)
-        __msan_poison(beg, end - beg);
-    }
-    mem = beg;
-  }
-
-  if (old_size) {
-    uptr min_size = size < old_size ? size : old_size;
-    if (mem) {
-      internal_memcpy(mem, oldp, min_size);
-      __msan_copy_poison(mem, oldp, min_size);
-    }
-    __msan_unpoison(oldp, old_size);
-    REAL(free(real_oldp));
-  }
-  return mem;
-}
-
-void MsanDeallocate(void *ptr) {
-  __msan_init();
-  char *beg = (char*)(ptr);
-  u64 *p = (u64 *)beg;
-  uptr size = p[-2] >> 16;
-  CHECK((p[-2] & 0xffffULL) == kMsanMallocMagic);
-  char *end = beg + size;
-  // Printf("MSAN UNPOISONS on free [%p, %p)\n", beg, end);
-  __msan_unpoison(beg, end - beg);
-  REAL(free((void*)p[-1]));
-}
 
 void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_with_zeroes, "poison_with_zeroes");
+  ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
 }
 
 }  // namespace __msan
@@ -164,7 +103,7 @@ void __msan_unpoison(void *a, uptr size) {
 void __msan_poison(void *a, uptr size) {
   if ((uptr)a < 0x7f0000000000) return;
   internal_memset((void*)MEM_TO_SHADOW((uptr)a),
-                  flags.poison_with_zeroes ? 0 : -1, size);
+                  __msan::flags.poison_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
@@ -219,8 +158,8 @@ sptr __msan_test_shadow(const void *x, uptr size) {
 }
 
 int __msan_set_poison_in_malloc(int do_poison) {
-  int old = msan_poison_in_malloc;
-  msan_poison_in_malloc = do_poison;
+  int old = __msan::flags.poison_in_malloc;
+  __msan::flags.poison_in_malloc = do_poison;
   return old;
 }
 
