@@ -128,6 +128,15 @@ public:
 
   void buildAddressRangeTable(const DWARFCompileUnit *cu,
                               DWARFDebugAranges *debug_aranges) const;
+
+  bool addressRangeContainsAddress(const DWARFCompileUnit *cu,
+                                   const uint64_t address) const;
+
+  // If a DIE represents a subprogram, returns its mangled name
+  // (or short name, if mangled is missing). This name may be fetched
+  // from specification or abstract origin for this subprogram.
+  // Returns null if no name is found.
+  const char* getSubprogramName(const DWARFCompileUnit *cu) const;
 };
 
 }

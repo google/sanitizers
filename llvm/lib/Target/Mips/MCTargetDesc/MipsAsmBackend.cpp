@@ -40,6 +40,7 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
   case Mips::fixup_Mips_GPOFF_LO:
   case Mips::fixup_Mips_GOT_PAGE:
   case Mips::fixup_Mips_GOT_OFST:
+  case Mips::fixup_Mips_GOT_DISP:
     break;
   case Mips::fixup_Mips_PC16:
     // So far we are only using this type for branches.
@@ -78,7 +79,8 @@ public:
     :MCAsmBackend(), OSType(_OSType), IsLittle(_isLittle), Is64Bit(_is64Bit) {}
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
-    return createMipsELFObjectWriter(OS, OSType, IsLittle, Is64Bit);
+    return createMipsELFObjectWriter(OS,
+      MCELFObjectTargetWriter::getOSABI(OSType), IsLittle, Is64Bit);
   }
 
   /// ApplyFixup - Apply the \arg Value for given \arg Fixup into the provided
@@ -165,7 +167,8 @@ public:
       { "fixup_Mips_GPOFF_HI",     0,     16,   0 },
       { "fixup_Mips_GPOFF_LO",     0,     16,   0 },
       { "fixup_Mips_GOT_PAGE",     0,     16,   0 },
-      { "fixup_Mips_GOT_OFST",     0,     16,   0 }
+      { "fixup_Mips_GOT_OFST",     0,     16,   0 },
+      { "fixup_Mips_GOT_DISP",     0,     16,   0 }
     };
 
     if (Kind < FirstTargetFixupKind)
@@ -215,6 +218,14 @@ public:
   ///
   /// \return - True on success.
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const {
+    // Check for a less than instruction size number of bytes
+    // FIXME: 16 bit instructions are not handled yet here.
+    // We shouldn't be using a hard coded number for instruction size.
+    if (Count % 4) return false;
+
+    uint64_t NumNops = Count / 4;
+    for (uint64_t i = 0; i != NumNops; ++i)
+      OW->Write32(0);
     return true;
   }
 }; // class MipsAsmBackend

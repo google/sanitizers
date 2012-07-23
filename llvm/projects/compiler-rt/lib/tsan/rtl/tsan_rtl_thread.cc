@@ -20,7 +20,11 @@
 
 namespace __tsan {
 
+#ifndef TSAN_GO
 const int kThreadQuarantineSize = 16;
+#else
+const int kThreadQuarantineSize = 64;
+#endif
 
 static void MaybeReportThreadLeak(ThreadContext *tctx) {
   if (tctx->detached)
@@ -142,18 +146,22 @@ void ThreadStart(ThreadState *thr, int tid) {
   GetThreadStackAndTls(tid == 0, &stk_addr, &stk_size, &tls_addr, &tls_size);
 
   if (tid) {
-    MemoryResetRange(thr, /*pc=*/ 1, stk_addr, stk_size);
+    if (stk_addr && stk_size) {
+      MemoryResetRange(thr, /*pc=*/ 1, stk_addr, stk_size);
+    }
 
-    // Check that the thr object is in tls;
-    const uptr thr_beg = (uptr)thr;
-    const uptr thr_end = (uptr)thr + sizeof(*thr);
-    CHECK_GE(thr_beg, tls_addr);
-    CHECK_LE(thr_beg, tls_addr + tls_size);
-    CHECK_GE(thr_end, tls_addr);
-    CHECK_LE(thr_end, tls_addr + tls_size);
-    // Since the thr object is huge, skip it.
-    MemoryResetRange(thr, /*pc=*/ 2, tls_addr, thr_beg - tls_addr);
-    MemoryResetRange(thr, /*pc=*/ 2, thr_end, tls_addr + tls_size - thr_end);
+    if (tls_addr && tls_size) {
+      // Check that the thr object is in tls;
+      const uptr thr_beg = (uptr)thr;
+      const uptr thr_end = (uptr)thr + sizeof(*thr);
+      CHECK_GE(thr_beg, tls_addr);
+      CHECK_LE(thr_beg, tls_addr + tls_size);
+      CHECK_GE(thr_end, tls_addr);
+      CHECK_LE(thr_end, tls_addr + tls_size);
+      // Since the thr object is huge, skip it.
+      MemoryResetRange(thr, /*pc=*/ 2, tls_addr, thr_beg - tls_addr);
+      MemoryResetRange(thr, /*pc=*/ 2, thr_end, tls_addr + tls_size - thr_end);
+    }
   }
 
   Lock l(&CTX()->thread_mtx);
@@ -165,6 +173,14 @@ void ThreadStart(ThreadState *thr, int tid) {
   tctx->epoch1 = (u64)-1;
   new(thr) ThreadState(CTX(), tid, tctx->epoch0, stk_addr, stk_size,
                        tls_addr, tls_size);
+#ifdef TSAN_GO
+  // Setup dynamic shadow stack.
+  const int kInitStackSize = 8;
+  thr->shadow_stack = (uptr*)internal_alloc(MBlockShadowStack,
+      kInitStackSize * sizeof(uptr));
+  thr->shadow_stack_pos = thr->shadow_stack;
+  thr->shadow_stack_end = thr->shadow_stack + kInitStackSize;
+#endif
   tctx->thr = thr;
   thr->fast_synch_epoch = tctx->epoch0;
   thr->clock.set(tid, tctx->epoch0);
@@ -173,6 +189,7 @@ void ThreadStart(ThreadState *thr, int tid) {
   DPrintf("#%d: ThreadStart epoch=%zu stk_addr=%zx stk_size=%zx "
           "tls_addr=%zx tls_size=%zx\n",
           tid, (uptr)tctx->epoch0, stk_addr, stk_size, tls_addr, tls_size);
+  thr->is_alive = true;
 }
 
 void ThreadFinish(ThreadState *thr) {
@@ -189,6 +206,7 @@ void ThreadFinish(ThreadState *thr) {
     MemoryResetRange(thr, /*pc=*/ 5,
         thr_end, thr->tls_addr + thr->tls_size - thr_end);
   }
+  thr->is_alive = false;
   Context *ctx = CTX();
   Lock l(&ctx->thread_mtx);
   ThreadContext *tctx = ctx->threads[thr->tid];

@@ -18,12 +18,14 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Allocator.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace clang {
 namespace comments {
 
 class Lexer;
+class TextTokenRetokenizer;
 
 namespace tok {
 enum TokenKind {
@@ -36,20 +38,13 @@ enum TokenKind {
   verbatim_block_end,
   verbatim_line_name,
   verbatim_line_text,
-  html_tag_open,      // <tag
+  html_start_tag,     // <tag
   html_ident,         // attr
   html_equals,        // =
   html_quoted_string, // "blah\"blah" or 'blah\'blah'
   html_greater,       // >
-  html_tag_close,     // </tag>
-
-  // Markdown tokens (not supported yet).
-  ruler,
-  md_code_line,   // Line indented at least by 4 spaces.
-  md_code_inline, // `code`
-  md_emph,        // _text_ or *text*
-  md_strong,      // __text__ or *text*
-  md_header       // ### level 3 header ###
+  html_slash_greater, // />
+  html_end_tag        // </tag
 };
 } // end namespace tok
 
@@ -61,6 +56,7 @@ public:
 /// \brief Comment token.
 class Token {
   friend class Lexer;
+  friend class TextTokenRetokenizer;
 
   /// The location of the token.
   SourceLocation Loc;
@@ -79,6 +75,12 @@ class Token {
 public:
   SourceLocation getLocation() const LLVM_READONLY { return Loc; }
   void setLocation(SourceLocation SL) { Loc = SL; }
+
+  SourceLocation getEndLocation() const LLVM_READONLY {
+    if (Length == 0 || Length == 1)
+      return Loc;
+    return Loc.getLocWithOffset(Length - 1);
+  }
 
   tok::TokenKind getKind() const LLVM_READONLY { return Kind; }
   void setKind(tok::TokenKind K) { Kind = K; }
@@ -156,13 +158,13 @@ public:
     TextLen1 = Text.size();
   }
 
-  StringRef getHTMLTagOpenName() const LLVM_READONLY {
-    assert(is(tok::html_tag_open));
+  StringRef getHTMLTagStartName() const LLVM_READONLY {
+    assert(is(tok::html_start_tag));
     return StringRef(TextPtr1, TextLen1);
   }
 
-  void setHTMLTagOpenName(StringRef Name) {
-    assert(is(tok::html_tag_open));
+  void setHTMLTagStartName(StringRef Name) {
+    assert(is(tok::html_start_tag));
     TextPtr1 = Name.data();
     TextLen1 = Name.size();
   }
@@ -189,13 +191,13 @@ public:
     TextLen1 = Str.size();
   }
 
-  StringRef getHTMLTagCloseName() const LLVM_READONLY {
-    assert(is(tok::html_tag_close));
+  StringRef getHTMLTagEndName() const LLVM_READONLY {
+    assert(is(tok::html_end_tag));
     return StringRef(TextPtr1, TextLen1);
   }
 
-  void setHTMLTagCloseName(StringRef Name) {
-    assert(is(tok::html_tag_close));
+  void setHTMLTagEndName(StringRef Name) {
+    assert(is(tok::html_end_tag));
     TextPtr1 = Name.data();
     TextLen1 = Name.size();
   }
@@ -247,7 +249,10 @@ private:
     LS_VerbatimLineText,
 
     /// Finished lexing \verbatim <TAG \endverbatim part, lexing tag attributes.
-    LS_HTMLOpenTag
+    LS_HTMLStartTag,
+
+    /// Finished lexing \verbatim </TAG \endverbatim part, lexing '>'.
+    LS_HTMLEndTag
   };
 
   /// Current lexing mode.
@@ -265,7 +270,7 @@ private:
   /// Registered verbatim-like block commands.
   VerbatimBlockCommandVector VerbatimBlockCommands;
 
-  /// If State is LS_VerbatimBlock, contains the the name of verbatim end
+  /// If State is LS_VerbatimBlock, contains the name of verbatim end
   /// command, including command marker.
   SmallString<16> VerbatimBlockEndCommandName;
 
@@ -323,11 +328,13 @@ private:
 
   void lexVerbatimLineText(Token &T);
 
-  void setupAndLexHTMLOpenTag(Token &T);
+  void setupAndLexHTMLStartTag(Token &T);
 
-  void lexHTMLOpenTag(Token &T);
+  void lexHTMLStartTag(Token &T);
 
-  void lexHTMLCloseTag(Token &T);
+  void setupAndLexHTMLEndTag(Token &T);
+
+  void lexHTMLEndTag(Token &T);
 
 public:
   Lexer(SourceLocation FileLoc, const CommentOptions &CommOpts,
@@ -344,6 +351,209 @@ public:
 
   /// \brief Register a new verbatim line command.
   void addVerbatimLineCommand(StringRef Name);
+};
+
+/// Re-lexes a sequence of tok::text tokens.
+class TextTokenRetokenizer {
+  llvm::BumpPtrAllocator &Allocator;
+  static const unsigned MaxTokens = 16;
+  SmallVector<Token, MaxTokens> Toks;
+
+  struct Position {
+    unsigned CurToken;
+    const char *BufferStart;
+    const char *BufferEnd;
+    const char *BufferPtr;
+    SourceLocation BufferStartLoc;
+  };
+
+  /// Current position in Toks.
+  Position Pos;
+
+  bool isEnd() const {
+    return Pos.CurToken >= Toks.size();
+  }
+
+  /// Sets up the buffer pointers to point to current token.
+  void setupBuffer() {
+    assert(Pos.CurToken < Toks.size());
+    const Token &Tok = Toks[Pos.CurToken];
+
+    Pos.BufferStart = Tok.getText().begin();
+    Pos.BufferEnd = Tok.getText().end();
+    Pos.BufferPtr = Pos.BufferStart;
+    Pos.BufferStartLoc = Tok.getLocation();
+  }
+
+  SourceLocation getSourceLocation() const {
+    const unsigned CharNo = Pos.BufferPtr - Pos.BufferStart;
+    return Pos.BufferStartLoc.getLocWithOffset(CharNo);
+  }
+
+  char peek() const {
+    assert(!isEnd());
+    assert(Pos.BufferPtr != Pos.BufferEnd);
+    return *Pos.BufferPtr;
+  }
+
+  void consumeChar() {
+    assert(!isEnd());
+    assert(Pos.BufferPtr != Pos.BufferEnd);
+    Pos.BufferPtr++;
+    if (Pos.BufferPtr == Pos.BufferEnd) {
+      Pos.CurToken++;
+      if (Pos.CurToken < Toks.size())
+        setupBuffer();
+    }
+  }
+
+  static bool isWhitespace(char C) {
+    return C == ' ' || C == '\n' || C == '\r' ||
+           C == '\t' || C == '\f' || C == '\v';
+  }
+
+  void consumeWhitespace() {
+    while (!isEnd()) {
+      if (isWhitespace(peek()))
+        consumeChar();
+      else
+        break;
+    }
+  }
+
+  void formTokenWithChars(Token &Result,
+                          SourceLocation Loc,
+                          const char *TokBegin,
+                          unsigned TokLength,
+                          StringRef Text) {
+    Result.setLocation(Loc);
+    Result.setKind(tok::text);
+    Result.setLength(TokLength);
+#ifndef NDEBUG
+    Result.TextPtr1 = "<UNSET>";
+    Result.TextLen1 = 7;
+#endif
+    Result.setText(Text);
+  }
+
+public:
+  TextTokenRetokenizer(llvm::BumpPtrAllocator &Allocator):
+      Allocator(Allocator) {
+    Pos.CurToken = 0;
+  }
+
+  /// Add a token.
+  /// Returns true on success, false if it seems like we have enough tokens.
+  bool addToken(const Token &Tok) {
+    assert(Tok.is(tok::text));
+    if (Toks.size() >= MaxTokens)
+      return false;
+
+    Toks.push_back(Tok);
+    if (Toks.size() == 1)
+      setupBuffer();
+    return true;
+  }
+
+  /// Extract a word -- sequence of non-whitespace characters.
+  bool lexWord(Token &Tok) {
+    if (isEnd())
+      return false;
+
+    Position SavedPos = Pos;
+
+    consumeWhitespace();
+    SmallString<32> WordText;
+    const char *WordBegin = Pos.BufferPtr;
+    SourceLocation Loc = getSourceLocation();
+    while (!isEnd()) {
+      const char C = peek();
+      if (!isWhitespace(C)) {
+        WordText.push_back(C);
+        consumeChar();
+      } else
+        break;
+    }
+    const unsigned Length = WordText.size();
+    if (Length == 0) {
+      Pos = SavedPos;
+      return false;
+    }
+
+    char *TextPtr = Allocator.Allocate<char>(Length + 1);
+
+    memcpy(TextPtr, WordText.c_str(), Length + 1);
+    StringRef Text = StringRef(TextPtr, Length);
+
+    formTokenWithChars(Tok, Loc, WordBegin,
+                       Pos.BufferPtr - WordBegin, Text);
+    return true;
+  }
+
+  bool lexDelimitedSeq(Token &Tok, char OpenDelim, char CloseDelim) {
+    if (isEnd())
+      return false;
+
+    Position SavedPos = Pos;
+
+    consumeWhitespace();
+    SmallString<32> WordText;
+    const char *WordBegin = Pos.BufferPtr;
+    SourceLocation Loc = getSourceLocation();
+    bool Error = false;
+    if (!isEnd()) {
+      const char C = peek();
+      if (C == OpenDelim) {
+        WordText.push_back(C);
+        consumeChar();
+      } else
+        Error = true;
+    }
+    char C = '\0';
+    while (!Error && !isEnd()) {
+      C = peek();
+      WordText.push_back(C);
+      consumeChar();
+      if (C == CloseDelim)
+        break;
+    }
+    if (!Error && C != CloseDelim)
+      Error = true;
+
+    if (Error) {
+      Pos = SavedPos;
+      return false;
+    }
+
+    const unsigned Length = WordText.size();
+    char *TextPtr = Allocator.Allocate<char>(Length + 1);
+
+    memcpy(TextPtr, WordText.c_str(), Length + 1);
+    StringRef Text = StringRef(TextPtr, Length);
+
+    formTokenWithChars(Tok, Loc, WordBegin,
+                       Pos.BufferPtr - WordBegin, Text);
+    return true;
+  }
+
+  /// Return a text token.  Useful to take tokens back.
+  bool lexText(Token &Tok) {
+    if (isEnd())
+      return false;
+
+    if (Pos.BufferPtr != Pos.BufferStart)
+      formTokenWithChars(Tok, getSourceLocation(),
+                         Pos.BufferPtr, Pos.BufferEnd - Pos.BufferPtr,
+                         StringRef(Pos.BufferPtr,
+                                   Pos.BufferEnd - Pos.BufferPtr));
+    else
+      Tok = Toks[Pos.CurToken];
+
+    Pos.CurToken++;
+    if (Pos.CurToken < Toks.size())
+      setupBuffer();
+    return true;
+  }
 };
 
 } // end namespace comments

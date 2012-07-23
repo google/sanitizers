@@ -110,6 +110,10 @@ private:
   /// serialization, rather than just queueing updates.
   bool WritingAST;
 
+  /// \brief Indicates that we are done serializing the collection of decls
+  /// and types to emit.
+  bool DoneWritingDeclsAndTypes;
+
   /// \brief Indicates that the AST contained compiler errors.
   bool ASTHasCompilerErrors;
 
@@ -296,6 +300,10 @@ private:
   /// it.
   llvm::SmallPtrSet<const DeclContext *, 16> UpdatedDeclContexts;
 
+  /// \brief Keeps track of visible decls that were added in DeclContexts
+  /// coming from another AST file.
+  SmallVector<const Decl *, 16> UpdatingVisibleDecls;
+
   typedef llvm::SmallPtrSet<const Decl *, 16> DeclsToRewriteTy;
   /// \brief Decls that will be replaced in the current dependent AST file.
   DeclsToRewriteTy DeclsToRewrite;
@@ -419,7 +427,7 @@ private:
   void WriteReferencedSelectorsPool(Sema &SemaRef);
   void WriteIdentifierTable(Preprocessor &PP, IdentifierResolver &IdResolver,
                             bool IsModule);
-  void WriteAttributes(const AttrVec &Attrs, RecordDataImpl &Record);
+  void WriteAttributes(ArrayRef<const Attr*> Attrs, RecordDataImpl &Record);
   void ResolveDeclUpdatesBlocks();
   void WriteDeclUpdatesBlocks();
   void WriteDeclReplacementsBlock();

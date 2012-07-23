@@ -23,6 +23,7 @@
 #include "clang/AST/ASTConsumer.h"
 using namespace clang;
 
+namespace {
 /// \brief A comment handler that passes comments found by the preprocessor
 /// to the parser action.
 class ActionCommentHandler : public CommentHandler {
@@ -36,6 +37,7 @@ public:
     return false;
   }
 };
+} // end anonymous namespace
 
 IdentifierInfo *Parser::getSEHExceptKeyword() {
   // __except is accepted as a (contextual) keyword 
@@ -49,7 +51,7 @@ Parser::Parser(Preprocessor &pp, Sema &actions, bool SkipFunctionBodies)
   : PP(pp), Actions(actions), Diags(PP.getDiagnostics()),
     GreaterThanIsOperator(true), ColonIsSacred(false), 
     InMessageExpression(false), TemplateParameterDepth(0),
-    SkipFunctionBodies(SkipFunctionBodies) {
+    ParsingInObjCContainer(false), SkipFunctionBodies(SkipFunctionBodies) {
   Tok.setKind(tok::eof);
   Actions.CurScope = 0;
   NumCachedScopes = 0;
@@ -218,31 +220,40 @@ bool Parser::ExpectAndConsumeSemi(unsigned DiagID) {
   return ExpectAndConsume(tok::semi, DiagID);
 }
 
-void Parser::ConsumeExtraSemi(ExtraSemiKind Kind, const char* DiagMsg) {
+void Parser::ConsumeExtraSemi(ExtraSemiKind Kind, unsigned TST) {
   if (!Tok.is(tok::semi)) return;
 
-  // AfterDefinition should only warn when placed on the same line as the
-  // definition.  Otherwise, defer to another semi warning.
-  if (Kind == AfterDefinition && Tok.isAtStartOfLine()) return;
-
+  bool HadMultipleSemis = false;
   SourceLocation StartLoc = Tok.getLocation();
   SourceLocation EndLoc = Tok.getLocation();
   ConsumeToken();
 
   while ((Tok.is(tok::semi) && !Tok.isAtStartOfLine())) {
+    HadMultipleSemis = true;
     EndLoc = Tok.getLocation();
     ConsumeToken();
   }
 
-  if (Kind == OutsideFunction && getLangOpts().CPlusPlus0x) {
-    Diag(StartLoc, diag::warn_cxx98_compat_top_level_semi)
-        << FixItHint::CreateRemoval(SourceRange(StartLoc, EndLoc));
+  // C++11 allows extra semicolons at namespace scope, but not in any of the
+  // other contexts.
+  if (Kind == OutsideFunction && getLangOpts().CPlusPlus) {
+    if (getLangOpts().CPlusPlus0x)
+      Diag(StartLoc, diag::warn_cxx98_compat_top_level_semi)
+          << FixItHint::CreateRemoval(SourceRange(StartLoc, EndLoc));
+    else
+      Diag(StartLoc, diag::ext_extra_semi_cxx11)
+          << FixItHint::CreateRemoval(SourceRange(StartLoc, EndLoc));
     return;
   }
 
-  Diag(StartLoc, diag::ext_extra_semi)
-      << Kind << DiagMsg << FixItHint::CreateRemoval(SourceRange(StartLoc,
-                                                                 EndLoc));
+  if (Kind != AfterMemberFunctionDefinition || HadMultipleSemis)
+    Diag(StartLoc, diag::ext_extra_semi)
+        << Kind << DeclSpec::getSpecifierName((DeclSpec::TST)TST)
+        << FixItHint::CreateRemoval(SourceRange(StartLoc, EndLoc));
+  else
+    // A single semicolon is valid after a member function definition.
+    Diag(StartLoc, diag::warn_extra_semi_after_mem_fn_def)
+      << FixItHint::CreateRemoval(SourceRange(StartLoc, EndLoc));
 }
 
 //===----------------------------------------------------------------------===//
@@ -766,7 +777,7 @@ bool Parser::isDeclarationAfterDeclarator() {
     if (KW.is(tok::kw_default) || KW.is(tok::kw_delete))
       return false;
   }
-
+  
   return Tok.is(tok::equal) ||      // int X()=  -> not a function def
     Tok.is(tok::comma) ||           // int X(),  -> not a function def
     Tok.is(tok::semi)  ||           // int X();  -> not a function def
@@ -795,6 +806,27 @@ bool Parser::isStartOfFunctionDefinition(const ParsingDeclarator &Declarator) {
   
   return Tok.is(tok::colon) ||         // X() : Base() {} (used for ctors)
          Tok.is(tok::kw_try);          // X() try { ... }
+}
+
+/// \brief Determine whether the current token, if it occurs after a
+/// a function declarator, indicates the start of a function definition
+/// inside an objective-C class implementation and thus can be delay parsed. 
+bool Parser::isStartOfDelayParsedFunctionDefinition(
+                                       const ParsingDeclarator &Declarator) {
+  if (!CurParsedObjCImpl ||
+      !Declarator.isFunctionDeclarator())
+    return false;
+  if (Tok.is(tok::l_brace))   // int X() {}
+    return true;
+
+  // Handle K&R C argument lists: int X(f) int f; {}
+  if (!getLangOpts().CPlusPlus &&
+      Declarator.getFunctionTypeInfo().isKNRPrototype()) 
+    return isDeclarationSpecifier();
+  
+  return getLangOpts().CPlusPlus &&
+           (Tok.is(tok::colon) ||         // X() : Base() {} (used for ctors)
+            Tok.is(tok::kw_try));          // X() try { ... }
 }
 
 /// ParseDeclarationOrFunctionDefinition - Parse either a function-definition or
@@ -959,6 +991,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   // In delayed template parsing mode, for function template we consume the
   // tokens and store them for late parsing at the end of the translation unit.
   if (getLangOpts().DelayedTemplateParsing &&
+      Tok.isNot(tok::equal) &&
       TemplateInfo.Kind == ParsedTemplateInfo::Template) {
     MultiTemplateParamsArg TemplateParameterLists(Actions,
                                          TemplateInfo.TemplateParams->data(),
@@ -1310,10 +1343,12 @@ bool Parser::TryAnnotateTypeOrScopeToken(bool EnteringContext, bool NeedType) {
                                        0, /*IsTypename*/true))
       return true;
     if (!SS.isSet()) {
-      if (Tok.is(tok::identifier) || Tok.is(tok::annot_template_id)) {
+      if (Tok.is(tok::identifier) || Tok.is(tok::annot_template_id) ||
+          Tok.is(tok::annot_decltype)) {
         // Attempt to recover by skipping the invalid 'typename'
-        if (!TryAnnotateTypeOrScopeToken(EnteringContext, NeedType) &&
-            Tok.isAnnotation()) {
+        if (Tok.is(tok::annot_decltype) ||
+            (!TryAnnotateTypeOrScopeToken(EnteringContext, NeedType) &&
+            Tok.isAnnotation())) {
           unsigned DiagID = diag::err_expected_qualified_after_typename;
           // MS compatibility: MSVC permits using known types with typename.
           // e.g. "typedef typename T* pointer_type"

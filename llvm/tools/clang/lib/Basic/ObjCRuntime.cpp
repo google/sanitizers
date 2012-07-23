@@ -30,8 +30,9 @@ raw_ostream &clang::operator<<(raw_ostream &out, const ObjCRuntime &value) {
   case ObjCRuntime::MacOSX: out << "macosx"; break;
   case ObjCRuntime::FragileMacOSX: out << "macosx-fragile"; break;
   case ObjCRuntime::iOS: out << "ios"; break;
-  case ObjCRuntime::GNU: out << "gnu"; break;
-  case ObjCRuntime::FragileGNU: out << "gnu-fragile"; break;
+  case ObjCRuntime::GNUstep: out << "gnustep"; break;
+  case ObjCRuntime::GCC: out << "gcc"; break;
+  case ObjCRuntime::ObjFW: out << "objfw"; break;
   }
   if (value.getVersion() > VersionTuple(0)) {
     out << '-' << value.getVersion();
@@ -54,22 +55,27 @@ bool ObjCRuntime::tryParse(StringRef input) {
   // Everything prior to that must be a valid string name.
   Kind kind;
   StringRef runtimeName = input.substr(0, dash);
+  Version = VersionTuple(0);
   if (runtimeName == "macosx") {
     kind = ObjCRuntime::MacOSX;
   } else if (runtimeName == "macosx-fragile") {
     kind = ObjCRuntime::FragileMacOSX;
   } else if (runtimeName == "ios") {
     kind = ObjCRuntime::iOS;
-  } else if (runtimeName == "gnu") {
-    kind = ObjCRuntime::GNU;
-  } else if (runtimeName == "gnu-fragile") {
-    kind = ObjCRuntime::FragileGNU;
+  } else if (runtimeName == "gnustep") {
+    // If no version is specified then default to the most recent one that we
+    // know about.
+    Version = VersionTuple(1, 6);
+    kind = ObjCRuntime::GNUstep;
+  } else if (runtimeName == "gcc") {
+    kind = ObjCRuntime::GCC;
+  } else if (runtimeName == "objfw") {
+    kind = ObjCRuntime::ObjFW;
   } else {
     return true;
   }
   TheKind = kind;
   
-  Version = VersionTuple(0);
   if (dash != StringRef::npos) {
     StringRef verString = input.substr(dash + 1);
     if (Version.tryParse(verString)) 

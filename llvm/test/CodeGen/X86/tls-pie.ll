@@ -1,6 +1,6 @@
-; RUN: llc < %s -march=x86 -mtriple=i386-linux-gnu -relocation-model=pic -enable-pie \
+; RUN: llc < %s -march=x86 -mcpu=generic -mtriple=i386-linux-gnu -relocation-model=pic -enable-pie \
 ; RUN:   | FileCheck -check-prefix=X32 %s
-; RUN: llc < %s -march=x86-64 -mtriple=x86_64-linux-gnu -relocation-model=pic -enable-pie \
+; RUN: llc < %s -march=x86-64 -mcpu=generic -mtriple=x86_64-linux-gnu -relocation-model=pic -enable-pie \
 ; RUN:   | FileCheck -check-prefix=X64 %s
 
 @i = thread_local global i32 15
@@ -40,7 +40,8 @@ define i32 @f3() {
 ; X32-NEXT: popl %eax
 ; X32-NEXT: .Ltmp{{[0-9]+}}:
 ; X32-NEXT: addl $_GLOBAL_OFFSET_TABLE_+(.Ltmp{{[0-9]+}}-.L{{[0-9]+}}$pb), %eax
-; X32-NEXT: movl %gs:i2@GOTNTPOFF(%eax), %eax
+; X32-NEXT: movl i2@GOTNTPOFF(%eax), %eax
+; X32-NEXT: movl %gs:(%eax), %eax
 ; X32-NEXT: ret
 ; X64: f3:
 ; X64:      movq i2@GOTTPOFF(%rip), %rax
@@ -56,11 +57,11 @@ define i32* @f4() {
 ; X32: f4:
 ; X32:      calll .L{{[0-9]+}}$pb
 ; X32-NEXT: .L{{[0-9]+}}$pb:
-; X32-NEXT: popl %eax
+; X32-NEXT: popl %ecx
 ; X32-NEXT: .Ltmp{{[0-9]+}}:
-; X32-NEXT: addl $_GLOBAL_OFFSET_TABLE_+(.Ltmp{{[0-9]+}}-.L{{[0-9]+}}$pb), %eax
-; X32-NEXT: leal i2@GOTNTPOFF(%eax), %eax
-; X32-NEXT: addl %gs:0, %eax
+; X32-NEXT: addl $_GLOBAL_OFFSET_TABLE_+(.Ltmp{{[0-9]+}}-.L{{[0-9]+}}$pb), %ecx
+; X32-NEXT: movl %gs:0, %eax
+; X32-NEXT: addl i2@GOTNTPOFF(%ecx), %eax
 ; X32-NEXT: ret
 ; X64: f4:
 ; X64:      movq %fs:0, %rax

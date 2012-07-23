@@ -356,15 +356,15 @@ static void translateImmediate(MCInst &mcInst, uint64_t immediate,
       // Special case those X86 instructions that use the imm8 as a set of
       // bits, bit count, etc. and are not sign-extend.
       if (Opcode != X86::BLENDPSrri && Opcode != X86::BLENDPDrri &&
-	  Opcode != X86::PBLENDWrri && Opcode != X86::MPSADBWrri &&
-	  Opcode != X86::DPPSrri && Opcode != X86::DPPDrri &&
-	  Opcode != X86::INSERTPSrr && Opcode != X86::VBLENDPSYrri &&
-	  Opcode != X86::VBLENDPSYrmi && Opcode != X86::VBLENDPDYrri &&
-	  Opcode != X86::VBLENDPDYrmi && Opcode != X86::VPBLENDWrri &&
-	  Opcode != X86::VMPSADBWrri && Opcode != X86::VDPPSYrri &&
-	  Opcode != X86::VDPPSYrmi && Opcode != X86::VDPPDrri &&
-	  Opcode != X86::VINSERTPSrr)
-	type = TYPE_MOFFS8;
+          Opcode != X86::PBLENDWrri && Opcode != X86::MPSADBWrri &&
+          Opcode != X86::DPPSrri && Opcode != X86::DPPDrri &&
+          Opcode != X86::INSERTPSrr && Opcode != X86::VBLENDPSYrri &&
+          Opcode != X86::VBLENDPSYrmi && Opcode != X86::VBLENDPDYrri &&
+          Opcode != X86::VBLENDPDYrmi && Opcode != X86::VPBLENDWrri &&
+          Opcode != X86::VMPSADBWrri && Opcode != X86::VDPPSYrri &&
+          Opcode != X86::VDPPSYrmi && Opcode != X86::VDPPDrri &&
+          Opcode != X86::VINSERTPSrr)
+        type = TYPE_MOFFS8;
       break;
     case ENCODING_IW:
       type = TYPE_MOFFS16;
@@ -506,18 +506,26 @@ static bool translateRMMemory(MCInst &mcInst, InternalInstruction &insn,
     //   We can tell whether it is VSIB or SIB after instruction ID is decoded,
     //   but instruction ID may not be decoded yet when calling readSIB.
     uint32_t Opcode = mcInst.getOpcode();
-    bool IsGather = (Opcode == X86::VGATHERDPDrm ||
-                     Opcode == X86::VGATHERQPDrm ||
-                     Opcode == X86::VGATHERDPSrm ||
-                     Opcode == X86::VGATHERQPSrm);
-    bool IsGatherY = (Opcode == X86::VGATHERDPDYrm ||
-                      Opcode == X86::VGATHERQPDYrm ||
-                      Opcode == X86::VGATHERDPSYrm ||
-                      Opcode == X86::VGATHERQPSYrm);
-    if (IsGather || IsGatherY) {
+    bool IndexIs128 = (Opcode == X86::VGATHERDPDrm ||
+                       Opcode == X86::VGATHERDPDYrm ||
+                       Opcode == X86::VGATHERQPDrm ||
+                       Opcode == X86::VGATHERDPSrm ||
+                       Opcode == X86::VGATHERQPSrm ||
+                       Opcode == X86::VPGATHERDQrm ||
+                       Opcode == X86::VPGATHERDQYrm ||
+                       Opcode == X86::VPGATHERQQrm ||
+                       Opcode == X86::VPGATHERDDrm ||
+                       Opcode == X86::VPGATHERQDrm);
+    bool IndexIs256 = (Opcode == X86::VGATHERQPDYrm ||
+                       Opcode == X86::VGATHERDPSYrm ||
+                       Opcode == X86::VGATHERQPSYrm ||
+                       Opcode == X86::VPGATHERQQYrm ||
+                       Opcode == X86::VPGATHERDDYrm ||
+                       Opcode == X86::VPGATHERQDYrm);
+    if (IndexIs128 || IndexIs256) {
       unsigned IndexOffset = insn.sibIndex -
                          (insn.addressSize == 8 ? SIB_INDEX_RAX:SIB_INDEX_EAX);
-      SIBIndex IndexBase = IsGatherY ? SIB_INDEX_YMM0 : SIB_INDEX_XMM0;
+      SIBIndex IndexBase = IndexIs256 ? SIB_INDEX_YMM0 : SIB_INDEX_XMM0;
       insn.sibIndex = (SIBIndex)(IndexBase + 
                            (insn.sibIndex == SIB_INDEX_NONE ? 4 : IndexOffset));
     }

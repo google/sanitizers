@@ -7,9 +7,12 @@ set(LLVM_LINK_COMPONENTS
 set(VMCoreSources
   ConstantsTest.cpp
   DominatorTreeTest.cpp
+  IRBuilderTest.cpp
   InstructionsTest.cpp
+  MDBuilderTest.cpp
   MetadataTest.cpp
   PassManagerTest.cpp
+  TypeBuilderTest.cpp
   ValueMapTest.cpp
   VerifierTest.cpp
   )

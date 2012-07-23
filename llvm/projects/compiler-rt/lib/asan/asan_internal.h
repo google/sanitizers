@@ -14,6 +14,7 @@
 #ifndef ASAN_INTERNAL_H
 #define ASAN_INTERNAL_H
 
+#include "asan_flags.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_libc.h"
@@ -135,31 +136,6 @@ bool PlatformHasDifferentMemcpyAndMemmove();
 #else
 # define PLATFORM_HAS_DIFFERENT_MEMCPY_AND_MEMMOVE true
 #endif  // __APPLE__
-
-extern uptr  FLAG_quarantine_size;
-extern s64 FLAG_demangle;
-extern bool    FLAG_symbolize;
-extern s64 FLAG_v;
-extern uptr  FLAG_redzone;
-extern s64 FLAG_debug;
-extern bool    FLAG_poison_shadow;
-extern s64 FLAG_report_globals;
-extern uptr  FLAG_malloc_context_size;
-extern bool    FLAG_replace_str;
-extern bool    FLAG_replace_intrin;
-extern bool    FLAG_replace_cfallocator;
-extern bool    FLAG_mac_ignore_invalid_free;
-extern bool    FLAG_fast_unwind;
-extern bool    FLAG_use_fake_stack;
-extern uptr  FLAG_max_malloc_fill_size;
-extern s64 FLAG_exitcode;
-extern bool    FLAG_allow_user_poisoning;
-extern s64 FLAG_sleep_before_dying;
-extern bool    FLAG_handle_segv;
-extern bool    FLAG_use_sigaltstack;
-extern bool    FLAG_check_malloc_usable_size;
-extern bool    FLAG_unmap_shadow_on_exit;
-extern bool    FLAG_abort_on_error;
 
 extern int asan_inited;
 // Used to avoid infinite recursion in __asan_init().

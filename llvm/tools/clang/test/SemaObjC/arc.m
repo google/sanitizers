@@ -641,7 +641,7 @@ void test35(void) {
   test36_helper(&y);
   ^{ test36_helper(&y); }();
 
-  __strong int non_objc_type; // expected-warning {{'__strong' only applies to objective-c object or block pointer types}} 
+  __strong int non_objc_type; // expected-warning {{'__strong' only applies to Objective-C object or block pointer types}} 
 }
 
 void test36(int first, ...) {
@@ -694,5 +694,26 @@ void _NSCalcBeze(NSColor* color, NSColor* bezelColors[]); // expected-error {{mu
   RestaurantTableViewCell *cell;
   [cell restaurantLocatoin]; // expected-error {{no visible @interface for 'RestaurantTableViewCell' declares the selector 'restaurantLocatoin'}}
 }
+@end
+
+// rdar://11814185
+@interface Radar11814185
+@property (nonatomic, weak)  Radar11814185* picker1;
++ alloc;
+- init;
+@end
+
+@implementation Radar11814185
+
+@synthesize picker1;
+
+- (void)viewDidLoad
+{
+    picker1 = [[Radar11814185 alloc] init]; // expected-warning {{assigning retained object to weak variable; object will be released after assignment}}
+    self.picker1 = [[Radar11814185 alloc] init]; // expected-warning {{assigning retained object to weak property; object will be released after assignment}}
+}
+
++ alloc { return 0; }
+- init { return 0; }
 @end
 

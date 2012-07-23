@@ -1,11 +1,16 @@
+import gc
+import os
+
 from clang.cindex import CursorKind
 from clang.cindex import Cursor
+from clang.cindex import File
 from clang.cindex import Index
+from clang.cindex import SourceLocation
+from clang.cindex import SourceRange
 from clang.cindex import TranslationUnitSaveError
 from clang.cindex import TranslationUnit
 from .util import get_cursor
 from .util import get_tu
-import os
 
 kInputsDir = os.path.join(os.path.dirname(__file__), 'INPUTS')
 
@@ -151,3 +156,86 @@ def test_index_parse():
     index = Index.create()
     tu = index.parse(path)
     assert isinstance(tu, TranslationUnit)
+
+def test_get_file():
+    """Ensure tu.get_file() works appropriately."""
+
+    tu = get_tu('int foo();')
+
+    f = tu.get_file('t.c')
+    assert isinstance(f, File)
+    assert f.name == 't.c'
+
+    try:
+        f = tu.get_file('foobar.cpp')
+    except:
+        pass
+    else:
+        assert False
+
+def test_get_source_location():
+    """Ensure tu.get_source_location() works."""
+
+    tu = get_tu('int foo();')
+
+    location = tu.get_location('t.c', 2)
+    assert isinstance(location, SourceLocation)
+    assert location.offset == 2
+    assert location.file.name == 't.c'
+
+    location = tu.get_location('t.c', (1, 3))
+    assert isinstance(location, SourceLocation)
+    assert location.line == 1
+    assert location.column == 3
+    assert location.file.name == 't.c'
+
+def test_get_source_range():
+    """Ensure tu.get_source_range() works."""
+
+    tu = get_tu('int foo();')
+
+    r = tu.get_extent('t.c', (1,4))
+    assert isinstance(r, SourceRange)
+    assert r.start.offset == 1
+    assert r.end.offset == 4
+    assert r.start.file.name == 't.c'
+    assert r.end.file.name == 't.c'
+
+    r = tu.get_extent('t.c', ((1,2), (1,3)))
+    assert isinstance(r, SourceRange)
+    assert r.start.line == 1
+    assert r.start.column == 2
+    assert r.end.line == 1
+    assert r.end.column == 3
+    assert r.start.file.name == 't.c'
+    assert r.end.file.name == 't.c'
+
+    start = tu.get_location('t.c', 0)
+    end = tu.get_location('t.c', 5)
+
+    r = tu.get_extent('t.c', (start, end))
+    assert isinstance(r, SourceRange)
+    assert r.start.offset == 0
+    assert r.end.offset == 5
+    assert r.start.file.name == 't.c'
+    assert r.end.file.name == 't.c'
+
+def test_get_tokens_gc():
+    """Ensures get_tokens() works properly with garbage collection."""
+
+    tu = get_tu('int foo();')
+    r = tu.get_extent('t.c', (0, 10))
+    tokens = list(tu.get_tokens(extent=r))
+
+    assert tokens[0].spelling == 'int'
+    gc.collect()
+    assert tokens[0].spelling == 'int'
+
+    del tokens[1]
+    gc.collect()
+    assert tokens[0].spelling == 'int'
+
+    # May trigger segfault if we don't do our job properly.
+    del tokens
+    gc.collect()
+    gc.collect() # Just in case.

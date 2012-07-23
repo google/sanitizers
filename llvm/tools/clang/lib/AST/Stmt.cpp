@@ -244,6 +244,22 @@ SourceLocation Stmt::getLocEnd() const {
   llvm_unreachable("unknown statement kind");
 }
 
+CompoundStmt::CompoundStmt(ASTContext &C, Stmt **StmtStart, unsigned NumStmts,
+                           SourceLocation LB, SourceLocation RB)
+  : Stmt(CompoundStmtClass), LBracLoc(LB), RBracLoc(RB) {
+  CompoundStmtBits.NumStmts = NumStmts;
+  assert(CompoundStmtBits.NumStmts == NumStmts &&
+         "NumStmts doesn't fit in bits of CompoundStmtBits.NumStmts!");
+
+  if (NumStmts == 0) {
+    Body = 0;
+    return;
+  }
+
+  Body = new (C) Stmt*[NumStmts];
+  memcpy(Body, StmtStart, NumStmts * sizeof(*Body));
+}
+
 void CompoundStmt::setStmts(ASTContext &C, Stmt **Stmts, unsigned NumStmts) {
   if (this->Body)
     C.Deallocate(Body);
@@ -255,6 +271,23 @@ void CompoundStmt::setStmts(ASTContext &C, Stmt **Stmts, unsigned NumStmts) {
 
 const char *LabelStmt::getName() const {
   return getDecl()->getIdentifier()->getNameStart();
+}
+
+AttributedStmt *AttributedStmt::Create(ASTContext &C, SourceLocation Loc,
+                                       ArrayRef<const Attr*> Attrs,
+                                       Stmt *SubStmt) {
+  void *Mem = C.Allocate(sizeof(AttributedStmt) +
+                         sizeof(Attr*) * (Attrs.size() - 1),
+                         llvm::alignOf<AttributedStmt>());
+  return new (Mem) AttributedStmt(Loc, Attrs, SubStmt);
+}
+
+AttributedStmt *AttributedStmt::CreateEmpty(ASTContext &C, unsigned NumAttrs) {
+  assert(NumAttrs > 0 && "NumAttrs should be greater than zero");
+  void *Mem = C.Allocate(sizeof(AttributedStmt) +
+                         sizeof(Attr*) * (NumAttrs - 1),
+                         llvm::alignOf<AttributedStmt>());
+  return new (Mem) AttributedStmt(EmptyShell(), NumAttrs);
 }
 
 // This is defined here to avoid polluting Stmt.h with importing Expr.h

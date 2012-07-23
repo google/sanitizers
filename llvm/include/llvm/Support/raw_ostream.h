@@ -230,6 +230,9 @@ public:
   /// rather than being put on a pipe or stored in a file.
   virtual bool is_displayed() const { return false; }
 
+  /// This function determines if this stream is displayed and supports colors.
+  virtual bool has_colors() const { return is_displayed(); }
+
   //===--------------------------------------------------------------------===//
   // Subclass Interface
   //===--------------------------------------------------------------------===//
@@ -386,10 +389,12 @@ public:
 
   virtual bool is_displayed() const;
 
+  virtual bool has_colors() const;
+
   /// has_error - Return the value of the flag in this raw_fd_ostream indicating
   /// whether an output error has been encountered.
   /// This doesn't implicitly flush any pending output.  Also, it doesn't
-  /// guarantee to detect all errors unless the the stream has been closed.
+  /// guarantee to detect all errors unless the stream has been closed.
   bool has_error() const {
     return Error;
   }

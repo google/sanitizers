@@ -48,16 +48,31 @@ unsigned InstrEmitter::CountResults(SDNode *Node) {
   return N;
 }
 
-/// CountOperands - The inputs to target nodes have any actual inputs first,
+/// countOperands - The inputs to target nodes have any actual inputs first,
 /// followed by an optional chain operand, then an optional glue operand.
 /// Compute the number of actual operands that will go into the resulting
 /// MachineInstr.
-unsigned InstrEmitter::CountOperands(SDNode *Node) {
+///
+/// Also count physreg RegisterSDNode and RegisterMaskSDNode operands preceding
+/// the chain and glue. These operands may be implicit on the machine instr.
+static unsigned countOperands(SDNode *Node, unsigned &NumImpUses) {
   unsigned N = Node->getNumOperands();
   while (N && Node->getOperand(N - 1).getValueType() == MVT::Glue)
     --N;
   if (N && Node->getOperand(N - 1).getValueType() == MVT::Other)
     --N; // Ignore chain if it exists.
+
+  // Count RegisterSDNode and RegisterMaskSDNode operands for NumImpUses.
+  for (unsigned I = N; I; --I) {
+    if (isa<RegisterMaskSDNode>(Node->getOperand(I - 1)))
+      continue;
+    if (RegisterSDNode *RN = dyn_cast<RegisterSDNode>(Node->getOperand(I - 1)))
+      if (TargetRegisterInfo::isPhysicalRegister(RN->getReg()))
+        continue;
+    NumImpUses = N - I;
+    break;
+  }
+
   return N;
 }
 
@@ -337,8 +352,7 @@ InstrEmitter::AddRegisterOperand(MachineInstr *MI, SDValue Op,
 
 /// AddOperand - Add the specified operand to the specified machine instr.  II
 /// specifies the instruction information for the node, and IIOpNum is the
-/// operand number (in the II) that we are adding. IIOpNum and II are used for
-/// assertions only.
+/// operand number (in the II) that we are adding.
 void InstrEmitter::AddOperand(MachineInstr *MI, SDValue Op,
                               unsigned IIOpNum,
                               const MCInstrDesc *II,
@@ -353,7 +367,11 @@ void InstrEmitter::AddOperand(MachineInstr *MI, SDValue Op,
     const ConstantFP *CFP = F->getConstantFPValue();
     MI->addOperand(MachineOperand::CreateFPImm(CFP));
   } else if (RegisterSDNode *R = dyn_cast<RegisterSDNode>(Op)) {
-    MI->addOperand(MachineOperand::CreateReg(R->getReg(), false));
+    // Turn additional physreg operands into implicit uses on non-variadic
+    // instructions. This is used by call and return instructions passing
+    // arguments in registers.
+    bool Imp = II && (IIOpNum >= II->getNumOperands() && !II->isVariadic());
+    MI->addOperand(MachineOperand::CreateReg(R->getReg(), false, Imp));
   } else if (RegisterMaskSDNode *RM = dyn_cast<RegisterMaskSDNode>(Op)) {
     MI->addOperand(MachineOperand::CreateRegMask(RM->getRegMask()));
   } else if (GlobalAddressSDNode *TGA = dyn_cast<GlobalAddressSDNode>(Op)) {
@@ -461,7 +479,8 @@ void InstrEmitter::EmitSubregNode(SDNode *Node,
     unsigned SrcReg, DstReg, DefSubIdx;
     if (DefMI &&
         TII->isCoalescableExtInstr(*DefMI, SrcReg, DstReg, DefSubIdx) &&
-        SubIdx == DefSubIdx) {
+        SubIdx == DefSubIdx &&
+        TRC == MRI->getRegClass(SrcReg)) {
       // Optimize these:
       // r1025 = s/zext r1024, 4
       // r1026 = extract_subreg r1025, 4
@@ -470,6 +489,7 @@ void InstrEmitter::EmitSubregNode(SDNode *Node,
       VRBase = MRI->createVirtualRegister(TRC);
       BuildMI(*MBB, InsertPos, Node->getDebugLoc(),
               TII->get(TargetOpcode::COPY), VRBase).addReg(SrcReg);
+      MRI->clearKillFlags(SrcReg);
     } else {
       // VReg may not support a SubIdx sub-register, and we may need to
       // constrain its register class or issue a COPY to a compatible register
@@ -695,7 +715,8 @@ EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
 
   const MCInstrDesc &II = TII->get(Opc);
   unsigned NumResults = CountResults(Node);
-  unsigned NodeOperands = CountOperands(Node);
+  unsigned NumImpUses = 0;
+  unsigned NodeOperands = countOperands(Node, NumImpUses);
   bool HasPhysRegOuts = NumResults > II.getNumDefs() && II.getImplicitDefs()!=0;
 #ifndef NDEBUG
   unsigned NumMIOperands = NodeOperands + NumResults;
@@ -704,7 +725,8 @@ EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
            "Too few operands for a variadic node!");
   else
     assert(NumMIOperands >= II.getNumOperands() &&
-           NumMIOperands <= II.getNumOperands()+II.getNumImplicitDefs() &&
+           NumMIOperands <= II.getNumOperands() + II.getNumImplicitDefs() +
+                            NumImpUses &&
            "#operands for dag node doesn't match .td file!");
 #endif
 

@@ -62,11 +62,11 @@ namespace X86Local {
     MRM0m = 24, MRM1m = 25, MRM2m = 26, MRM3m = 27,
     MRM4m = 28, MRM5m = 29, MRM6m = 30, MRM7m = 31,
     MRMInitReg  = 32,
+    RawFrmImm8  = 43,
+    RawFrmImm16 = 44,
 #define MAP(from, to) MRM_##from = to,
     MRM_MAPPING
 #undef MAP
-    RawFrmImm8  = 43,
-    RawFrmImm16 = 44,
     lastMRM
   };
   
@@ -277,8 +277,8 @@ RecognizableInstr::RecognizableInstr(DisassemblerTables &tables,
 }
   
 void RecognizableInstr::processInstr(DisassemblerTables &tables,
-	const CodeGenInstruction &insn,
-                                   InstrUID uid)
+                                     const CodeGenInstruction &insn,
+                                     InstrUID uid)
 {
   // Ignore "asm parser only" instructions.
   if (insn.TheDef->getValueAsBit("isAsmParserOnly"))
@@ -508,13 +508,13 @@ bool RecognizableInstr::has256BitOperands() const {
   return false;
 }
   
-void RecognizableInstr::handleOperand(
-  bool optional,
-  unsigned &operandIndex,
-  unsigned &physicalOperandIndex,
-  unsigned &numPhysicalOperands,
-  unsigned *operandMapping,
-  OperandEncoding (*encodingFromString)(const std::string&, bool hasOpSizePrefix)) {
+void RecognizableInstr::handleOperand(bool optional, unsigned &operandIndex,
+                                      unsigned &physicalOperandIndex,
+                                      unsigned &numPhysicalOperands,
+                                      const unsigned *operandMapping,
+                                      OperandEncoding (*encodingFromString)
+                                        (const std::string&,
+                                         bool hasOpSizePrefix)) {
   if (optional) {
     if (physicalOperandIndex >= numPhysicalOperands)
       return;
@@ -563,7 +563,6 @@ void RecognizableInstr::emitInstructionSpecifier(DisassemblerTables &tables) {
     
   const std::vector<CGIOperandList::OperandInfo> &OperandList = *Operands;
   
-  unsigned operandIndex;
   unsigned numOperands = OperandList.size();
   unsigned numPhysicalOperands = 0;
   
@@ -575,12 +574,13 @@ void RecognizableInstr::emitInstructionSpecifier(DisassemblerTables &tables) {
   
   assert(numOperands <= X86_MAX_OPERANDS && "X86_MAX_OPERANDS is not large enough");
   
-  for (operandIndex = 0; operandIndex < numOperands; ++operandIndex) {
+  for (unsigned operandIndex = 0; operandIndex < numOperands; ++operandIndex) {
     if (OperandList[operandIndex].Constraints.size()) {
       const CGIOperandList::ConstraintInfo &Constraint =
         OperandList[operandIndex].Constraints[0];
       if (Constraint.isTied()) {
-        operandMapping[operandIndex] = Constraint.getTiedOperand();
+        operandMapping[operandIndex] = operandIndex;
+        operandMapping[Constraint.getTiedOperand()] = operandIndex;
       } else {
         ++numPhysicalOperands;
         operandMapping[operandIndex] = operandIndex;
@@ -621,7 +621,7 @@ void RecognizableInstr::emitInstructionSpecifier(DisassemblerTables &tables) {
                 class##EncodingFromString);
   
   // operandIndex should always be < numOperands
-  operandIndex = 0;
+  unsigned operandIndex = 0;
   // physicalOperandIndex should always be < numPhysicalOperands
   unsigned physicalOperandIndex = 0;
     
@@ -1106,8 +1106,6 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("VR128",               TYPE_XMM128)
   TYPE("f128mem",             TYPE_M128)
   TYPE("f256mem",             TYPE_M256)
-  TYPE("v128mem",             TYPE_M128)
-  TYPE("v256mem",             TYPE_M256)
   TYPE("FR64",                TYPE_XMM64)
   TYPE("f64mem",              TYPE_M64FP)
   TYPE("sdmem",               TYPE_M64FP)
@@ -1146,6 +1144,10 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("GR16_NOAX",           TYPE_Rv)
   TYPE("GR32_NOAX",           TYPE_Rv)
   TYPE("GR64_NOAX",           TYPE_R64)
+  TYPE("vx32mem",             TYPE_M32)
+  TYPE("vy32mem",             TYPE_M32)
+  TYPE("vx64mem",             TYPE_M64)
+  TYPE("vy64mem",             TYPE_M64)
   errs() << "Unhandled type string " << s << "\n";
   llvm_unreachable("Unhandled type string");
 }
@@ -1237,8 +1239,6 @@ OperandEncoding RecognizableInstr::memoryEncodingFromString
   ENCODING("sdmem",           ENCODING_RM)
   ENCODING("f128mem",         ENCODING_RM)
   ENCODING("f256mem",         ENCODING_RM)
-  ENCODING("v128mem",         ENCODING_RM)
-  ENCODING("v256mem",         ENCODING_RM)
   ENCODING("f64mem",          ENCODING_RM)
   ENCODING("f32mem",          ENCODING_RM)
   ENCODING("i128mem",         ENCODING_RM)
@@ -1251,6 +1251,10 @@ OperandEncoding RecognizableInstr::memoryEncodingFromString
   ENCODING("opaque48mem",     ENCODING_RM)
   ENCODING("opaque80mem",     ENCODING_RM)
   ENCODING("opaque512mem",    ENCODING_RM)
+  ENCODING("vx32mem",         ENCODING_RM)
+  ENCODING("vy32mem",         ENCODING_RM)
+  ENCODING("vx64mem",         ENCODING_RM)
+  ENCODING("vy64mem",         ENCODING_RM)
   errs() << "Unhandled memory encoding " << s << "\n";
   llvm_unreachable("Unhandled memory encoding");
 }

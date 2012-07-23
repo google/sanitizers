@@ -15,13 +15,14 @@
 #ifndef LLVM_ANALYSIS_MEMORYBUILTINS_H
 #define LLVM_ANALYSIS_MEMORYBUILTINS_H
 
+#include "llvm/IRBuilder.h"
+#include "llvm/Operator.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/Operator.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/TargetFolder.h"
+#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
 class CallInst;
@@ -37,7 +38,7 @@ class Value;
 bool isAllocationFn(const Value *V, bool LookThroughBitCast = false);
 
 /// \brief Tests if a value is a call or invoke to a function that returns a
-/// NoAlias pointer (including malloc/calloc/strdup-like functions).
+/// NoAlias pointer (including malloc/calloc/realloc/strdup-like functions).
 bool isNoAliasFn(const Value *V, bool LookThroughBitCast = false);
 
 /// \brief Tests if a value is a call or invoke to a library function that
@@ -174,6 +175,7 @@ public:
   SizeOffsetType visitArgument(Argument &A);
   SizeOffsetType visitCallSite(CallSite CS);
   SizeOffsetType visitConstantPointerNull(ConstantPointerNull&);
+  SizeOffsetType visitExtractElementInst(ExtractElementInst &I);
   SizeOffsetType visitExtractValueInst(ExtractValueInst &I);
   SizeOffsetType visitGEPOperator(GEPOperator &GEP);
   SizeOffsetType visitGlobalVariable(GlobalVariable &GV);
@@ -194,7 +196,8 @@ class ObjectSizeOffsetEvaluator
   : public InstVisitor<ObjectSizeOffsetEvaluator, SizeOffsetEvalType> {
 
   typedef IRBuilder<true, TargetFolder> BuilderTy;
-  typedef DenseMap<const Value*, SizeOffsetEvalType> CacheMapTy;
+  typedef std::pair<WeakVH, WeakVH> WeakEvalType;
+  typedef DenseMap<const Value*, WeakEvalType> CacheMapTy;
   typedef SmallPtrSet<const Value*, 8> PtrSetTy;
 
   const TargetData *TD;
@@ -215,24 +218,26 @@ public:
   ObjectSizeOffsetEvaluator(const TargetData *TD, LLVMContext &Context);
   SizeOffsetEvalType compute(Value *V);
 
-  bool knownSize(SizeOffsetEvalType &SizeOffset) {
+  bool knownSize(SizeOffsetEvalType SizeOffset) {
     return SizeOffset.first;
   }
 
-  bool knownOffset(SizeOffsetEvalType &SizeOffset) {
+  bool knownOffset(SizeOffsetEvalType SizeOffset) {
     return SizeOffset.second;
   }
 
-  bool anyKnown(SizeOffsetEvalType &SizeOffset) {
+  bool anyKnown(SizeOffsetEvalType SizeOffset) {
     return knownSize(SizeOffset) || knownOffset(SizeOffset);
   }
 
-  bool bothKnown(SizeOffsetEvalType &SizeOffset) {
+  bool bothKnown(SizeOffsetEvalType SizeOffset) {
     return knownSize(SizeOffset) && knownOffset(SizeOffset);
   }
 
   SizeOffsetEvalType visitAllocaInst(AllocaInst &I);
   SizeOffsetEvalType visitCallSite(CallSite CS);
+  SizeOffsetEvalType visitExtractElementInst(ExtractElementInst &I);
+  SizeOffsetEvalType visitExtractValueInst(ExtractValueInst &I);
   SizeOffsetEvalType visitGEPOperator(GEPOperator &GEP);
   SizeOffsetEvalType visitIntToPtrInst(IntToPtrInst&);
   SizeOffsetEvalType visitLoadInst(LoadInst &I);

@@ -92,7 +92,7 @@ def err_drv_invalid_arch_for_deployment_target : Error<
 def err_drv_objc_gc_arr : Error<
   "cannot specify both '-fobjc-arc' and '%0'">;
 def err_arc_nonfragile_abi : Error<
-  "-fobjc-arc is not supported with fragile abi">;
+  "-fobjc-arc is not supported with legacy abi">;
 def err_arc_unsupported : Error<
   "-fobjc-arc is not supported on current deployment target">;
 def err_drv_mg_requires_m_or_mm : Error<
@@ -103,7 +103,7 @@ def err_drv_unknown_objc_runtime : Error<
   "unknown or ill-formed Objective-C runtime '%0'">;
 
 def warn_c_kext : Warning<
-  "ignoring -fapple-kext which is valid for c++ and objective-c++ only">;
+  "ignoring -fapple-kext which is valid for C++ and Objective-C++ only">;
 def warn_drv_input_file_unused : Warning<
   "%0: '%1' input unused when '%2' is present">;
 def warn_drv_preprocessed_input_file_unused : Warning<

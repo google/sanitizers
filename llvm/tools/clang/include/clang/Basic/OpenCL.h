@@ -6,9 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-//  This file defines some OpenCL-specific enums.
-//
+///
+/// \file
+/// \brief Defines some OpenCL-specific enums.
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_CLANG_BASIC_OPENCL_H
@@ -16,7 +17,7 @@
 
 namespace clang {
 
-/// Names for the OpenCL image access qualifiers (OpenCL 1.1 6.6).
+/// \brief Names for the OpenCL image access qualifiers (OpenCL 1.1 6.6).
 enum OpenCLImageAccess {
   CLIA_read_only = 1,
   CLIA_write_only = 2,

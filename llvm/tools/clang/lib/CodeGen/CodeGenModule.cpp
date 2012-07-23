@@ -138,8 +138,9 @@ void CodeGenModule::createObjCRuntime() {
   // This is just isGNUFamily(), but we want to force implementors of
   // new ABIs to decide how best to do this.
   switch (LangOpts.ObjCRuntime.getKind()) {
-  case ObjCRuntime::GNU:
-  case ObjCRuntime::FragileGNU:
+  case ObjCRuntime::GNUstep:
+  case ObjCRuntime::GCC:
+  case ObjCRuntime::ObjFW:
     ObjCRuntime = CreateGNUObjCRuntime(*this);
     return;
 
@@ -546,7 +547,7 @@ static bool hasUnwindExceptions(const LangOptions &LangOpts) {
 
   // If ObjC exceptions are enabled, this depends on the ABI.
   if (LangOpts.ObjCExceptions) {
-    if (LangOpts.ObjCRuntime.isFragile()) return false;
+    return LangOpts.ObjCRuntime.hasUnwindExceptions();
   }
 
   return true;
@@ -1111,6 +1112,7 @@ CodeGenModule::GetOrCreateLLVMFunction(StringRef MangledName,
   } else if (getLangOpts().CPlusPlus && D.getDecl()) {
     // Look for a declaration that's lexically in a record.
     const FunctionDecl *FD = cast<FunctionDecl>(D.getDecl());
+    FD = FD->getMostRecentDecl();
     do {
       if (isa<CXXRecordDecl>(FD->getLexicalDeclContext())) {
         if (FD->isImplicit() && !ForVTable) {
@@ -2584,14 +2586,8 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
 
   // Forward declarations, no (immediate) code generation.
   case Decl::ObjCInterface:
+  case Decl::ObjCCategory:
     break;
-  
-  case Decl::ObjCCategory: {
-    ObjCCategoryDecl *CD = cast<ObjCCategoryDecl>(D);
-    if (CD->IsClassExtension() && CD->hasSynthBitfield())
-      Context.ResetObjCLayout(CD->getClassInterface());
-    break;
-  }
 
   case Decl::ObjCProtocol: {
     ObjCProtocolDecl *Proto = cast<ObjCProtocolDecl>(D);
@@ -2608,8 +2604,6 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
 
   case Decl::ObjCImplementation: {
     ObjCImplementationDecl *OMD = cast<ObjCImplementationDecl>(D);
-    if (LangOpts.ObjCRuntime.isNonFragile() && OMD->hasSynthBitfield())
-      Context.ResetObjCLayout(OMD->getClassInterface());
     EmitObjCPropertyImplementations(OMD);
     EmitObjCIvarInitializations(OMD);
     ObjCRuntime->GenerateClass(OMD);

@@ -880,6 +880,20 @@ static StringRef getMipsFloatABI(const Driver &D, const ArgList &Args) {
   return FloatABI;
 }
 
+static void AddTargetFeature(const ArgList &Args,
+                             ArgStringList &CmdArgs,
+                             OptSpecifier OnOpt,
+                             OptSpecifier OffOpt,
+                             StringRef FeatureName) {
+  if (Arg *A = Args.getLastArg(OnOpt, OffOpt)) {
+    CmdArgs.push_back("-target-feature");
+    if (A->getOption().matches(OnOpt))
+      CmdArgs.push_back(Args.MakeArgString("+" + FeatureName));
+    else
+      CmdArgs.push_back(Args.MakeArgString("-" + FeatureName));
+  }
+}
+
 void Clang::AddMIPSTargetArgs(const ArgList &Args,
                              ArgStringList &CmdArgs) const {
   const Driver &D = getToolChain().getDriver();
@@ -919,6 +933,16 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
     CmdArgs.push_back("-mfloat-abi");
     CmdArgs.push_back("hard");
   }
+
+  AddTargetFeature(Args, CmdArgs,
+                   options::OPT_mips16, options::OPT_mno_mips16,
+                   "mips16");
+  AddTargetFeature(Args, CmdArgs,
+                   options::OPT_mdsp, options::OPT_mno_dsp,
+                   "dsp");
+  AddTargetFeature(Args, CmdArgs,
+                   options::OPT_mdspr2, options::OPT_mno_dspr2,
+                   "dspr2");
 }
 
 /// getPPCTargetCPU - Get the (LLVM) name of the PowerPC cpu we are targeting.
@@ -1781,12 +1805,33 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       !TrappingMath)
     CmdArgs.push_back("-menable-unsafe-fp-math");
 
-  // We separately look for the '-ffast-math' flag, and if we find it, tell the
-  // frontend to provide the appropriate preprocessor macros. This is distinct
-  // from enabling any optimizations as it induces a language change which must
-  // survive serialization and deserialization, etc.
+
+  // Validate and pass through -fp-contract option. 
+  if (Arg *A = Args.getLastArg(options::OPT_ffast_math,
+                               options::OPT_ffp_contract)) {
+    if (A->getOption().getID() == options::OPT_ffp_contract) {
+      StringRef Val = A->getValue(Args);
+      if (Val == "fast" || Val == "on" || Val == "off") {
+        CmdArgs.push_back(Args.MakeArgString("-ffp-contract=" + Val));
+      } else {
+        D.Diag(diag::err_drv_unsupported_option_argument)
+          << A->getOption().getName() << Val;
+      }
+    } else { // A is OPT_ffast_math
+      // If fast-math is set then set the fp-contract mode to fast.
+      CmdArgs.push_back(Args.MakeArgString("-ffp-contract=fast"));
+    }
+  }
+
+  // We separately look for the '-ffast-math' and '-ffinite-math-only' flags,
+  // and if we find them, tell the frontend to provide the appropriate
+  // preprocessor macros. This is distinct from enabling any optimizations as
+  // these options induce language changes which must survive serialization
+  // and deserialization, etc.
   if (Args.hasArg(options::OPT_ffast_math))
     CmdArgs.push_back("-ffast-math");
+  if (Args.hasArg(options::OPT_ffinite_math_only))
+    CmdArgs.push_back("-ffinite-math-only");
 
   // Decide whether to use verbose asm. Verbose assembly is the default on
   // toolchains which have the integrated assembler on by default.
@@ -2051,7 +2096,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   Args.AddAllArgs(CmdArgs, options::OPT_W_Group);
-  Args.AddLastArg(CmdArgs, options::OPT_pedantic);
+  if (Args.hasFlag(options::OPT_pedantic, options::OPT_no_pedantic, false))
+    CmdArgs.push_back("-pedantic");
   Args.AddLastArg(CmdArgs, options::OPT_pedantic_errors);
   Args.AddLastArg(CmdArgs, options::OPT_w);
 
@@ -2410,6 +2456,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    getToolChain().getTriple().getOS() == llvm::Triple::Win32))
     CmdArgs.push_back("-fms-extensions");
 
+  // -fms-inline-asm.
+  if (Args.hasArg(options::OPT_fenable_experimental_ms_inline_asm))
+    CmdArgs.push_back("-fenable-experimental-ms-inline-asm");
+
   // -fms-compatibility=0 is default.
   if (Args.hasFlag(options::OPT_fms_compatibility, 
                    options::OPT_fno_ms_compatibility,
@@ -2467,7 +2517,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (objcRuntime.isNonFragile()) {
     if (!Args.hasFlag(options::OPT_fobjc_legacy_dispatch,
                       options::OPT_fno_objc_legacy_dispatch,
-                      getToolChain().IsObjCLegacyDispatchDefault())) {
+                      objcRuntime.isLegacyDispatchDefaultForArch(
+                        getToolChain().getTriple().getArch()))) {
       if (getToolChain().UseObjCMixedDispatch())
         CmdArgs.push_back("-fobjc-dispatch-method=mixed");
       else
@@ -2934,7 +2985,12 @@ ObjCRuntime Clang::AddObjCRuntimeArgs(const ArgList &args,
   // -fgnu-runtime
   } else {
     assert(runtimeArg->getOption().matches(options::OPT_fgnu_runtime));
-    runtime = ObjCRuntime(ObjCRuntime::GNU, VersionTuple());
+    // Legacy behaviour is to target the gnustep runtime if we are i
+    // non-fragile mode or the GCC runtime in fragile mode.
+    if (isNonFragile)
+      runtime = ObjCRuntime(ObjCRuntime::GNUstep, VersionTuple());
+    else
+      runtime = ObjCRuntime(ObjCRuntime::GCC, VersionTuple());
   }
 
   cmdArgs.push_back(args.MakeArgString(
@@ -4341,6 +4397,14 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
             // darwin_crt2 spec is empty.
           }
+          // By default on OS X 10.8 and later, we don't link with a crt1.o
+          // file and the linker knows to use _main as the entry point.  But,
+          // when compiling with -pg, we need to link with the gcrt1.o file,
+          // so pass the -no_new_main option to tell the linker to use the
+          // "start" symbol as the entry point.
+          if (getDarwinToolChain().isTargetMacOS() &&
+              !getDarwinToolChain().isMacosxVersionLT(10, 8))
+            CmdArgs.push_back("-no_new_main");
         } else {
           if (Args.hasArg(options::OPT_static) ||
               Args.hasArg(options::OPT_object) ||
@@ -4939,6 +5003,8 @@ void freebsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
                                  const char *LinkingOutput) const {
   const Driver &D = getToolChain().getDriver();
   ArgStringList CmdArgs;
+  CmdArgs.push_back("--hash-style=both");
+  CmdArgs.push_back("--enable-new-dtags");
 
   if (!D.SysRoot.empty())
     CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));

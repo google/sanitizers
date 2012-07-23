@@ -14,15 +14,19 @@
 #ifndef LLVM_ANALYSIS_SCALAREVOLUTION_EXPANDER_H
 #define LLVM_ANALYSIS_SCALAREVOLUTION_EXPANDER_H
 
+#include "llvm/IRBuilder.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ScalarEvolutionNormalization.h"
-#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/TargetFolder.h"
 #include "llvm/Support/ValueHandle.h"
 #include <set>
 
 namespace llvm {
   class TargetLowering;
+
+  /// Return true if the given expression is safe to expand in the sense that
+  /// all materialized values are safe to speculate.
+  bool isSafeToExpand(const SCEV *S);
 
   /// SCEVExpander - This class uses information about analyze scalars to
   /// rewrite expressions in canonical form.

@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_TEST_VISITOR_H
 #define LLVM_CLANG_TEST_VISITOR_H
 
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Frontend/FrontendAction.h"
@@ -55,6 +56,7 @@ protected:
     FindConsumer(TestVisitor *Visitor) : Visitor(Visitor) {}
 
     virtual void HandleTranslationUnit(clang::ASTContext &Context) {
+      Visitor->Context = &Context;
       Visitor->TraverseDecl(Context.getTranslationUnitDecl());
     }
 
@@ -67,8 +69,7 @@ protected:
     TestAction(TestVisitor *Visitor) : Visitor(Visitor) {}
 
     virtual clang::ASTConsumer* CreateASTConsumer(
-        CompilerInstance& compiler, llvm::StringRef dummy) {
-      Visitor->Context = &compiler.getASTContext();
+        CompilerInstance&, llvm::StringRef dummy) {
       /// TestConsumer will be deleted by the framework calling us.
       return new FindConsumer(Visitor);
     }

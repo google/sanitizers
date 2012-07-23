@@ -14,14 +14,14 @@
 #include "llvm/AutoUpgrade.h"
 #include "llvm/Constants.h"
 #include "llvm/Function.h"
+#include "llvm/IRBuilder.h"
 #include "llvm/Instruction.h"
+#include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
-#include "llvm/IntrinsicInst.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Support/CFG.h"
+#include "llvm/Support/CallSite.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/IRBuilder.h"
 #include <cstring>
 using namespace llvm;
 
@@ -52,6 +52,27 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
 
   switch (Name[0]) {
   default: break;
+  case 'a': {
+    if (Name.startswith("arm.neon.vclz")) {
+      Type* args[2] = {
+        F->arg_begin()->getType(), 
+        Type::getInt1Ty(F->getContext())
+      };
+      // Can't use Intrinsic::getDeclaration here as it adds a ".i1" to
+      // the end of the name. Change name from llvm.arm.neon.vclz.* to
+      //  llvm.ctlz.*
+      FunctionType* fType = FunctionType::get(F->getReturnType(), args, false);
+      NewFn = Function::Create(fType, F->getLinkage(), 
+                               "llvm.ctlz." + Name.substr(14), F->getParent());
+      return true;
+    }
+    if (Name.startswith("arm.neon.vcnt")) {
+      NewFn = Intrinsic::getDeclaration(F->getParent(), Intrinsic::ctpop,
+                                        F->arg_begin()->getType());
+      return true;
+    }
+    break;
+  }
   case 'c': {
     if (Name.startswith("ctlz.") && F->arg_size() == 1) {
       F->setName(Name + ".old");
@@ -279,7 +300,8 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
     return;
   }
 
-  StringRef Name = CI->getName();
+  std::string Name = CI->getName().str();
+  CI->setName(Name + ".old");
 
   switch (NewFn->getIntrinsicID()) {
   default:
@@ -289,11 +311,24 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
   case Intrinsic::cttz:
     assert(CI->getNumArgOperands() == 1 &&
            "Mismatch between function args and call args");
-    CI->setName(Name + ".old");
     CI->replaceAllUsesWith(Builder.CreateCall2(NewFn, CI->getArgOperand(0),
                                                Builder.getFalse(), Name));
     CI->eraseFromParent();
     return;
+
+  case Intrinsic::arm_neon_vclz: {
+    // Change name from llvm.arm.neon.vclz.* to llvm.ctlz.*
+    CI->replaceAllUsesWith(Builder.CreateCall2(NewFn, CI->getArgOperand(0),
+                                               Builder.getFalse(),
+                                               "llvm.ctlz." + Name.substr(14)));
+    CI->eraseFromParent();
+    return;
+  }
+  case Intrinsic::ctpop: {
+    CI->replaceAllUsesWith(Builder.CreateCall(NewFn, CI->getArgOperand(0)));
+    CI->eraseFromParent();
+    return;
+  }
 
   case Intrinsic::x86_xop_vfrcz_ss:
   case Intrinsic::x86_xop_vfrcz_sd:

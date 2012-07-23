@@ -645,7 +645,7 @@ case "$enableval" in
   *) AC_MSG_ERROR([Invalid setting for --enable-timestamps. Use "yes" or "no"]) ;;
 esac
 AC_DEFINE_UNQUOTED([ENABLE_TIMESTAMPS],$ENABLE_TIMESTAMPS,
-                   [Define if timestamp information (e.g., __DATE___) is allowed])
+                   [Define if timestamp information (e.g., __DATE__) is allowed])
 
 dnl Allow specific targets to be specified for building (or not)
 TARGETS_TO_BUILD=""
@@ -1538,6 +1538,8 @@ AC_DEFINE_UNQUOTED(LLVM_MANDIR, "$LLVM_MANDIR",
                    [Installation directory for man pages])
 AC_DEFINE_UNQUOTED(LLVM_CONFIGTIME, "$LLVM_CONFIGTIME",
                    [Time at which LLVM was configured])
+AC_DEFINE_UNQUOTED(LLVM_HOSTTRIPLE, "$host",
+                   [Host triple LLVM will be executed on])
 AC_DEFINE_UNQUOTED(LLVM_DEFAULT_TARGET_TRIPLE, "$target",
                    [Target triple LLVM will generate code for by default])
 

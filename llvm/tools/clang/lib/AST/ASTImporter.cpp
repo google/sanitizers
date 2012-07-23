@@ -119,7 +119,8 @@ namespace clang {
     bool ImportTemplateArguments(const TemplateArgument *FromArgs,
                                  unsigned NumFromArgs,
                                SmallVectorImpl<TemplateArgument> &ToArgs);
-    bool IsStructuralMatch(RecordDecl *FromRecord, RecordDecl *ToRecord);
+    bool IsStructuralMatch(RecordDecl *FromRecord, RecordDecl *ToRecord,
+                           bool Complain = true);
     bool IsStructuralMatch(EnumDecl *FromEnum, EnumDecl *ToRecord);
     bool IsStructuralMatch(ClassTemplateDecl *From, ClassTemplateDecl *To);
     Decl *VisitDecl(Decl *D);
@@ -201,12 +202,16 @@ namespace {
     /// \brief Whether we're being strict about the spelling of types when 
     /// unifying two types.
     bool StrictTypeSpelling;
-    
+
+    /// \brief Whether to complain about failures.
+    bool Complain;
+
     StructuralEquivalenceContext(ASTContext &C1, ASTContext &C2,
                llvm::DenseSet<std::pair<Decl *, Decl *> > &NonEquivalentDecls,
-                                 bool StrictTypeSpelling = false)
+                                 bool StrictTypeSpelling = false,
+                                 bool Complain = true)
       : C1(C1), C2(C2), NonEquivalentDecls(NonEquivalentDecls),
-        StrictTypeSpelling(StrictTypeSpelling) { }
+        StrictTypeSpelling(StrictTypeSpelling), Complain(Complain) { }
 
     /// \brief Determine whether the two declarations are structurally
     /// equivalent.
@@ -223,10 +228,16 @@ namespace {
     
   public:
     DiagnosticBuilder Diag1(SourceLocation Loc, unsigned DiagID) {
+      if (!Complain)
+        return DiagnosticBuilder::getEmpty();
+
       return C1.getDiagnostics().Report(Loc, DiagID);
     }
 
     DiagnosticBuilder Diag2(SourceLocation Loc, unsigned DiagID) {
+      if (!Complain)
+        return DiagnosticBuilder::getEmpty();
+
       return C2.getDiagnostics().Report(Loc, DiagID);
     }
   };
@@ -236,45 +247,6 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
                                      QualType T1, QualType T2);
 static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
                                      Decl *D1, Decl *D2);
-
-/// \brief Determine if two APInts have the same value, after zero-extending
-/// one of them (if needed!) to ensure that the bit-widths match.
-static bool IsSameValue(const llvm::APInt &I1, const llvm::APInt &I2) {
-  if (I1.getBitWidth() == I2.getBitWidth())
-    return I1 == I2;
-  
-  if (I1.getBitWidth() > I2.getBitWidth())
-    return I1 == I2.zext(I1.getBitWidth());
-  
-  return I1.zext(I2.getBitWidth()) == I2;
-}
-
-/// \brief Determine if two APSInts have the same value, zero- or sign-extending
-/// as needed.
-static bool IsSameValue(const llvm::APSInt &I1, const llvm::APSInt &I2) {
-  if (I1.getBitWidth() == I2.getBitWidth() && I1.isSigned() == I2.isSigned())
-    return I1 == I2;
-  
-  // Check for a bit-width mismatch.
-  if (I1.getBitWidth() > I2.getBitWidth())
-    return IsSameValue(I1, I2.extend(I1.getBitWidth()));
-  else if (I2.getBitWidth() > I1.getBitWidth())
-    return IsSameValue(I1.extend(I2.getBitWidth()), I2);
-  
-  // We have a signedness mismatch. Turn the signed value into an unsigned 
-  // value.
-  if (I1.isSigned()) {
-    if (I1.isNegative())
-      return false;
-    
-    return llvm::APSInt(I1, true) == I2;
-  }
- 
-  if (I2.isNegative())
-    return false;
-  
-  return I1 == llvm::APSInt(I2, true);
-}
 
 /// \brief Determine structural equivalence of two expressions.
 static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
@@ -322,7 +294,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
                                           Arg2.getIntegralType()))
       return false;
     
-    return IsSameValue(Arg1.getAsIntegral(), Arg2.getAsIntegral());
+    return llvm::APSInt::isSameValue(Arg1.getAsIntegral(), Arg2.getAsIntegral());
       
   case TemplateArgument::Declaration:
     if (!Arg1.getAsDecl() || !Arg2.getAsDecl())
@@ -467,7 +439,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
   case Type::ConstantArray: {
     const ConstantArrayType *Array1 = cast<ConstantArrayType>(T1);
     const ConstantArrayType *Array2 = cast<ConstantArrayType>(T2);
-    if (!IsSameValue(Array1->getSize(), Array2->getSize()))
+    if (!llvm::APInt::isSameValue(Array1->getSize(), Array2->getSize()))
       return false;
     
     if (!IsArrayStructurallyEquivalent(Context, Array1, Array2))
@@ -1053,7 +1025,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     
     llvm::APSInt Val1 = EC1->getInitVal();
     llvm::APSInt Val2 = EC2->getInitVal();
-    if (!IsSameValue(Val1, Val2) || 
+    if (!llvm::APSInt::isSameValue(Val1, Val2) || 
         !IsStructurallyEquivalent(EC1->getIdentifier(), EC2->getIdentifier())) {
       Context.Diag2(D2->getLocation(), diag::warn_odr_tag_type_inconsistent)
         << Context.C2.getTypeDeclType(D2);
@@ -2047,10 +2019,11 @@ bool ASTNodeImporter::ImportTemplateArguments(const TemplateArgument *FromArgs,
 }
 
 bool ASTNodeImporter::IsStructuralMatch(RecordDecl *FromRecord, 
-                                        RecordDecl *ToRecord) {
+                                        RecordDecl *ToRecord, bool Complain) {
   StructuralEquivalenceContext Ctx(Importer.getFromContext(),
                                    Importer.getToContext(),
-                                   Importer.getNonEquivalentDecls());
+                                   Importer.getNonEquivalentDecls(),
+                                   false, Complain);
   return Ctx.IsStructurallyEquivalent(FromRecord, ToRecord);
 }
 
@@ -2330,7 +2303,7 @@ Decl *ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
 
   // We may already have a record of the same name; try to find and match it.
   RecordDecl *AdoptDecl = 0;
-  if (!DC->isFunctionOrMethod() && SearchName) {
+  if (!DC->isFunctionOrMethod()) {
     SmallVector<NamedDecl *, 4> ConflictingDecls;
     llvm::SmallVector<NamedDecl *, 2> FoundDecls;
     DC->localUncachedLookup(SearchName, FoundDecls);
@@ -2346,25 +2319,31 @@ Decl *ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
       
       if (RecordDecl *FoundRecord = dyn_cast<RecordDecl>(Found)) {
         if (RecordDecl *FoundDef = FoundRecord->getDefinition()) {
-          if (!D->isCompleteDefinition() || IsStructuralMatch(D, FoundDef)) {
+          if ((SearchName && !D->isCompleteDefinition())
+              || (D->isCompleteDefinition() &&
+                  D->isAnonymousStructOrUnion()
+                    == FoundDef->isAnonymousStructOrUnion() &&
+                  IsStructuralMatch(D, FoundDef))) {
             // The record types structurally match, or the "from" translation
             // unit only had a forward declaration anyway; call it the same
             // function.
             // FIXME: For C++, we should also merge methods here.
             return Importer.Imported(D, FoundDef);
           }
-        } else {
+        } else if (!D->isCompleteDefinition()) {
           // We have a forward declaration of this type, so adopt that forward
           // declaration rather than building a new one.
           AdoptDecl = FoundRecord;
           continue;
-        }          
+        } else if (!SearchName) {
+          continue;
+        }
       }
       
       ConflictingDecls.push_back(FoundDecls[I]);
     }
     
-    if (!ConflictingDecls.empty()) {
+    if (!ConflictingDecls.empty() && SearchName) {
       Name = Importer.HandleNameConflict(Name, DC, IDNS,
                                          ConflictingDecls.data(), 
                                          ConflictingDecls.size());
@@ -2390,6 +2369,8 @@ Decl *ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
     D2->setQualifierInfo(Importer.Import(D->getQualifierLoc()));
     D2->setLexicalDeclContext(LexicalDC);
     LexicalDC->addDeclInternal(D2);
+    if (D->isAnonymousStructOrUnion())
+      D2->setAnonymousStructOrUnion(true);
   }
   
   Importer.Imported(D, D2);
@@ -2681,11 +2662,16 @@ Decl *ASTNodeImporter::VisitIndirectFieldDecl(IndirectFieldDecl *D) {
     if (IndirectFieldDecl *FoundField 
                                 = dyn_cast<IndirectFieldDecl>(FoundDecls[I])) {
       if (Importer.IsStructurallyEquivalent(D->getType(), 
-                                            FoundField->getType())) {
+                                            FoundField->getType(),
+                                            Name)) {
         Importer.Imported(D, FoundField);
         return FoundField;
       }
-      
+
+      // If there are more anonymous fields to check, continue.
+      if (!Name && I < N-1)
+        continue;
+
       Importer.ToDiag(Loc, diag::err_odr_field_type_inconsistent)
         << Name << D->getType() << FoundField->getType();
       Importer.ToDiag(FoundField->getLocation(), diag::note_odr_value_here)
@@ -4660,12 +4646,14 @@ Decl *ASTImporter::Imported(Decl *From, Decl *To) {
   return To;
 }
 
-bool ASTImporter::IsStructurallyEquivalent(QualType From, QualType To) {
+bool ASTImporter::IsStructurallyEquivalent(QualType From, QualType To,
+                                           bool Complain) {
   llvm::DenseMap<const Type *, const Type *>::iterator Pos
    = ImportedTypes.find(From.getTypePtr());
   if (Pos != ImportedTypes.end() && ToContext.hasSameType(Import(From), To))
     return true;
       
-  StructuralEquivalenceContext Ctx(FromContext, ToContext, NonEquivalentDecls);
+  StructuralEquivalenceContext Ctx(FromContext, ToContext, NonEquivalentDecls,
+                                   false, Complain);
   return Ctx.IsStructurallyEquivalent(From, To);
 }

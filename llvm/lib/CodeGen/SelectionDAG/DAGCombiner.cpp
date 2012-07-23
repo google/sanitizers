@@ -1639,7 +1639,7 @@ SDValue DAGCombiner::visitSUB(SDNode *N) {
   if (N1.getOpcode() == ISD::ADD && N0C && N1C1) {
     SDValue NewC = DAG.getConstant((N0C->getAPIntValue() - N1C1->getAPIntValue()), VT);
     return DAG.getNode(ISD::SUB, N->getDebugLoc(), VT, NewC,
-		       N1.getOperand(0));
+                       N1.getOperand(0));
   }
   // fold ((A+(B+or-C))-B) -> A+or-C
   if (N0.getOpcode() == ISD::ADD &&
@@ -2340,7 +2340,7 @@ SDValue DAGCombiner::SimplifyBinOpWithSameOpcodeHands(SDNode *N) {
   // We also handle SCALAR_TO_VECTOR because xor/or/and operations are cheaper
   // on scalars.
   if ((N0.getOpcode() == ISD::BITCAST || N0.getOpcode() == ISD::SCALAR_TO_VECTOR)
-      && Level == AfterLegalizeVectorOps) {
+      && Level == AfterLegalizeTypes) {
     SDValue In0 = N0.getOperand(0);
     SDValue In1 = N1.getOperand(0);
     EVT In0Ty = In0.getValueType();
@@ -2715,6 +2715,34 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
       }
     }
   }
+
+  if (N0.getOpcode() == ISD::ADD && N1.getOpcode() == ISD::SRL &&
+      VT.getSizeInBits() <= 64) {
+    if (ConstantSDNode *ADDI = dyn_cast<ConstantSDNode>(N0.getOperand(1))) {
+      APInt ADDC = ADDI->getAPIntValue();
+      if (!TLI.isLegalAddImmediate(ADDC.getSExtValue())) {
+        // Look for (and (add x, c1), (lshr y, c2)). If C1 wasn't a legal
+        // immediate for an add, but it is legal if its top c2 bits are set,
+        // transform the ADD so the immediate doesn't need to be materialized
+        // in a register.
+        if (ConstantSDNode *SRLI = dyn_cast<ConstantSDNode>(N1.getOperand(1))) {
+          APInt Mask = APInt::getHighBitsSet(VT.getSizeInBits(),
+                                             SRLI->getZExtValue());
+          if (DAG.MaskedValueIsZero(N0.getOperand(1), Mask)) {
+            ADDC |= Mask;
+            if (TLI.isLegalAddImmediate(ADDC.getSExtValue())) {
+              SDValue NewAdd =
+                DAG.getNode(ISD::ADD, N0.getDebugLoc(), VT,
+                            N0.getOperand(0), DAG.getConstant(ADDC, VT));
+              CombineTo(N0.getNode(), NewAdd);
+              return SDValue(N, 0); // Return N so it doesn't get rechecked!
+            }
+          }
+        }
+      }
+    }
+  }
+      
 
   return SDValue();
 }
@@ -5974,6 +6002,38 @@ SDValue DAGCombiner::visitSINT_TO_FP(SDNode *N) {
       return DAG.getNode(ISD::UINT_TO_FP, N->getDebugLoc(), VT, N0);
   }
 
+  // The next optimizations are desireable only if SELECT_CC can be lowered.
+  // Check against MVT::Other for SELECT_CC, which is a workaround for targets
+  // having to say they don't support SELECT_CC on every type the DAG knows
+  // about, since there is no way to mark an opcode illegal at all value types
+  // (See also visitSELECT)
+  if (TLI.isOperationLegalOrCustom(ISD::SELECT_CC, MVT::Other)) {
+    // fold (sint_to_fp (setcc x, y, cc)) -> (select_cc x, y, -1.0, 0.0,, cc)
+    if (N0.getOpcode() == ISD::SETCC && N0.getValueType() == MVT::i1 &&
+        !VT.isVector() &&
+        (!LegalOperations ||
+         TLI.isOperationLegalOrCustom(llvm::ISD::ConstantFP, VT))) {
+      SDValue Ops[] =
+        { N0.getOperand(0), N0.getOperand(1),
+          DAG.getConstantFP(-1.0, VT) , DAG.getConstantFP(0.0, VT),
+          N0.getOperand(2) };
+      return DAG.getNode(ISD::SELECT_CC, N->getDebugLoc(), VT, Ops, 5);
+    }
+
+    // fold (sint_to_fp (zext (setcc x, y, cc))) ->
+    //      (select_cc x, y, 1.0, 0.0,, cc)
+    if (N0.getOpcode() == ISD::ZERO_EXTEND &&
+        N0.getOperand(0).getOpcode() == ISD::SETCC &&!VT.isVector() &&
+        (!LegalOperations ||
+         TLI.isOperationLegalOrCustom(llvm::ISD::ConstantFP, VT))) {
+      SDValue Ops[] =
+        { N0.getOperand(0).getOperand(0), N0.getOperand(0).getOperand(1),
+          DAG.getConstantFP(1.0, VT) , DAG.getConstantFP(0.0, VT),
+          N0.getOperand(0).getOperand(2) };
+      return DAG.getNode(ISD::SELECT_CC, N->getDebugLoc(), VT, Ops, 5);
+    }
+  }
+
   return SDValue();
 }
 
@@ -5997,6 +6057,25 @@ SDValue DAGCombiner::visitUINT_TO_FP(SDNode *N) {
     // If the sign bit is known to be zero, we can change this to SINT_TO_FP.
     if (DAG.SignBitIsZero(N0))
       return DAG.getNode(ISD::SINT_TO_FP, N->getDebugLoc(), VT, N0);
+  }
+
+  // The next optimizations are desireable only if SELECT_CC can be lowered.
+  // Check against MVT::Other for SELECT_CC, which is a workaround for targets
+  // having to say they don't support SELECT_CC on every type the DAG knows
+  // about, since there is no way to mark an opcode illegal at all value types
+  // (See also visitSELECT)
+  if (TLI.isOperationLegalOrCustom(ISD::SELECT_CC, MVT::Other)) {
+    // fold (uint_to_fp (setcc x, y, cc)) -> (select_cc x, y, -1.0, 0.0,, cc)
+
+    if (N0.getOpcode() == ISD::SETCC && !VT.isVector() &&
+        (!LegalOperations ||
+         TLI.isOperationLegalOrCustom(llvm::ISD::ConstantFP, VT))) {
+      SDValue Ops[] =
+        { N0.getOperand(0), N0.getOperand(1),
+          DAG.getConstantFP(1.0, VT),  DAG.getConstantFP(0.0, VT),
+          N0.getOperand(2) };
+      return DAG.getNode(ISD::SELECT_CC, N->getDebugLoc(), VT, Ops, 5);
+    }
   }
 
   return SDValue();
@@ -7561,6 +7640,11 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
   unsigned NumInScalars = N->getNumOperands();
   DebugLoc dl = N->getDebugLoc();
   EVT VT = N->getValueType(0);
+
+  // A vector built entirely of undefs is undef.
+  if (ISD::allOperandsUndef(N))
+    return DAG.getUNDEF(VT);
+
   // Check to see if this is a BUILD_VECTOR of a bunch of values
   // which come from any_extend or zero_extend nodes. If so, we can create
   // a new BUILD_VECTOR using bit-casts which may enable other BUILD_VECTOR
@@ -7568,12 +7652,11 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
   // using shuffles.
   EVT SourceType = MVT::Other;
   bool AllAnyExt = true;
-  bool AllUndef = true;
+
   for (unsigned i = 0; i != NumInScalars; ++i) {
     SDValue In = N->getOperand(i);
     // Ignore undef inputs.
     if (In.getOpcode() == ISD::UNDEF) continue;
-    AllUndef = false;
 
     bool AnyExt  = In.getOpcode() == ISD::ANY_EXTEND;
     bool ZeroExt = In.getOpcode() == ISD::ZERO_EXTEND;
@@ -7600,9 +7683,6 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
     // Check if all of the extends are ANY_EXTENDs.
     AllAnyExt &= AnyExt;
   }
-
-  if (AllUndef)
-    return DAG.getUNDEF(VT);
 
   // In order to have valid types, all of the inputs must be extended from the
   // same source type and all of the inputs must be any or zero extend.
@@ -7778,6 +7858,10 @@ SDValue DAGCombiner::visitCONCAT_VECTORS(SDNode *N) {
   // If we only have one input vector, we don't need to do any concatenation.
   if (N->getNumOperands() == 1)
     return N->getOperand(0);
+
+  // Check if all of the operands are undefs.
+  if (ISD::allOperandsUndef(N))
+    return DAG.getUNDEF(N->getValueType(0));
 
   return SDValue();
 }

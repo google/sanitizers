@@ -743,7 +743,7 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
     // Analyze operands of the call, assigning locations to each operand.
     SmallVector<CCValAssign, 16> ValLocs;
     CCState CCInfo(CC, F.isVarArg(), *FuncInfo.MF, TM, ValLocs,
-		   I->getContext());
+                   I->getContext());
     CCInfo.AnalyzeReturn(Outs, RetCC_X86);
 
     const Value *RV = Ret->getOperand(0);
@@ -1485,7 +1485,7 @@ bool X86FastISel::X86VisitIntrinsicCall(const IntrinsicInst &I) {
       return false;
 
     // The call to CreateRegs builds two sequential registers, to store the
-    // both the the returned values.
+    // both the returned values.
     unsigned ResultReg = FuncInfo.CreateRegs(I.getType());
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL, TII.get(OpC), ResultReg)
       .addReg(Reg1).addReg(Reg2);
@@ -1552,8 +1552,8 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
   GetReturnInfo(I->getType(), CS.getAttributes().getRetAttributes(),
                 Outs, TLI);
   bool CanLowerReturn = TLI.CanLowerReturn(CS.getCallingConv(),
-					   *FuncInfo.MF, FTy->isVarArg(),
-					   Outs, FTy->getContext());
+                                           *FuncInfo.MF, FTy->isVarArg(),
+                                           Outs, FTy->getContext());
   if (!CanLowerReturn)
     return false;
 
@@ -1667,7 +1667,7 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CC, isVarArg, *FuncInfo.MF, TM, ArgLocs,
-		 I->getParent()->getContext());
+                 I->getParent()->getContext());
 
   // Allocate shadow area for Win64
   if (Subtarget->isTargetWin64())
@@ -1693,7 +1693,6 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
 
     // Promote the value if needed.
     switch (VA.getLocInfo()) {
-    default: llvm_unreachable("Unknown loc info!");
     case CCValAssign::Full: break;
     case CCValAssign::SExt: {
       assert(VA.getLocVT().isInteger() && !VA.getLocVT().isVector() &&
@@ -1737,6 +1736,14 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
       ArgVT = VA.getLocVT();
       break;
     }
+    case CCValAssign::VExt: 
+      // VExt has not been implemented, so this should be impossible to reach
+      // for now.  However, fallback to Selection DAG isel once implemented.
+      return false;
+    case CCValAssign::Indirect:
+      // FIXME: Indirect doesn't need extending, but fast-isel doesn't fully
+      // support this.
+      return false;
     }
 
     if (VA.isRegLoc()) {
@@ -1838,20 +1845,20 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
       MIB.addGlobalAddress(GV, 0, OpFlags);
   }
 
-  // Add an implicit use GOT pointer in EBX.
-  if (Subtarget->isPICStyleGOT())
-    MIB.addReg(X86::EBX);
-
-  if (Subtarget->is64Bit() && isVarArg && !Subtarget->isTargetWin64())
-    MIB.addReg(X86::AL);
-
-  // Add implicit physical register uses to the call.
-  for (unsigned i = 0, e = RegArgs.size(); i != e; ++i)
-    MIB.addReg(RegArgs[i]);
-
   // Add a register mask with the call-preserved registers.
   // Proper defs for return values will be added by setPhysRegsDeadExcept().
   MIB.addRegMask(TRI.getCallPreservedMask(CS.getCallingConv()));
+
+  // Add an implicit use GOT pointer in EBX.
+  if (Subtarget->isPICStyleGOT())
+    MIB.addReg(X86::EBX, RegState::Implicit);
+
+  if (Subtarget->is64Bit() && isVarArg && !Subtarget->isTargetWin64())
+    MIB.addReg(X86::AL, RegState::Implicit);
+
+  // Add implicit physical register uses to the call.
+  for (unsigned i = 0, e = RegArgs.size(); i != e; ++i)
+    MIB.addReg(RegArgs[i], RegState::Implicit);
 
   // Issue CALLSEQ_END
   unsigned AdjStackUp = TII.getCallFrameDestroyOpcode();
@@ -1891,7 +1898,7 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
   SmallVector<unsigned, 4> UsedRegs;
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCRetInfo(CC, false, *FuncInfo.MF, TM, RVLocs,
-		    I->getParent()->getContext());
+                    I->getParent()->getContext());
   unsigned ResultReg = FuncInfo.CreateRegs(I->getType());
   CCRetInfo.AnalyzeCallResult(Ins, RetCC_X86);
   for (unsigned i = 0; i != RVLocs.size(); ++i) {

@@ -99,6 +99,7 @@ LANGOPT(GNUInline         , 1, 0, "GNU inline semantics")
 LANGOPT(NoInlineDefine    , 1, 0, "__NO_INLINE__ predefined macro")
 LANGOPT(Deprecated        , 1, 0, "__DEPRECATED predefined macro")
 LANGOPT(FastMath          , 1, 0, "__FAST_MATH__ predefined macro")
+LANGOPT(FiniteMathOnly    , 1, 0, "__FINITE_MATH_ONLY__ predefined macro")
 
 BENIGN_LANGOPT(ObjCGCBitmapPrint , 1, 0, "printing of GC's bitmap layout for __weak/__strong ivars")
 
@@ -123,7 +124,7 @@ BENIGN_LANGOPT(InlineVisibilityHidden , 1, 0, "hidden default visibility for inl
 BENIGN_LANGOPT(ParseUnknownAnytype, 1, 0, "__unknown_anytype")
 BENIGN_LANGOPT(DebuggerSupport , 1, 0, "debugger support")
 BENIGN_LANGOPT(DebuggerCastResultToId, 1, 0, "for 'po' in the debugger, cast the result to id if it is of unknown type")
-BENIGN_LANGOPT(DebuggerObjCLiteral , 1, 0, "debugger objective-C literals and subscripting support")
+BENIGN_LANGOPT(DebuggerObjCLiteral , 1, 0, "debugger Objective-C literals and subscripting support")
 BENIGN_LANGOPT(AddressSanitizer , 1, 0, "AddressSanitizer enabled")
 BENIGN_LANGOPT(ThreadSanitizer , 1, 0, "ThreadSanitizer enabled")
 
@@ -148,8 +149,9 @@ ENUM_LANGOPT(StackProtector, StackProtectorMode, 2, SSPOff,
              "stack protector mode")
 ENUM_LANGOPT(SignedOverflowBehavior, SignedOverflowBehaviorTy, 2, SOB_Undefined,
              "signed integer overflow handling")
+ENUM_LANGOPT(FPContractMode, FPContractModeKind, 2, FPC_On, "FP_CONTRACT mode")
 
-BENIGN_LANGOPT(InstantiationDepth, 32, 1024, 
+BENIGN_LANGOPT(InstantiationDepth, 32, 512, 
                "maximum template instantiation depth")
 BENIGN_LANGOPT(ConstexprCallDepth, 32, 512,
                "maximum constexpr call depth")

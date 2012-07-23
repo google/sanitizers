@@ -35,6 +35,7 @@
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Driver/Util.h"
+#include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/CompilationDatabase.h"
 #include <string>
@@ -74,18 +75,19 @@ template <typename T>
 FrontendActionFactory *newFrontendActionFactory();
 
 /// \brief Returns a new FrontendActionFactory for any type that provides an
-/// implementation of newFrontendAction().
+/// implementation of newASTConsumer().
 ///
-/// FactoryT must implement: FrontendAction *newFrontendAction().
+/// FactoryT must implement: ASTConsumer *newASTConsumer().
 ///
 /// Example:
-/// struct ProvidesFrontendActions {
-///   FrontendAction *newFrontendAction();
+/// struct ProvidesASTConsumers {
+///   clang::ASTConsumer *newASTConsumer();
 /// } Factory;
 /// FrontendActionFactory *FactoryAdapter =
 ///   newFrontendActionFactory(&Factory);
 template <typename FactoryT>
-FrontendActionFactory *newFrontendActionFactory(FactoryT *ActionFactory);
+inline FrontendActionFactory *newFrontendActionFactory(
+    FactoryT *ConsumerFactory);
 
 /// \brief Runs (and deletes) the tool on 'Code' with the -fsyntax-only flag.
 ///
@@ -201,22 +203,52 @@ FrontendActionFactory *newFrontendActionFactory() {
 }
 
 template <typename FactoryT>
-FrontendActionFactory *newFrontendActionFactory(FactoryT *ActionFactory) {
+inline FrontendActionFactory *newFrontendActionFactory(
+    FactoryT *ConsumerFactory) {
   class FrontendActionFactoryAdapter : public FrontendActionFactory {
   public:
-    explicit FrontendActionFactoryAdapter(FactoryT *ActionFactory)
-      : ActionFactory(ActionFactory) {}
+    explicit FrontendActionFactoryAdapter(FactoryT *ConsumerFactory)
+      : ConsumerFactory(ConsumerFactory) {}
 
     virtual clang::FrontendAction *create() {
-      return ActionFactory->newFrontendAction();
+      return new ConsumerFactoryAdaptor(ConsumerFactory);
     }
 
   private:
-    FactoryT *ActionFactory;
+    class ConsumerFactoryAdaptor : public clang::ASTFrontendAction {
+    public:
+      ConsumerFactoryAdaptor(FactoryT *ConsumerFactory)
+        : ConsumerFactory(ConsumerFactory) {}
+
+      clang::ASTConsumer *CreateASTConsumer(clang::CompilerInstance &,
+                                            llvm::StringRef) {
+        return ConsumerFactory->newASTConsumer();
+      }
+
+    private:
+      FactoryT *ConsumerFactory;
+    };
+    FactoryT *ConsumerFactory;
   };
 
-  return new FrontendActionFactoryAdapter(ActionFactory);
+  return new FrontendActionFactoryAdapter(ConsumerFactory);
 }
+
+/// \brief Returns the absolute path of \c File, by prepending it with
+/// the current directory if \c File is not absolute.
+///
+/// Otherwise returns \c File.
+/// If 'File' starts with "./", the returned path will not contain the "./".
+/// Otherwise, the returned path will contain the literal path-concatenation of
+/// the current directory and \c File.
+///
+/// The difference to llvm::sys::fs::make_absolute is that we prefer
+/// ::getenv("PWD") if available.
+/// FIXME: Make this functionality available from llvm::sys::fs and delete
+///        this function.
+///
+/// \param File Either an absolute or relative path.
+std::string getAbsolutePath(StringRef File);
 
 } // end namespace tooling
 } // end namespace clang

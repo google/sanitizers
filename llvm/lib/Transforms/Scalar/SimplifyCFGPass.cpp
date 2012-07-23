@@ -89,7 +89,6 @@ static void ChangeToUnreachable(Instruction *I, bool UseLLVMTrap) {
 
 /// ChangeToCall - Convert the specified invoke into a normal call.
 static void ChangeToCall(InvokeInst *II) {
-  BasicBlock *BB = II->getParent();
   SmallVector<Value*, 8> Args(II->op_begin(), II->op_end() - 3);
   CallInst *NewCall = CallInst::Create(II->getCalledValue(), Args, "", II);
   NewCall->takeName(II);
@@ -102,8 +101,8 @@ static void ChangeToCall(InvokeInst *II) {
   BranchInst::Create(II->getNormalDest(), II);
 
   // Update PHI nodes in the unwind destination
-  II->getUnwindDest()->removePredecessor(BB);
-  BB->getInstList().erase(II);
+  II->getUnwindDest()->removePredecessor(II->getParent());
+  II->eraseFromParent();
 }
 
 static bool MarkAliveBlocks(BasicBlock *BB,
@@ -163,7 +162,13 @@ static bool MarkAliveBlocks(BasicBlock *BB,
         ChangeToUnreachable(II, true);
         Changed = true;
       } else if (II->doesNotThrow()) {
-        ChangeToCall(II);
+        if (II->use_empty() && II->onlyReadsMemory()) {
+          // jump to the normal destination branch.
+          BranchInst::Create(II->getNormalDest(), II);
+          II->getUnwindDest()->removePredecessor(II->getParent());
+          II->eraseFromParent();
+        } else
+          ChangeToCall(II);
         Changed = true;
       }
     }

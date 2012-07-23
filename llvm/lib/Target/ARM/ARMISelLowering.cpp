@@ -6859,7 +6859,7 @@ ARMTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
     RSBBB->addSuccessor(SinkBB);
 
     // insert a cmp at the end of BB
-    AddDefaultPred(BuildMI(BB, dl, 
+    AddDefaultPred(BuildMI(BB, dl,
                            TII->get(isThumb2 ? ARM::t2CMPri : ARM::CMPri))
                    .addReg(ABSSrcReg).addImm(0));
 
@@ -7678,7 +7678,7 @@ static SDValue PerformSTORECombine(SDNode *N,
   if (St->isVolatile())
     return SDValue();
 
-  // Optimize trunc store (of multiple scalars) to shuffle and store.  First, 
+  // Optimize trunc store (of multiple scalars) to shuffle and store.  First,
   // pack all of the elements in one place.  Next, store to memory in fewer
   // chunks.
   SDValue StVal = St->getValue();
@@ -9046,12 +9046,19 @@ bool ARMTargetLowering::isLegalICmpImmediate(int64_t Imm) const {
   return Imm >= 0 && Imm <= 255;
 }
 
-/// isLegalAddImmediate - Return true if the specified immediate is legal
-/// add immediate, that is the target has add instructions which can add
-/// a register with the immediate without having to materialize the
+/// isLegalAddImmediate - Return true if the specified immediate is a legal add
+/// *or sub* immediate, that is the target has add or sub instructions which can
+/// add a register with the immediate without having to materialize the
 /// immediate into a register.
 bool ARMTargetLowering::isLegalAddImmediate(int64_t Imm) const {
-  return ARM_AM::getSOImmVal(Imm) != -1;
+  // Same encoding for add/sub, just flip the sign.
+  int64_t AbsImm = llvm::abs64(Imm);
+  if (!Subtarget->isThumb())
+    return ARM_AM::getSOImmVal(AbsImm) != -1;
+  if (Subtarget->isThumb2())
+    return ARM_AM::getT2SOImmVal(AbsImm) != -1;
+  // Thumb1 only has 8-bit unsigned immediate.
+  return AbsImm >= 0 && AbsImm <= 255;
 }
 
 static bool getARMIndexedAddressParts(SDNode *Ptr, EVT VT,

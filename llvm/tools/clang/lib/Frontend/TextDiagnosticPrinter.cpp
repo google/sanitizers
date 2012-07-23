@@ -79,16 +79,6 @@ static void printDiagnosticOptions(raw_ostream &OS,
       Started = true;
     }
 
-    // If the diagnostic is an extension diagnostic and not enabled by default
-    // then it must have been turned on with -pedantic.
-    bool EnabledByDefault;
-    if (DiagnosticIDs::isBuiltinExtensionDiag(Info.getID(),
-                                              EnabledByDefault) &&
-        !EnabledByDefault) {
-      OS << (Started ? "," : " [") << "-pedantic";
-      Started = true;
-    }
-
     StringRef Opt = DiagnosticIDs::getWarningOptionForDiag(Info.getID());
     if (!Opt.empty()) {
       OS << (Started ? "," : " [") << "-W" << Opt;
@@ -128,7 +118,7 @@ void TextDiagnosticPrinter::HandleDiagnostic(DiagnosticsEngine::Level Level,
   llvm::raw_svector_ostream DiagMessageStream(OutStr);
   printDiagnosticOptions(DiagMessageStream, Level, Info, *DiagOpts);
 
-  // Keeps track of the the starting position of the location
+  // Keeps track of the starting position of the location
   // information (e.g., "foo.c:10:4:") that precedes the error
   // message. We use this information to determine how long the
   // file+line+column number prefix is.

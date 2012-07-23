@@ -198,7 +198,7 @@ Mutex::~Mutex() {
 }
 
 void Mutex::Lock() {
-#if TSAN_DEBUG
+#if TSAN_DEBUG && !TSAN_GO
   cur_thread()->deadlock_detector.Lock(type_);
 #endif
   uptr cmp = kUnlocked;
@@ -223,13 +223,13 @@ void Mutex::Unlock() {
   uptr prev = atomic_fetch_sub(&state_, kWriteLock, memory_order_release);
   (void)prev;
   DCHECK_NE(prev & kWriteLock, 0);
-#if TSAN_DEBUG
+#if TSAN_DEBUG && !TSAN_GO
   cur_thread()->deadlock_detector.Unlock(type_);
 #endif
 }
 
 void Mutex::ReadLock() {
-#if TSAN_DEBUG
+#if TSAN_DEBUG && !TSAN_GO
   cur_thread()->deadlock_detector.Lock(type_);
 #endif
   uptr prev = atomic_fetch_add(&state_, kReadLock, memory_order_acquire);
@@ -251,27 +251,9 @@ void Mutex::ReadUnlock() {
   (void)prev;
   DCHECK_EQ(prev & kWriteLock, 0);
   DCHECK_GT(prev & ~kWriteLock, 0);
-#if TSAN_DEBUG
+#if TSAN_DEBUG && !TSAN_GO
   cur_thread()->deadlock_detector.Unlock(type_);
 #endif
-}
-
-Lock::Lock(Mutex *m)
-  : m_(m) {
-  m_->Lock();
-}
-
-Lock::~Lock() {
-  m_->Unlock();
-}
-
-ReadLock::ReadLock(Mutex *m)
-  : m_(m) {
-  m_->ReadLock();
-}
-
-ReadLock::~ReadLock() {
-  m_->ReadUnlock();
 }
 
 }  // namespace __tsan

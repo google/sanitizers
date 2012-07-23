@@ -112,7 +112,13 @@ public:
 
   size_t size() const { return UniqueFiles.size(); }
 
-  friend class FileManager;
+  void erase(const FileEntry *Entry) {
+    std::string FullPath(GetFullPath(Entry->getName()));
+
+    // Lowercase string because Windows filesystem is case insensitive.
+    FullPath = StringRef(FullPath).lower();
+    UniqueFiles.erase(FullPath);
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -155,7 +161,7 @@ public:
 
   size_t size() const { return UniqueFiles.size(); }
 
-  friend class FileManager;
+  void erase(const FileEntry *Entry) { UniqueFiles.erase(*Entry); }
 };
 
 #endif
@@ -482,15 +488,21 @@ void FileManager::FixupRelativePath(SmallVectorImpl<char> &path) const {
 }
 
 llvm::MemoryBuffer *FileManager::
-getBufferForFile(const FileEntry *Entry, std::string *ErrorStr) {
+getBufferForFile(const FileEntry *Entry, std::string *ErrorStr,
+                 bool isVolatile) {
   OwningPtr<llvm::MemoryBuffer> Result;
   llvm::error_code ec;
+
+  uint64_t FileSize = Entry->getSize();
+  // If there's a high enough chance that the file have changed since we
+  // got its size, force a stat before opening it.
+  if (isVolatile)
+    FileSize = -1;
 
   const char *Filename = Entry->getName();
   // If the file is already open, use the open file descriptor.
   if (Entry->FD != -1) {
-    ec = llvm::MemoryBuffer::getOpenFile(Entry->FD, Filename, Result,
-                                         Entry->getSize());
+    ec = llvm::MemoryBuffer::getOpenFile(Entry->FD, Filename, Result, FileSize);
     if (ErrorStr)
       *ErrorStr = ec.message();
 
@@ -502,7 +514,7 @@ getBufferForFile(const FileEntry *Entry, std::string *ErrorStr) {
   // Otherwise, open the file.
 
   if (FileSystemOpts.WorkingDir.empty()) {
-    ec = llvm::MemoryBuffer::getFile(Filename, Result, Entry->getSize());
+    ec = llvm::MemoryBuffer::getFile(Filename, Result, FileSize);
     if (ec && ErrorStr)
       *ErrorStr = ec.message();
     return Result.take();
@@ -510,7 +522,7 @@ getBufferForFile(const FileEntry *Entry, std::string *ErrorStr) {
 
   SmallString<128> FilePath(Entry->getName());
   FixupRelativePath(FilePath);
-  ec = llvm::MemoryBuffer::getFile(FilePath.str(), Result, Entry->getSize());
+  ec = llvm::MemoryBuffer::getFile(FilePath.str(), Result, FileSize);
   if (ec && ErrorStr)
     *ErrorStr = ec.message();
   return Result.take();
@@ -563,16 +575,15 @@ bool FileManager::getNoncachedStatValue(StringRef Path,
   return ::stat(FilePath.c_str(), &StatBuf) != 0;
 }
 
-void FileManager::InvalidateCache(const FileEntry* Entry) {
-  if (!Entry)
-    return;
+void FileManager::invalidateCache(const FileEntry *Entry) {
+  assert(Entry && "Cannot invalidate a NULL FileEntry");
 
   SeenFileEntries.erase(Entry->getName());
-#ifdef LLVM_ON_WIN32
-  UniqueRealFiles.UniqueFiles.erase(Entry->getName());
-#else
-  UniqueRealFiles.UniqueFiles.erase(*Entry);
-#endif
+
+  // FileEntry invalidation should not block future optimizations in the file
+  // caches. Possible alternatives are cache truncation (invalidate last N) or
+  // invalidation of the whole cache.
+  UniqueRealFiles.erase(Entry);
 }
 
 

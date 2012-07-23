@@ -370,12 +370,10 @@ Sema::ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
 }
 
 StmtResult Sema::ActOnAttributedStmt(SourceLocation AttrLoc,
-                                     const AttrVec &Attrs,
+                                     ArrayRef<const Attr*> Attrs,
                                      Stmt *SubStmt) {
-  // Fill in the declaration and return it. Variable length will require to
-  // change this to AttributedStmt::Create(Context, ....);
-  // and probably using ArrayRef
-  AttributedStmt *LS = new (Context) AttributedStmt(AttrLoc, Attrs, SubStmt);
+  // Fill in the declaration and return it.
+  AttributedStmt *LS = AttributedStmt::Create(Context, AttrLoc, Attrs, SubStmt);
   return Owned(LS);
 }
 
@@ -1061,6 +1059,55 @@ Sema::ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
   return Owned(SS);
 }
 
+void
+Sema::DiagnoseAssignmentEnum(QualType DstType, QualType SrcType,
+                             Expr *SrcExpr) {
+  unsigned DIAG = diag::warn_not_in_enum_assignement;
+  if (Diags.getDiagnosticLevel(DIAG, SrcExpr->getExprLoc()) 
+      == DiagnosticsEngine::Ignored)
+    return;
+  
+  if (const EnumType *ET = DstType->getAs<EnumType>())
+    if (!Context.hasSameType(SrcType, DstType) &&
+        SrcType->isIntegerType()) {
+      if (!SrcExpr->isTypeDependent() && !SrcExpr->isValueDependent() &&
+          SrcExpr->isIntegerConstantExpr(Context)) {
+        // Get the bitwidth of the enum value before promotions.
+        unsigned DstWith = Context.getIntWidth(DstType);
+        bool DstIsSigned = DstType->isSignedIntegerOrEnumerationType();
+
+        llvm::APSInt RhsVal = SrcExpr->EvaluateKnownConstInt(Context);
+        const EnumDecl *ED = ET->getDecl();
+        typedef SmallVector<std::pair<llvm::APSInt, EnumConstantDecl*>, 64>
+        EnumValsTy;
+        EnumValsTy EnumVals;
+        
+        // Gather all enum values, set their type and sort them,
+        // allowing easier comparison with rhs constant.
+        for (EnumDecl::enumerator_iterator EDI = ED->enumerator_begin();
+             EDI != ED->enumerator_end(); ++EDI) {
+          llvm::APSInt Val = EDI->getInitVal();
+          AdjustAPSInt(Val, DstWith, DstIsSigned);
+          EnumVals.push_back(std::make_pair(Val, *EDI));
+        }
+        if (EnumVals.empty())
+          return;
+        std::stable_sort(EnumVals.begin(), EnumVals.end(), CmpEnumVals);
+        EnumValsTy::iterator EIend =
+        std::unique(EnumVals.begin(), EnumVals.end(), EqEnumVals);
+        
+        // See which case values aren't in enum.
+        EnumValsTy::const_iterator EI = EnumVals.begin();
+        while (EI != EIend && EI->first < RhsVal)
+          EI++;
+        if (EI == EIend || EI->first != RhsVal) {
+          Diag(SrcExpr->getExprLoc(), diag::warn_not_in_enum_assignement)
+          << DstType;
+        }
+      }
+    }
+}
+
 StmtResult
 Sema::ActOnWhileStmt(SourceLocation WhileLoc, FullExprArg Cond,
                      Decl *CondVar, Stmt *Body) {
@@ -1385,9 +1432,10 @@ StmtResult Sema::ActOnForEachLValueExpr(Expr *E) {
 }
 
 ExprResult
-Sema::ActOnObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
-  assert(collection);
-
+Sema::CheckObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
+  if (!collection)
+    return ExprError();
+  
   // Bail out early if we've got a type-dependent expression.
   if (collection->isTypeDependent()) return Owned(collection);
 
@@ -1457,8 +1505,12 @@ Sema::ActOnObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
 StmtResult
 Sema::ActOnObjCForCollectionStmt(SourceLocation ForLoc,
                                  SourceLocation LParenLoc,
-                                 Stmt *First, Expr *Second,
-                                 SourceLocation RParenLoc, Stmt *Body) {
+                                 Stmt *First, Expr *collection,
+                                 SourceLocation RParenLoc) {
+  
+  ExprResult CollectionExprResult = 
+    CheckObjCForCollectionOperand(ForLoc, collection);
+  
   if (First) {
     QualType FirstType;
     if (DeclStmt *DS = dyn_cast<DeclStmt>(First)) {
@@ -1486,11 +1538,15 @@ Sema::ActOnObjCForCollectionStmt(SourceLocation ForLoc,
     if (!FirstType->isDependentType() &&
         !FirstType->isObjCObjectPointerType() &&
         !FirstType->isBlockPointerType())
-        Diag(ForLoc, diag::err_selector_element_type)
-          << FirstType << First->getSourceRange();
+        return StmtError(Diag(ForLoc, diag::err_selector_element_type)
+                           << FirstType << First->getSourceRange());
   }
-
-  return Owned(new (Context) ObjCForCollectionStmt(First, Second, Body,
+  
+  if (CollectionExprResult.isInvalid())
+    return StmtError();
+  
+  return Owned(new (Context) ObjCForCollectionStmt(First, 
+                                                   CollectionExprResult.take(), 0, 
                                                    ForLoc, RParenLoc));
 }
 
@@ -1625,6 +1681,11 @@ static ExprResult BuildForRangeBeginEndCall(Sema &SemaRef, Scope *S,
 
 }
 
+static bool ObjCEnumerationCollection(Expr *Collection) {
+  return !Collection->isTypeDependent()
+          && Collection->getType()->getAs<ObjCObjectPointerType>() != 0;
+}
+
 /// ActOnCXXForRangeStmt - Check and build a C++0x for-range statement.
 ///
 /// C++0x [stmt.ranged]:
@@ -1649,6 +1710,10 @@ Sema::ActOnCXXForRangeStmt(SourceLocation ForLoc, SourceLocation LParenLoc,
                            SourceLocation RParenLoc) {
   if (!First || !Range)
     return StmtError();
+  
+  if (ObjCEnumerationCollection(Range))
+    return ActOnObjCForCollectionStmt(ForLoc, LParenLoc, First, Range,
+                                      RParenLoc);
 
   DeclStmt *DS = dyn_cast<DeclStmt>(First);
   assert(DS && "first part of for range not a decl stmt");
@@ -1900,6 +1965,17 @@ Sema::BuildCXXForRangeStmt(SourceLocation ForLoc, SourceLocation ColonLoc,
                                              ColonLoc, RParenLoc));
 }
 
+/// FinishObjCForCollectionStmt - Attach the body to a objective-C foreach 
+/// statement.
+StmtResult Sema::FinishObjCForCollectionStmt(Stmt *S, Stmt *B) {
+  if (!S || !B)
+    return StmtError();
+  ObjCForCollectionStmt * ForStmt = cast<ObjCForCollectionStmt>(S);
+  
+  ForStmt->setBody(B);
+  return S;
+}
+
 /// FinishCXXForRangeStmt - Attach the body to a C++0x for-range statement.
 /// This is a separate step from ActOnCXXForRangeStmt because analysis of the
 /// body cannot be performed until after the type of the range variable is
@@ -1908,6 +1984,9 @@ StmtResult Sema::FinishCXXForRangeStmt(Stmt *S, Stmt *B) {
   if (!S || !B)
     return StmtError();
 
+  if (isa<ObjCForCollectionStmt>(S))
+    return FinishObjCForCollectionStmt(S, B);
+  
   CXXForRangeStmt *ForStmt = cast<CXXForRangeStmt>(S);
   ForStmt->setBody(B);
 
@@ -2005,7 +2084,7 @@ const VarDecl *Sema::getCopyElisionCandidate(QualType ReturnType,
   // ... the expression is the name of a non-volatile automatic object
   // (other than a function or catch-clause parameter)) ...
   const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(E->IgnoreParens());
-  if (!DR)
+  if (!DR || DR->refersToEnclosingLocal())
     return 0;
   const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl());
   if (!VD)
@@ -2120,40 +2199,22 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
   // [expr.prim.lambda]p4 in C++11; block literals follow a superset of those
   // rules which allows multiple return statements.
   CapturingScopeInfo *CurCap = cast<CapturingScopeInfo>(getCurFunction());
+  QualType FnRetType = CurCap->ReturnType;
+
+  // For blocks/lambdas with implicit return types, we check each return
+  // statement individually, and deduce the common return type when the block
+  // or lambda is completed.
   if (CurCap->HasImplicitReturnType) {
-    QualType ReturnT;
     if (RetValExp && !isa<InitListExpr>(RetValExp)) {
       ExprResult Result = DefaultFunctionArrayLvalueConversion(RetValExp);
       if (Result.isInvalid())
         return StmtError();
       RetValExp = Result.take();
 
-      if (!RetValExp->isTypeDependent()) {
-        ReturnT = RetValExp->getType();
-
-        // In C, enum constants have the type of their underlying integer type,
-        // not the enum. When inferring block return values, we should infer
-        // the enum type if an enum constant is used, unless the enum is
-        // anonymous (in which case there can be no variables of its type).
-        if (!getLangOpts().CPlusPlus) {
-          Expr *InsideExpr = RetValExp->IgnoreParenImpCasts();
-          if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(InsideExpr)) {
-            Decl *D = DRE->getDecl();
-            if (EnumConstantDecl *ECD = dyn_cast<EnumConstantDecl>(D)) {
-              EnumDecl *Enum = cast<EnumDecl>(ECD->getDeclContext());
-              if (Enum->getDeclName() || Enum->getTypedefNameForAnonDecl()) {
-                ReturnT = Context.getTypeDeclType(Enum);
-                ExprResult Casted = ImpCastExprToType(RetValExp, ReturnT,
-                                                      CK_IntegralCast);
-                assert(Casted.isUsable());
-                RetValExp = Casted.take();
-              }
-            }
-          }
-        }
-      } else {
-        ReturnT = Context.DependentTy;
-      }
+      if (!RetValExp->isTypeDependent())
+        FnRetType = RetValExp->getType();
+      else
+        FnRetType = CurCap->ReturnType = Context.DependentTy;
     } else { 
       if (RetValExp) {
         // C++11 [expr.lambda.prim]p4 bans inferring the result from an
@@ -2163,21 +2224,14 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
           << RetValExp->getSourceRange();
       }
 
-      ReturnT = Context.VoidTy;
+      FnRetType = Context.VoidTy;
     }
-    // We require the return types to strictly match here.
-    if (!CurCap->ReturnType.isNull() &&
-        !CurCap->ReturnType->isDependentType() &&
-        !ReturnT->isDependentType() &&
-        !Context.hasSameType(ReturnT, CurCap->ReturnType)) {
-      Diag(ReturnLoc, diag::err_typecheck_missing_return_type_incompatible) 
-          << ReturnT << CurCap->ReturnType
-          << (getCurLambda() != 0);
-      return StmtError();
-    }
-    CurCap->ReturnType = ReturnT;
+
+    // Although we'll properly infer the type of the block once it's completed,
+    // make sure we provide a return type now for better error recovery.
+    if (CurCap->ReturnType.isNull())
+      CurCap->ReturnType = FnRetType;
   }
-  QualType FnRetType = CurCap->ReturnType;
   assert(!FnRetType.isNull());
 
   if (BlockScopeInfo *CurBlock = dyn_cast<BlockScopeInfo>(CurCap)) {
@@ -2245,10 +2299,12 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
   ReturnStmt *Result = new (Context) ReturnStmt(ReturnLoc, RetValExp,
                                                 NRVOCandidate);
 
-  // If we need to check for the named return value optimization, save the
-  // return statement in our scope for later processing.
-  if (getLangOpts().CPlusPlus && FnRetType->isRecordType() && 
-      !CurContext->isDependentContext())
+  // If we need to check for the named return value optimization,
+  // or if we need to infer the return type,
+  // save the return statement in our scope for later processing.
+  if (CurCap->HasImplicitReturnType ||
+      (getLangOpts().CPlusPlus && FnRetType->isRecordType() &&
+       !CurContext->isDependentContext()))
     FunctionScopes.back()->Returns.push_back(Result);
 
   return Owned(Result);

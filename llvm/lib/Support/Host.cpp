@@ -249,6 +249,8 @@ std::string sys::getHostCPUName() {
       case 28: // Most 45 nm Intel Atom processors
       case 38: // 45 nm Atom Lincroft
       case 39: // 32 nm Atom Medfield
+      case 53: // 32 nm Atom Midview
+      case 54: // 32 nm Atom Midview
         return "atom";
 
       default: return (Em64T) ? "x86-64" : "i686";
