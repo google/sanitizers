@@ -8,21 +8,19 @@
 
 // ACHTUNG! No system header includes in this file.
 
-#define THREAD_LOCAL __thread
-
 using namespace __sanitizer;
 
 
 
 // Globals.
 static int msan_exit_code = 67;
-static THREAD_LOCAL int msan_expect_umr = 0;
-static THREAD_LOCAL int msan_expected_umr_found = 0;
+static THREADLOCAL int msan_expect_umr = 0;
+static THREADLOCAL int msan_expected_umr_found = 0;
 
 static int msan_running_under_pin = 0;
 static int msan_running_under_dr = 0;
-THREAD_LOCAL long long __msan_param_tls[100];
-THREAD_LOCAL long long __msan_retval_tls[8];
+THREADLOCAL long long __msan_param_tls[100];
+THREADLOCAL long long __msan_retval_tls[8];
 static long long *main_thread_param_tls;
 
 
