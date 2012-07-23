@@ -75,6 +75,9 @@ static cl::opt<bool> ClUseTrap("msan-use-trap",
 static cl::opt<bool> ClPoisonStack("msan-poison-stack",
        cl::desc("poison uninitialized stack variables"),
        cl::Hidden, cl::init(true));
+static cl::opt<int> ClPoisonStackPattern("msan-poison-stack-pattern",
+       cl::desc("poison uninitialized stack variables with the given patter"),
+       cl::Hidden, cl::init(0xff));
 
 static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
        cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
@@ -612,7 +615,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRBuilder<> IRB(I.getNextNode());
       Value *ShadowBase = getShadowPtr(&I, I.getType(), IRB);
       uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
-      IRB.CreateMemSet(ShadowBase, IRB.getInt8(0), Size, I.getAlignment());
+      IRB.CreateMemSet(ShadowBase, IRB.getInt8(ClPoisonStackPattern),
+                       Size, I.getAlignment());
     }
   }
 
@@ -621,6 +625,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I,  IRB.CreateSelect(I.getCondition(),
             getShadow(I.getTrueValue()), getShadow(I.getFalseValue()),
             "_msprop"));
+  }
+
+  void visitLandingPadInst(LandingPadInst &I) {
+    // Do nothing.
+    // See http://code.google.com/p/memory-sanitizer/issues/detail?id=1
+    setShadow(&I, getCleanShadow(&I));
   }
 
   void visitInstruction(Instruction &I) {

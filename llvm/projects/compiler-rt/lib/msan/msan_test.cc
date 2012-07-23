@@ -278,8 +278,7 @@ NOINLINE void StackTestFunc() {
   v_s4 = ok4;
 }
 
-TEST(MemorySanitizer, DISABLED_StackTest) {
-  if (!__msan_has_dynamic_component()) return;
+TEST(MemorySanitizer, StackTest) {
   StackTestFunc();
 }
 
