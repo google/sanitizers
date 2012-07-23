@@ -1,6 +1,5 @@
 #include "msan.h"
 
-#include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -8,8 +7,8 @@
 #include <unwind.h>
 #include <execinfo.h>
 
+#include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_procmaps.h"
-#include "sanitizer_common/sanitizer_libc.h"
 
 namespace __msan {
 
@@ -21,13 +20,6 @@ static const uptr kBad1Beg    = 0x100000000;  // 4G
 static const uptr kBad1End    = kShadowBeg - 1;
 static const uptr kBad2Beg    = kShadowEnd + 1;
 static const uptr kBad2End    = kMemBeg - 1;
-
-bool ProtectRange(uptr beg, uptr end) {
-  return  beg == (uptr)internal_mmap((void*)(beg), end - beg,
-      PROT_NONE,
-      MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE,
-      -1, 0);
-}
 
 char *GetProcSelfMaps() {
   // FIXME
@@ -59,18 +51,13 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
     Printf("Bad1  : %12lx %12lx\n", kBad1Beg, kBad1End);
   }
 
-  if (prot1 && !ProtectRange(kBad1Beg, kBad1End))
+  if (prot1 && !Mprotect(kBad1Beg, kBad1End - kBad1Beg))
     return false;
-  if (prot2 && !ProtectRange(kBad2Beg, kBad2End))
+  if (prot2 && !Mprotect(kBad2Beg, kBad2End - kBad2Beg))
     return false;
   if (map_shadow) {
-    uptr shadow = (uptr)internal_mmap((void*)kShadowBeg,
-                                      kShadowEnd - kShadowBeg,
-                                      PROT_READ | PROT_WRITE,
-                                      MAP_PRIVATE | MAP_ANON |
-                                      MAP_FIXED | MAP_NORESERVE,
-                                      0, 0);
-    return shadow == kShadowBeg;
+    void *shadow = MmapFixedNoReserve(kShadowBeg, kShadowEnd - kShadowBeg);
+    return shadow == (void*)kShadowBeg;
   }
   return true;
 }
