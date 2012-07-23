@@ -1,12 +1,6 @@
 #include "msan.h"
 
-#include <sys/time.h>
-#include <sys/resource.h>
 #include <sys/mman.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
