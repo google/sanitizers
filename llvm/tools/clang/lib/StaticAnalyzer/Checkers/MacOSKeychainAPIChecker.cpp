@@ -290,7 +290,11 @@ void MacOSKeychainAPIChecker::checkPreStmt(const CallExpr *CE,
   unsigned idx = InvalidIdx;
   ProgramStateRef State = C.getState();
 
-  StringRef funName = C.getCalleeName(CE);
+  const FunctionDecl *FD = C.getCalleeDecl(CE);
+  if (!FD || FD->getKind() != Decl::Function)
+    return;
+  
+  StringRef funName = C.getCalleeName(FD);
   if (funName.empty())
     return;
 
@@ -446,7 +450,11 @@ void MacOSKeychainAPIChecker::checkPreStmt(const CallExpr *CE,
 void MacOSKeychainAPIChecker::checkPostStmt(const CallExpr *CE,
                                             CheckerContext &C) const {
   ProgramStateRef State = C.getState();
-  StringRef funName = C.getCalleeName(CE);
+  const FunctionDecl *FD = C.getCalleeDecl(CE);
+  if (!FD || FD->getKind() != Decl::Function)
+    return;
+
+  StringRef funName = C.getCalleeName(FD);
 
   // If a value has been allocated, add it to the set for tracking.
   unsigned idx = getTrackedFunctionIndex(funName, true);
@@ -528,9 +536,11 @@ MacOSKeychainAPIChecker::getAllocationSite(const ExplodedNode *N,
   }
 
   ProgramPoint P = AllocNode->getLocation();
-  if (!isa<StmtPoint>(P))
-    return 0;
-  return cast<clang::PostStmt>(P).getStmt();
+  if (CallExitEnd *Exit = dyn_cast<CallExitEnd>(&P))
+    return Exit->getCalleeContext()->getCallSite();
+  if (clang::PostStmt *PS = dyn_cast<clang::PostStmt>(&P))
+    return PS->getStmt();
+  return 0;
 }
 
 BugReport *MacOSKeychainAPIChecker::

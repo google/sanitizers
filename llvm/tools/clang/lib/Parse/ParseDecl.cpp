@@ -1270,15 +1270,33 @@ void Parser::SkipMalformedDecl() {
 
     case tok::kw_inline:
       // 'inline namespace' at the start of a line is almost certainly
-      // a good place to pick back up parsing.
-      if (Tok.isAtStartOfLine() && NextToken().is(tok::kw_namespace))
+      // a good place to pick back up parsing, except in an Objective-C
+      // @interface context.
+      if (Tok.isAtStartOfLine() && NextToken().is(tok::kw_namespace) &&
+          (!ParsingInObjCContainer || CurParsedObjCImpl))
         return;
       break;
 
     case tok::kw_namespace:
       // 'namespace' at the start of a line is almost certainly a good
-      // place to pick back up parsing.
-      if (Tok.isAtStartOfLine())
+      // place to pick back up parsing, except in an Objective-C
+      // @interface context.
+      if (Tok.isAtStartOfLine() &&
+          (!ParsingInObjCContainer || CurParsedObjCImpl))
+        return;
+      break;
+
+    case tok::at:
+      // @end is very much like } in Objective-C contexts.
+      if (NextToken().isObjCAtKeyword(tok::objc_end) &&
+          ParsingInObjCContainer)
+        return;
+      break;
+
+    case tok::minus:
+    case tok::plus:
+      // - and + probably start new method declarations in Objective-C contexts.
+      if (Tok.isAtStartOfLine() && ParsingInObjCContainer)
         return;
       break;
 
@@ -1322,7 +1340,12 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       // Look at the next token to make sure that this isn't a function
       // declaration.  We have to check this because __attribute__ might be the
       // start of a function definition in GCC-extended K&R C.
-      !isDeclarationAfterDeclarator()) {
+      // FIXME. Delayed parsing not done for c/c++ functions nested in namespace
+      !isDeclarationAfterDeclarator() && 
+      (!CurParsedObjCImpl || Tok.isNot(tok::l_brace) || 
+       (getLangOpts().CPlusPlus && 
+        (D.getCXXScopeSpec().isSet() || 
+         !Actions.CurContext->isTranslationUnit())))) {
 
     if (isStartOfFunctionDefinition(D)) {
       if (DS.getStorageClassSpec() == DeclSpec::SCS_typedef) {
@@ -1379,6 +1402,14 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
 
   bool ExpectSemi = Context != Declarator::ForContext;
 
+  if (CurParsedObjCImpl && D.isFunctionDeclarator() &&
+      Tok.is(tok::l_brace)) {
+    // Consume the tokens and store them for later parsing.
+    StashAwayMethodOrFunctionBodyTokens(FirstDecl);
+    CurParsedObjCImpl->HasCFunction = true;
+    ExpectSemi = false;
+  }
+  
   // If we don't have a comma, it is either the end of the list (a ';') or an
   // error, bail out.
   while (Tok.is(tok::comma)) {
@@ -1605,7 +1636,8 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(Declarator &D,
       Actions.AddInitializerToDecl(ThisDecl, Initializer.take(),
                                    /*DirectInit=*/true, TypeContainsAuto);
     }
-  } else if (getLangOpts().CPlusPlus0x && Tok.is(tok::l_brace)) {
+  } else if (getLangOpts().CPlusPlus0x && Tok.is(tok::l_brace) &&
+             (!CurParsedObjCImpl || !D.isFunctionDeclarator())) {
     // Parse C++0x braced-init-list.
     Diag(Tok, diag::warn_cxx98_compat_generalized_initializer_lists);
 
@@ -2478,7 +2510,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     // alignment-specifier
     case tok::kw__Alignas:
       if (!getLangOpts().C11)
-        Diag(Tok, diag::ext_c11_alignas);
+        Diag(Tok, diag::ext_c11_alignment) << Tok.getName();
       ParseAlignmentSpecifier(DS.getAttributes());
       continue;
 
@@ -2844,8 +2876,7 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
 
     // Check for extraneous top-level semicolon.
     if (Tok.is(tok::semi)) {
-      ConsumeExtraSemi(InsideStruct,
-                       DeclSpec::getSpecifierName((DeclSpec::TST)TagType));
+      ConsumeExtraSemi(InsideStruct, TagType);
       continue;
     }
 
@@ -3067,9 +3098,10 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
   TypeResult BaseType;
 
   // Parse the fixed underlying type.
+  bool CanBeBitfield = getCurScope()->getFlags() & Scope::ClassScope;
   if (AllowFixedUnderlyingType && Tok.is(tok::colon)) {
     bool PossibleBitfield = false;
-    if (getCurScope()->getFlags() & Scope::ClassScope) {
+    if (CanBeBitfield) {
       // If we're in class scope, this can either be an enum declaration with
       // an underlying type, or a declaration of a bitfield member. We try to
       // use a simple disambiguation scheme first to catch the common cases
@@ -3158,7 +3190,8 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
     }
   } else if (DSC != DSC_type_specifier &&
              (Tok.is(tok::semi) ||
-              (Tok.isAtStartOfLine() && !isValidAfterTypeSpecifier()))) {
+              (Tok.isAtStartOfLine() &&
+               !isValidAfterTypeSpecifier(CanBeBitfield)))) {
     TUK = DS.isFriendSpecified() ? Sema::TUK_Friend : Sema::TUK_Declaration;
     if (Tok.isNot(tok::semi)) {
       // A semicolon was missing after this declaration. Diagnose and recover.
@@ -3339,8 +3372,9 @@ void Parser::ParseEnumBody(SourceLocation StartLoc, Decl *EnumDecl) {
 
     if (Tok.isNot(tok::identifier)) {
       if (!getLangOpts().C99 && !getLangOpts().CPlusPlus0x)
-        Diag(CommaLoc, diag::ext_enumerator_list_comma)
-          << getLangOpts().CPlusPlus
+        Diag(CommaLoc, getLangOpts().CPlusPlus ?
+               diag::ext_enumerator_list_comma_cxx :
+               diag::ext_enumerator_list_comma_c)
           << FixItHint::CreateRemoval(CommaLoc);
       else if (getLangOpts().CPlusPlus0x)
         Diag(CommaLoc, diag::warn_cxx98_compat_enumerator_list_comma)
@@ -3366,7 +3400,8 @@ void Parser::ParseEnumBody(SourceLocation StartLoc, Decl *EnumDecl) {
 
   // The next token must be valid after an enum definition. If not, a ';'
   // was probably forgotten.
-  if (!isValidAfterTypeSpecifier()) {
+  bool CanBeBitfield = getCurScope()->getFlags() & Scope::ClassScope;
+  if (!isValidAfterTypeSpecifier(CanBeBitfield)) {
     ExpectAndConsume(tok::semi, diag::err_expected_semi_after_tagdecl, "enum");
     // Push this token back into the preprocessor and change our current token
     // to ';' so that the rest of the code recovers as though there were an
@@ -4252,6 +4287,8 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
     // portion is empty), if an abstract-declarator is allowed.
     D.SetIdentifier(0, Tok.getLocation());
   } else {
+    if (Tok.getKind() == tok::annot_pragma_parser_crash)
+      *(volatile int*) 0x11 = 0;
     if (D.getContext() == Declarator::MemberContext)
       Diag(Tok, diag::err_expected_member_name_or_semi)
         << D.getDeclSpec().getSourceRange();
@@ -4906,7 +4943,7 @@ void Parser::ParseBracketDeclarator(Declarator &D) {
 
   // Handle the case where we have '[*]' as the array size.  However, a leading
   // star could be the start of an expression, for example 'X[*p + 4]'.  Verify
-  // the the token after the star is a ']'.  Since stars in arrays are
+  // the token after the star is a ']'.  Since stars in arrays are
   // infrequent, use of lookahead is not costly here.
   if (Tok.is(tok::star) && GetLookAheadToken(1).is(tok::r_square)) {
     ConsumeToken();  // Eat the '*'.

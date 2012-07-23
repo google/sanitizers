@@ -26,6 +26,9 @@ AsanThread::AsanThread(LinkerInitialized x)
       malloc_storage_(x),
       stats_(x) { }
 
+static AsanLock mu_for_thread_summary(LINKER_INITIALIZED);
+static LowLevelAllocator allocator_for_thread_summary(LINKER_INITIALIZED);
+
 AsanThread *AsanThread::Create(u32 parent_tid, thread_callback_t start_routine,
                                void *arg, AsanStackTrace *stack) {
   uptr size = RoundUpTo(sizeof(AsanThread), kPageSize);
@@ -33,7 +36,15 @@ AsanThread *AsanThread::Create(u32 parent_tid, thread_callback_t start_routine,
   thread->start_routine_ = start_routine;
   thread->arg_ = arg;
 
-  AsanThreadSummary *summary = new AsanThreadSummary(parent_tid, stack);
+  const uptr kSummaryAllocSize = 1024;
+  CHECK_LE(sizeof(AsanThreadSummary), kSummaryAllocSize);
+  AsanThreadSummary *summary;
+  {
+    ScopedLock lock(&mu_for_thread_summary);
+    summary = (AsanThreadSummary*)
+        allocator_for_thread_summary.Allocate(kSummaryAllocSize);
+  }
+  summary->Init(parent_tid, stack);
   summary->set_thread(thread);
   thread->set_summary(summary);
 
@@ -42,7 +53,7 @@ AsanThread *AsanThread::Create(u32 parent_tid, thread_callback_t start_routine,
 
 void AsanThreadSummary::TSDDtor(void *tsd) {
   AsanThreadSummary *summary = (AsanThreadSummary*)tsd;
-  if (FLAG_v >= 1) {
+  if (flags()->verbosity >= 1) {
     Report("T%d TSDDtor\n", summary->tid());
   }
   if (summary->thread()) {
@@ -51,7 +62,7 @@ void AsanThreadSummary::TSDDtor(void *tsd) {
 }
 
 void AsanThread::Destroy() {
-  if (FLAG_v >= 1) {
+  if (flags()->verbosity >= 1) {
     Report("T%d exited\n", tid());
   }
 
@@ -71,7 +82,7 @@ void AsanThread::Init() {
   CHECK(AddrIsInMem(stack_bottom_));
   CHECK(AddrIsInMem(stack_top_));
   ClearShadowForThreadStack();
-  if (FLAG_v >= 1) {
+  if (flags()->verbosity >= 1) {
     int local = 0;
     Report("T%d: stack [%p,%p) size 0x%zx; local=%p\n",
            tid(), (void*)stack_bottom_, (void*)stack_top_,
@@ -82,7 +93,7 @@ void AsanThread::Init() {
 
 thread_return_t AsanThread::ThreadStart() {
   Init();
-  if (FLAG_use_sigaltstack) SetAlternateSignalStack();
+  if (flags()->use_sigaltstack) SetAlternateSignalStack();
 
   if (!start_routine_) {
     // start_routine_ == 0 if we're on the main thread or on one of the
@@ -94,7 +105,7 @@ thread_return_t AsanThread::ThreadStart() {
 
   thread_return_t res = start_routine_(arg_);
   malloc_storage().CommitBack();
-  if (FLAG_use_sigaltstack) UnsetAlternateSignalStack();
+  if (flags()->use_sigaltstack) UnsetAlternateSignalStack();
 
   this->Destroy();
 

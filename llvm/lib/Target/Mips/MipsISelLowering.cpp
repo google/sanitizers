@@ -152,6 +152,8 @@ MipsTargetLowering(MipsTargetMachine &TM)
   setOperationAction(ISD::SELECT,             MVT::f32,   Custom);
   setOperationAction(ISD::SELECT,             MVT::f64,   Custom);
   setOperationAction(ISD::SELECT,             MVT::i32,   Custom);
+  setOperationAction(ISD::SELECT_CC,          MVT::f32,   Custom);
+  setOperationAction(ISD::SELECT_CC,          MVT::f64,   Custom);
   setOperationAction(ISD::SETCC,              MVT::f32,   Custom);
   setOperationAction(ISD::SETCC,              MVT::f64,   Custom);
   setOperationAction(ISD::BRCOND,             MVT::Other, Custom);
@@ -262,9 +264,6 @@ MipsTargetLowering(MipsTargetMachine &TM)
   setOperationAction(ISD::ATOMIC_STORE,      MVT::i64,    Expand);
 
   setInsertFencesForAtomic(true);
-
-  if (Subtarget->isSingleFloat())
-    setOperationAction(ISD::SELECT_CC, MVT::f64, Expand);
 
   if (!Subtarget->hasSEInReg()) {
     setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i8,  Expand);
@@ -801,11 +800,13 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
     case ISD::GlobalTLSAddress:   return LowerGlobalTLSAddress(Op, DAG);
     case ISD::JumpTable:          return LowerJumpTable(Op, DAG);
     case ISD::SELECT:             return LowerSELECT(Op, DAG);
+    case ISD::SELECT_CC:          return LowerSELECT_CC(Op, DAG);
     case ISD::SETCC:              return LowerSETCC(Op, DAG);
     case ISD::VASTART:            return LowerVASTART(Op, DAG);
     case ISD::FCOPYSIGN:          return LowerFCOPYSIGN(Op, DAG);
     case ISD::FABS:               return LowerFABS(Op, DAG);
     case ISD::FRAMEADDR:          return LowerFRAMEADDR(Op, DAG);
+    case ISD::RETURNADDR:         return LowerRETURNADDR(Op, DAG);
     case ISD::MEMBARRIER:         return LowerMEMBARRIER(Op, DAG);
     case ISD::ATOMIC_FENCE:       return LowerATOMIC_FENCE(Op, DAG);
     case ISD::SHL_PARTS:          return LowerShiftLeftParts(Op, DAG);
@@ -1575,6 +1576,19 @@ LowerSELECT(SDValue Op, SelectionDAG &DAG) const
                       Op.getDebugLoc());
 }
 
+SDValue MipsTargetLowering::
+LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const
+{
+  DebugLoc DL = Op.getDebugLoc();
+  EVT Ty = Op.getOperand(0).getValueType();
+  SDValue Cond = DAG.getNode(ISD::SETCC, DL, getSetCCResultType(Ty),
+                             Op.getOperand(0), Op.getOperand(1),
+                             Op.getOperand(4));
+
+  return DAG.getNode(ISD::SELECT, DL, Op.getValueType(), Cond, Op.getOperand(2),
+                     Op.getOperand(3));
+}
+
 SDValue MipsTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   SDValue Cond = CreateFPCmp(DAG, Op);
 
@@ -2007,6 +2021,23 @@ LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
   SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
                                          IsN64 ? Mips::FP_64 : Mips::FP, VT);
   return FrameAddr;
+}
+
+SDValue MipsTargetLowering::LowerRETURNADDR(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  // check the depth
+  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
+         "Return address can be determined only for current frame.");
+
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  EVT VT = Op.getValueType();
+  unsigned RA = IsN64 ? Mips::RA_64 : Mips::RA;
+  MFI->setReturnAddressIsTaken(true);
+
+  // Return RA, which contains the return address. Mark it an implicit live-in.
+  unsigned Reg = MF.addLiveIn(RA, getRegClassFor(VT));
+  return DAG.getCopyFromReg(DAG.getEntryNode(), Op.getDebugLoc(), Reg, VT);
 }
 
 // TODO: set SType according to the desired memory barrier behavior.
@@ -3253,11 +3284,10 @@ MipsTargetLowering::LowerReturn(SDValue Chain,
 
   // Return on Mips is always a "jr $ra"
   if (Flag.getNode())
-    return DAG.getNode(MipsISD::Ret, dl, MVT::Other,
-                       Chain, DAG.getRegister(Mips::RA, MVT::i32), Flag);
-  else // Return Void
-    return DAG.getNode(MipsISD::Ret, dl, MVT::Other,
-                       Chain, DAG.getRegister(Mips::RA, MVT::i32));
+    return DAG.getNode(MipsISD::Ret, dl, MVT::Other, Chain, Flag);
+
+  // Return Void
+  return DAG.getNode(MipsISD::Ret, dl, MVT::Other, Chain);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3354,6 +3384,8 @@ getRegForInlineAsmConstraint(const std::string &Constraint, EVT VT) const
     case 'y': // Same as 'r'. Exists for compatibility.
     case 'r':
       if (VT == MVT::i32 || VT == MVT::i16 || VT == MVT::i8)
+        return std::make_pair(0U, &Mips::CPURegsRegClass);
+      if (VT == MVT::i64 && !HasMips64)
         return std::make_pair(0U, &Mips::CPURegsRegClass);
       if (VT == MVT::i64 && HasMips64)
         return std::make_pair(0U, &Mips::CPU64RegsRegClass);

@@ -37,7 +37,7 @@ Value *SCEVExpander::ReuseOrCreateCast(Value *V, Type *Ty,
   // We use this precondition to produce a cast that will dominate all its
   // uses. In particular, this is crucial for the case where the builder's
   // insertion point *is* the point where we were asked to put the cast.
-  // Since we don't know the the builder's insertion point is actually
+  // Since we don't know the builder's insertion point is actually
   // where the uses will be added (only that it dominates it), we are
   // not allowed to move it.
   BasicBlock::iterator BIP = Builder.GetInsertPoint();
@@ -1699,4 +1699,45 @@ unsigned SCEVExpander::replaceCongruentIVs(Loop *L, const DominatorTree *DT,
     DeadInsts.push_back(Phi);
   }
   return NumElim;
+}
+
+namespace {
+// Search for a SCEV subexpression that is not safe to expand.  Any expression
+// that may expand to a !isSafeToSpeculativelyExecute value is unsafe, namely
+// UDiv expressions. We don't know if the UDiv is derived from an IR divide
+// instruction, but the important thing is that we prove the denominator is
+// nonzero before expansion.
+//
+// IVUsers already checks that IV-derived expressions are safe. So this check is
+// only needed when the expression includes some subexpression that is not IV
+// derived.
+//
+// Currently, we only allow division by a nonzero constant here. If this is
+// inadequate, we could easily allow division by SCEVUnknown by using
+// ValueTracking to check isKnownNonZero().
+struct SCEVFindUnsafe {
+  bool IsUnsafe;
+
+  SCEVFindUnsafe(): IsUnsafe(false) {}
+
+  bool follow(const SCEV *S) {
+    const SCEVUDivExpr *D = dyn_cast<SCEVUDivExpr>(S);
+    if (!D)
+      return true;
+    const SCEVConstant *SC = dyn_cast<SCEVConstant>(D->getRHS());
+    if (SC && !SC->getValue()->isZero())
+      return true;
+    IsUnsafe = true;
+    return false;
+  }
+  bool isDone() const { return IsUnsafe; }
+};
+}
+
+namespace llvm {
+bool isSafeToExpand(const SCEV *S) {
+  SCEVFindUnsafe Search;
+  visitAll(S, Search);
+  return !Search.IsUnsafe;
+}
 }

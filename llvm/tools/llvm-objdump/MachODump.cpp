@@ -44,7 +44,7 @@ using namespace object;
 
 static cl::opt<bool>
   CFG("cfg", cl::desc("Create a CFG for every symbol in the object file and"
-                      "write it to a graphviz file (MachO-only)"));
+                      " write it to a graphviz file (MachO-only)"));
 
 static cl::opt<bool>
   UseDbg("g", cl::desc("Print line information from debug info if available"));
@@ -508,21 +508,19 @@ void llvm::DisassembleInputMachO(StringRef Filename) {
       Sections[SectIdx].getSize(SectSize);
       uint64_t InstSize;
       for (uint64_t Index = 0; Index < SectSize; Index += InstSize) {
-	MCInst Inst;
+        MCInst Inst;
 
-	if (DisAsm->getInstruction(Inst, InstSize, memoryObject, Index,
-				   DebugOut, nulls())) {
-	  outs() << format("%8" PRIx64 ":\t", SectAddress + Index);
-
-	  DumpBytes(StringRef(Bytes.data() + Index, InstSize));
-	  IP->printInst(&Inst, outs(), "");
-
-	  outs() << "\n";
-	} else {
-	  errs() << "llvm-objdump: warning: invalid instruction encoding\n";
-	  if (InstSize == 0)
-	    InstSize = 1; // skip illegible bytes
-	}
+        if (DisAsm->getInstruction(Inst, InstSize, memoryObject, Index,
+                                   DebugOut, nulls())) {
+          outs() << format("%8" PRIx64 ":\t", SectAddress + Index);
+          DumpBytes(StringRef(Bytes.data() + Index, InstSize));
+          IP->printInst(&Inst, outs(), "");
+          outs() << "\n";
+        } else {
+          errs() << "llvm-objdump: warning: invalid instruction encoding\n";
+          if (InstSize == 0)
+            InstSize = 1; // skip illegible bytes
+        }
       }
     }
 

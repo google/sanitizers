@@ -899,7 +899,7 @@ bool Sema::CppLookupName(LookupResult &R, Scope *S) {
     if (!Ctx && S->isTemplateParamScope() && OutsideOfTemplateParamDC &&
         S->getParent() && !S->getParent()->isTemplateParamScope()) {
       // We've just searched the last template parameter scope and
-      // found nothing, so look into the the contexts between the
+      // found nothing, so look into the contexts between the
       // lexical and semantic declaration contexts returned by
       // findOuterContext(). This implements the name lookup behavior
       // of C++ [temp.local]p8.
@@ -1004,7 +1004,7 @@ bool Sema::CppLookupName(LookupResult &R, Scope *S) {
     if (!Ctx && S->isTemplateParamScope() && OutsideOfTemplateParamDC &&
         S->getParent() && !S->getParent()->isTemplateParamScope()) {
       // We've just searched the last template parameter scope and
-      // found nothing, so look into the the contexts between the
+      // found nothing, so look into the contexts between the
       // lexical and semantic declaration contexts returned by
       // findOuterContext(). This implements the name lookup behavior
       // of C++ [temp.local]p8.
@@ -2432,10 +2432,11 @@ CXXConstructorDecl *Sema::LookupCopyingConstructor(CXXRecordDecl *Class,
 }
 
 /// \brief Look up the moving constructor for the given class.
-CXXConstructorDecl *Sema::LookupMovingConstructor(CXXRecordDecl *Class) {
+CXXConstructorDecl *Sema::LookupMovingConstructor(CXXRecordDecl *Class,
+                                                  unsigned Quals) {
   SpecialMemberOverloadResult *Result =
-    LookupSpecialMember(Class, CXXMoveConstructor, false,
-                        false, false, false, false);
+    LookupSpecialMember(Class, CXXMoveConstructor, Quals & Qualifiers::Const,
+                        Quals & Qualifiers::Volatile, false, false, false);
 
   return cast_or_null<CXXConstructorDecl>(Result->getMethod());
 }
@@ -2476,12 +2477,14 @@ CXXMethodDecl *Sema::LookupCopyingAssignment(CXXRecordDecl *Class,
 
 /// \brief Look up the moving assignment operator for the given class.
 CXXMethodDecl *Sema::LookupMovingAssignment(CXXRecordDecl *Class,
+                                            unsigned Quals,
                                             bool RValueThis,
                                             unsigned ThisQuals) {
   assert(!(ThisQuals & ~(Qualifiers::Const | Qualifiers::Volatile)) &&
          "non-const, non-volatile qualifiers for copy assignment this");
   SpecialMemberOverloadResult *Result =
-    LookupSpecialMember(Class, CXXMoveAssignment, false, false, RValueThis,
+    LookupSpecialMember(Class, CXXMoveAssignment, Quals & Qualifiers::Const,
+                        Quals & Qualifiers::Volatile, RValueThis,
                         ThisQuals & Qualifiers::Const,
                         ThisQuals & Qualifiers::Volatile);
 
@@ -3603,6 +3606,12 @@ static void AddKeywordsToConsumer(Sema &SemaRef,
         Consumer.addKeywordResult("alignof");
         Consumer.addKeywordResult("nullptr");
       }
+    }
+
+    if (SemaRef.getLangOpts().C11) {
+      // FIXME: We should not suggest _Alignof if the alignof macro
+      // is present.
+      Consumer.addKeywordResult("_Alignof");
     }
   }
 

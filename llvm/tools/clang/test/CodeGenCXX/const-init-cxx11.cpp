@@ -121,6 +121,13 @@ namespace Array {
   };
   // CHECK: @_ZN5Array1eE = constant {{.*}} { [4 x i8] c"foo\00", [4 x i8] c"x\00\00\00" }
   extern constexpr E e = E();
+
+  // PR13290
+  struct F { constexpr F() : n(4) {} int n; };
+  // CHECK: @_ZN5Array2f1E = global {{.*}} zeroinitializer
+  F f1[1][1][0] = { };
+  // CHECK: @_ZN5Array2f2E = global {{.* i32 4 .* i32 4 .* i32 4 .* i32 4 .* i32 4 .* i32 4 .* i32 4 .* i32 4}}
+  F f2[2][2][2] = { };
 }
 
 namespace MemberPtr {
@@ -307,6 +314,20 @@ namespace VirtualMembers {
   };
   // CHECK: @_ZN14VirtualMembersL13sGlobalMemoryE = internal global { i8** } { i8** getelementptr inbounds ([3 x i8*]* @_ZTVN14VirtualMembers12nsMemoryImplE, i64 0, i64 2) }
   static nsMemoryImpl sGlobalMemory;
+}
+
+namespace PR13273 {
+  struct U {
+    int t;
+    U() = default;
+  };
+
+  struct S : U {
+    S() = default;
+  };
+
+  // CHECK: @_ZN7PR13273L1sE = {{.*}} zeroinitializer
+  const S s {};
 }
 
 // Constant initialization tests go before this point,

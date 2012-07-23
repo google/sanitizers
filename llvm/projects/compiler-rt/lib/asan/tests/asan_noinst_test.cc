@@ -21,8 +21,9 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
+#include <string.h>  // for memset()
 #include <algorithm>
+#include <vector>
 #include "gtest/gtest.h"
 
 // Simple stand-alone pseudorandom number generator.
@@ -328,6 +329,18 @@ TEST(AddressSanitizer, ThreadedOneSizeMallocStressTest) {
   }
 }
 
+TEST(AddressSanitizer, MemsetWildAddressTest) {
+  typedef void*(*memset_p)(void*, int, size_t);
+  // Prevent inlining of memset().
+  volatile memset_p libc_memset = (memset_p)memset;
+  EXPECT_DEATH(libc_memset((void*)(kLowShadowBeg + kPageSize), 0, 100),
+               "unknown-crash.*low shadow");
+  EXPECT_DEATH(libc_memset((void*)(kShadowGapBeg + kPageSize), 0, 100),
+               "unknown-crash.*shadow gap");
+  EXPECT_DEATH(libc_memset((void*)(kHighShadowBeg + kPageSize), 0, 100),
+               "unknown-crash.*high shadow");
+}
+
 TEST(AddressSanitizerInterface, GetEstimatedAllocatedSize) {
   EXPECT_EQ(1U, __asan_get_estimated_allocated_size(0));
   const size_t sizes[] = { 1, 30, 1<<30 };
@@ -584,8 +597,10 @@ TEST(AddressSanitizerInterface, PushAndPopWithPoisoningTest) {
 static void MakeShadowValid(bool *shadow, int length, int granularity) {
   bool can_be_poisoned = true;
   for (int i = length - 1; i >= 0; i--) {
-    can_be_poisoned &= shadow[i];
-    shadow[i] &= can_be_poisoned;
+    if (!shadow[i])
+      can_be_poisoned = false;
+    if (!can_be_poisoned)
+      shadow[i] = false;
     if (i % (1 << granularity) == 0) {
       can_be_poisoned = true;
     }
@@ -606,9 +621,9 @@ TEST(AddressSanitizerInterface, PoisoningStressTest) {
           __asan_poison_memory_region(arr + l2, s2);
           memset(expected, false, kSize);
           memset(expected + l1, true, s1);
-          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          MakeShadowValid(expected, kSize, /*granularity*/ 3);
           memset(expected + l2, true, s2);
-          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          MakeShadowValid(expected, kSize, /*granularity*/ 3);
           for (size_t i = 0; i < kSize; i++) {
             ASSERT_EQ(expected[i], __asan_address_is_poisoned(arr + i));
           }
@@ -618,9 +633,9 @@ TEST(AddressSanitizerInterface, PoisoningStressTest) {
           __asan_unpoison_memory_region(arr + l2, s2);
           memset(expected, true, kSize);
           memset(expected + l1, false, s1);
-          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          MakeShadowValid(expected, kSize, /*granularity*/ 3);
           memset(expected + l2, false, s2);
-          MakeShadowValid(expected, 24, /*granularity*/ 3);
+          MakeShadowValid(expected, kSize, /*granularity*/ 3);
           for (size_t i = 0; i < kSize; i++) {
             ASSERT_EQ(expected[i], __asan_address_is_poisoned(arr + i));
           }
@@ -657,7 +672,8 @@ static void ErrorReportCallbackOneToZ(const char *report) {
   for (int i = 0; i < len; i++) {
     if (dup[i] == '1') dup[i] = 'Z';
   }
-  write(2, dup, len);
+  int written = write(2, dup, len);
+  ASSERT_EQ(len, written);
   free(dup);
 }
 
@@ -686,10 +702,4 @@ TEST(AddressSanitizerInterface, GetOwnershipStressTest) {
   }
   for (size_t i = 0, n = pointers.size(); i < n; i++)
     free(pointers[i]);
-}
-
-int main(int argc, char **argv) {
-  testing::GTEST_FLAG(death_test_style) = "threadsafe";
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

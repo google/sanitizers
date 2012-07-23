@@ -15,8 +15,10 @@ set(SOURCES
   CIndexUSRs.cpp
   CIndexer.cpp
   CIndexer.h
+  CXComment.cpp
   CXCursor.cpp
   CXCursor.h
+  CXCompilationDatabase.cpp
   CXLoadedDiagnostic.cpp
   CXLoadedDiagnostic.h
   CXSourceLocation.cpp
@@ -47,6 +49,7 @@ set(LIBRARIES
   clangEdit
   clangAST
   clangLex
+  clangTooling
   clangBasic
   )
 

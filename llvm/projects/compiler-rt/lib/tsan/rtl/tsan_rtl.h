@@ -228,11 +228,19 @@ struct ThreadState {
   u64 *racy_shadow_addr;
   u64 racy_state[2];
   Trace trace;
+#ifndef TSAN_GO
+  // C/C++ uses embed shadow stack of fixed size.
   uptr shadow_stack[kShadowStackSize];
+#else
+  // Go uses satellite shadow stack with dynamic size.
+  uptr *shadow_stack;
+  uptr *shadow_stack_end;
+#endif
   ThreadClock clock;
   u64 stat[StatCnt];
   const int tid;
   int in_rtl;
+  bool is_alive;
   const uptr stk_addr;
   const uptr stk_size;
   const uptr tls_addr;
@@ -253,11 +261,13 @@ struct ThreadState {
 };
 
 Context *CTX();
-extern THREADLOCAL char cur_thread_placeholder[];
 
+#ifndef TSAN_GO
+extern THREADLOCAL char cur_thread_placeholder[];
 INLINE ThreadState *cur_thread() {
   return reinterpret_cast<ThreadState *>(&cur_thread_placeholder);
 }
+#endif
 
 enum ThreadStatus {
   ThreadStatusInvalid,   // Non-existent thread, data is invalid.
@@ -456,12 +466,19 @@ void Release(ThreadState *thr, uptr pc, uptr addr);
 #define HACKY_CALL(f) f()
 #endif
 
+void TraceSwitch(ThreadState *thr);
+
 extern "C" void __tsan_trace_switch();
 void ALWAYS_INLINE INLINE TraceAddEvent(ThreadState *thr, u64 epoch,
                                         EventType typ, uptr addr) {
   StatInc(thr, StatEvents);
-  if (UNLIKELY((epoch % kTracePartSize) == 0))
+  if (UNLIKELY((epoch % kTracePartSize) == 0)) {
+#ifndef TSAN_GO
     HACKY_CALL(__tsan_trace_switch);
+#else
+    TraceSwitch(thr);
+#endif
+  }
   Event *evp = &thr->trace.events[epoch % kTraceSize];
   Event ev = (u64)addr | ((u64)typ << 61);
   *evp = ev;

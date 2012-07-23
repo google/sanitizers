@@ -29,7 +29,7 @@ class StackFrameContext;
 
 namespace ento {
 
-class CallOrObjCMessage;
+class CallEvent;
 class ProgramState;
 class ProgramStateManager;
 class SubRegionMap;
@@ -194,14 +194,14 @@ public:
                                      const Expr *E, unsigned Count,
                                      const LocationContext *LCtx,
                                      InvalidatedSymbols &IS,
-                                     const CallOrObjCMessage *Call,
+                                     const CallEvent *Call,
                                      InvalidatedRegions *Invalidated) = 0;
 
   /// enterStackFrame - Let the StoreManager to do something when execution
   /// engine is about to execute into a callee.
-  virtual StoreRef enterStackFrame(ProgramStateRef state,
-                                   const LocationContext *callerCtx,
-                                   const StackFrameContext *calleeCtx);
+  StoreRef enterStackFrame(Store store,
+                           const CallEvent &Call,
+                           const StackFrameContext *CalleeCtx);
 
   virtual void print(Store store, raw_ostream &Out,
                      const char* nl, const char *sep) = 0;

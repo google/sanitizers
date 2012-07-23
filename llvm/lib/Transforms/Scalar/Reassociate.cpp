@@ -26,20 +26,20 @@
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
+#include "llvm/IRBuilder.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Pass.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Assembly/Writer.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Statistic.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -667,17 +667,13 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
   /// the new expression into.
   SmallVector<BinaryOperator*, 8> NodesToRewrite;
   unsigned Opcode = I->getOpcode();
-  NodesToRewrite.push_back(I);
+  BinaryOperator *Op = I;
 
   // ExpressionChanged - Non-null if the rewritten expression differs from the
   // original in some non-trivial way, requiring the clearing of optional flags.
   // Flags are cleared from the operator in ExpressionChanged up to I inclusive.
   BinaryOperator *ExpressionChanged = 0;
   for (unsigned i = 0; ; ++i) {
-    assert(!NodesToRewrite.empty() &&
-           "Optimized expressions has more nodes than original!");
-    BinaryOperator *Op = NodesToRewrite.pop_back_val();
-
     // The last operation (which comes earliest in the IR) is special as both
     // operands will come from Ops, rather than just one with the other being
     // a subexpression.
@@ -748,20 +744,33 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
     // from the original expression then just rewrite the rest of the expression
     // into it.
     if (BinaryOperator *BO = isReassociableOp(Op->getOperand(0), Opcode)) {
-      NodesToRewrite.push_back(BO);
+      Op = BO;
       continue;
     }
 
     // Otherwise, grab a spare node from the original expression and use that as
-    // the left-hand side.
-    assert(!NodesToRewrite.empty() &&
-           "Optimized expressions has more nodes than original!");
+    // the left-hand side.  If there are no nodes left then the optimizers made
+    // an expression with more nodes than the original!  This usually means that
+    // they did something stupid but it might mean that the problem was just too
+    // hard (finding the mimimal number of multiplications needed to realize a
+    // multiplication expression is NP-complete).  Whatever the reason, smart or
+    // stupid, create a new node if there are none left.
+    BinaryOperator *NewOp;
+    if (NodesToRewrite.empty()) {
+      Constant *Undef = UndefValue::get(I->getType());
+      NewOp = BinaryOperator::Create(Instruction::BinaryOps(Opcode),
+                                     Undef, Undef, "", I);
+    } else {
+      NewOp = NodesToRewrite.pop_back_val();
+    }
+
     DEBUG(dbgs() << "RA: " << *Op << '\n');
-    Op->setOperand(0, NodesToRewrite.back());
+    Op->setOperand(0, NewOp);
     DEBUG(dbgs() << "TO: " << *Op << '\n');
     ExpressionChanged = Op;
     MadeChange = true;
     ++NumChanged;
+    Op = NewOp;
   }
 
   // If the expression changed non-trivially then clear out all subclass data

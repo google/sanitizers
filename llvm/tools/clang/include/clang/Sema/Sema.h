@@ -28,6 +28,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExternalASTSource.h"
+#include "clang/AST/LambdaMangleContext.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/NSAPI.h"
 #include "clang/Lex/ModuleLoader.h"
@@ -36,6 +37,7 @@
 #include "clang/Basic/TypeTraits.h"
 #include "clang/Basic/ExpressionTraits.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -168,6 +170,7 @@ namespace clang {
 namespace sema {
   class AccessedEntity;
   class BlockScopeInfo;
+  class CapturingScopeInfo;
   class CompoundScopeInfo;
   class DelayedDiagnostic;
   class DelayedDiagnosticPool;
@@ -1311,12 +1314,22 @@ public:
                                          unsigned NumDecls);
   DeclGroupPtrTy BuildDeclaratorGroup(Decl **Group, unsigned NumDecls,
                                       bool TypeMayContainAuto = true);
+
+  /// Should be called on all declarations that might have attached
+  /// documentation comments.
+  void ActOnDocumentableDecl(Decl *D);
+  void ActOnDocumentableDecls(Decl **Group, unsigned NumDecls);
+
   void ActOnFinishKNRParamDeclarations(Scope *S, Declarator &D,
                                        SourceLocation LocAfterDecls);
   void CheckForFunctionRedefinition(FunctionDecl *FD);
   Decl *ActOnStartOfFunctionDef(Scope *S, Declarator &D);
   Decl *ActOnStartOfFunctionDef(Scope *S, Decl *D);
-  void ActOnStartOfObjCMethodDef(Scope *S, Decl *D);
+  void ActOnStartOfObjCMethodOrCFunctionDef(Scope *S, Decl *D, 
+                                            bool parseMethod);
+  bool isObjCMethodDecl(Decl *D) {
+    return D && isa<ObjCMethodDecl>(D);
+  }
 
   void computeNRVO(Stmt *Body, sema::FunctionScopeInfo *Scope);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body);
@@ -2111,9 +2124,10 @@ public:
                                                unsigned Quals);
   CXXMethodDecl *LookupCopyingAssignment(CXXRecordDecl *Class, unsigned Quals,
                                          bool RValueThis, unsigned ThisQuals);
-  CXXConstructorDecl *LookupMovingConstructor(CXXRecordDecl *Class);
-  CXXMethodDecl *LookupMovingAssignment(CXXRecordDecl *Class, bool RValueThis,
-                                        unsigned ThisQuals);
+  CXXConstructorDecl *LookupMovingConstructor(CXXRecordDecl *Class,
+                                              unsigned Quals);
+  CXXMethodDecl *LookupMovingAssignment(CXXRecordDecl *Class, unsigned Quals,
+                                        bool RValueThis, unsigned ThisQuals);
   CXXDestructorDecl *LookupDestructor(CXXRecordDecl *Class);
 
   LiteralOperatorLookupResult LookupLiteralOperator(Scope *S, LookupResult &R,
@@ -2461,7 +2475,8 @@ public:
   StmtResult ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
                             SourceLocation ColonLoc, Stmt *SubStmt);
 
-  StmtResult ActOnAttributedStmt(SourceLocation AttrLoc, const AttrVec &Attrs,
+  StmtResult ActOnAttributedStmt(SourceLocation AttrLoc,
+                                 ArrayRef<const Attr*> Attrs,
                                  Stmt *SubStmt);
 
   StmtResult ActOnIfStmt(SourceLocation IfLoc,
@@ -2488,12 +2503,14 @@ public:
                           FullExprArg Third,
                           SourceLocation RParenLoc,
                           Stmt *Body);
-  ExprResult ActOnObjCForCollectionOperand(SourceLocation forLoc,
+  ExprResult CheckObjCForCollectionOperand(SourceLocation forLoc,
                                            Expr *collection);
   StmtResult ActOnObjCForCollectionStmt(SourceLocation ForColLoc,
                                         SourceLocation LParenLoc,
-                                        Stmt *First, Expr *Second,
-                                        SourceLocation RParenLoc, Stmt *Body);
+                                        Stmt *First, Expr *collection,
+                                        SourceLocation RParenLoc);
+  StmtResult FinishObjCForCollectionStmt(Stmt *ForCollection, Stmt *Body);
+  
   StmtResult ActOnCXXForRangeStmt(SourceLocation ForLoc,
                                   SourceLocation LParenLoc, Stmt *LoopVar,
                                   SourceLocation ColonLoc, Expr *Collection,
@@ -3230,7 +3247,7 @@ public:
                               TypeResult Type);
 
   /// InitializeVarWithConstructor - Creates an CXXConstructExpr
-  /// and sets it as the initializer for the the passed in VarDecl.
+  /// and sets it as the initializer for the passed in VarDecl.
   bool InitializeVarWithConstructor(VarDecl *VD,
                                     CXXConstructorDecl *Constructor,
                                     MultiExprArg Exprs,
@@ -3295,7 +3312,7 @@ public:
   public:
     explicit ImplicitExceptionSpecification(Sema &Self)
       : Self(&Self), ComputedEST(EST_BasicNoexcept) {
-      if (!Self.Context.getLangOpts().CPlusPlus0x)
+      if (!Self.getLangOpts().CPlusPlus0x)
         ComputedEST = EST_DynamicNone;
     }
 
@@ -3997,10 +4014,7 @@ public:
                                        SourceRange IntroducerRange,
                                        TypeSourceInfo *MethodType,
                                        SourceLocation EndLoc,
-                                       llvm::ArrayRef<ParmVarDecl *> Params,
-                                       llvm::Optional<unsigned> ManglingNumber 
-                                         = llvm::Optional<unsigned>(),
-                                       Decl *ContextDecl = 0);
+                                       llvm::ArrayRef<ParmVarDecl *> Params);
   
   /// \brief Introduce the scope for a lambda expression.
   sema::LambdaScopeInfo *enterLambdaScope(CXXMethodDecl *CallOperator,
@@ -4016,6 +4030,10 @@ public:
   
   /// \brief Introduce the lambda parameters into scope.
   void addLambdaParameters(CXXMethodDecl *CallOperator, Scope *CurScope);
+
+  /// \brief Deduce a block or lambda's return type based on the return
+  /// statements present in the body.
+  void deduceClosureReturnType(sema::CapturingScopeInfo &CSI);
   
   /// ActOnStartOfLambdaDefinition - This is called just before we start
   /// parsing the body of a lambda; it analyzes the explicit captures and 
@@ -4287,6 +4305,11 @@ public:
                                      Expr *AssertExpr,
                                      Expr *AssertMessageExpr,
                                      SourceLocation RParenLoc);
+  Decl *BuildStaticAssertDeclaration(SourceLocation StaticAssertLoc,
+                                     Expr *AssertExpr,
+                                     StringLiteral *AssertMessageExpr,
+                                     SourceLocation RParenLoc,
+                                     bool Failed);
 
   FriendDecl *CheckFriendTypeDecl(SourceLocation Loc,
                                   SourceLocation FriendLoc,
@@ -5193,10 +5216,11 @@ public:
   /// \brief Determine the number of arguments in the given pack expansion
   /// type.
   ///
-  /// This routine already assumes that the pack expansion type can be
-  /// expanded and that the number of arguments in the expansion is
+  /// This routine assumes that the number of arguments in the expansion is
   /// consistent across all of the unexpanded parameter packs in its pattern.
-  unsigned getNumArgumentsInExpansion(QualType T,
+  ///
+  /// Returns an empty Optional if the type can't be expanded.
+  llvm::Optional<unsigned> getNumArgumentsInExpansion(QualType T,
                             const MultiLevelTemplateArgumentList &TemplateArgs);
 
   /// \brief Determine whether the given declarator contains any unexpanded
@@ -5602,16 +5626,14 @@ public:
     /// template-id.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           TemplateDecl *Template,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we are instantiating a default argument in a
     /// template-id.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           FunctionTemplateDecl *FunctionTemplate,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           ActiveTemplateInstantiation::InstantiationKind Kind,
                           sema::TemplateDeductionInfo &DeductionInfo,
                           SourceRange InstantiationRange = SourceRange());
@@ -5621,15 +5643,13 @@ public:
     /// specialization.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           ClassTemplatePartialSpecializationDecl *PartialSpec,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           sema::TemplateDeductionInfo &DeductionInfo,
                           SourceRange InstantiationRange = SourceRange());
 
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           ParmVarDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we are substituting prior template arguments into a
@@ -5637,15 +5657,13 @@ public:
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           NamedDecl *Template,
                           NonTypeTemplateParmDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           NamedDecl *Template,
                           TemplateTemplateParmDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
     /// \brief Note that we are checking the default template argument
@@ -5653,8 +5671,7 @@ public:
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           TemplateDecl *Template,
                           NamedDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
 
@@ -6435,7 +6452,7 @@ public:
                               bool AllowExplicit = false);
 
   // DefaultVariadicArgumentPromotion - Like DefaultArgumentPromotion, but
-  // will return ExprError() if the resulting type is not a POD type.
+  // will create a runtime trap if the resulting type is not a POD type.
   ExprResult DefaultVariadicArgumentPromotion(Expr *E, VariadicCallType CT,
                                               FunctionDecl *FDecl);
 
@@ -6531,6 +6548,11 @@ public:
                                 QualType DstType, QualType SrcType,
                                 Expr *SrcExpr, AssignmentAction Action,
                                 bool *Complained = 0);
+  
+  /// DiagnoseAssignmentEnum - Warn if assignment to enum is a constant
+  /// integer not in the range of enum values.
+  void DiagnoseAssignmentEnum(QualType DstType, QualType SrcType,
+                              Expr *SrcExpr);
 
   /// CheckAssignmentConstraints - Perform type checking for assignment,
   /// argument passing, variable initialization, and function return values.
@@ -7049,6 +7071,7 @@ private:
 
   ExprResult CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
+  bool CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
 
   bool SemaBuiltinVAStart(CallExpr *TheCall);
   bool SemaBuiltinUnorderedCompare(CallExpr *TheCall);
@@ -7091,20 +7114,23 @@ private:
                                                unsigned format_idx,
                                                unsigned firstDataArg,
                                                FormatStringType Type,
+                                               VariadicCallType CallType,
                                                bool inFunctionCall = true);
 
   void CheckFormatString(const StringLiteral *FExpr, const Expr *OrigFormatExpr,
                          Expr **Args, unsigned NumArgs, bool HasVAListArg,
                          unsigned format_idx, unsigned firstDataArg,
-                         FormatStringType Type, bool inFunctionCall);
+                         FormatStringType Type, bool inFunctionCall,
+                         VariadicCallType CallType);
 
-  bool CheckFormatArguments(const FormatAttr *Format, CallExpr *TheCall);
   bool CheckFormatArguments(const FormatAttr *Format, Expr **Args,
                             unsigned NumArgs, bool IsCXXMember,
+                            VariadicCallType CallType,
                             SourceLocation Loc, SourceRange Range);
   bool CheckFormatArguments(Expr **Args, unsigned NumArgs,
                             bool HasVAListArg, unsigned format_idx,
                             unsigned firstDataArg, FormatStringType Type,
+                            VariadicCallType CallType,
                             SourceLocation Loc, SourceRange range);
 
   void CheckNonNullArguments(const NonNullAttr *NonNull,

@@ -1093,8 +1093,10 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
     }
   }
 
-  // C++0x [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
-  if (TypeMayContainAuto && AllocType->getContainedAutoType()) {
+  // C++11 [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
+  AutoType *AT = 0;
+  if (TypeMayContainAuto &&
+      (AT = AllocType->getContainedAutoType()) && !AT->isDeduced()) {
     if (initStyle == CXXNewExpr::NoInit || NumInits == 0)
       return ExprError(Diag(StartLoc, diag::err_auto_new_requires_ctor_arg)
                        << AllocType << TypeRange);
@@ -1110,8 +1112,7 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
     }
     Expr *Deduce = Inits[0];
     TypeSourceInfo *DeducedType = 0;
-    if (DeduceAutoType(AllocTypeInfo, Deduce, DeducedType) ==
-            DAR_Failed)
+    if (DeduceAutoType(AllocTypeInfo, Deduce, DeducedType) == DAR_Failed)
       return ExprError(Diag(StartLoc, diag::err_auto_new_deduction_failure)
                        << AllocType << Deduce->getType()
                        << TypeRange << Deduce->getSourceRange());
@@ -2147,9 +2148,6 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
     //   delete-expression; it is not necessary to cast away the constness
     //   (5.2.11) of the pointer expression before it is used as the operand
     //   of the delete-expression. ]
-    if (!Context.hasSameType(Ex.get()->getType(), Context.VoidPtrTy))
-      Ex = Owned(ImplicitCastExpr::Create(Context, Context.VoidPtrTy,
-                                          CK_BitCast, Ex.take(), 0, VK_RValue));
 
     if (Pointee->isArrayType() && !ArrayForm) {
       Diag(StartLoc, diag::warn_delete_array_type)
@@ -2227,6 +2225,9 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
       DeclareGlobalNewDelete();
       DeclContext *TUDecl = Context.getTranslationUnitDecl();
       Expr *Arg = Ex.get();
+      if (!Context.hasSameType(Arg->getType(), Context.VoidPtrTy))
+        Arg = ImplicitCastExpr::Create(Context, Context.VoidPtrTy,
+                                       CK_BitCast, Arg, 0, VK_RValue);
       if (FindAllocationOverload(StartLoc, SourceRange(), DeleteName,
                                  &Arg, 1, TUDecl, /*AllowMissing=*/false,
                                  OperatorDelete))
@@ -3335,6 +3336,25 @@ ExprResult Sema::ActOnBinaryTypeTrait(BinaryTypeTrait BTT,
   return BuildBinaryTypeTrait(BTT, KWLoc, LhsTSInfo, RhsTSInfo, RParen);
 }
 
+/// \brief Determine whether T has a non-trivial Objective-C lifetime in
+/// ARC mode.
+static bool hasNontrivialObjCLifetime(QualType T) {
+  switch (T.getObjCLifetime()) {
+  case Qualifiers::OCL_ExplicitNone:
+    return false;
+
+  case Qualifiers::OCL_Strong:
+  case Qualifiers::OCL_Weak:
+  case Qualifiers::OCL_Autoreleasing:
+    return true;
+
+  case Qualifiers::OCL_None:
+    return T->isObjCLifetimeType();
+  }
+
+  llvm_unreachable("Unknown ObjC lifetime qualifier");
+}
+
 static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
                               ArrayRef<TypeSourceInfo *> Args,
                               SourceLocation RParenLoc) {
@@ -3408,8 +3428,14 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
                                                   ArgExprs.size()));
     if (Result.isInvalid() || SFINAE.hasErrorOccurred())
       return false;
-    
-    // The initialization succeeded; not make sure there are no non-trivial 
+
+    // Under Objective-C ARC, if the destination has non-trivial Objective-C
+    // lifetime, this is a non-trivial construction.
+    if (S.getLangOpts().ObjCAutoRefCount &&
+        hasNontrivialObjCLifetime(Args[0]->getType().getNonReferenceType()))
+      return false;
+
+    // The initialization succeeded; now make sure there are no non-trivial
     // calls.
     return !Result.get()->hasNonTrivialCall(S.Context);
   }
@@ -3588,6 +3614,12 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, BinaryTypeTrait BTT,
     Sema::ContextRAII TUContext(Self, Self.Context.getTranslationUnitDecl());
     ExprResult Result = Self.BuildBinOp(/*S=*/0, KeyLoc, BO_Assign, &Lhs, &Rhs);
     if (Result.isInvalid() || SFINAE.hasErrorOccurred())
+      return false;
+
+    // Under Objective-C ARC, if the destination has non-trivial Objective-C
+    // lifetime, this is a non-trivial assignment.
+    if (Self.getLangOpts().ObjCAutoRefCount &&
+        hasNontrivialObjCLifetime(LhsT.getNonReferenceType()))
       return false;
 
     return !Result.get()->hasNonTrivialCall(Self.Context);

@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_AST_EXPRCXX_H
 #define LLVM_CLANG_AST_EXPRCXX_H
 
+#include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/UnresolvedSet.h"
 #include "clang/AST/TemplateBase.h"
@@ -1000,6 +1001,7 @@ public:
 
   SourceRange getSourceRange() const LLVM_READONLY;
   SourceRange getParenRange() const { return ParenRange; }
+  void setParenRange(SourceRange Range) { ParenRange = Range; }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXConstructExprClass ||

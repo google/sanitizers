@@ -361,7 +361,8 @@ Clang:</p>
 <tr><td colspan="2"><b>"diff" format</b></td></tr>
 <tr><td>Example:</td><td><tt>"no known conversion %diff{from | to | }1,2"</tt></td></tr>
 <tr><td>Class:</td><td>QualType</td></tr>
-<tr><td>Description</td><td><p>This formatter takes two QualTypes and attempts to print a template difference between the two.  If tree printing is off, the entire text inside the the braces is printed, with the formatted text replacing the pipes.  If tree printing is on, the text is not printed and a type tree is printed after the diagnostic message.</p></td></tr>
+<tr><td>Description</td><td><p>This formatter takes two QualTypes and attempts to print a template difference between the two.  If tree printing is off, the text inside the braces before the pipe is printed, with the formatted text replacing the $.  If tree printing is on, the text after the pipe is printed and a type tree is printed after the diagnostic message.
+</p></td></tr>
     
 </table>
 
@@ -452,8 +453,7 @@ the user the ability to automatically fix the problem.</p>
 <li>Since they are automatically applied if <code>-Xclang -fixit</code>
 is passed to the driver, they should only be used when it's very likely they
 match the user's intent.</li>
-<li>Clang must recover from the error or warning as if the fix-it had been
-applied.</li>
+<li>Clang must recover from errors as if the fix-it had been applied.</li>
 </ul>
 
 <p>If a fix-it can't obey these rules, put the fix-it on a note. Fix-its on

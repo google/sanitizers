@@ -1,4 +1,4 @@
-//===-- tsan_rtl.cc -------------------------------------------------------===//
+//===-- tsan_rtl_report.cc ------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,7 +27,8 @@ using namespace __tsan;
 
 void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {
   ScopedInRtl in_rtl;
-  TsanPrintf("FATAL: ThreadSanitizer CHECK failed: %s:%d \"%s\" (%zx, %zx)\n",
+  TsanPrintf("FATAL: ThreadSanitizer CHECK failed: "
+             "%s:%d \"%s\" (0x%zx, 0x%zx)\n",
              file, line, cond, (uptr)v1, (uptr)v2);
   Die();
 }
@@ -64,6 +65,7 @@ static void StackStripMain(ReportStack *stack) {
   if (last_frame2 == 0)
     return;
   const char *last = last_frame->func;
+#ifndef TSAN_GO
   const char *last2 = last_frame2->func;
   // Strip frame above 'main'
   if (last2 && 0 == internal_strcmp(last2, "main")) {
@@ -82,6 +84,10 @@ static void StackStripMain(ReportStack *stack) {
     // due to our fault.
     TsanPrintf("Bottom stack frame of stack %zx is missed\n", stack->pc);
   }
+#else
+  if (last && 0 == internal_strcmp(last, "schedunlock"))
+    last_frame2->next = 0;
+#endif
 }
 
 static ReportStack *SymbolizeStack(const StackTrace& trace) {

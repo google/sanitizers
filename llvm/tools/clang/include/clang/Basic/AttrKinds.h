@@ -6,9 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-//  This file defines the attr::Kind enum
-//
+///
+/// \file
+/// \brief Defines the clang::attr::Kind enum.
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_CLANG_ATTRKINDS_H
@@ -18,7 +19,7 @@ namespace clang {
 
 namespace attr {
 
-// Kind - This is a list of all the recognized kinds of attributes.
+// \brief A list of all the recognized kinds of attributes.
 enum Kind {
 #define ATTR(X) X,
 #define LAST_INHERITABLE_ATTR(X) X, LAST_INHERITABLE = X,

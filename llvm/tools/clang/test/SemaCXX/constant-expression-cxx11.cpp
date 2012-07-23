@@ -494,6 +494,27 @@ struct ArrayRVal {
 };
 static_assert(ArrayRVal().elems[3].f() == 0, "");
 
+constexpr int selfref[2][2][2] = {
+  selfref[1][1][1] + 1, selfref[0][0][0] + 1,
+  selfref[1][0][1] + 1, selfref[0][1][0] + 1,
+  selfref[1][0][0] + 1, selfref[0][1][1] + 1 };
+static_assert(selfref[0][0][0] == 1, "");
+static_assert(selfref[0][0][1] == 2, "");
+static_assert(selfref[0][1][0] == 1, "");
+static_assert(selfref[0][1][1] == 2, "");
+static_assert(selfref[1][0][0] == 1, "");
+static_assert(selfref[1][0][1] == 3, "");
+static_assert(selfref[1][1][0] == 0, "");
+static_assert(selfref[1][1][1] == 0, "");
+
+struct TrivialDefCtor { int n; };
+typedef TrivialDefCtor TDCArray[2][2];
+static_assert(TDCArray{}[1][1].n == 0, "");
+
+struct NonAggregateTDC : TrivialDefCtor {};
+typedef NonAggregateTDC NATDCArray[2][2];
+static_assert(NATDCArray{}[1][1].n == 0, "");
+
 }
 
 namespace DependentValues {
@@ -1270,10 +1291,63 @@ namespace InvalidClasses {
   }
 }
 
+// Constructors can be implicitly constexpr, even for a non-literal type.
+namespace ImplicitConstexpr {
+  struct Q { Q() = default; Q(const Q&) = default; Q(Q&&) = default; ~Q(); }; // expected-note 3{{here}}
+  struct R { constexpr R(); constexpr R(const R&); constexpr R(R&&); ~R(); };
+  struct S { R r; }; // expected-note 3{{here}}
+  struct T { T(const T&); T(T &&); ~T(); };
+  struct U { T t; }; // expected-note 3{{here}}
+  static_assert(!__is_literal_type(Q), "");
+  static_assert(!__is_literal_type(R), "");
+  static_assert(!__is_literal_type(S), "");
+  static_assert(!__is_literal_type(T), "");
+  static_assert(!__is_literal_type(U), "");
+  struct Test {
+    friend Q::Q() noexcept; // expected-error {{follows constexpr}}
+    friend Q::Q(Q&&) noexcept; // expected-error {{follows constexpr}}
+    friend Q::Q(const Q&) noexcept; // expected-error {{follows constexpr}}
+    friend S::S() noexcept; // expected-error {{follows constexpr}}
+    friend S::S(S&&) noexcept; // expected-error {{follows constexpr}}
+    friend S::S(const S&) noexcept; // expected-error {{follows constexpr}}
+    friend constexpr U::U() noexcept; // expected-error {{follows non-constexpr}}
+    friend constexpr U::U(U&&) noexcept; // expected-error {{follows non-constexpr}}
+    friend constexpr U::U(const U&) noexcept; // expected-error {{follows non-constexpr}}
+  };
+}
+
 // Indirectly test that an implicit lvalue to xvalue conversion performed for
 // an NRVO move operation isn't implemented as CK_LValueToRValue.
 namespace PR12826 {
   struct Foo {};
   constexpr Foo id(Foo x) { return x; }
   constexpr Foo res(id(Foo()));
+}
+
+namespace PR13273 {
+  struct U {
+    int t;
+    U() = default;
+  };
+
+  struct S : U {
+    S() = default;
+  };
+
+  // S's default constructor isn't constexpr, because U's default constructor
+  // doesn't initialize 't', but it's trivial, so value-initialization doesn't
+  // actually call it.
+  static_assert(S{}.t == 0, "");
+}
+
+namespace PR12670 {
+  struct S {
+    constexpr S(int a0) : m(a0) {}
+    constexpr S() : m(6) {}
+    int m;
+  };
+  constexpr S x[3] = { {4}, 5 };
+  static_assert(x[0].m == 4, "");
+  static_assert(x[1].m == 5, "");
+  static_assert(x[2].m == 6, "");
 }

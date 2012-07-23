@@ -22,11 +22,7 @@ def A8_NLSPipe : FuncUnit; // NEON LS pipe
 //
 // Dual issue pipeline represented by A8_Pipe0 | A8_Pipe1
 //
-def CortexA8Itineraries : MultiIssueItineraries<
-  2,  // IssueWidth
-  -1, // MinLatency - OperandCycles are interpreted as MinLatency.
-  2,  // LoadLatency - overriden by OperandCycles.
-  10, // HighLatency - currently unused.
+def CortexA8Itineraries : ProcessorItineraries<
   [A8_Pipe0, A8_Pipe1, A8_LSPipe, A8_NPipe, A8_NLSPipe],
   [], [
   // Two fully-pipelined integer ALU pipelines
@@ -155,28 +151,30 @@ def CortexA8Itineraries : MultiIssueItineraries<
   // Load multiple, def is the 5th operand. Pipeline 0 only.
   // FIXME: A8_LSPipe cycle time is dynamic, this assumes 3 to 4 registers.
   InstrItinData<IIC_iLoad_m  , [InstrStage<2, [A8_Pipe0], 0>,
-                                InstrStage<2, [A8_LSPipe]>], [1, 1, 1, 1, 3]>,
+                                InstrStage<2, [A8_LSPipe]>],
+                [1, 1, 1, 1, 3], [], -1>, // dynamic uops
   //
   // Load multiple + update, defs are the 1st and 5th operands.
   InstrItinData<IIC_iLoad_mu , [InstrStage<3, [A8_Pipe0], 0>,
-                                InstrStage<3, [A8_LSPipe]>], [2, 1, 1, 1, 3]>,
+                                InstrStage<3, [A8_LSPipe]>],
+                [2, 1, 1, 1, 3], [], -1>, // dynamic uops
   //
   // Load multiple plus branch
   InstrItinData<IIC_iLoad_mBr, [InstrStage<3, [A8_Pipe0], 0>,
                                 InstrStage<3, [A8_LSPipe]>,
                                 InstrStage<1, [A8_Pipe0, A8_Pipe1]>],
-                               [1, 2, 1, 1, 3]>,
+                              [1, 2, 1, 1, 3], [], -1>, // dynamic uops
   //
   // Pop, def is the 3rd operand.
   InstrItinData<IIC_iPop  ,    [InstrStage<3, [A8_Pipe0], 0>,
-                                InstrStage<3, [A8_LSPipe]>], [1, 1, 3]>,
+                                InstrStage<3, [A8_LSPipe]>],
+                [1, 1, 3], [], -1>, // dynamic uops
   //
   // Push, def is the 3th operand.
   InstrItinData<IIC_iPop_Br,   [InstrStage<3, [A8_Pipe0], 0>,
                                 InstrStage<3, [A8_LSPipe]>,
                                 InstrStage<1, [A8_Pipe0, A8_Pipe1]>],
-                               [1, 1, 3]>,
-
+                               [1, 1, 3], [], -1>, // dynamic uops
   //
   // iLoadi + iALUr for t2LDRpci_pic.
   InstrItinData<IIC_iLoadiALU, [InstrStage<1, [A8_Pipe0, A8_Pipe1], 0>,
@@ -231,12 +229,13 @@ def CortexA8Itineraries : MultiIssueItineraries<
   // Store multiple. Pipeline 0 only.
   // FIXME: A8_LSPipe cycle time is dynamic, this assumes 3 to 4 registers.
   InstrItinData<IIC_iStore_m , [InstrStage<2, [A8_Pipe0], 0>,
-                                InstrStage<2, [A8_LSPipe]>]>,
+                                InstrStage<2, [A8_LSPipe]>],
+                [], [], -1>, // dynamic uops
   //
   // Store multiple + update
   InstrItinData<IIC_iStore_mu, [InstrStage<2, [A8_Pipe0], 0>,
-                                InstrStage<2, [A8_LSPipe]>], [2]>,
-
+                                InstrStage<2, [A8_LSPipe]>],
+                [2], [], -1>, // dynamic uops
   //
   // Preload
   InstrItinData<IIC_Preload, [InstrStage<1, [A8_Pipe0, A8_Pipe1]>], [2, 2]>,
@@ -397,14 +396,16 @@ def CortexA8Itineraries : MultiIssueItineraries<
                                InstrStage<1, [A8_NLSPipe], 0>,
                                InstrStage<1, [A8_LSPipe]>,
                                InstrStage<1, [A8_NLSPipe], 0>,
-                               InstrStage<1, [A8_LSPipe]>], [1, 1, 1, 2]>,
+                               InstrStage<1, [A8_LSPipe]>],
+                [1, 1, 1, 2], [], -1>, // dynamic uops
   //
   // FP Load Multiple + update
   InstrItinData<IIC_fpLoad_mu,[InstrStage<1, [A8_Pipe0, A8_Pipe1], 0>,
                                InstrStage<1, [A8_NLSPipe], 0>,
                                InstrStage<1, [A8_LSPipe]>,
                                InstrStage<1, [A8_NLSPipe], 0>,
-                               InstrStage<1, [A8_LSPipe]>], [2, 1, 1, 1, 2]>,
+                               InstrStage<1, [A8_LSPipe]>],
+                [2, 1, 1, 1, 2], [], -1>, // dynamic uops
   //
   // Single-precision FP Store
   InstrItinData<IIC_fpStore32,[InstrStage<1, [A8_Pipe0, A8_Pipe1], 0>,
@@ -423,15 +424,16 @@ def CortexA8Itineraries : MultiIssueItineraries<
                                InstrStage<1, [A8_NLSPipe], 0>,
                                InstrStage<1, [A8_LSPipe]>,
                                InstrStage<1, [A8_NLSPipe], 0>,
-                               InstrStage<1, [A8_LSPipe]>], [1, 1, 1, 1]>,
+                               InstrStage<1, [A8_LSPipe]>],
+                [1, 1, 1, 1], [], -1>, // dynamic uops
   //
   // FP Store Multiple + update
   InstrItinData<IIC_fpStore_mu,[InstrStage<1, [A8_Pipe0, A8_Pipe1], 0>,
                                 InstrStage<1, [A8_NLSPipe], 0>,
                                 InstrStage<1, [A8_LSPipe]>,
                                 InstrStage<1, [A8_NLSPipe], 0>,
-                                InstrStage<1, [A8_LSPipe]>], [2, 1, 1, 1, 1]>,
-
+                                InstrStage<1, [A8_LSPipe]>],
+                [2, 1, 1, 1, 1], [], -1>, // dynamic uops
   // NEON
   // Issue through integer pipeline, and execute in NEON unit.
   //
@@ -1055,3 +1057,18 @@ def CortexA8Itineraries : MultiIssueItineraries<
                                InstrStage<1, [A8_NPipe], 0>,
                             InstrStage<2, [A8_NLSPipe]>], [4, 1, 2, 2, 3, 3, 1]>
 ]>;
+
+// ===---------------------------------------------------------------------===//
+// This following definitions describe the simple machine model which
+// will replace itineraries.
+
+// Cortex-A8 machine model for scheduling and other instruction cost heuristics.
+def CortexA8Model : SchedMachineModel {
+  let IssueWidth = 2; // 2 micro-ops are dispatched per cycle.
+  let MinLatency = -1; // OperandCycles are interpreted as MinLatency.
+  let LoadLatency = 2; // Optimistic load latency assuming bypass.
+                       // This is overriden by OperandCycles if the
+                       // Itineraries are queried instead.
+
+  let Itineraries = CortexA8Itineraries;
+}

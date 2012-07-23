@@ -219,6 +219,22 @@ bool ISD::isScalarToVector(const SDNode *N) {
   return true;
 }
 
+/// allOperandsUndef - Return true if the node has at least one operand
+/// and all operands of the specified node are ISD::UNDEF.
+bool ISD::allOperandsUndef(const SDNode *N) {
+  // Return false if the node has no operands.
+  // This is "logically inconsistent" with the definition of "all" but
+  // is probably the desired behavior.
+  if (N->getNumOperands() == 0)
+    return false;
+
+  for (unsigned i = 0, e = N->getNumOperands(); i != e ; ++i)
+    if (N->getOperand(i).getOpcode() != ISD::UNDEF)
+      return false;
+
+  return true;
+}
+
 /// getSetCCSwappedOperands - Return the operation corresponding to (Y op X)
 /// when given the operation for (X op Y).
 ISD::CondCode ISD::getSetCCSwappedOperands(ISD::CondCode Operation) {
@@ -1949,6 +1965,7 @@ void SelectionDAG::ComputeMaskedBits(SDValue Op, APInt &KnownZero,
     APInt InMask = APInt::getLowBitsSet(BitWidth, VT.getSizeInBits());
     ComputeMaskedBits(Op.getOperand(0), KnownZero, KnownOne, Depth+1);
     KnownZero |= (~InMask);
+    KnownOne  &= (~KnownZero);
     return;
   }
   case ISD::FGETSIGN:
@@ -2674,6 +2691,11 @@ SDValue SelectionDAG::getNode(unsigned Opcode, DebugLoc DL, EVT VT,
     if (N1 == N2) return N1;
     break;
   case ISD::CONCAT_VECTORS:
+    // Concat of UNDEFs is UNDEF.
+    if (N1.getOpcode() == ISD::UNDEF &&
+        N2.getOpcode() == ISD::UNDEF)
+      return getUNDEF(VT);
+
     // A CONCAT_VECTOR with all operands BUILD_VECTOR can be simplified to
     // one big BUILD_VECTOR.
     if (N1.getOpcode() == ISD::BUILD_VECTOR &&
@@ -4659,13 +4681,7 @@ SDVTList SelectionDAG::getVTList(const EVT *VTs, unsigned NumVTs) {
     if (I->NumVTs != NumVTs || VTs[0] != I->VTs[0] || VTs[1] != I->VTs[1])
       continue;
 
-    bool NoMatch = false;
-    for (unsigned i = 2; i != NumVTs; ++i)
-      if (VTs[i] != I->VTs[i]) {
-        NoMatch = true;
-        break;
-      }
-    if (!NoMatch)
+    if (std::equal(&VTs[2], &VTs[NumVTs], &I->VTs[2]))
       return *I;
   }
 

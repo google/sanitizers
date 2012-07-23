@@ -489,12 +489,24 @@ namespace llvm {
     void print(raw_ostream &OS) const;
     void dump() const;
 
+    /// \brief Walk the interval and assert if any invariants fail to hold.
+    ///
+    /// Note that this is a no-op when asserts are disabled.
+#ifdef NDEBUG
+    void verify() const {}
+#else
+    void verify() const;
+#endif
+
   private:
 
     Ranges::iterator addRangeFrom(LiveRange LR, Ranges::iterator From);
     void extendIntervalEndTo(Ranges::iterator I, SlotIndex NewEnd);
     Ranges::iterator extendIntervalStartTo(Ranges::iterator I, SlotIndex NewStr);
     void markValNoForDeletion(VNInfo *V);
+    void mergeIntervalRanges(const LiveInterval &RHS,
+                             VNInfo *LHSValNo = 0,
+                             const VNInfo *RHSValNo = 0);
 
     LiveInterval& operator=(const LiveInterval& rhs); // DO NOT IMPLEMENT
 

@@ -19,22 +19,22 @@
 #include "ProfilingUtils.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/DebugInfo.h"
+#include "llvm/IRBuilder.h"
+#include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
-#include "llvm/Instructions.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/DebugLoc.h"
-#include "llvm/Support/InstIterator.h"
-#include "llvm/Support/IRBuilder.h"
-#include "llvm/Support/PathV2.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/UniqueVector.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/DebugLoc.h"
+#include "llvm/Support/InstIterator.h"
+#include "llvm/Support/PathV2.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include <string>
 #include <utility>
 using namespace llvm;
@@ -687,8 +687,7 @@ void GCOVProfiler::insertCounterWriteout(
 
   FTy = FunctionType::get(Type::getInt32Ty(*Ctx),
                           PointerType::get(FTy, 0), false);
-  Function *AtExitFn =
-    Function::Create(FTy, GlobalValue::ExternalLinkage, "atexit", M);
+  Constant *AtExitFn = M->getOrInsertFunction("atexit", FTy);
   Builder.CreateCall(AtExitFn, WriteoutF);
   Builder.CreateRetVoid();
 

@@ -6,10 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// This header defines the VersionTuple class, which represents a version in
-// the form major[.minor[.subminor]].
-//
+///
+/// \file
+/// \brief Defines the clang::VersionTuple class, which represents a version in
+/// the form major[.minor[.subminor]].
+///
 //===----------------------------------------------------------------------===//
 #ifndef LLVM_CLANG_BASIC_VERSIONTUPLE_H
 #define LLVM_CLANG_BASIC_VERSIONTUPLE_H
@@ -73,15 +74,18 @@ public:
     return X.Major == Y.Major && X.Minor == Y.Minor && X.Subminor == Y.Subminor;
   }
 
-  /// \brief Determine if two version numbers are not equivalent. If
-  /// not provided, minor and subminor version numbers are considered to be 
+  /// \brief Determine if two version numbers are not equivalent.
+  ///
+  /// If not provided, minor and subminor version numbers are considered to be 
   /// zero.
   friend bool operator!=(const VersionTuple &X, const VersionTuple &Y) {
     return !(X == Y);
   }
 
-  /// \brief Determine whether one version number precedes another. If not
-  /// provided, minor and subminor version numbers are considered to be zero.
+  /// \brief Determine whether one version number precedes another.
+  ///
+  /// If not provided, minor and subminor version numbers are considered to be
+  /// zero.
   friend bool operator<(const VersionTuple &X, const VersionTuple &Y) {
     if (X.Major != Y.Major)
       return X.Major < Y.Major;
@@ -92,31 +96,37 @@ public:
     return X.Subminor < Y.Subminor;
   }
 
-  /// \brief Determine whether one version number follows another. If not
-  /// provided, minor and subminor version numbers are considered to be zero.
+  /// \brief Determine whether one version number follows another.
+  ///
+  /// If not provided, minor and subminor version numbers are considered to be
+  /// zero.
   friend bool operator>(const VersionTuple &X, const VersionTuple &Y) {
     return Y < X;
   }
 
   /// \brief Determine whether one version number precedes or is
-  /// equivalent to another. If not provided, minor and subminor
-  /// version numbers are considered to be zero.
+  /// equivalent to another. 
+  ///
+  /// If not provided, minor and subminor version numbers are considered to be
+  /// zero.
   friend bool operator<=(const VersionTuple &X, const VersionTuple &Y) {
     return !(Y < X);
   }
 
   /// \brief Determine whether one version number follows or is
-  /// equivalent to another. If not provided, minor and subminor
-  /// version numbers are considered to be zero.
+  /// equivalent to another.
+  ///
+  /// If not provided, minor and subminor version numbers are considered to be
+  /// zero.
   friend bool operator>=(const VersionTuple &X, const VersionTuple &Y) {
     return !(X < Y);
   }
 
-  /// \brief Retrieve a string representation of the version number/
+  /// \brief Retrieve a string representation of the version number.
   std::string getAsString() const;
 
   /// \brief Try to parse the given string as a version number.
-  /// Returns true if the string does not match the regular expression
+  /// \returns \c true if the string does not match the regular expression
   ///   [0-9]+(\.[0-9]+(\.[0-9]+))
   bool tryParse(StringRef string);
 };

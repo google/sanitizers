@@ -895,6 +895,7 @@ clang++ -g toy.cpp `llvm-config --cppflags --ldflags --libs core jit native` -O3
 #include "llvm/DerivedTypes.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/ExecutionEngine/JIT.h"
+#include "llvm/IRBuilder.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
@@ -902,7 +903,6 @@ clang++ -g toy.cpp `llvm-config --cppflags --ldflags --libs core jit native` -O3
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/TargetSelect.h"
 #include &lt;cstdio&gt;
 #include &lt;string&gt;
@@ -1766,7 +1766,7 @@ int main() {
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-05-03 02:46:36 +0400 (Thu, 03 May 2012) $
+  Last modified: $Date: 2012-06-29 16:38:19 +0400 (Fri, 29 Jun 2012) $
 </address>
 </body>
 </html>

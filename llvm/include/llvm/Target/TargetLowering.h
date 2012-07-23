@@ -677,6 +677,12 @@ public:
     return UseUnderscoreLongJmp;
   }
 
+  /// supportJumpTables - return whether the target can generate code for
+  /// jump tables.
+  bool supportJumpTables() const {
+    return SupportJumpTables;
+  }
+
   /// getStackPointerRegisterToSaveRestore - If a physical register, this
   /// specifies the register that llvm.savestack/llvm.restorestack should save
   /// and restore.
@@ -991,6 +997,12 @@ protected:
     UseUnderscoreLongJmp = Val;
   }
 
+  /// setSupportJumpTables - Indicate whether the target can generate code for
+  /// jump tables.
+  void setSupportJumpTables(bool Val) {
+    SupportJumpTables = Val;
+  }
+
   /// setStackPointerRegisterToSaveRestore - If set to a physical register, this
   /// specifies the register that llvm.savestack/llvm.restorestack should save
   /// and restore.
@@ -1176,7 +1188,7 @@ protected:
     ShouldFoldAtomicFences = fold;
   }
 
-  /// setInsertFencesForAtomic - Set if the the DAG builder should
+  /// setInsertFencesForAtomic - Set if the DAG builder should
   /// automatically insert fences and reduce the order of atomic memory
   /// operations to Monotonic.
   void setInsertFencesForAtomic(bool fence) {
@@ -1306,7 +1318,7 @@ public:
   /// registers.  If false is returned, an sret-demotion is performed.
   ///
   virtual bool CanLowerReturn(CallingConv::ID /*CallConv*/,
-			      MachineFunction &/*MF*/, bool /*isVarArg*/,
+                              MachineFunction &/*MF*/, bool /*isVarArg*/,
                const SmallVectorImpl<ISD::OutputArg> &/*Outs*/,
                LLVMContext &/*Context*/) const
   {
@@ -1763,6 +1775,10 @@ private:
   /// UseUnderscoreLongJmp - This target prefers to use _longjmp to implement
   /// llvm.longjmp.  Defaults to false.
   bool UseUnderscoreLongJmp;
+
+  /// SupportJumpTables - Whether the target can generate code for jumptables.
+  /// If it's not true, then each jumptable must be lowered into if-then-else's.
+  bool SupportJumpTables;
 
   /// BooleanContents - Information about the contents of the high-bits in
   /// boolean values held in a type wider than i1.  See getBooleanContents.

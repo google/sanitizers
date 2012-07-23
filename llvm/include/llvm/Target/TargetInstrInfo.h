@@ -369,6 +369,56 @@ public:
     return false;
   }
 
+  /// canInsertSelect - Return true if it is possible to insert a select
+  /// instruction that chooses between TrueReg and FalseReg based on the
+  /// condition code in Cond.
+  ///
+  /// When successful, also return the latency in cycles from TrueReg,
+  /// FalseReg, and Cond to the destination register. The Cond latency should
+  /// compensate for a conditional branch being removed. For example, if a
+  /// conditional branch has a 3 cycle latency from the condition code read,
+  /// and a cmov instruction has a 2 cycle latency from the condition code
+  /// read, CondCycles should be returned as -1.
+  ///
+  /// @param MBB         Block where select instruction would be inserted.
+  /// @param Cond        Condition returned by AnalyzeBranch.
+  /// @param TrueReg     Virtual register to select when Cond is true.
+  /// @param FalseReg    Virtual register to select when Cond is false.
+  /// @param CondCycles  Latency from Cond+Branch to select output.
+  /// @param TrueCycles  Latency from TrueReg to select output.
+  /// @param FalseCycles Latency from FalseReg to select output.
+  virtual bool canInsertSelect(const MachineBasicBlock &MBB,
+                               const SmallVectorImpl<MachineOperand> &Cond,
+                               unsigned TrueReg, unsigned FalseReg,
+                               int &CondCycles,
+                               int &TrueCycles, int &FalseCycles) const {
+    return false;
+  }
+
+  /// insertSelect - Insert a select instruction into MBB before I that will
+  /// copy TrueReg to DstReg when Cond is true, and FalseReg to DstReg when
+  /// Cond is false.
+  ///
+  /// This function can only be called after canInsertSelect() returned true.
+  /// The condition in Cond comes from AnalyzeBranch, and it can be assumed
+  /// that the same flags or registers required by Cond are available at the
+  /// insertion point.
+  ///
+  /// @param MBB      Block where select instruction should be inserted.
+  /// @param I        Insertion point.
+  /// @param DL       Source location for debugging.
+  /// @param DstReg   Virtual register to be defined by select instruction.
+  /// @param Cond     Condition as computed by AnalyzeBranch.
+  /// @param TrueReg  Virtual register to copy when Cond is true.
+  /// @param FalseReg Virtual register to copy when Cons is false.
+  virtual void insertSelect(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator I, DebugLoc DL,
+                            unsigned DstReg,
+                            const SmallVectorImpl<MachineOperand> &Cond,
+                            unsigned TrueReg, unsigned FalseReg) const {
+    llvm_unreachable("Target didn't implement TargetInstrInfo::insertSelect!");
+  }
+
   /// copyPhysReg - Emit instructions to copy a pair of physical registers.
   virtual void copyPhysReg(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MI, DebugLoc DL,
@@ -623,19 +673,22 @@ public:
   CreateTargetPostRAHazardRecognizer(const InstrItineraryData*,
                                      const ScheduleDAG *DAG) const = 0;
 
-  /// AnalyzeCompare - For a comparison instruction, return the source register
-  /// in SrcReg and the value it compares against in CmpValue. Return true if
-  /// the comparison instruction can be analyzed.
-  virtual bool AnalyzeCompare(const MachineInstr *MI,
-                              unsigned &SrcReg, int &Mask, int &Value) const {
+  /// analyzeCompare - For a comparison instruction, return the source registers
+  /// in SrcReg and SrcReg2 if having two register operands, and the value it
+  /// compares against in CmpValue. Return true if the comparison instruction
+  /// can be analyzed.
+  virtual bool analyzeCompare(const MachineInstr *MI,
+                              unsigned &SrcReg, unsigned &SrcReg2,
+                              int &Mask, int &Value) const {
     return false;
   }
 
-  /// OptimizeCompareInstr - See if the comparison instruction can be converted
+  /// optimizeCompareInstr - See if the comparison instruction can be converted
   /// into something more efficient. E.g., on ARM most instructions can set the
   /// flags register, obviating the need for a separate CMP.
-  virtual bool OptimizeCompareInstr(MachineInstr *CmpInstr,
-                                    unsigned SrcReg, int Mask, int Value,
+  virtual bool optimizeCompareInstr(MachineInstr *CmpInstr,
+                                    unsigned SrcReg, unsigned SrcReg2,
+                                    int Mask, int Value,
                                     const MachineRegisterInfo *MRI) const {
     return false;
   }
@@ -648,7 +701,9 @@ public:
   }
 
   /// getNumMicroOps - Return the number of u-operations the given machine
-  /// instruction will be decoded to on the target cpu.
+  /// instruction will be decoded to on the target cpu. The itinerary's
+  /// IssueWidth is the number of microops that can be dispatched each
+  /// cycle. An instruction with zero microops takes no dispatch resources.
   virtual unsigned getNumMicroOps(const InstrItineraryData *ItinData,
                                   const MachineInstr *MI) const = 0;
 

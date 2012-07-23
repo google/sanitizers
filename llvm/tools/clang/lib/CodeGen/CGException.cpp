@@ -186,8 +186,9 @@ static const EHPersonality &getObjCPersonality(const LangOptions &L) {
   case ObjCRuntime::MacOSX:
   case ObjCRuntime::iOS:
     return EHPersonality::NeXT_ObjC;
-  case ObjCRuntime::GNU:
-  case ObjCRuntime::FragileGNU:
+  case ObjCRuntime::GNUstep:
+  case ObjCRuntime::GCC:
+  case ObjCRuntime::ObjFW:
     return EHPersonality::GNU_ObjC;
   }
   llvm_unreachable("bad runtime kind");
@@ -216,10 +217,12 @@ static const EHPersonality &getObjCXXPersonality(const LangOptions &L) {
   case ObjCRuntime::FragileMacOSX:
     return getCXXPersonality(L);
 
-  // The GNU runtime's personality function inherently doesn't support
+  // The GCC runtime's personality function inherently doesn't support
   // mixed EH.  Use the C++ personality just to avoid returning null.
-  case ObjCRuntime::GNU:
-  case ObjCRuntime::FragileGNU:
+  case ObjCRuntime::GCC:
+  case ObjCRuntime::ObjFW: // XXX: this will change soon
+    return EHPersonality::GNU_ObjC;
+  case ObjCRuntime::GNUstep:
     return EHPersonality::GNU_ObjCXX;
   }
   llvm_unreachable("bad runtime kind");

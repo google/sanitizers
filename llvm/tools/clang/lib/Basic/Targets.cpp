@@ -582,6 +582,19 @@ public:
     LongDoubleFormat = &llvm::APFloat::PPCDoubleDouble;
   }
 
+  /// \brief Flags for architecture specific defines.
+  typedef enum {
+    ArchDefineNone  = 0,
+    ArchDefineName  = 1 << 0, // <name> is substituted for arch name.
+    ArchDefinePpcgr = 1 << 1,
+    ArchDefinePpcsq = 1 << 2,
+    ArchDefine440   = 1 << 3,
+    ArchDefine603   = 1 << 4,
+    ArchDefine604   = 1 << 5,
+    ArchDefinePwr4  = 1 << 6,
+    ArchDefinePwr6  = 1 << 7
+  } ArchDefineTypes;
+
   virtual bool setCPU(const std::string &Name) {
     bool CPUKnown = llvm::StringSwitch<bool>(Name)
       .Case("generic", true)
@@ -781,17 +794,44 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
   }
 
   // CPU identification.
-  if (CPU == "440") {
-     Builder.defineMacro("_ARCH_440");
-  } else if (CPU == "450") {
+  ArchDefineTypes defs = (ArchDefineTypes)llvm::StringSwitch<int>(CPU)
+    .Case("440",   ArchDefineName)
+    .Case("450",   ArchDefineName | ArchDefine440)
+    .Case("601",   ArchDefineName)
+    .Case("602",   ArchDefineName | ArchDefinePpcgr)
+    .Case("603",   ArchDefineName | ArchDefinePpcgr)
+    .Case("603e",  ArchDefineName | ArchDefine603 | ArchDefinePpcgr)
+    .Case("603ev", ArchDefineName | ArchDefine603 | ArchDefinePpcgr)
+    .Case("604",   ArchDefineName | ArchDefinePpcgr)
+    .Case("604e",  ArchDefineName | ArchDefine604 | ArchDefinePpcgr)
+    .Case("620",   ArchDefineName | ArchDefinePpcgr)
+    .Case("7400",  ArchDefineName | ArchDefinePpcgr)
+    .Case("7450",  ArchDefineName | ArchDefinePpcgr)
+    .Case("750",   ArchDefineName | ArchDefinePpcgr)
+    .Case("970",   ArchDefineName | ArchDefinePwr4 | ArchDefinePpcgr
+                     | ArchDefinePpcsq)
+    .Case("pwr6",  ArchDefinePwr6 | ArchDefinePpcgr | ArchDefinePpcsq)
+    .Case("pwr7",  ArchDefineName | ArchDefinePwr6 | ArchDefinePpcgr
+                     | ArchDefinePpcsq)
+    .Default(ArchDefineNone);
+
+  if (defs & ArchDefineName)
+    Builder.defineMacro(Twine("_ARCH_", StringRef(CPU).upper()));
+  if (defs & ArchDefinePpcgr)
+    Builder.defineMacro("_ARCH_PPCGR");
+  if (defs & ArchDefinePpcsq)
+    Builder.defineMacro("_ARCH_PPCSQ");
+  if (defs & ArchDefine440)
     Builder.defineMacro("_ARCH_440");
-    Builder.defineMacro("_ARCH_450");
-  } else if (CPU == "970") {
-    Builder.defineMacro("_ARCH_970");
-  } else if (CPU == "pwr6") {
+  if (defs & ArchDefine603)
+    Builder.defineMacro("_ARCH_603");
+  if (defs & ArchDefine604)
+    Builder.defineMacro("_ARCH_604");
+  if (defs & (ArchDefinePwr4 | ArchDefinePwr6))
+    Builder.defineMacro("_ARCH_PWR4");
+  if (defs & ArchDefinePwr6) {
+    Builder.defineMacro("_ARCH_PWR5");
     Builder.defineMacro("_ARCH_PWR6");
-  } else if (CPU == "pwr7") {
-    Builder.defineMacro("_ARCH_PWR7");
   }
 }
 
@@ -1009,6 +1049,7 @@ namespace {
       AddrSpaceMap = &NVPTXAddrSpaceMap;
       // Define available target features
       // These must be defined in sorted order!
+      NoAsmVariants = true;
     }
     virtual void getTargetDefines(const LangOptions &Opts,
                                   MacroBuilder &Builder) const {
@@ -1283,6 +1324,7 @@ class X86TargetInfo : public TargetInfo {
   bool HasAES;
   bool HasPCLMUL;
   bool HasLZCNT;
+  bool HasRDRND;
   bool HasBMI;
   bool HasBMI2;
   bool HasPOPCNT;
@@ -1434,9 +1476,9 @@ class X86TargetInfo : public TargetInfo {
 public:
   X86TargetInfo(const std::string& triple)
     : TargetInfo(triple), SSELevel(NoSSE), MMX3DNowLevel(NoMMX3DNow),
-      HasAES(false), HasPCLMUL(false), HasLZCNT(false), HasBMI(false),
-      HasBMI2(false), HasPOPCNT(false), HasSSE4a(false), HasFMA4(false),
-      HasFMA(false), HasXOP(false), CPU(CK_Generic) {
+      HasAES(false), HasPCLMUL(false), HasLZCNT(false), HasRDRND(false),
+      HasBMI(false), HasBMI2(false), HasPOPCNT(false), HasSSE4a(false),
+      HasFMA4(false), HasFMA(false), HasXOP(false), CPU(CK_Generic) {
     BigEndian = false;
     LongDoubleFormat = &llvm::APFloat::x87DoubleExtended;
   }
@@ -1622,6 +1664,7 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
   Features["avx"] = false;
   Features["avx2"] = false;
   Features["lzcnt"] = false;
+  Features["rdrand"] = false;
   Features["bmi"] = false;
   Features["bmi2"] = false;
   Features["popcnt"] = false;
@@ -1683,11 +1726,17 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
     setFeatureEnabled(Features, "sse4", true);
     break;
   case CK_Corei7AVX:
+    setFeatureEnabled(Features, "mmx", true);
+    setFeatureEnabled(Features, "avx", true);
+    setFeatureEnabled(Features, "aes", true);
+    setFeatureEnabled(Features, "pclmul", true);
+    break;
   case CK_CoreAVXi:
     setFeatureEnabled(Features, "mmx", true);
     setFeatureEnabled(Features, "avx", true);
     setFeatureEnabled(Features, "aes", true);
     setFeatureEnabled(Features, "pclmul", true);
+    setFeatureEnabled(Features, "rdrnd", true);
     break;
   case CK_CoreAVX2:
     setFeatureEnabled(Features, "mmx", true);
@@ -1695,6 +1744,7 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
     setFeatureEnabled(Features, "aes", true);
     setFeatureEnabled(Features, "pclmul", true);
     setFeatureEnabled(Features, "lzcnt", true);
+    setFeatureEnabled(Features, "rdrnd", true);
     setFeatureEnabled(Features, "bmi", true);
     setFeatureEnabled(Features, "bmi2", true);
     setFeatureEnabled(Features, "fma", true);
@@ -1762,7 +1812,8 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
   // FIXME: This *really* should not be here.  We need some way of translating
   // options into llvm subtarget features.
   if (!Features.count(Name) &&
-      (Name != "sse4" && Name != "sse4.2" && Name != "sse4.1"))
+      (Name != "sse4" && Name != "sse4.2" && Name != "sse4.1" &&
+       Name != "rdrnd"))
     return false;
 
   // FIXME: this should probably use a switch with fall through.
@@ -1822,6 +1873,8 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
         Features["sse4a"] = true;
     else if (Name == "lzcnt")
       Features["lzcnt"] = true;
+    else if (Name == "rdrnd")
+      Features["rdrand"] = true;
     else if (Name == "bmi")
       Features["bmi"] = true;
     else if (Name == "bmi2")
@@ -1876,6 +1929,8 @@ bool X86TargetInfo::setFeatureEnabled(llvm::StringMap<bool> &Features,
       Features["sse4a"] = Features["fma4"] = Features["xop"] = false;
     else if (Name == "lzcnt")
       Features["lzcnt"] = false;
+    else if (Name == "rdrnd")
+      Features["rdrand"] = false;
     else if (Name == "bmi")
       Features["bmi"] = false;
     else if (Name == "bmi2")
@@ -1914,6 +1969,11 @@ void X86TargetInfo::HandleTargetFeatures(std::vector<std::string> &Features) {
 
     if (Feature == "lzcnt") {
       HasLZCNT = true;
+      continue;
+    }
+
+    if (Feature == "rdrand") {
+      HasRDRND = true;
       continue;
     }
 
@@ -2140,6 +2200,9 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
   if (HasLZCNT)
     Builder.defineMacro("__LZCNT__");
 
+  if (HasRDRND)
+    Builder.defineMacro("__RDRND__");
+
   if (HasBMI)
     Builder.defineMacro("__BMI__");
 
@@ -2227,6 +2290,7 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("fma", HasFMA)
       .Case("fma4", HasFMA4)
       .Case("lzcnt", HasLZCNT)
+      .Case("rdrnd", HasRDRND)
       .Case("mm3dnow", MMX3DNowLevel >= AMD3DNow)
       .Case("mm3dnowa", MMX3DNowLevel >= AMD3DNowAthlon)
       .Case("mmx", MMX3DNowLevel >= MMX)
@@ -2384,6 +2448,7 @@ public:
     LongDoubleWidth = 128;
     LongDoubleAlign = 128;
     SuitableAlign = 128;
+    MaxVectorAlign = 256;
     SizeType = UnsignedLong;
     IntPtrType = SignedLong;
     DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-"
@@ -2691,6 +2756,7 @@ public:
   DarwinX86_64TargetInfo(const std::string& triple)
       : DarwinTargetInfo<X86_64TargetInfo>(triple) {
     Int64Type = SignedLongLong;
+    MaxVectorAlign = 256;
   }
 };
 } // end anonymous namespace
@@ -3557,9 +3623,15 @@ namespace {
 
 namespace {
 class MipsTargetInfoBase : public TargetInfo {
+  static const Builtin::Info BuiltinInfo[];
   std::string CPU;
-  bool SoftFloat;
-  bool SingleFloat;
+  bool IsMips16;
+  enum MipsFloatABI {
+    HardFloat, SingleFloat, SoftFloat
+  } FloatABI;
+  enum DspRevEnum {
+    NoDSP, DSP1, DSP2
+  } DspRev;
 
 protected:
   std::string ABI;
@@ -3570,7 +3642,9 @@ public:
                      const std::string& CPUStr)
     : TargetInfo(triple),
       CPU(CPUStr),
-      SoftFloat(false), SingleFloat(false),
+      IsMips16(false),
+      FloatABI(HardFloat),
+      DspRev(NoDSP),
       ABI(ABIStr)
   {}
 
@@ -3587,14 +3661,34 @@ public:
 
   virtual void getArchDefines(const LangOptions &Opts,
                               MacroBuilder &Builder) const {
-    if (SoftFloat && SingleFloat)
-      llvm_unreachable("Invalid float ABI for Mips.");
-    else if (SoftFloat)
-      Builder.defineMacro("__mips_soft_float", Twine(1));
-    else {
+    switch (FloatABI) {
+    case HardFloat:
       Builder.defineMacro("__mips_hard_float", Twine(1));
-      if (SingleFloat)
-        Builder.defineMacro("__mips_single_float", Twine(1));
+      break;
+    case SingleFloat:
+      Builder.defineMacro("__mips_hard_float", Twine(1));
+      Builder.defineMacro("__mips_single_float", Twine(1));
+      break;
+    case SoftFloat:
+      Builder.defineMacro("__mips_soft_float", Twine(1));
+      break;
+    }
+
+    if (IsMips16)
+      Builder.defineMacro("__mips16", Twine(1));
+
+    switch (DspRev) {
+    default:
+      break;
+    case DSP1:
+      Builder.defineMacro("__mips_dsp_rev", Twine(1));
+      Builder.defineMacro("__mips_dsp", Twine(1));
+      break;
+    case DSP2:
+      Builder.defineMacro("__mips_dsp_rev", Twine(2));
+      Builder.defineMacro("__mips_dspr2", Twine(1));
+      Builder.defineMacro("__mips_dsp", Twine(1));
+      break;
     }
 
     Builder.defineMacro("_MIPS_SZPTR", Twine(getPointerWidth(0)));
@@ -3606,7 +3700,8 @@ public:
                                 MacroBuilder &Builder) const = 0;
   virtual void getTargetBuiltins(const Builtin::Info *&Records,
                                  unsigned &NumRecords) const {
-    // FIXME: Implement!
+    Records = BuiltinInfo;
+    NumRecords = clang::Mips::LastTSBuiltin - Builtin::FirstTSBuiltin;
   }
   virtual bool hasFeature(StringRef Feature) const {
     return Feature == "mips";
@@ -3666,7 +3761,8 @@ public:
     if (Name == "soft-float" || Name == "single-float" ||
         Name == "o32" || Name == "n32" || Name == "n64" || Name == "eabi" ||
         Name == "mips32" || Name == "mips32r2" ||
-        Name == "mips64" || Name == "mips64r2") {
+        Name == "mips64" || Name == "mips64r2" ||
+        Name == "mips16" || Name == "dsp" || Name == "dspr2") {
       Features[Name] = Enabled;
       return true;
     }
@@ -3674,25 +3770,37 @@ public:
   }
 
   virtual void HandleTargetFeatures(std::vector<std::string> &Features) {
-    SoftFloat = false;
-    SingleFloat = false;
+    IsMips16 = false;
+    FloatABI = HardFloat;
+    DspRev = NoDSP;
 
     for (std::vector<std::string>::iterator it = Features.begin(),
          ie = Features.end(); it != ie; ++it) {
-      if (*it == "+single-float") {
-        SingleFloat = true;
-        break;
-      }
-
-      if (*it == "+soft-float") {
-        SoftFloat = true;
-        // This option is front-end specific.
-        // Do not need to pass it to the backend.
-        Features.erase(it);
-        break;
-      }
+      if (*it == "+single-float")
+        FloatABI = SingleFloat;
+      else if (*it == "+soft-float")
+        FloatABI = SoftFloat;
+      else if (*it == "+mips16")
+        IsMips16 = true;
+      else if (*it == "+dsp")
+        DspRev = std::max(DspRev, DSP1);
+      else if (*it == "+dspr2")
+        DspRev = std::max(DspRev, DSP2);
     }
+
+    // Remove front-end specific option.
+    std::vector<std::string>::iterator it =
+      std::find(Features.begin(), Features.end(), "+soft-float");
+    if (it != Features.end())
+      Features.erase(it);
   }
+};
+
+const Builtin::Info MipsTargetInfoBase::BuiltinInfo[] = {
+#define BUILTIN(ID, TYPE, ATTRS) { #ID, TYPE, ATTRS, 0, ALL_LANGUAGES },
+#define LIBBUILTIN(ID, TYPE, ATTRS, HEADER) { #ID, TYPE, ATTRS, HEADER,\
+                                              ALL_LANGUAGES },
+#include "clang/Basic/BuiltinsMips.def"
 };
 
 class Mips32TargetInfoBase : public MipsTargetInfoBase {

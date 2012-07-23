@@ -57,9 +57,13 @@ def DeprecatedImplementations :DiagGroup<"deprecated-implementations">;
 def : DiagGroup<"disabled-optimization">;
 def : DiagGroup<"discard-qual">;
 def : DiagGroup<"div-by-zero">;
-def Doxygen : DiagGroup<"doxygen">;
+def DocumentationHTML : DiagGroup<"documentation-html">;
+def DocumentationPedantic : DiagGroup<"documentation-pedantic">;
+def Documentation : DiagGroup<"documentation", [DocumentationHTML]>;
 def EmptyBody : DiagGroup<"empty-body">;
 def ExtraTokens : DiagGroup<"extra-tokens">;
+def CXX11ExtraSemi : DiagGroup<"c++11-extra-semi">;
+def ExtraSemi : DiagGroup<"extra-semi", [CXX11ExtraSemi]>;
 
 def FormatExtraArgs : DiagGroup<"format-extra-args">;
 def FormatZeroLength : DiagGroup<"format-zero-length">;
@@ -169,7 +173,8 @@ def ReturnTypeCLinkage : DiagGroup<"return-type-c-linkage">;
 def ReturnType : DiagGroup<"return-type", [ReturnTypeCLinkage]>;
 def BindToTemporaryCopy : DiagGroup<"bind-to-temporary-copy",
                                     [CXX98CompatBindToTemporaryCopy]>;
-def SelfAssignment : DiagGroup<"self-assign">;
+def SelfAssignmentField : DiagGroup<"self-assign-field">;
+def SelfAssignment : DiagGroup<"self-assign", [SelfAssignmentField]>;
 def SemiBeforeMethodBody : DiagGroup<"semicolon-before-method-body">;
 def Sentinel : DiagGroup<"sentinel">;
 def MissingMethodReturnType : DiagGroup<"missing-method-return-type">;
@@ -264,7 +269,6 @@ def AutomaticReferenceCounting : DiagGroup<"arc",
                                             ARCRetainCycles,
                                             ARCNonPodMemAccess]>;
 def Selector : DiagGroup<"selector">;
-def NonfragileAbi2 : DiagGroup<"nonfragile-abi2">;
 def Protocol : DiagGroup<"protocol">;
 def SuperSubClassMismatch : DiagGroup<"super-class-method-mismatch">;
 def OverridingMethodMismatch : DiagGroup<"overriding-method-mismatch">;
@@ -379,6 +383,9 @@ def ThreadSafety : DiagGroup<"thread-safety",
 // DefaultIgnore in addition to putting it here.
 def : DiagGroup<"all", [Most, Parentheses, Switch]>;
 
+// Warnings enabled by -pedantic.  This is magically filled in by TableGen.
+def Pedantic : DiagGroup<"pedantic">;
+
 // Aliases.
 def : DiagGroup<"", [Extra]>;                   // -W = -Wextra
 def : DiagGroup<"endif-labels", [ExtraTokens]>; // -Wendif-labels=-Wendif-tokens
@@ -399,7 +406,7 @@ def NonGCC : DiagGroup<"non-gcc",
 
 // A warning group for warnings about using C++11 features as extensions in
 // earlier C++ versions.
-def CXX11 : DiagGroup<"c++11-extensions">;
+def CXX11 : DiagGroup<"c++11-extensions", [CXX11ExtraSemi]>;
 def : DiagGroup<"c++0x-extensions", [CXX11]>;
 def DelegatingCtorCycles :
   DiagGroup<"delegating-ctor-cycles">;
@@ -430,4 +437,9 @@ def ObjCRedundantAPIUse : DiagGroup<"objc-redundant-api-use", [
 
 def ObjCCocoaAPI : DiagGroup<"objc-cocoa-api", [
     ObjCRedundantAPIUse
+  ]>;
+
+def ObjCStringComparison : DiagGroup<"objc-string-compare">;
+def ObjCLiteralComparison : DiagGroup<"objc-literal-compare", [
+    ObjCStringComparison
   ]>;

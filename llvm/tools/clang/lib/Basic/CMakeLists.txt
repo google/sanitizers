@@ -3,6 +3,7 @@ set(LLVM_LINK_COMPONENTS mc)
 add_clang_library(clangBasic
   Builtins.cpp
   ConvertUTF.c
+  ConvertUTFWrapper.cpp
   Diagnostic.cpp
   DiagnosticIDs.cpp
   FileManager.cpp
@@ -37,6 +38,7 @@ add_dependencies(clangBasic
   ClangAttrList
   ClangDiagnosticAnalysis
   ClangDiagnosticAST
+  ClangDiagnosticComment
   ClangDiagnosticCommon
   ClangDiagnosticDriver
   ClangDiagnosticFrontend

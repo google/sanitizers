@@ -90,3 +90,64 @@ F:
 ; CHECK: encoding: [0x48,0x83,0x7c,0x24,0xf8,0x00]
 }
 
+; rdar://11866926
+define i32 @test7(i64 %res) nounwind {
+entry:
+; CHECK: test7:
+; CHECK-NOT: movabsq
+; CHECK: shrq $32, %rdi
+; CHECK: testq %rdi, %rdi
+; CHECK: sete
+  %lnot = icmp ult i64 %res, 4294967296
+  %lnot.ext = zext i1 %lnot to i32
+  ret i32 %lnot.ext
+}
+
+define i32 @test8(i64 %res) nounwind {
+entry:
+; CHECK: test8:
+; CHECK-NOT: movabsq
+; CHECK: shrq $32, %rdi
+; CHECK: cmpq $3, %rdi
+  %lnot = icmp ult i64 %res, 12884901888
+  %lnot.ext = zext i1 %lnot to i32
+  ret i32 %lnot.ext
+}
+
+define i32 @test9(i64 %res) nounwind {
+entry:
+; CHECK: test9:
+; CHECK-NOT: movabsq
+; CHECK: shrq $33, %rdi
+; CHECK: testq %rdi, %rdi
+; CHECK: sete
+  %lnot = icmp ult i64 %res, 8589934592
+  %lnot.ext = zext i1 %lnot to i32
+  ret i32 %lnot.ext
+}
+
+define i32 @test10(i64 %res) nounwind {
+entry:
+; CHECK: test10:
+; CHECK-NOT: movabsq
+; CHECK: shrq $32, %rdi
+; CHECK: testq %rdi, %rdi
+; CHECK: setne
+  %lnot = icmp uge i64 %res, 4294967296
+  %lnot.ext = zext i1 %lnot to i32
+  ret i32 %lnot.ext
+}
+
+; rdar://9758774
+define i32 @test11(i64 %l) nounwind {
+entry:
+; CHECK: test11:
+; CHECK-NOT: movabsq
+; CHECK-NOT: andq
+; CHECK: shrq $47, %rdi
+; CHECK: cmpq $1, %rdi
+  %shr.mask = and i64 %l, -140737488355328
+  %cmp = icmp eq i64 %shr.mask, 140737488355328
+  %conv = zext i1 %cmp to i32
+  ret i32 %conv
+}

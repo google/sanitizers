@@ -162,7 +162,20 @@ void MachineRegisterInfo::replaceRegWith(unsigned FromReg, unsigned ToReg) {
 MachineInstr *MachineRegisterInfo::getVRegDef(unsigned Reg) const {
   // Since we are in SSA form, we can use the first definition.
   def_iterator I = def_begin(Reg);
+  assert((I.atEnd() || llvm::next(I) == def_end()) &&
+         "getVRegDef assumes a single definition or no definition");
   return !I.atEnd() ? &*I : 0;
+}
+
+/// getUniqueVRegDef - Return the unique machine instr that defines the
+/// specified virtual register or null if none is found.  If there are
+/// multiple definitions or no definition, return null.
+MachineInstr *MachineRegisterInfo::getUniqueVRegDef(unsigned Reg) const {
+  if (def_empty(Reg)) return 0;
+  def_iterator I = def_begin(Reg);
+  if (llvm::next(I) != def_end())
+    return 0;
+  return &*I;
 }
 
 bool MachineRegisterInfo::hasOneUse(unsigned RegNo) const {

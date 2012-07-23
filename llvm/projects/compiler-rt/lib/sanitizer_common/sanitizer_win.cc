@@ -16,6 +16,7 @@
 
 #include "sanitizer_common.h"
 #include "sanitizer_libc.h"
+#include "sanitizer_symbolizer.h"
 
 namespace __sanitizer {
 
@@ -75,6 +76,10 @@ bool MemoryRangeIsAvailable(uptr range_start, uptr range_end) {
   return true;
 }
 
+void *MapFileToMemory(const char *file_name, uptr *buff_size) {
+  UNIMPLEMENTED();
+}
+
 const char *GetEnv(const char *name) {
   static char env_buffer[32767] = {};
 
@@ -93,6 +98,7 @@ const char *GetEnv(const char *name) {
 
 const char *GetPwd() {
   UNIMPLEMENTED();
+  return 0;
 }
 
 void DumpProcessMap() {
@@ -124,50 +130,42 @@ int Atexit(void (*function)(void)) {
   return atexit(function);
 }
 
-int AtomicInc(int *a) {
-  return InterlockedExchangeAdd((LONG*)a, 1) + 1;
+// ------------------ sanitizer_symbolizer.h
+bool FindDWARFSection(uptr object_file_addr, const char *section_name,
+                      DWARFSection *section) {
+  UNIMPLEMENTED();
+  return false;
 }
 
-u16 AtomicExchange(u16 *a, u16 new_val) {
-  // InterlockedExchange16 seems unavailable on some MSVS installations.
-  // Everybody stand back, I pretend to know inline assembly!
-  // FIXME: I assume VC is smart enough to save/restore eax/ecx?
-  __asm {
-    mov eax, a
-    mov cx, new_val
-    xchg [eax], cx  ; NOLINT
-    mov new_val, cx
-  }
-  return new_val;
-}
-
-u8 AtomicExchange(u8 *a, u8 new_val) {
-  // FIXME: can we do this with a proper xchg intrinsic?
-  u8 t = *a;
-  *a = new_val;
-  return t;
-}
+uptr GetListOfModules(ModuleDIContext *modules, uptr max_modules) {
+  UNIMPLEMENTED();
+};
 
 // ------------------ sanitizer_libc.h
 void *internal_mmap(void *addr, uptr length, int prot, int flags,
                     int fd, u64 offset) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 int internal_munmap(void *addr, uptr length) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 int internal_close(fd_t fd) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 fd_t internal_open(const char *filename, bool write) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 uptr internal_read(fd_t fd, void *buf, uptr count) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 uptr internal_write(fd_t fd, const void *buf, uptr count) {
@@ -184,18 +182,17 @@ uptr internal_write(fd_t fd, const void *buf, uptr count) {
 
 uptr internal_filesize(fd_t fd) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 int internal_dup2(int oldfd, int newfd) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 int internal_sched_yield() {
   UNIMPLEMENTED();
-}
-
-int internal_sscanf(const char *str, const char *format, ...) {
-  UNIMPLEMENTED();
+  return 0;
 }
 
 }  // namespace __sanitizer

@@ -81,6 +81,20 @@ public:
   static CompilationDatabase *loadFromDirectory(StringRef BuildDirectory,
                                                 std::string &ErrorMessage);
 
+  /// \brief Tries to detect a compilation database location and load it.
+  ///
+  /// Looks for a compilation database in all parent paths of file 'SourceFile'
+  /// by calling loadFromDirectory.
+  static CompilationDatabase *autoDetectFromSource(StringRef SourceFile,
+                                                   std::string &ErrorMessage);
+
+  /// \brief Tries to detect a compilation database location and load it.
+  ///
+  /// Looks for a compilation database in directory 'SourceDir' and all
+  /// its parent paths by calling loadFromDirectory.
+  static CompilationDatabase *autoDetectFromDirectory(StringRef SourceDir,
+                                                      std::string &ErrorMessage);
+
   /// \brief Returns all compile commands in which the specified file was
   /// compiled.
   ///
@@ -92,6 +106,9 @@ public:
   /// lines for a.cc and b.cc and only the first command line for t.cc.
   virtual std::vector<CompileCommand> getCompileCommands(
     StringRef FilePath) const = 0;
+
+  /// \brief Returns the list of all files available in the compilation database.
+  virtual std::vector<std::string> getAllFiles() const = 0;
 };
 
 /// \brief A compilation database that returns a single compile command line.
@@ -141,6 +158,11 @@ public:
   virtual std::vector<CompileCommand> getCompileCommands(
     StringRef FilePath) const;
 
+  /// \brief Returns the list of all files available in the compilation database.
+  ///
+  /// Note: This is always an empty list for the fixed compilation database.
+  virtual std::vector<std::string> getAllFiles() const;
+
 private:
   /// This is built up to contain a single entry vector to be returned from
   /// getCompileCommands after adding the positional argument.
@@ -187,6 +209,11 @@ public:
   virtual std::vector<CompileCommand> getCompileCommands(
     StringRef FilePath) const;
 
+  /// \brief Returns the list of all files available in the compilation database.
+  ///
+  /// These are the 'file' entries of the JSON objects.
+  virtual std::vector<std::string> getAllFiles() const;
+
 private:
   /// \brief Constructs a JSON compilation database on a memory buffer.
   JSONCompilationDatabase(llvm::MemoryBuffer *Database)
@@ -215,4 +242,3 @@ private:
 } // end namespace clang
 
 #endif // LLVM_CLANG_TOOLING_COMPILATION_DATABASE_H
-

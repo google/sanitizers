@@ -50,9 +50,7 @@ RValue CodeGenFunction::EmitCXXMemberCall(const CXXMethodDecl *MD,
   // And the rest of the call args.
   EmitCallArgs(Args, FPT, ArgBeg, ArgEnd);
 
-  return EmitCall(CGM.getTypes().arrangeFunctionCall(FPT->getResultType(), Args,
-                                                     FPT->getExtInfo(),
-                                                     required),
+  return EmitCall(CGM.getTypes().arrangeCXXMethodCall(Args, FPT, required),
                   Callee, ReturnValue, Args, MD);
 }
 
@@ -142,6 +140,14 @@ static bool canDevirtualizeMemberFunctionCalls(ASTContext &Context,
   return false;
 }
 
+static CXXRecordDecl *getCXXRecord(const Expr *E) {
+  QualType T = E->getType();
+  if (const PointerType *PTy = T->getAs<PointerType>())
+    T = PTy->getPointeeType();
+  const RecordType *Ty = T->castAs<RecordType>();
+  return cast<CXXRecordDecl>(Ty->getDecl());
+}
+
 // Note: This function also emit constructor calls to support a MSVC
 // extensions allowing explicit constructor function call.
 RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
@@ -174,18 +180,42 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
   // Compute the object pointer.
   const Expr *Base = ME->getBase();
   bool CanUseVirtualCall = MD->isVirtual() && !ME->hasQualifier();
-  bool Devirtualize = CanUseVirtualCall &&
-    canDevirtualizeMemberFunctionCalls(getContext(), Base, MD);
 
-  const Expr *Inner = Base;
-  if (Devirtualize)
-    Inner = Base->ignoreParenBaseCasts();
+  const CXXMethodDecl *DevirtualizedMethod = NULL;
+  if (CanUseVirtualCall &&
+      canDevirtualizeMemberFunctionCalls(getContext(), Base, MD)) {
+    const CXXRecordDecl *BestDynamicDecl = Base->getBestDynamicClassType();
+    DevirtualizedMethod = MD->getCorrespondingMethodInClass(BestDynamicDecl);
+    assert(DevirtualizedMethod);
+    const CXXRecordDecl *DevirtualizedClass = DevirtualizedMethod->getParent();
+    const Expr *Inner = Base->ignoreParenBaseCasts();
+    if (getCXXRecord(Inner) == DevirtualizedClass)
+      // If the class of the Inner expression is where the dynamic method
+      // is defined, build the this pointer from it.
+      Base = Inner;
+    else if (getCXXRecord(Base) != DevirtualizedClass) {
+      // If the method is defined in a class that is not the best dynamic
+      // one or the one of the full expression, we would have to build
+      // a derived-to-base cast to compute the correct this pointer, but
+      // we don't have support for that yet, so do a virtual call.
+      DevirtualizedMethod = NULL;
+    }
+    // If the return types are not the same, this might be a case where more
+    // code needs to run to compensate for it. For example, the derived
+    // method might return a type that inherits form from the return
+    // type of MD and has a prefix.
+    // For now we just avoid devirtualizing these covariant cases.
+    if (DevirtualizedMethod &&
+        DevirtualizedMethod->getResultType().getCanonicalType() !=
+        MD->getResultType().getCanonicalType())
+      DevirtualizedMethod = NULL;
+  }
 
   llvm::Value *This;
   if (ME->isArrow())
-    This = EmitScalarExpr(Inner);
+    This = EmitScalarExpr(Base);
   else
-    This = EmitLValue(Inner).getAddress();
+    This = EmitLValue(Base).getAddress();
 
 
   if (MD->isTrivial()) {
@@ -233,8 +263,7 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
   //
   // We also don't emit a virtual call if the base expression has a record type
   // because then we know what the type is.
-  bool UseVirtualCall = CanUseVirtualCall && !Devirtualize;
-  const CXXRecordDecl *MostDerivedClassDecl = Inner->getBestDynamicClassType();
+  bool UseVirtualCall = CanUseVirtualCall && !DevirtualizedMethod;
 
   llvm::Value *Callee;
   if (const CXXDestructorDecl *Dtor = dyn_cast<CXXDestructorDecl>(MD)) {
@@ -245,13 +274,11 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
           MD->isVirtual() &&
           ME->hasQualifier())
         Callee = BuildAppleKextVirtualCall(MD, ME->getQualifier(), Ty);
-      else if (!Devirtualize)
+      else if (!DevirtualizedMethod)
         Callee = CGM.GetAddrOfFunction(GlobalDecl(Dtor, Dtor_Complete), Ty);
       else {
-        const CXXMethodDecl *DM =
-          Dtor->getCorrespondingMethodInClass(MostDerivedClassDecl);
-        assert(DM);
-        const CXXDestructorDecl *DDtor = cast<CXXDestructorDecl>(DM);
+        const CXXDestructorDecl *DDtor =
+          cast<CXXDestructorDecl>(DevirtualizedMethod);
         Callee = CGM.GetAddrOfFunction(GlobalDecl(DDtor, Dtor_Complete), Ty);
       }
     }
@@ -265,13 +292,10 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
         MD->isVirtual() &&
         ME->hasQualifier())
       Callee = BuildAppleKextVirtualCall(MD, ME->getQualifier(), Ty);
-    else if (!Devirtualize)
+    else if (!DevirtualizedMethod)
       Callee = CGM.GetAddrOfFunction(MD, Ty);
     else {
-      const CXXMethodDecl *DerivedMethod =
-        MD->getCorrespondingMethodInClass(MostDerivedClassDecl);
-      assert(DerivedMethod);
-      Callee = CGM.GetAddrOfFunction(DerivedMethod, Ty);
+      Callee = CGM.GetAddrOfFunction(DevirtualizedMethod, Ty);
     }
   }
 
@@ -317,10 +341,12 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
 
   // Push the this ptr.
   Args.add(RValue::get(This), ThisType);
+
+  RequiredArgs required = RequiredArgs::forPrototypePlus(FPT, 1);
   
   // And the rest of the call args
   EmitCallArgs(Args, FPT, E->arg_begin(), E->arg_end());
-  return EmitCall(CGM.getTypes().arrangeFunctionCall(Args, FPT), Callee, 
+  return EmitCall(CGM.getTypes().arrangeCXXMethodCall(Args, FPT, required), Callee, 
                   ReturnValue, Args);
 }
 
@@ -1003,7 +1029,7 @@ namespace {
         DeleteArgs.add(getPlacementArgs()[I], *AI++);
 
       // Call 'operator delete'.
-      CGF.EmitCall(CGF.CGM.getTypes().arrangeFunctionCall(DeleteArgs, FPT),
+      CGF.EmitCall(CGF.CGM.getTypes().arrangeFreeFunctionCall(DeleteArgs, FPT),
                    CGF.CGM.GetAddrOfFunction(OperatorDelete),
                    ReturnValueSlot(), DeleteArgs, OperatorDelete);
     }
@@ -1064,7 +1090,7 @@ namespace {
       }
 
       // Call 'operator delete'.
-      CGF.EmitCall(CGF.CGM.getTypes().arrangeFunctionCall(DeleteArgs, FPT),
+      CGF.EmitCall(CGF.CGM.getTypes().arrangeFreeFunctionCall(DeleteArgs, FPT),
                    CGF.CGM.GetAddrOfFunction(OperatorDelete),
                    ReturnValueSlot(), DeleteArgs, OperatorDelete);
     }
@@ -1179,8 +1205,8 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
     // TODO: kill any unnecessary computations done for the size
     // argument.
   } else {
-    RV = EmitCall(CGM.getTypes().arrangeFunctionCall(allocatorArgs,
-                                                     allocatorType),
+    RV = EmitCall(CGM.getTypes().arrangeFreeFunctionCall(allocatorArgs,
+                                                         allocatorType),
                   CGM.GetAddrOfFunction(allocator), ReturnValueSlot(),
                   allocatorArgs, allocator);
   }
@@ -1303,7 +1329,7 @@ void CodeGenFunction::EmitDeleteCall(const FunctionDecl *DeleteFD,
     DeleteArgs.add(RValue::get(Size), SizeTy);
 
   // Emit the call to delete.
-  EmitCall(CGM.getTypes().arrangeFunctionCall(DeleteArgs, DeleteFTy),
+  EmitCall(CGM.getTypes().arrangeFreeFunctionCall(DeleteArgs, DeleteFTy),
            CGM.GetAddrOfFunction(DeleteFD), ReturnValueSlot(), 
            DeleteArgs, DeleteFD);
 }
@@ -1459,7 +1485,7 @@ namespace {
       }
 
       // Emit the call to delete.
-      CGF.EmitCall(CGF.getTypes().arrangeFunctionCall(Args, DeleteFTy),
+      CGF.EmitCall(CGF.getTypes().arrangeFreeFunctionCall(Args, DeleteFTy),
                    CGF.CGM.GetAddrOfFunction(OperatorDelete),
                    ReturnValueSlot(), Args, OperatorDelete);
     }
@@ -1507,18 +1533,7 @@ static void EmitArrayDelete(CodeGenFunction &CGF,
 }
 
 void CodeGenFunction::EmitCXXDeleteExpr(const CXXDeleteExpr *E) {
-  
-  // Get at the argument before we performed the implicit conversion
-  // to void*.
   const Expr *Arg = E->getArgument();
-  while (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Arg)) {
-    if (ICE->getCastKind() != CK_UserDefinedConversion &&
-        ICE->getType()->isVoidPointerType())
-      Arg = ICE->getSubExpr();
-    else
-      break;
-  }
-
   llvm::Value *Ptr = EmitScalarExpr(Arg);
 
   // Null check the pointer.
