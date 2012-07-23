@@ -282,6 +282,16 @@ TEST(MemorySanitizer, StackTest) {
   StackTestFunc();
 }
 
+NOINLINE void StackStressFunc() {
+  int foo[10000];
+  __msan_break_optimization(foo);
+}
+
+TEST(MemorySanitizer, DISABLED_StackStressTest) {
+  for (int i = 0; i < 1000000; i++)
+    StackStressFunc();
+}
+
 template<class T>
 void TestFloatingPoint() {
   static volatile T v;
