@@ -10,23 +10,14 @@
 
 using namespace __sanitizer;
 
-
-
 // Globals.
 static THREADLOCAL int msan_expect_umr = 0;
 static THREADLOCAL int msan_expected_umr_found = 0;
 
-static int msan_running_under_pin = 0;
 static int msan_running_under_dr = 0;
 THREADLOCAL long long __msan_param_tls[100];
 THREADLOCAL long long __msan_retval_tls[8];
 static long long *main_thread_param_tls;
-
-
-
-static bool IsRunningUnderPin() {
-  return internal_strstr(__msan::GetProcSelfMaps(), "/pinbin") != 0;
-}
 
 static bool IsRunningUnderDr() {
   return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
@@ -73,17 +64,14 @@ void __msan_init() {
   ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
   msan_init_is_running = 1;
   main_thread_param_tls = __msan_param_tls;
-  msan_running_under_pin = IsRunningUnderPin();
   msan_running_under_dr = IsRunningUnderDr();
-  // Must call it here for PIN to intercept it.
   __msan_clear_on_return();
-  if (!msan_running_under_pin) {
-    if (!InitShadow(/*true*/ false, true, true)) {
-      Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
-      Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
-      CatProcSelfMaps();
-      Die();
-    }
+  if (!InitShadow(/*true*/ false, true, true)) {
+    // FIXME: eugenis, do we need *false* above?
+    Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
+    Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
+    CatProcSelfMaps();
+    Die();
   }
 
   __msan::InitializeInterceptors();
@@ -167,7 +155,7 @@ int __msan_set_poison_in_malloc(int do_poison) {
 void __msan_break_optimization(void *x) { }
 
 int  __msan_has_dynamic_component() {
-  return msan_running_under_pin || msan_running_under_dr;
+  return msan_running_under_dr;
 }
 
 NOINLINE
