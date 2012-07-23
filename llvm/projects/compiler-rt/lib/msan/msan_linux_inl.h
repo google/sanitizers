@@ -15,6 +15,7 @@
 #include <execinfo.h>
 
 #include "sanitizer_common/sanitizer_procmaps.h"
+#include "sanitizer_common/sanitizer_libc.h"
 
 namespace __msan {
 
@@ -26,15 +27,6 @@ static const uptr kBad1Beg    = 0x200000;
 static const uptr kBad1End    = kShadowBeg - 1;
 static const uptr kBad2Beg    = kShadowEnd + 1;
 static const uptr kBad2End    = kMemBeg - 1;
-
-void *Mmap(void *addr, uptr length, int prot, int flags,
-                    int fd, u64 offset) {
-# if __WORDSIZE == 64
-  return (void *)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
-# else
-  return (void *)syscall(__NR_mmap2, addr, length, prot, flags, fd, offset);
-# endif
-}
 
 static int MsanOpenReadonly(const char* filename) {
     return syscall(__NR_open, filename, O_RDONLY);
@@ -50,7 +42,7 @@ static int MsanClose(int fd) {
 
 
 bool ProtectRange(uptr beg, uptr end) {
-  return  beg == (uptr)Mmap((void*)(beg), end - beg,
+  return  beg == (uptr)internal_mmap((void*)(beg), end - beg,
       PROT_NONE,
       MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE,
       -1, 0);
@@ -91,12 +83,12 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
   if (prot2 && !ProtectRange(kBad2Beg, kBad2End))
     return false;
   if (map_shadow) {
-    uptr shadow = (uptr)Mmap((void*)kShadowBeg,
-                             kShadowEnd - kShadowBeg,
-                             PROT_READ | PROT_WRITE,
-                             MAP_PRIVATE | MAP_ANON |
-                             MAP_FIXED | MAP_NORESERVE,
-                             0, 0);
+    uptr shadow = (uptr)internal_mmap((void*)kShadowBeg,
+                                      kShadowEnd - kShadowBeg,
+                                      PROT_READ | PROT_WRITE,
+                                      MAP_PRIVATE | MAP_ANON |
+                                      MAP_FIXED | MAP_NORESERVE,
+                                      0, 0);
     return shadow == kShadowBeg;
   }
   return true;

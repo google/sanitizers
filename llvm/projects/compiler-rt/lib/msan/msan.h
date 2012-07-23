@@ -12,8 +12,6 @@ extern bool msan_init_is_running;
 
 uptr ReadFromFile(const char *path, char *buff, uptr size);
 bool ProtectRange(uptr beg, uptr end);
-void *Mmap(void *addr, uptr length, int prot, int flags,
-                    int fd, u64 offset);
 void CatProcSelfMaps();
 bool InitShadow(bool prot1, bool prot2, bool map_shadow);
 char *GetProcSelfMaps();
