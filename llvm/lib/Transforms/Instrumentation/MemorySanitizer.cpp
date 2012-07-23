@@ -626,6 +626,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
             "_msprop"));
   }
 
+  void visitLandingPadInst(LandingPadInst &I) {
+    // Do nothing.
+    // See http://code.google.com/p/memory-sanitizer/issues/detail?id=1
+    setShadow(&I, getCleanShadow(&I));
+  }
+
   void visitInstruction(Instruction &I) {
     // Everything else: stop propagating and check for poisoned shadow.
     DEBUG(dbgs() << "DEFAULT: " << I << "\n");
