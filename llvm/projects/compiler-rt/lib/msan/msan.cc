@@ -13,7 +13,6 @@ using namespace __sanitizer;
 
 
 // Globals.
-static int msan_exit_code = 67;
 static THREADLOCAL int msan_expect_umr = 0;
 static THREADLOCAL int msan_expected_umr_found = 0;
 
@@ -41,7 +40,7 @@ void __msan_warning() {
   }
   Printf("***UMR***\n");
   __msan::BacktraceStackTrace();
-  if (msan_exit_code >= 0) {
+  if (__msan::flags.exit_code >= 0) {
     Printf("Exiting\n");
     Die();
   }
@@ -52,6 +51,7 @@ namespace __msan {
 Flags flags = {
   false,  // poison_with_zeroes
   true,   // poison_in_malloc
+  67,     // exit_code
 };
 int msan_inited = 0;
 bool msan_init_is_running;
@@ -60,6 +60,7 @@ bool msan_init_is_running;
 void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_with_zeroes, "poison_with_zeroes");
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
+  ParseFlag(str, &f->exit_code, "exit_code");
 }
 
 }  // namespace __msan
@@ -119,7 +120,7 @@ void __msan_move_poison(void *dst, const void *src, uptr size) {
 }
 
 void __msan_set_exit_code(int exit_code) {
-  msan_exit_code = exit_code;
+  __msan::flags.exit_code = exit_code;
 }
 void __msan_set_expect_umr(int expect_umr) {
   if (expect_umr) {

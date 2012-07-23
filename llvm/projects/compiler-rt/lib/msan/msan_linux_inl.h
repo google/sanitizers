@@ -153,7 +153,7 @@ void InstallTrapHandler() {
 
 namespace __sanitizer {
 void Die() {
-  _exit(msan_exit_code);
+  _exit(__msan::flags.exit_code);
 }
 
 void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {

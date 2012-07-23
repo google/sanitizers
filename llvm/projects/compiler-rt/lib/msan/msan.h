@@ -32,6 +32,7 @@ extern int msan_inited;
 struct Flags {
   bool poison_with_zeroes;  // default: false
   bool poison_in_malloc;  // default: true
+  int  exit_code;
 };
 
 extern Flags flags;
