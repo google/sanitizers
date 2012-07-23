@@ -2,6 +2,7 @@
 #include "msan.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
+#include "sanitizer_common/sanitizer_flags.h"
 
 #include <interception/interception.h>
 
@@ -14,11 +15,16 @@ using namespace __sanitizer;
 DECLARE_REAL(int, posix_memalign, void **memptr, uptr alignment, uptr size);
 DECLARE_REAL(void, free, void *ptr);
 
+// Flags.
+struct Flags {
+  bool poison_with_zeroes;  // default: false
+};
+
+static Flags flags;
 
 // Globals.
 static int msan_exit_code = 67;
 static int msan_poison_in_malloc = 1;
-static int msan_poison_with_zeroes = 0;
 static THREAD_LOCAL int msan_expect_umr = 0;
 static THREAD_LOCAL int msan_expected_umr_found = 0;
 
@@ -115,7 +121,9 @@ void MsanDeallocate(void *ptr) {
   REAL(free((void*)p[-1]));
 }
 
-
+void ParseFlagsFromString(Flags *f, const char *str) {
+  ParseFlag(str, &f->poison_with_zeroes, "poison_with_zeroes");
+}
 
 }  // namespace __msan
 
@@ -124,6 +132,7 @@ extern "C"
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
+  ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
   msan_init_is_running = 1;
   main_thread_param_tls = __msan_param_tls;
   msan_running_under_pin = IsRunningUnderPin();
@@ -154,7 +163,8 @@ void __msan_unpoison(void *a, uptr size) {
 }
 void __msan_poison(void *a, uptr size) {
   if ((uptr)a < 0x7f0000000000) return;
-  internal_memset((void*)MEM_TO_SHADOW((uptr)a), msan_poison_with_zeroes ? 0 : -1, size);
+  internal_memset((void*)MEM_TO_SHADOW((uptr)a),
+                  flags.poison_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
