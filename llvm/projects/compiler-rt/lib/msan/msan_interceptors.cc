@@ -57,7 +57,8 @@ INTERCEPTOR(void*, memmove, void* dest, const void* src, size_t n) {
 INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
   ENSURE_MSAN_INITED();
   void* res = REAL(memset)(s, c, n);
-  __msan_unpoison(s, n);
+  if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
+    __msan_unpoison(s, n);
   return res;
 }
 
