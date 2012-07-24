@@ -1,69 +1,76 @@
 #include "sanitizer_common/sanitizer_allocator64.h"
 #include "msan.h"
-#include <interception/interception.h>
-
-DECLARE_REAL(int, posix_memalign, void **memptr, uptr alignment, uptr size);
-DECLARE_REAL(void, free, void *ptr);
 
 namespace __msan {
-static const int kMsanMallocMagic = 0xCA4D;
 
-void *MsanReallocate(void *oldp, uptr size, uptr alignment, bool zeroise) {
+struct Metadata {
+  uptr requested_size;
+};
+
+static const uptr kAllocatorSpace = 0x600000000000ULL;
+static const uptr kAllocatorSize   = 0x80000000000;  // 8T.
+static const uptr kMetadataSize  = sizeof(Metadata);
+
+typedef SizeClassAllocator64<kAllocatorSpace, kAllocatorSize, kMetadataSize,
+  DefaultSizeClassMap> PrimaryAllocator;
+typedef SizeClassAllocatorLocalCache<PrimaryAllocator::kNumClasses,
+  PrimaryAllocator> AllocatorCache;
+typedef LargeMmapAllocator SecondaryAllocator;
+typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
+          SecondaryAllocator> Allocator;
+
+static THREADLOCAL AllocatorCache cache;
+static Allocator allocator;
+
+
+static int inited = 0;
+
+void Init() {
+  if (inited) return;
   __msan_init();
-  CHECK(msan_inited);
-  uptr extra_bytes = 2 * sizeof(u64*);
-  if (alignment > extra_bytes)
-    extra_bytes = alignment;
-  uptr old_size = 0;
-  void *real_oldp = 0;
-  if (oldp) {
-    char *beg = (char*)(oldp);
-    u64 *p = (u64 *)beg;
-    old_size = p[-2] >> 16;
-    CHECK((p[-2] & 0xffffULL) == kMsanMallocMagic);
-    char *end = beg + size;
-    real_oldp = (void*)p[-1];
-  }
-  void *mem = 0;
-  int res = REAL(posix_memalign)(&mem, alignment, size + extra_bytes);
-  if (res == 0) {
-    char *beg = (char*)mem + extra_bytes;
-    char *end = beg + size;
-    u64 *p = (u64 *)beg;
-    p[-2] = (size << 16) | kMsanMallocMagic;
-    p[-1] = (u64)mem;
-    // Printf("MSAN POISONS on malloc [%p, %p) rbeg: %p\n", beg, end, mem);
-    if (zeroise) {
-      internal_memset(beg, 0, size);
-    } else {
-      if (__msan::flags.poison_in_malloc)
-        __msan_poison(beg, end - beg);
-    }
-    mem = beg;
-  }
-
-  if (old_size) {
-    uptr min_size = size < old_size ? size : old_size;
-    if (mem) {
-      internal_memcpy(mem, oldp, min_size);
-      __msan_copy_poison(mem, oldp, min_size);
-    }
-    __msan_unpoison(oldp, old_size);
-    REAL(free(real_oldp));
-  }
-  return mem;
+  inited = true;  // this must happen before any threads are created.
+  allocator.Init();
 }
 
-void MsanDeallocate(void *ptr) {
-  __msan_init();
-  char *beg = (char*)(ptr);
-  u64 *p = (u64 *)beg;
-  uptr size = p[-2] >> 16;
-  CHECK((p[-2] & 0xffffULL) == kMsanMallocMagic);
-  char *end = beg + size;
-  // Printf("MSAN UNPOISONS on free [%p, %p)\n", beg, end);
-  __msan_unpoison(beg, end - beg);
-  REAL(free((void*)p[-1]));
+void *MsanAllocate(uptr size, uptr alignment, bool zeroise) {
+  Init();
+  void *res = allocator.Allocate(&cache, size, alignment, zeroise);
+  Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(res));
+  meta->requested_size = size;
+  if (zeroise)
+    __msan_unpoison(res, size);
+  else if (flags.poison_in_malloc)
+    __msan_poison(res, size);
+  return res;
+}
+
+void MsanDeallocate(void *p) {
+  Init();
+  Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(p));
+  uptr size = meta->requested_size;
+  // This memory will not be reused by anyone else, so we are free to keep it
+  // poisoned.
+  __msan_poison(p, size);
+  allocator.Deallocate(&cache, p);
+}
+
+void *MsanReallocate(void *old_p, uptr new_size, uptr alignment, bool zeroise) {
+  if (!old_p)
+    return MsanAllocate(new_size, alignment, zeroise);
+  if (!new_size) {
+    MsanDeallocate(old_p);
+    return 0;
+  }
+  Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(old_p));
+  uptr old_size = meta->requested_size;
+  uptr memcpy_size = Min(new_size, old_size);
+  void *new_p = MsanAllocate(new_size, alignment, zeroise);
+  if (new_p) {
+    internal_memcpy(new_p, old_p, memcpy_size);
+    __msan_copy_poison(new_p, old_p, memcpy_size);
+  }
+  MsanDeallocate(old_p);
+  return new_p;
 }
 
 }  // namespace __msan

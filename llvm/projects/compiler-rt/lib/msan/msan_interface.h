@@ -29,7 +29,7 @@ int __msan_set_poison_in_malloc(int do_poison);
 // For testing.
 void __msan_set_expect_umr(int expect_umr);
 void __msan_break_optimization(void *x);
-void __msan_print_shadow(const void *x, int size);
+void __msan_print_shadow(const void *x, uptr size);
 void __msan_print_param_shadow();
 int  __msan_has_dynamic_component();
 
