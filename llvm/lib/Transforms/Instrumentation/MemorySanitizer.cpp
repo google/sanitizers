@@ -449,12 +449,25 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I,  IRB.CreateOr(getShadow(&I, 0), getShadow(&I, 1), "_msprop"));
   }
 
+  void handleShadowOr(Instruction &I) {
+    IRBuilder<> IRB(&I);
+    Value* temp = getShadow(&I, 0);
+    for (unsigned op = 1; op < I.getNumOperands(); ++op)
+      temp = IRB.CreateOr(temp,
+          IRB.CreateIntCast(getShadow(&I, op), temp->getType(), false),
+          "_msprop");
+    temp = IRB.CreateIntCast(temp, getShadowTy(&I), false);
+    setShadow(&I, temp);
+  }
+
   void visitFAdd(BinaryOperator &I) { handleShadowOr(I); }
   void visitFSub(BinaryOperator &I) { handleShadowOr(I); }
   void visitFMul(BinaryOperator &I) { handleShadowOr(I); }
   void visitAdd(BinaryOperator &I) { handleShadowOr(I); }
   void visitSub(BinaryOperator &I) { handleShadowOr(I); }
   void visitXor(BinaryOperator &I) { handleShadowOr(I); }
+  void visitMul(BinaryOperator &I) { handleShadowOr(I); }
+
 
   void handleEqualityComparison(ICmpInst &I) {
     IRBuilder<> IRB(&I);
@@ -488,7 +501,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClHandleICmp && I.isEquality())
       handleEqualityComparison(I);
     else
-      visitInstruction(I);
+      handleShadowOr(I);
   }
 
   void handleShift(BinaryOperator &I) {
@@ -647,6 +660,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Do nothing.
     // See http://code.google.com/p/memory-sanitizer/issues/detail?id=1
     setShadow(&I, getCleanShadow(&I));
+  }
+
+  void visitBitCastInst(BitCastInst &I) {
+    setShadow(&I, getShadow(&I, 0));
+  }
+
+  void visitGetElementPtrInst(GetElementPtrInst &I) {
+    handleShadowOr(I);
   }
 
   void dumpInst(Instruction &I) {
