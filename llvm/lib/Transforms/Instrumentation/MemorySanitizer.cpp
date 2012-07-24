@@ -366,7 +366,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       setShadow(&I, getCleanShadow(dyn_cast<Value>(&I)));
       return ;
     }
-
+    // TODO: consider inserting a check of the pointer operand (for both load
+    // and store)?
     IRBuilder<> IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
     Value *ShadowPtr = getShadowPtr(I.getPointerOperand(), ShadowTy, IRB);
