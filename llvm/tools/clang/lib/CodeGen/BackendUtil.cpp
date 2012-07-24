@@ -187,7 +187,7 @@ void EmitAssemblyHelper::CreatePasses() {
   }
 
   if (LangOpts.MemorySanitizer) {
-    PMBuilder.addExtension(PassManagerBuilder::EP_ScalarOptimizerLate,
+    PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addMemorySanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addMemorySanitizerPass);
