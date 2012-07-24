@@ -12,7 +12,7 @@
 
 namespace __msan {
 
-static const uptr kMemBeg     = 0x7f0000000000;
+static const uptr kMemBeg     = 0x600000000000;
 static const uptr kMemEnd     = 0x7fffffffffff;
 static const uptr kShadowBeg  = MEM_TO_SHADOW(kMemBeg);
 static const uptr kShadowEnd  = MEM_TO_SHADOW(kMemEnd);
