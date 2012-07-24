@@ -387,6 +387,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       insertCheck(Shadow, &I);
   }
 
+  // Casts.
   void visitSExtInst(SExtInst &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateSExt(getShadow(&I, 0), I.getType(), "_msprop"));
@@ -401,6 +402,27 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateTrunc(getShadow(&I, 0), I.getType(), "_msprop"));
   }
+
+  void visitBitCastInst(BitCastInst &I) {
+    setShadow(&I, getShadow(&I, 0));
+  }
+
+  void visitPtrToIntInst(PtrToIntInst &I) {
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateIntCast(getShadow(&I, 0), getShadowTy(&I), false,
+            "_msprop_ptrtoint"));
+  }
+
+  void visitIntToPtrInst(IntToPtrInst &I) {
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateIntCast(getShadow(&I, 0), getShadowTy(&I), false,
+            "_msprop_inttoptr"));
+  }
+
+  void visitFPToSIInst(CastInst& I) { handleShadowOr(I); }
+  void visitFPToUIInst(CastInst& I) { handleShadowOr(I); }
+  void visitSIToFPInst(CastInst& I) { handleShadowOr(I); }
+  void visitUIToFPInst(CastInst& I) { handleShadowOr(I); }
 
   void visitAnd(BinaryOperator &I) {
     IRBuilder<> IRB(&I);
@@ -504,6 +526,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       handleShadowOr(I);
   }
 
+  void visitFCmpInst(FCmpInst &I) {
+    handleShadowOr(I);
+  }
+
   void handleShift(BinaryOperator &I) {
     IRBuilder<> IRB(&I);
     // If any of the S2 bits are poisoned, the whole thing is poisoned.
@@ -520,18 +546,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitShl(BinaryOperator &I) { handleShift(I); }
   void visitAShr(BinaryOperator &I) { handleShift(I); }
   void visitLShr(BinaryOperator &I) { handleShift(I); }
-
-  void visitPtrToIntInst(PtrToIntInst &I) {
-    IRBuilder<> IRB(&I);
-    setShadow(&I, IRB.CreateIntCast(getShadow(&I, 0), getShadowTy(&I), false,
-            "_msprop_ptrtoint"));
-  }
-
-  void visitIntToPtrInst(IntToPtrInst &I) {
-    IRBuilder<> IRB(&I);
-    setShadow(&I, IRB.CreateIntCast(getShadow(&I, 0), getShadowTy(&I), false,
-            "_msprop_inttoptr"));
-  }
 
   void handleMemSet(MemSetInst &I) {
     IRBuilder<> IRB(&I);
@@ -662,20 +676,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, getCleanShadow(&I));
   }
 
-  void visitBitCastInst(BitCastInst &I) {
-    setShadow(&I, getShadow(&I, 0));
-  }
-
   void visitGetElementPtrInst(GetElementPtrInst &I) {
     handleShadowOr(I);
   }
 
   void dumpInst(Instruction &I) {
     if (CallInst* CI = dyn_cast<CallInst>(&I)) {
-      errs() << "call " << CI->getCalledFunction()->getName() << "\n";
+      errs() << "ZZZ call " << CI->getCalledFunction()->getName() << "\n";
     } else {
-      errs() << I.getOpcodeName() << "\n";
+      errs() << "ZZZ " << I.getOpcodeName() << "\n";
     }
+    errs() << "QQQ " << I << "\n";
   }
 
   void visitInstruction(Instruction &I) {
