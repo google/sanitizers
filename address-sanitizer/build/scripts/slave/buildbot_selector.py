@@ -24,9 +24,9 @@ BOT_ASSIGNMENT = {
 BOT_ADDITIONAL_ENV = {
     'win': {},
     'linux': { 'CHECK_TSAN': '1' },
-    'linux-cmake': { 'MAX_MAKE_JOBS': '8'},
-    'mac10.6': { 'MAX_MAKE_JOBS': '1' },
-    'mac10.7': { 'MAX_MAKE_JOBS': '2' },
+    'linux-cmake': { 'MAX_MAKE_JOBS': '8' },
+    'mac10.6': { 'MAX_MAKE_JOBS': '2' },
+    'mac10.7': { 'MAX_MAKE_JOBS': '4' },
 }
 
 def Main():
