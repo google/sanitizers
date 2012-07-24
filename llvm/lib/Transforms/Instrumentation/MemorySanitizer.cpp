@@ -83,6 +83,10 @@ static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
        cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
        cl::Hidden, cl::init(true));
 
+static cl::opt<bool> ClDumpStrictInstructions("msan-dump-strict-instructions",
+       cl::desc("print out instructions with default strict semantics"),
+       cl::Hidden, cl::init(false));
+
 namespace {
 
 /// MemorySanitizer: instrument the code in module to find uninitialized reads.
@@ -645,8 +649,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, getCleanShadow(&I));
   }
 
+  void dumpInst(Instruction &I) {
+    if (CallInst* CI = dyn_cast<CallInst>(&I)) {
+      errs() << "call " << CI->getCalledFunction()->getName() << "\n";
+    } else {
+      errs() << I.getOpcodeName() << "\n";
+    }
+  }
+
   void visitInstruction(Instruction &I) {
     // Everything else: stop propagating and check for poisoned shadow.
+    if (ClDumpStrictInstructions)
+      dumpInst(I);
     DEBUG(dbgs() << "DEFAULT: " << I << "\n");
     for (size_t i = 0, n = I.getNumOperands(); i < n; i++)
       insertCheck(getShadow(&I, i), &I);
