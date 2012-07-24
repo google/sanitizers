@@ -491,6 +491,19 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitXor(BinaryOperator &I) { handleShadowOr(I); }
   void visitMul(BinaryOperator &I) { handleShadowOr(I); }
 
+  void handleDiv(Instruction &I) {
+    IRBuilder<> IRB(&I);
+    // Strict on the second argument.
+    insertCheck(getShadow(&I, 1), &I);
+    setShadow(&I, getShadow(&I, 0));
+  }
+
+  void visitUDiv(BinaryOperator &I) { handleDiv(I); }
+  void visitSDiv(BinaryOperator &I) { handleDiv(I); }
+  void visitFDiv(BinaryOperator &I) { handleDiv(I); }
+  void visitURem(BinaryOperator &I) { handleDiv(I); }
+  void visitSRem(BinaryOperator &I) { handleDiv(I); }
+  void visitFRem(BinaryOperator &I) { handleDiv(I); }
 
   void handleEqualityComparison(ICmpInst &I) {
     IRBuilder<> IRB(&I);
