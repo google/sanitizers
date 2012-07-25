@@ -74,10 +74,8 @@ void *MsanReallocate(void *old_p, uptr new_size, uptr alignment, bool zeroise) {
   uptr memcpy_size = Min(new_size, old_size);
   void *new_p = MsanAllocate(new_size, alignment, zeroise);
   // Printf("realloc: old_size %zd new_size %zd\n", old_size, new_size);
-  if (new_p) {
-    internal_memcpy(new_p, old_p, memcpy_size);
-    __msan_copy_poison(new_p, old_p, memcpy_size);
-  }
+  if (new_p)
+    __msan_memcpy_with_poison(new_p, old_p, memcpy_size);
   MsanDeallocate(old_p);
   return new_p;
 }

@@ -204,6 +204,10 @@ void __msan_move_poison(void *dst, const void *src, uptr size) {
          (void*)MEM_TO_SHADOW((uptr)src), size);
 }
 
+void __msan_memcpy_with_poison(void *dst, const void *src, uptr size) {
+  memcpy(dst, src, size);  // Calls our interceptor.
+}
+
 #undef IS_IN_SHADOW
 
 namespace __msan {
