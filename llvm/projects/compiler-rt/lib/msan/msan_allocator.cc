@@ -63,8 +63,17 @@ void *MsanReallocate(void *old_p, uptr new_size, uptr alignment, bool zeroise) {
   }
   Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(old_p));
   uptr old_size = meta->requested_size;
+  uptr actually_allocated_size = allocator.GetActuallyAllocatedSize(old_p);
+  if (new_size <= actually_allocated_size) {
+    // We are not reallocating here.
+    meta->requested_size = new_size;
+    if (new_size > old_size)
+      __msan_poison((char*)old_p + old_size, new_size - old_size);
+    return old_p;
+  }
   uptr memcpy_size = Min(new_size, old_size);
   void *new_p = MsanAllocate(new_size, alignment, zeroise);
+  // Printf("realloc: old_size %zd new_size %zd\n", old_size, new_size);
   if (new_p) {
     internal_memcpy(new_p, old_p, memcpy_size);
     __msan_copy_poison(new_p, old_p, memcpy_size);

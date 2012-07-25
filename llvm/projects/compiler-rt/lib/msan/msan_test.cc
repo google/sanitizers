@@ -159,8 +159,16 @@ TEST(MemorySanitizer, Realloc) {
   v_s4 = x[0];  // Ok, was inited before.
   EXPECT_POISONED(v_s4 = x[1]);
   x = (int*)realloc(x, 3 * sizeof(S4));
+  v_s4 = x[0];  // Ok, was inited before.
   EXPECT_POISONED(v_s4 = x[2]);
   EXPECT_POISONED(v_s4 = x[1]);
+  x[2] = 1;  // Init this here. Check that after realloc it is poisoned again.
+  x = (int*)realloc(x, 2 * sizeof(S4));
+  v_s4 = x[0];  // Ok, was inited before.
+  EXPECT_POISONED(v_s4 = x[1]);
+  x = (int*)realloc(x, 3 * sizeof(S4));
+  EXPECT_POISONED(v_s4 = x[1]);
+  EXPECT_POISONED(v_s4 = x[2]);
   free(x);
 }
 
