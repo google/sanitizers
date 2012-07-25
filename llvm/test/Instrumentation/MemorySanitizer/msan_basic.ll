@@ -216,3 +216,21 @@ entry:
 ; CHECK: zext
 ; CHECK-NEXT: inttoptr
 ; CHECK: }
+
+
+; Check that we insert exactly one check on udiv
+; (2nd arg shadow is checked, 1st arg shadow is propagated)
+
+define i32 @Div(i32 %a, i32 %b) nounwind uwtable readnone {
+entry:
+  %div = udiv i32 %a, %b
+  ret i32 %div
+}
+
+; CHECK: define i32 @Div
+; CHECK: icmp
+; CHECK: br
+; CHECK-NOT: icmp
+; CHECK: udiv
+; CHECK-NOT: icmp
+; CHECK: }
