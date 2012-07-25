@@ -1,3 +1,4 @@
+#include "msan_interface.h"
 #include "msan.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include <interception/interception.h>
@@ -168,6 +169,42 @@ INTERCEPTOR(void *, realloc, void *ptr, size_t size) {
 INTERCEPTOR(void *, malloc, size_t size) {
   return MsanReallocate(0, size, sizeof(u64), false);
 }
+
+#define IS_IN_SHADOW(x) (MEM_TO_SHADOW(((uptr)x)) == (uptr)x)
+
+// These interface functions reside here so that they can use
+// REAL(memset), etc.
+
+void __msan_unpoison(void *a, uptr size) {
+  if (IS_IN_SHADOW(a)) return;
+  CHECK(REAL(memset));
+  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+}
+
+void __msan_poison(void *a, uptr size) {
+  if (IS_IN_SHADOW(a)) return;
+  CHECK(REAL(memset));
+  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a),
+                  __msan::flags.poison_with_zeroes ? 0 : -1, size);
+}
+
+void __msan_copy_poison(void *dst, const void *src, uptr size) {
+  if (IS_IN_SHADOW(dst)) return;
+  if (IS_IN_SHADOW(src)) return;
+  CHECK(REAL(memcpy));
+  REAL(memcpy)((void*)MEM_TO_SHADOW((uptr)dst),
+         (void*)MEM_TO_SHADOW((uptr)src), size);
+}
+
+void __msan_move_poison(void *dst, const void *src, uptr size) {
+  if (IS_IN_SHADOW(dst)) return;
+  if (IS_IN_SHADOW(src)) return;
+  CHECK(REAL(memmove));;
+  REAL(memmove)((void*)MEM_TO_SHADOW((uptr)dst),
+         (void*)MEM_TO_SHADOW((uptr)src), size);
+}
+
+#undef IS_IN_SHADOW
 
 namespace __msan {
 void InitializeInterceptors() {

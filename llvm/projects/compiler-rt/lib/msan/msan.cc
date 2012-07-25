@@ -83,32 +83,6 @@ void __msan_init() {
 
 // Interface.
 
-#define IS_IN_SHADOW(x) (MEM_TO_SHADOW(((uptr)x)) == (uptr)x)
-
-void __msan_unpoison(void *a, uptr size) {
-  if (IS_IN_SHADOW(a)) return;
-  internal_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
-}
-void __msan_poison(void *a, uptr size) {
-  if (IS_IN_SHADOW(a)) return;
-  internal_memset((void*)MEM_TO_SHADOW((uptr)a),
-                  __msan::flags.poison_with_zeroes ? 0 : -1, size);
-}
-
-void __msan_copy_poison(void *dst, const void *src, uptr size) {
-  if (IS_IN_SHADOW(dst)) return;
-  if (IS_IN_SHADOW(src)) return;
-  internal_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
-         (void*)MEM_TO_SHADOW((uptr)src), size);
-}
-
-void __msan_move_poison(void *dst, const void *src, uptr size) {
-  if (IS_IN_SHADOW(dst)) return;
-  if (IS_IN_SHADOW(src)) return;
-  internal_memmove((void*)MEM_TO_SHADOW((uptr)dst),
-         (void*)MEM_TO_SHADOW((uptr)src), size);
-}
-
 void __msan_set_exit_code(int exit_code) {
   __msan::flags.exit_code = exit_code;
 }
