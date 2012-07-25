@@ -188,6 +188,11 @@ void __msan_poison(void *a, uptr size) {
                   __msan::flags.poison_with_zeroes ? 0 : -1, size);
 }
 
+void __msan_clear_and_unpoison(void *a, uptr size) {
+  REAL(memset)(a, 0, size);
+  REAL(memset)((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+}
+
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
   if (IS_IN_SHADOW(dst)) return;
   if (IS_IN_SHADOW(src)) return;

@@ -34,11 +34,11 @@ void Init() {
 
 void *MsanAllocate(uptr size, uptr alignment, bool zeroise) {
   Init();
-  void *res = allocator.Allocate(&cache, size, alignment, zeroise);
+  void *res = allocator.Allocate(&cache, size, alignment, false);
   Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(res));
   meta->requested_size = size;
   if (zeroise)
-    __msan_unpoison(res, size);
+    __msan_clear_and_unpoison(res, size);
   else if (flags.poison_in_malloc)
     __msan_poison(res, size);
   return res;
