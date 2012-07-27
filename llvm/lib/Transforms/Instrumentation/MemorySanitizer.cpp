@@ -424,6 +424,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitFPToUIInst(CastInst& I) { handleShadowOr(I); }
   void visitSIToFPInst(CastInst& I) { handleShadowOr(I); }
   void visitUIToFPInst(CastInst& I) { handleShadowOr(I); }
+  void visitFPExtInst(CastInst& I) { handleShadowOr(I); }
+  void visitFPTruncInst(CastInst& I) { handleShadowOr(I); }
 
   void visitAnd(BinaryOperator &I) {
     IRBuilder<> IRB(&I);
