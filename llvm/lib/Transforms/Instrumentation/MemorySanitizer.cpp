@@ -56,6 +56,7 @@
 #include "llvm/IntrinsicInst.h"
 #include "llvm/IRBuilder.h"
 #include "llvm/LLVMContext.h"
+#include "llvm/MDBuilder.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -107,6 +108,8 @@ struct MemorySanitizer : public FunctionPass {
   Value *WarningFn;
   // The shadow address is computed as ApplicationAddress & ~ShadowMask.
   uint64_t ShadowMask;
+  // Branch weights for error reporting.
+  MDNode *ColdCallWeights;
 };
 }  // namespace
 
@@ -135,7 +138,8 @@ FunctionPass *llvm::createMemorySanitizerPass() {
 //
 // FIXME: AddressSanitizer has a similar function.
 // What is the best place to move it?
-static BranchInst *splitBlockAndInsertIfThen(Value *Cmp) {
+static BranchInst *splitBlockAndInsertIfThen(Value *Cmp,
+    MDNode *BranchWeights = 0) {
   Instruction *SplitBefore = cast<Instruction>(Cmp)->getNextNode();
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
@@ -144,6 +148,7 @@ static BranchInst *splitBlockAndInsertIfThen(Value *Cmp) {
   BasicBlock *NewBasicBlock = BasicBlock::Create(C, "", Head->getParent());
   BranchInst *HeadNewTerm =
       BranchInst::Create(/*ifTrue*/NewBasicBlock, /*ifFalse*/Tail, Cmp);
+  HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
   ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
   BranchInst *CheckTerm = BranchInst::Create(Tail, NewBasicBlock);
   return CheckTerm;
@@ -161,6 +166,8 @@ bool MemorySanitizer::doInitialization(Module &M) {
     default: llvm_unreachable("unsupported pointer size");
   }
   IntptrTy = Type::getIntNTy(*C, PtrSize);
+
+  ColdCallWeights = MDBuilder(*C).createBranchWeights(1, 1000);
 
   // Always insert a call to __msan_init into the module's CTORs.
   IRBuilder<> IRB(*C);
@@ -236,7 +243,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Instruction *OrigIns = InstrumentationSet[i].OrigIns;
       IRBuilder<> IRB(OrigIns);
       Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
-      Instruction *CheckTerm = splitBlockAndInsertIfThen(Cmp);
+      Instruction *CheckTerm = splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
       IRBuilder<> IRB2(CheckTerm);
       CallInst *Call = IRB2.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
