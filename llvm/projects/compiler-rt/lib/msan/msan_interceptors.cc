@@ -1,3 +1,4 @@
+#include "msan_interface.h"
 #include "msan.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include <interception/interception.h>
@@ -24,6 +25,9 @@ using namespace __msan;
   } \
   } while (0)
 
+static void *fast_memset(void *ptr, int c, size_t n);
+static void *fast_memcpy(void *dst, const void *src, size_t n);
+
 INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, void *file) {
   ENSURE_MSAN_INITED();
   size_t res = REAL(fread)(ptr, size, nmemb, file);
@@ -42,7 +46,7 @@ INTERCEPTOR(ssize_t, read, int fd, void *ptr, size_t count) {
 
 INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
   ENSURE_MSAN_INITED();
-  void* res = REAL(memcpy)(dest, src, n);
+  void* res = fast_memcpy(dest, src, n);
   __msan_copy_poison(dest, src, n);
   return res;
 }
@@ -56,7 +60,7 @@ INTERCEPTOR(void*, memmove, void* dest, const void* src, size_t n) {
 
 INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
   ENSURE_MSAN_INITED();
-  void* res = REAL(memset)(s, c, n);
+  void* res = fast_memset(s, c, n);
   if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
     __msan_unpoison(s, n);
   return res;
@@ -168,6 +172,87 @@ INTERCEPTOR(void *, realloc, void *ptr, size_t size) {
 INTERCEPTOR(void *, malloc, size_t size) {
   return MsanReallocate(0, size, sizeof(u64), false);
 }
+
+// static
+void *fast_memset(void *ptr, int c, size_t n) {
+#if 1
+  // hack until we have a really fast internal_memset
+  if (sizeof(uptr) == 8 &&
+      (n % 8) == 0 &&
+      ((uptr)ptr % 8) == 0 &&
+      (c == 0 || c == -1)) {
+    // Printf("memset %p %zd %x\n", ptr, n, c);
+    uptr to_store = c ? -1L : 0L;
+    uptr *p = (uptr*)ptr;
+    for (size_t i = 0; i < n / 8; i++)
+      p[i] = to_store;
+    return ptr;
+  }
+#endif
+  CHECK(REAL(memset));
+  return REAL(memset)(ptr, c, n);
+}
+
+// static
+void *fast_memcpy(void *dst, const void *src, size_t n) {
+#if 1
+  // Same hack as in fast_memset above.
+  if (sizeof(uptr) == 8 &&
+      (n % 8) == 0 &&
+      ((uptr)dst % 8) == 0 &&
+      ((uptr)src % 8) == 0) {
+    uptr *d = (uptr*)dst;
+    uptr *s = (uptr*)src;
+    for (size_t i = 0; i < n / 8; i++)
+      d[i] = s[i];
+    return dst;
+  }
+#endif
+  CHECK(REAL(memcpy));
+  return REAL(memcpy)(dst, src, n);
+}
+
+#define IS_IN_SHADOW(x) (MEM_TO_SHADOW(((uptr)x)) == (uptr)x)
+
+// These interface functions reside here so that they can use
+// fast_memset, etc.
+
+void __msan_unpoison(void *a, uptr size) {
+  if (IS_IN_SHADOW(a)) return;
+  fast_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+}
+
+void __msan_poison(void *a, uptr size) {
+  if (IS_IN_SHADOW(a)) return;
+  fast_memset((void*)MEM_TO_SHADOW((uptr)a),
+                  __msan::flags.poison_with_zeroes ? 0 : -1, size);
+}
+
+void __msan_clear_and_unpoison(void *a, uptr size) {
+  fast_memset(a, 0, size);
+  fast_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
+}
+
+void __msan_copy_poison(void *dst, const void *src, uptr size) {
+  if (IS_IN_SHADOW(dst)) return;
+  if (IS_IN_SHADOW(src)) return;
+  fast_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
+         (void*)MEM_TO_SHADOW((uptr)src), size);
+}
+
+void __msan_move_poison(void *dst, const void *src, uptr size) {
+  if (IS_IN_SHADOW(dst)) return;
+  if (IS_IN_SHADOW(src)) return;
+  CHECK(REAL(memmove));;
+  REAL(memmove)((void*)MEM_TO_SHADOW((uptr)dst),
+         (void*)MEM_TO_SHADOW((uptr)src), size);
+}
+
+void __msan_memcpy_with_poison(void *dst, const void *src, uptr size) {
+  memcpy(dst, src, size);  // Calls our interceptor.
+}
+
+#undef IS_IN_SHADOW
 
 namespace __msan {
 void InitializeInterceptors() {

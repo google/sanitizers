@@ -12,6 +12,8 @@ extern "C" {
 void __msan_init();
 void __msan_warning();
 void __msan_unpoison(void *a, uptr size);
+void __msan_clear_and_unpoison(void *a, uptr size);
+void __msan_memcpy_with_poison(void *dst, const void *src, uptr size);
 void __msan_copy_poison(void *dst, const void *src, uptr size);
 void __msan_move_poison(void *dst, const void *src, uptr size);
 void __msan_poison(void *a, uptr size);
