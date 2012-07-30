@@ -727,5 +727,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
 bool MemorySanitizer::runOnFunction(Function &F) {
   MemorySanitizerVisitor Visitor(F, *this);
+  F.removeAttribute(~0, Attribute::ReadOnly | Attribute::ReadNone);
   return Visitor.runOnFunction();
 }
