@@ -679,7 +679,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, getCleanShadow(&I));
     if (ClPoisonStack) {
       IRBuilder<> IRB(I.getNextNode());
-      Value *ShadowBase = getShadowPtr(&I, I.getType(), IRB);
+      Value *ShadowBase = getShadowPtr(&I, Type::getInt8PtrTy(*MS.C), IRB);
       uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
       IRB.CreateMemSet(ShadowBase, IRB.getInt8(ClPoisonStackPattern),
                        Size, I.getAlignment());
