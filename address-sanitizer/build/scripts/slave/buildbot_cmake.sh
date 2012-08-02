@@ -6,7 +6,7 @@ set -u
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
-  rm -rf llvm_source
+  rm -rf llvm
   rm -rf llvm_build64
   rm -rf llvm_build32
 fi
@@ -37,14 +37,17 @@ else
   (cd llvm && patch -p0 -i ../../../../scripts/slave/enable_compiler_rt.patch)
 fi
 
-LLVM_CHECKOUT=`pwd`/llvm
+ROOT=`pwd`
+LLVM_CHECKOUT=$ROOT/llvm
 BUILD_TYPE=Release
 echo @@@BUILD_STEP build 64-bit llvm@@@
 if [ ! -d llvm_build64 ]; then
   mkdir llvm_build64
   (cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $LLVM_CHECKOUT)
 fi
-(cd llvm_build64 && make -j$MAKE_JOBS)
+cd llvm_build64
+make -j$MAKE_JOBS
+cd $ROOT
 
 echo @@@BUILD_STEP build 32-bit llvm@@@
 if [ ! -d llvm_build32 ]; then
@@ -52,12 +55,18 @@ if [ ! -d llvm_build32 ]; then
   (cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
                             -DLLVM_BUILD_32_BITS=ON $LLVM_CHECKOUT)
 fi
-(cd llvm_build32 && make -j$MAKE_JOBS)
+cd llvm_build32
+make -j$MAKE_JOBS
+cd $ROOT
 
 echo @@@BUILD_STEP build asan tests@@@
 ASAN_TESTS_PATH=projects/compiler-rt/lib/asan/tests
-(cd llvm_build64/$ASAN_TESTS_PATH && make -j$MAKE_JOBS AsanTest)
-(cd llvm_build32/$ASAN_TESTS_PATH && make -j$MAKE_JOBS AsanTest)
+cd llvm_build64/$ASAN_TESTS_PATH
+make -j$MAKE_JOBS AsanTest
+cd $ROOT
+cd llvm_build32/$ASAN_TESTS_PATH
+make -j$MAKE_JOBS AsanTest
+cd $ROOT
 
 ASAN_TEST_BINARY=$ASAN_TESTS_PATH/$BUILD_TYPE/AsanTest
 echo @@@BUILD_STEP run 64-bit asan test@@@
