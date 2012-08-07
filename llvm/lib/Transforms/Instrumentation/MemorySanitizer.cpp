@@ -202,6 +202,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   MemorySanitizer &MS;
   SmallVector<PHINode *, 16> PHINodes;
   ValueMap<Value*, Value*> ShadowMap;
+  Value *NextVAArgShadowPtr;
 
   struct ShadowAndInsertPoint {
     Instruction *Shadow;
@@ -214,7 +215,24 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
 
   MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan) :
-    F(Func), MS(Msan) { }
+    F(Func), MS(Msan), NextVAArgShadowPtr(0) { }
+
+  void initVAArgs(IRBuilder<> &IRB) {
+    assert(!NextVAArgShadowPtr);
+    unsigned FixedArgsSize = 0;
+    for (Function::arg_iterator AI = F.arg_begin(); AI != F.arg_end();
+         ++AI) {
+      if (!AI->getType()->isSized()) {
+        DEBUG(dbgs() << "Arg is not sized\n");
+        continue;
+      }
+      unsigned Size = MS.TD->getTypeAllocSize(AI->getType());
+      FixedArgsSize += TargetData::RoundUpAlignment(Size, 8);
+    }
+    NextVAArgShadowPtr = IRB.CreateAlloca(Type::getInt8PtrTy(*MS.C));
+    IRB.CreateStore(IRB.CreateConstGEP1_32(IRB.CreatePointerCast(MS.ParamTLS,
+                Type::getInt8PtrTy(*MS.C)), FixedArgsSize), NextVAArgShadowPtr);
+  }
 
   bool runOnFunction() {
     if (!MS.TD) return false;
@@ -288,6 +306,22 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateIntToPtr(Base, PointerType::get(getShadowTy(A), 0),
                               "_msarg");
   }
+
+  Value *getNextVAArgShadow(Instruction *I) {
+    IRBuilder<> IRB(I);
+
+    Type *ArgType = I->getType();
+    unsigned ArgSize = MS.TD->getTypeAllocSize(ArgType);
+
+    Value* Ptr = IRB.CreateLoad(NextVAArgShadowPtr);
+    Value* NextPtr = IRB.CreateConstGEP1_32(Ptr, TargetData::RoundUpAlignment(ArgSize, 8));
+    IRB.CreateStore(NextPtr, NextVAArgShadowPtr);
+
+    Type *ShadowTy = getShadowTy(I);
+    Value *ShadowPtr = IRB.CreatePointerCast(Ptr,PointerType::get(ShadowTy, 0));
+    return IRB.CreateLoad(ShadowPtr, "_msva_arg");
+  }
+
 
   // Compute the shadow address for a retval.
   Value *getShadowPtrForRetval(Value *A, IRBuilder<> &IRB) {
@@ -611,14 +645,33 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRB.CreateMemMove(ShadowDst, ShadowSrc, Size, Align, isVolatile);
   }
 
+  void handleVAStart(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+
+    initVAArgs(IRB);
+
+    Value *VAListTag = I.getArgOperand(0);
+    Value *ShadowPtr = getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
+
+    // Unpoison the whole __va_list_tag.
+    // FIXME: magic constants.
+    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()), 24, 16, false);
+  }
+
+  void visitVAArg(VAArgInst &I) {
+    setShadow(&I, getNextVAArgShadow(&I));
+  }
+
   void visitCallInst(CallInst &I) {
-    if (isa<IntrinsicInst>(I)) {
+    if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
       if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
         handleMemSet(*MemSet);
       else if (MemCpyInst* MemCpy = dyn_cast<MemCpyInst>(&I))
         handleMemCpy(*MemCpy);
       else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
         handleMemMove(*MemMove);
+      else if (II->getIntrinsicID() == llvm::Intrinsic::vastart)
+        handleVAStart(*II);
       else
         // Unhandled intrinsic: mark retval as clean.
         visitInstruction(I);

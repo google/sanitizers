@@ -442,6 +442,21 @@ TEST(MemorySanitizer, ptrtoint) {
   EXPECT_POISONED(v_u1 = (((uptr)q) & 0xFF) == 0);
 }
 
+static void vaargsfn(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+}
+
+TEST(MemorySanitizer, VAArgTest) {
+  int* x = GetPoisoned<int>();
+  int* y = GetPoisoned<int>(4);
+  vaargsfn(1, 13, *x, 42, *y);
+}
+
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);
