@@ -134,7 +134,7 @@ static void addAddressSanitizerPass(const PassManagerBuilder &Builder,
 
 static cl::opt<bool> ClMSanMoreOpt("msan-more-opt",
        cl::desc("add more optimization after MSan pass"),
-       cl::Hidden, cl::init(false));
+       cl::Hidden, cl::init(true));
 
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
                                     PassManagerBase &PM) {
