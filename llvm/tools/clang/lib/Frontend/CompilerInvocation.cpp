@@ -1268,6 +1268,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.DebugCompilationDir = Args.getLastArgValue(OPT_fdebug_compilation_dir);
   Opts.LinkBitcodeFile = Args.getLastArgValue(OPT_mlink_bitcode_file);
   Opts.StackRealignment = Args.hasArg(OPT_mstackrealign);
+  Opts.UseLLVMVariadics = Args.hasArg(OPT_fuse_llvm_variadics);
   if (Arg *A = Args.getLastArg(OPT_mstack_alignment)) {
     StringRef Val = A->getValue(Args);
     Val.getAsInteger(10, Opts.StackAlignment);

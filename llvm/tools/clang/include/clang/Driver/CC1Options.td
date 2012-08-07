@@ -134,6 +134,8 @@ def migrator_no_finalize_removal : Flag<"-no-finalize-removal">,
 // CodeGen Options
 //===----------------------------------------------------------------------===//
 
+def fuse_llvm_variadics : Flag<"-fuse-llvm-variadics">,
+  HelpText<"Use LLVM's builtin support for variadics">;
 def disable_llvm_optzns : Flag<"-disable-llvm-optzns">,
   HelpText<"Don't run LLVM optimization passes">;
 def disable_llvm_verifier : Flag<"-disable-llvm-verifier">,
