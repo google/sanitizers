@@ -75,3 +75,13 @@ echo @@@BUILD_STEP run 64-bit asan test@@@
 echo @@@BUILD_STEP run 32-bit asan test@@@
 ./llvm_build32/$ASAN_TEST_BINARY
 
+echo @@@BUILD_STEP run 64-bit asan lit tests@@@
+cd llvm_build64
+make -j$MAKE_JOBS check-asan
+cd $ROOT
+
+echo @@@BUILD_STEP run 32-bit asan lit tests@@@
+cd llvm_build32
+make -j$MAKE_JOBS check-asan
+cd $ROOT
+
