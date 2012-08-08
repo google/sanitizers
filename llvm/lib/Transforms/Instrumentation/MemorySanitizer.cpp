@@ -104,6 +104,7 @@ struct MemorySanitizer : public FunctionPass {
   // We store the shadow for parameters and retvals in separate TLS globals.
   GlobalVariable *ParamTLS;
   GlobalVariable *RetvalTLS;
+  GlobalVariable *VAArgSizeTLS;
   // The run-time callback to print a warning.
   Value *WarningFn;
   // The shadow address is computed as ApplicationAddress & ~ShadowMask.
@@ -192,6 +193,9 @@ bool MemorySanitizer::doInitialization(Module &M) {
   ParamTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 1000),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_param_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
+  VAArgSizeTLS = new GlobalVariable(M, IRB.getInt64Ty(),
+    false, GlobalVariable::ExternalLinkage, 0, "__msan_va_arg_size_tls", 0,
+    GlobalVariable::GeneralDynamicTLSModel);
   return true;
 }
 
@@ -217,7 +221,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan) :
     F(Func), MS(Msan), NextVAArgShadowPtr(0) { }
 
-  void initVAArgs(IRBuilder<> &IRB) {
+  void initVAArgs() {
+    IRBuilder<> EntryIRB(F.getEntryBlock().getFirstNonPHI());
     assert(!NextVAArgShadowPtr);
     unsigned FixedArgsSize = 0;
     for (Function::arg_iterator AI = F.arg_begin(); AI != F.arg_end();
@@ -229,9 +234,20 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       unsigned Size = MS.TD->getTypeAllocSize(AI->getType());
       FixedArgsSize += TargetData::RoundUpAlignment(Size, 8);
     }
-    NextVAArgShadowPtr = IRB.CreateAlloca(Type::getInt8PtrTy(*MS.C));
-    IRB.CreateStore(IRB.CreateConstGEP1_32(IRB.CreatePointerCast(MS.ParamTLS,
-                Type::getInt8PtrTy(*MS.C)), FixedArgsSize), NextVAArgShadowPtr);
+
+    // Copy VArg shadow to a stack-allocated buffer, or else it may get
+    // overwritten by the next function call.
+    Value* SrcPtr = EntryIRB.CreateConstGEP1_32(EntryIRB.CreatePointerCast(
+            MS.ParamTLS, Type::getInt8PtrTy(*MS.C)), FixedArgsSize);
+    Value* CopySize = EntryIRB.CreateSub(EntryIRB.CreateLoad(MS.VAArgSizeTLS),
+        ConstantInt::get(MS.VAArgSizeTLS->getType()->getElementType(),
+            FixedArgsSize));
+    Value* DstPtr = EntryIRB.CreateAlloca(EntryIRB.getInt8Ty(), CopySize);
+    EntryIRB.CreateMemCpy(DstPtr, SrcPtr, CopySize, 8, /* isVolatile */ false);
+
+    // NextVAArgShadowPtr contains a pointer to the shadow for the next va_arg.
+    NextVAArgShadowPtr = EntryIRB.CreateAlloca(Type::getInt8PtrTy(*MS.C));
+    EntryIRB.CreateStore(DstPtr, NextVAArgShadowPtr);
   }
 
   bool runOnFunction() {
@@ -646,16 +662,16 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void handleVAStart(IntrinsicInst &I) {
+    initVAArgs();
+
     IRBuilder<> IRB(&I);
-
-    initVAArgs(IRB);
-
     Value *VAListTag = I.getArgOperand(0);
     Value *ShadowPtr = getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
 
     // Unpoison the whole __va_list_tag.
-    // FIXME: magic constants.
-    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()), 24, 16, false);
+    // FIXME: magic ABI constants.
+    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
+        /* size */24, /* alignment */16, false);
   }
 
   void visitVAArg(VAArgInst &I) {
@@ -691,6 +707,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *Store = IRB.CreateStore(getShadow(A), Base);
       ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
+    }
+    if (I.getCalledFunction()->isVarArg()) {
+      errs() << *MS.VAArgSizeTLS << "\n";
+      errs() << *MS.VAArgSizeTLS->getType() << "\n";
+      IRB.CreateStore(ConstantInt::get(MS.VAArgSizeTLS->getType()->getElementType(), ArgOffset),
+          MS.VAArgSizeTLS);
     }
     // Now, get the shadow for the RetVal.
     if (I.getType()->isSized()) {

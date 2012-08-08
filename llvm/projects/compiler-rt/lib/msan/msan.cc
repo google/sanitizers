@@ -17,6 +17,7 @@ static THREADLOCAL int msan_expected_umr_found = 0;
 static int msan_running_under_dr = 0;
 THREADLOCAL long long __msan_param_tls[100];
 THREADLOCAL long long __msan_retval_tls[8];
+THREADLOCAL long long __msan_va_arg_size_tls;
 static long long *main_thread_param_tls;
 
 static bool IsRunningUnderDr() {

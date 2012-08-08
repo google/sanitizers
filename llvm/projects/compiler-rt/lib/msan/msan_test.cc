@@ -442,13 +442,27 @@ TEST(MemorySanitizer, ptrtoint) {
   EXPECT_POISONED(v_u1 = (((uptr)q) & 0xFF) == 0);
 }
 
+static void vaargsfn2(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  va_end(vl);
+}
+
 static void vaargsfn(int guard, ...) {
   va_list vl;
   va_start(vl, guard);
   v_s4 = va_arg(vl, int);
   EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  // The following call will overwrite __msan_param_tls.
+  // Checks after it test that arg shadow was somehow saved across the call.
+  vaargsfn2(1, 2, 3, 4, 5);
   v_s4 = va_arg(vl, int);
   EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  va_end(vl);
 }
 
 TEST(MemorySanitizer, VAArgTest) {
