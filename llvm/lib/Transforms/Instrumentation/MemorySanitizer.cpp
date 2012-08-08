@@ -708,9 +708,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
     }
-    if (I.getCalledFunction()->isVarArg()) {
-      IRB.CreateStore(ConstantInt::get(MS.VAArgSizeTLS->getType()->getElementType(), ArgOffset),
-          MS.VAArgSizeTLS);
+    // For VarArg functions, store the size of its argument shadow.
+    FunctionType *FT = cast<FunctionType>(I.getCalledValue()->getType()->
+        getContainedType(0));
+    if (FT->isVarArg()) {
+      IRB.CreateStore(ConstantInt::get(MS.VAArgSizeTLS->getType()->
+              getElementType(), ArgOffset), MS.VAArgSizeTLS);
     }
     // Now, get the shadow for the RetVal.
     if (I.getType()->isSized()) {
