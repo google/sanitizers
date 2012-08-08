@@ -709,8 +709,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
     }
     if (I.getCalledFunction()->isVarArg()) {
-      errs() << *MS.VAArgSizeTLS << "\n";
-      errs() << *MS.VAArgSizeTLS->getType() << "\n";
       IRB.CreateStore(ConstantInt::get(MS.VAArgSizeTLS->getType()->getElementType(), ArgOffset),
           MS.VAArgSizeTLS);
     }
