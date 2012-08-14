@@ -393,6 +393,25 @@ TEST(MemorySanitizer, read) {
   delete x;
 }
 
+TEST(MemorySanitizer, stat) {
+  struct stat* st = new struct stat;
+  int res = stat("/proc/self/stat", st);
+  assert(!res);
+  v_u8 = st->st_dev;
+  v_u8 = st->st_mode;
+  v_u8 = st->st_size;
+}
+
+TEST(MemorySanitizer, pipe) {
+  int* pipefd = new int[2];
+  int res = pipe(pipefd);
+  assert(!res);
+  v_u8 = pipefd[0];
+  v_u8 = pipefd[1];
+  close(pipefd[0]);
+  close(pipefd[1]);
+}
+
 TEST(MemorySanitizer, memcpy) {
   char* x = new char[2];
   char* y = new char[2];

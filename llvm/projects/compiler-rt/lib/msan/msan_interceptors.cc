@@ -148,6 +148,53 @@ INTERCEPTOR(char*, getenv, char* name) {
   return res;
 }
 
+INTERCEPTOR(int, __fxstat, int magic, int fd, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(__fxstat)(magic, fd, buf);
+  if (!res)
+    __msan_unpoison(buf, 144); // seems like a reasonable size ;)
+  return res;
+}
+
+INTERCEPTOR(int, __xstat, int magic, char* path, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(__xstat)(magic, path, buf);
+  if (!res)
+    __msan_unpoison(buf, 144);
+  return res;
+}
+
+INTERCEPTOR(int, __lxstat, int magic, char* path, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(__lxstat)(magic, path, buf);
+  if (!res)
+    __msan_unpoison(buf, 144);
+  return res;
+}
+
+INTERCEPTOR(int, pipe, int pipefd[2]) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(pipe)(pipefd);
+  if (!res)
+    __msan_unpoison(pipefd, sizeof(int[2]));
+  return res;
+}
+
+INTERCEPTOR(int, wait, int* status) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(wait)(status);
+  if (status)
+    __msan_unpoison(status, sizeof(*status));
+  return res;
+}
+
+INTERCEPTOR(int, waitpid, int pid, int* status, int options) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(waitpid)(pid, status, options);
+  if (status)
+    __msan_unpoison(status, sizeof(*status));
+  return res;
+}
 
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
   if (!msan_inited) {
@@ -277,5 +324,11 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(strcat));
   CHECK(INTERCEPT_FUNCTION(strncat));
   CHECK(INTERCEPT_FUNCTION(getenv));
+  CHECK(INTERCEPT_FUNCTION(__fxstat));
+  CHECK(INTERCEPT_FUNCTION(__xstat));
+  CHECK(INTERCEPT_FUNCTION(__lxstat));
+  CHECK(INTERCEPT_FUNCTION(pipe));
+  CHECK(INTERCEPT_FUNCTION(wait));
+  CHECK(INTERCEPT_FUNCTION(waitpid));
 }
 }  // namespace __msan
