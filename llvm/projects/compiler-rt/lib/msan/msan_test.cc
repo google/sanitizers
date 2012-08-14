@@ -47,6 +47,8 @@ static volatile U1 v_u1;
 static volatile U2 v_u2;
 static volatile U4 v_u4;
 static volatile U8 v_u8;
+static void* volatile v_p;
+static volatile double v_d;
 static volatile int g_one = 1;
 static volatile int g_zero = 0;
 
@@ -448,7 +450,7 @@ static void vaargsfn2(int guard, ...) {
   v_s4 = va_arg(vl, int);
   v_s4 = va_arg(vl, int);
   v_s4 = va_arg(vl, int);
-  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_d = va_arg(vl, double));
   va_end(vl);
 }
 
@@ -459,7 +461,7 @@ static void vaargsfn(int guard, ...) {
   EXPECT_POISONED(v_s4 = va_arg(vl, int));
   // The following call will overwrite __msan_param_tls.
   // Checks after it test that arg shadow was somehow saved across the call.
-  vaargsfn2(1, 2, 3, 4, 5);
+  vaargsfn2(1, 2, 3, 4, *GetPoisoned<double>());
   v_s4 = va_arg(vl, int);
   EXPECT_POISONED(v_s4 = va_arg(vl, int));
   va_end(vl);
@@ -469,6 +471,158 @@ TEST(MemorySanitizer, VAArgTest) {
   int* x = GetPoisoned<int>();
   int* y = GetPoisoned<int>(4);
   vaargsfn(1, 13, *x, 42, *y);
+}
+
+static void vaargsfn_many(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  va_end(vl);
+}
+
+TEST(MemorySanitizer, VAArgManyTest) {
+  int* x = GetPoisoned<int>();
+  int* y = GetPoisoned<int>(4);
+  vaargsfn_many(1, 2, *x, 3, 4, 5, 6, 7, 8, 9, *y);
+}
+
+static void vaargsfn_pass2(va_list vl) {
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+}
+
+static void vaargsfn_pass(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  vaargsfn_pass2(vl);
+  va_end(vl);
+}
+
+TEST(MemorySanitizer, VAArgPass) {
+  int* x = GetPoisoned<int>();
+  int* y = GetPoisoned<int>(4);
+  vaargsfn_pass(1, *x, 2, 3, *y);
+}
+
+static void vaargsfn_copy2(va_list vl) {
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+}
+
+static void vaargsfn_copy(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  va_list vl2;
+  va_copy(vl2, vl);
+  vaargsfn_copy2(vl2);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  va_end(vl);
+}
+
+TEST(MemorySanitizer, VAArgCopy) {
+  int* x = GetPoisoned<int>();
+  int* y = GetPoisoned<int>(4);
+  vaargsfn_copy(1, 2, *x, 3, *y);
+}
+
+static void vaargsfn_ptr(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_p = va_arg(vl, int*);
+  EXPECT_POISONED(v_p = va_arg(vl, int*));
+  v_p = va_arg(vl, int*);
+  EXPECT_POISONED(v_p = va_arg(vl, double*));
+  va_end(vl);
+}
+
+TEST(MemorySanitizer, VAArgPtr) {
+  int** x = GetPoisoned<int*>();
+  double** y = GetPoisoned<double*>(8);
+  int z;
+  vaargsfn_ptr(1, &z, *x, &z, *y);
+}
+
+static void vaargsfn_overflow(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+  v_s4 = va_arg(vl, int);
+
+  v_d = va_arg(vl, double);
+  v_d = va_arg(vl, double);
+  v_d = va_arg(vl, double);
+  EXPECT_POISONED(v_d = va_arg(vl, double));
+  v_d = va_arg(vl, double);
+  EXPECT_POISONED(v_p = va_arg(vl, int*));
+  v_d = va_arg(vl, double);
+  v_d = va_arg(vl, double);
+
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  EXPECT_POISONED(v_d = va_arg(vl, double));
+  EXPECT_POISONED(v_p = va_arg(vl, int*));
+
+  v_s4 = va_arg(vl, int);
+  v_d = va_arg(vl, double);
+  v_p = va_arg(vl, int*);
+
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  EXPECT_POISONED(v_d = va_arg(vl, double));
+  EXPECT_POISONED(v_p = va_arg(vl, int*));
+
+  va_end(vl);
+}
+
+TEST(MemorySanitizer, VAArgOverflow) {
+  int* x = GetPoisoned<int>();
+  double* y = GetPoisoned<double>(8);
+  int** p = GetPoisoned<int*>(16);
+  int z;
+  vaargsfn_overflow(1,
+      1, 2, *x, 4, 5, 6,
+      1.1, 2.2, 3.3, *y, 5.5, *p, 7.7, 8.8,
+      // the following args will overflow for sure
+      *x, *y, *p,
+      7, 9.9, &z,
+      *x, *y, *p);
+}
+
+static void vaargsfn_tlsoverwrite2(int guard, ...) {
+  va_list vl;
+  va_start(vl, guard);
+  v_s4 = va_arg(vl, int);
+  va_end(vl);
+}
+
+static void vaargsfn_tlsoverwrite(int guard, ...) {
+  // This call will overwrite TLS contents unless it's backed up somewhere.
+  vaargsfn_tlsoverwrite2(2, 42);
+  va_list vl;
+  va_start(vl, guard);
+  EXPECT_POISONED(v_s4 = va_arg(vl, int));
+  va_end(vl);
+}
+
+TEST(MemorySanitizer, VAArgTLSOverwrite) {
+  int* x = GetPoisoned<int>();
+  vaargsfn_tlsoverwrite(1, *x);
 }
 
 extern "C" {
