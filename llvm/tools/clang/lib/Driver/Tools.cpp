@@ -2480,9 +2480,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       KernelOrKext)
     CmdArgs.push_back("-fno-use-cxa-atexit");
 
-  if (Args.hasArg(options::OPT_fuse_llvm_variadics))
-    CmdArgs.push_back("-fuse-llvm-variadics");
-
   // -fms-extensions=0 is default.
   if (Args.hasFlag(options::OPT_fms_extensions, options::OPT_fno_ms_extensions,
                    getToolChain().getTriple().getOS() == llvm::Triple::Win32))

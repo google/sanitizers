@@ -2665,9 +2665,6 @@ Value *ScalarExprEmitter::VisitChooseExpr(ChooseExpr *E) {
 
 Value *ScalarExprEmitter::VisitVAArgExpr(VAArgExpr *VE) {
   llvm::Value *ArgValue = CGF.EmitVAListRef(VE->getSubExpr());
-  if (CGF.CGM.getCodeGenOpts().UseLLVMVariadics)
-    return Builder.CreateVAArg(ArgValue, ConvertType(VE->getType()));
-
   llvm::Value *ArgPtr = CGF.EmitVAArg(ArgValue, VE->getType());
 
   // If EmitVAArg fails, we fall back to the LLVM instruction.
