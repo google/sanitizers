@@ -200,7 +200,7 @@ INTERCEPTOR(char*, fgets, char* s, int size, void* stream) {
   ENSURE_MSAN_INITED();
   char* res = REAL(fgets)(s, size, stream);
   if (res)
-    __msan_unpoison(s, strlen(s) + 1);
+    __msan_unpoison(s, REAL(strlen)(s) + 1);
   return res;
 }
 
