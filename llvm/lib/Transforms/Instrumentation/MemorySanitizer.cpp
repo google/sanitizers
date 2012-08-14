@@ -735,7 +735,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
     }
-    // For VarArg functions, store the size of its argument shadow.
+    // For VarArg functions, store the argument shadow in an ABI-specific format
+    // that corresponds to va_list layout.
+    // We do this because Clang lowers va_arg in the frontend, and this pass
+    // only sees the low level code that deals with va_list internals.
+    // A much easier alternative (provided that Clang emits va_arg instructions)
+    // would have been to associate each live instance of va_list with a copy of
+    // MSanParamTLS, and extract shadow on va_arg() call in the argument list
+    // order.
     FunctionType *FT = cast<FunctionType>(I.getCalledValue()->getType()->
         getContainedType(0));
     if (FT->isVarArg()) {
