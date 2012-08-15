@@ -744,7 +744,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       }
       unsigned Size;
       if (I.paramHasAttr(i + 1, Attribute::ByVal)) {
-        errs()<< "byval" << I << "\n";
         assert(A->getType()->isPointerTy());
         Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
         Value *Base = getShadowPtrForArgument(A, IRB, ArgOffset);
