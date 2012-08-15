@@ -644,6 +644,31 @@ TEST(MemorySanitizer, VAArgTLSOverwrite) {
   vaargsfn_tlsoverwrite(1, *x);
 }
 
+struct StructByVal {
+  int a, b, c, d, e, f;
+};
+
+void StructByValTestFunc(struct StructByVal s) {
+  v_s4 = s.a;
+  EXPECT_POISONED(v_s4 = s.b);
+  v_s4 = s.c;
+  EXPECT_POISONED(v_s4 = s.d);
+  v_s4 = s.e;
+  EXPECT_POISONED(v_s4 = s.f);
+}
+
+TEST(MemorySanitizer, StructByVal) {
+  // Large aggregates are passed as "byval" pointer argument in LLVM.
+  struct StructByVal s;
+  s.a = 1;
+  s.b = *GetPoisoned<int>();
+  s.c = 2;
+  s.d = *GetPoisoned<int>();
+  s.e = 3;
+  s.f = *GetPoisoned<int>();
+  StructByValTestFunc(s);
+}
+
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);

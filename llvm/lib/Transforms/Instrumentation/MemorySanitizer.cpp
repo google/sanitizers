@@ -389,12 +389,25 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           DEBUG(dbgs() << "Arg is not sized\n");
           continue;
         }
+        unsigned Size;
+        if (AI->hasByValAttr()) {
+          Size = MS.TD->getTypeAllocSize(AI->getType()->getPointerElementType());
+        } else {
+          Size = MS.TD->getTypeAllocSize(AI->getType());
+        }
         if (A == AI) {
           Value *Base = getShadowPtrForArgument(AI, EntryIRB, ArgOffset);
-          *ShadowPtr = EntryIRB.CreateLoad(Base);
+          if (AI->hasByValAttr()) {
+            // ByVal pointer itself has clean shadow. We copy the actual
+            // argument shadow to the underlying memory.
+            EntryIRB.CreateMemCpy(getShadowPtr(V, EntryIRB.getInt8Ty(),
+                    EntryIRB), Base, Size, AI->getParamAlignment());
+            *ShadowPtr = getCleanShadow(V);
+          } else {
+            *ShadowPtr = EntryIRB.CreateLoad(Base);
+          }
           DEBUG(dbgs() << "ARG "  << *AI << " ==> " << *ShadowPtr << "\n");
         }
-        unsigned Size = MS.TD->getTypeAllocSize(AI->getType());
         ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       }
       assert(*ShadowPtr);
@@ -729,11 +742,22 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         DEBUG(dbgs() << "Arg " << i << " is not sized: " << I << "\n");
         continue;
       }
-      unsigned Size = MS.TD->getTypeAllocSize(A->getType());
-      Value *Base = getShadowPtrForArgument(A, IRB, ArgOffset);
-      Value *Store = IRB.CreateStore(getShadow(A), Base);
+      unsigned Size;
+      if (I.paramHasAttr(i + 1, Attribute::ByVal)) {
+        errs()<< "byval" << I << "\n";
+        assert(A->getType()->isPointerTy());
+        Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
+        Value *Base = getShadowPtrForArgument(A, IRB, ArgOffset);
+        Value *Store = IRB.CreateMemCpy(Base, getShadowPtr(A, Type::getInt8Ty(*MS.C), IRB),
+            Size, I.getParamAlignment(i + 1));
+        DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
+      } else {
+        Size = MS.TD->getTypeAllocSize(A->getType());
+        Value *Base = getShadowPtrForArgument(A, IRB, ArgOffset);
+        Value *Store = IRB.CreateStore(getShadow(A), Base);
+        DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
+      }
       ArgOffset += TargetData::RoundUpAlignment(Size, 8);
-      DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
     }
     // For VarArg functions, store the argument shadow in an ABI-specific format
     // that corresponds to va_list layout.
