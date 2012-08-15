@@ -204,6 +204,22 @@ INTERCEPTOR(char*, fgets, char* s, int size, void* stream) {
   return res;
 }
 
+INTERCEPTOR(char*, getcwd, char* buf, size_t size) {
+  ENSURE_MSAN_INITED();
+  char* res = REAL(getcwd)(buf, size);
+  if (res)
+    __msan_unpoison(buf, REAL(strlen)(buf) + 1);
+  return res;
+}
+
+INTERCEPTOR(char*, realpath, char* path, char* abspath) {
+  ENSURE_MSAN_INITED();
+  char* res = REAL(realpath)(path, abspath);
+  if (res)
+    __msan_unpoison(abspath, REAL(strlen)(abspath) + 1);
+  return res;
+}
+
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
   if (!msan_inited) {
     // Hack: dlsym calls calloc before REAL(calloc) is retrieved from dlsym.
@@ -339,5 +355,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(wait));
   CHECK(INTERCEPT_FUNCTION(waitpid));
   CHECK(INTERCEPT_FUNCTION(fgets));
+  CHECK(INTERCEPT_FUNCTION(getcwd));
+  CHECK(INTERCEPT_FUNCTION(realpath));
 }
 }  // namespace __msan

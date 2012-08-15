@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <unistd.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -410,6 +412,21 @@ TEST(MemorySanitizer, pipe) {
   v_u8 = pipefd[1];
   close(pipefd[0]);
   close(pipefd[1]);
+}
+
+TEST(MemorySanitizer, getcwd) {
+  char path[PATH_MAX + 1];
+  char* res = getcwd(path, sizeof(path));
+  assert(res);
+  v_s1 = path[0];
+}
+
+TEST(MemorySanitizer, realpath) {
+  const char* relpath = ".";
+  char path[PATH_MAX + 1];
+  char* res = realpath(relpath, path);
+  assert(res);
+  v_s1 = path[0];
 }
 
 TEST(MemorySanitizer, memcpy) {
