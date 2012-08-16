@@ -716,11 +716,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return ARG_MEMORY;
   }
 
-  void visitInvokeInst(InvokeInst &I) {
-    errs() << "MSan does not support exceptions yet. Sorry!\n";
-    assert(0);
-  }
-
   void visitCallInst(CallInst &I) {
     if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
       if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))

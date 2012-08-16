@@ -665,13 +665,21 @@ struct StructByVal {
   int a, b, c, d, e, f;
 };
 
-void StructByValTestFunc(struct StructByVal s) {
+NOINLINE void StructByValTestFunc(struct StructByVal s) {
   v_s4 = s.a;
   EXPECT_POISONED(v_s4 = s.b);
   v_s4 = s.c;
   EXPECT_POISONED(v_s4 = s.d);
   v_s4 = s.e;
   EXPECT_POISONED(v_s4 = s.f);
+}
+
+NOINLINE void StructByValTestFunc1(struct StructByVal s) {
+  StructByValTestFunc(s);
+}
+
+NOINLINE void StructByValTestFunc2(int z, struct StructByVal s) {
+  StructByValTestFunc(s);
 }
 
 TEST(MemorySanitizer, StructByVal) {
@@ -684,6 +692,8 @@ TEST(MemorySanitizer, StructByVal) {
   s.e = 3;
   s.f = *GetPoisoned<int>();
   StructByValTestFunc(s);
+  StructByValTestFunc1(s);
+  StructByValTestFunc2(0, s);
 }
 
 extern "C" {
