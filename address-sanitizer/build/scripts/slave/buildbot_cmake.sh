@@ -4,6 +4,8 @@ set -x
 set -e
 set -u
 
+PLATFORM=`uname`
+
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
@@ -60,7 +62,8 @@ make -j$MAKE_JOBS
 cd $ROOT
 
 echo @@@BUILD_STEP build asan tests@@@
-ASAN_TESTS_PATH=projects/compiler-rt/lib/asan/tests
+ASAN_PATH=projects/compiler-rt/lib/asan
+ASAN_TESTS_PATH=$ASAN_PATH/tests
 cd llvm_build64/$ASAN_TESTS_PATH
 make -j$MAKE_JOBS AsanTest
 cd $ROOT
@@ -84,4 +87,12 @@ echo @@@BUILD_STEP run 32-bit asan lit tests@@@
 cd llvm_build32
 make -j$MAKE_JOBS check-asan
 cd $ROOT
+
+if [ "$PLATFORM" == "Darwin" ]; then
+echo @@@BUILD_STEP build asan dynamic runtime@@@
+# Building a fat binary for both 32 and 64 bits.
+cd llvm_build64/$ASAN_PATH
+make -j$MAKE_JOBS clang_rt.asan_osx_dynamic
+cd $ROOT
+fi
 
