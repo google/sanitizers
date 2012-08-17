@@ -469,6 +469,18 @@ TEST(MemorySanitizer, strncpy) {
   EXPECT_POISONED(v_s4 = y[2]);
 }
 
+TEST(MemorySanitizer, strtol) {
+  char *e;
+  assert(1 == strtol("1", &e, 10));
+  v_s8 = (S8) e;
+}
+
+TEST(MemorySanitizer, strtoll) {
+  char *e;
+  assert(1 == strtoll("1", &e, 10));
+  v_s8 = (S8) e;
+}
+
 TEST(MemorySanitizer, ptrtoint) {
   // Test that shadow is propagated through pointer-to-integer conversion.
   void* p = (void*)0xABCD;
