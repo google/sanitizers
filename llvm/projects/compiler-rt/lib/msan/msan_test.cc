@@ -489,6 +489,28 @@ TEST(MemorySanitizer, LoadUnpoisoned) {
   v_s8 = safe;
 }
 
+struct StructWithDtor {
+  ~StructWithDtor();
+};
+
+NOINLINE StructWithDtor::~StructWithDtor() {
+  __msan_break_optimization(0);
+}
+
+NOINLINE void ExpectGood(int a) { v_s4 = a; }
+NOINLINE void ExpectPoisoned(int a) {
+  EXPECT_POISONED(v_s4 = a);
+}
+
+// FIXME: start compiling the test w/o -fno-exceptions
+TEST(MemorySanitizer, Invoke) {
+  StructWithDtor s; // Will cause the calls to become invokes.
+  ExpectGood(0);
+  ExpectPoisoned(*GetPoisoned<int>());
+  ExpectGood(0);
+  ExpectPoisoned(*GetPoisoned<int>());
+}
+
 TEST(MemorySanitizer, ptrtoint) {
   // Test that shadow is propagated through pointer-to-integer conversion.
   void* p = (void*)0xABCD;
