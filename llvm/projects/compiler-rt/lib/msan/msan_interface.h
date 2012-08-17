@@ -18,6 +18,10 @@ void __msan_copy_poison(void *dst, const void *src, uptr size);
 void __msan_move_poison(void *dst, const void *src, uptr size);
 void __msan_poison(void *a, uptr size);
 
+// Copy size bytes from src to dst and unpoison the result.
+// Useful to implement unsafe loads.
+void __msan_load_unpoisoned(void *src, uptr size, void *dst);
+
 // Returns the offset of the first (at least partially) poisoned byte, or -1 if the whole range is good.
 sptr __msan_test_shadow(const void *x, uptr size);
 

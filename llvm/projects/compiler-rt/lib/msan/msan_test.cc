@@ -481,6 +481,14 @@ TEST(MemorySanitizer, strtoll) {
   v_s8 = (S8) e;
 }
 
+TEST(MemorySanitizer, LoadUnpoisoned) {
+  S8 s = *GetPoisoned<S8>();
+  EXPECT_POISONED(v_s8 = s);
+  S8 safe = *GetPoisoned<S8>();
+  __msan_load_unpoisoned(&s, sizeof(s), &safe);
+  v_s8 = safe;
+}
+
 TEST(MemorySanitizer, ptrtoint) {
   // Test that shadow is propagated through pointer-to-integer conversion.
   void* p = (void*)0xABCD;

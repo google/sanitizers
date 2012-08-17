@@ -158,4 +158,9 @@ void __msan_partial_poison(void* data, void* shadow, uptr size) {
   internal_memcpy((void*)MEM_TO_SHADOW((uptr)data), shadow, size);
 }
 
+void __msan_load_unpoisoned(void *src, uptr size, void *dst) {
+  internal_memcpy(dst, src, size);
+  __msan_unpoison(dst, size);
+}
+
 #include "msan_linux_inl.h"
