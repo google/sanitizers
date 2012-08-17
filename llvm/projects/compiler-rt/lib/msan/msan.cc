@@ -108,8 +108,8 @@ void __msan_print_shadow(const void *x, uptr size) {
 }
 
 void __msan_print_param_shadow() {
-  for (int i = 0; i < 4; i++) {
-    Printf("%zx ", __msan_param_tls[i]);
+  for (int i = 0; i < 16; i++) {
+    Printf("#%d:%zx ", i, __msan_param_tls[i]);
   }
   Printf("\n");
 }
