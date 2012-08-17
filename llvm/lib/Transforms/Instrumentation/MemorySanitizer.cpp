@@ -48,6 +48,7 @@
 
 #define DEBUG_TYPE "msan"
 
+#include "FunctionBlackList.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
@@ -88,6 +89,10 @@ static cl::opt<bool> ClDumpStrictInstructions("msan-dump-strict-instructions",
        cl::desc("print out instructions with default strict semantics"),
        cl::Hidden, cl::init(false));
 
+static cl::opt<std::string>  ClBlackListFile("msan-blacklist",
+       cl::desc("File containing the list of functions where MemorySanitizer "
+                "should not report bugs"), cl::Hidden);
+
 namespace {
 
 /// MemorySanitizer: instrument the code in module to find uninitialized reads.
@@ -112,6 +117,7 @@ struct MemorySanitizer : public FunctionPass {
   uint64_t ShadowMask;
   // Branch weights for error reporting.
   MDNode *ColdCallWeights;
+  OwningPtr<FunctionBlackList> BL;
 };
 }  // namespace
 
@@ -160,6 +166,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
+  BL.reset(new FunctionBlackList(ClBlackListFile));
   C = &(M.getContext());
   int PtrSize = TD->getPointerSizeInBits();
   switch (PtrSize) {
@@ -213,6 +220,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ValueMap<Value*, Value*> ShadowMap;
   Value *VAArgTLSCopy;
   Value *VAArgOverflowSize;
+  bool InsertChecks;
 
   static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
   static const unsigned AMD64FpEndOffset = 176;
@@ -230,7 +238,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
 
   MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan) :
-    F(Func), MS(Msan), VAArgTLSCopy(0), VAArgOverflowSize(0) { }
+    F(Func), MS(Msan), VAArgTLSCopy(0), VAArgOverflowSize(0) {
+    InsertChecks = !MS.BL->isIn(F);
+    if (!InsertChecks)
+      dbgs() << "MemorySanitizer is not inserting checks into "
+             << F.getName() << "\n";
+  }
 
   bool runOnFunction() {
     if (!MS.TD) return false;
@@ -438,6 +451,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!ShadowVal) return;
     Instruction *Shadow = dyn_cast<Instruction>(ShadowVal);
     if (!Shadow) return;
+    if (!InsertChecks) return;
     InstrumentationSet.push_back(ShadowAndInsertPoint(Shadow, OrigIns));
   }
 
