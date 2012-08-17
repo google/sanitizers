@@ -44,7 +44,7 @@
 // Since parameters and return values may be passed via registers, we
 // have a specialized thread-local shadow for return values (__msan_retval_tls)
 // and parameters (__msan_param_tls).
-///===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "msan"
 
@@ -198,7 +198,8 @@ bool MemorySanitizer::doInitialization(Module &M) {
     false, GlobalVariable::ExternalLinkage, 0, "__msan_va_arg_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
   VAArgOverflowSizeTLS = new GlobalVariable(M, IRB.getInt64Ty(),
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_va_arg_overflow_size_tls", 0,
+    false, GlobalVariable::ExternalLinkage, 0,
+    "__msan_va_arg_overflow_size_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
   return true;
 }
@@ -257,7 +258,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // va_arg_tls somewhere in the function entry block.
       IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
       VAArgOverflowSize = IRB.CreateLoad(MS.VAArgOverflowSizeTLS);
-      Value* CopySize = IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
+      Value* CopySize =
+          IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
           VAArgOverflowSize);
       VAArgTLSCopy = IRB.CreateAlloca(Type::getInt8Ty(*MS.C), CopySize);
       IRB.CreateMemCpy(VAArgTLSCopy, MS.VAArgTLS, CopySize, 8);
@@ -270,17 +272,25 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRBuilder<> IRB(OrigInst->getNextNode());
       Value *VAListTag = OrigInst->getArgOperand(0);
 
-      Value* RegSaveAreaPtrPtr = IRB.CreateIntToPtr(IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag,
-                  MS.IntptrTy), ConstantInt::get(MS.IntptrTy, 16)), Type::getInt64PtrTy(*MS.C));
+      Value* RegSaveAreaPtrPtr = IRB.CreateIntToPtr(
+          IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
+                        ConstantInt::get(MS.IntptrTy, 16)),
+          Type::getInt64PtrTy(*MS.C));
       Value* RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
-      Value* RegSaveAreaShadowPtr = getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
-      IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy, AMD64FpEndOffset, 16);
+      Value* RegSaveAreaShadowPtr =
+          getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
+      IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy,
+                       AMD64FpEndOffset, 16);
 
-      Value* OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag,
-                  MS.IntptrTy), ConstantInt::get(MS.IntptrTy, 8)), Type::getInt64PtrTy(*MS.C));
+      Value* OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(
+          IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
+                        ConstantInt::get(MS.IntptrTy, 8)),
+          Type::getInt64PtrTy(*MS.C));
       Value* OverflowArgAreaPtr = IRB.CreateLoad(OverflowArgAreaPtrPtr);
-      Value* OverflowArgAreaShadowPtr = getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
-      Value* SrcPtr = getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
+      Value* OverflowArgAreaShadowPtr =
+          getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
+      Value* SrcPtr =
+          getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
       IRB.CreateMemCpy(OverflowArgAreaShadowPtr, SrcPtr, VAArgOverflowSize, 16);
     }
 
@@ -290,7 +300,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Instruction *OrigIns = InstrumentationSet[i].OrigIns;
       IRBuilder<> IRB(OrigIns);
       Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
-      Instruction *CheckTerm = splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
+      Instruction *CheckTerm =
+          splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
       IRBuilder<> IRB2(CheckTerm);
       CallInst *Call = IRB2.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
@@ -389,24 +400,24 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           DEBUG(dbgs() << "Arg is not sized\n");
           continue;
         }
-        unsigned Size;
-        if (AI->hasByValAttr()) {
-          Size = MS.TD->getTypeAllocSize(AI->getType()->getPointerElementType());
-        } else {
-          Size = MS.TD->getTypeAllocSize(AI->getType());
-        }
+        unsigned Size = AI->hasByValAttr()
+          ? MS.TD->getTypeAllocSize(AI->getType()->getPointerElementType())
+          : MS.TD->getTypeAllocSize(AI->getType());
         if (A == AI) {
           Value *Base = getShadowPtrForArgument(AI, EntryIRB, ArgOffset);
           if (AI->hasByValAttr()) {
             // ByVal pointer itself has clean shadow. We copy the actual
             // argument shadow to the underlying memory.
-            EntryIRB.CreateMemCpy(getShadowPtr(V, EntryIRB.getInt8Ty(),
-                    EntryIRB), Base, Size, AI->getParamAlignment());
+            Value *Cpy = EntryIRB.CreateMemCpy(
+                getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
+                Base, Size, AI->getParamAlignment());
+            DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
             *ShadowPtr = getCleanShadow(V);
           } else {
             *ShadowPtr = EntryIRB.CreateLoad(Base);
           }
-          DEBUG(dbgs() << "ARG "  << *AI << " ==> " << *ShadowPtr << "\n");
+          DEBUG(dbgs() << "  ARG:    "  << *AI << " ==> " <<
+                **ShadowPtr << "\n");
         }
         ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       }
@@ -736,28 +747,37 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     size_t n = I.getNumArgOperands();
     unsigned ArgOffset = 0;
+    DEBUG(dbgs() << "  Call: " << I << "\n");
     for (size_t i = 0; i < n; i++) {
       Value *A = I.getArgOperand(i);
       if (!A->getType()->isSized()) {
         DEBUG(dbgs() << "Arg " << i << " is not sized: " << I << "\n");
         continue;
       }
-      unsigned Size;
+      unsigned Size = 0;
+      Value *Store = 0;
+      // Compute the Shadow for arg even if it is ByVal, because
+      // in that case getShadow() will copy the actual arg shadow to
+      // __msan_param_tls.
+      Value *ArgShadow = getShadow(A);
+      Value *ArgShadowBase = getShadowPtrForArgument(A, IRB, ArgOffset);
+      DEBUG(dbgs() << "  Arg#" << i << ": " << *A << 
+            " Shadow: " << *ArgShadow << "\n");
       if (I.paramHasAttr(i + 1, Attribute::ByVal)) {
         assert(A->getType()->isPointerTy());
         Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
-        Value *Base = getShadowPtrForArgument(A, IRB, ArgOffset);
-        Value *Store = IRB.CreateMemCpy(Base, getShadowPtr(A, Type::getInt8Ty(*MS.C), IRB),
+        Store = IRB.CreateMemCpy(
+            ArgShadowBase, getShadowPtr(A, Type::getInt8Ty(*MS.C), IRB),
             Size, I.getParamAlignment(i + 1));
-        DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
       } else {
         Size = MS.TD->getTypeAllocSize(A->getType());
-        Value *Base = getShadowPtrForArgument(A, IRB, ArgOffset);
-        Value *Store = IRB.CreateStore(getShadow(A), Base);
-        DEBUG(dbgs() << "  ASHD: " << *Store << "\n");
+        Store = IRB.CreateStore(ArgShadow, ArgShadowBase);
       }
+      assert(Size != 0 && Store != 0);
+      DEBUG(dbgs() << "  Param:" << *Store << "\n");
       ArgOffset += TargetData::RoundUpAlignment(Size, 8);
     }
+    DEBUG(dbgs() << "  done with call args\n");
     // For VarArg functions, store the argument shadow in an ABI-specific format
     // that corresponds to va_list layout.
     // We do this because Clang lowers va_arg in the frontend, and this pass
@@ -791,7 +811,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           break;
         case ARG_MEMORY:
           Base = getShadowPtrForVAArgument(A, IRB, OverflowOffset);
-          OverflowOffset += TargetData::RoundUpAlignment(MS.TD->getTypeAllocSize(A->getType()), 8);
+          OverflowOffset += TargetData::RoundUpAlignment(
+              MS.TD->getTypeAllocSize(A->getType()), 8);
         }
         IRB.CreateStore(getShadow(A), Base);
       }
