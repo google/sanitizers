@@ -481,6 +481,34 @@ TEST(MemorySanitizer, strtoll) {
   v_s8 = (S8) e;
 }
 
+TEST(MemorySanitizer, sprintf) {
+  char buff[10];
+  __msan_break_optimization(buff);
+  EXPECT_POISONED(v_s1 = buff[0]);
+  int res = sprintf(buff, "%d", 1234567);
+  assert(res == 7);
+  assert(buff[0] == '1');
+  assert(buff[1] == '2');
+  assert(buff[2] == '3');
+  assert(buff[6] == '7');
+  assert(buff[7] == 0);
+  EXPECT_POISONED(v_s1 = buff[8]);
+}
+
+TEST(MemorySanitizer, snprintf) {
+  char buff[10];
+  __msan_break_optimization(buff);
+  EXPECT_POISONED(v_s1 = buff[0]);
+  int res = snprintf(buff, 9, "%d", 1234567);
+  assert(res == 7);
+  assert(buff[0] == '1');
+  assert(buff[1] == '2');
+  assert(buff[2] == '3');
+  assert(buff[6] == '7');
+  assert(buff[7] == 0);
+  EXPECT_POISONED(v_s1 = buff[8]);
+}
+
 TEST(MemorySanitizer, LoadUnpoisoned) {
   S8 s = *GetPoisoned<S8>();
   EXPECT_POISONED(v_s8 = s);

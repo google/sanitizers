@@ -3,7 +3,9 @@
 #include "sanitizer_common/sanitizer_common.h"
 #include <interception/interception.h>
 
-// ACHTUNG! No system header includes in this file.
+#include <stdarg.h>
+// ACHTUNG! No other system header includes in this file.
+// Ideally, we should get rid of stdarg.h as well.
 
 typedef uptr size_t;
 typedef sptr ssize_t;
@@ -149,6 +151,35 @@ INTERCEPTOR(long, strtol, const char *nptr, char **endptr, int base) {
 INTERCEPTOR(long long , strtoll, const char *nptr, char **endptr, int base) {
   long res = REAL(strtoll)(nptr, endptr, base);
   __msan_unpoison(endptr, sizeof(*endptr));
+  return res;
+}
+
+INTERCEPTOR(int, vsnprintf, char *str, uptr size,
+            const char *format, va_list ap) {
+  int res = REAL(vsnprintf)(str, size, format, ap);
+  __msan_unpoison(str, res + 1);
+  return res;
+}
+
+INTERCEPTOR(int, vsprintf, char *str, const char *format, va_list ap) {
+  int res = REAL(vsprintf)(str, format, ap);
+  __msan_unpoison(str, res + 1);
+  return res;
+}
+
+INTERCEPTOR(int, sprintf, char *str, const char *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int res = vsprintf(str, format, ap);
+  va_end(ap);
+  return res;
+}
+
+INTERCEPTOR(int, snprintf, char *str, uptr size, const char *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int res = vsnprintf(str, size, format, ap);
+  va_end(ap);
   return res;
 }
 
@@ -361,6 +392,10 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(strncat));
   CHECK(INTERCEPT_FUNCTION(strtol));
   CHECK(INTERCEPT_FUNCTION(strtoll));
+  CHECK(INTERCEPT_FUNCTION(vsprintf));
+  CHECK(INTERCEPT_FUNCTION(vsnprintf));
+  CHECK(INTERCEPT_FUNCTION(sprintf));
+  CHECK(INTERCEPT_FUNCTION(snprintf));
   CHECK(INTERCEPT_FUNCTION(getenv));
   CHECK(INTERCEPT_FUNCTION(__fxstat));
   CHECK(INTERCEPT_FUNCTION(__xstat));
