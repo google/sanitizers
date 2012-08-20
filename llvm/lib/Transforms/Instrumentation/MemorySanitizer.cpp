@@ -741,29 +741,41 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return ARG_MEMORY;
   }
 
-  void visitCallInst(CallInst &I) {
-    if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
-      if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
-        handleMemSet(*MemSet);
-      else if (MemCpyInst* MemCpy = dyn_cast<MemCpyInst>(&I))
-        handleMemCpy(*MemCpy);
-      else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
-        handleMemMove(*MemMove);
-      else if (II->getIntrinsicID() == llvm::Intrinsic::vastart)
-        handleVAStart(*II);
-      else if (II->getIntrinsicID() == llvm::Intrinsic::vacopy)
-        handleVACopy(*II);
-      else
-        // Unhandled intrinsic: mark retval as clean.
-        visitInstruction(I);
-      return;
+  void visitCallSite(CallSite CS) {
+    Instruction &I = *CS.getInstruction();
+    assert(CS.isCall() || CS.isInvoke());
+    if (CS.isCall()) {
+      // Allow only tail calls with the same types, otherwise
+      // we may have a false positive: shadow for a non-void RetVal
+      // will get propagated to a void RetVal.
+      CallInst *Call = cast<CallInst>(&I);
+      if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
+        Call->setTailCall(false);
+      // Handle intirnsics. FIXME: these should be separate visitX methods.
+      if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
+        if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
+          handleMemSet(*MemSet);
+        else if (MemCpyInst* MemCpy = dyn_cast<MemCpyInst>(&I))
+          handleMemCpy(*MemCpy);
+        else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
+          handleMemMove(*MemMove);
+        else if (II->getIntrinsicID() == llvm::Intrinsic::vastart)
+          handleVAStart(*II);
+        else if (II->getIntrinsicID() == llvm::Intrinsic::vacopy)
+          handleVACopy(*II);
+        else
+          // Unhandled intrinsic: mark retval as clean.
+          visitInstruction(I);
+        return;
+      }
     }
     IRBuilder<> IRB(&I);
-    size_t n = I.getNumArgOperands();
     unsigned ArgOffset = 0;
-    DEBUG(dbgs() << "  Call: " << I << "\n");
-    for (size_t i = 0; i < n; i++) {
-      Value *A = I.getArgOperand(i);
+    DEBUG(dbgs() << "  CallSite: " << I << "\n");
+    for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
+         ArgIt != End; ++ArgIt) {
+      Value *A = *ArgIt;
+      unsigned i = ArgIt - CS.arg_begin();
       if (!A->getType()->isSized()) {
         DEBUG(dbgs() << "Arg " << i << " is not sized: " << I << "\n");
         continue;
@@ -775,14 +787,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // __msan_param_tls.
       Value *ArgShadow = getShadow(A);
       Value *ArgShadowBase = getShadowPtrForArgument(A, IRB, ArgOffset);
-      DEBUG(dbgs() << "  Arg#" << i << ": " << *A << 
+      DEBUG(dbgs() << "  Arg#" << i << ": " << *A <<
             " Shadow: " << *ArgShadow << "\n");
-      if (I.paramHasAttr(i + 1, Attribute::ByVal)) {
+      if (CS.paramHasAttr(i + 1, Attribute::ByVal)) {
         assert(A->getType()->isPointerTy());
         Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
-        Store = IRB.CreateMemCpy(
-            ArgShadowBase, getShadowPtr(A, Type::getInt8Ty(*MS.C), IRB),
-            Size, I.getParamAlignment(i + 1));
+        unsigned Alignment = CS.getParamAlignment(i + 1);
+        Store = IRB.CreateMemCpy(ArgShadowBase,
+                                 getShadowPtr(A, Type::getInt8Ty(*MS.C), IRB),
+                                 Size, Alignment);
       } else {
         Size = MS.TD->getTypeAllocSize(A->getType());
         Store = IRB.CreateStore(ArgShadow, ArgShadowBase);
@@ -800,14 +813,16 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // would have been to associate each live instance of va_list with a copy of
     // MSanParamTLS, and extract shadow on va_arg() call in the argument list
     // order.
-    FunctionType *FT = cast<FunctionType>(I.getCalledValue()->getType()->
-        getContainedType(0));
+    Function *Callee = CS.getCalledFunction();
+    FunctionType *FT =
+        cast<FunctionType>(Callee->getType()->getContainedType(0));
     if (FT->isVarArg()) {
       unsigned GpOffset = 0;
       unsigned FpOffset = AMD64GpEndOffset;
       unsigned OverflowOffset = AMD64FpEndOffset;
-      for (size_t i = 0; i < n; i++) {
-        Value *A = I.getArgOperand(i);
+      for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
+           ArgIt != End; ++ArgIt) {
+        Value *A = *ArgIt;
         ArgClass arg_class = classifyArgument(A);
         if (arg_class == ARG_GP && GpOffset >= AMD64GpEndOffset)
           arg_class = ARG_MEMORY;
@@ -840,15 +855,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // Untill we have full dynamic coverage, make sure the retval shadow is 0.
       Value *Base = getShadowPtrForRetval(&I, IRBBefore);
       IRBBefore.CreateStore(getCleanShadow(&I), Base);
-      IRBuilder<> IRBAfter(I.getNextNode());
-      setShadow(&I, IRBAfter.CreateLoad(Base));
+      if (CS.isCall()) {
+        IRBuilder<> IRBAfter(I.getNextNode());
+        setShadow(&I, IRBAfter.CreateLoad(Base));
+      } else {
+        // FIXME: create the real shadow store in one of the successors.
+        setShadow(&I, getCleanShadow(&I));
+      }
     }
-
-    // Allow only tail calls with the same types, otherwise
-    // we may have a false positive: shadow for a non-void RetVal
-    // will get propagated to a void RetVal.
-    if (I.isTailCall() && I.getType() != I.getParent()->getType())
-      I.setTailCall(false);
   }
 
   void visitBrInst(BranchInst &I) { }
