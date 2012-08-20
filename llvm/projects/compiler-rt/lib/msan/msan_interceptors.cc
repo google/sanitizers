@@ -167,6 +167,12 @@ INTERCEPTOR(int, vsprintf, char *str, const char *format, va_list ap) {
   return res;
 }
 
+INTERCEPTOR(int, vswprintf, void *str, uptr size, void *format, va_list ap) {
+  int res = REAL(vswprintf)(str, size, format, ap);
+  __msan_unpoison(str, 4 * (res + 1));
+  return res;
+}
+
 INTERCEPTOR(int, sprintf, char *str, const char *format, ...) {
   va_list ap;
   va_start(ap, format);
@@ -179,6 +185,14 @@ INTERCEPTOR(int, snprintf, char *str, uptr size, const char *format, ...) {
   va_list ap;
   va_start(ap, format);
   int res = vsnprintf(str, size, format, ap);
+  va_end(ap);
+  return res;
+}
+
+INTERCEPTOR(int, swprintf, void *str, uptr size, void *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int res = vswprintf(str, size, format, ap);
   va_end(ap);
   return res;
 }
@@ -394,8 +408,10 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(strtoll));
   CHECK(INTERCEPT_FUNCTION(vsprintf));
   CHECK(INTERCEPT_FUNCTION(vsnprintf));
+  CHECK(INTERCEPT_FUNCTION(vswprintf));
   CHECK(INTERCEPT_FUNCTION(sprintf));
   CHECK(INTERCEPT_FUNCTION(snprintf));
+  CHECK(INTERCEPT_FUNCTION(swprintf));
   CHECK(INTERCEPT_FUNCTION(getenv));
   CHECK(INTERCEPT_FUNCTION(__fxstat));
   CHECK(INTERCEPT_FUNCTION(__xstat));

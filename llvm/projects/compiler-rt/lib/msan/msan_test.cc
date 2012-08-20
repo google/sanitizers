@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include <wchar.h>
 
 #include <unistd.h>
 #include <limits.h>
@@ -508,6 +509,22 @@ TEST(MemorySanitizer, snprintf) {
   assert(buff[7] == 0);
   EXPECT_POISONED(v_s1 = buff[8]);
 }
+
+TEST(MemorySanitizer, swprintf) {
+  wchar_t buff[10];
+  assert(sizeof(wchar_t) == 4);
+  __msan_break_optimization(buff);
+  EXPECT_POISONED(v_s1 = buff[0]);
+  int res = swprintf(buff, 9, L"%d", 1234567);
+  assert(res == 7);
+  assert(buff[0] == '1');
+  assert(buff[1] == '2');
+  assert(buff[2] == '3');
+  assert(buff[6] == '7');
+  assert(buff[7] == 0);
+  EXPECT_POISONED(v_s4 = buff[8]);
+}
+
 
 TEST(MemorySanitizer, LoadUnpoisoned) {
   S8 s = *GetPoisoned<S8>();
