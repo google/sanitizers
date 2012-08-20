@@ -9,6 +9,7 @@
 
 #include <unistd.h>
 #include <limits.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -525,6 +526,23 @@ TEST(MemorySanitizer, swprintf) {
   EXPECT_POISONED(v_s4 = buff[8]);
 }
 
+TEST(MemorySanitizer, gettimeofday) {
+  struct timeval tv;
+  struct timezone tz;
+  __msan_break_optimization(&tv);
+  __msan_break_optimization(&tz);
+  assert(sizeof(tv) == 16);
+  assert(sizeof(tz) == 8);
+  EXPECT_POISONED(v_s8 = tv.tv_sec);
+  EXPECT_POISONED(v_s8 = tv.tv_usec);
+  EXPECT_POISONED(v_s4 = tz.tz_minuteswest);
+  EXPECT_POISONED(v_s4 = tz.tz_dsttime);
+  assert(0 == gettimeofday(&tv, &tz));
+  v_s8 = tv.tv_sec;
+  v_s8 = tv.tv_usec;
+  v_s4 = tz.tz_minuteswest;
+  v_s4 = tz.tz_dsttime;
+}
 
 TEST(MemorySanitizer, LoadUnpoisoned) {
   S8 s = *GetPoisoned<S8>();

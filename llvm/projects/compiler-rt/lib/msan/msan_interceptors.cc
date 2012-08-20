@@ -197,6 +197,15 @@ INTERCEPTOR(int, swprintf, void *str, uptr size, void *format, ...) {
   return res;
 }
 
+INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
+  int res = REAL(gettimeofday)(tv, tz);
+  if (tv)
+    __msan_unpoison(tv, 16);
+  if (tz)
+    __msan_unpoison(tz, 8);
+  return res;
+}
+
 INTERCEPTOR(char*, getenv, char* name) {
   ENSURE_MSAN_INITED();
   char* res = REAL(getenv)(name);
@@ -413,6 +422,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(snprintf));
   CHECK(INTERCEPT_FUNCTION(swprintf));
   CHECK(INTERCEPT_FUNCTION(getenv));
+  CHECK(INTERCEPT_FUNCTION(gettimeofday));
   CHECK(INTERCEPT_FUNCTION(__fxstat));
   CHECK(INTERCEPT_FUNCTION(__xstat));
   CHECK(INTERCEPT_FUNCTION(__lxstat));
