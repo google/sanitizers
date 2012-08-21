@@ -19,7 +19,6 @@ THREADLOCAL long long __msan_param_tls[100];
 THREADLOCAL long long __msan_retval_tls[8];
 THREADLOCAL long long __msan_va_arg_tls[100];
 THREADLOCAL long long __msan_va_arg_overflow_size_tls;
-static long long *main_thread_param_tls;
 
 static bool IsRunningUnderDr() {
   return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
@@ -65,7 +64,6 @@ void __msan_init() {
   if (msan_inited) return;
   ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
   msan_init_is_running = 1;
-  main_thread_param_tls = __msan_param_tls;
   msan_running_under_dr = IsRunningUnderDr();
   __msan_clear_on_return();
   if (!InitShadow(/*true*/ false, true, true)) {
