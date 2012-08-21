@@ -544,6 +544,19 @@ TEST(MemorySanitizer, gettimeofday) {
   v_s4 = tz.tz_dsttime;
 }
 
+// FIXME: enable and add ecvt.
+// FIXME: check why msandr does nt handle fcvt.
+TEST(MemorySanitizer, fcvt) {
+  int a, b;
+  __msan_break_optimization(&a);
+  __msan_break_optimization(&b);
+  EXPECT_POISONED(v_s4 = a);
+  EXPECT_POISONED(v_s4 = b);
+  char *str = fcvt(12345.6789, 10, &a, &b);
+  v_s4 = a;
+  v_s4 = b;
+}
+
 TEST(MemorySanitizer, LoadUnpoisoned) {
   S8 s = *GetPoisoned<S8>();
   EXPECT_POISONED(v_s8 = s);
