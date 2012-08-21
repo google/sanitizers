@@ -117,8 +117,10 @@ INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
 INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
   ENSURE_MSAN_INITED();
   char* res = REAL(gcvt)(number, ndigit, buf);
-  size_t n = REAL(strlen)(buf);
-  __msan_unpoison(buf, n + 1);
+  if (!__msan_has_dynamic_component()) {
+    size_t n = REAL(strlen)(buf);
+    __msan_unpoison(buf, n + 1);
+  }
   return res;
 }
 
@@ -144,32 +146,42 @@ INTERCEPTOR(char*, strncat, char* dest, const char* src, size_t n) {
 
 INTERCEPTOR(long, strtol, const char *nptr, char **endptr, int base) {
   long res = REAL(strtol)(nptr, endptr, base);
-  __msan_unpoison(endptr, sizeof(*endptr));
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(endptr, sizeof(*endptr));
+  }
   return res;
 }
 
 INTERCEPTOR(long long , strtoll, const char *nptr, char **endptr, int base) {
   long res = REAL(strtoll)(nptr, endptr, base);
-  __msan_unpoison(endptr, sizeof(*endptr));
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(endptr, sizeof(*endptr));
+  }
   return res;
 }
 
 INTERCEPTOR(int, vsnprintf, char *str, uptr size,
             const char *format, va_list ap) {
   int res = REAL(vsnprintf)(str, size, format, ap);
-  __msan_unpoison(str, res + 1);
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(str, res + 1);
+  }
   return res;
 }
 
 INTERCEPTOR(int, vsprintf, char *str, const char *format, va_list ap) {
   int res = REAL(vsprintf)(str, format, ap);
-  __msan_unpoison(str, res + 1);
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(str, res + 1);
+  }
   return res;
 }
 
 INTERCEPTOR(int, vswprintf, void *str, uptr size, void *format, va_list ap) {
   int res = REAL(vswprintf)(str, size, format, ap);
-  __msan_unpoison(str, 4 * (res + 1));
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(str, 4 * (res + 1));
+  }
   return res;
 }
 
@@ -208,16 +220,20 @@ INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
 
 INTERCEPTOR(char *, fcvt, double x, int a, int *b, int *c) {
   char *res = REAL(fcvt)(x, a, b, c);
-  __msan_unpoison(b, sizeof(*b));
-  __msan_unpoison(c, sizeof(*c));
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(b, sizeof(*b));
+    __msan_unpoison(c, sizeof(*c));
+  }
   return res;
 }
 
 INTERCEPTOR(char*, getenv, char* name) {
   ENSURE_MSAN_INITED();
   char* res = REAL(getenv)(name);
-  if (res)
-    __msan_unpoison(res, REAL(strlen)(res) + 1);
+  if (!__msan_has_dynamic_component()) {
+    if (res)
+      __msan_unpoison(res, REAL(strlen)(res) + 1);
+  }
   return res;
 }
 
