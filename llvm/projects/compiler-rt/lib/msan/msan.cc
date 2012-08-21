@@ -113,7 +113,7 @@ void __msan_print_param_shadow() {
 }
 
 sptr __msan_test_shadow(const void *x, uptr size) {
-  const char* s = (char*)x;
+  unsigned char *s = (unsigned char*)MEM_TO_SHADOW((uptr)x);
   for (sptr i = 0; i < size; ++i)
     if (s[i])
       return i;
