@@ -844,6 +844,28 @@ TEST(MemorySanitizerDr, ReturnFromDSOTest) {
   v_u8 = dso_callfn(return_poisoned_int);
 }
 
+NOINLINE int TrashParamTLS(long long x, long long y, long long z) {
+  EXPECT_POISONED(v_s8 = x);
+  EXPECT_POISONED(v_s8 = y);
+  EXPECT_POISONED(v_s8 = z);
+  return 0;
+}
+
+static int CheckParamTLS(long long x, long long y, long long z) {
+  v_s8 = x;
+  v_s8 = y;
+  v_s8 = z;
+  return 0;
+}
+
+TEST(MemorySanitizerDr, CallFromDSOTest) {
+  S8* x = GetPoisoned<S8>();
+  S8* y = GetPoisoned<S8>();
+  S8* z = GetPoisoned<S8>();
+  v_s4 = TrashParamTLS(*x, *y, *z);
+  v_u8 = dso_callfn1(CheckParamTLS);
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);

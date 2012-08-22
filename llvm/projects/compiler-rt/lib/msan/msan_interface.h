@@ -40,7 +40,8 @@ void __msan_print_param_shadow();
 int  __msan_has_dynamic_component();
 
 // Returns x such that %fs:x is the first byte of __msan_retval_tls.
-int  __msan_get_retval_tls_offset();
+int __msan_get_retval_tls_offset();
+int __msan_get_param_tls_offset();
 
 void __msan_partial_poison(void* data, void* shadow, uptr size);
 

@@ -152,6 +152,14 @@ int __msan_get_retval_tls_offset() {
   return retval_tls_p - tls_base_p;
 }
 
+int __msan_get_param_tls_offset() {
+  // volatile here is needed to avoid UB, because the compiler thinks that we are doing address
+  // arithmetics on unrelated pointers, and takes some shortcuts
+  volatile sptr param_tls_p = (sptr)&__msan_param_tls;
+  volatile sptr tls_base_p = (sptr)get_tls_base();
+  return param_tls_p - tls_base_p;
+}
+
 void __msan_partial_poison(void* data, void* shadow, uptr size) {
   internal_memcpy((void*)MEM_TO_SHADOW((uptr)data), shadow, size);
 }

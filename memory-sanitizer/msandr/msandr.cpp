@@ -73,6 +73,7 @@ class ModuleData {
 string g_app_path;
 
 int msan_retval_tls_offset;
+int msan_param_tls_offset;
 
 // A vector of loaded modules sorted by module bounds.  We lookup the current PC
 // in here from the bb event.  This is better than an rb tree because the lookup
@@ -97,6 +98,7 @@ ModuleData::ModuleData(const module_data_t *info)
 {}
 
 int (*__msan_get_retval_tls_offset)();
+int (*__msan_get_param_tls_offset)();
 
 void InitializeMSanCallbacks() {
   module_data_t *app = dr_lookup_module_by_name(dr_get_application_name());
@@ -112,6 +114,13 @@ void InitializeMSanCallbacks() {
   if (__msan_get_retval_tls_offset == NULL) {
     dr_printf("Couldn't find `%s` in %s\n", callback_name, app->full_path);
     CHECK(__msan_get_retval_tls_offset);
+  }
+
+  callback_name = "__msan_get_param_tls_offset";
+  __msan_get_param_tls_offset = (int(*)())dr_get_proc_address(app->handle, callback_name);
+  if (__msan_get_param_tls_offset == NULL) {
+    dr_printf("Couldn't find `%s` in %s\n", callback_name, app->full_path);
+    CHECK(__msan_get_param_tls_offset);
   }
 }
 
@@ -301,10 +310,45 @@ void InstrumentReturn(void *drcontext, instrlist_t *bb,
 
   // TODO: unpoison more bytes?
   PRE(i, mov_st(drcontext,
-          OPND_CREATE_MEM32(DR_REG_XAX, msan_retval_tls_offset),
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_retval_tls_offset),
+          OPND_CREATE_INT32(0)));
+
+  dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+
+  // The original instruction is left untouched. The above instrumentation is just
+  // a prefix.
+}
+
+void InstrumentIndirectBranch(void *drcontext, instrlist_t *bb,
+    instr_t *i)
+{
+
+  instr_t* instr;
+
+  dr_save_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
+
+  // FIXME: I hope this does not change the flags.
+  bool res = dr_insert_get_seg_base(drcontext, bb, i, DR_SEG_FS, DR_REG_XAX);
+  CHECK(res);
+
+  // TODO: unpoison more bytes?
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_param_tls_offset),
           OPND_CREATE_INT32(0)));
   PRE(i, mov_st(drcontext,
-          OPND_CREATE_MEM32(DR_REG_XAX, msan_retval_tls_offset + 4),
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_param_tls_offset + 8),
+          OPND_CREATE_INT32(0)));
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_param_tls_offset + 16),
+          OPND_CREATE_INT32(0)));
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_param_tls_offset + 24),
+          OPND_CREATE_INT32(0)));
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_param_tls_offset + 32),
+          OPND_CREATE_INT32(0)));
+  PRE(i, mov_st(drcontext,
+          OPND_CREATE_MEM64(DR_REG_XAX, msan_param_tls_offset + 40),
           OPND_CREATE_INT32(0)));
 
   dr_restore_reg(drcontext, bb, i, DR_REG_XAX, SPILL_SLOT_1);
@@ -413,6 +457,12 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       continue;
     }
 
+    if (opcode == OP_call_ind || opcode == OP_call_far_ind ||
+        opcode == OP_jmp_ind || opcode == OP_jmp_far_ind) {
+      InstrumentIndirectBranch(drcontext, bb, i);
+      continue;
+    }
+
     if (!WantToInstrument(i))
       continue;
 
@@ -517,9 +567,11 @@ DR_EXPORT void dr_init(client_id_t id) {
 
   dr_switch_to_app_state(drcontext);
   msan_retval_tls_offset = __msan_get_retval_tls_offset();
+  msan_param_tls_offset = __msan_get_param_tls_offset();
   dr_switch_to_dr_state(drcontext);
 #if defined(VERBOSE)
   dr_printf("__msan_retval_tls offset: %d\n", msan_retval_tls_offset);
+  dr_printf("__msan_param_tls offset: %d\n", msan_param_tls_offset);
 #endif
 
   // Standard DR events.
