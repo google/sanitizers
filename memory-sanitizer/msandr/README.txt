@@ -11,3 +11,8 @@ Building:
 
 Running:
   LD_USE_LOAD_BIAS=1 ./dr/build/bin/drrun -client ./build/libmsandr.so 0 "" -- test
+
+Debugging:
+  Add -DDEBUG=ON to all cmake invocations above.
+  Add -debug -v to drrun invocation line (right before -client).
+
