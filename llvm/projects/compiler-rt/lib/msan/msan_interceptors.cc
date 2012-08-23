@@ -84,7 +84,7 @@ INTERCEPTOR(void, free, void *ptr) {
 INTERCEPTOR(size_t, strlen, const char* s) {
   ENSURE_MSAN_INITED();
   size_t res = REAL(strlen)(s);
-  // CHECK_UNPOISONED(s, res + 1);
+  CHECK_UNPOISONED(s, res + 1);
   return res;
 }
 
@@ -92,7 +92,7 @@ INTERCEPTOR(size_t, strnlen, const char* s, size_t n) {
   ENSURE_MSAN_INITED();
   size_t res = REAL(strnlen)(s, n);
   size_t scan_size = (res == n) ? res : res + 1;
-  // CHECK_UNPOISONED(s, scan_size);
+  CHECK_UNPOISONED(s, scan_size);
   return res;
 }
 
