@@ -813,9 +813,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // would have been to associate each live instance of va_list with a copy of
     // MSanParamTLS, and extract shadow on va_arg() call in the argument list
     // order.
-    Function *Callee = CS.getCalledFunction();
-    FunctionType *FT =
-        cast<FunctionType>(Callee->getType()->getContainedType(0));
+    FunctionType *FT = cast<FunctionType>(CS.getCalledValue()->getType()->
+        getContainedType(0));
     if (FT->isVarArg()) {
       unsigned GpOffset = 0;
       unsigned FpOffset = AMD64GpEndOffset;
