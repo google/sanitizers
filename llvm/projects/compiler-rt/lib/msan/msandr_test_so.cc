@@ -14,3 +14,9 @@ int dso_callfn1(int (*fn)(long long, long long, long long)) {
   volatile int x = fn(1, 2, 3);
   return x;
 }
+
+int dso_stack_store(void (*fn)(int*, int*), int x) {
+  int y = x + 1;
+  fn(&x, &y);
+  return y;
+}

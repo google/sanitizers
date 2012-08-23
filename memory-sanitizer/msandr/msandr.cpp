@@ -157,11 +157,11 @@ void InitializeMSanCallbacks() {
 // zero base anyway.
 bool OperandIsInteresting(opnd_t opnd) {
   return (opnd_is_base_disp(opnd) &&
-          opnd_get_segment(opnd) == DR_REG_NULL &&
-          !opnd_uses_reg(opnd, DR_REG_XSP));
+      opnd_get_segment(opnd) == DR_REG_NULL);
 }
 
 bool WantToInstrument(instr_t *instr) {
+  // TODO: skip push instructions?
   switch (instr_get_opcode(instr)) {
   // TODO: support the instructions excluded below:
   case OP_rep_cmps:
@@ -212,7 +212,7 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   dr_printf("==DRMSAN== DEBUG: %d %d %d %d %d %d\n",
             opnd_is_memory_reference(op),
             opnd_is_base_disp(op),
-            opnd_get_index(op),
+            opnd_is_base_disp(op) ? opnd_get_index(op) : -1,
             opnd_is_far_memory_reference(op),
             opnd_is_reg_pointer_sized(op),
             opnd_is_base_disp(op) ? opnd_get_disp(op) : -1
@@ -478,8 +478,8 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
       // bool instrumented_anything = false;
       for (int d = 0; d < instr_num_dsts(i); d++) {
         opnd_t op = instr_get_dst(i, d);
-        // if (!OperandIsInteresting(op))
-        //   continue;
+        if (!OperandIsInteresting(op))
+          continue;
 
         // CHECK(!instrumented_anything);
         // instrumented_anything = true;

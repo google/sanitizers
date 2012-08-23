@@ -866,6 +866,15 @@ TEST(MemorySanitizerDr, CallFromDSOTest) {
   v_u8 = dso_callfn1(CheckParamTLS);
 }
 
+static void StackStoreInDSOFn(int* x, int* y) {
+  v_s4 = *x;
+  v_s4 = *y;
+}
+
+TEST(MemorySanitizerDr, StackStoreInDSOTest) {
+  dso_stack_store(StackStoreInDSOFn, 1);
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);
