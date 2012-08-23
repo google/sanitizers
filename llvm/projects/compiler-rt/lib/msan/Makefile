@@ -82,7 +82,8 @@ gtest: $(GTEST_LIB)
 $(GTEST_LIB):
 	mkdir -p $(GTEST_BUILD_DIR) && \
 	cd $(GTEST_BUILD_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS)" CFLAGS="$(CFLAGS)" CC=$(CC) CXX=$(CXX)
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS) $(MSAN_DEBUG) $(MSAN_OPT)" \
+		CFLAGS="$(CFLAGS) $(MSAN_DEBUG) $(MSAN_OPT)" CC=$(CC) CXX=$(CXX) gtest-all.o
 
 clean: 
 	rm -f *.o msan_test msan.a $(LIBMSAN_A)
