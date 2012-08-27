@@ -279,13 +279,20 @@ NOINLINE static int GetPoisonedZero() {
   return res;
 }
 
-// FIXME: fix this test and add one for store.
-TEST(MemorySanitizer, DISABLED_LoadFromDirtyAddress) {
+TEST(MemorySanitizer, LoadFromDirtyAddress) {
   int *a = new int;
   *a = 0;
-  EXPECT_POISONED(v_s4 = a[GetPoisonedZero()]);
+  EXPECT_POISONED(__msan_break_optimization((void*)a[GetPoisonedZero()]));
   delete a;
 }
+
+TEST(MemorySanitizer, StoreToDirtyAddress) {
+  int *a = new int;
+  EXPECT_POISONED(a[GetPoisonedZero()] = 0);
+  __msan_break_optimization(a);
+  delete a;
+}
+
 
 NOINLINE void StackTestFunc() {
   S4 p4;

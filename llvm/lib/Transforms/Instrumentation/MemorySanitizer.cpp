@@ -85,6 +85,10 @@ static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
        cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
        cl::Hidden, cl::init(true));
 
+static cl::opt<bool> ClTrapOnDirtyAccess("msan-trap-on-dirty-access",
+       cl::desc("trap on access to a pointer which has poisoned shadow"),
+       cl::Hidden, cl::init(true));
+
 static cl::opt<bool> ClDumpStrictInstructions("msan-dump-strict-instructions",
        cl::desc("print out instructions with default strict semantics"),
        cl::Hidden, cl::init(false));
@@ -466,12 +470,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       setShadow(&I, getCleanShadow(dyn_cast<Value>(&I)));
       return ;
     }
-    // TODO: consider inserting a check of the pointer operand (for both load
-    // and store)?
     IRBuilder<> IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
     Value *ShadowPtr = getShadowPtr(I.getPointerOperand(), ShadowTy, IRB);
     setShadow(&I, IRB.CreateLoad(ShadowPtr, "_msld"));
+
+    if (ClTrapOnDirtyAccess)
+      insertCheck(getShadow(I.getPointerOperand()), &I);
   }
 
   void visitStoreInst(StoreInst &I) {
@@ -486,6 +491,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // If the store is volatile, add a check.
     if (I.isVolatile())
       insertCheck(Shadow, &I);
+    if (ClTrapOnDirtyAccess)
+      insertCheck(getShadow(Addr), &I);
   }
 
   // Casts.
