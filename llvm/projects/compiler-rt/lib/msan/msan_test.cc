@@ -270,6 +270,23 @@ TEST(MemorySanitizer, Shift) {
   EXPECT_POISONED(v_u4 = v_u4 << *GetPoisoned<S4>());
 }
 
+NOINLINE static int GetPoisonedZero() {
+  int *zero = new int;
+  *zero = 0;
+  __msan_poison(zero, sizeof(int));
+  int res = *zero;
+  delete zero;
+  return res;
+}
+
+// FIXME: fix this test and add one for store.
+TEST(MemorySanitizer, DISABLED_LoadFromDirtyAddress) {
+  int *a = new int;
+  *a = 0;
+  EXPECT_POISONED(v_s4 = a[GetPoisonedZero()]);
+  delete a;
+}
+
 NOINLINE void StackTestFunc() {
   S4 p4;
   S4 ok4 = 1;
