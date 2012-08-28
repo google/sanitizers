@@ -85,6 +85,13 @@ static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
        cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
        cl::Hidden, cl::init(true));
 
+// This flag controls whether we check the shadow of the address operand
+// of load or store.
+// Such bugs are very rare, since load from a garbage address typically results
+// in SEGV, but still happen (e.g. only lower bits of address are garbage,
+// or the access happens early at program startup where malloc-ed memory is more
+// likely to be zeroed.
+// As of 2012-08-28 this flag adds 20% slowdown.
 static cl::opt<bool> ClTrapOnDirtyAccess("msan-trap-on-dirty-access",
        cl::desc("trap on access to a pointer which has poisoned shadow"),
        cl::Hidden, cl::init(true));
