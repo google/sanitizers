@@ -35,8 +35,6 @@ else
   fi
   svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang $REV_ARG
   svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
-  # Hack: patch llvm cmake files to enable cmake build of compiler-rt.
-  (cd llvm && patch -p0 -i ../../../../scripts/slave/enable_compiler_rt.patch)
 fi
 
 ROOT=`pwd`
