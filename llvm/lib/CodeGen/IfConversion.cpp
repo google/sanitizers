@@ -13,7 +13,6 @@
 
 #define DEBUG_TYPE "ifcvt"
 #include "BranchFolding.h"
-#include "llvm/Function.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
@@ -282,7 +281,7 @@ bool IfConverter::runOnMachineFunction(MachineFunction &MF) {
   }
 
   DEBUG(dbgs() << "\nIfcvt: function (" << ++FnNum <<  ") \'"
-               << MF.getFunction()->getName() << "\'");
+               << MF.getName() << "\'");
 
   if (FnNum < IfCvtFnStart || (IfCvtFnStop != -1 && FnNum > IfCvtFnStop)) {
     DEBUG(dbgs() << " skipped\n");
@@ -997,14 +996,13 @@ static void UpdatePredRedefs(MachineInstr *MI, SmallSet<unsigned,4> &Redefs,
   }
   for (unsigned i = 0, e = Defs.size(); i != e; ++i) {
     unsigned Reg = Defs[i];
-    if (Redefs.count(Reg)) {
+    if (!Redefs.insert(Reg)) {
       if (AddImpUse)
         // Treat predicated update as read + write.
         MI->addOperand(MachineOperand::CreateReg(Reg, false/*IsDef*/,
                                               true/*IsImp*/,false/*IsKill*/,
                                               false/*IsDead*/,true/*IsUndef*/));
     } else {
-      Redefs.insert(Reg);
       for (MCSubRegIterator SubRegs(Reg, TRI); SubRegs.isValid(); ++SubRegs)
         Redefs.insert(*SubRegs);
     }

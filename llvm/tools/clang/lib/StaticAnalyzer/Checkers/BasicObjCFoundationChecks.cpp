@@ -17,7 +17,7 @@
 #include "clang/Analysis/DomainSpecific/CocoaConventions.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/Calls.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExplodedGraph.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
@@ -432,8 +432,7 @@ void CFRetainReleaseChecker::checkPreStmt(const CallExpr *CE,
 
     BugReport *report = new BugReport(*BT, description, N);
     report->addRange(Arg->getSourceRange());
-    report->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N, Arg,
-                                                                    report));
+    bugreporter::trackNullOrUndefValue(N, Arg, *report);
     C.EmitReport(report);
     return;
   }
@@ -717,6 +716,49 @@ void ObjCLoopChecker::checkPostStmt(const ObjCForCollectionStmt *FCS,
   C.addTransition(State);
 }
 
+namespace {
+/// \class ObjCNonNilReturnValueChecker
+/// \brief The checker restricts the return values of APIs known to never
+/// return nil.
+class ObjCNonNilReturnValueChecker
+  : public Checker<check::PostObjCMessage> {
+    mutable bool Initialized;
+    mutable Selector ObjectAtIndex;
+    mutable Selector ObjectAtIndexedSubscript;
+
+public:
+  ObjCNonNilReturnValueChecker() : Initialized(false) {}
+  void checkPostObjCMessage(const ObjCMethodCall &M, CheckerContext &C) const;
+};
+}
+
+void ObjCNonNilReturnValueChecker::checkPostObjCMessage(const ObjCMethodCall &M,
+                                                        CheckerContext &C)
+                                                         const {
+  ProgramStateRef State = C.getState();
+
+  if (!Initialized) {
+    ASTContext &Ctx = C.getASTContext();
+    ObjectAtIndex = GetUnarySelector("objectAtIndex", Ctx);
+    ObjectAtIndexedSubscript = GetUnarySelector("objectAtIndexedSubscript", Ctx);
+  }
+
+  // Check the receiver type.
+  if (const ObjCInterfaceDecl *Interface = M.getReceiverInterface()) {
+    FoundationClass Cl = findKnownClass(Interface);
+    if (Cl == FC_NSArray || Cl == FC_NSOrderedSet) {
+      Selector Sel = M.getSelector();
+      if (Sel == ObjectAtIndex || Sel == ObjectAtIndexedSubscript) {
+        // Go ahead and assume the value is non-nil.
+        SVal Val = State->getSVal(M.getOriginExpr(), C.getLocationContext());
+        if (!isa<DefinedOrUnknownSVal>(Val))
+          return;
+        State = State->assume(cast<DefinedOrUnknownSVal>(Val), true);
+        C.addTransition(State);
+      }
+    }
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // Check registration.
@@ -744,4 +786,8 @@ void ento::registerVariadicMethodTypeChecker(CheckerManager &mgr) {
 
 void ento::registerObjCLoopChecker(CheckerManager &mgr) {
   mgr.registerChecker<ObjCLoopChecker>();
+}
+
+void ento::registerObjCNonNilReturnValueChecker(CheckerManager &mgr) {
+  mgr.registerChecker<ObjCNonNilReturnValueChecker>();
 }

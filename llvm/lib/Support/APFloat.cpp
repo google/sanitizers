@@ -196,8 +196,10 @@ totalExponent(StringRef::iterator p, StringRef::iterator end,
     assert(value < 10U && "Invalid character in exponent");
 
     unsignedExponent = unsignedExponent * 10 + value;
-    if (unsignedExponent > 32767)
+    if (unsignedExponent > 32767) {
       overflow = true;
+      break;
+    }
   }
 
   if (exponentAdjustment > 32767 || exponentAdjustment < -32768)
@@ -1765,6 +1767,50 @@ APFloat::fusedMultiplyAdd(const APFloat &multiplicand,
   return fs;
 }
 
+/* Rounding-mode corrrect round to integral value.  */
+APFloat::opStatus APFloat::roundToIntegral(roundingMode rounding_mode) {
+  opStatus fs;
+  assertArithmeticOK(*semantics);
+
+  // If the exponent is large enough, we know that this value is already
+  // integral, and the arithmetic below would potentially cause it to saturate
+  // to +/-Inf.  Bail out early instead.
+  if (exponent+1 >= (int)semanticsPrecision(*semantics))
+    return opOK;
+
+  // The algorithm here is quite simple: we add 2^(p-1), where p is the
+  // precision of our format, and then subtract it back off again.  The choice
+  // of rounding modes for the addition/subtraction determines the rounding mode
+  // for our integral rounding as well.
+  // NOTE: When the input value is negative, we do subtraction followed by
+  // addition instead.
+  APInt IntegerConstant(NextPowerOf2(semanticsPrecision(*semantics)), 1);
+  IntegerConstant <<= semanticsPrecision(*semantics)-1;
+  APFloat MagicConstant(*semantics);
+  fs = MagicConstant.convertFromAPInt(IntegerConstant, false,
+                                      rmNearestTiesToEven);
+  MagicConstant.copySign(*this);
+
+  if (fs != opOK)
+    return fs;
+
+  // Preserve the input sign so that we can handle 0.0/-0.0 cases correctly.
+  bool inputSign = isNegative();
+
+  fs = add(MagicConstant, rounding_mode);
+  if (fs != opOK && fs != opInexact)
+    return fs;
+
+  fs = subtract(MagicConstant, rounding_mode);
+
+  // Restore the input sign.
+  if (inputSign != isNegative())
+    changeSign();
+
+  return fs;
+}
+
+
 /* Comparison requires normalized numbers.  */
 APFloat::cmpResult
 APFloat::compare(const APFloat &rhs) const
@@ -3278,16 +3324,8 @@ APFloat::APFloat(double d) : exponent2(0), sign2(0) {
 }
 
 namespace {
-  static void append(SmallVectorImpl<char> &Buffer,
-                     unsigned N, const char *Str) {
-    unsigned Start = Buffer.size();
-    Buffer.set_size(Start + N);
-    memcpy(&Buffer[Start], Str, N);
-  }
-
-  template <unsigned N>
-  void append(SmallVectorImpl<char> &Buffer, const char (&Str)[N]) {
-    append(Buffer, N, Str);
+  void append(SmallVectorImpl<char> &Buffer, StringRef Str) {
+    Buffer.append(Str.begin(), Str.end());
   }
 
   /// Removes data from the given significand until it is no more

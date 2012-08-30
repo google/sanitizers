@@ -13,7 +13,7 @@
 #ifndef SANITIZER_DEFS_H
 #define SANITIZER_DEFS_H
 
-#include "sanitizer_interface_defs.h"
+#include "sanitizer/common_interface_defs.h"
 using namespace __sanitizer;  // NOLINT
 // ----------- ATTENTION -------------
 // This header should NOT include any other headers to avoid portability issues.
@@ -134,6 +134,8 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
 
 #define COMPILER_CHECK(pred) IMPL_COMPILER_ASSERT(pred, __LINE__)
 
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+
 #define IMPL_PASTE(a, b) a##b
 #define IMPL_COMPILER_ASSERT(pred, line) \
     typedef char IMPL_PASTE(assertion_failed_##_, line)[2*(int)(pred)-1];
@@ -159,5 +161,20 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
 #define INT64_MAX              (__INT64_C(9223372036854775807))
 #undef UINT64_MAX
 #define UINT64_MAX             (__UINT64_C(18446744073709551615))
+
+enum LinkerInitialized { LINKER_INITIALIZED = 0 };
+
+#if !defined(_WIN32) || defined(__clang__)
+# define GET_CALLER_PC() (uptr)__builtin_return_address(0)
+# define GET_CURRENT_FRAME() (uptr)__builtin_frame_address(0)
+#else
+extern "C" void* _ReturnAddress(void);
+# pragma intrinsic(_ReturnAddress)
+# define GET_CALLER_PC() (uptr)_ReturnAddress()
+// CaptureStackBackTrace doesn't need to know BP on Windows.
+// FIXME: This macro is still used when printing error reports though it's not
+// clear if the BP value is needed in the ASan reports on Windows.
+# define GET_CURRENT_FRAME() (uptr)0xDEADBEEF
+#endif
 
 #endif  // SANITIZER_DEFS_H

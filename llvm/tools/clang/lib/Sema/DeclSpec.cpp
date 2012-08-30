@@ -145,6 +145,7 @@ CXXScopeSpec::getWithLocInContext(ASTContext &Context) const {
 /// DeclaratorChunk::getFunction - Return a DeclaratorChunk for a function.
 /// "TheDeclarator" is the declarator that this will be added to.
 DeclaratorChunk DeclaratorChunk::getFunction(bool hasProto, bool isVariadic,
+                                             bool isAmbiguous,
                                              SourceLocation EllipsisLoc,
                                              ParamInfo *ArgInfo,
                                              unsigned NumArgs,
@@ -173,6 +174,7 @@ DeclaratorChunk DeclaratorChunk::getFunction(bool hasProto, bool isVariadic,
   I.Fun.AttrList                = 0;
   I.Fun.hasPrototype            = hasProto;
   I.Fun.isVariadic              = isVariadic;
+  I.Fun.isAmbiguous             = isAmbiguous;
   I.Fun.EllipsisLoc             = EllipsisLoc.getRawEncoding();
   I.Fun.DeleteArgInfo           = false;
   I.Fun.TypeQuals               = TypeQuals;
@@ -323,10 +325,14 @@ unsigned DeclSpec::getParsedSpecifiers() const {
 
 template <class T> static bool BadSpecifier(T TNew, T TPrev,
                                             const char *&PrevSpec,
-                                            unsigned &DiagID) {
+                                            unsigned &DiagID,
+                                            bool IsExtension = true) {
   PrevSpec = DeclSpec::getSpecifierName(TPrev);
-  DiagID = (TNew == TPrev ? diag::ext_duplicate_declspec
-            : diag::err_invalid_decl_spec_combination);
+  if (TNew != TPrev)
+    DiagID = diag::err_invalid_decl_spec_combination;
+  else
+    DiagID = IsExtension ? diag::ext_duplicate_declspec : 
+                           diag::warn_duplicate_declspec;    
   return true;
 }
 
@@ -668,10 +674,18 @@ bool DeclSpec::SetTypeSpecError() {
 }
 
 bool DeclSpec::SetTypeQual(TQ T, SourceLocation Loc, const char *&PrevSpec,
-                           unsigned &DiagID, const LangOptions &Lang) {
-  // Duplicates turn into warnings pre-C99.
-  if ((TypeQualifiers & T) && !Lang.C99)
-    return BadSpecifier(T, T, PrevSpec, DiagID);
+                           unsigned &DiagID, const LangOptions &Lang,
+                           bool IsTypeSpec) {
+  // Duplicates are permitted in C99, and are permitted in C++11 unless the
+  // cv-qualifier appears as a type-specifier.  However, since this is likely 
+  // not what the user intended, we will always warn.  We do not need to set the
+  // qualifier's location since we already have it.
+  if (TypeQualifiers & T) {
+    bool IsExtension = true;
+    if (Lang.C99 || (Lang.CPlusPlus0x && !IsTypeSpec))
+      IsExtension = false;
+    return BadSpecifier(T, T, PrevSpec, DiagID, IsExtension);
+  }
   TypeQualifiers |= T;
 
   switch (T) {

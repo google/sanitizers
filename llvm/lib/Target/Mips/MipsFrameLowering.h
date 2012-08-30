@@ -27,27 +27,18 @@ protected:
 
 public:
   explicit MipsFrameLowering(const MipsSubtarget &sti)
-    : TargetFrameLowering(StackGrowsDown, sti.hasMips64() ? 16 : 8, 0),
-      STI(sti) {
-  }
+    : TargetFrameLowering(StackGrowsDown, sti.hasMips64() ? 16 : 8, 0,
+                          sti.hasMips64() ? 16 : 8), STI(sti) {}
 
-  bool targetHandlesStackFrameRounding() const;
-
-  /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
-  /// the function.
-  void emitPrologue(MachineFunction &MF) const;
-  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
-
-  bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                 MachineBasicBlock::iterator MI,
-                                 const std::vector<CalleeSavedInfo> &CSI,
-                                 const TargetRegisterInfo *TRI) const;
+  static const MipsFrameLowering *create(MipsTargetMachine &TM,
+                                         const MipsSubtarget &ST);
 
   bool hasFP(const MachineFunction &MF) const;
-
-  void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                            RegScavenger *RS) const;
 };
+
+/// Create MipsInstrInfo objects.
+const MipsFrameLowering *createMips16FrameLowering(const MipsSubtarget &ST);
+const MipsFrameLowering *createMipsSEFrameLowering(const MipsSubtarget &ST);
 
 } // End llvm namespace
 

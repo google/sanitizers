@@ -187,11 +187,11 @@ SymbolManager::getRegionValueSymbol(const TypedValueRegion* R) {
   return cast<SymbolRegionValue>(SD);
 }
 
-const SymbolConjured*
-SymbolManager::getConjuredSymbol(const Stmt *E, const LocationContext *LCtx,
-                                 QualType T, unsigned Count,
-                                 const void *SymbolTag) {
-
+const SymbolConjured* SymbolManager::conjureSymbol(const Stmt *E,
+                                                   const LocationContext *LCtx,
+                                                   QualType T,
+                                                   unsigned Count,
+                                                   const void *SymbolTag) {
   llvm::FoldingSetNodeID profile;
   SymbolConjured::Profile(profile, E, T, Count, LCtx, SymbolTag);
   void *InsertPos;
@@ -520,7 +520,7 @@ bool SymbolReaper::isLive(const VarRegion *VR, bool includeStoreBindings) const{
   const StackFrameContext *CurrentContext = LCtx->getCurrentStackFrame();
 
   if (VarContext == CurrentContext) {
-    // If no statemetnt is provided, everything is live.
+    // If no statement is provided, everything is live.
     if (!Loc)
       return true;
 
@@ -548,7 +548,7 @@ bool SymbolReaper::isLive(const VarRegion *VR, bool includeStoreBindings) const{
     return false;
   }
 
-  return VarContext->isParentOf(CurrentContext);
+  return !VarContext || VarContext->isParentOf(CurrentContext);
 }
 
 SymbolVisitor::~SymbolVisitor() {}

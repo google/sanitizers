@@ -10,15 +10,30 @@
 #ifndef CLANG_DRIVER_OPTION_H_
 #define CLANG_DRIVER_OPTION_H_
 
-#include "clang/Driver/OptSpecifier.h"
+#include "clang/Driver/OptTable.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "clang/Basic/LLVM.h"
 
 namespace clang {
 namespace driver {
   class Arg;
   class ArgList;
-  class OptionGroup;
+
+namespace options {
+  enum DriverFlag {
+    DriverOption     = (1 << 0),
+    HelpHidden       = (1 << 1),
+    LinkerInput      = (1 << 2),
+    NoArgumentUnused = (1 << 3),
+    NoForward        = (1 << 4),
+    RenderAsInput    = (1 << 5),
+    RenderJoined     = (1 << 6),
+    RenderSeparate   = (1 << 7),
+    Unsupported      = (1 << 8),
+    CC1Option        = (1 << 9)
+  };
+}
 
   /// Option - Abstract representation for a single form of driver
   /// argument.
@@ -54,86 +69,72 @@ namespace driver {
     };
 
   private:
-    OptionClass Kind;
+    const OptTable::Info *Info;
 
     /// The option ID.
     OptSpecifier ID;
 
-    /// The option name.
-    StringRef Name;
-
     /// Group this option is a member of, if any.
-    const OptionGroup *Group;
+    const Option *Group;
 
     /// Option that this is an alias for, if any.
     const Option *Alias;
 
-    /// Unsupported options will be rejected.
-    bool Unsupported : 1;
-
-    /// Treat this option like a linker input?
-    bool LinkerInput : 1;
-
-    /// When rendering as an input, don't render the option.
-
-    // FIXME: We should ditch the render/renderAsInput distinction.
-    bool NoOptAsInput : 1;
-
-    /// The style to using when rendering arguments parsed by this option.
-    unsigned RenderStyle : 2;
-
-    /// This option is only consumed by the driver.
-    bool DriverOption : 1;
-
-    /// This option should not report argument unused errors.
-    bool NoArgumentUnused : 1;
-
-    /// This option should not be implicitly forwarded.
-    bool NoForward : 1;
-
-    /// CC1Option - This option should be accepted by clang -cc1.
-    bool CC1Option : 1;
-
-  protected:
-    Option(OptionClass Kind, OptSpecifier ID, const char *Name,
-           const OptionGroup *Group, const Option *Alias);
   public:
-    virtual ~Option();
+    Option(const OptTable::Info *Info, OptSpecifier ID,
+           const Option *Group, const Option *Alias);
+    ~Option();
 
     unsigned getID() const { return ID.getID(); }
-    OptionClass getKind() const { return Kind; }
-    StringRef getName() const { return Name; }
-    const OptionGroup *getGroup() const { return Group; }
+    OptionClass getKind() const { return OptionClass(Info->Kind); }
+    StringRef getName() const { return Info->Name; }
+    const Option *getGroup() const { return Group; }
     const Option *getAlias() const { return Alias; }
 
-    bool isUnsupported() const { return Unsupported; }
-    void setUnsupported(bool Value) { Unsupported = Value; }
+    unsigned getNumArgs() const { return Info->Param; }
 
-    bool isLinkerInput() const { return LinkerInput; }
-    void setLinkerInput(bool Value) { LinkerInput = Value; }
+    bool isUnsupported() const { return Info->Flags & options::Unsupported; }
 
-    bool hasNoOptAsInput() const { return NoOptAsInput; }
-    void setNoOptAsInput(bool Value) { NoOptAsInput = Value; }
+    bool isLinkerInput() const { return Info->Flags & options::LinkerInput; }
+
+    bool hasNoOptAsInput() const { return Info->Flags & options::RenderAsInput;}
 
     RenderStyleKind getRenderStyle() const {
-      return RenderStyleKind(RenderStyle);
+      if (Info->Flags & options::RenderJoined)
+        return RenderJoinedStyle;
+      if (Info->Flags & options::RenderSeparate)
+        return RenderSeparateStyle;
+      switch (getKind()) {
+      case GroupClass:
+      case InputClass:
+      case UnknownClass:
+        return RenderValuesStyle;
+      case JoinedClass:
+      case JoinedAndSeparateClass:
+        return RenderJoinedStyle;
+      case CommaJoinedClass:
+        return RenderCommaJoinedStyle;
+      case FlagClass:
+      case SeparateClass:
+      case MultiArgClass:
+      case JoinedOrSeparateClass:
+        return RenderSeparateStyle;
+      }
+      llvm_unreachable("Unexpected kind!");
     }
-    void setRenderStyle(RenderStyleKind Value) { RenderStyle = Value; }
 
-    bool isDriverOption() const { return DriverOption; }
-    void setDriverOption(bool Value) { DriverOption = Value; }
+    bool isDriverOption() const { return Info->Flags & options::DriverOption; }
 
-    bool hasNoArgumentUnused() const { return NoArgumentUnused; }
-    void setNoArgumentUnused(bool Value) { NoArgumentUnused = Value; }
+    bool hasNoArgumentUnused() const {
+      return Info->Flags & options::NoArgumentUnused;
+    }
 
-    bool hasNoForward() const { return NoForward; }
-    void setNoForward(bool Value) { NoForward = Value; }
+    bool hasNoForward() const { return Info->Flags & options::NoForward; }
 
-    bool isCC1Option() const { return CC1Option; }
-    void setIsCC1Option(bool Value) { CC1Option = Value; }
+    bool isCC1Option() const { return Info->Flags & options::CC1Option; }
 
     bool hasForwardToGCC() const {
-      return !NoForward && !DriverOption && !LinkerInput;
+      return !hasNoForward() && !isDriverOption() && !isLinkerInput();
     }
 
     /// getUnaliasedOption - Return the final option this option
@@ -164,158 +165,9 @@ namespace driver {
     /// If the option accepts the current argument, accept() sets
     /// Index to the position where argument parsing should resume
     /// (even if the argument is missing values).
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const = 0;
+    Arg *accept(const ArgList &Args, unsigned &Index) const;
 
     void dump() const;
-
-    static bool classof(const Option *) { return true; }
-  };
-
-  /// OptionGroup - A set of options which are can be handled uniformly
-  /// by the driver.
-  class OptionGroup : public Option {
-  public:
-    OptionGroup(OptSpecifier ID, const char *Name, const OptionGroup *Group);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::GroupClass;
-    }
-    static bool classof(const OptionGroup *) { return true; }
-  };
-
-  // Dummy option classes.
-
-  /// InputOption - Dummy option class for representing driver inputs.
-  class InputOption : public Option {
-  public:
-    InputOption(OptSpecifier ID);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::InputClass;
-    }
-    static bool classof(const InputOption *) { return true; }
-  };
-
-  /// UnknownOption - Dummy option class for represent unknown arguments.
-  class UnknownOption : public Option {
-  public:
-    UnknownOption(OptSpecifier ID);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::UnknownClass;
-    }
-    static bool classof(const UnknownOption *) { return true; }
-  };
-
-  // Normal options.
-
-  class FlagOption : public Option {
-  public:
-    FlagOption(OptSpecifier ID, const char *Name, const OptionGroup *Group,
-               const Option *Alias);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::FlagClass;
-    }
-    static bool classof(const FlagOption *) { return true; }
-  };
-
-  class JoinedOption : public Option {
-  public:
-    JoinedOption(OptSpecifier ID, const char *Name, const OptionGroup *Group,
-                 const Option *Alias);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::JoinedClass;
-    }
-    static bool classof(const JoinedOption *) { return true; }
-  };
-
-  class SeparateOption : public Option {
-  public:
-    SeparateOption(OptSpecifier ID, const char *Name,
-                   const OptionGroup *Group, const Option *Alias);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::SeparateClass;
-    }
-    static bool classof(const SeparateOption *) { return true; }
-  };
-
-  class CommaJoinedOption : public Option {
-  public:
-    CommaJoinedOption(OptSpecifier ID, const char *Name,
-                      const OptionGroup *Group, const Option *Alias);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::CommaJoinedClass;
-    }
-    static bool classof(const CommaJoinedOption *) { return true; }
-  };
-
-  // FIXME: Fold MultiArgOption into SeparateOption?
-
-  /// MultiArgOption - An option which takes multiple arguments (these
-  /// are always separate arguments).
-  class MultiArgOption : public Option {
-    unsigned NumArgs;
-
-  public:
-    MultiArgOption(OptSpecifier ID, const char *Name, const OptionGroup *Group,
-                   const Option *Alias, unsigned NumArgs);
-
-    unsigned getNumArgs() const { return NumArgs; }
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::MultiArgClass;
-    }
-    static bool classof(const MultiArgOption *) { return true; }
-  };
-
-  /// JoinedOrSeparateOption - An option which either literally
-  /// prefixes its (non-empty) value, or is follwed by a value.
-  class JoinedOrSeparateOption : public Option {
-  public:
-    JoinedOrSeparateOption(OptSpecifier ID, const char *Name,
-                           const OptionGroup *Group, const Option *Alias);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::JoinedOrSeparateClass;
-    }
-    static bool classof(const JoinedOrSeparateOption *) { return true; }
-  };
-
-  /// JoinedAndSeparateOption - An option which literally prefixes its
-  /// value and is followed by another value.
-  class JoinedAndSeparateOption : public Option {
-  public:
-    JoinedAndSeparateOption(OptSpecifier ID, const char *Name,
-                            const OptionGroup *Group, const Option *Alias);
-
-    virtual Arg *accept(const ArgList &Args, unsigned &Index) const;
-
-    static bool classof(const Option *O) {
-      return O->getKind() == Option::JoinedAndSeparateClass;
-    }
-    static bool classof(const JoinedAndSeparateOption *) { return true; }
   };
 
 } // end namespace driver

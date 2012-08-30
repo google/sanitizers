@@ -26,6 +26,7 @@
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -36,6 +37,123 @@
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/Triple.h"
 using namespace llvm;
+
+static cl::opt<bool>
+EnableFPMAD("enable-fp-mad",
+  cl::desc("Enable less precise MAD instructions to be generated"),
+  cl::init(false));
+
+static cl::opt<bool>
+DisableFPElim("disable-fp-elim",
+  cl::desc("Disable frame pointer elimination optimization"),
+  cl::init(false));
+
+static cl::opt<bool>
+DisableFPElimNonLeaf("disable-non-leaf-fp-elim",
+  cl::desc("Disable frame pointer elimination optimization for non-leaf funcs"),
+  cl::init(false));
+
+static cl::opt<bool>
+EnableUnsafeFPMath("enable-unsafe-fp-math",
+  cl::desc("Enable optimizations that may decrease FP precision"),
+  cl::init(false));
+
+static cl::opt<bool>
+EnableNoInfsFPMath("enable-no-infs-fp-math",
+  cl::desc("Enable FP math optimizations that assume no +-Infs"),
+  cl::init(false));
+
+static cl::opt<bool>
+EnableNoNaNsFPMath("enable-no-nans-fp-math",
+  cl::desc("Enable FP math optimizations that assume no NaNs"),
+  cl::init(false));
+
+static cl::opt<bool>
+EnableHonorSignDependentRoundingFPMath("enable-sign-dependent-rounding-fp-math",
+  cl::Hidden,
+  cl::desc("Force codegen to assume rounding mode can change dynamically"),
+  cl::init(false));
+
+static cl::opt<bool>
+GenerateSoftFloatCalls("soft-float",
+  cl::desc("Generate software floating point library calls"),
+  cl::init(false));
+
+static cl::opt<llvm::FloatABI::ABIType>
+FloatABIForCalls("float-abi",
+  cl::desc("Choose float ABI type"),
+  cl::init(FloatABI::Default),
+  cl::values(
+    clEnumValN(FloatABI::Default, "default",
+               "Target default float ABI type"),
+    clEnumValN(FloatABI::Soft, "soft",
+               "Soft float ABI (implied by -soft-float)"),
+    clEnumValN(FloatABI::Hard, "hard",
+               "Hard float ABI (uses FP registers)"),
+    clEnumValEnd));
+
+static cl::opt<llvm::FPOpFusion::FPOpFusionMode>
+FuseFPOps("fp-contract",
+  cl::desc("Enable aggresive formation of fused FP ops"),
+  cl::init(FPOpFusion::Standard),
+  cl::values(
+    clEnumValN(FPOpFusion::Fast, "fast",
+               "Fuse FP ops whenever profitable"),
+    clEnumValN(FPOpFusion::Standard, "on",
+               "Only fuse 'blessed' FP ops."),
+    clEnumValN(FPOpFusion::Strict, "off",
+               "Only fuse FP ops when the result won't be effected."),
+    clEnumValEnd));
+
+static cl::opt<bool>
+DontPlaceZerosInBSS("nozero-initialized-in-bss",
+  cl::desc("Don't place zero-initialized symbols into bss section"),
+  cl::init(false));
+
+static cl::opt<bool>
+EnableGuaranteedTailCallOpt("tailcallopt",
+  cl::desc("Turn fastcc calls into tail calls by (potentially) changing ABI."),
+  cl::init(false));
+
+static cl::opt<bool>
+DisableTailCalls("disable-tail-calls",
+  cl::desc("Never emit tail calls"),
+  cl::init(false));
+
+static cl::opt<unsigned>
+OverrideStackAlignment("stack-alignment",
+  cl::desc("Override default stack alignment"),
+  cl::init(0));
+
+static cl::opt<bool>
+EnableRealignStack("realign-stack",
+  cl::desc("Realign stack if needed"),
+  cl::init(true));
+
+static cl::opt<std::string>
+TrapFuncName("trap-func", cl::Hidden,
+  cl::desc("Emit a call to trap function rather than a trap instruction"),
+  cl::init(""));
+
+static cl::opt<bool>
+EnablePIE("enable-pie",
+  cl::desc("Assume the creation of a position independent executable."),
+  cl::init(false));
+
+static cl::opt<bool>
+SegmentedStacks("segmented-stacks",
+  cl::desc("Use segmented stacks if possible."),
+  cl::init(false));
+
+static cl::opt<bool>
+UseInitArray("use-init-array",
+  cl::desc("Use .init_array instead of .ctors."),
+  cl::init(false));
+
+static cl::opt<unsigned>
+SSPBufferSize("stack-protector-buffer-size", cl::init(8),
+              cl::desc("Lower bound for a buffer to be considered for "
+                       "stack protection"));
 
 LTOModule::LTOModule(llvm::Module *m, llvm::TargetMachine *t)
   : _module(m), _target(t),
@@ -117,6 +235,31 @@ LTOModule *LTOModule::makeLTOModule(const void *mem, size_t length,
   return makeLTOModule(buffer.take(), errMsg);
 }
 
+void LTOModule::getTargetOptions(TargetOptions &Options) {
+  Options.LessPreciseFPMADOption = EnableFPMAD;
+  Options.NoFramePointerElim = DisableFPElim;
+  Options.NoFramePointerElimNonLeaf = DisableFPElimNonLeaf;
+  Options.AllowFPOpFusion = FuseFPOps;
+  Options.UnsafeFPMath = EnableUnsafeFPMath;
+  Options.NoInfsFPMath = EnableNoInfsFPMath;
+  Options.NoNaNsFPMath = EnableNoNaNsFPMath;
+  Options.HonorSignDependentRoundingFPMathOption =
+    EnableHonorSignDependentRoundingFPMath;
+  Options.UseSoftFloat = GenerateSoftFloatCalls;
+  if (FloatABIForCalls != FloatABI::Default)
+    Options.FloatABIType = FloatABIForCalls;
+  Options.NoZerosInBSS = DontPlaceZerosInBSS;
+  Options.GuaranteedTailCallOpt = EnableGuaranteedTailCallOpt;
+  Options.DisableTailCalls = DisableTailCalls;
+  Options.StackAlignmentOverride = OverrideStackAlignment;
+  Options.RealignStack = EnableRealignStack;
+  Options.TrapFuncName = TrapFuncName;
+  Options.PositionIndependentExecutable = EnablePIE;
+  Options.EnableSegmentedStacks = SegmentedStacks;
+  Options.UseInitArray = UseInitArray;
+  Options.SSPBufferSize = SSPBufferSize;
+}
+
 LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
                                     std::string &errMsg) {
   static bool Initialized = false;
@@ -150,6 +293,7 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
   std::string FeatureStr = Features.getString();
   std::string CPU;
   TargetOptions Options;
+  getTargetOptions(Options);
   TargetMachine *target = march->createTargetMachine(Triple, CPU, FeatureStr,
                                                      Options);
   LTOModule *Ret = new LTOModule(m.take(), target);
@@ -271,6 +415,9 @@ void LTOModule::addDefinedDataSymbol(GlobalValue *v) {
   // Add to list of defined symbols.
   addDefinedSymbol(v, false);
 
+  if (!v->hasSection() /* || !isTargetDarwin */)
+    return;
+
   // Special case i386/ppc ObjC data structures in magic sections:
   // The issue is that the old ObjC object format did some strange
   // contortions to avoid real linker symbols.  For instance, the
@@ -290,26 +437,25 @@ void LTOModule::addDefinedDataSymbol(GlobalValue *v) {
   // a class was missing.
   // The following synthesizes the implicit .objc_* symbols for the linker
   // from the ObjC data structures generated by the front end.
-  if (v->hasSection() /* && isTargetDarwin */) {
-    // special case if this data blob is an ObjC class definition
-    if (v->getSection().compare(0, 15, "__OBJC,__class,") == 0) {
-      if (GlobalVariable *gv = dyn_cast<GlobalVariable>(v)) {
-        addObjCClass(gv);
-      }
-    }
 
-    // special case if this data blob is an ObjC category definition
-    else if (v->getSection().compare(0, 18, "__OBJC,__category,") == 0) {
-      if (GlobalVariable *gv = dyn_cast<GlobalVariable>(v)) {
-        addObjCCategory(gv);
-      }
+  // special case if this data blob is an ObjC class definition
+  if (v->getSection().compare(0, 15, "__OBJC,__class,") == 0) {
+    if (GlobalVariable *gv = dyn_cast<GlobalVariable>(v)) {
+      addObjCClass(gv);
     }
+  }
 
-    // special case if this data blob is the list of referenced classes
-    else if (v->getSection().compare(0, 18, "__OBJC,__cls_refs,") == 0) {
-      if (GlobalVariable *gv = dyn_cast<GlobalVariable>(v)) {
-        addObjCClassRef(gv);
-      }
+  // special case if this data blob is an ObjC category definition
+  else if (v->getSection().compare(0, 18, "__OBJC,__category,") == 0) {
+    if (GlobalVariable *gv = dyn_cast<GlobalVariable>(v)) {
+      addObjCCategory(gv);
+    }
+  }
+
+  // special case if this data blob is the list of referenced classes
+  else if (v->getSection().compare(0, 18, "__OBJC,__cls_refs,") == 0) {
+    if (GlobalVariable *gv = dyn_cast<GlobalVariable>(v)) {
+      addObjCClassRef(gv);
     }
   }
 }
@@ -347,8 +493,7 @@ void LTOModule::addDefinedSymbol(GlobalValue *def, bool isFunction) {
 
   // set definition part
   if (def->hasWeakLinkage() || def->hasLinkOnceLinkage() ||
-      def->hasLinkerPrivateWeakLinkage() ||
-      def->hasLinkerPrivateWeakDefAutoLinkage())
+      def->hasLinkerPrivateWeakLinkage())
     attr |= LTO_SYMBOL_DEFINITION_WEAK;
   else if (def->hasCommonLinkage())
     attr |= LTO_SYMBOL_DEFINITION_TENTATIVE;
@@ -364,7 +509,7 @@ void LTOModule::addDefinedSymbol(GlobalValue *def, bool isFunction) {
            def->hasLinkOnceLinkage() || def->hasCommonLinkage() ||
            def->hasLinkerPrivateWeakLinkage())
     attr |= LTO_SYMBOL_SCOPE_DEFAULT;
-  else if (def->hasLinkerPrivateWeakDefAutoLinkage())
+  else if (def->hasLinkOnceODRAutoHideLinkage())
     attr |= LTO_SYMBOL_SCOPE_DEFAULT_CAN_BE_HIDDEN;
   else
     attr |= LTO_SYMBOL_SCOPE_INTERNAL;
@@ -658,21 +803,20 @@ bool LTOModule::addAsmGlobalSymbols(std::string &errMsg) {
   OwningPtr<MCAsmParser> Parser(createMCAsmParser(SrcMgr,
                                                   _context, *Streamer,
                                                   *_target->getMCAsmInfo()));
-  OwningPtr<MCSubtargetInfo> STI(_target->getTarget().
-                      createMCSubtargetInfo(_target->getTargetTriple(),
-                                            _target->getTargetCPU(),
-                                            _target->getTargetFeatureString()));
-  OwningPtr<MCTargetAsmParser>
-    TAP(_target->getTarget().createMCAsmParser(*STI, *Parser.get()));
+  const Target &T = _target->getTarget();
+  OwningPtr<MCSubtargetInfo>
+    STI(T.createMCSubtargetInfo(_target->getTargetTriple(),
+                                _target->getTargetCPU(),
+                                _target->getTargetFeatureString()));
+  OwningPtr<MCTargetAsmParser> TAP(T.createMCAsmParser(*STI, *Parser.get()));
   if (!TAP) {
-    errMsg = "target " + std::string(_target->getTarget().getName()) +
-        " does not define AsmParser.";
+    errMsg = "target " + std::string(T.getName()) +
+      " does not define AsmParser.";
     return true;
   }
 
   Parser->setTargetParser(*TAP);
-  int Res = Parser->Run(false);
-  if (Res)
+  if (Parser->Run(false))
     return true;
 
   for (RecordStreamer::const_iterator i = Streamer->begin(),
@@ -687,6 +831,7 @@ bool LTOModule::addAsmGlobalSymbols(std::string &errMsg) {
              Value == RecordStreamer::Used)
       addAsmGlobalSymbolUndef(Key.data());
   }
+
   return false;
 }
 
@@ -694,8 +839,10 @@ bool LTOModule::addAsmGlobalSymbols(std::string &errMsg) {
 static bool isDeclaration(const GlobalValue &V) {
   if (V.hasAvailableExternallyLinkage())
     return true;
+
   if (V.isMaterializable())
     return false;
+
   return V.isDeclaration();
 }
 

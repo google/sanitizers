@@ -835,7 +835,20 @@ namespace {
       ExprResult Result =
           TreeTransform<TemplateInstantiator>::TransformCallExpr(CE);
       getSema().CallsUndergoingInstantiation.pop_back();
-      return move(Result);
+      return Result;
+    }
+
+    ExprResult TransformLambdaExpr(LambdaExpr *E) {
+      LocalInstantiationScope Scope(SemaRef, /*CombineWithOuterScope=*/true);
+      return TreeTransform<TemplateInstantiator>::TransformLambdaExpr(E);
+    }
+
+    ExprResult TransformLambdaScope(LambdaExpr *E,
+                                    CXXMethodDecl *CallOperator) {
+      CallOperator->setInstantiationOfMemberFunction(E->getCallOperator(),
+                                                     TSK_ImplicitInstantiation);
+      return TreeTransform<TemplateInstantiator>::
+         TransformLambdaScope(E, CallOperator);
     }
 
   private:
@@ -975,12 +988,11 @@ TemplateInstantiator::RebuildElaboratedType(SourceLocation KeywordLoc,
 
     SourceLocation TagLocation = KeywordLoc;
 
-    // FIXME: type might be anonymous.
     IdentifierInfo *Id = TD->getIdentifier();
 
     // TODO: should we even warn on struct/class mismatches for this?  Seems
     // like it's likely to produce a lot of spurious errors.
-    if (Keyword != ETK_None && Keyword != ETK_Typename) {
+    if (Id && Keyword != ETK_None && Keyword != ETK_Typename) {
       TagTypeKind Kind = TypeWithKeyword::getTagTypeKindForKeyword(Keyword);
       if (!SemaRef.isAcceptableTagRedeclaration(TD, Kind, /*isDefinition*/false,
                                                 TagLocation, *Id)) {
@@ -1983,8 +1995,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
   Instantiator.disableLateAttributeInstantiation();
   LateAttrs.clear();
 
-  if (!FieldsWithMemberInitializers.empty())
-    ActOnFinishDelayedMemberInitializers(Instantiation);
+  ActOnFinishDelayedMemberInitializers(Instantiation);
 
   if (TSK == TSK_ImplicitInstantiation) {
     Instantiation->setLocation(Pattern->getLocation());
@@ -1993,6 +2004,9 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
   }
 
   if (!Instantiation->isInvalidDecl()) {
+    // Perform any dependent diagnostics from the pattern.
+    PerformDependentDiagnostics(Pattern, TemplateArgs);
+
     // Instantiate any out-of-line class template partial
     // specializations now.
     for (TemplateDeclInstantiator::delayed_partial_spec_iterator 

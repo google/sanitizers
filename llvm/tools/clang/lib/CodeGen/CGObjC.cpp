@@ -613,7 +613,16 @@ PropertyImplStrategy::PropertyImplStrategy(CodeGenModule &CGM,
     // which translates to objc_storeStrong.  This isn't required, but
     // it's slightly nicer.
     } else if (CGM.getLangOpts().ObjCAutoRefCount && !IsAtomic) {
-      Kind = Expression;
+      // Using standard expression emission for the setter is only
+      // acceptable if the ivar is __strong, which won't be true if
+      // the property is annotated with __attribute__((NSObject)).
+      // TODO: falling all the way back to objc_setProperty here is
+      // just laziness, though;  we could still use objc_storeStrong
+      // if we hacked it right.
+      if (ivarType.getObjCLifetime() == Qualifiers::OCL_Strong)
+        Kind = Expression;
+      else
+        Kind = SetPropertyAndExpressionGet;
       return;
 
     // Otherwise, we need to at least use setProperty.  However, if
@@ -1696,9 +1705,13 @@ static llvm::Constant *createARCRuntimeFunction(CodeGenModule &CGM,
   // If the target runtime doesn't naturally support ARC, emit weak
   // references to the runtime support library.  We don't really
   // permit this to fail, but we need a particular relocation style.
-  if (!CGM.getLangOpts().ObjCRuntime.hasARC())
-    if (llvm::Function *f = dyn_cast<llvm::Function>(fn))
+  if (llvm::Function *f = dyn_cast<llvm::Function>(fn)) {
+    if (!CGM.getLangOpts().ObjCRuntime.hasNativeARC())
       f->setLinkage(llvm::Function::ExternalWeakLinkage);
+    // set nonlazybind attribute for these APIs for performance.
+    if (fnName == "objc_retain" || fnName  == "objc_release")
+      f->addFnAttr(llvm::Attribute::NonLazyBind);
+  }
 
   return fn;
 }
@@ -2726,7 +2739,7 @@ void CodeGenFunction::EmitObjCAutoreleasePoolStmt(
 
   // Keep track of the current cleanup stack depth.
   RunCleanupsScope Scope(*this);
-  if (CGM.getLangOpts().ObjCRuntime.hasARC()) {
+  if (CGM.getLangOpts().ObjCRuntime.hasNativeARC()) {
     llvm::Value *token = EmitObjCAutoreleasePoolPush();
     EHStack.pushCleanup<CallObjCAutoreleasePoolObject>(NormalCleanup, token);
   } else {
@@ -2841,7 +2854,7 @@ CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
   Expr *Args[2] = { &DST, &SRC };
   CallExpr *CalleeExp = cast<CallExpr>(PID->getSetterCXXAssignment());
   CXXOperatorCallExpr TheCall(C, OO_Equal, CalleeExp->getCallee(),
-                              Args, 2, DestTy->getPointeeType(), 
+                              Args, DestTy->getPointeeType(),
                               VK_LValue, SourceLocation());
   
   EmitStmt(&TheCall);
@@ -2936,7 +2949,7 @@ CodeGenFunction::GenerateObjCAtomicGetterCopyHelperFunction(
     CXXConstructExpr::Create(C, Ty, SourceLocation(),
                              CXXConstExpr->getConstructor(),
                              CXXConstExpr->isElidable(),
-                             &ConstructorArgs[0], ConstructorArgs.size(),
+                             ConstructorArgs,
                              CXXConstExpr->hadMultipleCandidates(),
                              CXXConstExpr->isListInitialization(),
                              CXXConstExpr->requiresZeroInitialization(),

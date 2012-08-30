@@ -33,12 +33,16 @@ add_clang_library(clangFrontend
 add_dependencies(clangFrontend
   ClangAttrClasses
   ClangAttrList
+  ClangAttrParsedAttrList
+  ClangCommentNodes
+  ClangDeclNodes
+  ClangDiagnosticAST
+  ClangDiagnosticCommon
+  ClangDiagnosticDriver
   ClangDiagnosticFrontend
   ClangDiagnosticLex
   ClangDiagnosticSema
   ClangDriverOptions
-  ClangCommentNodes
-  ClangDeclNodes
   ClangStmtNodes
   )
 

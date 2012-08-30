@@ -55,7 +55,7 @@ protected:
 
   /// X86ProcFamily - X86 processor family: Intel Atom, and others
   X86ProcFamilyEnum X86ProcFamily;
-  
+
   /// PICStyle - Which PIC style to use
   ///
   PICStyles::Style PICStyle;
@@ -149,7 +149,7 @@ protected:
 
   /// TargetTriple - What processor and OS we're targeting.
   Triple TargetTriple;
-  
+
   /// Instruction itineraries for scheduling
   InstrItineraryData InstrItins;
 
@@ -205,7 +205,8 @@ public:
   bool hasAES() const { return HasAES; }
   bool hasPCLMUL() const { return HasPCLMUL; }
   bool hasFMA() const { return HasFMA; }
-  bool hasFMA4() const { return HasFMA4; }
+  // FIXME: Favor FMA when both are enabled. Is this the right thing to do?
+  bool hasFMA4() const { return HasFMA4 && !HasFMA; }
   bool hasXOP() const { return HasXOP; }
   bool hasMOVBE() const { return HasMOVBE; }
   bool hasRDRAND() const { return HasRDRAND; }

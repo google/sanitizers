@@ -33,7 +33,6 @@ SRCS="
 	../../sanitizer_common/sanitizer_libc.cc
 	../../sanitizer_common/sanitizer_posix.cc
 	../../sanitizer_common/sanitizer_printf.cc
-	../../sanitizer_common/sanitizer_symbolizer.cc
 "
 
 if [ "$LINUX" != "" ]; then
@@ -42,12 +41,13 @@ if [ "$LINUX" != "" ]; then
 		../../sanitizer_common/sanitizer_linux.cc
 	"
 elif [ "$MAC" != "" ]; then
-        SRCS+="
-                ../rtl/tsan_platform_mac.cc
-                ../../sanitizer_common/sanitizer_mac.cc
-        "
+	SRCS+="
+		../rtl/tsan_platform_mac.cc
+		../../sanitizer_common/sanitizer_mac.cc
+	"
 fi
 
+SRCS+=$ADD_SRCS
 #ASMS="../rtl/tsan_rtl_amd64.S"
 
 rm -f gotsan.cc
@@ -69,9 +69,9 @@ fi
 echo gcc gotsan.cc -S -o tmp.s $FLAGS $CFLAGS
 gcc gotsan.cc -S -o tmp.s $FLAGS $CFLAGS
 cat tmp.s $ASMS > gotsan.s
-echo as gotsan.s -o gotsan_$SUFFIX.syso
-as gotsan.s -o gotsan_$SUFFIX.syso
+echo as gotsan.s -o race_$SUFFIX.syso
+as gotsan.s -o race_$SUFFIX.syso
 
-gcc test.c gotsan_$SUFFIX.syso -lpthread -o test
-./test
+gcc test.c race_$SUFFIX.syso -lpthread -o test
+TSAN_OPTIONS="exitcode=0" ./test
 

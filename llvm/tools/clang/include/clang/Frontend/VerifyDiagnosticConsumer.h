@@ -12,9 +12,9 @@
 
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Lex/Preprocessor.h"
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
 #include <climits>
 
@@ -167,18 +167,40 @@ public:
   };
 
 private:
-  typedef llvm::DenseSet<FileID> FilesWithDiagnosticsSet;
-  typedef llvm::SmallPtrSet<const FileEntry *, 4> FilesWithDirectivesSet;
-
   DiagnosticsEngine &Diags;
   DiagnosticConsumer *PrimaryClient;
   bool OwnsPrimaryClient;
   OwningPtr<TextDiagnosticBuffer> Buffer;
   const Preprocessor *CurrentPreprocessor;
-  FilesWithDiagnosticsSet FilesWithDiagnostics;
-  FilesWithDirectivesSet FilesWithDirectives;
+  const LangOptions *LangOpts;
+  SourceManager *SrcManager;
+  unsigned ActiveSourceFiles;
   ExpectedData ED;
+
   void CheckDiagnostics();
+  void setSourceManager(SourceManager &SM) {
+    assert((!SrcManager || SrcManager == &SM) && "SourceManager changed!");
+    SrcManager = &SM;
+  }
+
+#ifndef NDEBUG
+  class UnparsedFileStatus {
+    llvm::PointerIntPair<const FileEntry *, 1, bool> Data;
+
+  public:
+    UnparsedFileStatus(const FileEntry *File, bool FoundDirectives)
+      : Data(File, FoundDirectives) {}
+
+    const FileEntry *getFile() const { return Data.getPointer(); }
+    bool foundDirectives() const { return Data.getInt(); }
+  };
+
+  typedef llvm::DenseMap<FileID, const FileEntry *> ParsedFilesMap;
+  typedef llvm::DenseMap<FileID, UnparsedFileStatus> UnparsedFilesMap;
+
+  ParsedFilesMap ParsedFiles;
+  UnparsedFilesMap UnparsedFiles;
+#endif
 
 public:
   /// Create a new verifying diagnostic client, which will issue errors to
@@ -191,6 +213,20 @@ public:
                                const Preprocessor *PP);
 
   virtual void EndSourceFile();
+
+  enum ParsedStatus {
+    /// File has been processed via HandleComment.
+    IsParsed,
+
+    /// File has diagnostics and may have directives.
+    IsUnparsed,
+
+    /// File has diagnostics but guaranteed no directives.
+    IsUnparsedNoDirectives
+  };
+
+  /// \brief Update lists of parsed and unparsed files.
+  void UpdateParsedFileStatus(SourceManager &SM, FileID FID, ParsedStatus PS);
 
   virtual bool HandleComment(Preprocessor &PP, SourceRange Comment);
 

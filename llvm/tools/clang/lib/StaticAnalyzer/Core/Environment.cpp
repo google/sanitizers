@@ -96,6 +96,12 @@ SVal Environment::getSVal(const EnvironmentEntry &Entry,
       case Stmt::CXXBindTemporaryExprClass:
         E = cast<CXXBindTemporaryExpr>(E)->getSubExpr();
         continue;
+      case Stmt::SubstNonTypeTemplateParmExprClass:
+        E = cast<SubstNonTypeTemplateParmExpr>(E)->getReplacement();
+        continue;
+      case Stmt::CXXDefaultArgExprClass:
+        E = cast<CXXDefaultArgExpr>(E)->getExpr();
+        continue;
       case Stmt::ObjCStringLiteralClass: {
         MemRegionManager &MRMgr = svalBuilder.getRegionManager();
         const ObjCStringLiteral *SL = cast<ObjCStringLiteral>(E);
@@ -230,13 +236,6 @@ EnvironmentManager::removeDeadBindings(Environment Env,
       RSScaner.scan(X);
       continue;
     }
-
-    // Otherwise the expression is dead with a couple exceptions.
-    // Do not misclean LogicalExpr or ConditionalOperator.  It is dead at the
-    // beginning of itself, but we need its UndefinedVal to determine its
-    // SVal.
-    if (X.isUndef() && cast<UndefinedVal>(X).getData())
-      EBMapRef = EBMapRef.add(BlkExpr, X);
   }
   
   // Go through he deferred locations and add them to the new environment if

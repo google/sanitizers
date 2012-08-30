@@ -166,3 +166,15 @@ void f31(struct s31 s) { }
 // APCS-GNU: %s = alloca %struct.s31, align 4
 // APCS-GNU: alloca [1 x i32]
 // APCS-GNU: store [1 x i32] %s.coerce, [1 x i32]*
+
+// PR13562
+struct s32 { double x; };
+void f32(struct s32 s) { }
+// AAPCS: @f32([1 x i64] %s.coerce)
+// APCS-GNU: @f32([2 x i32] %s.coerce)
+
+// PR13350
+struct s33 { char buf[32*32]; };
+void f33(struct s33 s) { }
+// APCS-GNU: define void @f33(%struct.s33* byval %s)
+// AAPCS: define arm_aapcscc void @f33(%struct.s33* byval %s)

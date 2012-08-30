@@ -13,6 +13,8 @@
 
 #include "MipsTargetMachine.h"
 #include "Mips.h"
+#include "MipsFrameLowering.h"
+#include "MipsInstrInfo.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -22,8 +24,8 @@ extern "C" void LLVMInitializeMipsTarget() {
   // Register the target.
   RegisterTargetMachine<MipsebTargetMachine> X(TheMipsTarget);
   RegisterTargetMachine<MipselTargetMachine> Y(TheMipselTarget);
-  RegisterTargetMachine<Mips64ebTargetMachine> A(TheMips64Target);
-  RegisterTargetMachine<Mips64elTargetMachine> B(TheMips64elTarget);
+  RegisterTargetMachine<MipsebTargetMachine> A(TheMips64Target);
+  RegisterTargetMachine<MipselTargetMachine> B(TheMips64elTarget);
 }
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
@@ -40,7 +42,7 @@ MipsTargetMachine(const Target &T, StringRef TT,
                   CodeGenOpt::Level OL,
                   bool isLittle)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-    Subtarget(TT, CPU, FS, isLittle),
+    Subtarget(TT, CPU, FS, isLittle, RM),
     DataLayout(isLittle ?
                (Subtarget.isABI_N64() ?
                 "e-p:64:64:64-i8:8:32-i16:16:32-i64:64:64-f128:128:128-n32" :
@@ -48,9 +50,10 @@ MipsTargetMachine(const Target &T, StringRef TT,
                (Subtarget.isABI_N64() ?
                 "E-p:64:64:64-i8:8:32-i16:16:32-i64:64:64-f128:128:128-n32" :
                 "E-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32")),
-    InstrInfo(*this),
-    FrameLowering(Subtarget),
-    TLInfo(*this), TSInfo(*this), JITInfo() {
+    InstrInfo(MipsInstrInfo::create(*this)),
+    FrameLowering(MipsFrameLowering::create(*this, Subtarget)),
+    TLInfo(*this), TSInfo(*this), JITInfo(),
+    ELFWriterInfo(false, isLittle) {
 }
 
 void MipsebTargetMachine::anchor() { }
@@ -69,24 +72,6 @@ MipselTargetMachine(const Target &T, StringRef TT,
                     StringRef CPU, StringRef FS, const TargetOptions &Options,
                     Reloc::Model RM, CodeModel::Model CM,
                     CodeGenOpt::Level OL)
-  : MipsTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, true) {}
-
-void Mips64ebTargetMachine::anchor() { }
-
-Mips64ebTargetMachine::
-Mips64ebTargetMachine(const Target &T, StringRef TT,
-                      StringRef CPU, StringRef FS, const TargetOptions &Options,
-                      Reloc::Model RM, CodeModel::Model CM,
-                      CodeGenOpt::Level OL)
-  : MipsTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, false) {}
-
-void Mips64elTargetMachine::anchor() { }
-
-Mips64elTargetMachine::
-Mips64elTargetMachine(const Target &T, StringRef TT,
-                      StringRef CPU, StringRef FS, const TargetOptions &Options,
-                      Reloc::Model RM, CodeModel::Model CM,
-                      CodeGenOpt::Level OL)
   : MipsTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, true) {}
 
 namespace {

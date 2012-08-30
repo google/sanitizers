@@ -19,6 +19,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/LEB128.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/ADT/Hashing.h"
@@ -361,7 +362,7 @@ void MCDwarfLineAddr::Encode(int64_t LineDelta, uint64_t AddrDelta,
       OS << char(dwarf::DW_LNS_const_add_pc);
     else {
       OS << char(dwarf::DW_LNS_advance_pc);
-      MCObjectWriter::EncodeULEB128(AddrDelta, OS);
+      encodeULEB128(AddrDelta, OS);
     }
     OS << char(dwarf::DW_LNS_extended_op);
     OS << char(1);
@@ -376,7 +377,7 @@ void MCDwarfLineAddr::Encode(int64_t LineDelta, uint64_t AddrDelta,
   // it with DW_LNS_advance_line.
   if (Temp >= DWARF2_LINE_RANGE) {
     OS << char(dwarf::DW_LNS_advance_line);
-    MCObjectWriter::EncodeSLEB128(LineDelta, OS);
+    encodeSLEB128(LineDelta, OS);
 
     LineDelta = 0;
     Temp = 0 - DWARF2_LINE_BASE;
@@ -412,7 +413,7 @@ void MCDwarfLineAddr::Encode(int64_t LineDelta, uint64_t AddrDelta,
 
   // Otherwise use DW_LNS_advance_pc.
   OS << char(dwarf::DW_LNS_advance_pc);
-  MCObjectWriter::EncodeULEB128(AddrDelta, OS);
+  encodeULEB128(AddrDelta, OS);
 
   if (NeedCopy)
     OS << char(dwarf::DW_LNS_copy);
@@ -1293,20 +1294,17 @@ MCSymbol *FrameEmitterImpl::EmitFDE(MCStreamer &streamer,
     streamer.EmitSymbolValue(&cieStart, 4);
   }
 
-  unsigned fdeEncoding = MOFI->getFDEEncoding(UsingCFI);
-  unsigned size = getSizeForEncoding(streamer, fdeEncoding);
-
   // PC Begin
-  unsigned PCBeginEncoding = IsEH ? fdeEncoding :
-    (unsigned)dwarf::DW_EH_PE_absptr;
-  unsigned PCBeginSize = getSizeForEncoding(streamer, PCBeginEncoding);
-  EmitSymbol(streamer, *frame.Begin, PCBeginEncoding, "FDE initial location");
+  unsigned PCEncoding = IsEH ? MOFI->getFDEEncoding(UsingCFI)
+                             : (unsigned)dwarf::DW_EH_PE_absptr;
+  unsigned PCSize = getSizeForEncoding(streamer, PCEncoding);
+  EmitSymbol(streamer, *frame.Begin, PCEncoding, "FDE initial location");
 
   // PC Range
   const MCExpr *Range = MakeStartMinusEndExpr(streamer, *frame.Begin,
                                               *frame.End, 0);
   if (verboseAsm) streamer.AddComment("FDE address range");
-  streamer.EmitAbsValue(Range, size);
+  streamer.EmitAbsValue(Range, PCSize);
 
   if (IsEH) {
     // Augmentation Data Length
@@ -1329,7 +1327,7 @@ MCSymbol *FrameEmitterImpl::EmitFDE(MCStreamer &streamer,
   EmitCFIInstructions(streamer, frame.Instructions, frame.Begin);
 
   // Padding
-  streamer.EmitValueToAlignment(PCBeginSize);
+  streamer.EmitValueToAlignment(PCSize);
 
   return fdeEnd;
 }

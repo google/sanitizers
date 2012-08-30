@@ -34,8 +34,8 @@ public:
   };
 
 private:
-  MCTargetAsmParser(const MCTargetAsmParser &);   // DO NOT IMPLEMENT
-  void operator=(const MCTargetAsmParser &);  // DO NOT IMPLEMENT
+  MCTargetAsmParser(const MCTargetAsmParser &) LLVM_DELETED_FUNCTION;
+  void operator=(const MCTargetAsmParser &) LLVM_DELETED_FUNCTION;
 protected: // Can only create subclasses.
   MCTargetAsmParser();
 
@@ -78,6 +78,22 @@ public:
   ///
   /// \param DirectiveID - the identifier token of the directive.
   virtual bool ParseDirective(AsmToken DirectiveID) = 0;
+
+  /// MatchInstruction - Recognize a series of operands of a parsed instruction
+  /// as an actual MCInst.  This returns false on success and returns true on
+  /// failure to match.
+  ///
+  /// On failure, the target parser is responsible for emitting a diagnostic
+  /// explaining the match failure.
+  virtual bool
+  MatchInstruction(SMLoc IDLoc,
+                   SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                   SmallVectorImpl<MCInst> &MCInsts,
+                   unsigned &OrigErrorInfo,
+                   bool matchingInlineAsm = false) {
+    OrigErrorInfo = ~0x0;
+    return true;
+  }
 
   /// MatchAndEmitInstruction - Recognize a series of operands of a parsed
   /// instruction as an actual MCInst and emit it to the specified MCStreamer.

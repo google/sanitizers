@@ -16,7 +16,6 @@
 
 #include "sanitizer_common.h"
 #include "sanitizer_libc.h"
-#include "sanitizer_symbolizer.h"
 
 namespace __sanitizer {
 
@@ -78,6 +77,7 @@ bool MemoryRangeIsAvailable(uptr range_start, uptr range_end) {
 
 void *MapFileToMemory(const char *file_name, uptr *buff_size) {
   UNIMPLEMENTED();
+  return 0;
 }
 
 const char *GetEnv(const char *name) {
@@ -129,17 +129,6 @@ void Abort() {
 int Atexit(void (*function)(void)) {
   return atexit(function);
 }
-
-// ------------------ sanitizer_symbolizer.h
-bool FindDWARFSection(uptr object_file_addr, const char *section_name,
-                      DWARFSection *section) {
-  UNIMPLEMENTED();
-  return false;
-}
-
-uptr GetListOfModules(ModuleDIContext *modules, uptr max_modules) {
-  UNIMPLEMENTED();
-};
 
 // ------------------ sanitizer_libc.h
 void *internal_mmap(void *addr, uptr length, int prot, int flags,

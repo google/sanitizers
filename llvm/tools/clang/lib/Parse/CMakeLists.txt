@@ -16,12 +16,14 @@ add_clang_library(clangParse
 
 add_dependencies(clangParse
   ClangAttrClasses
+  ClangAttrLateParsed
   ClangAttrList
+  ClangAttrParsedAttrList
   ClangCommentNodes
   ClangDeclNodes
+  ClangDiagnosticCommon
   ClangDiagnosticParse
   ClangStmtNodes
-  ClangAttrLateParsed
   )
 
 target_link_libraries(clangParse

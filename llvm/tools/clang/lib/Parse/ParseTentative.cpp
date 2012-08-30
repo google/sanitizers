@@ -104,16 +104,27 @@ bool Parser::isCXXSimpleDeclaration(bool AllowForRangeDecl) {
   // isCXXDeclarationSpecifier will return TPResult::Ambiguous() only in such
   // a case.
 
-  TPResult TPR = isCXXDeclarationSpecifier();
+  bool InvalidAsDeclaration = false;
+  TPResult TPR = isCXXDeclarationSpecifier(TPResult::False(),
+                                           &InvalidAsDeclaration);
   if (TPR != TPResult::Ambiguous())
     return TPR != TPResult::False(); // Returns true for TPResult::True() or
                                      // TPResult::Error().
 
+  // FIXME: TryParseSimpleDeclaration doesn't look past the first initializer,
+  // and so gets some cases wrong. We can't carry on if we've already seen
+  // something which makes this statement invalid as a declaration in this case,
+  // since it can cause us to misparse valid code. Revisit this once
+  // TryParseInitDeclaratorList is fixed.
+  if (InvalidAsDeclaration)
+    return false;
+
   // FIXME: Add statistics about the number of ambiguous statements encountered
   // and how they were resolved (number of declarations+number of expressions).
 
-  // Ok, we have a simple-type-specifier/typename-specifier followed by a '('.
-  // We need tentative parsing...
+  // Ok, we have a simple-type-specifier/typename-specifier followed by a '(',
+  // or an identifier which doesn't resolve as anything. We need tentative
+  // parsing...
 
   TentativeParsingAction PA(*this);
   TPR = TryParseSimpleDeclaration(AllowForRangeDecl);
@@ -140,20 +151,28 @@ bool Parser::isCXXSimpleDeclaration(bool AllowForRangeDecl) {
 ///    attribute-specifier-seqopt type-specifier-seq declarator
 ///
 Parser::TPResult Parser::TryParseSimpleDeclaration(bool AllowForRangeDecl) {
-  // We know that we have a simple-type-specifier/typename-specifier followed
-  // by a '('.
-  assert(isCXXDeclarationSpecifier() == TPResult::Ambiguous());
-
   if (Tok.is(tok::kw_typeof))
     TryParseTypeofSpecifier();
   else {
+    if (Tok.is(tok::annot_cxxscope))
+      ConsumeToken();
     ConsumeToken();
-    
+
     if (getLangOpts().ObjC1 && Tok.is(tok::less))
       TryParseProtocolQualifiers();
   }
-  
-  assert(Tok.is(tok::l_paren) && "Expected '('");
+
+  // Two decl-specifiers in a row conclusively disambiguate this as being a
+  // simple-declaration. Don't bother calling isCXXDeclarationSpecifier in the
+  // overwhelmingly common case that the next token is a '('.
+  if (Tok.isNot(tok::l_paren)) {
+    TPResult TPR = isCXXDeclarationSpecifier();
+    if (TPR == TPResult::Ambiguous())
+      return TPResult::True();
+    if (TPR == TPResult::True() || TPR == TPResult::Error())
+      return TPR;
+    assert(TPR == TPResult::False());
+  }
 
   TPResult TPR = TryParseInitDeclaratorList();
   if (TPR != TPResult::Ambiguous())
@@ -623,6 +642,8 @@ Parser::TPResult Parser::TryParseDeclarator(bool mayBeAbstract,
     // declarator-id
     if (Tok.is(tok::annot_cxxscope))
       ConsumeToken();
+    else
+      TentativelyDeclaredIdentifiers.push_back(Tok.getIdentifierInfo());
     ConsumeToken();
   } else if (Tok.is(tok::l_paren)) {
     ConsumeParen();
@@ -671,7 +692,7 @@ Parser::TPResult Parser::TryParseDeclarator(bool mayBeAbstract,
       // initializer that follows the declarator. Note that ctor-style
       // initializers are not possible in contexts where abstract declarators
       // are allowed.
-      if (!mayBeAbstract && !isCXXFunctionDeclarator(false/*warnIfAmbiguous*/))
+      if (!mayBeAbstract && !isCXXFunctionDeclarator())
         break;
 
       // direct-declarator '(' parameter-declaration-clause ')'
@@ -824,6 +845,12 @@ Parser::isExpressionOrTypeSpecifierSimple(tok::TokenKind Kind) {
   return TPResult::Ambiguous();
 }
 
+bool Parser::isTentativelyDeclared(IdentifierInfo *II) {
+  return std::find(TentativelyDeclaredIdentifiers.begin(),
+                   TentativelyDeclaredIdentifiers.end(), II)
+      != TentativelyDeclaredIdentifiers.end();
+}
+
 /// isCXXDeclarationSpecifier - Returns TPResult::True() if it is a declaration
 /// specifier, TPResult::False() if it is not, TPResult::Ambiguous() if it could
 /// be either a decl-specifier or a function-style cast, and TPResult::Error()
@@ -831,7 +858,10 @@ Parser::isExpressionOrTypeSpecifierSimple(tok::TokenKind Kind) {
 ///
 /// If HasMissingTypename is provided, a name with a dependent scope specifier
 /// will be treated as ambiguous if the 'typename' keyword is missing. If this
-/// happens, *HasMissingTypename will be set to 'true'.
+/// happens, *HasMissingTypename will be set to 'true'. This will also be used
+/// as an indicator that undeclared identifiers (which will trigger a later
+/// parse error) should be treated as types. Returns TPResult::Ambiguous() in
+/// such cases.
 ///
 ///         decl-specifier:
 ///           storage-class-specifier
@@ -927,22 +957,64 @@ Parser::TPResult
 Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
                                   bool *HasMissingTypename) {
   switch (Tok.getKind()) {
-  case tok::identifier:   // foo::bar
+  case tok::identifier: {
     // Check for need to substitute AltiVec __vector keyword
     // for "vector" identifier.
     if (TryAltiVecVectorToken())
       return TPResult::True();
-    // Fall through.
+
+    const Token &Next = NextToken();
+    // In 'foo bar', 'foo' is always a type name outside of Objective-C.
+    if (!getLangOpts().ObjC1 && Next.is(tok::identifier))
+      return TPResult::True();
+
+    if (Next.isNot(tok::coloncolon) && Next.isNot(tok::less)) {
+      // Determine whether this is a valid expression. If not, we will hit
+      // a parse error one way or another. In that case, tell the caller that
+      // this is ambiguous. Typo-correct to type and expression keywords and
+      // to types and identifiers, in order to try to recover from errors.
+      CorrectionCandidateCallback TypoCorrection;
+      TypoCorrection.WantRemainingKeywords = false;
+      switch (TryAnnotateName(false /* no nested name specifier */,
+                              &TypoCorrection)) {
+      case ANK_Error:
+        return TPResult::Error();
+      case ANK_TentativeDecl:
+        return TPResult::False();
+      case ANK_TemplateName:
+        // A bare type template-name which can't be a template template
+        // argument is an error, and was probably intended to be a type.
+        return GreaterThanIsOperator ? TPResult::True() : TPResult::False();
+      case ANK_Unresolved:
+        return HasMissingTypename ? TPResult::Ambiguous() : TPResult::False();
+      case ANK_Success:
+        break;
+      }
+      assert(Tok.isNot(tok::identifier) &&
+             "TryAnnotateName succeeded without producing an annotation");
+    } else {
+      // This might possibly be a type with a dependent scope specifier and
+      // a missing 'typename' keyword. Don't use TryAnnotateName in this case,
+      // since it will annotate as a primary expression, and we want to use the
+      // "missing 'typename'" logic.
+      if (TryAnnotateTypeOrScopeToken())
+        return TPResult::Error();
+      // If annotation failed, assume it's a non-type.
+      // FIXME: If this happens due to an undeclared identifier, treat it as
+      // ambiguous.
+      if (Tok.is(tok::identifier))
+        return TPResult::False();
+    }
+
+    // We annotated this token as something. Recurse to handle whatever we got.
+    return isCXXDeclarationSpecifier(BracedCastResult, HasMissingTypename);
+  }
+
   case tok::kw_typename:  // typename T::type
     // Annotate typenames and C++ scope specifiers.  If we get one, just
     // recurse to handle whatever we get.
     if (TryAnnotateTypeOrScopeToken())
       return TPResult::Error();
-    if (Tok.is(tok::identifier)) {
-      const Token &Next = NextToken();
-      return (!getLangOpts().ObjC1 && Next.is(tok::identifier)) ?
-          TPResult::True() : TPResult::False();
-    }
     return isCXXDeclarationSpecifier(BracedCastResult, HasMissingTypename);
 
   case tok::coloncolon: {    // ::foo::bar
@@ -1072,6 +1144,28 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
             // expression.
             *HasMissingTypename = true;
             return TPResult::Ambiguous();
+          }
+        } else {
+          // Try to resolve the name. If it doesn't exist, assume it was
+          // intended to name a type and keep disambiguating.
+          switch (TryAnnotateName(false /* SS is not dependent */)) {
+          case ANK_Error:
+            return TPResult::Error();
+          case ANK_TentativeDecl:
+            return TPResult::False();
+          case ANK_TemplateName:
+            // A bare type template-name which can't be a template template
+            // argument is an error, and was probably intended to be a type.
+            return GreaterThanIsOperator ? TPResult::True() : TPResult::False();
+          case ANK_Unresolved:
+            return HasMissingTypename ? TPResult::Ambiguous()
+                                      : TPResult::False();
+          case ANK_Success:
+            // Annotated it, check again.
+            assert(Tok.isNot(tok::annot_cxxscope) ||
+                   NextToken().isNot(tok::identifier));
+            return isCXXDeclarationSpecifier(BracedCastResult,
+                                             HasMissingTypename);
           }
         }
       }
@@ -1267,7 +1361,7 @@ Parser::TryParseDeclarationSpecifier(bool *HasMissingTypename) {
 /// '(' parameter-declaration-clause ')' cv-qualifier-seq[opt]
 ///         exception-specification[opt]
 ///
-bool Parser::isCXXFunctionDeclarator(bool warnIfAmbiguous) {
+bool Parser::isCXXFunctionDeclarator(bool *IsAmbiguous) {
 
   // C++ 8.2p1:
   // The ambiguity arising from the similarity between a function-style cast and
@@ -1293,7 +1387,7 @@ bool Parser::isCXXFunctionDeclarator(bool warnIfAmbiguous) {
           Next.is(tok::kw_throw) || Next.is(tok::kw_noexcept) ||
           Next.is(tok::l_square) || isCXX0XVirtSpecifier(Next) ||
           Next.is(tok::l_brace) || Next.is(tok::kw_try) ||
-          Next.is(tok::equal))
+          Next.is(tok::equal) || Next.is(tok::arrow))
         // The next token cannot appear after a constructor-style initializer,
         // and can appear next in a function definition. This must be a function
         // declarator.
@@ -1304,23 +1398,13 @@ bool Parser::isCXXFunctionDeclarator(bool warnIfAmbiguous) {
     }
   }
 
-  SourceLocation TPLoc = Tok.getLocation();
   PA.Revert();
 
+  if (IsAmbiguous && TPR == TPResult::Ambiguous())
+    *IsAmbiguous = true;
+
   // In case of an error, let the declaration parsing code handle it.
-  if (TPR == TPResult::Error())
-    return true;
-
-  if (TPR == TPResult::Ambiguous()) {
-    // Function declarator has precedence over constructor-style initializer.
-    // Emit a warning just in case the author intended a variable definition.
-    if (warnIfAmbiguous)
-      Diag(Tok, diag::warn_parens_disambiguated_as_function_decl)
-        << SourceRange(Tok.getLocation(), TPLoc);
-    return true;
-  }
-
-  return TPR == TPResult::True();
+  return TPR != TPResult::False();
 }
 
 /// parameter-declaration-clause:
@@ -1344,7 +1428,7 @@ Parser::TPResult
 Parser::TryParseParameterDeclarationClause(bool *InvalidAsDeclaration) {
 
   if (Tok.is(tok::r_paren))
-    return TPResult::True();
+    return TPResult::Ambiguous();
 
   //   parameter-declaration-list[opt] '...'[opt]
   //   parameter-declaration-list ',' '...'

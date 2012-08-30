@@ -145,8 +145,8 @@ RangeComparisonResult CursorVisitor::CompareRegionOfInterest(SourceRange R) {
 ///
 /// \param Cursor the cursor to visit.
 ///
-/// \param CheckRegionOfInterest if true, then the caller already checked that
-/// this cursor is within the region of interest.
+/// \param CheckedRegionOfInterest if true, then the caller already checked
+/// that this cursor is within the region of interest.
 ///
 /// \returns true if the visitation should be aborted, false if it
 /// should continue.
@@ -565,6 +565,16 @@ bool CursorVisitor::VisitDeclContext(DeclContext *DC) {
     if (D->getLexicalDeclContext() != DC)
       continue;
     CXCursor Cursor = MakeCXCursor(D, TU, RegionOfInterest);
+
+    // Ignore synthesized ivars here, otherwise if we have something like:
+    //   @synthesize prop = _prop;
+    // and '_prop' is not declared, we will encounter a '_prop' ivar before
+    // encountering the 'prop' synthesize declaration and we will think that
+    // we passed the region-of-interest.
+    if (ObjCIvarDecl *ivarD = dyn_cast<ObjCIvarDecl>(D)) {
+      if (ivarD->getSynthesize())
+        continue;
+    }
 
     // FIXME: ObjCClassRef/ObjCProtocolRef for forward class/protocol
     // declarations is a mismatch with the compiler semantics.
@@ -3510,8 +3520,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
       return createCXString("BreakStmt");
   case CXCursor_ReturnStmt:
       return createCXString("ReturnStmt");
-  case CXCursor_AsmStmt:
-      return createCXString("AsmStmt");
+  case CXCursor_GCCAsmStmt:
+      return createCXString("GCCAsmStmt");
   case CXCursor_MSAsmStmt:
       return createCXString("MSAsmStmt");
   case CXCursor_ObjCAtTryStmt:
@@ -5689,7 +5699,7 @@ CXSourceRange clang_Cursor_getCommentRange(CXCursor C) {
 
   const Decl *D = getCursorDecl(C);
   ASTContext &Context = getCursorContext(C);
-  const RawComment *RC = Context.getRawCommentForDecl(D);
+  const RawComment *RC = Context.getRawCommentForAnyRedecl(D);
   if (!RC)
     return clang_getNullRange();
 
@@ -5702,7 +5712,7 @@ CXString clang_Cursor_getRawCommentText(CXCursor C) {
 
   const Decl *D = getCursorDecl(C);
   ASTContext &Context = getCursorContext(C);
-  const RawComment *RC = Context.getRawCommentForDecl(D);
+  const RawComment *RC = Context.getRawCommentForAnyRedecl(D);
   StringRef RawText = RC ? RC->getRawText(Context.getSourceManager()) :
                            StringRef();
 
@@ -5717,7 +5727,7 @@ CXString clang_Cursor_getBriefCommentText(CXCursor C) {
 
   const Decl *D = getCursorDecl(C);
   const ASTContext &Context = getCursorContext(C);
-  const RawComment *RC = Context.getRawCommentForDecl(D);
+  const RawComment *RC = Context.getRawCommentForAnyRedecl(D);
 
   if (RC) {
     StringRef BriefText = RC->getBriefText(Context);

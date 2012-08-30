@@ -20,7 +20,6 @@
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/VersionTuple.h"
-#include "clang/AST/Comment.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/LambdaMangleContext.h"
 #include "clang/AST/NestedNameSpecifier.h"
@@ -80,6 +79,10 @@ namespace clang {
   class UnresolvedSetIterator;
 
   namespace Builtin { class Context; }
+
+  namespace comments {
+    class FullComment;
+  }
 
 /// ASTContext - This class holds long-lived AST nodes (such as types and
 /// decls) that can be referred to throughout the semantic analysis of a file.
@@ -430,14 +433,70 @@ public:
   /// \brief True if comments are already loaded from ExternalASTSource.
   mutable bool CommentsLoaded;
 
-  typedef std::pair<const RawComment *, comments::FullComment *>
-      RawAndParsedComment;
+  class RawCommentAndCacheFlags {
+  public:
+    enum Kind {
+      /// We searched for a comment attached to the particular declaration, but
+      /// didn't find any.
+      ///
+      /// getRaw() == 0.
+      NoCommentInDecl = 0,
 
-  /// \brief Mapping from declarations to their comments.
+      /// We have found a comment attached to this particular declaration.
+      ///
+      /// getRaw() != 0.
+      FromDecl,
+
+      /// This declaration does not have an attached comment, and we have
+      /// searched the redeclaration chain.
+      ///
+      /// If getRaw() == 0, the whole redeclaration chain does not have any
+      /// comments.
+      ///
+      /// If getRaw() != 0, it is a comment propagated from other
+      /// redeclaration.
+      FromRedecl
+    };
+
+    Kind getKind() const LLVM_READONLY {
+      return Data.getInt();
+    }
+
+    void setKind(Kind K) {
+      Data.setInt(K);
+    }
+
+    const RawComment *getRaw() const LLVM_READONLY {
+      return Data.getPointer();
+    }
+
+    void setRaw(const RawComment *RC) {
+      Data.setPointer(RC);
+    }
+
+    const Decl *getOriginalDecl() const LLVM_READONLY {
+      return OriginalDecl;
+    }
+
+    void setOriginalDecl(const Decl *Orig) {
+      OriginalDecl = Orig;
+    }
+
+  private:
+    llvm::PointerIntPair<const RawComment *, 2, Kind> Data;
+    const Decl *OriginalDecl;
+  };
+
+  /// \brief Mapping from declarations to comments attached to any
+  /// redeclaration.
   ///
   /// Raw comments are owned by Comments list.  This mapping is populated
   /// lazily.
-  mutable llvm::DenseMap<const Decl *, RawAndParsedComment> DeclComments;
+  mutable llvm::DenseMap<const Decl *, RawCommentAndCacheFlags> RedeclComments;
+
+  /// \brief Mapping from declarations to parsed comments attached to any
+  /// redeclaration.
+  mutable llvm::DenseMap<const Decl *, comments::FullComment *> ParsedComments;
 
   /// \brief Return the documentation comment attached to a given declaration,
   /// without looking into cache.
@@ -454,7 +513,12 @@ public:
 
   /// \brief Return the documentation comment attached to a given declaration.
   /// Returns NULL if no comment is attached.
-  const RawComment *getRawCommentForDecl(const Decl *D) const;
+  ///
+  /// \param OriginalDecl if not NULL, is set to declaration AST node that had
+  /// the comment, if the comment we found comes from a redeclaration.
+  const RawComment *getRawCommentForAnyRedecl(
+                                      const Decl *D,
+                                      const Decl **OriginalDecl = NULL) const;
 
   /// Return parsed documentation comment attached to a given declaration.
   /// Returns NULL if no comment is attached.
@@ -1363,6 +1427,10 @@ public:
   /// characters. This method does not work on incomplete types.
   CharUnits getTypeAlignInChars(QualType T) const;
   CharUnits getTypeAlignInChars(const Type *T) const;
+  
+  // getTypeInfoDataSizeInChars - Return the size of a type, in chars. If the
+  // type is a record, its data size is returned.
+  std::pair<CharUnits, CharUnits> getTypeInfoDataSizeInChars(QualType T) const;
 
   std::pair<CharUnits, CharUnits> getTypeInfoInChars(const Type *T) const;
   std::pair<CharUnits, CharUnits> getTypeInfoInChars(QualType T) const;
@@ -1818,9 +1886,9 @@ public:
   /// \brief Add a deallocation callback that will be invoked when the 
   /// ASTContext is destroyed.
   ///
-  /// \brief Callback A callback function that will be invoked on destruction.
+  /// \param Callback A callback function that will be invoked on destruction.
   ///
-  /// \brief Data Pointer data that will be provided to the callback function
+  /// \param Data Pointer data that will be provided to the callback function
   /// when it is called.
   void AddDeallocation(void (*Callback)(void*), void *Data);
 

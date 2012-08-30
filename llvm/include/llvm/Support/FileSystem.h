@@ -28,6 +28,7 @@
 #define LLVM_SUPPORT_FILE_SYSTEM_H
 
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/DataTypes.h"
@@ -431,7 +432,7 @@ error_code is_other(const Twine &path, bool &result);
 /// @brief Does status represent a symlink?
 ///
 /// @param status A file_status previously returned from stat.
-/// @param result status.type() == symlink_file.
+/// @returns status.type() == symlink_file.
 bool is_symlink(file_status status);
 
 /// @brief Is path a symlink?
@@ -460,7 +461,7 @@ error_code permissions(const Twine &path, perms prms);
 
 /// @brief Is status available?
 ///
-/// @param path Input path.
+/// @param s Input file status.
 /// @results True if status() != status_error.
 bool status_known(file_status s);
 
@@ -485,7 +486,7 @@ error_code status_known(const Twine &path, bool &result);
 /// clang-%%-%%-%%-%%-%%.s => /tmp/clang-a0-b1-c2-d3-e4.s
 ///
 /// @param model Name to base unique path off of.
-/// @param result_fs Set to the opened file's file descriptor.
+/// @param result_fd Set to the opened file's file descriptor.
 /// @param result_path Set to the opened file's absolute path.
 /// @param makeAbsolute If true and @model is not an absolute path, a temp
 ///        directory will be prepended.
@@ -576,12 +577,88 @@ error_code FindLibrary(const Twine &short_name, SmallVectorImpl<char> &result);
 error_code GetMainExecutable(const char *argv0, void *MainAddr,
                              SmallVectorImpl<char> &result);
 
+/// This class represents a memory mapped file. It is based on
+/// boost::iostreams::mapped_file.
+class mapped_file_region {
+  mapped_file_region() LLVM_DELETED_FUNCTION;
+  mapped_file_region(mapped_file_region&) LLVM_DELETED_FUNCTION;
+  mapped_file_region &operator =(mapped_file_region&) LLVM_DELETED_FUNCTION;
+
+public:
+  enum mapmode {
+    readonly, ///< May only access map via const_data as read only.
+    readwrite, ///< May access map via data and modify it. Written to path.
+    priv ///< May modify via data, but changes are lost on destruction.
+  };
+
+private:
+  /// Platform specific mapping state.
+  mapmode Mode;
+  uint64_t Size;
+  void *Mapping;
+#if LLVM_ON_WIN32
+  int FileDescriptor;
+  void *FileHandle;
+  void *FileMappingHandle;
+#endif
+
+  error_code init(int FD, uint64_t Offset);
+
+public:
+  typedef char char_type;
+
+#if LLVM_USE_RVALUE_REFERENCES
+  mapped_file_region(mapped_file_region&&);
+  mapped_file_region &operator =(mapped_file_region&&);
+#endif
+
+  /// Construct a mapped_file_region at \a path starting at \a offset of length
+  /// \a length and with access \a mode.
+  ///
+  /// \param path Path to the file to map. If it does not exist it will be
+  ///             created.
+  /// \param mode How to map the memory.
+  /// \param length Number of bytes to map in starting at \a offset. If the file
+  ///               is shorter than this, it will be extended. If \a length is
+  ///               0, the entire file will be mapped.
+  /// \param offset Byte offset from the beginning of the file where the map
+  ///               should begin. Must be a multiple of
+  ///               mapped_file_region::alignment().
+  /// \param ec This is set to errc::success if the map was constructed
+  ///           sucessfully. Otherwise it is set to a platform dependent error.
+  mapped_file_region(const Twine &path,
+                     mapmode mode,
+                     uint64_t length,
+                     uint64_t offset,
+                     error_code &ec);
+
+  /// \param fd An open file descriptor to map. mapped_file_region takes
+  ///           ownership. It must have been opended in the correct mode.
+  mapped_file_region(int fd,
+                     mapmode mode,
+                     uint64_t length,
+                     uint64_t offset,
+                     error_code &ec);
+
+  ~mapped_file_region();
+
+  mapmode flags() const;
+  uint64_t size() const;
+  char *data() const;
+
+  /// Get a const view of the data. Modifying this memory has undefined
+  /// behaivor.
+  const char *const_data() const;
+
+  /// \returns The minimum alignment offset must be.
+  static int alignment();
+};
 
 /// @brief Memory maps the contents of a file
 ///
 /// @param path Path to file to map.
 /// @param file_offset Byte offset in file where mapping should begin.
-/// @param size_t Byte length of range of the file to map.
+/// @param size Byte length of range of the file to map.
 /// @param map_writable If true, the file will be mapped in r/w such
 ///        that changes to the mapped buffer will be flushed back
 ///        to the file.  If false, the file will be mapped read-only

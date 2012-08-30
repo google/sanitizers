@@ -40,8 +40,8 @@ class MCAsmBackend;
 class MCFragment : public ilist_node<MCFragment> {
   friend class MCAsmLayout;
 
-  MCFragment(const MCFragment&);     // DO NOT IMPLEMENT
-  void operator=(const MCFragment&); // DO NOT IMPLEMENT
+  MCFragment(const MCFragment&) LLVM_DELETED_FUNCTION;
+  void operator=(const MCFragment&) LLVM_DELETED_FUNCTION;
 
 public:
   enum FragmentType {
@@ -176,7 +176,7 @@ public:
   typedef SmallVectorImpl<MCFixup>::iterator fixup_iterator;
 
 public:
-  MCInstFragment(MCInst _Inst, MCSectionData *SD = 0)
+  MCInstFragment(const MCInst &_Inst, MCSectionData *SD = 0)
     : MCFragment(FT_Inst, SD), Inst(_Inst) {
   }
 
@@ -191,7 +191,7 @@ public:
   MCInst &getInst() { return Inst; }
   const MCInst &getInst() const { return Inst; }
 
-  void setInst(MCInst Value) { Inst = Value; }
+  void setInst(const MCInst& Value) { Inst = Value; }
 
   /// @}
   /// @name Fixup Access

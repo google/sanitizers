@@ -51,22 +51,49 @@ typedef const SymExpr* SymbolRef;
 class PathDiagnostic;
 
 class PathDiagnosticConsumer {
+public:
+  class PDFileEntry : public llvm::FoldingSetNode {
+  public:
+    PDFileEntry(llvm::FoldingSetNodeID &NodeID) : NodeID(NodeID) {}
+
+    typedef std::vector<std::pair<StringRef, StringRef> > ConsumerFiles;
+    
+    /// \brief A vector of <consumer,file> pairs.
+    ConsumerFiles files;
+    
+    /// \brief A precomputed hash tag used for uniquing PDFileEntry objects.
+    const llvm::FoldingSetNodeID NodeID;
+
+    /// \brief Used for profiling in the FoldingSet.
+    void Profile(llvm::FoldingSetNodeID &ID) { ID = NodeID; }
+  };
+  
+  struct FilesMade : public llvm::FoldingSet<PDFileEntry> {
+    llvm::BumpPtrAllocator Alloc;
+    
+    void addDiagnostic(const PathDiagnostic &PD,
+                       StringRef ConsumerName,
+                       StringRef fileName);
+    
+    PDFileEntry::ConsumerFiles *getFiles(const PathDiagnostic &PD);
+  };
+
+private:
   virtual void anchor();
 public:
   PathDiagnosticConsumer() : flushed(false) {}
   virtual ~PathDiagnosticConsumer();
 
-  void FlushDiagnostics(SmallVectorImpl<std::string> *FilesMade);
+  void FlushDiagnostics(FilesMade *FilesMade);
 
   virtual void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
-                                    SmallVectorImpl<std::string> *FilesMade)
-                                    = 0;
+                                    FilesMade *filesMade) = 0;
 
   virtual StringRef getName() const = 0;
   
   void HandlePathDiagnostic(PathDiagnostic *D);
 
-  enum PathGenerationScheme { Minimal, Extensive };
+  enum PathGenerationScheme { None, Minimal, Extensive };
   virtual PathGenerationScheme getGenerationScheme() const { return Minimal; }
   virtual bool supportsLogicalOpControlFlow() const { return false; }
   virtual bool supportsAllBlockEdges() const { return false; }
@@ -148,6 +175,15 @@ public:
     assert(Range.isValid());
   }
 
+  /// Create a location at an explicit offset in the source.
+  ///
+  /// This should only be used if there are no more appropriate constructors.
+  PathDiagnosticLocation(SourceLocation loc, const SourceManager &sm)
+    : K(SingleLocK), S(0), D(0), SM(&sm), Loc(loc, sm), Range(genRange()) {
+    assert(Loc.isValid());
+    assert(Range.isValid());
+  }
+
   /// Create a location corresponding to the given declaration.
   static PathDiagnosticLocation create(const Decl *D,
                                        const SourceManager &SM) {
@@ -162,6 +198,14 @@ public:
   static PathDiagnosticLocation createBegin(const Stmt *S,
                                             const SourceManager &SM,
                                             const LocationOrAnalysisDeclContext LAC);
+
+  /// Create a location for the end of the statement.
+  ///
+  /// If the statement is a CompoundStatement, the location will point to the
+  /// closing brace instead of following it.
+  static PathDiagnosticLocation createEnd(const Stmt *S,
+                                          const SourceManager &SM,
+                                       const LocationOrAnalysisDeclContext LAC);
 
   /// Create the location for the operator of the binary expression.
   /// Assumes the statement has a valid location.
@@ -315,15 +359,8 @@ public:
     ranges.push_back(SourceRange(B,E));
   }
 
-  typedef const SourceRange* range_iterator;
-
-  range_iterator ranges_begin() const {
-    return ranges.empty() ? NULL : &ranges[0];
-  }
-
-  range_iterator ranges_end() const {
-    return ranges_begin() + ranges.size();
-  }
+  /// Return the SourceRanges associated with this PathDiagnosticPiece.
+  ArrayRef<SourceRange> getRanges() const { return ranges; }
 
   static inline bool classof(const PathDiagnosticPiece *P) {
     return true;
@@ -333,10 +370,17 @@ public:
 };
   
   
-class PathPieces :
-  public std::deque<IntrusiveRefCntPtr<PathDiagnosticPiece> > {
+class PathPieces : public std::deque<IntrusiveRefCntPtr<PathDiagnosticPiece> > {
+  void flattenTo(PathPieces &Primary, PathPieces &Current,
+                 bool ShouldFlattenMacros) const;
 public:
-  ~PathPieces();  
+  ~PathPieces();
+
+  PathPieces flatten(bool ShouldFlattenMacros) const {
+    PathPieces Result;
+    flattenTo(Result, Result, ShouldFlattenMacros);
+    return Result;
+  }
 };
 
 class PathDiagnosticSpotPiece : public PathDiagnosticPiece {
@@ -637,6 +681,8 @@ public:
 
   void pushActivePath(PathPieces *p) { pathStack.push_back(p); }
   void popActivePath() { if (!pathStack.empty()) pathStack.pop_back(); }
+
+  bool isWithinCall() const { return !pathStack.empty(); }
   
   //  PathDiagnostic();
   PathDiagnostic(const Decl *DeclWithIssue,

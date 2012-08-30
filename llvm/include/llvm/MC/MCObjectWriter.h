@@ -11,6 +11,7 @@
 #define LLVM_MC_MCOBJECTWRITER_H
 
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataTypes.h"
 #include <cassert>
 
@@ -35,8 +36,8 @@ class MCValue;
 /// The object writer also contains a number of helper methods for writing
 /// binary data to the output stream.
 class MCObjectWriter {
-  MCObjectWriter(const MCObjectWriter &); // DO NOT IMPLEMENT
-  void operator=(const MCObjectWriter &); // DO NOT IMPLEMENT
+  MCObjectWriter(const MCObjectWriter &) LLVM_DELETED_FUNCTION;
+  void operator=(const MCObjectWriter &) LLVM_DELETED_FUNCTION;
 
 protected:
   raw_ostream &OS;
@@ -182,11 +183,6 @@ public:
 
   /// @}
 
-  /// Utility function to encode a SLEB128 value.
-  static void EncodeSLEB128(int64_t Value, raw_ostream &OS);
-  /// Utility function to encode a ULEB128 value.
-  static void EncodeULEB128(uint64_t Value, raw_ostream &OS,
-                            unsigned Padding = 0);
 };
 
 } // End llvm namespace

@@ -45,6 +45,7 @@ public:
     MO_MachineBasicBlock,      ///< MachineBasicBlock reference
     MO_FrameIndex,             ///< Abstract Stack Frame Index
     MO_ConstantPoolIndex,      ///< Address of indexed Constant in Constant Pool
+    MO_TargetIndex,            ///< Target-dependent index+offset operand.
     MO_JumpTableIndex,         ///< Address of indexed Jump Table for switch
     MO_ExternalSymbol,         ///< Name of external global symbol
     MO_GlobalAddress,          ///< Address of a global value
@@ -59,12 +60,15 @@ private:
   /// union.
   unsigned char OpKind; // MachineOperandType
 
-  /// SubReg - Subregister number, only valid for MO_Register.  A value of 0
-  /// indicates the MO_Register has no subReg.
-  unsigned char SubReg;
+  // This union is discriminated by OpKind.
+  union {
+    /// SubReg - Subregister number, only valid for MO_Register.  A value of 0
+    /// indicates the MO_Register has no subReg.
+    unsigned char SubReg;
 
-  /// TargetFlags - This is a set of target-specific operand flags.
-  unsigned char TargetFlags;
+    /// TargetFlags - This is a set of target-specific operand flags.
+    unsigned char TargetFlags;
+  };
 
   /// IsDef/IsImp/IsKill/IsDead flags - These are only valid for MO_Register
   /// operands.
@@ -120,6 +124,14 @@ private:
   /// model the GCC inline asm '&' constraint modifier.
   bool IsEarlyClobber : 1;
 
+  /// IsTied - True if this MO_Register operand is tied to another operand on
+  /// the instruction. Tied operands form def-use pairs that must be assigned
+  /// the same physical register by the register allocator, but they will have
+  /// different virtual registers while the code is in SSA form.
+  ///
+  /// See MachineInstr::isRegTiedToUseOperand() and isRegTiedToDefOperand().
+  bool IsTied : 1;
+
   /// IsDebug - True if this MO_Register 'use' operand is in a debug pseudo,
   /// not a real instruction.  Such uses should be ignored during codegen.
   bool IsDebug : 1;
@@ -149,7 +161,7 @@ private:
 
     struct {                  // For MO_Register.
       // Register number is in SmallContents.RegNo.
-      MachineOperand **Prev;  // Access list for register.
+      MachineOperand *Prev;   // Access list for register. See MRI.
       MachineOperand *Next;
     } Reg;
 
@@ -175,9 +187,17 @@ public:
   ///
   MachineOperandType getType() const { return (MachineOperandType)OpKind; }
 
-  unsigned char getTargetFlags() const { return TargetFlags; }
-  void setTargetFlags(unsigned char F) { TargetFlags = F; }
-  void addTargetFlag(unsigned char F) { TargetFlags |= F; }
+  unsigned char getTargetFlags() const {
+    return isReg() ? 0 : TargetFlags;
+  }
+  void setTargetFlags(unsigned char F) {
+    assert(!isReg() && "Register operands can't have target flags");
+    TargetFlags = F;
+  }
+  void addTargetFlag(unsigned char F) {
+    assert(!isReg() && "Register operands can't have target flags");
+    TargetFlags |= F;
+  }
 
 
   /// getParent - Return the instruction that this operand belongs to.
@@ -215,6 +235,8 @@ public:
   bool isFI() const { return OpKind == MO_FrameIndex; }
   /// isCPI - Tests if this is a MO_ConstantPoolIndex operand.
   bool isCPI() const { return OpKind == MO_ConstantPoolIndex; }
+  /// isTargetIndex - Tests if this is a MO_TargetIndex operand.
+  bool isTargetIndex() const { return OpKind == MO_TargetIndex; }
   /// isJTI - Tests if this is a MO_JumpTableIndex operand.
   bool isJTI() const { return OpKind == MO_JumpTableIndex; }
   /// isGlobal - Tests if this is a MO_GlobalAddress operand.
@@ -285,6 +307,11 @@ public:
     return IsEarlyClobber;
   }
 
+  bool isTied() const {
+    assert(isReg() && "Wrong MachineOperand accessor");
+    return IsTied;
+  }
+
   bool isDebug() const {
     assert(isReg() && "Wrong MachineOperand accessor");
     return IsDebug;
@@ -300,13 +327,6 @@ public:
   bool readsReg() const {
     assert(isReg() && "Wrong MachineOperand accessor");
     return !isUndef() && !isInternalRead() && (isUse() || getSubReg());
-  }
-
-  /// getNextOperandForReg - Return the next MachineOperand in the function that
-  /// uses or defines this register.
-  MachineOperand *getNextOperandForReg() const {
-    assert(isReg() && "This is not a register operand!");
-    return Contents.Reg.Next;
   }
 
   //===--------------------------------------------------------------------===//
@@ -335,17 +355,9 @@ public:
   ///
   void substPhysReg(unsigned Reg, const TargetRegisterInfo&);
 
-  void setIsUse(bool Val = true) {
-    assert(isReg() && "Wrong MachineOperand accessor");
-    assert((Val || !isDebug()) && "Marking a debug operation as def");
-    IsDef = !Val;
-  }
+  void setIsUse(bool Val = true) { setIsDef(!Val); }
 
-  void setIsDef(bool Val = true) {
-    assert(isReg() && "Wrong MachineOperand accessor");
-    assert((!Val || !isDebug()) && "Marking a debug operation as def");
-    IsDef = Val;
-  }
+  void setIsDef(bool Val = true);
 
   void setImplicit(bool Val = true) {
     assert(isReg() && "Wrong MachineOperand accessor");
@@ -378,6 +390,11 @@ public:
     IsEarlyClobber = Val;
   }
 
+  void setIsTied(bool Val = true) {
+    assert(isReg() && "Wrong MachineOperand accessor");
+    IsTied = Val;
+  }
+
   void setIsDebug(bool Val = true) {
     assert(isReg() && IsDef && "Wrong MachineOperand accessor");
     IsDebug = Val;
@@ -408,7 +425,7 @@ public:
   }
 
   int getIndex() const {
-    assert((isFI() || isCPI() || isJTI()) &&
+    assert((isFI() || isCPI() || isTargetIndex() || isJTI()) &&
            "Wrong MachineOperand accessor");
     return Contents.OffsetedInfo.Val.Index;
   }
@@ -431,9 +448,9 @@ public:
   /// getOffset - Return the offset from the symbol in this operand. This always
   /// returns 0 for ExternalSymbol operands.
   int64_t getOffset() const {
-    assert((isGlobal() || isSymbol() || isCPI() || isBlockAddress()) &&
-           "Wrong MachineOperand accessor");
-    return (int64_t(Contents.OffsetedInfo.OffsetHi) << 32) |
+    assert((isGlobal() || isSymbol() || isCPI() || isTargetIndex() ||
+            isBlockAddress()) && "Wrong MachineOperand accessor");
+    return int64_t(uint64_t(Contents.OffsetedInfo.OffsetHi) << 32) |
            SmallContents.OffsetLo;
   }
 
@@ -479,14 +496,14 @@ public:
   }
 
   void setOffset(int64_t Offset) {
-    assert((isGlobal() || isSymbol() || isCPI() || isBlockAddress()) &&
-        "Wrong MachineOperand accessor");
+    assert((isGlobal() || isSymbol() || isCPI() || isTargetIndex() ||
+            isBlockAddress()) && "Wrong MachineOperand accessor");
     SmallContents.OffsetLo = unsigned(Offset);
     Contents.OffsetedInfo.OffsetHi = int(Offset >> 32);
   }
 
   void setIndex(int Idx) {
-    assert((isFI() || isCPI() || isJTI()) &&
+    assert((isFI() || isCPI() || isTargetIndex() || isJTI()) &&
            "Wrong MachineOperand accessor");
     Contents.OffsetedInfo.Val.Index = Idx;
   }
@@ -560,6 +577,7 @@ public:
     Op.IsUndef = isUndef;
     Op.IsInternalRead = isInternalRead;
     Op.IsEarlyClobber = isEarlyClobber;
+    Op.IsTied = false;
     Op.IsDebug = isDebug;
     Op.SmallContents.RegNo = Reg;
     Op.Contents.Reg.Prev = 0;
@@ -582,6 +600,14 @@ public:
   static MachineOperand CreateCPI(unsigned Idx, int Offset,
                                   unsigned char TargetFlags = 0) {
     MachineOperand Op(MachineOperand::MO_ConstantPoolIndex);
+    Op.setIndex(Idx);
+    Op.setOffset(Offset);
+    Op.setTargetFlags(TargetFlags);
+    return Op;
+  }
+  static MachineOperand CreateTargetIndex(unsigned Idx, int64_t Offset,
+                                          unsigned char TargetFlags = 0) {
+    MachineOperand Op(MachineOperand::MO_TargetIndex);
     Op.setIndex(Idx);
     Op.setOffset(Offset);
     Op.setTargetFlags(TargetFlags);
@@ -662,15 +688,6 @@ private:
     assert(isReg() && "Can only add reg operand to use lists");
     return Contents.Reg.Prev != 0;
   }
-
-  /// AddRegOperandToRegInfo - Add this register operand to the specified
-  /// MachineRegisterInfo.  If it is null, then the next/prev fields should be
-  /// explicitly nulled out.
-  void AddRegOperandToRegInfo(MachineRegisterInfo *RegInfo);
-
-  /// RemoveRegOperandFromRegInfo - Remove this register operand from the
-  /// MachineRegisterInfo it is linked with.
-  void RemoveRegOperandFromRegInfo();
 };
 
 inline raw_ostream &operator<<(raw_ostream &OS, const MachineOperand& MO) {

@@ -74,9 +74,10 @@ def MipsRet : SDNode<"MipsISD::Ret", SDTNone, [SDNPHasChain, SDNPOptInGlue]>;
 
 // These are target-independent nodes, but have target-specific formats.
 def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_MipsCallSeqStart,
-                           [SDNPHasChain, SDNPOutGlue]>;
+                           [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
 def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_MipsCallSeqEnd,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+                           [SDNPHasChain, SDNPSideEffect,
+                            SDNPOptInGlue, SDNPOutGlue]>;
 
 // MAdd*/MSub* nodes
 def MipsMAdd      : SDNode<"MipsISD::MAdd", SDT_MipsMAddMSub,
@@ -110,7 +111,7 @@ def MipsWrapper    : SDNode<"MipsISD::Wrapper", SDTIntBinOp>;
 def MipsDynAlloc  : SDNode<"MipsISD::DynAlloc", SDT_MipsDynAlloc,
                            [SDNPHasChain, SDNPInGlue]>;
 
-def MipsSync : SDNode<"MipsISD::Sync", SDT_Sync, [SDNPHasChain]>;
+def MipsSync : SDNode<"MipsISD::Sync", SDT_Sync, [SDNPHasChain,SDNPSideEffect]>;
 
 def MipsExt :  SDNode<"MipsISD::Ext", SDT_Ext>;
 def MipsIns :  SDNode<"MipsISD::Ins", SDT_Ins>;
@@ -208,17 +209,24 @@ def uimm16      : Operand<i32> {
   let PrintMethod = "printUnsignedImm";
 }
 
+def MipsMemAsmOperand : AsmOperandClass {
+  let Name = "Mem";
+  let ParserMethod = "parseMemOperand";
+}
+
 // Address operand
 def mem : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops CPURegs, simm16);
   let EncoderMethod = "getMemEncoding";
+  let ParserMatchClass = MipsMemAsmOperand;
 }
 
 def mem64 : Operand<i64> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops CPU64Regs, simm16_64);
   let EncoderMethod = "getMemEncoding";
+  let ParserMatchClass = MipsMemAsmOperand;
 }
 
 def mem_ea : Operand<i32> {
@@ -722,9 +730,11 @@ class MoveToLOHI<bits<6> func, string instr_asm, RegisterClass RC,
   let neverHasSideEffects = 1;
 }
 
-class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
-  FMem<0x09, (outs RC:$rt), (ins Mem:$addr),
-     instr_asm, [(set RC:$rt, addr:$addr)], IIAlu>;
+class EffectiveAddress<bits<6> opc, string instr_asm, RegisterClass RC, Operand Mem> :
+  FMem<opc, (outs RC:$rt), (ins Mem:$addr),
+     instr_asm, [(set RC:$rt, addr:$addr)], IIAlu> {
+ let isCodeGenOnly = 1;
+}
 
 // Count Leading Ones/Zeros in Word
 class CountLeading0<bits<6> func, string instr_asm, RegisterClass RC>:
@@ -803,9 +813,9 @@ class InsBase<bits<6> _funct, string instr_asm, RegisterClass RC>:
 // Atomic instructions with 2 source operands (ATOMIC_SWAP & ATOMIC_LOAD_*).
 class Atomic2Ops<PatFrag Op, string Opstr, RegisterClass DRC,
                  RegisterClass PRC> :
-  MipsPseudo<(outs DRC:$dst), (ins PRC:$ptr, DRC:$incr),
-             !strconcat("atomic_", Opstr, "\t$dst, $ptr, $incr"),
-             [(set DRC:$dst, (Op PRC:$ptr, DRC:$incr))]>;
+  PseudoSE<(outs DRC:$dst), (ins PRC:$ptr, DRC:$incr),
+           !strconcat("atomic_", Opstr, "\t$dst, $ptr, $incr"),
+           [(set DRC:$dst, (Op PRC:$ptr, DRC:$incr))]>;
 
 multiclass Atomic2Ops32<PatFrag Op, string Opstr> {
   def #NAME# : Atomic2Ops<Op, Opstr, CPURegs, CPURegs>,
@@ -819,9 +829,9 @@ multiclass Atomic2Ops32<PatFrag Op, string Opstr> {
 // Atomic Compare & Swap.
 class AtomicCmpSwap<PatFrag Op, string Width, RegisterClass DRC,
                     RegisterClass PRC> :
-  MipsPseudo<(outs DRC:$dst), (ins PRC:$ptr, DRC:$cmp, DRC:$swap),
-             !strconcat("atomic_cmp_swap_", Width, "\t$dst, $ptr, $cmp, $swap"),
-             [(set DRC:$dst, (Op PRC:$ptr, DRC:$cmp, DRC:$swap))]>;
+  PseudoSE<(outs DRC:$dst), (ins PRC:$ptr, DRC:$cmp, DRC:$swap),
+           !strconcat("atomic_cmp_swap_", Width, "\t$dst, $ptr, $cmp, $swap"),
+           [(set DRC:$dst, (Op PRC:$ptr, DRC:$cmp, DRC:$swap))]>;
 
 multiclass AtomicCmpSwap32<PatFrag Op, string Width>  {
   def #NAME# : AtomicCmpSwap<Op, Width, CPURegs, CPURegs>,
@@ -851,14 +861,13 @@ class SCBase<bits<6> Opc, string opstring, RegisterClass RC, Operand Mem> :
 
 // Return RA.
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
-def RetRA : MipsPseudo<(outs), (ins), "", [(MipsRet)]>;
+def RetRA : PseudoSE<(outs), (ins), "", [(MipsRet)]>;
 
-// As stack alignment is always done with addiu, we need a 16-bit immediate
-let Defs = [SP], Uses = [SP] in {
-def ADJCALLSTACKDOWN : MipsPseudo<(outs), (ins uimm16:$amt),
+let Defs = [SP], Uses = [SP], hasSideEffects = 1 in {
+def ADJCALLSTACKDOWN : MipsPseudo<(outs), (ins i32imm:$amt),
                                   "!ADJCALLSTACKDOWN $amt",
                                   [(callseq_start timm:$amt)]>;
-def ADJCALLSTACKUP   : MipsPseudo<(outs), (ins uimm16:$amt1, uimm16:$amt2),
+def ADJCALLSTACKUP   : MipsPseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
                                   "!ADJCALLSTACKUP $amt1",
                                   [(callseq_end timm:$amt1, timm:$amt2)]>;
 }
@@ -868,8 +877,8 @@ def ADJCALLSTACKUP   : MipsPseudo<(outs), (ins uimm16:$amt1, uimm16:$amt2),
 // are used, we have the same behavior, but get also a bunch of warnings
 // from the assembler.
 let neverHasSideEffects = 1 in
-def CPRESTORE : MipsPseudo<(outs), (ins i32imm:$loc, CPURegs:$gp),
-                           ".cprestore\t$loc", []>;
+def CPRESTORE : PseudoSE<(outs), (ins i32imm:$loc, CPURegs:$gp),
+                         ".cprestore\t$loc", []>;
 
 let usesCustomInserter = 1 in {
   defm ATOMIC_LOAD_ADD_I8   : Atomic2Ops32<atomic_load_add_8, "load_add_8">;
@@ -969,8 +978,8 @@ defm SWL : StoreLeftRightM32<0x2a, "swl", MipsSWL>;
 defm SWR : StoreLeftRightM32<0x2e, "swr", MipsSWR>;
 
 let hasSideEffects = 1 in
-def SYNC : MipsInst<(outs), (ins i32imm:$stype), "sync $stype",
-                    [(MipsSync imm:$stype)], NoItinerary, FrmOther>
+def SYNC : InstSE<(outs), (ins i32imm:$stype), "sync $stype",
+                  [(MipsSync imm:$stype)], NoItinerary, FrmOther>
 {
   bits<5> stype;
   let Opcode = 0;
@@ -1046,17 +1055,13 @@ let addr=0 in
 // instructions. The same not happens for stack address copies, so an
 // add op with mem ComplexPattern is used and the stack address copy
 // can be matched. It's similar to Sparc LEA_ADDRi
-def LEA_ADDiu : EffectiveAddress<"addiu\t$rt, $addr", CPURegs, mem_ea> {
-  let isCodeGenOnly = 1;
-}
+def LEA_ADDiu : EffectiveAddress<0x09,"addiu\t$rt, $addr", CPURegs, mem_ea>;
 
 // DynAlloc node points to dynamically allocated stack space.
 // $sp is added to the list of implicitly used registers to prevent dead code
 // elimination from removing instructions that modify $sp.
 let Uses = [SP] in
-def DynAlloc : EffectiveAddress<"addiu\t$rt, $addr", CPURegs, mem_ea> {
-  let isCodeGenOnly = 1;
-}
+def DynAlloc : EffectiveAddress<0x09,"addiu\t$rt, $addr", CPURegs, mem_ea>;
 
 // MADD*/MSUB*
 def MADD  : MArithR<0, "madd", MipsMAdd, 1>;

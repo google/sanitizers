@@ -17,6 +17,7 @@
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Target/TargetData.h"
+#include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Support/ConstantRange.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/PatternMatch.h"
@@ -2824,7 +2825,7 @@ Instruction *InstCombiner::FoldFCmp_IntToFP_Cst(FCmpInst &I,
       case ICmpInst::ICMP_UGE:
         // (float)int >= -4.4   --> true
         // (float)int >= 4.4    --> int > 4
-        if (!RHS.isNegative())
+        if (RHS.isNegative())
           return ReplaceInstUsesWith(I, ConstantInt::getTrue(I.getContext()));
         Pred = ICmpInst::ICMP_UGT;
         break;
@@ -2985,6 +2986,44 @@ Instruction *InstCombiner::visitFCmpInst(FCmpInst &I) {
                 return Res;
         }
         break;
+      case Instruction::Call: {
+        CallInst *CI = cast<CallInst>(LHSI);
+        LibFunc::Func Func;
+        // Various optimization for fabs compared with zero.
+        if (RHSC->isNullValue() && CI->getCalledFunction() &&
+            TLI->getLibFunc(CI->getCalledFunction()->getName(), Func) &&
+            TLI->has(Func)) {
+          if (Func == LibFunc::fabs || Func == LibFunc::fabsf ||
+              Func == LibFunc::fabsl) {
+            switch (I.getPredicate()) {
+            default: break;
+            // fabs(x) < 0 --> false
+            case FCmpInst::FCMP_OLT:
+              return ReplaceInstUsesWith(I, Builder->getFalse());
+            // fabs(x) > 0 --> x != 0
+            case FCmpInst::FCMP_OGT:
+              return new FCmpInst(FCmpInst::FCMP_ONE, CI->getArgOperand(0),
+                                  RHSC);
+            // fabs(x) <= 0 --> x == 0
+            case FCmpInst::FCMP_OLE:
+              return new FCmpInst(FCmpInst::FCMP_OEQ, CI->getArgOperand(0),
+                                  RHSC);
+            // fabs(x) >= 0 --> !isnan(x)
+            case FCmpInst::FCMP_OGE:
+              return new FCmpInst(FCmpInst::FCMP_ORD, CI->getArgOperand(0),
+                                  RHSC);
+            // fabs(x) == 0 --> x == 0
+            // fabs(x) != 0 --> x != 0
+            case FCmpInst::FCMP_OEQ:
+            case FCmpInst::FCMP_UEQ:
+            case FCmpInst::FCMP_ONE:
+            case FCmpInst::FCMP_UNE:
+              return new FCmpInst(I.getPredicate(), CI->getArgOperand(0),
+                                  RHSC);
+            }
+          }
+        }
+      }
       }
   }
 

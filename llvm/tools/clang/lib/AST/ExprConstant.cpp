@@ -953,7 +953,7 @@ static void NoteLValueLocation(EvalInfo &Info, APValue::LValueBase Base) {
   if (VD)
     Info.Note(VD->getLocation(), diag::note_declared_at);
   else
-    Info.Note(Base.dyn_cast<const Expr*>()->getExprLoc(),
+    Info.Note(Base.get<const Expr*>()->getExprLoc(),
               diag::note_constexpr_temporary_here);
 }
 
@@ -986,6 +986,14 @@ static bool CheckLValueConstantExpression(EvalInfo &Info, SourceLocation Loc,
   assert((Info.CheckingPotentialConstantExpression ||
           LVal.getLValueCallIndex() == 0) &&
          "have call index for global lvalue");
+
+  // Check if this is a thread-local variable.
+  if (const ValueDecl *VD = Base.dyn_cast<const ValueDecl*>()) {
+    if (const VarDecl *Var = dyn_cast<const VarDecl>(VD)) {
+      if (Var->isThreadSpecified())
+        return false;
+    }
+  }
 
   // Allow address constant expressions to be past-the-end pointers. This is
   // an extension: the standard requires them to point to an object.
@@ -2277,90 +2285,6 @@ static bool HandleConstructorCall(SourceLocation CallLoc, const LValue &This,
   return Success;
 }
 
-namespace {
-class HasSideEffect
-  : public ConstStmtVisitor<HasSideEffect, bool> {
-  const ASTContext &Ctx;
-public:
-
-  HasSideEffect(const ASTContext &C) : Ctx(C) {}
-
-  // Unhandled nodes conservatively default to having side effects.
-  bool VisitStmt(const Stmt *S) {
-    return true;
-  }
-
-  bool VisitParenExpr(const ParenExpr *E) { return Visit(E->getSubExpr()); }
-  bool VisitGenericSelectionExpr(const GenericSelectionExpr *E) {
-    return Visit(E->getResultExpr());
-  }
-  bool VisitDeclRefExpr(const DeclRefExpr *E) {
-    if (Ctx.getCanonicalType(E->getType()).isVolatileQualified())
-      return true;
-    return false;
-  }
-  bool VisitObjCIvarRefExpr(const ObjCIvarRefExpr *E) {
-    if (Ctx.getCanonicalType(E->getType()).isVolatileQualified())
-      return true;
-    return false;
-  }
-
-  // We don't want to evaluate BlockExprs multiple times, as they generate
-  // a ton of code.
-  bool VisitBlockExpr(const BlockExpr *E) { return true; }
-  bool VisitPredefinedExpr(const PredefinedExpr *E) { return false; }
-  bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E)
-    { return Visit(E->getInitializer()); }
-  bool VisitMemberExpr(const MemberExpr *E) { return Visit(E->getBase()); }
-  bool VisitIntegerLiteral(const IntegerLiteral *E) { return false; }
-  bool VisitFloatingLiteral(const FloatingLiteral *E) { return false; }
-  bool VisitStringLiteral(const StringLiteral *E) { return false; }
-  bool VisitCharacterLiteral(const CharacterLiteral *E) { return false; }
-  bool VisitUnaryExprOrTypeTraitExpr(const UnaryExprOrTypeTraitExpr *E)
-    { return false; }
-  bool VisitArraySubscriptExpr(const ArraySubscriptExpr *E)
-    { return Visit(E->getLHS()) || Visit(E->getRHS()); }
-  bool VisitChooseExpr(const ChooseExpr *E)
-    { return Visit(E->getChosenSubExpr(Ctx)); }
-  bool VisitAbstractConditionalOperator(const AbstractConditionalOperator *E)
-    { return Visit(E->getCond()) || Visit(E->getTrueExpr())
-      || Visit(E->getFalseExpr()); }
-  bool VisitCastExpr(const CastExpr *E) { return Visit(E->getSubExpr()); }
-  bool VisitBinAssign(const BinaryOperator *E) { return true; }
-  bool VisitCompoundAssignOperator(const BinaryOperator *E) { return true; }
-  bool VisitBinaryOperator(const BinaryOperator *E)
-  { return Visit(E->getLHS()) || Visit(E->getRHS()); }
-  bool VisitUnaryPreInc(const UnaryOperator *E) { return true; }
-  bool VisitUnaryPostInc(const UnaryOperator *E) { return true; }
-  bool VisitUnaryPreDec(const UnaryOperator *E) { return true; }
-  bool VisitUnaryPostDec(const UnaryOperator *E) { return true; }
-  bool VisitUnaryDeref(const UnaryOperator *E) {
-    if (Ctx.getCanonicalType(E->getType()).isVolatileQualified())
-      return true;
-    return Visit(E->getSubExpr());
-  }
-  bool VisitUnaryOperator(const UnaryOperator *E) { return Visit(E->getSubExpr()); }
-  bool VisitGNUNullExpr(const GNUNullExpr *E) { return false; }
-  bool VisitCXXBoolLiteralExpr(const CXXBoolLiteralExpr *E) { return false; }
-  bool VisitCXXThisExpr(const CXXThisExpr *E) { return false; }
-  bool VisitCXXNullPtrLiteralExpr(const CXXNullPtrLiteralExpr *E) {
-    return false;
-  }
-    
-  // Has side effects if any element does.
-  bool VisitInitListExpr(const InitListExpr *E) {
-    for (unsigned i = 0, e = E->getNumInits(); i != e; ++i)
-      if (Visit(E->getInit(i))) return true;
-    if (const Expr *filler = E->getArrayFiller())
-      return Visit(filler);
-    return false;
-  }
-    
-  bool VisitSizeOfPackExpr(const SizeOfPackExpr *) { return false; }
-};
-
-} // end anonymous namespace
-
 //===----------------------------------------------------------------------===//
 // Generic Evaluation
 //===----------------------------------------------------------------------===//
@@ -2670,7 +2594,7 @@ public:
     const FieldDecl *FD = dyn_cast<FieldDecl>(E->getMemberDecl());
     if (!FD) return Error(E);
     assert(!FD->getType()->isReferenceType() && "prvalue reference?");
-    assert(BaseTy->getAs<RecordType>()->getDecl()->getCanonicalDecl() ==
+    assert(BaseTy->castAs<RecordType>()->getDecl()->getCanonicalDecl() ==
            FD->getParent()->getCanonicalDecl() && "record / field mismatch");
 
     SubobjectDesignator Designator(BaseTy);
@@ -2749,7 +2673,7 @@ public:
     if (E->isArrow()) {
       if (!EvaluatePointer(E->getBase(), Result, this->Info))
         return false;
-      BaseTy = E->getBase()->getType()->getAs<PointerType>()->getPointeeType();
+      BaseTy = E->getBase()->getType()->castAs<PointerType>()->getPointeeType();
     } else if (E->getBase()->isRValue()) {
       assert(E->getBase()->getType()->isRecordType());
       if (!EvaluateTemporary(E->getBase(), Result, this->Info))
@@ -2965,6 +2889,9 @@ bool LValueExprEvaluator::VisitCXXTypeidExpr(const CXXTypeidExpr *E) {
   if (E->isTypeOperand())
     return Success(E);
   CXXRecordDecl *RD = E->getExprOperand()->getType()->getAsCXXRecordDecl();
+  // FIXME: The standard says "a typeid expression whose operand is of a
+  // polymorphic class type" is not a constant expression, but it probably
+  // means "a typeid expression whose operand is potentially evaluated".
   if (RD && RD->isPolymorphic()) {
     Info.Diag(E, diag::note_constexpr_typeid_polymorphic)
       << E->getExprOperand()->getType()
@@ -3117,7 +3044,7 @@ bool PointerExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
   if (E->getOpcode() == BO_Sub)
     AdditionalOffset = -AdditionalOffset;
 
-  QualType Pointee = PExp->getType()->getAs<PointerType>()->getPointeeType();
+  QualType Pointee = PExp->getType()->castAs<PointerType>()->getPointeeType();
   return HandleLValueArrayAdjustment(Info, E, Result, Pointee,
                                      AdditionalOffset);
 }
@@ -4355,9 +4282,9 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
     if (TryEvaluateBuiltinObjectSize(E))
       return true;
 
-    // If evaluating the argument has side-effects we can't determine
-    // the size of the object and lower it to unknown now. CodeGen relies on
-    // us to handle all cases where the expression has side-effects.
+    // If evaluating the argument has side-effects, we can't determine the size
+    // of the object, and so we lower it to unknown now. CodeGen relies on us to
+    // handle all cases where the expression has side-effects.
     if (E->getArg(0)->HasSideEffects(Info.Ctx)) {
       if (E->getArg(1)->EvaluateKnownConstInt(Info.Ctx).getZExtValue() <= 1)
         return Success(-1ULL, E);
@@ -5257,7 +5184,7 @@ bool IntExprEvaluator::VisitUnaryExprOrTypeTraitExpr(
     QualType Ty = E->getTypeOfArgument();
 
     if (Ty->isVectorType()) {
-      unsigned n = Ty->getAs<VectorType>()->getNumElements();
+      unsigned n = Ty->castAs<VectorType>()->getNumElements();
 
       // The vec_step built-in functions that take a 3-component
       // vector return 4. (OpenCL 1.1 spec 6.11.12)
@@ -5834,7 +5761,7 @@ static bool EvaluateComplex(const Expr *E, ComplexValue &Result,
 }
 
 bool ComplexExprEvaluator::ZeroInitialization(const Expr *E) {
-  QualType ElemTy = E->getType()->getAs<ComplexType>()->getElementType();
+  QualType ElemTy = E->getType()->castAs<ComplexType>()->getElementType();
   if (ElemTy->isRealFloatingType()) {
     Result.makeComplexFloat();
     APFloat Zero = APFloat::getZero(Info.Ctx.getFloatTypeSemantics(ElemTy));
@@ -5992,9 +5919,9 @@ bool ComplexExprEvaluator::VisitCastExpr(const CastExpr *E) {
     if (!Visit(E->getSubExpr()))
       return false;
 
-    QualType To = E->getType()->getAs<ComplexType>()->getElementType();
+    QualType To = E->getType()->castAs<ComplexType>()->getElementType();
     QualType From
-      = E->getSubExpr()->getType()->getAs<ComplexType>()->getElementType();
+      = E->getSubExpr()->getType()->castAs<ComplexType>()->getElementType();
     Result.makeComplexFloat();
     return HandleIntToFloatCast(Info, E, From, Result.IntReal,
                                 To, Result.FloatReal) &&
@@ -6420,10 +6347,6 @@ bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
 bool Expr::isEvaluatable(const ASTContext &Ctx) const {
   EvalResult Result;
   return EvaluateAsRValue(Result, Ctx) && !Result.HasSideEffects;
-}
-
-bool Expr::HasSideEffects(const ASTContext &Ctx) const {
-  return HasSideEffect(Ctx).Visit(this);
 }
 
 APSInt Expr::EvaluateKnownConstInt(const ASTContext &Ctx) const {

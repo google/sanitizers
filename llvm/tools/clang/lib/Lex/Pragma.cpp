@@ -733,19 +733,22 @@ void Preprocessor::HandlePragmaPopMacro(Token &PopMacroTok) {
   llvm::DenseMap<IdentifierInfo*, std::vector<MacroInfo*> >::iterator iter =
     PragmaPushMacroInfo.find(IdentInfo);
   if (iter != PragmaPushMacroInfo.end()) {
-    // Release the MacroInfo currently associated with IdentInfo.
-    MacroInfo *CurrentMI = getMacroInfo(IdentInfo);
-    if (CurrentMI) {
+    // Forget the MacroInfo currently associated with IdentInfo.
+    if (MacroInfo *CurrentMI = getMacroInfo(IdentInfo)) {
       if (CurrentMI->isWarnIfUnused())
         WarnUnusedMacroLocs.erase(CurrentMI->getDefinitionLoc());
-      ReleaseMacroInfo(CurrentMI);
+      CurrentMI->setUndefLoc(MessageLoc);
     }
 
     // Get the MacroInfo we want to reinstall.
     MacroInfo *MacroToReInstall = iter->second.back();
 
-    // Reinstall the previously pushed macro.
-    setMacroInfo(IdentInfo, MacroToReInstall);
+    if (MacroToReInstall) {
+      // Reinstall the previously pushed macro.
+      setMacroInfo(IdentInfo, MacroToReInstall);
+    } else if (IdentInfo->hasMacroDefinition()) {
+      clearMacroInfo(IdentInfo);
+    }
 
     // Pop PragmaPushMacroInfo stack.
     iter->second.pop_back();
@@ -1009,7 +1012,7 @@ struct PragmaDebugHandler : public PragmaHandler {
     if (II->isStr("assert")) {
       llvm_unreachable("This is an assertion!");
     } else if (II->isStr("crash")) {
-      *(volatile int*) 0x11 = 0;
+      LLVM_BUILTIN_TRAP;
     } else if (II->isStr("parser_crash")) {
       Token Crasher;
       Crasher.setKind(tok::annot_pragma_parser_crash);

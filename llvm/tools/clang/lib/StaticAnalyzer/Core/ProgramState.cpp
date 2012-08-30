@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Analysis/CFG.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SubEngine.h"
@@ -70,6 +71,19 @@ ProgramState::~ProgramState() {
     stateMgr->getStoreManager().decrementReferenceCount(store);
 }
 
+ProgramStateManager::ProgramStateManager(ASTContext &Ctx,
+                                         StoreManagerCreator CreateSMgr,
+                                         ConstraintManagerCreator CreateCMgr,
+                                         llvm::BumpPtrAllocator &alloc,
+                                         SubEngine &SubEng)
+  : Eng(&SubEng), EnvMgr(alloc), GDMFactory(alloc),
+    svalBuilder(createSimpleSValBuilder(alloc, Ctx, *this)),
+    CallEventMgr(new CallEventManager(alloc)), Alloc(alloc) {
+  StoreMgr.reset((*CreateSMgr)(*this));
+  ConstraintMgr.reset((*CreateCMgr)(*this, SubEng));
+}
+
+
 ProgramStateManager::~ProgramStateManager() {
   for (GDMContextsTy::iterator I=GDMContexts.begin(), E=GDMContexts.end();
        I!=E; ++I)
@@ -115,28 +129,16 @@ ProgramStateRef ProgramState::bindCompoundLiteral(const CompoundLiteralExpr *CL,
                                             const LocationContext *LC,
                                             SVal V) const {
   const StoreRef &newStore = 
-    getStateManager().StoreMgr->BindCompoundLiteral(getStore(), CL, LC, V);
+    getStateManager().StoreMgr->bindCompoundLiteral(getStore(), CL, LC, V);
   return makeWithStore(newStore);
 }
 
-ProgramStateRef ProgramState::bindDecl(const VarRegion* VR, SVal IVal) const {
-  const StoreRef &newStore =
-    getStateManager().StoreMgr->BindDecl(getStore(), VR, IVal);
-  return makeWithStore(newStore);
-}
-
-ProgramStateRef ProgramState::bindDeclWithNoInit(const VarRegion* VR) const {
-  const StoreRef &newStore =
-    getStateManager().StoreMgr->BindDeclWithNoInit(getStore(), VR);
-  return makeWithStore(newStore);
-}
-
-ProgramStateRef ProgramState::bindLoc(Loc LV, SVal V) const {
+ProgramStateRef ProgramState::bindLoc(Loc LV, SVal V, bool notifyChanges) const {
   ProgramStateManager &Mgr = getStateManager();
   ProgramStateRef newState = makeWithStore(Mgr.StoreMgr->Bind(getStore(), 
                                                              LV, V));
   const MemRegion *MR = LV.getAsRegion();
-  if (MR && Mgr.getOwningEngine())
+  if (MR && Mgr.getOwningEngine() && notifyChanges)
     return Mgr.getOwningEngine()->processRegionChange(newState, MR);
 
   return newState;
@@ -190,11 +192,12 @@ ProgramState::invalidateRegionsImpl(ArrayRef<const MemRegion *> Regions,
   return makeWithStore(newStore);
 }
 
-ProgramStateRef ProgramState::unbindLoc(Loc LV) const {
+ProgramStateRef ProgramState::killBinding(Loc LV) const {
   assert(!isa<loc::MemRegionVal>(LV) && "Use invalidateRegion instead.");
 
   Store OldStore = getStore();
-  const StoreRef &newStore = getStateManager().StoreMgr->Remove(OldStore, LV);
+  const StoreRef &newStore =
+    getStateManager().StoreMgr->killBinding(OldStore, LV);
 
   if (newStore.getStore() == OldStore)
     return this;
@@ -485,8 +488,6 @@ ProgramStateRef ProgramStateManager::removeGDM(ProgramStateRef state, void *Key)
   return getPersistentState(NewState);
 }
 
-void ScanReachableSymbols::anchor() { }
-
 bool ScanReachableSymbols::scan(nonloc::CompoundVal val) {
   for (nonloc::CompoundVal::iterator I=val.begin(), E=val.end(); I!=E; ++I)
     if (!scan(*I))
@@ -530,6 +531,9 @@ bool ScanReachableSymbols::scan(SVal val) {
   if (loc::MemRegionVal *X = dyn_cast<loc::MemRegionVal>(&val))
     return scan(X->getRegion());
 
+  if (nonloc::LazyCompoundVal *X = dyn_cast<nonloc::LazyCompoundVal>(&val))
+    return scan(X->getRegion());
+
   if (nonloc::LocAsInteger *X = dyn_cast<nonloc::LocAsInteger>(&val))
     return scan(X->getLoc());
 
@@ -564,9 +568,18 @@ bool ScanReachableSymbols::scan(const MemRegion *R) {
       return false;
 
   // If this is a subregion, also visit the parent regions.
-  if (const SubRegion *SR = dyn_cast<SubRegion>(R))
-    if (!scan(SR->getSuperRegion()))
+  if (const SubRegion *SR = dyn_cast<SubRegion>(R)) {
+    const MemRegion *Super = SR->getSuperRegion();
+    if (!scan(Super))
       return false;
+
+    // When we reach the topmost region, scan all symbols in it.
+    if (isa<MemSpaceRegion>(Super)) {
+      StoreManager &StoreMgr = state->getStateManager().getStoreManager();
+      if (!StoreMgr.scanReachableSymbols(state->getStore(), SR, *this))
+        return false;
+    }
+  }
 
   // Regions captured by a block are also implicitly reachable.
   if (const BlockDataRegion *BDR = dyn_cast<BlockDataRegion>(R)) {
@@ -578,16 +591,7 @@ bool ScanReachableSymbols::scan(const MemRegion *R) {
     }
   }
 
-  // Now look at the binding to this region (if any).
-  if (!scan(state->getSValAsScalarOrLoc(R)))
-    return false;
-
-  // Now look at the subregions.
-  if (!SRM.get())
-    SRM.reset(state->getStateManager().getStoreManager().
-                                           getSubRegionMap(state->getStore()));
-
-  return SRM->iterSubRegions(R, *this);
+  return true;
 }
 
 bool ProgramState::scanReachableSymbols(SVal val, SymbolVisitor& visitor) const {
@@ -716,4 +720,43 @@ bool ProgramState::isTainted(SymbolRef Sym, TaintTagType Kind) const {
   }
   
   return Tainted;
+}
+
+/// The GDM component containing the dynamic type info. This is a map from a
+/// symbol to it's most likely type.
+namespace clang {
+namespace ento {
+typedef llvm::ImmutableMap<const MemRegion *, DynamicTypeInfo> DynamicTypeMap;
+template<> struct ProgramStateTrait<DynamicTypeMap>
+    : public ProgramStatePartialTrait<DynamicTypeMap> {
+  static void *GDMIndex() { static int index; return &index; }
+};
+}}
+
+DynamicTypeInfo ProgramState::getDynamicTypeInfo(const MemRegion *Reg) const {
+  Reg = Reg->StripCasts();
+
+  // Look up the dynamic type in the GDM.
+  const DynamicTypeInfo *GDMType = get<DynamicTypeMap>(Reg);
+  if (GDMType)
+    return *GDMType;
+
+  // Otherwise, fall back to what we know about the region.
+  if (const TypedRegion *TR = dyn_cast<TypedRegion>(Reg))
+    return DynamicTypeInfo(TR->getLocationType(), /*CanBeSubclass=*/false);
+
+  if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(Reg)) {
+    SymbolRef Sym = SR->getSymbol();
+    return DynamicTypeInfo(Sym->getType(getStateManager().getContext()));
+  }
+
+  return DynamicTypeInfo();
+}
+
+ProgramStateRef ProgramState::setDynamicTypeInfo(const MemRegion *Reg,
+                                                 DynamicTypeInfo NewTy) const {
+  Reg = Reg->StripCasts();
+  ProgramStateRef NewState = set<DynamicTypeMap>(Reg, NewTy);
+  assert(NewState);
+  return NewState;
 }

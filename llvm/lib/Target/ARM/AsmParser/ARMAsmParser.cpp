@@ -796,6 +796,13 @@ public:
     int64_t Value = CE->getValue();
     return Value > 0 && Value <= 32;
   }
+  bool isAdrLabel() const {
+    // If we have an immediate that's not a constant, treat it as a label
+    // reference needing a fixup. If it is a constant, but it can't fit 
+    // into shift immediate encoding, we reject it.
+    if (isImm() && !isa<MCConstantExpr>(getImm())) return true;
+    else return (isARMSOImm() || isARMSOImmNeg());
+  }
   bool isARMSOImm() const {
     if (!isImm()) return false;
     const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm());
@@ -1033,7 +1040,8 @@ public:
     // Immediate offset a multiple of 4 in range [-1020, 1020].
     if (!Memory.OffsetImm) return true;
     int64_t Val = Memory.OffsetImm->getValue();
-    return Val >= -1020 && Val <= 1020 && (Val & 3) == 0;
+    // Special case, #-0 is INT32_MIN.
+    return (Val >= -1020 && Val <= 1020 && (Val & 3) == 0) || Val == INT32_MIN;
   }
   bool isMemImm0_1020s4Offset() const {
     if (!isMemory() || Memory.OffsetRegNum != 0 || Memory.Alignment != 0)
@@ -1642,6 +1650,22 @@ public:
     // FIXME: Handle #-0
     if (Imm == INT32_MIN) Imm = 0;
     Inst.addOperand(MCOperand::CreateImm(Imm));
+  }
+
+  void addAdrLabelOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    assert(isImm() && "Not an immediate!");
+
+    // If we have an immediate that's not a constant, treat it as a label
+    // reference needing a fixup. 
+    if (!isa<MCConstantExpr>(getImm())) {
+      Inst.addOperand(MCOperand::CreateExpr(getImm()));
+      return;
+    }
+
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm());
+    int Val = CE->getValue();
+    Inst.addOperand(MCOperand::CreateImm(Val));
   }
 
   void addAlignedMemoryOperands(MCInst &Inst, unsigned N) const {
@@ -2884,7 +2908,7 @@ parseRegisterList(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
       if (!RC->contains(EndReg))
         return Error(EndLoc, "invalid register in register list");
       // Ranges must go from low to high.
-      if (getARMRegisterNumbering(Reg) > getARMRegisterNumbering(EndReg))
+      if (MRI->getEncodingValue(Reg) > MRI->getEncodingValue(EndReg))
         return Error(EndLoc, "bad range in register list");
 
       // Add all the registers in the range to the register list.
@@ -2911,13 +2935,13 @@ parseRegisterList(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
     if (!RC->contains(Reg))
       return Error(RegLoc, "invalid register in register list");
     // List must be monotonically increasing.
-    if (getARMRegisterNumbering(Reg) < getARMRegisterNumbering(OldReg)) {
+    if (MRI->getEncodingValue(Reg) < MRI->getEncodingValue(OldReg)) {
       if (ARMMCRegisterClasses[ARM::GPRRegClassID].contains(Reg))
         Warning(RegLoc, "register list not in ascending order");
       else
         return Error(RegLoc, "register list not in ascending order");
     }
-    if (getARMRegisterNumbering(Reg) == getARMRegisterNumbering(OldReg)) {
+    if (MRI->getEncodingValue(Reg) == MRI->getEncodingValue(OldReg)) {
       Warning(RegLoc, "duplicated register (" + RegTok.getString() +
               ") in register list");
       continue;
@@ -3256,29 +3280,59 @@ ARMAsmParser::OperandMatchResultTy ARMAsmParser::
 parseMemBarrierOptOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   SMLoc S = Parser.getTok().getLoc();
   const AsmToken &Tok = Parser.getTok();
-  if (!Tok.is(AsmToken::Identifier))
-    return MatchOperand_NoMatch;
-  StringRef OptStr = Tok.getString();
+  unsigned Opt;
 
-  unsigned Opt = StringSwitch<unsigned>(OptStr.slice(0, OptStr.size()).lower())
-    .Case("sy",    ARM_MB::SY)
-    .Case("st",    ARM_MB::ST)
-    .Case("sh",    ARM_MB::ISH)
-    .Case("ish",   ARM_MB::ISH)
-    .Case("shst",  ARM_MB::ISHST)
-    .Case("ishst", ARM_MB::ISHST)
-    .Case("nsh",   ARM_MB::NSH)
-    .Case("un",    ARM_MB::NSH)
-    .Case("nshst", ARM_MB::NSHST)
-    .Case("unst",  ARM_MB::NSHST)
-    .Case("osh",   ARM_MB::OSH)
-    .Case("oshst", ARM_MB::OSHST)
-    .Default(~0U);
+  if (Tok.is(AsmToken::Identifier)) {
+    StringRef OptStr = Tok.getString();
 
-  if (Opt == ~0U)
-    return MatchOperand_NoMatch;
+    Opt = StringSwitch<unsigned>(OptStr.slice(0, OptStr.size()).lower())
+      .Case("sy",    ARM_MB::SY)
+      .Case("st",    ARM_MB::ST)
+      .Case("sh",    ARM_MB::ISH)
+      .Case("ish",   ARM_MB::ISH)
+      .Case("shst",  ARM_MB::ISHST)
+      .Case("ishst", ARM_MB::ISHST)
+      .Case("nsh",   ARM_MB::NSH)
+      .Case("un",    ARM_MB::NSH)
+      .Case("nshst", ARM_MB::NSHST)
+      .Case("unst",  ARM_MB::NSHST)
+      .Case("osh",   ARM_MB::OSH)
+      .Case("oshst", ARM_MB::OSHST)
+      .Default(~0U);
 
-  Parser.Lex(); // Eat identifier token.
+    if (Opt == ~0U)
+      return MatchOperand_NoMatch;
+
+    Parser.Lex(); // Eat identifier token.
+  } else if (Tok.is(AsmToken::Hash) ||
+             Tok.is(AsmToken::Dollar) ||
+             Tok.is(AsmToken::Integer)) {
+    if (Parser.getTok().isNot(AsmToken::Integer))
+      Parser.Lex(); // Eat the '#'.
+    SMLoc Loc = Parser.getTok().getLoc();
+
+    const MCExpr *MemBarrierID;
+    if (getParser().ParseExpression(MemBarrierID)) {
+      Error(Loc, "illegal expression");
+      return MatchOperand_ParseFail;
+    }
+    
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(MemBarrierID);
+    if (!CE) {
+      Error(Loc, "constant expression expected");
+      return MatchOperand_ParseFail;
+    }
+
+    int Val = CE->getValue();
+    if (Val & ~0xf) {
+      Error(Loc, "immediate value out of range");
+      return MatchOperand_ParseFail;
+    }
+
+    Opt = ARM_MB::RESERVED_0 + Val;
+  } else
+    return MatchOperand_ParseFail;
+
   Operands.push_back(ARMOperand::CreateMemBarrierOpt((ARM_MB::MemBOpt)Opt, S));
   return MatchOperand_Success;
 }
@@ -5250,8 +5304,8 @@ validateInstruction(MCInst &Inst,
   case ARM::LDRD_POST:
   case ARM::LDREXD: {
     // Rt2 must be Rt + 1.
-    unsigned Rt = getARMRegisterNumbering(Inst.getOperand(0).getReg());
-    unsigned Rt2 = getARMRegisterNumbering(Inst.getOperand(1).getReg());
+    unsigned Rt = MRI->getEncodingValue(Inst.getOperand(0).getReg());
+    unsigned Rt2 = MRI->getEncodingValue(Inst.getOperand(1).getReg());
     if (Rt2 != Rt + 1)
       return Error(Operands[3]->getStartLoc(),
                    "destination operands must be sequential");
@@ -5259,8 +5313,8 @@ validateInstruction(MCInst &Inst,
   }
   case ARM::STRD: {
     // Rt2 must be Rt + 1.
-    unsigned Rt = getARMRegisterNumbering(Inst.getOperand(0).getReg());
-    unsigned Rt2 = getARMRegisterNumbering(Inst.getOperand(1).getReg());
+    unsigned Rt = MRI->getEncodingValue(Inst.getOperand(0).getReg());
+    unsigned Rt2 = MRI->getEncodingValue(Inst.getOperand(1).getReg());
     if (Rt2 != Rt + 1)
       return Error(Operands[3]->getStartLoc(),
                    "source operands must be sequential");
@@ -5270,8 +5324,8 @@ validateInstruction(MCInst &Inst,
   case ARM::STRD_POST:
   case ARM::STREXD: {
     // Rt2 must be Rt + 1.
-    unsigned Rt = getARMRegisterNumbering(Inst.getOperand(1).getReg());
-    unsigned Rt2 = getARMRegisterNumbering(Inst.getOperand(2).getReg());
+    unsigned Rt = MRI->getEncodingValue(Inst.getOperand(1).getReg());
+    unsigned Rt2 = MRI->getEncodingValue(Inst.getOperand(2).getReg());
     if (Rt2 != Rt + 1)
       return Error(Operands[3]->getStartLoc(),
                    "source operands must be sequential");

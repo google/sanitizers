@@ -17,6 +17,7 @@
 #include "asan_internal.h"
 #include "asan_lock.h"
 #include "asan_thread.h"
+#include "asan_thread_registry.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_procmaps.h"
 
@@ -31,7 +32,7 @@
 #include <unistd.h>
 #include <unwind.h>
 
-#ifndef ANDROID
+#if !ASAN_ANDROID
 // FIXME: where to get ucontext on Android?
 #include <sys/ucontext.h>
 #endif
@@ -40,13 +41,17 @@ extern "C" void* _DYNAMIC;
 
 namespace __asan {
 
+void MaybeReexec() {
+  // No need to re-exec on Linux.
+}
+
 void *AsanDoesNotSupportStaticLinkage() {
   // This will fail to link with -static.
   return &_DYNAMIC;  // defined in link.h
 }
 
 void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
-#ifdef ANDROID
+#if ASAN_ANDROID
   *pc = *sp = *bp = 0;
 #elif defined(__arm__)
   ucontext_t *ucontext = (ucontext_t*)context;
@@ -70,6 +75,10 @@ void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
 
 bool AsanInterceptsSignal(int signum) {
   return signum == SIGSEGV && flags()->handle_segv;
+}
+
+void AsanPlatformThreadInit() {
+  // Nothing here for now.
 }
 
 AsanLock::AsanLock(LinkerInitialized) {
@@ -115,7 +124,7 @@ uptr Unwind_GetIP(struct _Unwind_Context *ctx) {
 
 _Unwind_Reason_Code Unwind_Trace(struct _Unwind_Context *ctx,
     void *param) {
-  AsanStackTrace *b = (AsanStackTrace*)param;
+  StackTrace *b = (StackTrace*)param;
   CHECK(b->size < b->max_size);
   uptr pc = Unwind_GetIP(ctx);
   b->trace[b->size++] = pc;
@@ -123,15 +132,17 @@ _Unwind_Reason_Code Unwind_Trace(struct _Unwind_Context *ctx,
   return UNWIND_CONTINUE;
 }
 
-void AsanStackTrace::GetStackTrace(uptr max_s, uptr pc, uptr bp) {
-  size = 0;
-  trace[0] = pc;
+void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
+  stack->size = 0;
+  stack->trace[0] = pc;
   if ((max_s) > 1) {
-    max_size = max_s;
+    stack->max_size = max_s;
 #ifdef __arm__
-    _Unwind_Backtrace(Unwind_Trace, this);
+    _Unwind_Backtrace(Unwind_Trace, stack);
 #else
-     FastUnwindStack(pc, bp);
+    if (!asan_inited) return;
+    if (AsanThread *t = asanThreadRegistry().GetCurrent())
+      stack->FastUnwindStack(pc, bp, t->stack_top(), t->stack_bottom());
 #endif
   }
 }

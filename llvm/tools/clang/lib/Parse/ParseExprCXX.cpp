@@ -301,8 +301,7 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
 
       HasScopeSpecifier = true;
       
-      ASTTemplateArgsPtr TemplateArgsPtr(Actions,
-                                         TemplateId->getTemplateArgs(),
+      ASTTemplateArgsPtr TemplateArgsPtr(TemplateId->getTemplateArgs(),
                                          TemplateId->NumArgs);
       
       if (Actions.ActOnCXXNestedNameSpecifier(getCurScope(),
@@ -642,7 +641,13 @@ llvm::Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro){
   while (Tok.isNot(tok::r_square)) {
     if (!first) {
       if (Tok.isNot(tok::comma)) {
-        if (Tok.is(tok::code_completion)) {
+        // Provide a completion for a lambda introducer here. Except
+        // in Objective-C, where this is Almost Surely meant to be a message
+        // send. In that case, fail here and let the ObjC message
+        // expression parser perform the completion.
+        if (Tok.is(tok::code_completion) &&
+            !(getLangOpts().ObjC1 && Intro.Default == LCD_None &&
+              !Intro.Captures.empty())) {
           Actions.CodeCompleteLambdaIntroducer(getCurScope(), Intro, 
                                                /*AfterAmpersand=*/false);
           ConsumeCodeCompletionToken();
@@ -804,7 +809,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     D.AddTypeInfo(DeclaratorChunk::getFunction(/*hasProto=*/true,
                                            /*isVariadic=*/EllipsisLoc.isValid(),
-                                           EllipsisLoc,
+                                           /*isAmbiguous=*/false, EllipsisLoc,
                                            ParamInfo.data(), ParamInfo.size(),
                                            DS.getTypeQualifiers(),
                                            /*RefQualifierIsLValueRef=*/true,
@@ -849,6 +854,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     ParsedAttributes Attr(AttrFactory);
     D.AddTypeInfo(DeclaratorChunk::getFunction(/*hasProto=*/true,
                      /*isVariadic=*/false,
+                     /*isAmbiguous=*/false,
                      /*EllipsisLoc=*/SourceLocation(),
                      /*Params=*/0, /*NumParams=*/0,
                      /*TypeQuals=*/0,
@@ -919,10 +925,11 @@ ExprResult Parser::ParseCXXCasts() {
 
   // Check for "<::" which is parsed as "[:".  If found, fix token stream,
   // diagnose error, suggest fix, and recover parsing.
-  Token Next = NextToken();
-  if (Tok.is(tok::l_square) && Tok.getLength() == 2 && Next.is(tok::colon) &&
-      areTokensAdjacent(Tok, Next))
-    FixDigraph(*this, PP, Tok, Next, Kind, /*AtDigraph*/true);
+  if (Tok.is(tok::l_square) && Tok.getLength() == 2) {
+    Token Next = NextToken();
+    if (Next.is(tok::colon) && areTokensAdjacent(Tok, Next))
+      FixDigraph(*this, PP, Tok, Next, Kind, /*AtDigraph*/true);
+  }
 
   if (ExpectAndConsume(tok::less, diag::err_expected_less_after, CastName))
     return ExprError();
@@ -958,7 +965,7 @@ ExprResult Parser::ParseCXXCasts() {
                                        T.getOpenLocation(), Result.take(), 
                                        T.getCloseLocation());
 
-  return move(Result);
+  return Result;
 }
 
 /// ParseCXXTypeid - This handles the C++ typeid expression.
@@ -981,6 +988,21 @@ ExprResult Parser::ParseCXXTypeid() {
 
   ExprResult Result;
 
+  // C++0x [expr.typeid]p3:
+  //   When typeid is applied to an expression other than an lvalue of a
+  //   polymorphic class type [...] The expression is an unevaluated
+  //   operand (Clause 5).
+  //
+  // Note that we can't tell whether the expression is an lvalue of a
+  // polymorphic class type until after we've parsed the expression; we
+  // speculatively assume the subexpression is unevaluated, and fix it up
+  // later.
+  //
+  // We enter the unevaluated context before trying to determine whether we
+  // have a type-id, because the tentative parse logic will try to resolve
+  // names, and must treat them as unevaluated.
+  EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated);
+
   if (isTypeIdInParens()) {
     TypeResult Ty = ParseTypeName();
 
@@ -993,16 +1015,6 @@ ExprResult Parser::ParseCXXTypeid() {
     Result = Actions.ActOnCXXTypeid(OpLoc, LParenLoc, /*isType=*/true,
                                     Ty.get().getAsOpaquePtr(), RParenLoc);
   } else {
-    // C++0x [expr.typeid]p3:
-    //   When typeid is applied to an expression other than an lvalue of a
-    //   polymorphic class type [...] The expression is an unevaluated
-    //   operand (Clause 5).
-    //
-    // Note that we can't tell whether the expression is an lvalue of a
-    // polymorphic class type until after we've parsed the expression; we
-    // speculatively assume the subexpression is unevaluated, and fix it up
-    // later.
-    EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated);
     Result = ParseExpression();
 
     // Match the ')'.
@@ -1019,7 +1031,7 @@ ExprResult Parser::ParseCXXTypeid() {
     }
   }
 
-  return move(Result);
+  return Result;
 }
 
 /// ParseCXXUuidof - This handles the Microsoft C++ __uuidof expression.
@@ -1067,7 +1079,7 @@ ExprResult Parser::ParseCXXUuidof() {
     }
   }
 
-  return move(Result);
+  return Result;
 }
 
 /// \brief Parse a C++ pseudo-destructor expression after the base,
@@ -1189,7 +1201,7 @@ ExprResult Parser::ParseThrowExpression() {
 
   default:
     ExprResult Expr(ParseAssignmentExpression());
-    if (Expr.isInvalid()) return move(Expr);
+    if (Expr.isInvalid()) return Expr;
     return Actions.ActOnCXXThrow(getCurScope(), ThrowLoc, Expr.take());
   }
 }
@@ -1238,7 +1250,7 @@ Parser::ParseCXXTypeConstructExpression(const DeclSpec &DS) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
 
-    ExprVector Exprs(Actions);
+    ExprVector Exprs;
     CommaLocsTy CommaLocs;
 
     if (Tok.isNot(tok::r_paren)) {
@@ -1258,7 +1270,7 @@ Parser::ParseCXXTypeConstructExpression(const DeclSpec &DS) {
     assert((Exprs.size() == 0 || Exprs.size()-1 == CommaLocs.size())&&
            "Unexpected number of commas!");
     return Actions.ActOnCXXTypeConstructExpr(TypeRep, T.getOpenLocation(), 
-                                             move_arg(Exprs),
+                                             Exprs,
                                              T.getCloseLocation());
   }
 }
@@ -1273,11 +1285,11 @@ Parser::ParseCXXTypeConstructExpression(const DeclSpec &DS) {
 /// [GNU]   type-specifier-seq declarator simple-asm-expr[opt] attributes[opt]
 ///             '=' assignment-expression
 ///
-/// \param ExprResult if the condition was parsed as an expression, the
-/// parsed expression.
+/// \param ExprOut if the condition was parsed as an expression, the parsed
+/// expression.
 ///
-/// \param DeclResult if the condition was parsed as a declaration, the
-/// parsed declaration.
+/// \param DeclOut if the condition was parsed as a declaration, the parsed
+/// declaration.
 ///
 /// \param Loc The location of the start of the statement that requires this
 /// condition, e.g., the "for" in a for loop.
@@ -1707,8 +1719,7 @@ bool Parser::ParseUnqualifiedIdTemplateId(CXXScopeSpec &SS,
   }
 
   // Bundle the template arguments together.
-  ASTTemplateArgsPtr TemplateArgsPtr(Actions, TemplateArgs.data(),
-                                     TemplateArgs.size());
+  ASTTemplateArgsPtr TemplateArgsPtr(TemplateArgs);
 
   // Constructor and destructor names.
   TypeResult Type
@@ -1755,7 +1766,7 @@ bool Parser::ParseUnqualifiedIdTemplateId(CXXScopeSpec &SS,
 ///         ptr-operator conversion-declarator[opt]
 /// \endcode
 ///
-/// \param The nested-name-specifier that preceded this unqualified-id. If
+/// \param SS The nested-name-specifier that preceded this unqualified-id. If
 /// non-empty, then we are parsing the unqualified-id of a qualified-id.
 ///
 /// \param EnteringContext whether we are entering the scope of the 
@@ -1974,7 +1985,7 @@ bool Parser::ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
 ///
 /// \endcode
 ///
-/// \param The nested-name-specifier that preceded this unqualified-id. If
+/// \param SS The nested-name-specifier that preceded this unqualified-id. If
 /// non-empty, then we are parsing the unqualified-id of a qualified-id.
 ///
 /// \param EnteringContext whether we are entering the scope of the 
@@ -2202,7 +2213,7 @@ Parser::ParseCXXNewExpression(bool UseGlobal, SourceLocation Start) {
   // A '(' now can be a new-placement or the '(' wrapping the type-id in the
   // second form of new-expression. It can't be a new-type-id.
 
-  ExprVector PlacementArgs(Actions);
+  ExprVector PlacementArgs;
   SourceLocation PlacementLParen, PlacementRParen;
 
   SourceRange TypeIdParens;
@@ -2272,7 +2283,7 @@ Parser::ParseCXXNewExpression(bool UseGlobal, SourceLocation Start) {
 
   if (Tok.is(tok::l_paren)) {
     SourceLocation ConstructorLParen, ConstructorRParen;
-    ExprVector ConstructorArgs(Actions);
+    ExprVector ConstructorArgs;
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
     ConstructorLParen = T.getOpenLocation();
@@ -2291,7 +2302,7 @@ Parser::ParseCXXNewExpression(bool UseGlobal, SourceLocation Start) {
     }
     Initializer = Actions.ActOnParenListExpr(ConstructorLParen,
                                              ConstructorRParen,
-                                             move_arg(ConstructorArgs));
+                                             ConstructorArgs);
   } else if (Tok.is(tok::l_brace) && getLangOpts().CPlusPlus0x) {
     Diag(Tok.getLocation(),
          diag::warn_cxx98_compat_generalized_initializer_lists);
@@ -2301,7 +2312,7 @@ Parser::ParseCXXNewExpression(bool UseGlobal, SourceLocation Start) {
     return Initializer;
 
   return Actions.ActOnCXXNew(Start, UseGlobal, PlacementLParen,
-                             move_arg(PlacementArgs), PlacementRParen,
+                             PlacementArgs, PlacementRParen,
                              TypeIdParens, DeclaratorInfo, Initializer.take());
 }
 
@@ -2396,10 +2407,14 @@ Parser::ParseCXXDeleteExpression(bool UseGlobal, SourceLocation Start) {
   // Array delete?
   bool ArrayDelete = false;
   if (Tok.is(tok::l_square) && NextToken().is(tok::r_square)) {
-    // FIXME: This could be the start of a lambda-expression. We should
-    // disambiguate this, but that will require arbitrary lookahead if
-    // the next token is '(':
-    //   delete [](int*){ /* ... */
+    // C++11 [expr.delete]p1:
+    //   Whenever the delete keyword is followed by empty square brackets, it
+    //   shall be interpreted as [array delete].
+    //   [Footnote: A lambda expression with a lambda-introducer that consists
+    //              of empty square brackets can follow the delete keyword if
+    //              the lambda expression is enclosed in parentheses.]
+    // FIXME: Produce a better diagnostic if the '[]' is unambiguously a
+    //        lambda-introducer.
     ArrayDelete = true;
     BalancedDelimiterTracker T(*this, tok::l_square);
 
@@ -2411,7 +2426,7 @@ Parser::ParseCXXDeleteExpression(bool UseGlobal, SourceLocation Start) {
 
   ExprResult Operand(ParseCastExpression(false));
   if (Operand.isInvalid())
-    return move(Operand);
+    return Operand;
 
   return Actions.ActOnCXXDelete(Start, UseGlobal, ArrayDelete, Operand.take());
 }
@@ -2793,7 +2808,7 @@ Parser::ParseCXXAmbiguousParenExpression(ParenParseOption &ExprType,
       Result = Actions.ActOnCastExpr(getCurScope(), Tracker.getOpenLocation(),
                                     DeclaratorInfo, CastTy,
                                     Tracker.getCloseLocation(), Result.take());
-    return move(Result);
+    return Result;
   }
 
   // Not a compound literal, and not followed by a cast-expression.
@@ -2812,5 +2827,5 @@ Parser::ParseCXXAmbiguousParenExpression(ParenParseOption &ExprType,
   }
 
   Tracker.consumeClose();
-  return move(Result);
+  return Result;
 }

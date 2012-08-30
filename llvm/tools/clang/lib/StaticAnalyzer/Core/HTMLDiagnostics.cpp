@@ -45,7 +45,7 @@ public:
   virtual ~HTMLDiagnostics() { FlushDiagnostics(NULL); }
 
   virtual void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
-                                    SmallVectorImpl<std::string> *FilesMade);
+                                    FilesMade *filesMade);
 
   virtual StringRef getName() const {
     return "HTMLDiagnostics";
@@ -63,7 +63,7 @@ public:
                       const char *HighlightEnd = "</span>");
 
   void ReportDiag(const PathDiagnostic& D,
-                  SmallVectorImpl<std::string> *FilesMade);
+                  FilesMade *filesMade);
 };
 
 } // end anonymous namespace
@@ -76,10 +76,10 @@ HTMLDiagnostics::HTMLDiagnostics(const std::string& prefix,
   FilePrefix.appendComponent("report");
 }
 
-PathDiagnosticConsumer*
-ento::createHTMLDiagnosticConsumer(const std::string& prefix,
-                                 const Preprocessor &PP) {
-  return new HTMLDiagnostics(prefix, PP);
+void ento::createHTMLDiagnosticConsumer(PathDiagnosticConsumers &C,
+                                        const std::string& prefix,
+                                        const Preprocessor &PP) {
+  C.push_back(new HTMLDiagnostics(prefix, PP));
 }
 
 //===----------------------------------------------------------------------===//
@@ -88,46 +88,15 @@ ento::createHTMLDiagnosticConsumer(const std::string& prefix,
 
 void HTMLDiagnostics::FlushDiagnosticsImpl(
   std::vector<const PathDiagnostic *> &Diags,
-  SmallVectorImpl<std::string> *FilesMade) {
+  FilesMade *filesMade) {
   for (std::vector<const PathDiagnostic *>::iterator it = Diags.begin(),
        et = Diags.end(); it != et; ++it) {
-    ReportDiag(**it, FilesMade);
-  }
-}
-
-static void flattenPath(PathPieces &primaryPath, PathPieces &currentPath,
-                        const PathPieces &oldPath) {
-  for (PathPieces::const_iterator it = oldPath.begin(), et = oldPath.end();
-       it != et; ++it ) {
-    PathDiagnosticPiece *piece = it->getPtr();
-    if (const PathDiagnosticCallPiece *call =
-        dyn_cast<PathDiagnosticCallPiece>(piece)) {
-      IntrusiveRefCntPtr<PathDiagnosticEventPiece> callEnter =
-        call->getCallEnterEvent();
-      if (callEnter)
-        currentPath.push_back(callEnter);
-      flattenPath(primaryPath, primaryPath, call->path);
-      IntrusiveRefCntPtr<PathDiagnosticEventPiece> callExit =
-        call->getCallExitEvent();
-      if (callExit)
-        currentPath.push_back(callExit);
-      continue;
-    }
-    if (PathDiagnosticMacroPiece *macro =
-        dyn_cast<PathDiagnosticMacroPiece>(piece)) {
-      currentPath.push_back(piece);
-      PathPieces newPath;
-      flattenPath(primaryPath, newPath, macro->subPieces);
-      macro->subPieces = newPath;
-      continue;
-    }
-    
-    currentPath.push_back(piece);
+    ReportDiag(**it, filesMade);
   }
 }
 
 void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
-                                 SmallVectorImpl<std::string> *FilesMade) {
+                                 FilesMade *filesMade) {
     
   // Create the HTML directory if it is missing.
   if (!createdDir) {
@@ -152,8 +121,7 @@ void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
     return;
 
   // First flatten out the entire path to make it easier to use.
-  PathPieces path;
-  flattenPath(path, path, D.path);
+  PathPieces path = D.path.flatten(/*ShouldFlattenMacros=*/false);
 
   // The path as already been prechecked that all parts of the path are
   // from the same file and that it is non-empty.
@@ -298,8 +266,9 @@ void HTMLDiagnostics::ReportDiag(const PathDiagnostic& D,
     return;
   }
 
-  if (FilesMade)
-    FilesMade->push_back(llvm::sys::path::filename(H.str()));
+  if (filesMade) {
+    filesMade->addDiagnostic(D, getName(), llvm::sys::path::filename(H.str()));
+  }
 
   // Emit the HTML to disk.
   for (RewriteBuffer::iterator I = Buf->begin(), E = Buf->end(); I!=E; ++I)
@@ -428,6 +397,15 @@ void HTMLDiagnostics::HandlePiece(Rewriter& R, FileID BugFileID,
     os << "<div class=\"PathIndex";
     if (Kind) os << " PathIndex" << Kind;
     os << "\">" << num << "</div>";
+
+    if (num > 1) {
+      os << "</td><td><div class=\"PathNav\"><a href=\"#Path"
+         << (num - 1)
+         << "\" title=\"Previous event ("
+         << (num - 1)
+         << ")\">&#x2190;</a></div></td>";
+    }
+
     os << "</td><td>";
   }
 
@@ -454,8 +432,21 @@ void HTMLDiagnostics::HandlePiece(Rewriter& R, FileID BugFileID,
 
     os << "':\n";
 
-    if (max > 1)
-      os << "</td></tr></table>";
+    if (max > 1) {
+      os << "</td>";
+      if (num < max) {
+        os << "<td><div class=\"PathNav\"><a href=\"#";
+        if (num == max - 1)
+          os << "EndPath";
+        else
+          os << "Path" << (num + 1);
+        os << "\" title=\"Next event ("
+        << (num + 1)
+        << ")\">&#x2192;</a></div></td>";
+      }
+
+      os << "</tr></table>";
+    }
 
     // Within a macro piece.  Write out each event.
     ProcessMacroPiece(os, *MP, 0);
@@ -463,8 +454,21 @@ void HTMLDiagnostics::HandlePiece(Rewriter& R, FileID BugFileID,
   else {
     os << html::EscapeText(P.getString());
 
-    if (max > 1)
-      os << "</td></tr></table>";
+    if (max > 1) {
+      os << "</td>";
+      if (num < max) {
+        os << "<td><div class=\"PathNav\"><a href=\"#";
+        if (num == max - 1)
+          os << "EndPath";
+        else
+          os << "Path" << (num + 1);
+        os << "\" title=\"Next event ("
+           << (num + 1)
+           << ")\">&#x2192;</a></div></td>";
+      }
+      
+      os << "</tr></table>";
+    }
   }
 
   os << "</div></td></tr>";
@@ -477,29 +481,11 @@ void HTMLDiagnostics::HandlePiece(Rewriter& R, FileID BugFileID,
   R.InsertTextBefore(Loc, os.str());
 
   // Now highlight the ranges.
-  for (const SourceRange *I = P.ranges_begin(), *E = P.ranges_end();
-        I != E; ++I)
+  ArrayRef<SourceRange> Ranges = P.getRanges();
+  for (ArrayRef<SourceRange>::iterator I = Ranges.begin(),
+                                       E = Ranges.end(); I != E; ++I) {
     HighlightRange(R, LPosInfo.first, *I);
-
-#if 0
-  // If there is a code insertion hint, insert that code.
-  // FIXME: This code is disabled because it seems to mangle the HTML
-  // output. I'm leaving it here because it's generally the right idea,
-  // but needs some help from someone more familiar with the rewriter.
-  for (const FixItHint *Hint = P.fixit_begin(), *HintEnd = P.fixit_end();
-       Hint != HintEnd; ++Hint) {
-    if (Hint->RemoveRange.isValid()) {
-      HighlightRange(R, LPosInfo.first, Hint->RemoveRange,
-                     "<span class=\"CodeRemovalHint\">", "</span>");
-    }
-    if (Hint->InsertionLoc.isValid()) {
-      std::string EscapedCode = html::EscapeText(Hint->CodeToInsert, true);
-      EscapedCode = "<span class=\"CodeInsertionHint\">" + EscapedCode
-        + "</span>";
-      R.InsertTextBefore(Hint->InsertionLoc, EscapedCode);
-    }
   }
-#endif
 }
 
 static void EmitAlphaCounter(raw_ostream &os, unsigned n) {

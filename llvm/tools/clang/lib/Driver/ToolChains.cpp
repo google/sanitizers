@@ -442,6 +442,20 @@ static bool GetVersionFromSimulatorDefine(StringRef define,
 void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
   const OptTable &Opts = getDriver().getOpts();
 
+  // Support allowing the SDKROOT environment variable used by xcrun and other
+  // Xcode tools to define the default sysroot, by making it the default for
+  // isysroot.
+  if (!Args.hasArg(options::OPT_isysroot)) {
+    if (char *env = ::getenv("SDKROOT")) {
+      // We only use this value as the default if it is an absolute path and
+      // exists.
+      if (llvm::sys::path::is_absolute(env) && llvm::sys::fs::exists(env)) {
+        Args.append(Args.MakeSeparateArg(
+                      0, Opts.getOption(options::OPT_isysroot), env));
+      }
+    }
+  }
+
   Arg *OSXVersion = Args.getLastArg(options::OPT_mmacosx_version_min_EQ);
   Arg *iOSVersion = Args.getLastArg(options::OPT_miphoneos_version_min_EQ);
   Arg *iOSSimVersion = Args.getLastArg(
@@ -937,8 +951,10 @@ bool Darwin::SupportsObjCGC() const {
   return !isTargetIPhoneOS();
 }
 
-bool Darwin::SupportsObjCARC() const {
-  return isTargetIPhoneOS() || !isMacosxVersionLT(10, 6);
+void Darwin::CheckObjCARC() const {
+  if (isTargetIPhoneOS() || !isMacosxVersionLT(10, 6))
+    return;
+  getDriver().Diag(diag::err_arc_unsupported_on_toolchain);
 }
 
 std::string
@@ -1103,6 +1119,9 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
     "arm-linux-gnueabi",
     "arm-linux-androideabi"
   };
+  static const char *const ARMHFTriples[] = {
+    "arm-linux-gnueabihf",
+  };
 
   static const char *const X86_64LibDirs[] = { "/lib64", "/lib" };
   static const char *const X86_64Triples[] = {
@@ -1159,8 +1178,13 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
   case llvm::Triple::arm:
   case llvm::Triple::thumb:
     LibDirs.append(ARMLibDirs, ARMLibDirs + llvm::array_lengthof(ARMLibDirs));
-    TripleAliases.append(
-      ARMTriples, ARMTriples + llvm::array_lengthof(ARMTriples));
+    if (TargetTriple.getEnvironment() == llvm::Triple::GNUEABIHF) {
+      TripleAliases.append(
+        ARMHFTriples, ARMHFTriples + llvm::array_lengthof(ARMHFTriples));
+    } else {
+      TripleAliases.append(
+        ARMTriples, ARMTriples + llvm::array_lengthof(ARMTriples));
+    }
     break;
   case llvm::Triple::x86_64:
     LibDirs.append(
@@ -1559,6 +1583,67 @@ Tool &OpenBSD::SelectTool(const Compilation &C, const JobAction &JA,
   return *T;
 }
 
+/// Bitrig - Bitrig tool chain which can call as(1) and ld(1) directly.
+
+Bitrig::Bitrig(const Driver &D, const llvm::Triple& Triple, const ArgList &Args)
+  : Generic_ELF(D, Triple, Args) {
+  getFilePaths().push_back(getDriver().Dir + "/../lib");
+  getFilePaths().push_back("/usr/lib");
+}
+
+Tool &Bitrig::SelectTool(const Compilation &C, const JobAction &JA,
+                         const ActionList &Inputs) const {
+  Action::ActionClass Key;
+  if (getDriver().ShouldUseClangCompiler(C, JA, getTriple()))
+    Key = Action::AnalyzeJobClass;
+  else
+    Key = JA.getKind();
+
+  bool UseIntegratedAs = C.getArgs().hasFlag(options::OPT_integrated_as,
+                                             options::OPT_no_integrated_as,
+                                             IsIntegratedAssemblerDefault());
+
+  Tool *&T = Tools[Key];
+  if (!T) {
+    switch (Key) {
+    case Action::AssembleJobClass: {
+      if (UseIntegratedAs)
+        T = new tools::ClangAs(*this);
+      else
+        T = new tools::bitrig::Assemble(*this);
+      break;
+    }
+    case Action::LinkJobClass:
+      T = new tools::bitrig::Link(*this); break;
+    default:
+      T = &Generic_GCC::SelectTool(C, JA, Inputs);
+    }
+  }
+
+  return *T;
+}
+
+void Bitrig::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
+                                          ArgStringList &CC1Args) const {
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc) ||
+      DriverArgs.hasArg(options::OPT_nostdincxx))
+    return;
+
+  std::string Triple = getTriple().str();
+  if (Triple.substr(0, 5) == "amd64")
+    Triple.replace(0, 5, "x86_64");
+
+  addSystemInclude(DriverArgs, CC1Args, "/usr/include/c++/4.6.2");
+  addSystemInclude(DriverArgs, CC1Args, "/usr/include/c++/4.6.2/backward");
+  addSystemInclude(DriverArgs, CC1Args, "/usr/include/c++/4.6.2/" + Triple);
+
+}
+
+void Bitrig::AddCXXStdlibLibArgs(const ArgList &Args,
+                                 ArgStringList &CmdArgs) const {
+  CmdArgs.push_back("-lstdc++");
+}
+
 /// FreeBSD - FreeBSD tool chain which can call as(1) and ld(1) directly.
 
 FreeBSD::FreeBSD(const Driver &D, const llvm::Triple& Triple, const ArgList &Args)
@@ -1912,8 +1997,13 @@ static std::string getMultiarchTriple(const llvm::Triple TargetTriple,
     // regardless of what the actual target triple is.
   case llvm::Triple::arm:
   case llvm::Triple::thumb:
-    if (llvm::sys::fs::exists(SysRoot + "/lib/arm-linux-gnueabi"))
-      return "arm-linux-gnueabi";
+    if (TargetTriple.getEnvironment() == llvm::Triple::GNUEABIHF) {
+      if (llvm::sys::fs::exists(SysRoot + "/lib/arm-linux-gnueabihf"))
+        return "arm-linux-gnueabihf";
+    } else {
+      if (llvm::sys::fs::exists(SysRoot + "/lib/arm-linux-gnueabi"))
+        return "arm-linux-gnueabi";
+    }
     return TargetTriple.str();
   case llvm::Triple::x86:
     if (llvm::sys::fs::exists(SysRoot + "/lib/i386-linux-gnu"))
@@ -2161,6 +2251,9 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   const StringRef ARMMultiarchIncludeDirs[] = {
     "/usr/include/arm-linux-gnueabi"
   };
+  const StringRef ARMHFMultiarchIncludeDirs[] = {
+    "/usr/include/arm-linux-gnueabihf"
+  };
   const StringRef MIPSMultiarchIncludeDirs[] = {
     "/usr/include/mips-linux-gnu"
   };
@@ -2179,7 +2272,10 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   } else if (getTriple().getArch() == llvm::Triple::x86) {
     MultiarchIncludeDirs = X86MultiarchIncludeDirs;
   } else if (getTriple().getArch() == llvm::Triple::arm) {
-    MultiarchIncludeDirs = ARMMultiarchIncludeDirs;
+    if (getTriple().getEnvironment() == llvm::Triple::GNUEABIHF)
+      MultiarchIncludeDirs = ARMHFMultiarchIncludeDirs;
+    else
+      MultiarchIncludeDirs = ARMMultiarchIncludeDirs;
   } else if (getTriple().getArch() == llvm::Triple::mips) {
     MultiarchIncludeDirs = MIPSMultiarchIncludeDirs;
   } else if (getTriple().getArch() == llvm::Triple::mipsel) {

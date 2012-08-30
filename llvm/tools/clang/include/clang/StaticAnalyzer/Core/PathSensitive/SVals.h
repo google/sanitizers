@@ -163,13 +163,10 @@ public:
 class UndefinedVal : public SVal {
 public:
   UndefinedVal() : SVal(UndefinedKind) {}
-  UndefinedVal(const void *D) : SVal(UndefinedKind, D) {}
 
   static inline bool classof(const SVal* V) {
     return V->getBaseKind() == UndefinedKind;
   }
-
-  const void *getData() const { return Data; }
 };
 
 class DefinedOrUnknownSVal : public SVal {
@@ -436,7 +433,7 @@ public:
   }
 
   /// \brief Get the underlining region and strip casts.
-  const MemRegion* stripCasts() const;
+  const MemRegion* stripCasts(bool StripBaseCasts = true) const;
 
   template <typename REGION>
   const REGION* getRegionAs() const {

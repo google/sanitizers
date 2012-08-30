@@ -84,6 +84,14 @@ public:
   /// \brief Whether this function contains any indirect gotos.
   bool HasIndirectGoto;
 
+  /// A flag that is set when parsing a -dealloc method and no [super dealloc]
+  /// call was found yet.
+  bool ObjCShouldCallSuperDealloc;
+
+  /// A flag that is set when parsing a -finalize method and no [super finalize]
+  /// call was found yet.
+  bool ObjCShouldCallSuperFinalize;
+
   /// \brief Used to determine if errors occurred in this function or block.
   DiagnosticErrorTrap ErrorTrap;
 
@@ -127,6 +135,8 @@ public:
       HasBranchProtectedScope(false),
       HasBranchIntoScope(false),
       HasIndirectGoto(false),
+      ObjCShouldCallSuperDealloc(false),
+      ObjCShouldCallSuperFinalize(false),
       ErrorTrap(Diag) { }
 
   virtual ~FunctionScopeInfo();
@@ -344,6 +354,9 @@ public:
   /// \brief Whether any of the capture expressions requires cleanups.
   bool ExprNeedsCleanups;
 
+  /// \brief Whether the lambda contains an unexpanded parameter pack.
+  bool ContainsUnexpandedParameterPack;
+
   /// \brief Variables used to index into by-copy array captures.
   llvm::SmallVector<VarDecl *, 4> ArrayIndexVars;
 
@@ -355,7 +368,7 @@ public:
                   CXXMethodDecl *CallOperator)
     : CapturingScopeInfo(Diag, ImpCap_None), Lambda(Lambda),
       CallOperator(CallOperator), NumExplicitCaptures(0), Mutable(false),
-      ExprNeedsCleanups(false)
+      ExprNeedsCleanups(false), ContainsUnexpandedParameterPack(false)
   {
     Kind = SK_Lambda;
   }

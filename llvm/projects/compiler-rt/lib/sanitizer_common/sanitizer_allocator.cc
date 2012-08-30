@@ -56,4 +56,30 @@ void *InternalAllocBlock(void *p) {
   return pp + 1;
 }
 
+// LowLevelAllocator
+static LowLevelAllocateCallback low_level_alloc_callback;
+
+void *LowLevelAllocator::Allocate(uptr size) {
+  // Align allocation size.
+  size = RoundUpTo(size, 8);
+  if (allocated_end_ - allocated_current_ < (sptr)size) {
+    uptr size_to_allocate = Max(size, kPageSize);
+    allocated_current_ =
+        (char*)MmapOrDie(size_to_allocate, __FUNCTION__);
+    allocated_end_ = allocated_current_ + size_to_allocate;
+    if (low_level_alloc_callback) {
+      low_level_alloc_callback((uptr)allocated_current_,
+                               size_to_allocate);
+    }
+  }
+  CHECK(allocated_end_ - allocated_current_ >= (sptr)size);
+  void *res = allocated_current_;
+  allocated_current_ += size;
+  return res;
+}
+
+void SetLowLevelAllocateCallback(LowLevelAllocateCallback callback) {
+  low_level_alloc_callback = callback;
+}
+
 }  // namespace __sanitizer

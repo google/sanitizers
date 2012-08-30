@@ -989,6 +989,29 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     }
     break;
   }
+  case Instruction::Select: {
+    APInt LeftDemanded(DemandedElts), RightDemanded(DemandedElts);
+    if (ConstantVector* CV = dyn_cast<ConstantVector>(I->getOperand(0))) {
+      for (unsigned i = 0; i < VWidth; i++) {
+        if (CV->getAggregateElement(i)->isNullValue())
+          LeftDemanded.clearBit(i);
+        else
+          RightDemanded.clearBit(i);
+      }
+    }
+
+    TmpV = SimplifyDemandedVectorElts(I->getOperand(1), LeftDemanded,
+                                      UndefElts, Depth+1);
+    if (TmpV) { I->setOperand(1, TmpV); MadeChange = true; }
+
+    TmpV = SimplifyDemandedVectorElts(I->getOperand(2), RightDemanded,
+                                      UndefElts2, Depth+1);
+    if (TmpV) { I->setOperand(2, TmpV); MadeChange = true; }
+      
+    // Output elements are undefined if both are undefined.
+    UndefElts &= UndefElts2;
+    break;
+  }
   case Instruction::BitCast: {
     // Vector->vector casts only.
     VectorType *VTy = dyn_cast<VectorType>(I->getOperand(0)->getType());
@@ -1073,6 +1096,12 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     // Output elements are undefined if both are undefined.  Consider things
     // like undef&0.  The result is known zero, not undef.
     UndefElts &= UndefElts2;
+    break;
+  case Instruction::FPTrunc:
+  case Instruction::FPExt:
+    TmpV = SimplifyDemandedVectorElts(I->getOperand(0), DemandedElts,
+                                      UndefElts, Depth+1);
+    if (TmpV) { I->setOperand(0, TmpV); MadeChange = true; }
     break;
     
   case Instruction::Call: {

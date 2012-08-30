@@ -2351,6 +2351,10 @@ RecordLayoutBuilder::ComputeKeyFunction(const CXXRecordDecl *RD) {
     if (MD->hasInlineBody())
       continue;
 
+    // Ignore inline deleted or defaulted functions.
+    if (!MD->isUserProvided())
+      continue;
+
     // We found it.
     return MD;
   }

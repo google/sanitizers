@@ -91,9 +91,8 @@ namespace {
         return new (S.Context) GenericSelectionExpr(S.Context,
                                                     gse->getGenericLoc(),
                                                     gse->getControllingExpr(),
-                                                    assocTypes.data(),
-                                                    assocs.data(),
-                                                    numAssocs,
+                                                    assocTypes,
+                                                    assocs,
                                                     gse->getDefaultLoc(),
                                                     gse->getRParenLoc(),
                                       gse->containsUnexpandedParameterPack(),
@@ -292,7 +291,7 @@ OpaqueValueExpr *PseudoOpBuilder::capture(Expr *e) {
 /// operation.  This routine is safe against expressions which may
 /// already be captured.
 ///
-/// \param Returns the captured expression, which will be the
+/// \returns the captured expression, which will be the
 ///   same as the input if the input was already captured
 OpaqueValueExpr *PseudoOpBuilder::captureValueAsResult(Expr *e) {
   assert(ResultIndex == PseudoObjectExpr::NoResult);
@@ -617,7 +616,7 @@ ExprResult ObjCPropertyOpBuilder::buildGet() {
 
 /// Store to an Objective-C property reference.
 ///
-/// \param bindSetValueAsResult - If true, capture the actual
+/// \param captureSetValueAsResult If true, capture the actual
 ///   value being set as the value of the property operation.
 ExprResult ObjCPropertyOpBuilder::buildSet(Expr *op, SourceLocation opcLoc,
                                            bool captureSetValueAsResult) {
@@ -955,6 +954,27 @@ Sema::ObjCSubscriptKind
   return OS_Error;
 }
 
+/// CheckKeyForObjCARCConversion - This routine suggests bridge casting of CF
+/// objects used as dictionary subscript key objects.
+static void CheckKeyForObjCARCConversion(Sema &S, QualType ContainerT, 
+                                         Expr *Key) {
+  if (ContainerT.isNull())
+    return;
+  // dictionary subscripting.
+  // - (id)objectForKeyedSubscript:(id)key;
+  IdentifierInfo *KeyIdents[] = {
+    &S.Context.Idents.get("objectForKeyedSubscript")  
+  };
+  Selector GetterSelector = S.Context.Selectors.getSelector(1, KeyIdents);
+  ObjCMethodDecl *Getter = S.LookupMethodInObjectType(GetterSelector, ContainerT, 
+                                                      true /*instance*/);
+  if (!Getter)
+    return;
+  QualType T = Getter->param_begin()[0]->getType();
+  S.CheckObjCARCConversion(Key->getSourceRange(), 
+                         T, Key, Sema::CCK_ImplicitConversion);
+}
+
 bool ObjCSubscriptOpBuilder::findAtIndexGetter() {
   if (AtIndexGetter)
     return true;
@@ -972,8 +992,12 @@ bool ObjCSubscriptOpBuilder::findAtIndexGetter() {
   }
   Sema::ObjCSubscriptKind Res = 
     S.CheckSubscriptingKind(RefExpr->getKeyExpr());
-  if (Res == Sema::OS_Error)
+  if (Res == Sema::OS_Error) {
+    if (S.getLangOpts().ObjCAutoRefCount)
+      CheckKeyForObjCARCConversion(S, ResultType, 
+                                   RefExpr->getKeyExpr());
     return false;
+  }
   bool arrayRef = (Res == Sema::OS_Array);
   
   if (ResultType.isNull()) {
@@ -1080,8 +1104,12 @@ bool ObjCSubscriptOpBuilder::findAtIndexSetter() {
   
   Sema::ObjCSubscriptKind Res = 
     S.CheckSubscriptingKind(RefExpr->getKeyExpr());
-  if (Res == Sema::OS_Error)
+  if (Res == Sema::OS_Error) {
+    if (S.getLangOpts().ObjCAutoRefCount)
+      CheckKeyForObjCARCConversion(S, ResultType, 
+                                   RefExpr->getKeyExpr());
     return false;
+  }
   bool arrayRef = (Res == Sema::OS_Array);
   
   if (ResultType.isNull()) {
@@ -1226,7 +1254,7 @@ ExprResult ObjCSubscriptOpBuilder::buildGet() {
 /// Store into the container the "op" object at "Index"'ed location
 /// by building this messaging expression:
 /// - (void)setObject:(id)object atIndexedSubscript:(NSInteger)index;
-/// \param bindSetValueAsResult - If true, capture the actual
+/// \param captureSetValueAsResult If true, capture the actual
 ///   value being set as the value of the property operation.
 ExprResult ObjCSubscriptOpBuilder::buildSet(Expr *op, SourceLocation opcLoc,
                                            bool captureSetValueAsResult) {

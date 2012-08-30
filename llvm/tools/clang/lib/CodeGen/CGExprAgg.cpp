@@ -549,8 +549,10 @@ AggExprEmitter::VisitCompoundLiteralExpr(CompoundLiteralExpr *E) {
 void AggExprEmitter::VisitCastExpr(CastExpr *E) {
   switch (E->getCastKind()) {
   case CK_Dynamic: {
+    // FIXME: Can this actually happen? We have no test coverage for it.
     assert(isa<CXXDynamicCastExpr>(E) && "CK_Dynamic without a dynamic_cast?");
-    LValue LV = CGF.EmitCheckedLValue(E->getSubExpr());
+    LValue LV = CGF.EmitCheckedLValue(E->getSubExpr(),
+                                      CodeGenFunction::CT_Load);
     // FIXME: Do we also need to handle property references here?
     if (LV.isSimple())
       CGF.EmitDynamicCast(LV.getAddress(), cast<CXXDynamicCastExpr>(E));
@@ -1300,9 +1302,9 @@ void CodeGenFunction::EmitAggregateCopy(llvm::Value *DestPtr,
   // implementation handles this case safely.  If there is a libc that does not
   // safely handle this, we can add a target hook.
 
-  // Get size and alignment info for this aggregate.
+  // Get data size and alignment info for this aggregate.
   std::pair<CharUnits, CharUnits> TypeInfo = 
-    getContext().getTypeInfoInChars(Ty);
+    getContext().getTypeInfoDataSizeInChars(Ty);
 
   if (alignment.isZero())
     alignment = TypeInfo.second;

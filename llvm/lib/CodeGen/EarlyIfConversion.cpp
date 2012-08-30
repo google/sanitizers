@@ -17,12 +17,13 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "early-ifcvt"
-#include "llvm/Function.h"
+#include "MachineTraceMetrics.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SparseSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -30,6 +31,7 @@
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/MC/MCInstrItineraries.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Support/CommandLine.h"
@@ -48,7 +50,10 @@ BlockInstrLimit("early-ifcvt-limit", cl::init(30), cl::Hidden,
 static cl::opt<bool> Stress("stress-early-ifcvt", cl::Hidden,
   cl::desc("Turn all knobs to 11"));
 
-typedef SmallSetVector<MachineBasicBlock*, 8> BlockSetVector;
+STATISTIC(NumDiamondsSeen,  "Number of diamonds");
+STATISTIC(NumDiamondsConv,  "Number of diamonds converted");
+STATISTIC(NumTrianglesSeen, "Number of triangles");
+STATISTIC(NumTrianglesConv, "Number of triangles converted");
 
 //===----------------------------------------------------------------------===//
 //                                 SSAIfConv
@@ -94,6 +99,12 @@ public:
   /// equal to Tail.
   bool isTriangle() const { return TBB == Tail || FBB == Tail; }
 
+  /// Returns the Tail predecessor for the True side.
+  MachineBasicBlock *getTPred() const { return TBB == Tail ? Head : TBB; }
+
+  /// Returns the Tail predecessor for the  False side.
+  MachineBasicBlock *getFPred() const { return FBB == Tail ? Head : FBB; }
+
   /// Information about each phi in the Tail block.
   struct PHIInfo {
     MachineInstr *PHI;
@@ -131,6 +142,12 @@ private:
 
   /// Find a valid insertion point in Head.
   bool findInsertionPoint();
+
+  /// Replace PHI instructions in Tail with selects.
+  void replacePHIInstrs();
+
+  /// Insert selects and rewrite PHI operands to use them.
+  void rewritePHIOperands();
 
 public:
   /// runOnMachineFunction - Initialize per-function data structures.
@@ -335,11 +352,7 @@ bool SSAIfConv::canConvertIf(MachineBasicBlock *MBB) {
   if (Succ0->pred_size() != 1 || Succ0->succ_size() != 1)
     return false;
 
-  // We could support additional Tail predecessors by updating phis instead of
-  // eliminating them. Let's see an example where it matters first.
   Tail = Succ0->succ_begin()[0];
-  if (Tail->pred_size() != 2)
-    return false;
 
   // This is not a triangle.
   if (Tail != Succ1) {
@@ -389,8 +402,8 @@ bool SSAIfConv::canConvertIf(MachineBasicBlock *MBB) {
 
   // Any phis in the tail block must be convertible to selects.
   PHIs.clear();
-  MachineBasicBlock *TPred = TBB == Tail ? Head : TBB;
-  MachineBasicBlock *FPred = FBB == Tail ? Head : FBB;
+  MachineBasicBlock *TPred = getTPred();
+  MachineBasicBlock *FPred = getFPred();
   for (MachineBasicBlock::iterator I = Tail->begin(), E = Tail->end();
        I != E && I->isPHI(); ++I) {
     PHIs.push_back(&*I);
@@ -426,24 +439,18 @@ bool SSAIfConv::canConvertIf(MachineBasicBlock *MBB) {
   if (!findInsertionPoint())
     return false;
 
+  if (isTriangle())
+    ++NumTrianglesSeen;
+  else
+    ++NumDiamondsSeen;
   return true;
 }
 
-
-/// convertIf - Execute the if conversion after canConvertIf has determined the
-/// feasibility.
-///
-/// Any basic blocks erased will be added to RemovedBlocks.
-///
-void SSAIfConv::convertIf(SmallVectorImpl<MachineBasicBlock*> &RemovedBlocks) {
-  assert(Head && Tail && TBB && FBB && "Call canConvertIf first.");
-
-  // Move all instructions into Head, except for the terminators.
-  if (TBB != Tail)
-    Head->splice(InsertionPoint, TBB, TBB->begin(), TBB->getFirstTerminator());
-  if (FBB != Tail)
-    Head->splice(InsertionPoint, FBB, FBB->begin(), FBB->getFirstTerminator());
-
+/// replacePHIInstrs - Completely replace PHI instructions with selects.
+/// This is possible when the only Tail predecessors are the if-converted
+/// blocks.
+void SSAIfConv::replacePHIInstrs() {
+  assert(Tail->pred_size() == 2 && "Cannot replace PHIs");
   MachineBasicBlock::iterator FirstTerm = Head->getFirstTerminator();
   assert(FirstTerm != Head->end() && "No terminators");
   DebugLoc HeadDL = FirstTerm->getDebugLoc();
@@ -459,6 +466,66 @@ void SSAIfConv::convertIf(SmallVectorImpl<MachineBasicBlock*> &RemovedBlocks) {
     PI.PHI->eraseFromParent();
     PI.PHI = 0;
   }
+}
+
+/// rewritePHIOperands - When there are additional Tail predecessors, insert
+/// select instructions in Head and rewrite PHI operands to use the selects.
+/// Keep the PHI instructions in Tail to handle the other predecessors.
+void SSAIfConv::rewritePHIOperands() {
+  MachineBasicBlock::iterator FirstTerm = Head->getFirstTerminator();
+  assert(FirstTerm != Head->end() && "No terminators");
+  DebugLoc HeadDL = FirstTerm->getDebugLoc();
+
+  // Convert all PHIs to select instructions inserted before FirstTerm.
+  for (unsigned i = 0, e = PHIs.size(); i != e; ++i) {
+    PHIInfo &PI = PHIs[i];
+    DEBUG(dbgs() << "If-converting " << *PI.PHI);
+    unsigned PHIDst = PI.PHI->getOperand(0).getReg();
+    unsigned DstReg = MRI->createVirtualRegister(MRI->getRegClass(PHIDst));
+    TII->insertSelect(*Head, FirstTerm, HeadDL, DstReg, Cond, PI.TReg, PI.FReg);
+    DEBUG(dbgs() << "          --> " << *llvm::prior(FirstTerm));
+
+    // Rewrite PHI operands TPred -> (DstReg, Head), remove FPred.
+    for (unsigned i = PI.PHI->getNumOperands(); i != 1; i -= 2) {
+      MachineBasicBlock *MBB = PI.PHI->getOperand(i-1).getMBB();
+      if (MBB == getTPred()) {
+        PI.PHI->getOperand(i-1).setMBB(Head);
+        PI.PHI->getOperand(i-2).setReg(DstReg);
+      } else if (MBB == getFPred()) {
+        PI.PHI->RemoveOperand(i-1);
+        PI.PHI->RemoveOperand(i-2);
+      }
+    }
+    DEBUG(dbgs() << "          --> " << *PI.PHI);
+  }
+}
+
+/// convertIf - Execute the if conversion after canConvertIf has determined the
+/// feasibility.
+///
+/// Any basic blocks erased will be added to RemovedBlocks.
+///
+void SSAIfConv::convertIf(SmallVectorImpl<MachineBasicBlock*> &RemovedBlocks) {
+  assert(Head && Tail && TBB && FBB && "Call canConvertIf first.");
+
+  // Update statistics.
+  if (isTriangle())
+    ++NumTrianglesConv;
+  else
+    ++NumDiamondsConv;
+
+  // Move all instructions into Head, except for the terminators.
+  if (TBB != Tail)
+    Head->splice(InsertionPoint, TBB, TBB->begin(), TBB->getFirstTerminator());
+  if (FBB != Tail)
+    Head->splice(InsertionPoint, FBB, FBB->begin(), FBB->getFirstTerminator());
+
+  // Are there extra Tail predecessors?
+  bool ExtraPreds = Tail->pred_size() != 2;
+  if (ExtraPreds)
+    rewritePHIOperands();
+  else
+    replacePHIInstrs();
 
   // Fix up the CFG, temporarily leave Head without any successors.
   Head->removeSuccessor(TBB);
@@ -470,6 +537,7 @@ void SSAIfConv::convertIf(SmallVectorImpl<MachineBasicBlock*> &RemovedBlocks) {
 
   // Fix up Head's terminators.
   // It should become a single branch or a fallthrough.
+  DebugLoc HeadDL = Head->getFirstTerminator()->getDebugLoc();
   TII->RemoveBranch(*Head);
 
   // Erase the now empty conditional blocks. It is likely that Head can fall
@@ -484,7 +552,7 @@ void SSAIfConv::convertIf(SmallVectorImpl<MachineBasicBlock*> &RemovedBlocks) {
   }
 
   assert(Head->succ_empty() && "Additional head successors?");
-  if (Head->isLayoutSuccessor(Tail)) {
+  if (!ExtraPreds && Head->isLayoutSuccessor(Tail)) {
     // Splice Tail onto the end of Head.
     DEBUG(dbgs() << "Joining tail BB#" << Tail->getNumber()
                  << " into head BB#" << Head->getNumber() << '\n');
@@ -512,9 +580,12 @@ namespace {
 class EarlyIfConverter : public MachineFunctionPass {
   const TargetInstrInfo *TII;
   const TargetRegisterInfo *TRI;
+  const MCSchedModel *SchedModel;
   MachineRegisterInfo *MRI;
   MachineDominatorTree *DomTree;
   MachineLoopInfo *Loops;
+  MachineTraceMetrics *Traces;
+  MachineTraceMetrics::Ensemble *MinInstr;
   SSAIfConv IfConv;
 
 public:
@@ -527,6 +598,8 @@ private:
   bool tryConvertIf(MachineBasicBlock*);
   void updateDomTree(ArrayRef<MachineBasicBlock*> Removed);
   void updateLoops(ArrayRef<MachineBasicBlock*> Removed);
+  void invalidateTraces();
+  bool shouldConvertIf();
 };
 } // end anonymous namespace
 
@@ -537,6 +610,7 @@ INITIALIZE_PASS_BEGIN(EarlyIfConverter,
                       "early-ifcvt", "Early If Converter", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineBranchProbabilityInfo)
 INITIALIZE_PASS_DEPENDENCY(MachineDominatorTree)
+INITIALIZE_PASS_DEPENDENCY(MachineTraceMetrics)
 INITIALIZE_PASS_END(EarlyIfConverter,
                       "early-ifcvt", "Early If Converter", false, false)
 
@@ -546,6 +620,8 @@ void EarlyIfConverter::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addPreserved<MachineDominatorTree>();
   AU.addRequired<MachineLoopInfo>();
   AU.addPreserved<MachineLoopInfo>();
+  AU.addRequired<MachineTraceMetrics>();
+  AU.addPreserved<MachineTraceMetrics>();
   MachineFunctionPass::getAnalysisUsage(AU);
 }
 
@@ -576,12 +652,117 @@ void EarlyIfConverter::updateLoops(ArrayRef<MachineBasicBlock*> Removed) {
     Loops->removeBlock(Removed[i]);
 }
 
+/// Invalidate MachineTraceMetrics before if-conversion.
+void EarlyIfConverter::invalidateTraces() {
+  Traces->verifyAnalysis();
+  Traces->invalidate(IfConv.Head);
+  Traces->invalidate(IfConv.Tail);
+  Traces->invalidate(IfConv.TBB);
+  Traces->invalidate(IfConv.FBB);
+  Traces->verifyAnalysis();
+}
+
+// Adjust cycles with downward saturation.
+static unsigned adjCycles(unsigned Cyc, int Delta) {
+  if (Delta < 0 && Cyc + Delta > Cyc)
+    return 0;
+  return Cyc + Delta;
+}
+
+/// Apply cost model and heuristics to the if-conversion in IfConv.
+/// Return true if the conversion is a good idea.
+///
+bool EarlyIfConverter::shouldConvertIf() {
+  // Stress testing mode disables all cost considerations.
+  if (Stress)
+    return true;
+
+  if (!MinInstr)
+    MinInstr = Traces->getEnsemble(MachineTraceMetrics::TS_MinInstrCount);
+
+  MachineTraceMetrics::Trace TBBTrace = MinInstr->getTrace(IfConv.getTPred());
+  MachineTraceMetrics::Trace FBBTrace = MinInstr->getTrace(IfConv.getFPred());
+  DEBUG(dbgs() << "TBB: " << TBBTrace << "FBB: " << FBBTrace);
+  unsigned MinCrit = std::min(TBBTrace.getCriticalPath(),
+                              FBBTrace.getCriticalPath());
+
+  // Set a somewhat arbitrary limit on the critical path extension we accept.
+  unsigned CritLimit = SchedModel->MispredictPenalty/2;
+
+  // If-conversion only makes sense when there is unexploited ILP. Compute the
+  // maximum-ILP resource length of the trace after if-conversion. Compare it
+  // to the shortest critical path.
+  SmallVector<const MachineBasicBlock*, 1> ExtraBlocks;
+  if (IfConv.TBB != IfConv.Tail)
+    ExtraBlocks.push_back(IfConv.TBB);
+  unsigned ResLength = FBBTrace.getResourceLength(ExtraBlocks);
+  DEBUG(dbgs() << "Resource length " << ResLength
+               << ", minimal critical path " << MinCrit << '\n');
+  if (ResLength > MinCrit + CritLimit) {
+    DEBUG(dbgs() << "Not enough available ILP.\n");
+    return false;
+  }
+
+  // Assume that the depth of the first head terminator will also be the depth
+  // of the select instruction inserted, as determined by the flag dependency.
+  // TBB / FBB data dependencies may delay the select even more.
+  MachineTraceMetrics::Trace HeadTrace = MinInstr->getTrace(IfConv.Head);
+  unsigned BranchDepth =
+    HeadTrace.getInstrCycles(IfConv.Head->getFirstTerminator()).Depth;
+  DEBUG(dbgs() << "Branch depth: " << BranchDepth << '\n');
+
+  // Look at all the tail phis, and compute the critical path extension caused
+  // by inserting select instructions.
+  MachineTraceMetrics::Trace TailTrace = MinInstr->getTrace(IfConv.Tail);
+  for (unsigned i = 0, e = IfConv.PHIs.size(); i != e; ++i) {
+    SSAIfConv::PHIInfo &PI = IfConv.PHIs[i];
+    unsigned Slack = TailTrace.getInstrSlack(PI.PHI);
+    unsigned MaxDepth = Slack + TailTrace.getInstrCycles(PI.PHI).Depth;
+    DEBUG(dbgs() << "Slack " << Slack << ":\t" << *PI.PHI);
+
+    // The condition is pulled into the critical path.
+    unsigned CondDepth = adjCycles(BranchDepth, PI.CondCycles);
+    if (CondDepth > MaxDepth) {
+      unsigned Extra = CondDepth - MaxDepth;
+      DEBUG(dbgs() << "Condition adds " << Extra << " cycles.\n");
+      if (Extra > CritLimit) {
+        DEBUG(dbgs() << "Exceeds limit of " << CritLimit << '\n');
+        return false;
+      }
+    }
+
+    // The TBB value is pulled into the critical path.
+    unsigned TDepth = adjCycles(TBBTrace.getPHIDepth(PI.PHI), PI.TCycles);
+    if (TDepth > MaxDepth) {
+      unsigned Extra = TDepth - MaxDepth;
+      DEBUG(dbgs() << "TBB data adds " << Extra << " cycles.\n");
+      if (Extra > CritLimit) {
+        DEBUG(dbgs() << "Exceeds limit of " << CritLimit << '\n');
+        return false;
+      }
+    }
+
+    // The FBB value is pulled into the critical path.
+    unsigned FDepth = adjCycles(FBBTrace.getPHIDepth(PI.PHI), PI.FCycles);
+    if (FDepth > MaxDepth) {
+      unsigned Extra = FDepth - MaxDepth;
+      DEBUG(dbgs() << "FBB data adds " << Extra << " cycles.\n");
+      if (Extra > CritLimit) {
+        DEBUG(dbgs() << "Exceeds limit of " << CritLimit << '\n');
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 /// Attempt repeated if-conversion on MBB, return true if successful.
 ///
 bool EarlyIfConverter::tryConvertIf(MachineBasicBlock *MBB) {
   bool Changed = false;
-  while (IfConv.canConvertIf(MBB)) {
+  while (IfConv.canConvertIf(MBB) && shouldConvertIf()) {
     // If-convert MBB and update analyses.
+    invalidateTraces();
     SmallVector<MachineBasicBlock*, 4> RemovedBlocks;
     IfConv.convertIf(RemovedBlocks);
     Changed = true;
@@ -593,13 +774,15 @@ bool EarlyIfConverter::tryConvertIf(MachineBasicBlock *MBB) {
 
 bool EarlyIfConverter::runOnMachineFunction(MachineFunction &MF) {
   DEBUG(dbgs() << "********** EARLY IF-CONVERSION **********\n"
-               << "********** Function: "
-               << ((Value*)MF.getFunction())->getName() << '\n');
+               << "********** Function: " << MF.getName() << '\n');
   TII = MF.getTarget().getInstrInfo();
   TRI = MF.getTarget().getRegisterInfo();
+  SchedModel = MF.getTarget().getInstrItineraryData()->SchedModel;
   MRI = &MF.getRegInfo();
   DomTree = &getAnalysis<MachineDominatorTree>();
   Loops = getAnalysisIfAvailable<MachineLoopInfo>();
+  Traces = &getAnalysis<MachineTraceMetrics>();
+  MinInstr = 0;
 
   bool Changed = false;
   IfConv.runOnMachineFunction(MF);

@@ -19,7 +19,6 @@
 #include "tsan_defs.h"
 #include "tsan_platform.h"
 #include "tsan_rtl.h"
-#include "tsan_interface.h"
 #include "tsan_mman.h"
 #include "tsan_suppressions.h"
 
@@ -33,6 +32,7 @@ namespace __tsan {
 
 #ifndef TSAN_GO
 THREADLOCAL char cur_thread_placeholder[sizeof(ThreadState)] ALIGNED(64);
+char allocator_placeholder[sizeof(Allocator)] ALIGNED(64);
 #endif
 static char ctx_placeholder[sizeof(Context)] ALIGNED(64);
 
@@ -120,9 +120,9 @@ static void MemoryProfileThread(void *arg) {
   ScopedInRtl in_rtl;
   fd_t fd = (fd_t)(uptr)arg;
   for (int i = 0; ; i++) {
-    InternalScopedBuf<char> buf(4096);
-    WriteMemoryProfile(buf.Ptr(), buf.Size(), i);
-    internal_write(fd, buf.Ptr(), internal_strlen(buf.Ptr()));
+    InternalScopedBuffer<char> buf(4096);
+    WriteMemoryProfile(buf, buf.size(), i);
+    internal_write(fd, buf, internal_strlen(buf));
     SleepForSeconds(1);
   }
 }
@@ -130,10 +130,10 @@ static void MemoryProfileThread(void *arg) {
 static void InitializeMemoryProfile() {
   if (flags()->profile_memory == 0 || flags()->profile_memory[0] == 0)
     return;
-  InternalScopedBuf<char> filename(4096);
-  internal_snprintf(filename.Ptr(), filename.Size(), "%s.%d",
+  InternalScopedBuffer<char> filename(4096);
+  internal_snprintf(filename, filename.size(), "%s.%d",
       flags()->profile_memory, GetPid());
-  fd_t fd = internal_open(filename.Ptr(), true);
+  fd_t fd = internal_open(filename, true);
   if (fd == kInvalidFd) {
     TsanPrintf("Failed to open memory profile file '%s'\n", &filename[0]);
     Die();
@@ -164,6 +164,9 @@ void Initialize(ThreadState *thr) {
     return;
   is_initialized = true;
   ScopedInRtl in_rtl;
+#ifndef TSAN_GO
+  InitializeAllocator();
+#endif
   InitializeInterceptors();
   const char *env = InitializePlatform();
   InitializeMutex();
@@ -426,13 +429,16 @@ static void MemoryRangeSet(ThreadState *thr, uptr pc, uptr addr, uptr size,
   const uptr kMaxResetSize = 1024*1024*1024;
   if (size > kMaxResetSize)
     size = kMaxResetSize;
-  size = (size + 7) & ~7;
+  size = (size + (kShadowCell - 1)) & ~(kShadowCell - 1);
   u64 *p = (u64*)MemToShadow(addr);
   CHECK(IsShadowMem((uptr)p));
   CHECK(IsShadowMem((uptr)(p + size * kShadowCnt / kShadowCell - 1)));
   // FIXME: may overwrite a part outside the region
-  for (uptr i = 0; i < size * kShadowCnt / kShadowCell; i++)
-    p[i] = val;
+  for (uptr i = 0; i < size * kShadowCnt / kShadowCell;) {
+    p[i++] = val;
+    for (uptr j = 1; j < kShadowCnt; j++)
+      p[i++] = 0;
+  }
 }
 
 void MemoryResetRange(ThreadState *thr, uptr pc, uptr addr, uptr size) {
@@ -443,6 +449,13 @@ void MemoryRangeFreed(ThreadState *thr, uptr pc, uptr addr, uptr size) {
   MemoryAccessRange(thr, pc, addr, size, true);
   Shadow s(thr->fast_state);
   s.MarkAsFreed();
+  s.SetWrite(true);
+  s.SetAddr0AndSizeLog(0, 3);
+  MemoryRangeSet(thr, pc, addr, size, s.raw());
+}
+
+void MemoryRangeImitateWrite(ThreadState *thr, uptr pc, uptr addr, uptr size) {
+  Shadow s(thr->fast_state);
   s.SetWrite(true);
   s.SetAddr0AndSizeLog(0, 3);
   MemoryRangeSet(thr, pc, addr, size, s.raw());

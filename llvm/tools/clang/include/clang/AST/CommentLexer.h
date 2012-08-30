@@ -26,6 +26,7 @@ namespace comments {
 
 class Lexer;
 class TextTokenRetokenizer;
+class CommandTraits;
 
 namespace tok {
 enum TokenKind {
@@ -211,6 +212,12 @@ private:
   Lexer(const Lexer&);          // DO NOT IMPLEMENT
   void operator=(const Lexer&); // DO NOT IMPLEMENT
 
+  /// Allocator for strings that are semantic values of tokens and have to be
+  /// computed (for example, resolved decimal character references).
+  llvm::BumpPtrAllocator &Allocator;
+
+  const CommandTraits &Traits;
+
   const char *const BufferStart;
   const char *const BufferEnd;
   SourceLocation FileLoc;
@@ -258,36 +265,19 @@ private:
   /// Current lexing mode.
   LexerState State;
 
-  /// A verbatim-like block command eats every character (except line starting
-  /// decorations) until matching end command is seen or comment end is hit.
-  struct VerbatimBlockCommand {
-    StringRef BeginName;
-    StringRef EndName;
-  };
-
-  typedef SmallVector<VerbatimBlockCommand, 4> VerbatimBlockCommandVector;
-
-  /// Registered verbatim-like block commands.
-  VerbatimBlockCommandVector VerbatimBlockCommands;
-
   /// If State is LS_VerbatimBlock, contains the name of verbatim end
   /// command, including command marker.
   SmallString<16> VerbatimBlockEndCommandName;
 
-  bool isVerbatimBlockCommand(StringRef BeginName, StringRef &EndName) const;
+  /// Given a character reference name (e.g., "lt"), return the character that
+  /// it stands for (e.g., "<").
+  StringRef resolveHTMLNamedCharacterReference(StringRef Name) const;
 
-  /// A verbatim-like line command eats everything until a newline is seen or
-  /// comment end is hit.
-  struct VerbatimLineCommand {
-    StringRef Name;
-  };
+  /// Given a Unicode codepoint as base-10 integer, return the character.
+  StringRef resolveHTMLDecimalCharacterReference(StringRef Name) const;
 
-  typedef SmallVector<VerbatimLineCommand, 4> VerbatimLineCommandVector;
-
-  /// Registered verbatim-like line commands.
-  VerbatimLineCommandVector VerbatimLineCommands;
-
-  bool isVerbatimLineCommand(StringRef Name) const;
+  /// Given a Unicode codepoint as base-16 integer, return the character.
+  StringRef resolveHTMLHexCharacterReference(StringRef Name) const;
 
   void formTokenWithChars(Token &Result, const char *TokEnd,
                           tok::TokenKind Kind) {
@@ -300,6 +290,12 @@ private:
     Result.TextLen1 = 7;
 #endif
     BufferPtr = TokEnd;
+  }
+
+  void formTextToken(Token &Result, const char *TokEnd) {
+    StringRef Text(BufferPtr, TokEnd - BufferPtr);
+    formTokenWithChars(Result, TokEnd, tok::text);
+    Result.setText(Text);
   }
 
   SourceLocation getSourceLocation(const char *Loc) const {
@@ -328,6 +324,8 @@ private:
 
   void lexVerbatimLineText(Token &T);
 
+  void lexHTMLCharacterReference(Token &T);
+
   void setupAndLexHTMLStartTag(Token &T);
 
   void lexHTMLStartTag(Token &T);
@@ -337,7 +335,8 @@ private:
   void lexHTMLEndTag(Token &T);
 
 public:
-  Lexer(SourceLocation FileLoc, const CommentOptions &CommOpts,
+  Lexer(llvm::BumpPtrAllocator &Allocator, const CommandTraits &Traits,
+        SourceLocation FileLoc, const CommentOptions &CommOpts,
         const char *BufferStart, const char *BufferEnd);
 
   void lex(Token &T);
@@ -345,215 +344,6 @@ public:
   StringRef getSpelling(const Token &Tok,
                         const SourceManager &SourceMgr,
                         bool *Invalid = NULL) const;
-
-  /// \brief Register a new verbatim block command.
-  void addVerbatimBlockCommand(StringRef BeginName, StringRef EndName);
-
-  /// \brief Register a new verbatim line command.
-  void addVerbatimLineCommand(StringRef Name);
-};
-
-/// Re-lexes a sequence of tok::text tokens.
-class TextTokenRetokenizer {
-  llvm::BumpPtrAllocator &Allocator;
-  static const unsigned MaxTokens = 16;
-  SmallVector<Token, MaxTokens> Toks;
-
-  struct Position {
-    unsigned CurToken;
-    const char *BufferStart;
-    const char *BufferEnd;
-    const char *BufferPtr;
-    SourceLocation BufferStartLoc;
-  };
-
-  /// Current position in Toks.
-  Position Pos;
-
-  bool isEnd() const {
-    return Pos.CurToken >= Toks.size();
-  }
-
-  /// Sets up the buffer pointers to point to current token.
-  void setupBuffer() {
-    assert(Pos.CurToken < Toks.size());
-    const Token &Tok = Toks[Pos.CurToken];
-
-    Pos.BufferStart = Tok.getText().begin();
-    Pos.BufferEnd = Tok.getText().end();
-    Pos.BufferPtr = Pos.BufferStart;
-    Pos.BufferStartLoc = Tok.getLocation();
-  }
-
-  SourceLocation getSourceLocation() const {
-    const unsigned CharNo = Pos.BufferPtr - Pos.BufferStart;
-    return Pos.BufferStartLoc.getLocWithOffset(CharNo);
-  }
-
-  char peek() const {
-    assert(!isEnd());
-    assert(Pos.BufferPtr != Pos.BufferEnd);
-    return *Pos.BufferPtr;
-  }
-
-  void consumeChar() {
-    assert(!isEnd());
-    assert(Pos.BufferPtr != Pos.BufferEnd);
-    Pos.BufferPtr++;
-    if (Pos.BufferPtr == Pos.BufferEnd) {
-      Pos.CurToken++;
-      if (Pos.CurToken < Toks.size())
-        setupBuffer();
-    }
-  }
-
-  static bool isWhitespace(char C) {
-    return C == ' ' || C == '\n' || C == '\r' ||
-           C == '\t' || C == '\f' || C == '\v';
-  }
-
-  void consumeWhitespace() {
-    while (!isEnd()) {
-      if (isWhitespace(peek()))
-        consumeChar();
-      else
-        break;
-    }
-  }
-
-  void formTokenWithChars(Token &Result,
-                          SourceLocation Loc,
-                          const char *TokBegin,
-                          unsigned TokLength,
-                          StringRef Text) {
-    Result.setLocation(Loc);
-    Result.setKind(tok::text);
-    Result.setLength(TokLength);
-#ifndef NDEBUG
-    Result.TextPtr1 = "<UNSET>";
-    Result.TextLen1 = 7;
-#endif
-    Result.setText(Text);
-  }
-
-public:
-  TextTokenRetokenizer(llvm::BumpPtrAllocator &Allocator):
-      Allocator(Allocator) {
-    Pos.CurToken = 0;
-  }
-
-  /// Add a token.
-  /// Returns true on success, false if it seems like we have enough tokens.
-  bool addToken(const Token &Tok) {
-    assert(Tok.is(tok::text));
-    if (Toks.size() >= MaxTokens)
-      return false;
-
-    Toks.push_back(Tok);
-    if (Toks.size() == 1)
-      setupBuffer();
-    return true;
-  }
-
-  /// Extract a word -- sequence of non-whitespace characters.
-  bool lexWord(Token &Tok) {
-    if (isEnd())
-      return false;
-
-    Position SavedPos = Pos;
-
-    consumeWhitespace();
-    SmallString<32> WordText;
-    const char *WordBegin = Pos.BufferPtr;
-    SourceLocation Loc = getSourceLocation();
-    while (!isEnd()) {
-      const char C = peek();
-      if (!isWhitespace(C)) {
-        WordText.push_back(C);
-        consumeChar();
-      } else
-        break;
-    }
-    const unsigned Length = WordText.size();
-    if (Length == 0) {
-      Pos = SavedPos;
-      return false;
-    }
-
-    char *TextPtr = Allocator.Allocate<char>(Length + 1);
-
-    memcpy(TextPtr, WordText.c_str(), Length + 1);
-    StringRef Text = StringRef(TextPtr, Length);
-
-    formTokenWithChars(Tok, Loc, WordBegin,
-                       Pos.BufferPtr - WordBegin, Text);
-    return true;
-  }
-
-  bool lexDelimitedSeq(Token &Tok, char OpenDelim, char CloseDelim) {
-    if (isEnd())
-      return false;
-
-    Position SavedPos = Pos;
-
-    consumeWhitespace();
-    SmallString<32> WordText;
-    const char *WordBegin = Pos.BufferPtr;
-    SourceLocation Loc = getSourceLocation();
-    bool Error = false;
-    if (!isEnd()) {
-      const char C = peek();
-      if (C == OpenDelim) {
-        WordText.push_back(C);
-        consumeChar();
-      } else
-        Error = true;
-    }
-    char C = '\0';
-    while (!Error && !isEnd()) {
-      C = peek();
-      WordText.push_back(C);
-      consumeChar();
-      if (C == CloseDelim)
-        break;
-    }
-    if (!Error && C != CloseDelim)
-      Error = true;
-
-    if (Error) {
-      Pos = SavedPos;
-      return false;
-    }
-
-    const unsigned Length = WordText.size();
-    char *TextPtr = Allocator.Allocate<char>(Length + 1);
-
-    memcpy(TextPtr, WordText.c_str(), Length + 1);
-    StringRef Text = StringRef(TextPtr, Length);
-
-    formTokenWithChars(Tok, Loc, WordBegin,
-                       Pos.BufferPtr - WordBegin, Text);
-    return true;
-  }
-
-  /// Return a text token.  Useful to take tokens back.
-  bool lexText(Token &Tok) {
-    if (isEnd())
-      return false;
-
-    if (Pos.BufferPtr != Pos.BufferStart)
-      formTokenWithChars(Tok, getSourceLocation(),
-                         Pos.BufferPtr, Pos.BufferEnd - Pos.BufferPtr,
-                         StringRef(Pos.BufferPtr,
-                                   Pos.BufferEnd - Pos.BufferPtr));
-    else
-      Tok = Toks[Pos.CurToken];
-
-    Pos.CurToken++;
-    if (Pos.CurToken < Toks.size())
-      setupBuffer();
-    return true;
-  }
 };
 
 } // end namespace comments

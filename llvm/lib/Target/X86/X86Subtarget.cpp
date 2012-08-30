@@ -39,10 +39,10 @@ unsigned char X86Subtarget::
 ClassifyBlockAddressReference() const {
   if (isPICStyleGOT())    // 32-bit ELF targets.
     return X86II::MO_GOTOFF;
-  
+
   if (isPICStyleStubPIC())   // Darwin/32 in PIC mode.
     return X86II::MO_PIC_BASE_OFFSET;
-  
+
   // Direct static reference to label.
   return X86II::MO_NO_FLAG;
 }
@@ -69,7 +69,7 @@ ClassifyGlobalReference(const GlobalValue *GV, const TargetMachine &TM) const {
     // Large model never uses stubs.
     if (TM.getCodeModel() == CodeModel::Large)
       return X86II::MO_NO_FLAG;
-      
+
     if (isTargetDarwin()) {
       // If symbol visibility is hidden, the extra load is not needed if
       // target is x86-64 or the symbol is definitely defined in the current
@@ -87,18 +87,18 @@ ClassifyGlobalReference(const GlobalValue *GV, const TargetMachine &TM) const {
 
     return X86II::MO_NO_FLAG;
   }
-  
+
   if (isPICStyleGOT()) {   // 32-bit ELF targets.
     // Extra load is needed for all externally visible.
     if (GV->hasLocalLinkage() || GV->hasHiddenVisibility())
       return X86II::MO_GOTOFF;
     return X86II::MO_GOT;
   }
-  
+
   if (isPICStyleStubPIC()) {  // Darwin/32 in PIC mode.
     // Determine whether we have a stub reference and/or whether the reference
     // is relative to the PIC base or not.
-    
+
     // If this is a strong reference to a definition, it is definitely not
     // through a stub.
     if (!isDecl && !GV->isWeakForLinker())
@@ -108,26 +108,26 @@ ClassifyGlobalReference(const GlobalValue *GV, const TargetMachine &TM) const {
     // normal $non_lazy_ptr stub because this symbol might be resolved late.
     if (!GV->hasHiddenVisibility())  // Non-hidden $non_lazy_ptr reference.
       return X86II::MO_DARWIN_NONLAZY_PIC_BASE;
-    
+
     // If symbol visibility is hidden, we have a stub for common symbol
     // references and external declarations.
     if (isDecl || GV->hasCommonLinkage()) {
       // Hidden $non_lazy_ptr reference.
       return X86II::MO_DARWIN_HIDDEN_NONLAZY_PIC_BASE;
     }
-    
+
     // Otherwise, no stub.
     return X86II::MO_PIC_BASE_OFFSET;
   }
-  
+
   if (isPICStyleStubNoDynamic()) {  // Darwin/32 in -mdynamic-no-pic mode.
     // Determine whether we have a stub reference.
-    
+
     // If this is a strong reference to a definition, it is definitely not
     // through a stub.
     if (!isDecl && !GV->isWeakForLinker())
       return X86II::MO_NO_FLAG;
-    
+
     // Unless we have a symbol with hidden visibility, we have to go through a
     // normal $non_lazy_ptr stub because this symbol might be resolved late.
     if (!GV->hasHiddenVisibility())  // Non-hidden $non_lazy_ptr reference.
@@ -136,7 +136,7 @@ ClassifyGlobalReference(const GlobalValue *GV, const TargetMachine &TM) const {
     // Otherwise, no stub.
     return X86II::MO_NO_FLAG;
   }
-  
+
   // Direct static reference to global.
   return X86II::MO_NO_FLAG;
 }
@@ -246,8 +246,11 @@ void X86Subtarget::AutoDetectSubtargetFeatures() {
     }
 
     // If it's Nehalem, unaligned memory access is fast.
-    // FIXME: Nehalem is family 6. Also include Westmere and later processors?
-    if (Family == 15 && Model == 26) {
+    // Include Westmere and Sandy Bridge as well.
+    // FIXME: add later processors.
+    if (IsIntel && ((Family == 6 && Model == 26) ||
+        (Family == 6 && Model == 44) ||
+        (Family == 6 && Model == 42))) {
       IsUAMemFast = true;
       ToggleFeature(X86::FeatureFastUAMem);
     }
@@ -315,7 +318,7 @@ void X86Subtarget::AutoDetectSubtargetFeatures() {
 }
 
 X86Subtarget::X86Subtarget(const std::string &TT, const std::string &CPU,
-                           const std::string &FS, 
+                           const std::string &FS,
                            unsigned StackAlignOverride, bool is64Bit)
   : X86GenSubtargetInfo(TT, CPU, FS)
   , X86ProcFamily(Others)
@@ -397,10 +400,10 @@ X86Subtarget::X86Subtarget(const std::string &TT, const std::string &CPU,
     }
   }
 
-  if (X86ProcFamily == IntelAtom) {
+  if (X86ProcFamily == IntelAtom)
     PostRAScheduler = true;
-    InstrItins = getInstrItineraryForCPU(CPUName);
-  }
+
+  InstrItins = getInstrItineraryForCPU(CPUName);
 
   // It's important to keep the MCSubtargetInfo feature bits in sync with
   // target data structure which is shared with MC code emitter, etc.

@@ -881,12 +881,16 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
 
   if (SelectInst *TrueSI = dyn_cast<SelectInst>(TrueVal)) {
     if (TrueSI->getCondition() == CondVal) {
+      if (SI.getTrueValue() == TrueSI->getTrueValue())
+        return 0;
       SI.setOperand(1, TrueSI->getTrueValue());
       return &SI;
     }
   }
   if (SelectInst *FalseSI = dyn_cast<SelectInst>(FalseVal)) {
     if (FalseSI->getCondition() == CondVal) {
+      if (SI.getFalseValue() == FalseSI->getFalseValue())
+        return 0;
       SI.setOperand(2, FalseSI->getFalseValue());
       return &SI;
     }
@@ -897,6 +901,17 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
     SI.setOperand(1, FalseVal);
     SI.setOperand(2, TrueVal);
     return &SI;
+  }
+
+  if (VectorType* VecTy = dyn_cast<VectorType>(SI.getType())) {
+    unsigned VWidth = VecTy->getNumElements();
+    APInt UndefElts(VWidth, 0);
+    APInt AllOnesEltMask(APInt::getAllOnesValue(VWidth));
+    if (Value *V = SimplifyDemandedVectorElts(&SI, AllOnesEltMask, UndefElts)) {
+      if (V != &SI)
+        return ReplaceInstUsesWith(SI, V);
+      return &SI;
+    }
   }
 
   return 0;

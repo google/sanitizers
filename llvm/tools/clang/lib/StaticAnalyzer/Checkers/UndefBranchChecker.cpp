@@ -99,9 +99,8 @@ void UndefBranchChecker::checkBranchCondition(const Stmt *Condition,
 
       // Emit the bug report.
       BugReport *R = new BugReport(*BT, BT->getDescription(), N);
-      R->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N, Ex, R));
+      bugreporter::trackNullOrUndefValue(N, Ex, *R);
       R->addRange(Ex->getSourceRange());
-      R->disablePathPruning();
 
       Ctx.EmitReport(R);
     }

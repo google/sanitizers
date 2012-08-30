@@ -21,7 +21,6 @@ ANALYSIS_STORE(RegionStore, "region", "Use region-based analyzer store", CreateR
 #define ANALYSIS_CONSTRAINTS(NAME, CMDFLAG, DESC, CREATFN)
 #endif
 
-ANALYSIS_CONSTRAINTS(BasicConstraints, "basic", "Use basic constraint tracking", CreateBasicConstraintManager)
 ANALYSIS_CONSTRAINTS(RangeConstraints, "range", "Use constraint tracking of concrete value ranges", CreateRangeConstraintManager)
 
 #ifndef ANALYSIS_DIAGNOSTICS
@@ -47,7 +46,10 @@ ANALYSIS_PURGE(PurgeNone,  "none", "Do not purge symbols, bindings, or constrain
 #endif
 
 ANALYSIS_IPA(None, "none", "Perform only intra-procedural analysis")
-ANALYSIS_IPA(Inlining, "inlining", "Experimental: Inline callees when their definitions are available")
+ANALYSIS_IPA(BasicInlining, "basic-inlining", "Inline C functions and blocks when their definitions are available")
+ANALYSIS_IPA(Inlining, "inlining", "Inline callees when their definitions are available")
+ANALYSIS_IPA(DynamicDispatch, "dynamic", "Experimental: Enable inlining of dynamically dispatched methods")
+ANALYSIS_IPA(DynamicDispatchBifurcate, "dynamic-bifurcate", "Experimental: Enable inlining of dynamically dispatched methods, bifurcate paths when exact type info is unavailable")
 
 #ifndef ANALYSIS_INLINING_MODE
 #define ANALYSIS_INLINING_MODE(NAME, CMDFLAG, DESC)

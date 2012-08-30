@@ -33,15 +33,15 @@ using namespace clang;
 
 MacroInfo *Preprocessor::getInfoForMacro(IdentifierInfo *II) const {
   assert(II->hasMacroDefinition() && "Identifier is not a macro!");
-  
-  llvm::DenseMap<IdentifierInfo*, MacroInfo*>::const_iterator Pos
-    = Macros.find(II);
+
+  macro_iterator Pos = Macros.find(II);
   if (Pos == Macros.end()) {
     // Load this macro from the external source.
     getExternalSource()->LoadMacroDefinition(II);
     Pos = Macros.find(II);
   }
   assert(Pos != Macros.end() && "Identifier macro info is missing!");
+  assert(Pos->second->getUndefLoc().isInvalid() && "Macro is undefined!");
   return Pos->second;
 }
 
@@ -49,17 +49,21 @@ MacroInfo *Preprocessor::getInfoForMacro(IdentifierInfo *II) const {
 ///
 void Preprocessor::setMacroInfo(IdentifierInfo *II, MacroInfo *MI,
                                 bool LoadedFromAST) {
-  if (MI) {
-    Macros[II] = MI;
-    II->setHasMacroDefinition(true);
-    if (II->isFromAST() && !LoadedFromAST)
-      II->setChangedSinceDeserialization();
-  } else if (II->hasMacroDefinition()) {
-    Macros.erase(II);
-    II->setHasMacroDefinition(false);
-    if (II->isFromAST() && !LoadedFromAST)
-      II->setChangedSinceDeserialization();
-  }
+  assert(MI && "MacroInfo should be non-zero!");
+  MI->setPreviousDefinition(Macros[II]);
+  Macros[II] = MI;
+  II->setHasMacroDefinition(true);
+  if (II->isFromAST() && !LoadedFromAST)
+    II->setChangedSinceDeserialization();
+}
+
+/// \brief Undefine a macro for this identifier.
+void Preprocessor::clearMacroInfo(IdentifierInfo *II) {
+  assert(II->hasMacroDefinition() && "Macro is not defined!");
+  assert(Macros[II]->getUndefLoc().isValid() && "Macro is still defined!");
+  II->setHasMacroDefinition(false);
+  if (II->isFromAST())
+    II->setChangedSinceDeserialization();
 }
 
 /// RegisterBuiltinMacro - Register the specified identifier in the identifier
@@ -619,6 +623,7 @@ static bool HasFeature(const Preprocessor &PP, const IdentifierInfo *II) {
            .Case("address_sanitizer", LangOpts.AddressSanitizer)
            .Case("attribute_analyzer_noreturn", true)
            .Case("attribute_availability", true)
+           .Case("attribute_availability_with_message", true)
            .Case("attribute_cf_returns_not_retained", true)
            .Case("attribute_cf_returns_retained", true)
            .Case("attribute_deprecated_with_message", true)
@@ -640,8 +645,7 @@ static bool HasFeature(const Preprocessor &PP, const IdentifierInfo *II) {
            // Objective-C features
            .Case("objc_arr", LangOpts.ObjCAutoRefCount) // FIXME: REMOVE?
            .Case("objc_arc", LangOpts.ObjCAutoRefCount)
-           .Case("objc_arc_weak", LangOpts.ObjCAutoRefCount && 
-                 LangOpts.ObjCRuntimeHasWeak)
+           .Case("objc_arc_weak", LangOpts.ObjCARCWeak)
            .Case("objc_default_synthesize_properties", LangOpts.ObjC2)
            .Case("objc_fixed_enum", LangOpts.ObjC2)
            .Case("objc_instancetype", LangOpts.ObjC2)
@@ -1053,7 +1057,7 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
     if (Tok.is(tok::l_paren)) {
       // Read the identifier
       Lex(Tok);
-      if (Tok.is(tok::identifier)) {
+      if (Tok.is(tok::identifier) || Tok.is(tok::kw_const)) {
         FeatureII = Tok.getIdentifierInfo();
 
         // Read the ')'.

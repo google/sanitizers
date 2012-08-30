@@ -197,7 +197,6 @@ static bool CheckARCMethodDecl(Sema &S, ObjCMethodDecl *method) {
   ObjCMethodFamily family = method->getMethodFamily();
   switch (family) {
   case OMF_None:
-  case OMF_dealloc:
   case OMF_finalize:
   case OMF_retain:
   case OMF_release:
@@ -207,6 +206,24 @@ static bool CheckARCMethodDecl(Sema &S, ObjCMethodDecl *method) {
   case OMF_performSelector:
     return false;
 
+  case OMF_dealloc:
+    if (!S.Context.hasSameType(method->getResultType(), S.Context.VoidTy)) {
+      SourceRange ResultTypeRange;
+      if (const TypeSourceInfo *ResultTypeInfo
+          = method->getResultTypeSourceInfo())
+        ResultTypeRange = ResultTypeInfo->getTypeLoc().getSourceRange();
+      if (ResultTypeRange.isInvalid())
+        S.Diag(method->getLocation(), diag::error_dealloc_bad_result_type) 
+          << method->getResultType() 
+          << FixItHint::CreateInsertion(method->getSelectorLoc(0), "(void)");
+      else
+        S.Diag(method->getLocation(), diag::error_dealloc_bad_result_type) 
+          << method->getResultType() 
+          << FixItHint::CreateReplacement(ResultTypeRange, "void");
+      return true;
+    }
+    return false;
+      
   case OMF_init:
     // If the method doesn't obey the init rules, don't bother annotating it.
     if (S.checkInitMethod(method, QualType()))
@@ -265,34 +282,10 @@ void Sema::AddAnyMethodToGlobalPool(Decl *D) {
     AddFactoryMethodToGlobalPool(MDecl, true);
 }
 
-/// ActOnStartOfObjCMethodOrCFunctionDef - This routine sets up parameters; invisible
-/// and user declared, in the method definition's AST. This routine is also  called
-/// for C-functions defined in an Objective-c class implementation.
-void Sema::ActOnStartOfObjCMethodOrCFunctionDef(Scope *FnBodyScope, Decl *D,
-                                                bool parseMethod) {
-  assert((getCurMethodDecl() == 0 && getCurFunctionDecl() == 0) &&
-         "Method/c-function parsing confused");
-  if (!parseMethod) {
-    FunctionDecl *FDecl = dyn_cast_or_null<FunctionDecl>(D);
-    // If we don't have a valid c-function decl, simply return.
-    if (!FDecl)
-      return;
-    PushDeclContext(FnBodyScope, FDecl);
-    PushFunctionScope();
-    
-    for (FunctionDecl::param_const_iterator PI = FDecl->param_begin(),
-         E = FDecl->param_end(); PI != E; ++PI) {
-      ParmVarDecl *Param = (*PI);
-      if (!Param->isInvalidDecl() &&
-          RequireCompleteType(Param->getLocation(), Param->getType(),
-                              diag::err_typecheck_decl_incomplete_type))
-        Param->setInvalidDecl();
-      if ((*PI)->getIdentifier())
-        PushOnScopeChains(*PI, FnBodyScope);
-    }
-    return;
-  }
-  
+/// ActOnStartOfObjCMethodDef - This routine sets up parameters; invisible
+/// and user declared, in the method definition's AST.
+void Sema::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
+  assert((getCurMethodDecl() == 0) && "Methodparsing confused");
   ObjCMethodDecl *MDecl = dyn_cast_or_null<ObjCMethodDecl>(D);
   
   // If we don't have a valid method decl, simply return.
@@ -363,11 +356,11 @@ void Sema::ActOnStartOfObjCMethodOrCFunctionDef(Scope *FnBodyScope, Decl *D,
     // Finally, in ActOnFinishFunctionBody() (SemaDecl), warn if flag is set.
     // Only do this if the current class actually has a superclass.
     if (IC->getSuperClass()) {
-      ObjCShouldCallSuperDealloc = 
+      getCurFunction()->ObjCShouldCallSuperDealloc = 
         !(Context.getLangOpts().ObjCAutoRefCount ||
           Context.getLangOpts().getGC() == LangOptions::GCOnly) &&
         MDecl->getMethodFamily() == OMF_dealloc;
-      ObjCShouldCallSuperFinalize =
+      getCurFunction()->ObjCShouldCallSuperFinalize =
         Context.getLangOpts().getGC() != LangOptions::NonGC &&
         MDecl->getMethodFamily() == OMF_finalize;
     }
@@ -526,13 +519,13 @@ ActOnStartClassInterface(SourceLocation AtInterfaceLoc,
   return ActOnObjCContainerStartDefinition(IDecl);
 }
 
-/// ActOnCompatiblityAlias - this action is called after complete parsing of
+/// ActOnCompatibilityAlias - this action is called after complete parsing of
 /// a \@compatibility_alias declaration. It sets up the alias relationships.
-Decl *Sema::ActOnCompatiblityAlias(SourceLocation AtLoc,
-                                        IdentifierInfo *AliasName,
-                                        SourceLocation AliasLocation,
-                                        IdentifierInfo *ClassName,
-                                        SourceLocation ClassLocation) {
+Decl *Sema::ActOnCompatibilityAlias(SourceLocation AtLoc,
+                                    IdentifierInfo *AliasName,
+                                    SourceLocation AliasLocation,
+                                    IdentifierInfo *ClassName,
+                                    SourceLocation ClassLocation) {
   // Look for previous declaration of alias name
   NamedDecl *ADecl = LookupSingleName(TUScope, AliasName, AliasLocation,
                                       LookupOrdinaryName, ForRedeclaration);
@@ -2442,26 +2435,49 @@ CvtQTToAstBitMask(ObjCDeclSpec::ObjCDeclQualifier PQTVal) {
 }
 
 static inline
+unsigned countAlignAttr(const AttrVec &A) {
+  unsigned count=0;
+  for (AttrVec::const_iterator i = A.begin(), e = A.end(); i != e; ++i)
+    if ((*i)->getKind() == attr::Aligned)
+      ++count;
+  return count;
+}
+
+static inline
 bool containsInvalidMethodImplAttribute(ObjCMethodDecl *IMD,
                                         const AttrVec &A) {
   // If method is only declared in implementation (private method),
   // No need to issue any diagnostics on method definition with attributes.
   if (!IMD)
     return false;
-
+  
   // method declared in interface has no attribute. 
-  // But implementation has attributes. This is invalid
+  // But implementation has attributes. This is invalid.
+  // Except when implementation has 'Align' attribute which is
+  // immaterial to method declared in interface.
   if (!IMD->hasAttrs())
-    return true;
+    return (A.size() > countAlignAttr(A));
 
   const AttrVec &D = IMD->getAttrs();
-  if (D.size() != A.size())
-    return true;
 
+  unsigned countAlignOnImpl = countAlignAttr(A);
+  if (!countAlignOnImpl && (A.size() != D.size()))
+    return true;
+  else if (countAlignOnImpl) {
+    unsigned countAlignOnDecl = countAlignAttr(D);
+    if (countAlignOnDecl && (A.size() != D.size()))
+      return true;
+    else if (!countAlignOnDecl && 
+             ((A.size()-countAlignOnImpl) != D.size()))
+      return true;
+  }
+  
   // attributes on method declaration and definition must match exactly.
   // Note that we have at most a couple of attributes on methods, so this
   // n*n search is good enough.
   for (AttrVec::const_iterator i = A.begin(), e = A.end(); i != e; ++i) {
+    if ((*i)->getKind() == attr::Aligned)
+      continue;
     bool match = false;
     for (AttrVec::const_iterator i1 = D.begin(), e1 = D.end(); i1 != e1; ++i1) {
       if ((*i)->getKind() == (*i1)->getKind()) {
@@ -2472,6 +2488,7 @@ bool containsInvalidMethodImplAttribute(ObjCMethodDecl *IMD,
     if (!match)
       return true;
   }
+  
   return false;
 }
 

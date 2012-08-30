@@ -504,16 +504,34 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
         // Strip away options not necessary to reproduce the crash.
         // FIXME: This doesn't work with quotes (e.g., -D "foo bar").
         SmallVector<std::string, 16> Flag;
+        Flag.push_back("-D ");
         Flag.push_back("-F");
         Flag.push_back("-I ");
+        Flag.push_back("-M ");
+        Flag.push_back("-MD ");
+        Flag.push_back("-MF ");
+        Flag.push_back("-MG ");
+        Flag.push_back("-MM ");
+        Flag.push_back("-MMD ");
+        Flag.push_back("-MP ");
+        Flag.push_back("-MQ ");
+        Flag.push_back("-MT ");
         Flag.push_back("-o ");
         Flag.push_back("-coverage-file ");
         Flag.push_back("-dependency-file ");
         Flag.push_back("-fdebug-compilation-dir ");
         Flag.push_back("-fmodule-cache-path ");
+        Flag.push_back("-idirafter ");
         Flag.push_back("-include ");
         Flag.push_back("-include-pch ");
+        Flag.push_back("-internal-isystem ");
+        Flag.push_back("-internal-externc-isystem ");
+        Flag.push_back("-iprefix ");
+        Flag.push_back("-iwithprefix ");
+        Flag.push_back("-iwithprefixbefore ");
         Flag.push_back("-isysroot ");
+        Flag.push_back("-isystem ");
+        Flag.push_back("-iquote ");
         Flag.push_back("-resource-dir ");
         Flag.push_back("-serialize-diagnostic-file ");
         for (unsigned i = 0, e = Flag.size(); i < e; ++i) {
@@ -524,7 +542,14 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
 
             E = Cmd.find(" ", I + Flag[i].length());
             if (E == std::string::npos) break;
-            Cmd.erase(I, E - I + 1);
+            // The -D option is not removed.  Instead, the argument is quoted.
+            if (Flag[i] != "-D ") {
+              Cmd.erase(I, E - I + 1);
+            } else {
+              Cmd.insert(I+3, "\"");
+              Cmd.insert(++E, "\"");
+              I = E;
+            }
           } while(1);
         }
         // Append the new filename with correct preprocessed suffix.
@@ -956,7 +981,7 @@ void Driver::BuildInputs(const ToolChain &TC, const DerivedArgList &Args,
        it != ie; ++it) {
     Arg *A = *it;
 
-    if (isa<InputOption>(A->getOption())) {
+    if (A->getOption().getKind() == Option::InputClass) {
       const char *Value = A->getValue(Args);
       types::ID Ty = types::TY_INVALID;
 
@@ -1106,18 +1131,27 @@ void Driver::BuildActions(const ToolChain &TC, const DerivedArgList &Args,
       if (Args.hasArg(options::OPT_Qunused_arguments))
         continue;
 
+      // Special case when final phase determined by binary name, rather than
+      // by a command-line argument with a corresponding Arg.
+      if (CCCIsCPP)
+        Diag(clang::diag::warn_drv_input_file_unused_by_cpp)
+          << InputArg->getAsString(Args)
+          << getPhaseName(InitialPhase);
       // Special case '-E' warning on a previously preprocessed file to make
       // more sense.
-      if (InitialPhase == phases::Compile && FinalPhase == phases::Preprocess &&
-          getPreprocessedType(InputType) == types::TY_INVALID)
+      else if (InitialPhase == phases::Compile &&
+               FinalPhase == phases::Preprocess &&
+               getPreprocessedType(InputType) == types::TY_INVALID)
         Diag(clang::diag::warn_drv_preprocessed_input_file_unused)
           << InputArg->getAsString(Args)
-          << FinalPhaseArg->getOption().getName();
+          << !!FinalPhaseArg
+          << FinalPhaseArg ? FinalPhaseArg->getOption().getName() : "";
       else
         Diag(clang::diag::warn_drv_input_file_unused)
           << InputArg->getAsString(Args)
           << getPhaseName(InitialPhase)
-          << FinalPhaseArg->getOption().getName();
+          << !!FinalPhaseArg
+          << FinalPhaseArg ? FinalPhaseArg->getOption().getName() : "";
       continue;
     }
 
@@ -1185,8 +1219,14 @@ Action *Driver::ConstructPhaseAction(const ArgList &Args, phases::ID Phase,
     }
     return new PreprocessJobAction(Input, OutputTy);
   }
-  case phases::Precompile:
-    return new PrecompileJobAction(Input, types::TY_PCH);
+  case phases::Precompile: {
+    types::ID OutputTy = types::TY_PCH;
+    if (Args.hasArg(options::OPT_fsyntax_only)) {
+      // Syntax checks should not emit a PCH file
+      OutputTy = types::TY_Nothing;
+    }
+    return new PrecompileJobAction(Input, OutputTy);
+  }
   case phases::Compile: {
     if (Args.hasArg(options::OPT_fsyntax_only)) {
       return new CompileJobAction(Input, types::TY_Nothing);
@@ -1297,7 +1337,7 @@ void Driver::BuildJobs(Compilation &C) const {
       // Suppress the warning automatically if this is just a flag, and it is an
       // instance of an argument we already claimed.
       const Option &Opt = A->getOption();
-      if (isa<FlagOption>(Opt)) {
+      if (Opt.getKind() == Option::FlagClass) {
         bool DuplicateClaimed = false;
 
         for (arg_iterator it = C.getArgs().filtered_begin(&Opt),
@@ -1647,7 +1687,8 @@ std::string Driver::GetTemporaryPath(StringRef Prefix, const char *Suffix)
   // FIXME: Grumble, makeUnique sometimes leaves the file around!?  PR3837.
   P.eraseFromDisk(false, 0);
 
-  P.appendSuffix(Suffix);
+  if (Suffix)
+    P.appendSuffix(Suffix);
   return P.str();
 }
 
@@ -1734,6 +1775,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       break;
     case llvm::Triple::OpenBSD:
       TC = new toolchains::OpenBSD(*this, Target, Args);
+      break;
+    case llvm::Triple::Bitrig:
+      TC = new toolchains::Bitrig(*this, Target, Args);
       break;
     case llvm::Triple::NetBSD:
       TC = new toolchains::NetBSD(*this, Target, Args);

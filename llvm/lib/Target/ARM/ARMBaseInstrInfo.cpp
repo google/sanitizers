@@ -683,7 +683,7 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   // Handle register classes that require multiple instructions.
   unsigned BeginIdx = 0;
   unsigned SubRegs = 0;
-  unsigned Spacing = 1;
+  int Spacing = 1;
 
   // Use VORRq when possible.
   if (ARM::QQPRRegClass.contains(DestReg, SrcReg))
@@ -705,27 +705,38 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   else if (ARM::DQuadSpcRegClass.contains(DestReg, SrcReg))
     Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 4, Spacing = 2;
 
-  if (Opc) {
-    const TargetRegisterInfo *TRI = &getRegisterInfo();
-    MachineInstrBuilder Mov;
-    for (unsigned i = 0; i != SubRegs; ++i) {
-      unsigned Dst = TRI->getSubReg(DestReg, BeginIdx + i*Spacing);
-      unsigned Src = TRI->getSubReg(SrcReg,  BeginIdx + i*Spacing);
-      assert(Dst && Src && "Bad sub-register");
-      Mov = AddDefaultPred(BuildMI(MBB, I, I->getDebugLoc(), get(Opc), Dst)
-                             .addReg(Src));
-      // VORR takes two source operands.
-      if (Opc == ARM::VORRq)
-        Mov.addReg(Src);
-    }
-    // Add implicit super-register defs and kills to the last instruction.
-    Mov->addRegisterDefined(DestReg, TRI);
-    if (KillSrc)
-      Mov->addRegisterKilled(SrcReg, TRI);
-    return;
-  }
+  assert(Opc && "Impossible reg-to-reg copy");
 
-  llvm_unreachable("Impossible reg-to-reg copy");
+  const TargetRegisterInfo *TRI = &getRegisterInfo();
+  MachineInstrBuilder Mov;
+
+  // Copy register tuples backward when the first Dest reg overlaps with SrcReg.
+  if (TRI->regsOverlap(SrcReg, TRI->getSubReg(DestReg, BeginIdx))) {
+    BeginIdx = BeginIdx + ((SubRegs-1)*Spacing);
+    Spacing = -Spacing;
+  }
+#ifndef NDEBUG
+  SmallSet<unsigned, 4> DstRegs;
+#endif
+  for (unsigned i = 0; i != SubRegs; ++i) {
+    unsigned Dst = TRI->getSubReg(DestReg, BeginIdx + i*Spacing);
+    unsigned Src = TRI->getSubReg(SrcReg,  BeginIdx + i*Spacing);
+    assert(Dst && Src && "Bad sub-register");
+#ifndef NDEBUG
+    assert(!DstRegs.count(Src) && "destructive vector copy");
+    DstRegs.insert(Dst);
+#endif
+    Mov = BuildMI(MBB, I, I->getDebugLoc(), get(Opc), Dst)
+      .addReg(Src);
+    // VORR takes two source operands.
+    if (Opc == ARM::VORRq)
+      Mov.addReg(Src);
+    Mov = AddDefaultPred(Mov);
+  }
+  // Add implicit super-register defs and kills to the last instruction.
+  Mov->addRegisterDefined(DestReg, TRI);
+  if (KillSrc)
+    Mov->addRegisterKilled(SrcReg, TRI);
 }
 
 static const
@@ -795,8 +806,28 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
       } else
         llvm_unreachable("Unknown reg class!");
       break;
+    case 24:
+      if (ARM::DTripleRegClass.hasSubClassEq(RC)) {
+        // Use aligned spills if the stack can be realigned.
+        if (Align >= 16 && getRegisterInfo().canRealignStack(MF)) {
+          AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::VST1d64TPseudo))
+                     .addFrameIndex(FI).addImm(16)
+                     .addReg(SrcReg, getKillRegState(isKill))
+                     .addMemOperand(MMO));
+        } else {
+          MachineInstrBuilder MIB =
+          AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::VSTMDIA))
+                       .addFrameIndex(FI))
+                       .addMemOperand(MMO);
+          MIB = AddDReg(MIB, SrcReg, ARM::dsub_0, getKillRegState(isKill), TRI);
+          MIB = AddDReg(MIB, SrcReg, ARM::dsub_1, 0, TRI);
+          AddDReg(MIB, SrcReg, ARM::dsub_2, 0, TRI);
+        }
+      } else
+        llvm_unreachable("Unknown reg class!");
+      break;
     case 32:
-      if (ARM::QQPRRegClass.hasSubClassEq(RC)) {
+      if (ARM::QQPRRegClass.hasSubClassEq(RC) || ARM::DQuadRegClass.hasSubClassEq(RC)) {
         if (Align >= 16 && getRegisterInfo().canRealignStack(MF)) {
           // FIXME: It's possible to only store part of the QQ register if the
           // spilled def has a sub-register index.
@@ -868,6 +899,8 @@ ARMBaseInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
     }
     break;
   case ARM::VST1q64:
+  case ARM::VST1d64TPseudo:
+  case ARM::VST1d64QPseudo:
     if (MI->getOperand(0).isFI() &&
         MI->getOperand(2).getSubReg() == 0) {
       FrameIndex = MI->getOperand(0).getIndex();
@@ -942,8 +975,28 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
     } else
       llvm_unreachable("Unknown reg class!");
     break;
-  case 32:
-    if (ARM::QQPRRegClass.hasSubClassEq(RC)) {
+  case 24:
+    if (ARM::DTripleRegClass.hasSubClassEq(RC)) {
+      if (Align >= 16 && getRegisterInfo().canRealignStack(MF)) {
+        AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::VLD1d64TPseudo), DestReg)
+                     .addFrameIndex(FI).addImm(16)
+                     .addMemOperand(MMO));
+      } else {
+        MachineInstrBuilder MIB =
+          AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::VLDMDIA))
+                         .addFrameIndex(FI)
+                         .addMemOperand(MMO));
+        MIB = AddDReg(MIB, DestReg, ARM::dsub_0, RegState::DefineNoRead, TRI);
+        MIB = AddDReg(MIB, DestReg, ARM::dsub_1, RegState::DefineNoRead, TRI);
+        MIB = AddDReg(MIB, DestReg, ARM::dsub_2, RegState::DefineNoRead, TRI);
+        if (TargetRegisterInfo::isPhysicalRegister(DestReg))
+          MIB.addReg(DestReg, RegState::ImplicitDefine);
+      }
+    } else
+      llvm_unreachable("Unknown reg class!");
+    break;
+   case 32:
+    if (ARM::QQPRRegClass.hasSubClassEq(RC) || ARM::DQuadRegClass.hasSubClassEq(RC)) {
       if (Align >= 16 && getRegisterInfo().canRealignStack(MF)) {
         AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::VLD1d64QPseudo), DestReg)
                      .addFrameIndex(FI).addImm(16)
@@ -1016,6 +1069,8 @@ ARMBaseInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
     }
     break;
   case ARM::VLD1q64:
+  case ARM::VLD1d64TPseudo:
+  case ARM::VLD1d64QPseudo:
     if (MI->getOperand(1).isFI() &&
         MI->getOperand(0).getSubReg() == 0) {
       FrameIndex = MI->getOperand(1).getIndex();
@@ -1522,6 +1577,139 @@ ARMBaseInstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
   }
   }
   return TargetInstrInfoImpl::commuteInstruction(MI, NewMI);
+}
+
+/// Identify instructions that can be folded into a MOVCC instruction, and
+/// return the corresponding opcode for the predicated pseudo-instruction.
+static unsigned canFoldIntoMOVCC(unsigned Reg, MachineInstr *&MI,
+                                 const MachineRegisterInfo &MRI) {
+  if (!TargetRegisterInfo::isVirtualRegister(Reg))
+    return 0;
+  if (!MRI.hasOneNonDBGUse(Reg))
+    return 0;
+  MI = MRI.getVRegDef(Reg);
+  if (!MI)
+    return 0;
+  // Check if MI has any non-dead defs or physreg uses. This also detects
+  // predicated instructions which will be reading CPSR.
+  for (unsigned i = 1, e = MI->getNumOperands(); i != e; ++i) {
+    const MachineOperand &MO = MI->getOperand(i);
+    // Reject frame index operands, PEI can't handle the predicated pseudos.
+    if (MO.isFI() || MO.isCPI() || MO.isJTI())
+      return 0;
+    if (!MO.isReg())
+      continue;
+    if (TargetRegisterInfo::isPhysicalRegister(MO.getReg()))
+      return 0;
+    if (MO.isDef() && !MO.isDead())
+      return 0;
+  }
+  switch (MI->getOpcode()) {
+  default: return 0;
+  case ARM::ANDri:   return ARM::ANDCCri;
+  case ARM::ANDrr:   return ARM::ANDCCrr;
+  case ARM::ANDrsi:  return ARM::ANDCCrsi;
+  case ARM::ANDrsr:  return ARM::ANDCCrsr;
+  case ARM::t2ANDri: return ARM::t2ANDCCri;
+  case ARM::t2ANDrr: return ARM::t2ANDCCrr;
+  case ARM::t2ANDrs: return ARM::t2ANDCCrs;
+  case ARM::EORri:   return ARM::EORCCri;
+  case ARM::EORrr:   return ARM::EORCCrr;
+  case ARM::EORrsi:  return ARM::EORCCrsi;
+  case ARM::EORrsr:  return ARM::EORCCrsr;
+  case ARM::t2EORri: return ARM::t2EORCCri;
+  case ARM::t2EORrr: return ARM::t2EORCCrr;
+  case ARM::t2EORrs: return ARM::t2EORCCrs;
+  case ARM::ORRri:   return ARM::ORRCCri;
+  case ARM::ORRrr:   return ARM::ORRCCrr;
+  case ARM::ORRrsi:  return ARM::ORRCCrsi;
+  case ARM::ORRrsr:  return ARM::ORRCCrsr;
+  case ARM::t2ORRri: return ARM::t2ORRCCri;
+  case ARM::t2ORRrr: return ARM::t2ORRCCrr;
+  case ARM::t2ORRrs: return ARM::t2ORRCCrs;
+
+  // ARM ADD/SUB
+  case ARM::ADDri:   return ARM::ADDCCri;
+  case ARM::ADDrr:   return ARM::ADDCCrr;
+  case ARM::ADDrsi:  return ARM::ADDCCrsi;
+  case ARM::ADDrsr:  return ARM::ADDCCrsr;
+  case ARM::SUBri:   return ARM::SUBCCri;
+  case ARM::SUBrr:   return ARM::SUBCCrr;
+  case ARM::SUBrsi:  return ARM::SUBCCrsi;
+  case ARM::SUBrsr:  return ARM::SUBCCrsr;
+
+  // Thumb2 ADD/SUB
+  case ARM::t2ADDri:   return ARM::t2ADDCCri;
+  case ARM::t2ADDri12: return ARM::t2ADDCCri12;
+  case ARM::t2ADDrr:   return ARM::t2ADDCCrr;
+  case ARM::t2ADDrs:   return ARM::t2ADDCCrs;
+  case ARM::t2SUBri:   return ARM::t2SUBCCri;
+  case ARM::t2SUBri12: return ARM::t2SUBCCri12;
+  case ARM::t2SUBrr:   return ARM::t2SUBCCrr;
+  case ARM::t2SUBrs:   return ARM::t2SUBCCrs;
+  }
+}
+
+bool ARMBaseInstrInfo::analyzeSelect(const MachineInstr *MI,
+                                     SmallVectorImpl<MachineOperand> &Cond,
+                                     unsigned &TrueOp, unsigned &FalseOp,
+                                     bool &Optimizable) const {
+  assert((MI->getOpcode() == ARM::MOVCCr || MI->getOpcode() == ARM::t2MOVCCr) &&
+         "Unknown select instruction");
+  // MOVCC operands:
+  // 0: Def.
+  // 1: True use.
+  // 2: False use.
+  // 3: Condition code.
+  // 4: CPSR use.
+  TrueOp = 1;
+  FalseOp = 2;
+  Cond.push_back(MI->getOperand(3));
+  Cond.push_back(MI->getOperand(4));
+  // We can always fold a def.
+  Optimizable = true;
+  return false;
+}
+
+MachineInstr *ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
+                                               bool PreferFalse) const {
+  assert((MI->getOpcode() == ARM::MOVCCr || MI->getOpcode() == ARM::t2MOVCCr) &&
+         "Unknown select instruction");
+  const MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
+  MachineInstr *DefMI = 0;
+  unsigned Opc = canFoldIntoMOVCC(MI->getOperand(2).getReg(), DefMI, MRI);
+  bool Invert = !Opc;
+  if (!Opc)
+    Opc = canFoldIntoMOVCC(MI->getOperand(1).getReg(), DefMI, MRI);
+  if (!Opc)
+    return 0;
+
+  // Create a new predicated version of DefMI.
+  // Rfalse is the first use.
+  MachineInstrBuilder NewMI = BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
+                                      get(Opc), MI->getOperand(0).getReg())
+    .addOperand(MI->getOperand(Invert ? 2 : 1));
+
+  // Copy all the DefMI operands, excluding its (null) predicate.
+  const MCInstrDesc &DefDesc = DefMI->getDesc();
+  for (unsigned i = 1, e = DefDesc.getNumOperands();
+       i != e && !DefDesc.OpInfo[i].isPredicate(); ++i)
+    NewMI.addOperand(DefMI->getOperand(i));
+
+  unsigned CondCode = MI->getOperand(3).getImm();
+  if (Invert)
+    NewMI.addImm(ARMCC::getOppositeCondition(ARMCC::CondCodes(CondCode)));
+  else
+    NewMI.addImm(CondCode);
+  NewMI.addOperand(MI->getOperand(4));
+
+  // DefMI is not the -S version that sets CPSR, so add an optional %noreg.
+  if (NewMI->hasOptionalDef())
+    AddDefaultCC(NewMI);
+
+  // The caller will erase MI, but not DefMI.
+  DefMI->eraseFromParent();
+  return NewMI;
 }
 
 /// Map pseudo instructions that imply an 'S' bit onto real opcodes. Whether the
@@ -3180,9 +3368,17 @@ enum ARMExeDomain {
 //
 std::pair<uint16_t, uint16_t>
 ARMBaseInstrInfo::getExecutionDomain(const MachineInstr *MI) const {
-  // VMOVD is a VFP instruction, but can be changed to NEON if it isn't
-  // predicated.
+  // VMOVD, VMOVRS and VMOVSR are VFP instructions, but can be changed to NEON
+  // if they are not predicated.
   if (MI->getOpcode() == ARM::VMOVD && !isPredicated(MI))
+    return std::make_pair(ExeVFP, (1<<ExeVFP) | (1<<ExeNEON));
+
+  // Cortex-A9 is particularly picky about mixing the two and wants these
+  // converted.
+  if (Subtarget.isCortexA9() && !isPredicated(MI) &&
+      (MI->getOpcode() == ARM::VMOVRS ||
+       MI->getOpcode() == ARM::VMOVSR ||
+       MI->getOpcode() == ARM::VMOVS))
     return std::make_pair(ExeVFP, (1<<ExeVFP) | (1<<ExeNEON));
 
   // No other instructions can be swizzled, so just determine their domain.
@@ -3202,24 +3398,173 @@ ARMBaseInstrInfo::getExecutionDomain(const MachineInstr *MI) const {
   return std::make_pair(ExeGeneric, 0);
 }
 
+static unsigned getCorrespondingDRegAndLane(const TargetRegisterInfo *TRI,
+                                            unsigned SReg, unsigned &Lane) {
+  unsigned DReg = TRI->getMatchingSuperReg(SReg, ARM::ssub_0, &ARM::DPRRegClass);
+  Lane = 0;
+
+  if (DReg != ARM::NoRegister)
+   return DReg;
+
+  Lane = 1;
+  DReg = TRI->getMatchingSuperReg(SReg, ARM::ssub_1, &ARM::DPRRegClass);
+
+  assert(DReg && "S-register with no D super-register?");
+  return DReg;
+}
+
+
 void
 ARMBaseInstrInfo::setExecutionDomain(MachineInstr *MI, unsigned Domain) const {
-  // We only know how to change VMOVD into VORR.
-  assert(MI->getOpcode() == ARM::VMOVD && "Can only swizzle VMOVD");
-  if (Domain != ExeNEON)
-    return;
+  unsigned DstReg, SrcReg, DReg;
+  unsigned Lane;
+  MachineInstrBuilder MIB(MI);
+  const TargetRegisterInfo *TRI = &getRegisterInfo();
+  switch (MI->getOpcode()) {
+    default:
+      llvm_unreachable("cannot handle opcode!");
+      break;
+    case ARM::VMOVD:
+      if (Domain != ExeNEON)
+        break;
 
-  // Zap the predicate operands.
-  assert(!isPredicated(MI) && "Cannot predicate a VORRd");
-  MI->RemoveOperand(3);
-  MI->RemoveOperand(2);
+      // Zap the predicate operands.
+      assert(!isPredicated(MI) && "Cannot predicate a VORRd");
 
-  // Change to a VORRd which requires two identical use operands.
-  MI->setDesc(get(ARM::VORRd));
+      // Source instruction is %DDst = VMOVD %DSrc, 14, %noreg (; implicits)
+      DstReg = MI->getOperand(0).getReg();
+      SrcReg = MI->getOperand(1).getReg();
 
-  // Add the extra source operand and new predicates.
-  // This will go before any implicit ops.
-  AddDefaultPred(MachineInstrBuilder(MI).addOperand(MI->getOperand(1)));
+      for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
+        MI->RemoveOperand(i-1);
+
+      // Change to a %DDst = VORRd %DSrc, %DSrc, 14, %noreg (; implicits)
+      MI->setDesc(get(ARM::VORRd));
+      AddDefaultPred(MIB.addReg(DstReg, RegState::Define)
+                        .addReg(SrcReg)
+                        .addReg(SrcReg));
+      break;
+    case ARM::VMOVRS:
+      if (Domain != ExeNEON)
+        break;
+      assert(!isPredicated(MI) && "Cannot predicate a VGETLN");
+
+      // Source instruction is %RDst = VMOVRS %SSrc, 14, %noreg (; implicits)
+      DstReg = MI->getOperand(0).getReg();
+      SrcReg = MI->getOperand(1).getReg();
+
+      for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
+        MI->RemoveOperand(i-1);
+
+      DReg = getCorrespondingDRegAndLane(TRI, SrcReg, Lane);
+
+      // Convert to %RDst = VGETLNi32 %DSrc, Lane, 14, %noreg (; imps)
+      // Note that DSrc has been widened and the other lane may be undef, which
+      // contaminates the entire register.
+      MI->setDesc(get(ARM::VGETLNi32));
+      AddDefaultPred(MIB.addReg(DstReg, RegState::Define)
+                        .addReg(DReg, RegState::Undef)
+                        .addImm(Lane));
+
+      // The old source should be an implicit use, otherwise we might think it
+      // was dead before here.
+      MIB.addReg(SrcReg, RegState::Implicit);
+      break;
+    case ARM::VMOVSR:
+      if (Domain != ExeNEON)
+        break;
+      assert(!isPredicated(MI) && "Cannot predicate a VSETLN");
+
+      // Source instruction is %SDst = VMOVSR %RSrc, 14, %noreg (; implicits)
+      DstReg = MI->getOperand(0).getReg();
+      SrcReg = MI->getOperand(1).getReg();
+
+      for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
+        MI->RemoveOperand(i-1);
+
+      DReg = getCorrespondingDRegAndLane(TRI, DstReg, Lane);
+
+      // Convert to %DDst = VSETLNi32 %DDst, %RSrc, Lane, 14, %noreg (; imps)
+      // Again DDst may be undefined at the beginning of this instruction.
+      MI->setDesc(get(ARM::VSETLNi32));
+      AddDefaultPred(MIB.addReg(DReg, RegState::Define)
+                        .addReg(DReg, RegState::Undef)
+                        .addReg(SrcReg)
+                        .addImm(Lane));
+
+      // The destination must be marked as set.
+      MIB.addReg(DstReg, RegState::Define | RegState::Implicit);
+      break;
+    case ARM::VMOVS: {
+      if (Domain != ExeNEON)
+        break;
+
+      // Source instruction is %SDst = VMOVS %SSrc, 14, %noreg (; implicits)
+      DstReg = MI->getOperand(0).getReg();
+      SrcReg = MI->getOperand(1).getReg();
+
+      for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
+        MI->RemoveOperand(i-1);
+
+      unsigned DstLane = 0, SrcLane = 0, DDst, DSrc;
+      DDst = getCorrespondingDRegAndLane(TRI, DstReg, DstLane);
+      DSrc = getCorrespondingDRegAndLane(TRI, SrcReg, SrcLane);
+
+      if (DSrc == DDst) {
+        // Destination can be:
+        //     %DDst = VDUPLN32d %DDst, Lane, 14, %noreg (; implicits)
+        MI->setDesc(get(ARM::VDUPLN32d));
+        AddDefaultPred(MIB.addReg(DDst, RegState::Define)
+                          .addReg(DDst, RegState::Undef)
+                          .addImm(SrcLane));
+
+        // Neither the source or the destination are naturally represented any
+        // more, so add them in manually.
+        MIB.addReg(DstReg, RegState::Implicit | RegState::Define);
+        MIB.addReg(SrcReg, RegState::Implicit);
+        break;
+      }
+
+      // In general there's no single instruction that can perform an S <-> S
+      // move in NEON space, but a pair of VEXT instructions *can* do the
+      // job. It turns out that the VEXTs needed will only use DSrc once, with
+      // the position based purely on the combination of lane-0 and lane-1
+      // involved. For example
+      //     vmov s0, s2 -> vext.32 d0, d0, d1, #1  vext.32 d0, d0, d0, #1
+      //     vmov s1, s3 -> vext.32 d0, d1, d0, #1  vext.32 d0, d0, d0, #1
+      //     vmov s0, s3 -> vext.32 d0, d0, d0, #1  vext.32 d0, d1, d0, #1
+      //     vmov s1, s2 -> vext.32 d0, d0, d0, #1  vext.32 d0, d0, d1, #1
+      //
+      // Pattern of the MachineInstrs is:
+      //     %DDst = VEXTd32 %DSrc1, %DSrc2, Lane, 14, %noreg (;implicits)
+      MachineInstrBuilder NewMIB;
+      NewMIB = BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
+                       get(ARM::VEXTd32), DDst);
+      NewMIB.addReg(SrcLane == 1 && DstLane == 1 ? DSrc : DDst, RegState::Undef);
+      NewMIB.addReg(SrcLane == 0 && DstLane == 0 ? DSrc : DDst, RegState::Undef);
+      NewMIB.addImm(1);
+      AddDefaultPred(NewMIB);
+
+      if (SrcLane == DstLane)
+        NewMIB.addReg(SrcReg, RegState::Implicit);
+
+      MI->setDesc(get(ARM::VEXTd32));
+      MIB.addReg(DDst, RegState::Define);
+      MIB.addReg(SrcLane == 1 && DstLane == 0 ? DSrc : DDst, RegState::Undef);
+      MIB.addReg(SrcLane == 0 && DstLane == 1 ? DSrc : DDst, RegState::Undef);
+      MIB.addImm(1);
+      AddDefaultPred(MIB);
+
+      if (SrcLane != DstLane)
+        MIB.addReg(SrcReg, RegState::Implicit);
+
+      // As before, the original destination is no longer represented, add it
+      // implicitly.
+      MIB.addReg(DstReg, RegState::Define | RegState::Implicit);
+      break;
+    }
+  }
+
 }
 
 bool ARMBaseInstrInfo::hasNOP() const {

@@ -160,7 +160,7 @@ void LiveInterval::markValNoForDeletion(VNInfo *ValNo) {
       valnos.pop_back();
     } while (!valnos.empty() && valnos.back()->isUnused());
   } else {
-    ValNo->setIsUnused(true);
+    ValNo->markUnused();
   }
 }
 
@@ -667,9 +667,6 @@ VNInfo* LiveInterval::MergeValueNumberInto(VNInfo *V1, VNInfo *V2) {
     }
   }
 
-  // Merge the relevant flags.
-  V2->mergeFlags(V1);
-
   // Now that V1 is dead, remove it.
   markValNoForDeletion(V1);
 
@@ -737,9 +734,7 @@ void LiveInterval::print(raw_ostream &OS) const {
       } else {
         OS << vni->def;
         if (vni->isPHIDef())
-          OS << "-phidef";
-        if (vni->hasPHIKill())
-          OS << "-phikill";
+          OS << "-phi";
       }
     }
   }
@@ -827,14 +822,11 @@ void ConnectedVNInfoEqClasses::Distribute(LiveInterval *LIV[],
     MachineOperand &MO = RI.getOperand();
     MachineInstr *MI = MO.getParent();
     ++RI;
-    if (MO.isUse() && MO.isUndef())
-      continue;
     // DBG_VALUE instructions should have been eliminated earlier.
-    SlotIndex Idx = LIS.getInstructionIndex(MI);
-    Idx = Idx.getRegSlot(MO.isUse());
-    const VNInfo *VNI = LI.getVNInfoAt(Idx);
-    // FIXME: We should be able to assert(VNI) here, but the coalescer leaves
-    // dangling defs around.
+    LiveRangeQuery LRQ(LI, LIS.getInstructionIndex(MI));
+    const VNInfo *VNI = MO.readsReg() ? LRQ.valueIn() : LRQ.valueDefined();
+    // In the case of an <undef> use that isn't tied to any def, VNI will be
+    // NULL. If the use is tied to a def, VNI will be the defined value.
     if (!VNI)
       continue;
     MO.setReg(LIV[getEqClass(VNI)]->reg);

@@ -420,6 +420,12 @@ public:
     return hasProperty(MCID::Bitcast, Type);
   }
 
+  /// isSelect - Return true if this instruction is a select instruction.
+  ///
+  bool isSelect(QueryType Type = IgnoreBundle) const {
+    return hasProperty(MCID::Select, Type);
+  }
+
   /// isNotDuplicable - Return true if this instruction cannot be safely
   /// duplicated.  For example, if the instruction has a unique labels attached
   /// to it, duplicating it would cause multiple definition errors.
@@ -635,6 +641,30 @@ public:
       getOperand(0).getSubReg() == getOperand(1).getSubReg();
   }
 
+  /// isTransient - Return true if this is a transient instruction that is
+  /// either very likely to be eliminated during register allocation (such as
+  /// copy-like instructions), or if this instruction doesn't have an
+  /// execution-time cost.
+  bool isTransient() const {
+    switch(getOpcode()) {
+    default: return false;
+    // Copy-like instructions are usually eliminated during register allocation.
+    case TargetOpcode::PHI:
+    case TargetOpcode::COPY:
+    case TargetOpcode::INSERT_SUBREG:
+    case TargetOpcode::SUBREG_TO_REG:
+    case TargetOpcode::REG_SEQUENCE:
+    // Pseudo-instructions that don't produce any real output.
+    case TargetOpcode::IMPLICIT_DEF:
+    case TargetOpcode::KILL:
+    case TargetOpcode::PROLOG_LABEL:
+    case TargetOpcode::EH_LABEL:
+    case TargetOpcode::GC_LABEL:
+    case TargetOpcode::DBG_VALUE:
+      return true;
+    }
+  }
+
   /// getBundleSize - Return the number of instructions inside the MI bundle.
   unsigned getBundleSize() const;
 
@@ -752,6 +782,11 @@ public:
                         const TargetInstrInfo *TII,
                         const TargetRegisterInfo *TRI) const;
 
+  /// findTiedOperandIdx - Given the index of a tied register operand, find the
+  /// operand it is tied to. Defs are tied to uses and vice versa. Returns the
+  /// index of the tied operand which must exist.
+  unsigned findTiedOperandIdx(unsigned OpIdx) const;
+
   /// isRegTiedToUseOperand - Given the index of a register def operand,
   /// check if the register def is tied to a source operand, due to either
   /// two-address elimination or inline assembly constraints. Returns the
@@ -822,11 +857,11 @@ public:
   bool isSafeToReMat(const TargetInstrInfo *TII, AliasAnalysis *AA,
                      unsigned DstReg) const;
 
-  /// hasVolatileMemoryRef - Return true if this instruction may have a
-  /// volatile memory reference, or if the information describing the
-  /// memory reference is not available. Return false if it is known to
-  /// have no volatile memory references.
-  bool hasVolatileMemoryRef() const;
+  /// hasOrderedMemoryRef - Return true if this instruction may have an ordered
+  /// or volatile memory reference, or if the information describing the memory
+  /// reference is not available. Return false if it is known to have no
+  /// ordered or volatile memory references.
+  bool hasOrderedMemoryRef() const;
 
   /// isInvariantLoad - Return true if this instruction is loading from a
   /// location whose value is invariant across the function.  For example,
@@ -905,6 +940,13 @@ private:
   /// return null.
   MachineRegisterInfo *getRegInfo();
 
+  /// untieRegOperand - Break any tie involving OpIdx.
+  void untieRegOperand(unsigned OpIdx) {
+    const MachineOperand &MO = getOperand(OpIdx);
+    if (MO.isReg() && MO.isTied())
+      getOperand(findTiedOperandIdx(OpIdx)).setIsTied(false);
+  }
+
   /// addImplicitDefUseOperands - Add all implicit def and use operands to
   /// this instruction.
   void addImplicitDefUseOperands();
@@ -912,12 +954,12 @@ private:
   /// RemoveRegOperandsFromUseLists - Unlink all of the register operands in
   /// this instruction from their respective use lists.  This requires that the
   /// operands already be on their use lists.
-  void RemoveRegOperandsFromUseLists();
+  void RemoveRegOperandsFromUseLists(MachineRegisterInfo&);
 
   /// AddRegOperandsToUseLists - Add all of the register operands in
   /// this instruction from their respective use lists.  This requires that the
   /// operands not be on their use lists yet.
-  void AddRegOperandsToUseLists(MachineRegisterInfo &RegInfo);
+  void AddRegOperandsToUseLists(MachineRegisterInfo&);
 
   /// hasPropertyInBundle - Slow path for hasProperty when we're dealing with a
   /// bundle.

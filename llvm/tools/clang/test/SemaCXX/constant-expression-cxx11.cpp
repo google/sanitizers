@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple i686-linux -Wno-string-plus-int -fsyntax-only -verify -std=c++11 -pedantic %s -Wno-comment
+// RUN: %clang_cc1 -triple i686-linux -Wno-string-plus-int -fsyntax-only -fcxx-exceptions -verify -std=c++11 -pedantic %s -Wno-comment
 
 namespace StaticAssertFoldTest {
 
@@ -710,10 +710,16 @@ static_assert(&ok2 == pok2, "");
 static_assert((Base2*)(Derived*)(Base*)pb1 == pok2, "");
 static_assert((Derived*)(Base*)pb1 == (Derived*)pok2, "");
 
-constexpr Base *nullB = 42 - 6 * 7;
+constexpr Base *nullB = 42 - 6 * 7; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'Class::Base *const'}}
 static_assert((Bottom*)nullB == 0, "");
 static_assert((Derived*)nullB == 0, "");
 static_assert((void*)(Bottom*)nullB == (void*)(Derived*)nullB, "");
+Base * nullB2 = '\0'; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'Class::Base *'}}
+Base * nullB3 = (0);
+// We suppress the warning in unevaluated contexts to workaround some gtest
+// behavior. Once this becomes an error this isn't a problem anymore.
+static_assert(nullB == (1 - 1), "");
+
 
 namespace ConversionOperators {
 
@@ -1294,9 +1300,9 @@ namespace InvalidClasses {
 // Constructors can be implicitly constexpr, even for a non-literal type.
 namespace ImplicitConstexpr {
   struct Q { Q() = default; Q(const Q&) = default; Q(Q&&) = default; ~Q(); }; // expected-note 3{{here}}
-  struct R { constexpr R(); constexpr R(const R&); constexpr R(R&&); ~R(); };
+  struct R { constexpr R() noexcept; constexpr R(const R&) noexcept; constexpr R(R&&) noexcept; ~R() noexcept; };
   struct S { R r; }; // expected-note 3{{here}}
-  struct T { T(const T&); T(T &&); ~T(); };
+  struct T { T(const T&) noexcept; T(T &&) noexcept; ~T() noexcept; };
   struct U { T t; }; // expected-note 3{{here}}
   static_assert(!__is_literal_type(Q), "");
   static_assert(!__is_literal_type(R), "");
@@ -1350,4 +1356,37 @@ namespace PR12670 {
   static_assert(x[0].m == 4, "");
   static_assert(x[1].m == 5, "");
   static_assert(x[2].m == 6, "");
+}
+
+// Indirectly test that an implicit lvalue-to-rvalue conversion is performed
+// when a conditional operator has one argument of type void and where the other
+// is a glvalue of class type.
+namespace ConditionalLValToRVal {
+  struct A {
+    constexpr A(int a) : v(a) {}
+    int v;
+  };
+
+  constexpr A f(const A &a) {
+    return a.v == 0 ? throw a : a;
+  }
+
+  constexpr A a(4);
+  static_assert(f(a).v == 4, "");
+}
+
+namespace TLS {
+  __thread int n;
+  int m;
+
+  constexpr bool b = &n == &n;
+
+  constexpr int *p = &n; // expected-error{{constexpr variable 'p' must be initialized by a constant expression}}
+
+  constexpr int *f() { return &n; }
+  constexpr int *q = f(); // expected-error{{constexpr variable 'q' must be initialized by a constant expression}}
+  constexpr bool c = f() == f();
+
+  constexpr int *g() { return &m; }
+  constexpr int *r = g();
 }

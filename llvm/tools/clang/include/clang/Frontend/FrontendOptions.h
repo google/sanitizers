@@ -20,6 +20,7 @@ namespace clang {
 
 namespace frontend {
   enum ActionKind {
+    ASTDeclList,            ///< Parse ASTs and list Decl nodes.
     ASTDump,                ///< Parse ASTs and dump them.
     ASTDumpXML,             ///< Parse ASTs and dump them in XML.
     ASTPrint,               ///< Parse ASTs and print them.
@@ -140,6 +141,9 @@ public:
 
   /// If given, the new suffix for fix-it rewritten files.
   std::string FixItSuffix;
+
+  /// If given, filter dumped AST Decl nodes by this substring.
+  std::string ASTDumpFilter;
 
   /// If given, enable code completion at the provided location.
   ParsedSourceLocation CodeCompletionAt;

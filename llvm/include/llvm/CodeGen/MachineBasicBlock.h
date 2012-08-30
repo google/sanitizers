@@ -351,6 +351,8 @@ public:
   /// parameter is stored in Weights list and it may be used by
   /// MachineBranchProbabilityInfo analysis to calculate branch probability.
   ///
+  /// Note that duplicate Machine CFG edges are not allowed.
+  ///
   void addSuccessor(MachineBasicBlock *succ, uint32_t weight = 0);
 
   /// removeSuccessor - Remove successor from the successors list of this
@@ -378,6 +380,10 @@ public:
   /// in transferSuccessors, and update PHI operands in the successor blocks
   /// which refer to fromMBB to refer to this.
   void transferSuccessorsAndUpdatePHIs(MachineBasicBlock *fromMBB);
+
+  /// isPredecessor - Return true if the specified MBB is a predecessor of this
+  /// block.
+  bool isPredecessor(const MachineBasicBlock *MBB) const;
 
   /// isSuccessor - Return true if the specified MBB is a successor of this
   /// block.
@@ -568,7 +574,7 @@ private:
   /// getSuccWeight - Return weight of the edge from this block to MBB. This
   /// method should NOT be called directly, but by using getEdgeWeight method
   /// from MachineBranchProbabilityInfo class.
-  uint32_t getSuccWeight(const MachineBasicBlock *succ) const;
+  uint32_t getSuccWeight(const_succ_iterator Succ) const;
 
 
   // Methods used to maintain doubly linked list of blocks...

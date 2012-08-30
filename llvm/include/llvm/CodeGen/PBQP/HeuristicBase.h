@@ -113,7 +113,7 @@ namespace PBQP {
     }
 
     /// \brief Add the given node to the list of nodes to be optimally reduced.
-    /// @return nItr Node iterator to be added.
+    /// @param nItr Node iterator to be added.
     ///
     /// You probably don't want to over-ride this, except perhaps to record
     /// statistics before calling this implementation. HeuristicBase relies on
@@ -193,8 +193,9 @@ namespace PBQP {
     ///        reduce list.
     /// @return True if a reduction takes place, false if the heuristic reduce
     ///         list is empty.
-    void heuristicReduce() {
+    bool heuristicReduce() {
       llvm_unreachable("Must be implemented in derived class.");
+      return false;
     }
 
     /// \brief Prepare a change in the costs on the given edge.

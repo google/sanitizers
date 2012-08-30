@@ -20,6 +20,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
 
@@ -320,15 +321,52 @@ bool Stmt::hasImplicitControlFlow() const {
   }
 }
 
-Expr *AsmStmt::getOutputExpr(unsigned i) {
-  return cast<Expr>(Exprs[i]);
+std::string AsmStmt::generateAsmString(ASTContext &C) const {
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(this))
+    return gccAsmStmt->generateAsmString(C);
+  if (const MSAsmStmt *msAsmStmt = dyn_cast<MSAsmStmt>(this))
+    return msAsmStmt->generateAsmString(C);
+  llvm_unreachable("unknown asm statement kind!");
 }
 
-/// getOutputConstraint - Return the constraint string for the specified
-/// output operand.  All output constraints are known to be non-empty (either
-/// '=' or '+').
 StringRef AsmStmt::getOutputConstraint(unsigned i) const {
-  return getOutputConstraintLiteral(i)->getString();
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(this))
+    return gccAsmStmt->getOutputConstraint(i);
+  if (const MSAsmStmt *msAsmStmt = dyn_cast<MSAsmStmt>(this))
+    return msAsmStmt->getOutputConstraint(i);
+  llvm_unreachable("unknown asm statement kind!");
+}
+
+const Expr *AsmStmt::getOutputExpr(unsigned i) const {
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(this))
+    return gccAsmStmt->getOutputExpr(i);
+  if (const MSAsmStmt *msAsmStmt = dyn_cast<MSAsmStmt>(this))
+    return msAsmStmt->getOutputExpr(i);
+  llvm_unreachable("unknown asm statement kind!");
+}
+
+StringRef AsmStmt::getInputConstraint(unsigned i) const {
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(this))
+    return gccAsmStmt->getInputConstraint(i);
+  if (const MSAsmStmt *msAsmStmt = dyn_cast<MSAsmStmt>(this))
+    return msAsmStmt->getInputConstraint(i);
+  llvm_unreachable("unknown asm statement kind!");
+}
+
+const Expr *AsmStmt::getInputExpr(unsigned i) const {
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(this))
+    return gccAsmStmt->getInputExpr(i);
+  if (const MSAsmStmt *msAsmStmt = dyn_cast<MSAsmStmt>(this))
+    return msAsmStmt->getInputExpr(i);
+  llvm_unreachable("unknown asm statement kind!");
+}
+
+StringRef AsmStmt::getClobber(unsigned i) const {
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(this))
+    return gccAsmStmt->getClobber(i);
+  if (const MSAsmStmt *msAsmStmt = dyn_cast<MSAsmStmt>(this))
+    return msAsmStmt->getClobber(i);
+  llvm_unreachable("unknown asm statement kind!");
 }
 
 /// getNumPlusOperands - Return the number of output operands that have a "+"
@@ -341,27 +379,40 @@ unsigned AsmStmt::getNumPlusOperands() const {
   return Res;
 }
 
-Expr *AsmStmt::getInputExpr(unsigned i) {
+StringRef GCCAsmStmt::getClobber(unsigned i) const {
+  return getClobberStringLiteral(i)->getString();
+}
+
+Expr *GCCAsmStmt::getOutputExpr(unsigned i) {
+  return cast<Expr>(Exprs[i]);
+}
+
+/// getOutputConstraint - Return the constraint string for the specified
+/// output operand.  All output constraints are known to be non-empty (either
+/// '=' or '+').
+StringRef GCCAsmStmt::getOutputConstraint(unsigned i) const {
+  return getOutputConstraintLiteral(i)->getString();
+}
+
+Expr *GCCAsmStmt::getInputExpr(unsigned i) {
   return cast<Expr>(Exprs[i + NumOutputs]);
 }
-void AsmStmt::setInputExpr(unsigned i, Expr *E) {
+void GCCAsmStmt::setInputExpr(unsigned i, Expr *E) {
   Exprs[i + NumOutputs] = E;
 }
 
-
 /// getInputConstraint - Return the specified input constraint.  Unlike output
 /// constraints, these can be empty.
-StringRef AsmStmt::getInputConstraint(unsigned i) const {
+StringRef GCCAsmStmt::getInputConstraint(unsigned i) const {
   return getInputConstraintLiteral(i)->getString();
 }
 
-
-void AsmStmt::setOutputsAndInputsAndClobbers(ASTContext &C,
+void GCCAsmStmt::setOutputsAndInputsAndClobbers(ASTContext &C,
                                              IdentifierInfo **Names,
                                              StringLiteral **Constraints,
                                              Stmt **Exprs,
                                              unsigned NumOutputs,
-                                             unsigned NumInputs,                                      
+                                             unsigned NumInputs,
                                              StringLiteral **Clobbers,
                                              unsigned NumClobbers) {
   this->NumOutputs = NumOutputs;
@@ -369,19 +420,19 @@ void AsmStmt::setOutputsAndInputsAndClobbers(ASTContext &C,
   this->NumClobbers = NumClobbers;
 
   unsigned NumExprs = NumOutputs + NumInputs;
-  
+
   C.Deallocate(this->Names);
   this->Names = new (C) IdentifierInfo*[NumExprs];
   std::copy(Names, Names + NumExprs, this->Names);
-  
+
   C.Deallocate(this->Exprs);
   this->Exprs = new (C) Stmt*[NumExprs];
   std::copy(Exprs, Exprs + NumExprs, this->Exprs);
-  
+
   C.Deallocate(this->Constraints);
   this->Constraints = new (C) StringLiteral*[NumExprs];
   std::copy(Constraints, Constraints + NumExprs, this->Constraints);
-  
+
   C.Deallocate(this->Clobbers);
   this->Clobbers = new (C) StringLiteral*[NumClobbers];
   std::copy(Clobbers, Clobbers + NumClobbers, this->Clobbers);
@@ -390,7 +441,7 @@ void AsmStmt::setOutputsAndInputsAndClobbers(ASTContext &C,
 /// getNamedOperand - Given a symbolic operand reference like %[foo],
 /// translate this into a numeric value needed to reference the same operand.
 /// This returns -1 if the operand name is invalid.
-int AsmStmt::getNamedOperand(StringRef SymbolicName) const {
+int GCCAsmStmt::getNamedOperand(StringRef SymbolicName) const {
   unsigned NumPlusOperands = 0;
 
   // Check if this is an output operand.
@@ -410,7 +461,7 @@ int AsmStmt::getNamedOperand(StringRef SymbolicName) const {
 /// AnalyzeAsmString - Analyze the asm string of the current asm, decomposing
 /// it into pieces.  If the asm string is erroneous, emit errors and return
 /// true, otherwise return false.
-unsigned AsmStmt::AnalyzeAsmString(SmallVectorImpl<AsmStringPiece>&Pieces,
+unsigned GCCAsmStmt::AnalyzeAsmString(SmallVectorImpl<AsmStringPiece>&Pieces,
                                    ASTContext &C, unsigned &DiagOffs) const {
   StringRef Str = getAsmString()->getString();
   const char *StrStart = Str.begin();
@@ -440,7 +491,7 @@ unsigned AsmStmt::AnalyzeAsmString(SmallVectorImpl<AsmStringPiece>&Pieces,
   std::string CurStringPiece;
 
   bool HasVariants = !C.getTargetInfo().hasNoAsmVariants();
-  
+
   while (1) {
     // Done with the string?
     if (CurPtr == StrEnd) {
@@ -461,7 +512,7 @@ unsigned AsmStmt::AnalyzeAsmString(SmallVectorImpl<AsmStringPiece>&Pieces,
       CurStringPiece += CurChar;
       continue;
     }
-    
+
     // Escaped "%" character in asm string.
     if (CurPtr == StrEnd) {
       // % at end of string is invalid (no escape).
@@ -548,6 +599,44 @@ unsigned AsmStmt::AnalyzeAsmString(SmallVectorImpl<AsmStringPiece>&Pieces,
   }
 }
 
+/// Assemble final IR asm string (GCC-style).
+std::string GCCAsmStmt::generateAsmString(ASTContext &C) const {
+  // Analyze the asm string to decompose it into its pieces.  We know that Sema
+  // has already done this, so it is guaranteed to be successful.
+  SmallVector<GCCAsmStmt::AsmStringPiece, 4> Pieces;
+  unsigned DiagOffs;
+  AnalyzeAsmString(Pieces, C, DiagOffs);
+
+  std::string AsmString;
+  for (unsigned i = 0, e = Pieces.size(); i != e; ++i) {
+    if (Pieces[i].isString())
+      AsmString += Pieces[i].getString();
+    else if (Pieces[i].getModifier() == '\0')
+      AsmString += '$' + llvm::utostr(Pieces[i].getOperandNo());
+    else
+      AsmString += "${" + llvm::utostr(Pieces[i].getOperandNo()) + ':' +
+                   Pieces[i].getModifier() + '}';
+  }
+  return AsmString;
+}
+
+/// Assemble final IR asm string (MS-style).
+std::string MSAsmStmt::generateAsmString(ASTContext &C) const {
+  // FIXME: This needs to be translated into the IR string representation.
+  return AsmStr;
+}
+
+Expr *MSAsmStmt::getOutputExpr(unsigned i) {
+  return cast<Expr>(Exprs[i]);
+}
+
+Expr *MSAsmStmt::getInputExpr(unsigned i) {
+  return cast<Expr>(Exprs[i + NumOutputs]);
+}
+void MSAsmStmt::setInputExpr(unsigned i, Expr *E) {
+  Exprs[i + NumOutputs] = E;
+}
+
 QualType CXXCatchStmt::getCaughtType() const {
   if (ExceptionDecl)
     return ExceptionDecl->getType();
@@ -558,18 +647,17 @@ QualType CXXCatchStmt::getCaughtType() const {
 // Constructors
 //===----------------------------------------------------------------------===//
 
-AsmStmt::AsmStmt(ASTContext &C, SourceLocation asmloc, bool issimple, 
-                 bool isvolatile, bool msasm, 
-                 unsigned numoutputs, unsigned numinputs,
-                 IdentifierInfo **names, StringLiteral **constraints,
-                 Expr **exprs, StringLiteral *asmstr, unsigned numclobbers,
-                 StringLiteral **clobbers, SourceLocation rparenloc)
-  : Stmt(AsmStmtClass), AsmLoc(asmloc), RParenLoc(rparenloc), AsmStr(asmstr)
-  , IsSimple(issimple), IsVolatile(isvolatile), MSAsm(msasm)
-  , NumOutputs(numoutputs), NumInputs(numinputs), NumClobbers(numclobbers) {
+GCCAsmStmt::GCCAsmStmt(ASTContext &C, SourceLocation asmloc, bool issimple,
+                       bool isvolatile, unsigned numoutputs, unsigned numinputs,
+                       IdentifierInfo **names, StringLiteral **constraints,
+                       Expr **exprs, StringLiteral *asmstr,
+                       unsigned numclobbers, StringLiteral **clobbers,
+                       SourceLocation rparenloc)
+  : AsmStmt(GCCAsmStmtClass, asmloc, issimple, isvolatile, numoutputs,
+            numinputs, numclobbers), RParenLoc(rparenloc), AsmStr(asmstr) {
 
-  unsigned NumExprs = NumOutputs +NumInputs;
-    
+  unsigned NumExprs = NumOutputs + NumInputs;
+
   Names = new (C) IdentifierInfo*[NumExprs];
   std::copy(names, names + NumExprs, Names);
 
@@ -583,10 +671,53 @@ AsmStmt::AsmStmt(ASTContext &C, SourceLocation asmloc, bool issimple,
   std::copy(clobbers, clobbers + NumClobbers, Clobbers);
 }
 
-MSAsmStmt::MSAsmStmt(ASTContext &C, SourceLocation asmloc, std::string &asmstr,
-                     SourceLocation endloc)
-  : Stmt(MSAsmStmtClass), AsmLoc(asmloc), EndLoc(endloc), AsmStr(asmstr),
-    IsSimple(true), IsVolatile(true) {
+MSAsmStmt::MSAsmStmt(ASTContext &C, SourceLocation asmloc,
+                     SourceLocation lbraceloc, bool issimple, bool isvolatile,
+                     ArrayRef<Token> asmtoks, ArrayRef<IdentifierInfo*> inputs,
+                     ArrayRef<IdentifierInfo*> outputs,
+                     ArrayRef<Expr*> inputexprs, ArrayRef<Expr*> outputexprs,
+                     StringRef asmstr, ArrayRef<StringRef> constraints,
+                     ArrayRef<StringRef> clobbers, SourceLocation endloc)
+  : AsmStmt(MSAsmStmtClass, asmloc, issimple, isvolatile, outputs.size(), inputs.size(),
+            clobbers.size()), LBraceLoc(lbraceloc), EndLoc(endloc),
+    AsmStr(asmstr.str()), NumAsmToks(asmtoks.size()) {
+  assert (inputs.size() == inputexprs.size() && "Input expr size mismatch!");
+  assert (outputs.size() == outputexprs.size() && "Input expr size mismatch!");
+
+  unsigned NumExprs = NumOutputs + NumInputs;
+
+  Names = new (C) IdentifierInfo*[NumExprs];
+  for (unsigned i = 0, e = NumOutputs; i != e; ++i)
+    Names[i] = outputs[i];
+  for (unsigned i = NumOutputs, e = NumExprs; i != e; ++i)
+    Names[i] = inputs[i];
+
+  Exprs = new (C) Stmt*[NumExprs];
+  for (unsigned i = 0, e = NumOutputs; i != e; ++i)
+    Exprs[i] = outputexprs[i];
+  for (unsigned i = NumOutputs, e = NumExprs; i != e; ++i)
+    Exprs[i] = inputexprs[i];
+
+  AsmToks = new (C) Token[NumAsmToks];
+  for (unsigned i = 0, e = NumAsmToks; i != e; ++i)
+    AsmToks[i] = asmtoks[i];
+
+  Constraints = new (C) StringRef[NumExprs];
+  for (unsigned i = 0, e = NumExprs; i != e; ++i) {
+    size_t size = constraints[i].size();
+    char *dest = new (C) char[size];
+    std::strncpy(dest, constraints[i].data(), size); 
+    Constraints[i] = StringRef(dest, size);
+  }
+
+  Clobbers = new (C) StringRef[NumClobbers];
+  for (unsigned i = 0, e = NumClobbers; i != e; ++i) {
+    // FIXME: Avoid the allocation/copy if at all possible.
+    size_t size = clobbers[i].size();
+    char *dest = new (C) char[size];
+    std::strncpy(dest, clobbers[i].data(), size); 
+    Clobbers[i] = StringRef(dest, size);
+  }
 }
 
 ObjCForCollectionStmt::ObjCForCollectionStmt(Stmt *Elem, Expr *Collect,
@@ -610,31 +741,31 @@ ObjCAtTryStmt::ObjCAtTryStmt(SourceLocation atTryLoc, Stmt *atTryStmt,
   Stmts[0] = atTryStmt;
   for (unsigned I = 0; I != NumCatchStmts; ++I)
     Stmts[I + 1] = CatchStmts[I];
-  
+
   if (HasFinally)
     Stmts[NumCatchStmts + 1] = atFinallyStmt;
 }
 
-ObjCAtTryStmt *ObjCAtTryStmt::Create(ASTContext &Context, 
-                                     SourceLocation atTryLoc, 
+ObjCAtTryStmt *ObjCAtTryStmt::Create(ASTContext &Context,
+                                     SourceLocation atTryLoc,
                                      Stmt *atTryStmt,
-                                     Stmt **CatchStmts, 
+                                     Stmt **CatchStmts,
                                      unsigned NumCatchStmts,
                                      Stmt *atFinallyStmt) {
-  unsigned Size = sizeof(ObjCAtTryStmt) + 
+  unsigned Size = sizeof(ObjCAtTryStmt) +
     (1 + NumCatchStmts + (atFinallyStmt != 0)) * sizeof(Stmt *);
   void *Mem = Context.Allocate(Size, llvm::alignOf<ObjCAtTryStmt>());
   return new (Mem) ObjCAtTryStmt(atTryLoc, atTryStmt, CatchStmts, NumCatchStmts,
                                  atFinallyStmt);
 }
 
-ObjCAtTryStmt *ObjCAtTryStmt::CreateEmpty(ASTContext &Context, 
+ObjCAtTryStmt *ObjCAtTryStmt::CreateEmpty(ASTContext &Context,
                                                  unsigned NumCatchStmts,
                                                  bool HasFinally) {
-  unsigned Size = sizeof(ObjCAtTryStmt) + 
+  unsigned Size = sizeof(ObjCAtTryStmt) +
     (1 + NumCatchStmts + HasFinally) * sizeof(Stmt *);
   void *Mem = Context.Allocate(Size, llvm::alignOf<ObjCAtTryStmt>());
-  return new (Mem) ObjCAtTryStmt(EmptyShell(), NumCatchStmts, HasFinally);  
+  return new (Mem) ObjCAtTryStmt(EmptyShell(), NumCatchStmts, HasFinally);
 }
 
 SourceRange ObjCAtTryStmt::getSourceRange() const {
@@ -645,12 +776,12 @@ SourceRange ObjCAtTryStmt::getSourceRange() const {
     EndLoc = getCatchStmt(NumCatchStmts - 1)->getLocEnd();
   else
     EndLoc = getTryBody()->getLocEnd();
-  
+
   return SourceRange(AtTryLoc, EndLoc);
 }
 
 CXXTryStmt *CXXTryStmt::Create(ASTContext &C, SourceLocation tryLoc,
-                               Stmt *tryBlock, Stmt **handlers, 
+                               Stmt *tryBlock, Stmt **handlers,
                                unsigned numHandlers) {
   std::size_t Size = sizeof(CXXTryStmt);
   Size += ((numHandlers + 1) * sizeof(Stmt));
@@ -710,20 +841,20 @@ const VarDecl *CXXForRangeStmt::getLoopVariable() const {
   return const_cast<CXXForRangeStmt*>(this)->getLoopVariable();
 }
 
-IfStmt::IfStmt(ASTContext &C, SourceLocation IL, VarDecl *var, Expr *cond, 
+IfStmt::IfStmt(ASTContext &C, SourceLocation IL, VarDecl *var, Expr *cond,
                Stmt *then, SourceLocation EL, Stmt *elsev)
   : Stmt(IfStmtClass), IfLoc(IL), ElseLoc(EL)
 {
   setConditionVariable(C, var);
   SubExprs[COND] = reinterpret_cast<Stmt*>(cond);
   SubExprs[THEN] = then;
-  SubExprs[ELSE] = elsev;  
+  SubExprs[ELSE] = elsev;
 }
 
 VarDecl *IfStmt::getConditionVariable() const {
   if (!SubExprs[VAR])
     return 0;
-  
+
   DeclStmt *DS = cast<DeclStmt>(SubExprs[VAR]);
   return cast<VarDecl>(DS->getSingleDecl());
 }
@@ -733,16 +864,16 @@ void IfStmt::setConditionVariable(ASTContext &C, VarDecl *V) {
     SubExprs[VAR] = 0;
     return;
   }
-  
+
   SourceRange VarRange = V->getSourceRange();
   SubExprs[VAR] = new (C) DeclStmt(DeclGroupRef(V), VarRange.getBegin(),
                                    VarRange.getEnd());
 }
 
-ForStmt::ForStmt(ASTContext &C, Stmt *Init, Expr *Cond, VarDecl *condVar, 
-                 Expr *Inc, Stmt *Body, SourceLocation FL, SourceLocation LP, 
+ForStmt::ForStmt(ASTContext &C, Stmt *Init, Expr *Cond, VarDecl *condVar,
+                 Expr *Inc, Stmt *Body, SourceLocation FL, SourceLocation LP,
                  SourceLocation RP)
-  : Stmt(ForStmtClass), ForLoc(FL), LParenLoc(LP), RParenLoc(RP) 
+  : Stmt(ForStmtClass), ForLoc(FL), LParenLoc(LP), RParenLoc(RP)
 {
   SubExprs[INIT] = Init;
   setConditionVariable(C, condVar);
@@ -754,7 +885,7 @@ ForStmt::ForStmt(ASTContext &C, Stmt *Init, Expr *Cond, VarDecl *condVar,
 VarDecl *ForStmt::getConditionVariable() const {
   if (!SubExprs[CONDVAR])
     return 0;
-  
+
   DeclStmt *DS = cast<DeclStmt>(SubExprs[CONDVAR]);
   return cast<VarDecl>(DS->getSingleDecl());
 }
@@ -764,14 +895,14 @@ void ForStmt::setConditionVariable(ASTContext &C, VarDecl *V) {
     SubExprs[CONDVAR] = 0;
     return;
   }
-  
+
   SourceRange VarRange = V->getSourceRange();
   SubExprs[CONDVAR] = new (C) DeclStmt(DeclGroupRef(V), VarRange.getBegin(),
                                        VarRange.getEnd());
 }
 
-SwitchStmt::SwitchStmt(ASTContext &C, VarDecl *Var, Expr *cond) 
-  : Stmt(SwitchStmtClass), FirstCase(0), AllEnumCasesCovered(0) 
+SwitchStmt::SwitchStmt(ASTContext &C, VarDecl *Var, Expr *cond)
+  : Stmt(SwitchStmtClass), FirstCase(0), AllEnumCasesCovered(0)
 {
   setConditionVariable(C, Var);
   SubExprs[COND] = reinterpret_cast<Stmt*>(cond);
@@ -781,7 +912,7 @@ SwitchStmt::SwitchStmt(ASTContext &C, VarDecl *Var, Expr *cond)
 VarDecl *SwitchStmt::getConditionVariable() const {
   if (!SubExprs[VAR])
     return 0;
-  
+
   DeclStmt *DS = cast<DeclStmt>(SubExprs[VAR]);
   return cast<VarDecl>(DS->getSingleDecl());
 }
@@ -791,7 +922,7 @@ void SwitchStmt::setConditionVariable(ASTContext &C, VarDecl *V) {
     SubExprs[VAR] = 0;
     return;
   }
-  
+
   SourceRange VarRange = V->getSourceRange();
   SubExprs[VAR] = new (C) DeclStmt(DeclGroupRef(V), VarRange.getBegin(),
                                    VarRange.getEnd());
@@ -803,7 +934,7 @@ Stmt *SwitchCase::getSubStmt() {
   return cast<DefaultStmt>(this)->getSubStmt();
 }
 
-WhileStmt::WhileStmt(ASTContext &C, VarDecl *Var, Expr *cond, Stmt *body, 
+WhileStmt::WhileStmt(ASTContext &C, VarDecl *Var, Expr *cond, Stmt *body,
                      SourceLocation WL)
   : Stmt(WhileStmtClass) {
   setConditionVariable(C, Var);
@@ -815,7 +946,7 @@ WhileStmt::WhileStmt(ASTContext &C, VarDecl *Var, Expr *cond, Stmt *body,
 VarDecl *WhileStmt::getConditionVariable() const {
   if (!SubExprs[VAR])
     return 0;
-  
+
   DeclStmt *DS = cast<DeclStmt>(SubExprs[VAR]);
   return cast<VarDecl>(DS->getSingleDecl());
 }

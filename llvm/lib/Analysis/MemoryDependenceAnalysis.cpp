@@ -148,7 +148,7 @@ AliasAnalysis::ModRefResult GetLocation(const Instruction *Inst,
     return AliasAnalysis::ModRef;
   }
 
-  if (const CallInst *CI = isFreeCall(Inst)) {
+  if (const CallInst *CI = isFreeCall(Inst, AA->getTargetLibraryInfo())) {
     // calls to free() deallocate the entire structure
     Loc = AliasAnalysis::Location(CI->getArgOperand(0));
     return AliasAnalysis::Mod;
@@ -227,13 +227,18 @@ getCallSiteDependencyFrom(CallSite CS, bool isReadOnlyCall,
 
         // Otherwise if the two calls don't interact (e.g. InstCS is readnone)
         // keep scanning.
-        break;
+        continue;
       default:
         return MemDepResult::getClobber(Inst);
       }
     }
+
+    // If we could not obtain a pointer for the instruction and the instruction
+    // touches memory then assume that this is a dependency.
+    if (MR != AliasAnalysis::NoModRef)
+      return MemDepResult::getClobber(Inst);
   }
-  
+
   // No dependence found.  If this is the entry block of the function, it is
   // unknown, otherwise it is non-local.
   if (BB != &BB->getParent()->getEntryBlock())
@@ -474,7 +479,7 @@ getPointerDependencyFrom(const AliasAnalysis::Location &MemLoc, bool isLoad,
     // a subsequent bitcast of the malloc call result.  There can be stores to
     // the malloced memory between the malloc call and its bitcast uses, and we
     // need to continue scanning until the malloc call.
-    if (isa<AllocaInst>(Inst) || isNoAliasFn(Inst)) {
+    if (isa<AllocaInst>(Inst) || isNoAliasFn(Inst, AA->getTargetLibraryInfo())){
       const Value *AccessPtr = GetUnderlyingObject(MemLoc.Ptr, TD);
       
       if (AccessPtr == Inst || AA->isMustAlias(Inst, AccessPtr))

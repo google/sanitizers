@@ -1051,12 +1051,10 @@ CodeGenModule::GetOrCreateLLVMFunction(StringRef MangledName,
   // Lookup the entry, lazily creating it if necessary.
   llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
   if (Entry) {
-    if (WeakRefReferences.count(Entry)) {
+    if (WeakRefReferences.erase(Entry)) {
       const FunctionDecl *FD = cast_or_null<FunctionDecl>(D.getDecl());
       if (FD && !FD->hasAttr<WeakAttr>())
         Entry->setLinkage(llvm::Function::ExternalLinkage);
-
-      WeakRefReferences.erase(Entry);
     }
 
     if (Entry->getType()->getElementType() == Ty)
@@ -1197,11 +1195,9 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
   // Lookup the entry, lazily creating it if necessary.
   llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
   if (Entry) {
-    if (WeakRefReferences.count(Entry)) {
+    if (WeakRefReferences.erase(Entry)) {
       if (D && !D->hasAttr<WeakAttr>())
         Entry->setLinkage(llvm::Function::ExternalLinkage);
-
-      WeakRefReferences.erase(Entry);
     }
 
     if (UnnamedAddr)
@@ -1473,10 +1469,10 @@ CodeGenModule::MaybeEmitGlobalStdInitializerListInitializer(const VarDecl *D,
   // Now clone the InitListExpr to initialize the array instead.
   // Incredible hack: we want to use the existing InitListExpr here, so we need
   // to tell it that it no longer initializes a std::initializer_list.
-  Expr *arrayInit = new (ctx) InitListExpr(ctx, init->getLBraceLoc(),
-                                    const_cast<InitListExpr*>(init)->getInits(),
-                                                   init->getNumInits(),
-                                                   init->getRBraceLoc());
+  ArrayRef<Expr*> Inits(const_cast<InitListExpr*>(init)->getInits(),
+                        init->getNumInits());
+  Expr *arrayInit = new (ctx) InitListExpr(ctx, init->getLBraceLoc(), Inits,
+                                           init->getRBraceLoc());
   arrayInit->setType(arrayType);
 
   if (!cleanups.empty())
@@ -1681,6 +1677,18 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
   // Emit the initializer function if necessary.
   if (NeedsGlobalCtor || NeedsGlobalDtor)
     EmitCXXGlobalVarDeclInitFunc(D, GV, NeedsGlobalCtor);
+
+  // If we are compiling with ASan, add metadata indicating dynamically
+  // initialized globals.
+  if (LangOpts.AddressSanitizer && NeedsGlobalCtor) {
+    llvm::Module &M = getModule();
+
+    llvm::NamedMDNode *DynamicInitializers =
+        M.getOrInsertNamedMetadata("llvm.asan.dynamically_initialized_globals");
+    llvm::Value *GlobalToAdd[] = { GV };
+    llvm::MDNode *ThisGlobal = llvm::MDNode::get(VMContext, GlobalToAdd);
+    DynamicInitializers->addOperand(ThisGlobal);
+  }
 
   // Emit global variable debug information.
   if (CGDebugInfo *DI = getModuleDebugInfo())
@@ -2636,7 +2644,7 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
     const std::string &S = getModule().getModuleInlineAsm();
     if (S.empty())
       getModule().setModuleInlineAsm(AsmString);
-    else if (*--S.end() == '\n')
+    else if (S.end()[-1] == '\n')
       getModule().setModuleInlineAsm(S + AsmString.str());
     else
       getModule().setModuleInlineAsm(S + '\n' + AsmString.str());

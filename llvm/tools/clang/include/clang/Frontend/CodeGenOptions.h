@@ -72,8 +72,6 @@ public:
   unsigned EmitGcovArcs      : 1; ///< Emit coverage data files, aka. GCDA.
   unsigned EmitGcovNotes     : 1; ///< Emit coverage "notes" files, aka GCNO.
   unsigned EmitOpenCLArgMetadata : 1; ///< Emit OpenCL kernel arg metadata.
-  unsigned EmitMicrosoftInlineAsm : 1; ///< Enable emission of MS-style inline
-                                       ///< assembly.
   unsigned ForbidGuardVariables : 1; ///< Issue errors if C++ guard variables
                                      ///< are required.
   unsigned FunctionSections  : 1; ///< Set when -ffunction-sections is enabled.
@@ -185,6 +183,9 @@ public:
   /// The run-time penalty for bounds checking, or 0 to disable.
   unsigned char BoundsChecking;
 
+  /// The lower bound for a buffer to be considered for stack protection.
+  unsigned SSPBufferSize;
+
   /// The default TLS model to use.
   TLSModel DefaultTLSModel;
 
@@ -203,7 +204,6 @@ public:
     EmitGcovArcs = 0;
     EmitGcovNotes = 0;
     EmitOpenCLArgMetadata = 0;
-    EmitMicrosoftInlineAsm = 0;
     ForbidGuardVariables = 0;
     FunctionSections = 0;
     HiddenWeakTemplateVTables = 0;
@@ -241,6 +241,7 @@ public:
     StackRealignment = 0;
     StackAlignment = 0;
     BoundsChecking = 0;
+    SSPBufferSize = 8;
     UseInitArray = 0;
 
     DebugInfo = NoDebugInfo;

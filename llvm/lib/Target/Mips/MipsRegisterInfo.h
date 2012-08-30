@@ -22,14 +22,14 @@
 
 namespace llvm {
 class MipsSubtarget;
-class TargetInstrInfo;
 class Type;
 
-struct MipsRegisterInfo : public MipsGenRegisterInfo {
+class MipsRegisterInfo : public MipsGenRegisterInfo {
+protected:
   const MipsSubtarget &Subtarget;
-  const TargetInstrInfo &TII;
 
-  MipsRegisterInfo(const MipsSubtarget &Subtarget, const TargetInstrInfo &tii);
+public:
+  MipsRegisterInfo(const MipsSubtarget &Subtarget);
 
   /// getRegisterNumbering - Given the enum value for some register, e.g.
   /// Mips::RA, return the number that it corresponds to (e.g. 31).
@@ -51,10 +51,6 @@ struct MipsRegisterInfo : public MipsGenRegisterInfo {
 
   virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const;
 
-  void eliminateCallFramePseudoInstr(MachineFunction &MF,
-                                     MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator I) const;
-
   /// Stack Frame Processing Methods
   void eliminateFrameIndex(MachineBasicBlock::iterator II,
                            int SPAdj, RegScavenger *RS = NULL) const;
@@ -67,6 +63,11 @@ struct MipsRegisterInfo : public MipsGenRegisterInfo {
   /// Exception handling queries.
   unsigned getEHExceptionRegister() const;
   unsigned getEHHandlerRegister() const;
+
+private:
+  virtual void eliminateFI(MachineBasicBlock::iterator II, unsigned OpNo,
+                           int FrameIndex, uint64_t StackSize,
+                           int64_t SPOffset) const = 0;
 };
 
 } // end namespace llvm

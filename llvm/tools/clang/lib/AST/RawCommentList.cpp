@@ -9,8 +9,12 @@
 
 #include "clang/AST/RawCommentList.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Comment.h"
 #include "clang/AST/CommentLexer.h"
 #include "clang/AST/CommentBriefParser.h"
+#include "clang/AST/CommentSema.h"
+#include "clang/AST/CommentParser.h"
+#include "clang/AST/CommentCommandTraits.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace clang;
@@ -134,9 +138,16 @@ const char *RawComment::extractBriefText(const ASTContext &Context) const {
   // Make sure that RawText is valid.
   getRawText(Context.getSourceManager());
 
-  comments::Lexer L(Range.getBegin(), comments::CommentOptions(),
+  // Since we will be copying the resulting text, all allocations made during
+  // parsing are garbage after resulting string is formed.  Thus we can use
+  // a separate allocator for all temporary stuff.
+  llvm::BumpPtrAllocator Allocator;
+
+  comments::CommandTraits Traits;
+  comments::Lexer L(Allocator, Traits,
+                    Range.getBegin(), comments::CommentOptions(),
                     RawText.begin(), RawText.end());
-  comments::BriefParser P(L);
+  comments::BriefParser P(L, Traits);
 
   const std::string Result = P.Parse();
   const unsigned BriefTextLength = Result.size();
@@ -146,6 +157,24 @@ const char *RawComment::extractBriefText(const ASTContext &Context) const {
   BriefTextValid = true;
 
   return BriefTextPtr;
+}
+
+comments::FullComment *RawComment::parse(const ASTContext &Context,
+                                         const Decl *D) const {
+  // Make sure that RawText is valid.
+  getRawText(Context.getSourceManager());
+
+  comments::CommandTraits Traits;
+  comments::Lexer L(Context.getAllocator(), Traits,
+                    getSourceRange().getBegin(), comments::CommentOptions(),
+                    RawText.begin(), RawText.end());
+  comments::Sema S(Context.getAllocator(), Context.getSourceManager(),
+                   Context.getDiagnostics(), Traits);
+  S.setDecl(D);
+  comments::Parser P(L, S, Context.getAllocator(), Context.getSourceManager(),
+                     Context.getDiagnostics(), Traits);
+
+  return P.parseFullComment();
 }
 
 namespace {
@@ -215,15 +244,20 @@ void RawCommentList::addComment(const RawComment &RC,
 
   // Merge comments only if there is only whitespace between them.
   // Can't merge trailing and non-trailing comments.
-  // Merge trailing comments if they are on same or consecutive lines.
+  // Merge comments if they are on same or consecutive lines.
+  bool Merged = false;
   if (OnlyWhitespaceSeen &&
-      (C1.isTrailingComment() == C2.isTrailingComment()) &&
-      (!C1.isTrailingComment() ||
-       C1.getEndLine(SourceMgr) + 1 >= C2.getBeginLine(SourceMgr))) {
-    SourceRange MergedRange(C1.getSourceRange().getBegin(),
-                            C2.getSourceRange().getEnd());
-    *Comments.back() = RawComment(SourceMgr, MergedRange, true);
-  } else
+      (C1.isTrailingComment() == C2.isTrailingComment())) {
+    unsigned C1EndLine = C1.getEndLine(SourceMgr);
+    unsigned C2BeginLine = C2.getBeginLine(SourceMgr);
+    if (C1EndLine + 1 == C2BeginLine || C1EndLine == C2BeginLine) {
+      SourceRange MergedRange(C1.getSourceRange().getBegin(),
+                              C2.getSourceRange().getEnd());
+      *Comments.back() = RawComment(SourceMgr, MergedRange, true);
+      Merged = true;
+    }
+  }
+  if (!Merged)
     Comments.push_back(new (Allocator) RawComment(RC));
 
   OnlyWhitespaceSeen = true;

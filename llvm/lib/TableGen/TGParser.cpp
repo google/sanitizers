@@ -2277,30 +2277,43 @@ InstantiateMulticlassDef(MultiClass &MC,
                      DefName, StringRecTy::get())->Fold(DefProto, &MC);
   }
 
-  Record *CurRec = new Record(DefName, DefmPrefixLoc, Records);
+  // Make a trail of SMLocs from the multiclass instantiations.
+  SmallVector<SMLoc, 4> Locs(1, DefmPrefixLoc);
+  Locs.append(DefProto->getLoc().begin(), DefProto->getLoc().end());
+  Record *CurRec = new Record(DefName, Locs, Records);
 
   SubClassReference Ref;
   Ref.RefLoc = DefmPrefixLoc;
   Ref.Rec = DefProto;
   AddSubClass(CurRec, Ref);
 
-  if (DefNameString == 0) {
-    // We must resolve references to NAME.
-    if (SetValue(CurRec, Ref.RefLoc, "NAME", std::vector<unsigned>(),
-                 DefmPrefix)) {
-      Error(DefmPrefixLoc, "Could not resolve "
-            + CurRec->getNameInitAsString() + ":NAME to '"
-            + DefmPrefix->getAsUnquotedString() + "'");
-      return 0;
-    }
+  // Set the value for NAME. We don't resolve references to it 'til later,
+  // though, so that uses in nested multiclass names don't get
+  // confused.
+  if (SetValue(CurRec, Ref.RefLoc, "NAME", std::vector<unsigned>(),
+               DefmPrefix)) {
+    Error(DefmPrefixLoc, "Could not resolve "
+          + CurRec->getNameInitAsString() + ":NAME to '"
+          + DefmPrefix->getAsUnquotedString() + "'");
+    return 0;
+  }
 
+  // If the DefNameString didn't resolve, we probably have a reference to
+  // NAME and need to replace it. We need to do at least this much greedily,
+  // otherwise nested multiclasses will end up with incorrect NAME expansions.
+  if (DefNameString == 0) {
     RecordVal *DefNameRV = CurRec->getValue("NAME");
     CurRec->resolveReferencesTo(DefNameRV);
   }
 
   if (!CurMultiClass) {
-    // We do this after resolving NAME because before resolution, many
-    // multiclass defs will have the same name expression.  If we are
+    // Now that we're at the top level, resolve all NAME references
+    // in the resultant defs that weren't in the def names themselves.
+    RecordVal *DefNameRV = CurRec->getValue("NAME");
+    CurRec->resolveReferencesTo(DefNameRV);
+
+    // Now that NAME references are resolved and we're at the top level of
+    // any multiclass expansions, add the record to the RecordKeeper. If we are
     // currently in a multiclass, it means this defm appears inside a
     // multiclass and its name won't be fully resolvable until we see
     // the top-level defm.  Therefore, we don't add this to the

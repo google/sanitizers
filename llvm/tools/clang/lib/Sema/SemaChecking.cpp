@@ -266,11 +266,11 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case Builtin::BI__sync_swap_4:
   case Builtin::BI__sync_swap_8:
   case Builtin::BI__sync_swap_16:
-    return SemaBuiltinAtomicOverloaded(move(TheCallResult));
+    return SemaBuiltinAtomicOverloaded(TheCallResult);
 #define BUILTIN(ID, TYPE, ATTRS)
 #define ATOMIC_BUILTIN(ID, TYPE, ATTRS) \
   case Builtin::BI##ID: \
-    return SemaAtomicOpsOverloaded(move(TheCallResult), AtomicExpr::AO##ID);
+    return SemaAtomicOpsOverloaded(TheCallResult, AtomicExpr::AO##ID);
 #include "clang/Basic/Builtins.def"
   case Builtin::BI__builtin_annotation:
     if (SemaBuiltinAnnotation(*this, TheCall))
@@ -299,7 +299,7 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
     }
   }
 
-  return move(TheCallResult);
+  return TheCallResult;
 }
 
 // Get the valid immediate range for the specified NEON type code.
@@ -355,7 +355,7 @@ static QualType getNeonEltType(NeonTypeFlags Flags, ASTContext &Context) {
 bool Sema::CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   llvm::APSInt Result;
 
-  unsigned mask = 0;
+  uint64_t mask = 0;
   unsigned TV = 0;
   int PtrArgNum = -1;
   bool HasConstPtr = false;
@@ -373,7 +373,7 @@ bool Sema::CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
       return true;
     
     TV = Result.getLimitedValue(64);
-    if ((TV > 63) || (mask & (1 << TV)) == 0)
+    if ((TV > 63) || (mask & (1ULL << TV)) == 0)
       return Diag(TheCall->getLocStart(), diag::err_invalid_neon_type_code)
         << TheCall->getArg(ImmArg)->getSourceRange();
   }
@@ -437,6 +437,11 @@ bool Sema::CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   default: return false;
   case Mips::BI__builtin_mips_wrdsp: i = 1; l = 0; u = 63; break;
   case Mips::BI__builtin_mips_rddsp: i = 0; l = 0; u = 63; break;
+  case Mips::BI__builtin_mips_append: i = 2; l = 0; u = 31; break;
+  case Mips::BI__builtin_mips_balign: i = 2; l = 0; u = 3; break;
+  case Mips::BI__builtin_mips_precr_sra_ph_w: i = 2; l = 0; u = 31; break;
+  case Mips::BI__builtin_mips_precr_sra_r_ph_w: i = 2; l = 0; u = 31; break;
+  case Mips::BI__builtin_mips_prepend: i = 2; l = 0; u = 31; break;
   };
 
   // We can't check the value of a dependent argument.
@@ -513,6 +518,13 @@ void Sema::checkCall(NamedDecl *FDecl, Expr **Args,
          I = FDecl->specific_attr_begin<NonNullAttr>(),
          E = FDecl->specific_attr_end<NonNullAttr>(); I != E; ++I)
     CheckNonNullArguments(*I, Args, Loc);
+
+  // Type safety checking.
+  for (specific_attr_iterator<ArgumentWithTypeTagAttr>
+         i = FDecl->specific_attr_begin<ArgumentWithTypeTagAttr>(),
+         e = FDecl->specific_attr_end<ArgumentWithTypeTagAttr>(); i != e; ++i) {
+    CheckArgumentWithTypeTag(*i, Args);
+  }
 }
 
 /// CheckConstructorCall - Check a constructor call for correctness and safety
@@ -878,8 +890,7 @@ ExprResult Sema::SemaAtomicOpsOverloaded(ExprResult TheCallResult,
   }
 
   return Owned(new (Context) AtomicExpr(TheCall->getCallee()->getLocStart(),
-                                        SubExprs.data(), SubExprs.size(),
-                                        ResultType, Op,
+                                        SubExprs, ResultType, Op,
                                         TheCall->getRParenLoc()));
 }
 
@@ -1236,7 +1247,7 @@ Sema::SemaBuiltinAtomicOverloaded(ExprResult TheCallResult) {
   // gracefully.
   TheCall->setType(ResultType);
 
-  return move(TheCallResult);
+  return TheCallResult;
 }
 
 /// CheckObjCString - Checks that the argument to the builtin
@@ -1496,8 +1507,7 @@ ExprResult Sema::SemaBuiltinShuffleVector(CallExpr *TheCall) {
     TheCall->setArg(i, 0);
   }
 
-  return Owned(new (Context) ShuffleVectorExpr(Context, exprs.begin(),
-                                            exprs.size(), resType,
+  return Owned(new (Context) ShuffleVectorExpr(Context, exprs, resType,
                                             TheCall->getCallee()->getLocStart(),
                                             TheCall->getRParenLoc()));
 }
@@ -2183,7 +2193,7 @@ void CheckFormatHandler::EmitFormatDiagnostic(PartialDiagnostic PDiag,
 /// \brief If the format string is not within the funcion call, emit a note
 /// so that the function call and string are in diagnostic messages.
 ///
-/// \param inFunctionCall if true, the format string is within the function
+/// \param InFunctionCall if true, the format string is within the function
 /// call and only one diagnostic message will be produced.  Otherwise, an
 /// extra note will be emitted pointing to location of the format string.
 ///
@@ -2206,7 +2216,7 @@ void CheckFormatHandler::EmitFormatDiagnostic(PartialDiagnostic PDiag,
 /// \param StringRange some or all of the string to highlight.  This is
 /// templated so it can accept either a CharSourceRange or a SourceRange.
 ///
-/// \param Fixit optional fix it hint for the format string.
+/// \param FixIt optional fix it hint for the format string.
 template<typename Range>
 void CheckFormatHandler::EmitFormatDiagnostic(Sema &S, bool InFunctionCall,
                                               const Expr *ArgumentExpr,
@@ -2271,7 +2281,7 @@ public:
                          const analyze_printf::OptionalFlag &ignoredFlag,
                          const analyze_printf::OptionalFlag &flag,
                          const char *startSpecifier, unsigned specifierLen);
-  bool checkForCStrMembers(const analyze_printf::ArgTypeResult &ATR,
+  bool checkForCStrMembers(const analyze_printf::ArgType &AT,
                            const Expr *E, const CharSourceRange &CSR);
 
 };  
@@ -2320,12 +2330,12 @@ bool CheckPrintfHandler::HandleAmount(
 
       QualType T = Arg->getType();
 
-      const analyze_printf::ArgTypeResult &ATR = Amt.getArgType(S.Context);
-      assert(ATR.isValid());
+      const analyze_printf::ArgType &AT = Amt.getArgType(S.Context);
+      assert(AT.isValid());
 
-      if (!ATR.matchesType(S.Context, T)) {
+      if (!AT.matchesType(S.Context, T)) {
         EmitFormatDiagnostic(S.PDiag(diag::warn_printf_asterisk_wrong_type)
-                               << k << ATR.getRepresentativeTypeName(S.Context)
+                               << k << AT.getRepresentativeTypeName(S.Context)
                                << T << Arg->getSourceRange(),
                              getLocationOfByte(Amt.getStart()),
                              /*IsStringLocation*/true,
@@ -2424,10 +2434,10 @@ CXXRecordMembersNamed(StringRef Name, Sema &S, QualType Ty) {
 }
 
 // Check if a (w)string was passed when a (w)char* was needed, and offer a
-// better diagnostic if so. ATR is assumed to be valid.
+// better diagnostic if so. AT is assumed to be valid.
 // Returns true when a c_str() conversion method is found.
 bool CheckPrintfHandler::checkForCStrMembers(
-    const analyze_printf::ArgTypeResult &ATR, const Expr *E,
+    const analyze_printf::ArgType &AT, const Expr *E,
     const CharSourceRange &CSR) {
   typedef llvm::SmallPtrSet<CXXMethodDecl*, 1> MethodSet;
 
@@ -2438,7 +2448,7 @@ bool CheckPrintfHandler::checkForCStrMembers(
        MI != ME; ++MI) {
     const CXXMethodDecl *Method = *MI;
     if (Method->getNumParams() == 0 &&
-          ATR.matchesType(S.Context, Method->getResultType())) {
+          AT.matchesType(S.Context, Method->getResultType())) {
       // FIXME: Suggest parens if the expression needs them.
       SourceLocation EndLoc =
           S.getPreprocessor().getLocForEndOfToken(E->getLocEnd());
@@ -2561,17 +2571,6 @@ CheckPrintfHandler::HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier
     HandleNonStandardConversionSpecification(LM, CS, startSpecifier,
                                              specifierLen);
 
-  // Are we using '%n'?
-  if (CS.getKind() == ConversionSpecifier::nArg) {
-    // Issue a warning about this being a possible security issue.
-    EmitFormatDiagnostic(S.PDiag(diag::warn_printf_write_back),
-                         getLocationOfByte(CS.getStart()),
-                         /*IsStringLocation*/true,
-                         getSpecifierRange(startSpecifier, specifierLen));
-    // Continue checking the other format specifiers.
-    return true;
-  }
-
   // The remaining checks depend on the data arguments.
   if (HasVAListArg)
     return true;
@@ -2595,9 +2594,9 @@ CheckPrintfHandler::checkFormatExpr(const analyze_printf::PrintfSpecifier &FS,
   using namespace analyze_printf;
   // Now type check the data expression that matches the
   // format specifier.
-  const analyze_printf::ArgTypeResult &ATR = FS.getArgType(S.Context,
-                                                           ObjCContext);
-  if (ATR.isValid() && !ATR.matchesType(S.Context, E->getType())) {
+  const analyze_printf::ArgType &AT = FS.getArgType(S.Context,
+                                                    ObjCContext);
+  if (AT.isValid() && !AT.matchesType(S.Context, E->getType())) {
     // Look through argument promotions for our error message's reported type.
     // This includes the integral and floating promotions, but excludes array
     // and function pointer decay; seeing that an argument intended to be a
@@ -2613,7 +2612,7 @@ CheckPrintfHandler::checkFormatExpr(const analyze_printf::PrintfSpecifier &FS,
         if (ICE->getType() == S.Context.IntTy ||
             ICE->getType() == S.Context.UnsignedIntTy) {
           // All further checking is done on the subexpression.
-          if (ATR.matchesType(S.Context, E->getType()))
+          if (AT.matchesType(S.Context, E->getType()))
             return true;
         }
       }
@@ -2632,7 +2631,7 @@ CheckPrintfHandler::checkFormatExpr(const analyze_printf::PrintfSpecifier &FS,
 
       EmitFormatDiagnostic(
         S.PDiag(diag::warn_printf_conversion_argument_type_mismatch)
-          << ATR.getRepresentativeTypeName(S.Context) << E->getType()
+          << AT.getRepresentativeTypeName(S.Context) << E->getType()
           << E->getSourceRange(),
         E->getLocStart(),
         /*IsStringLocation*/false,
@@ -2658,16 +2657,16 @@ CheckPrintfHandler::checkFormatExpr(const analyze_printf::PrintfSpecifier &FS,
             << S.getLangOpts().CPlusPlus0x
             << E->getType()
             << CallType
-            << ATR.getRepresentativeTypeName(S.Context)
+            << AT.getRepresentativeTypeName(S.Context)
             << CSR
             << E->getSourceRange(),
           E->getLocStart(), /*IsStringLocation*/false, CSR);
 
-        checkForCStrMembers(ATR, E, CSR);
+        checkForCStrMembers(AT, E, CSR);
       } else
         EmitFormatDiagnostic(
           S.PDiag(diag::warn_printf_conversion_argument_type_mismatch)
-            << ATR.getRepresentativeTypeName(S.Context) << E->getType()
+            << AT.getRepresentativeTypeName(S.Context) << E->getType()
             << CSR
             << E->getSourceRange(),
           E->getLocStart(), /*IsStringLocation*/false, CSR);
@@ -2811,8 +2810,8 @@ bool CheckScanfHandler::HandleScanfSpecifier(
   if (!Ex)
     return true;
 
-  const analyze_scanf::ScanfArgTypeResult &ATR = FS.getArgType(S.Context);
-  if (ATR.isValid() && !ATR.matchesType(S.Context, Ex->getType())) {
+  const analyze_format_string::ArgType &AT = FS.getArgType(S.Context);
+  if (AT.isValid() && !AT.matchesType(S.Context, Ex->getType())) {
     ScanfSpecifier fixedFS = FS;
     bool success = fixedFS.fixType(Ex->getType(), S.getLangOpts(),
                                    S.Context);
@@ -2825,7 +2824,7 @@ bool CheckScanfHandler::HandleScanfSpecifier(
 
       EmitFormatDiagnostic(
         S.PDiag(diag::warn_printf_conversion_argument_type_mismatch)
-          << ATR.getRepresentativeTypeName(S.Context) << Ex->getType()
+          << AT.getRepresentativeTypeName(S.Context) << Ex->getType()
           << Ex->getSourceRange(),
         Ex->getLocStart(),
         /*IsStringLocation*/false,
@@ -2836,7 +2835,7 @@ bool CheckScanfHandler::HandleScanfSpecifier(
     } else {
       EmitFormatDiagnostic(
         S.PDiag(diag::warn_printf_conversion_argument_type_mismatch)
-          << ATR.getRepresentativeTypeName(S.Context) << Ex->getType()
+          << AT.getRepresentativeTypeName(S.Context) << Ex->getType()
           << Ex->getSourceRange(),
         Ex->getLocStart(),
         /*IsStringLocation*/false,
@@ -3112,6 +3111,19 @@ static const Expr *ignoreLiteralAdditions(const Expr *Ex, ASTContext &Ctx) {
   return Ex;
 }
 
+static bool isConstantSizeArrayWithMoreThanOneElement(QualType Ty,
+                                                      ASTContext &Context) {
+  // Only handle constant-sized or VLAs, but not flexible members.
+  if (const ConstantArrayType *CAT = Context.getAsConstantArrayType(Ty)) {
+    // Only issue the FIXIT for arrays of size > 1.
+    if (CAT->getSize().getSExtValue() <= 1)
+      return false;
+  } else if (!Ty->isVariableArrayType()) {
+    return false;
+  }
+  return true;
+}
+
 // Warn if the user has made the 'size' argument to strlcpy or strlcat
 // be the size of the source, instead of the destination.
 void Sema::CheckStrlcpycatArguments(const CallExpr *Call,
@@ -3162,21 +3174,13 @@ void Sema::CheckStrlcpycatArguments(const CallExpr *Call,
   // pointers if we know the actual size, like if DstArg is 'array+2'
   // we could say 'sizeof(array)-2'.
   const Expr *DstArg = Call->getArg(0)->IgnoreParenImpCasts();
-  QualType DstArgTy = DstArg->getType();
-  
-  // Only handle constant-sized or VLAs, but not flexible members.
-  if (const ConstantArrayType *CAT = Context.getAsConstantArrayType(DstArgTy)) {
-    // Only issue the FIXIT for arrays of size > 1.
-    if (CAT->getSize().getSExtValue() <= 1)
-      return;
-  } else if (!DstArgTy->isVariableArrayType()) {
+  if (!isConstantSizeArrayWithMoreThanOneElement(DstArg->getType(), Context))
     return;
-  }
 
   SmallString<128> sizeString;
   llvm::raw_svector_ostream OS(sizeString);
   OS << "sizeof(";
-  DstArg->printPretty(OS, Context, 0, getPrintingPolicy());
+  DstArg->printPretty(OS, 0, getPrintingPolicy());
   OS << ")";
   
   Diag(OriginalSizeArg->getLocStart(), diag::note_strlcpycat_wrong_size)
@@ -3253,33 +3257,30 @@ void Sema::CheckStrncatArguments(const CallExpr *CE,
                      SM.getSpellingLoc(SR.getEnd()));
   }
 
+  // Check if the destination is an array (rather than a pointer to an array).
+  QualType DstTy = DstArg->getType();
+  bool isKnownSizeArray = isConstantSizeArrayWithMoreThanOneElement(DstTy,
+                                                                    Context);
+  if (!isKnownSizeArray) {
+    if (PatternType == 1)
+      Diag(SL, diag::warn_strncat_wrong_size) << SR;
+    else
+      Diag(SL, diag::warn_strncat_src_size) << SR;
+    return;
+  }
+
   if (PatternType == 1)
     Diag(SL, diag::warn_strncat_large_size) << SR;
   else
     Diag(SL, diag::warn_strncat_src_size) << SR;
 
-  // Output a FIXIT hint if the destination is an array (rather than a
-  // pointer to an array).  This could be enhanced to handle some
-  // pointers if we know the actual size, like if DstArg is 'array+2'
-  // we could say 'sizeof(array)-2'.
-  QualType DstArgTy = DstArg->getType();
-
-  // Only handle constant-sized or VLAs, but not flexible members.
-  if (const ConstantArrayType *CAT = Context.getAsConstantArrayType(DstArgTy)) {
-    // Only issue the FIXIT for arrays of size > 1.
-    if (CAT->getSize().getSExtValue() <= 1)
-      return;
-  } else if (!DstArgTy->isVariableArrayType()) {
-    return;
-  }
-
   SmallString<128> sizeString;
   llvm::raw_svector_ostream OS(sizeString);
   OS << "sizeof(";
-  DstArg->printPretty(OS, Context, 0, getPrintingPolicy());
+  DstArg->printPretty(OS, 0, getPrintingPolicy());
   OS << ") - ";
   OS << "strlen(";
-  DstArg->printPretty(OS, Context, 0, getPrintingPolicy());
+  DstArg->printPretty(OS, 0, getPrintingPolicy());
   OS << ") - 1";
 
   Diag(SL, diag::note_strncat_wrong_size)
@@ -4259,7 +4260,7 @@ static bool AnalyzeBitFieldAssignment(Sema &S, FieldDecl *Bitfield, Expr *Init,
 
   // Check whether the stored value is equal to the original value.
   TruncatedValue = TruncatedValue.extend(OriginalWidth);
-  if (Value == TruncatedValue)
+  if (llvm::APSInt::isSameValue(Value, TruncatedValue))
     return false;
 
   // Special-case bitfields of width 1: booleans are naturally 0/1, and
@@ -4353,6 +4354,46 @@ std::string PrettyPrintInRange(const llvm::APSInt &Value, IntRange Range) {
   ValueInRange.setIsSigned(!Range.NonNegative);
   ValueInRange = ValueInRange.trunc(Range.Width);
   return ValueInRange.toString(10);
+}
+
+static bool IsImplicitBoolFloatConversion(Sema &S, Expr *Ex, bool ToBool) {
+  if (!isa<ImplicitCastExpr>(Ex))
+    return false;
+
+  Expr *InnerE = Ex->IgnoreParenImpCasts();
+  const Type *Target = S.Context.getCanonicalType(Ex->getType()).getTypePtr();
+  const Type *Source =
+    S.Context.getCanonicalType(InnerE->getType()).getTypePtr();
+  if (Target->isDependentType())
+    return false;
+
+  const BuiltinType *FloatCandidateBT =
+    dyn_cast<BuiltinType>(ToBool ? Source : Target);
+  const Type *BoolCandidateType = ToBool ? Target : Source;
+
+  return (BoolCandidateType->isSpecificBuiltinType(BuiltinType::Bool) &&
+          FloatCandidateBT && (FloatCandidateBT->isFloatingPoint()));
+}
+
+void CheckImplicitArgumentConversions(Sema &S, CallExpr *TheCall,
+                                      SourceLocation CC) {
+  unsigned NumArgs = TheCall->getNumArgs();
+  for (unsigned i = 0; i < NumArgs; ++i) {
+    Expr *CurrA = TheCall->getArg(i);
+    if (!IsImplicitBoolFloatConversion(S, CurrA, true))
+      continue;
+
+    bool IsSwapped = ((i > 0) &&
+        IsImplicitBoolFloatConversion(S, TheCall->getArg(i - 1), false));
+    IsSwapped |= ((i < (NumArgs - 1)) &&
+        IsImplicitBoolFloatConversion(S, TheCall->getArg(i + 1), false));
+    if (IsSwapped) {
+      // Warn on this floating-point to bool conversion.
+      DiagnoseImpCast(S, CurrA->IgnoreParenImpCasts(),
+                      CurrA->getType(), CC,
+                      diag::warn_impcast_floating_point_to_bool);
+    }
+  }
 }
 
 void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
@@ -4490,6 +4531,26 @@ void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
       }
     }
 
+    // If the target is bool, warn if expr is a function or method call.
+    if (Target->isSpecificBuiltinType(BuiltinType::Bool) &&
+        isa<CallExpr>(E)) {
+      // Check last argument of function call to see if it is an
+      // implicit cast from a type matching the type the result
+      // is being cast to.
+      CallExpr *CEx = cast<CallExpr>(E);
+      unsigned NumArgs = CEx->getNumArgs();
+      if (NumArgs > 0) {
+        Expr *LastA = CEx->getArg(NumArgs - 1);
+        Expr *InnerE = LastA->IgnoreParenImpCasts();
+        const Type *InnerType =
+          S.Context.getCanonicalType(InnerE->getType()).getTypePtr();
+        if (isa<ImplicitCastExpr>(LastA) && (InnerType == Target)) {
+          // Warn on this floating-point to bool conversion
+          DiagnoseImpCast(S, E, T, CC,
+                          diag::warn_impcast_floating_point_to_bool);
+        }
+      }
+    }
     return;
   }
 
@@ -4660,6 +4721,10 @@ void AnalyzeImplicitConversions(Sema &S, Expr *OrigE, SourceLocation CC) {
     return;
   }
 
+  // Check implicit argument conversions for function calls.
+  if (CallExpr *Call = dyn_cast<CallExpr>(E))
+    CheckImplicitArgumentConversions(S, Call, CC);
+
   // Go ahead and check any implicit conversions we might have skipped.
   // The non-canonical typecheck is just an optimization;
   // CheckImplicitConversion will filter out dead implicit conversions.
@@ -4721,7 +4786,7 @@ void AnalyzeImplicitConversions(Sema &S, Expr *OrigE, SourceLocation CC) {
 ///   conversion
 void Sema::CheckImplicitConversions(Expr *E, SourceLocation CC) {
   // Don't diagnose in unevaluated contexts.
-  if (ExprEvalContexts.back().Context == Sema::Unevaluated)
+  if (isUnevaluatedContext())
     return;
 
   // Don't diagnose for value- or type-dependent expressions.
@@ -5477,3 +5542,410 @@ void Sema::DiagnoseEmptyLoopBody(const Stmt *S,
     Diag(NBody->getSemiLoc(), diag::note_empty_body_on_separate_line);
   }
 }
+
+//===--- Layout compatibility ----------------------------------------------//
+
+namespace {
+
+bool isLayoutCompatible(ASTContext &C, QualType T1, QualType T2);
+
+/// \brief Check if two enumeration types are layout-compatible.
+bool isLayoutCompatible(ASTContext &C, EnumDecl *ED1, EnumDecl *ED2) {
+  // C++11 [dcl.enum] p8:
+  // Two enumeration types are layout-compatible if they have the same
+  // underlying type.
+  return ED1->isComplete() && ED2->isComplete() &&
+         C.hasSameType(ED1->getIntegerType(), ED2->getIntegerType());
+}
+
+/// \brief Check if two fields are layout-compatible.
+bool isLayoutCompatible(ASTContext &C, FieldDecl *Field1, FieldDecl *Field2) {
+  if (!isLayoutCompatible(C, Field1->getType(), Field2->getType()))
+    return false;
+
+  if (Field1->isBitField() != Field2->isBitField())
+    return false;
+
+  if (Field1->isBitField()) {
+    // Make sure that the bit-fields are the same length.
+    unsigned Bits1 = Field1->getBitWidthValue(C);
+    unsigned Bits2 = Field2->getBitWidthValue(C);
+
+    if (Bits1 != Bits2)
+      return false;
+  }
+
+  return true;
+}
+
+/// \brief Check if two standard-layout structs are layout-compatible.
+/// (C++11 [class.mem] p17)
+bool isLayoutCompatibleStruct(ASTContext &C,
+                              RecordDecl *RD1,
+                              RecordDecl *RD2) {
+  // If both records are C++ classes, check that base classes match.
+  if (const CXXRecordDecl *D1CXX = dyn_cast<CXXRecordDecl>(RD1)) {
+    // If one of records is a CXXRecordDecl we are in C++ mode,
+    // thus the other one is a CXXRecordDecl, too.
+    const CXXRecordDecl *D2CXX = cast<CXXRecordDecl>(RD2);
+    // Check number of base classes.
+    if (D1CXX->getNumBases() != D2CXX->getNumBases())
+      return false;
+
+    // Check the base classes.
+    for (CXXRecordDecl::base_class_const_iterator
+               Base1 = D1CXX->bases_begin(),
+           BaseEnd1 = D1CXX->bases_end(),
+              Base2 = D2CXX->bases_begin();
+         Base1 != BaseEnd1;
+         ++Base1, ++Base2) {
+      if (!isLayoutCompatible(C, Base1->getType(), Base2->getType()))
+        return false;
+    }
+  } else if (const CXXRecordDecl *D2CXX = dyn_cast<CXXRecordDecl>(RD2)) {
+    // If only RD2 is a C++ class, it should have zero base classes.
+    if (D2CXX->getNumBases() > 0)
+      return false;
+  }
+
+  // Check the fields.
+  RecordDecl::field_iterator Field2 = RD2->field_begin(),
+                             Field2End = RD2->field_end(),
+                             Field1 = RD1->field_begin(),
+                             Field1End = RD1->field_end();
+  for ( ; Field1 != Field1End && Field2 != Field2End; ++Field1, ++Field2) {
+    if (!isLayoutCompatible(C, *Field1, *Field2))
+      return false;
+  }
+  if (Field1 != Field1End || Field2 != Field2End)
+    return false;
+
+  return true;
+}
+
+/// \brief Check if two standard-layout unions are layout-compatible.
+/// (C++11 [class.mem] p18)
+bool isLayoutCompatibleUnion(ASTContext &C,
+                             RecordDecl *RD1,
+                             RecordDecl *RD2) {
+  llvm::SmallPtrSet<FieldDecl *, 8> UnmatchedFields;
+  for (RecordDecl::field_iterator Field2 = RD2->field_begin(),
+                                  Field2End = RD2->field_end();
+       Field2 != Field2End; ++Field2) {
+    UnmatchedFields.insert(*Field2);
+  }
+
+  for (RecordDecl::field_iterator Field1 = RD1->field_begin(),
+                                  Field1End = RD1->field_end();
+       Field1 != Field1End; ++Field1) {
+    llvm::SmallPtrSet<FieldDecl *, 8>::iterator
+        I = UnmatchedFields.begin(),
+        E = UnmatchedFields.end();
+
+    for ( ; I != E; ++I) {
+      if (isLayoutCompatible(C, *Field1, *I)) {
+        bool Result = UnmatchedFields.erase(*I);
+        (void) Result;
+        assert(Result);
+        break;
+      }
+    }
+    if (I == E)
+      return false;
+  }
+
+  return UnmatchedFields.empty();
+}
+
+bool isLayoutCompatible(ASTContext &C, RecordDecl *RD1, RecordDecl *RD2) {
+  if (RD1->isUnion() != RD2->isUnion())
+    return false;
+
+  if (RD1->isUnion())
+    return isLayoutCompatibleUnion(C, RD1, RD2);
+  else
+    return isLayoutCompatibleStruct(C, RD1, RD2);
+}
+
+/// \brief Check if two types are layout-compatible in C++11 sense.
+bool isLayoutCompatible(ASTContext &C, QualType T1, QualType T2) {
+  if (T1.isNull() || T2.isNull())
+    return false;
+
+  // C++11 [basic.types] p11:
+  // If two types T1 and T2 are the same type, then T1 and T2 are
+  // layout-compatible types.
+  if (C.hasSameType(T1, T2))
+    return true;
+
+  T1 = T1.getCanonicalType().getUnqualifiedType();
+  T2 = T2.getCanonicalType().getUnqualifiedType();
+
+  const Type::TypeClass TC1 = T1->getTypeClass();
+  const Type::TypeClass TC2 = T2->getTypeClass();
+
+  if (TC1 != TC2)
+    return false;
+
+  if (TC1 == Type::Enum) {
+    return isLayoutCompatible(C,
+                              cast<EnumType>(T1)->getDecl(),
+                              cast<EnumType>(T2)->getDecl());
+  } else if (TC1 == Type::Record) {
+    if (!T1->isStandardLayoutType() || !T2->isStandardLayoutType())
+      return false;
+
+    return isLayoutCompatible(C,
+                              cast<RecordType>(T1)->getDecl(),
+                              cast<RecordType>(T2)->getDecl());
+  }
+
+  return false;
+}
+}
+
+//===--- CHECK: pointer_with_type_tag attribute: datatypes should match ----//
+
+namespace {
+/// \brief Given a type tag expression find the type tag itself.
+///
+/// \param TypeExpr Type tag expression, as it appears in user's code.
+///
+/// \param VD Declaration of an identifier that appears in a type tag.
+///
+/// \param MagicValue Type tag magic value.
+bool FindTypeTagExpr(const Expr *TypeExpr, const ASTContext &Ctx,
+                     const ValueDecl **VD, uint64_t *MagicValue) {
+  while(true) {
+    if (!TypeExpr)
+      return false;
+
+    TypeExpr = TypeExpr->IgnoreParenImpCasts()->IgnoreParenCasts();
+
+    switch (TypeExpr->getStmtClass()) {
+    case Stmt::UnaryOperatorClass: {
+      const UnaryOperator *UO = cast<UnaryOperator>(TypeExpr);
+      if (UO->getOpcode() == UO_AddrOf || UO->getOpcode() == UO_Deref) {
+        TypeExpr = UO->getSubExpr();
+        continue;
+      }
+      return false;
+    }
+
+    case Stmt::DeclRefExprClass: {
+      const DeclRefExpr *DRE = cast<DeclRefExpr>(TypeExpr);
+      *VD = DRE->getDecl();
+      return true;
+    }
+
+    case Stmt::IntegerLiteralClass: {
+      const IntegerLiteral *IL = cast<IntegerLiteral>(TypeExpr);
+      llvm::APInt MagicValueAPInt = IL->getValue();
+      if (MagicValueAPInt.getActiveBits() <= 64) {
+        *MagicValue = MagicValueAPInt.getZExtValue();
+        return true;
+      } else
+        return false;
+    }
+
+    case Stmt::BinaryConditionalOperatorClass:
+    case Stmt::ConditionalOperatorClass: {
+      const AbstractConditionalOperator *ACO =
+          cast<AbstractConditionalOperator>(TypeExpr);
+      bool Result;
+      if (ACO->getCond()->EvaluateAsBooleanCondition(Result, Ctx)) {
+        if (Result)
+          TypeExpr = ACO->getTrueExpr();
+        else
+          TypeExpr = ACO->getFalseExpr();
+        continue;
+      }
+      return false;
+    }
+
+    case Stmt::BinaryOperatorClass: {
+      const BinaryOperator *BO = cast<BinaryOperator>(TypeExpr);
+      if (BO->getOpcode() == BO_Comma) {
+        TypeExpr = BO->getRHS();
+        continue;
+      }
+      return false;
+    }
+
+    default:
+      return false;
+    }
+  }
+}
+
+/// \brief Retrieve the C type corresponding to type tag TypeExpr.
+///
+/// \param TypeExpr Expression that specifies a type tag.
+///
+/// \param MagicValues Registered magic values.
+///
+/// \param FoundWrongKind Set to true if a type tag was found, but of a wrong
+///        kind.
+///
+/// \param TypeInfo Information about the corresponding C type.
+///
+/// \returns true if the corresponding C type was found.
+bool GetMatchingCType(
+        const IdentifierInfo *ArgumentKind,
+        const Expr *TypeExpr, const ASTContext &Ctx,
+        const llvm::DenseMap<Sema::TypeTagMagicValue,
+                             Sema::TypeTagData> *MagicValues,
+        bool &FoundWrongKind,
+        Sema::TypeTagData &TypeInfo) {
+  FoundWrongKind = false;
+
+  // Variable declaration that has type_tag_for_datatype attribute.
+  const ValueDecl *VD = NULL;
+
+  uint64_t MagicValue;
+
+  if (!FindTypeTagExpr(TypeExpr, Ctx, &VD, &MagicValue))
+    return false;
+
+  if (VD) {
+    for (specific_attr_iterator<TypeTagForDatatypeAttr>
+             I = VD->specific_attr_begin<TypeTagForDatatypeAttr>(),
+             E = VD->specific_attr_end<TypeTagForDatatypeAttr>();
+         I != E; ++I) {
+      if (I->getArgumentKind() != ArgumentKind) {
+        FoundWrongKind = true;
+        return false;
+      }
+      TypeInfo.Type = I->getMatchingCType();
+      TypeInfo.LayoutCompatible = I->getLayoutCompatible();
+      TypeInfo.MustBeNull = I->getMustBeNull();
+      return true;
+    }
+    return false;
+  }
+
+  if (!MagicValues)
+    return false;
+
+  llvm::DenseMap<Sema::TypeTagMagicValue,
+                 Sema::TypeTagData>::const_iterator I =
+      MagicValues->find(std::make_pair(ArgumentKind, MagicValue));
+  if (I == MagicValues->end())
+    return false;
+
+  TypeInfo = I->second;
+  return true;
+}
+} // unnamed namespace
+
+void Sema::RegisterTypeTagForDatatype(const IdentifierInfo *ArgumentKind,
+                                      uint64_t MagicValue, QualType Type,
+                                      bool LayoutCompatible,
+                                      bool MustBeNull) {
+  if (!TypeTagForDatatypeMagicValues)
+    TypeTagForDatatypeMagicValues.reset(
+        new llvm::DenseMap<TypeTagMagicValue, TypeTagData>);
+
+  TypeTagMagicValue Magic(ArgumentKind, MagicValue);
+  (*TypeTagForDatatypeMagicValues)[Magic] =
+      TypeTagData(Type, LayoutCompatible, MustBeNull);
+}
+
+namespace {
+bool IsSameCharType(QualType T1, QualType T2) {
+  const BuiltinType *BT1 = T1->getAs<BuiltinType>();
+  if (!BT1)
+    return false;
+
+  const BuiltinType *BT2 = T2->getAs<BuiltinType>();
+  if (!BT2)
+    return false;
+
+  BuiltinType::Kind T1Kind = BT1->getKind();
+  BuiltinType::Kind T2Kind = BT2->getKind();
+
+  return (T1Kind == BuiltinType::SChar  && T2Kind == BuiltinType::Char_S) ||
+         (T1Kind == BuiltinType::UChar  && T2Kind == BuiltinType::Char_U) ||
+         (T1Kind == BuiltinType::Char_U && T2Kind == BuiltinType::UChar) ||
+         (T1Kind == BuiltinType::Char_S && T2Kind == BuiltinType::SChar);
+}
+} // unnamed namespace
+
+void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
+                                    const Expr * const *ExprArgs) {
+  const IdentifierInfo *ArgumentKind = Attr->getArgumentKind();
+  bool IsPointerAttr = Attr->getIsPointer();
+
+  const Expr *TypeTagExpr = ExprArgs[Attr->getTypeTagIdx()];
+  bool FoundWrongKind;
+  TypeTagData TypeInfo;
+  if (!GetMatchingCType(ArgumentKind, TypeTagExpr, Context,
+                        TypeTagForDatatypeMagicValues.get(),
+                        FoundWrongKind, TypeInfo)) {
+    if (FoundWrongKind)
+      Diag(TypeTagExpr->getExprLoc(),
+           diag::warn_type_tag_for_datatype_wrong_kind)
+        << TypeTagExpr->getSourceRange();
+    return;
+  }
+
+  const Expr *ArgumentExpr = ExprArgs[Attr->getArgumentIdx()];
+  if (IsPointerAttr) {
+    // Skip implicit cast of pointer to `void *' (as a function argument).
+    if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(ArgumentExpr))
+      if (ICE->getType()->isVoidPointerType())
+        ArgumentExpr = ICE->getSubExpr();
+  }
+  QualType ArgumentType = ArgumentExpr->getType();
+
+  // Passing a `void*' pointer shouldn't trigger a warning.
+  if (IsPointerAttr && ArgumentType->isVoidPointerType())
+    return;
+
+  if (TypeInfo.MustBeNull) {
+    // Type tag with matching void type requires a null pointer.
+    if (!ArgumentExpr->isNullPointerConstant(Context,
+                                             Expr::NPC_ValueDependentIsNotNull)) {
+      Diag(ArgumentExpr->getExprLoc(),
+           diag::warn_type_safety_null_pointer_required)
+          << ArgumentKind->getName()
+          << ArgumentExpr->getSourceRange()
+          << TypeTagExpr->getSourceRange();
+    }
+    return;
+  }
+
+  QualType RequiredType = TypeInfo.Type;
+  if (IsPointerAttr)
+    RequiredType = Context.getPointerType(RequiredType);
+
+  bool mismatch = false;
+  if (!TypeInfo.LayoutCompatible) {
+    mismatch = !Context.hasSameType(ArgumentType, RequiredType);
+
+    // C++11 [basic.fundamental] p1:
+    // Plain char, signed char, and unsigned char are three distinct types.
+    //
+    // But we treat plain `char' as equivalent to `signed char' or `unsigned
+    // char' depending on the current char signedness mode.
+    if (mismatch)
+      if ((IsPointerAttr && IsSameCharType(ArgumentType->getPointeeType(),
+                                           RequiredType->getPointeeType())) ||
+          (!IsPointerAttr && IsSameCharType(ArgumentType, RequiredType)))
+        mismatch = false;
+  } else
+    if (IsPointerAttr)
+      mismatch = !isLayoutCompatible(Context,
+                                     ArgumentType->getPointeeType(),
+                                     RequiredType->getPointeeType());
+    else
+      mismatch = !isLayoutCompatible(Context, ArgumentType, RequiredType);
+
+  if (mismatch)
+    Diag(ArgumentExpr->getExprLoc(), diag::warn_type_safety_type_mismatch)
+        << ArgumentType << ArgumentKind->getName()
+        << TypeInfo.LayoutCompatible << RequiredType
+        << ArgumentExpr->getSourceRange()
+        << TypeTagExpr->getSourceRange();
+}
+

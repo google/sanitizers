@@ -1410,19 +1410,13 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
       // Make sure that the value is representable for this type.
       if (Size >= 32) return MadeChange;
 
-      int Val = (II->getValue() << (32-Size)) >> (32-Size);
-      if (Val == II->getValue()) return MadeChange;
-
-      // If sign-extended doesn't fit, does it fit as unsigned?
-      unsigned ValueMask;
-      unsigned UnsignedVal;
-      ValueMask = unsigned(~uint32_t(0UL) >> (32-Size));
-      UnsignedVal = unsigned(II->getValue());
-
-      if ((ValueMask & UnsignedVal) == UnsignedVal)
+      // Check that the value doesn't use more bits than we have. It must either
+      // be a sign- or zero-extended equivalent of the original.
+      int64_t SignBitAndAbove = II->getValue() >> (Size - 1);
+      if (SignBitAndAbove == -1 || SignBitAndAbove == 0 || SignBitAndAbove == 1)
         return MadeChange;
 
-      TP.error("Integer value '" + itostr(II->getValue())+
+      TP.error("Integer value '" + itostr(II->getValue()) +
                "' is out of range for type '" + getEnumName(getType(0)) + "'!");
       return MadeChange;
     }
@@ -2033,6 +2027,9 @@ CodeGenDAGPatterns::CodeGenDAGPatterns(RecordKeeper &R) :
   // stores, and side effects in many cases by examining an
   // instruction's pattern.
   InferInstructionFlags();
+
+  // Verify that instruction flags match the patterns.
+  VerifyInstructionFlags();
 }
 
 CodeGenDAGPatterns::~CodeGenDAGPatterns() {
@@ -2367,36 +2364,29 @@ FindPatternInputsAndOutputs(TreePattern *I, TreePatternNode *Pat,
 
 class InstAnalyzer {
   const CodeGenDAGPatterns &CDP;
-  bool &mayStore;
-  bool &mayLoad;
-  bool &IsBitcast;
-  bool &HasSideEffects;
-  bool &IsVariadic;
 public:
-  InstAnalyzer(const CodeGenDAGPatterns &cdp,
-               bool &maystore, bool &mayload, bool &isbc, bool &hse, bool &isv)
-    : CDP(cdp), mayStore(maystore), mayLoad(mayload), IsBitcast(isbc),
-      HasSideEffects(hse), IsVariadic(isv) {
+  bool hasSideEffects;
+  bool mayStore;
+  bool mayLoad;
+  bool isBitcast;
+  bool isVariadic;
+
+  InstAnalyzer(const CodeGenDAGPatterns &cdp)
+    : CDP(cdp), hasSideEffects(false), mayStore(false), mayLoad(false),
+      isBitcast(false), isVariadic(false) {}
+
+  void Analyze(const TreePattern *Pat) {
+    // Assume only the first tree is the pattern. The others are clobber nodes.
+    AnalyzeNode(Pat->getTree(0));
   }
 
-  /// Analyze - Analyze the specified instruction, returning true if the
-  /// instruction had a pattern.
-  bool Analyze(Record *InstRecord) {
-    const TreePattern *Pattern = CDP.getInstruction(InstRecord).getPattern();
-    if (Pattern == 0) {
-      HasSideEffects = 1;
-      return false;  // No pattern.
-    }
-
-    // FIXME: Assume only the first tree is the pattern. The others are clobber
-    // nodes.
-    AnalyzeNode(Pattern->getTree(0));
-    return true;
+  void Analyze(const PatternToMatch *Pat) {
+    AnalyzeNode(Pat->getSrcPattern());
   }
 
 private:
   bool IsNodeBitcast(const TreePatternNode *N) const {
-    if (HasSideEffects || mayLoad || mayStore || IsVariadic)
+    if (hasSideEffects || mayLoad || mayStore || isVariadic)
       return false;
 
     if (N->getNumChildren() != 2)
@@ -2418,6 +2408,7 @@ private:
     return OpInfo.getEnumName() == "ISD::BITCAST";
   }
 
+public:
   void AnalyzeNode(const TreePatternNode *N) {
     if (N->isLeaf()) {
       if (DefInit *DI = dynamic_cast<DefInit*>(N->getLeafValue())) {
@@ -2427,7 +2418,7 @@ private:
           const ComplexPattern &CP = CDP.getComplexPattern(LeafRec);
           if (CP.hasProperty(SDNPMayStore)) mayStore = true;
           if (CP.hasProperty(SDNPMayLoad)) mayLoad = true;
-          if (CP.hasProperty(SDNPSideEffect)) HasSideEffects = true;
+          if (CP.hasProperty(SDNPSideEffect)) hasSideEffects = true;
         }
       }
       return;
@@ -2439,7 +2430,7 @@ private:
 
     // Ignore set nodes, which are not SDNodes.
     if (N->getOperator()->getName() == "set") {
-      IsBitcast = IsNodeBitcast(N);
+      isBitcast = IsNodeBitcast(N);
       return;
     }
 
@@ -2449,8 +2440,8 @@ private:
     // Notice properties of the node.
     if (OpInfo.hasProperty(SDNPMayStore)) mayStore = true;
     if (OpInfo.hasProperty(SDNPMayLoad)) mayLoad = true;
-    if (OpInfo.hasProperty(SDNPSideEffect)) HasSideEffects = true;
-    if (OpInfo.hasProperty(SDNPVariadic)) IsVariadic = true;
+    if (OpInfo.hasProperty(SDNPSideEffect)) hasSideEffects = true;
+    if (OpInfo.hasProperty(SDNPVariadic)) isVariadic = true;
 
     if (const CodeGenIntrinsic *IntInfo = N->getIntrinsicInfo(CDP)) {
       // If this is an intrinsic, analyze it.
@@ -2462,62 +2453,64 @@ private:
 
       if (IntInfo->ModRef >= CodeGenIntrinsic::ReadWriteMem)
         // WriteMem intrinsics can have other strange effects.
-        HasSideEffects = true;
+        hasSideEffects = true;
     }
   }
 
 };
 
-static void InferFromPattern(const CodeGenInstruction &Inst,
-                             bool &MayStore, bool &MayLoad,
-                             bool &IsBitcast,
-                             bool &HasSideEffects, bool &IsVariadic,
-                             const CodeGenDAGPatterns &CDP) {
-  MayStore = MayLoad = IsBitcast = HasSideEffects = IsVariadic = false;
+static bool InferFromPattern(CodeGenInstruction &InstInfo,
+                             const InstAnalyzer &PatInfo,
+                             Record *PatDef) {
+  bool Error = false;
 
-  bool HadPattern =
-    InstAnalyzer(CDP, MayStore, MayLoad, IsBitcast, HasSideEffects, IsVariadic)
-    .Analyze(Inst.TheDef);
+  // Remember where InstInfo got its flags.
+  if (InstInfo.hasUndefFlags())
+      InstInfo.InferredFrom = PatDef;
 
-  // InstAnalyzer only correctly analyzes mayStore/mayLoad so far.
-  if (Inst.mayStore) {  // If the .td file explicitly sets mayStore, use it.
-    // If we decided that this is a store from the pattern, then the .td file
-    // entry is redundant.
-    if (MayStore)
-      PrintWarning(Inst.TheDef->getLoc(),
-                   "mayStore flag explicitly set on "
-                   "instruction, but flag already inferred from pattern.");
-    MayStore = true;
+  // Check explicitly set flags for consistency.
+  if (InstInfo.hasSideEffects != PatInfo.hasSideEffects &&
+      !InstInfo.hasSideEffects_Unset) {
+    // Allow explicitly setting hasSideEffects = 1 on instructions, even when
+    // the pattern has no side effects. That could be useful for div/rem
+    // instructions that may trap.
+    if (!InstInfo.hasSideEffects) {
+      Error = true;
+      PrintError(PatDef->getLoc(), "Pattern doesn't match hasSideEffects = " +
+                 Twine(InstInfo.hasSideEffects));
+    }
   }
 
-  if (Inst.mayLoad) {  // If the .td file explicitly sets mayLoad, use it.
-    // If we decided that this is a load from the pattern, then the .td file
-    // entry is redundant.
-    if (MayLoad)
-      PrintWarning(Inst.TheDef->getLoc(),
-                   "mayLoad flag explicitly set on "
-                   "instruction, but flag already inferred from pattern.");
-    MayLoad = true;
+  if (InstInfo.mayStore != PatInfo.mayStore && !InstInfo.mayStore_Unset) {
+    Error = true;
+    PrintError(PatDef->getLoc(), "Pattern doesn't match mayStore = " +
+               Twine(InstInfo.mayStore));
   }
 
-  if (Inst.neverHasSideEffects) {
-    if (HadPattern)
-      PrintWarning(Inst.TheDef->getLoc(),
-                   "neverHasSideEffects flag explicitly set on "
-                   "instruction, but flag already inferred from pattern.");
-    HasSideEffects = false;
+  if (InstInfo.mayLoad != PatInfo.mayLoad && !InstInfo.mayLoad_Unset) {
+    // Allow explicitly setting mayLoad = 1, even when the pattern has no loads.
+    // Some targets translate imediates to loads.
+    if (!InstInfo.mayLoad) {
+      Error = true;
+      PrintError(PatDef->getLoc(), "Pattern doesn't match mayLoad = " +
+                 Twine(InstInfo.mayLoad));
+    }
   }
 
-  if (Inst.hasSideEffects) {
-    if (HasSideEffects)
-      PrintWarning(Inst.TheDef->getLoc(),
-                   "hasSideEffects flag explicitly set on "
-                   "instruction, but flag already inferred from pattern.");
-    HasSideEffects = true;
-  }
+  // Transfer inferred flags.
+  InstInfo.hasSideEffects |= PatInfo.hasSideEffects;
+  InstInfo.mayStore |= PatInfo.mayStore;
+  InstInfo.mayLoad |= PatInfo.mayLoad;
 
-  if (Inst.Operands.isVariadic)
-    IsVariadic = true;  // Can warn if we want.
+  // These flags are silently added without any verification.
+  InstInfo.isBitcast |= PatInfo.isBitcast;
+
+  // Don't infer isVariadic. This flag means something different on SDNodes and
+  // instructions. For example, a CALL SDNode is variadic because it has the
+  // call arguments as operands, but a CALL instruction is not variadic - it
+  // has argument registers as implicit, not explicit uses.
+
+  return Error;
 }
 
 /// hasNullFragReference - Return true if the DAG has any reference to the
@@ -2549,6 +2542,17 @@ static bool hasNullFragReference(ListInit *LI) {
       return true;
   }
   return false;
+}
+
+/// Get all the instructions in a tree.
+static void
+getInstructionsInTree(TreePatternNode *Tree, SmallVectorImpl<Record*> &Instrs) {
+  if (Tree->isLeaf())
+    return;
+  if (Tree->getOperator()->isSubClassOf("Instruction"))
+    Instrs.push_back(Tree->getOperator());
+  for (unsigned i = 0, e = Tree->getNumChildren(); i != e; ++i)
+    getInstructionsInTree(Tree->getChild(i), Instrs);
 }
 
 /// ParseInstructions - Parse all of the instructions, inlining and resolving
@@ -2852,25 +2856,156 @@ void CodeGenDAGPatterns::AddPatternToMatch(const TreePattern *Pattern,
 void CodeGenDAGPatterns::InferInstructionFlags() {
   const std::vector<const CodeGenInstruction*> &Instructions =
     Target.getInstructionsByEnumValue();
+
+  // First try to infer flags from the primary instruction pattern, if any.
+  SmallVector<CodeGenInstruction*, 8> Revisit;
+  unsigned Errors = 0;
   for (unsigned i = 0, e = Instructions.size(); i != e; ++i) {
     CodeGenInstruction &InstInfo =
       const_cast<CodeGenInstruction &>(*Instructions[i]);
-    // Determine properties of the instruction from its pattern.
-    bool MayStore, MayLoad, IsBitcast, HasSideEffects, IsVariadic;
-    InferFromPattern(InstInfo, MayStore, MayLoad, IsBitcast,
-                     HasSideEffects, IsVariadic, *this);
-    InstInfo.mayStore = MayStore;
-    InstInfo.mayLoad = MayLoad;
-    InstInfo.isBitcast = IsBitcast;
-    InstInfo.hasSideEffects = HasSideEffects;
-    InstInfo.Operands.isVariadic = IsVariadic;
 
-    // Sanity checks.
-    if (InstInfo.isReMaterializable && InstInfo.hasSideEffects)
-      throw TGError(InstInfo.TheDef->getLoc(), "The instruction " +
-                    InstInfo.TheDef->getName() +
-                    " is rematerializable AND has unmodeled side effects?");
+    // Treat neverHasSideEffects = 1 as the equivalent of hasSideEffects = 0.
+    // This flag is obsolete and will be removed.
+    if (InstInfo.neverHasSideEffects) {
+      assert(!InstInfo.hasSideEffects);
+      InstInfo.hasSideEffects_Unset = false;
+    }
+
+    // Get the primary instruction pattern.
+    const TreePattern *Pattern = getInstruction(InstInfo.TheDef).getPattern();
+    if (!Pattern) {
+      if (InstInfo.hasUndefFlags())
+        Revisit.push_back(&InstInfo);
+      continue;
+    }
+    InstAnalyzer PatInfo(*this);
+    PatInfo.Analyze(Pattern);
+    Errors += InferFromPattern(InstInfo, PatInfo, InstInfo.TheDef);
   }
+
+  // Second, look for single-instruction patterns defined outside the
+  // instruction.
+  for (ptm_iterator I = ptm_begin(), E = ptm_end(); I != E; ++I) {
+    const PatternToMatch &PTM = *I;
+
+    // We can only infer from single-instruction patterns, otherwise we won't
+    // know which instruction should get the flags.
+    SmallVector<Record*, 8> PatInstrs;
+    getInstructionsInTree(PTM.getDstPattern(), PatInstrs);
+    if (PatInstrs.size() != 1)
+      continue;
+
+    // Get the single instruction.
+    CodeGenInstruction &InstInfo = Target.getInstruction(PatInstrs.front());
+
+    // Only infer properties from the first pattern. We'll verify the others.
+    if (InstInfo.InferredFrom)
+      continue;
+
+    InstAnalyzer PatInfo(*this);
+    PatInfo.Analyze(&PTM);
+    Errors += InferFromPattern(InstInfo, PatInfo, PTM.getSrcRecord());
+  }
+
+  if (Errors)
+    throw "pattern conflicts";
+
+  // Revisit instructions with undefined flags and no pattern.
+  if (Target.guessInstructionProperties()) {
+    for (unsigned i = 0, e = Revisit.size(); i != e; ++i) {
+      CodeGenInstruction &InstInfo = *Revisit[i];
+      if (InstInfo.InferredFrom)
+        continue;
+      // The mayLoad and mayStore flags default to false.
+      // Conservatively assume hasSideEffects if it wasn't explicit.
+      if (InstInfo.hasSideEffects_Unset)
+        InstInfo.hasSideEffects = true;
+    }
+    return;
+  }
+
+  // Complain about any flags that are still undefined.
+  for (unsigned i = 0, e = Revisit.size(); i != e; ++i) {
+    CodeGenInstruction &InstInfo = *Revisit[i];
+    if (InstInfo.InferredFrom)
+      continue;
+    if (InstInfo.hasSideEffects_Unset)
+      PrintError(InstInfo.TheDef->getLoc(),
+                 "Can't infer hasSideEffects from patterns");
+    if (InstInfo.mayStore_Unset)
+      PrintError(InstInfo.TheDef->getLoc(),
+                 "Can't infer mayStore from patterns");
+    if (InstInfo.mayLoad_Unset)
+      PrintError(InstInfo.TheDef->getLoc(),
+                 "Can't infer mayLoad from patterns");
+  }
+}
+
+
+/// Verify instruction flags against pattern node properties.
+void CodeGenDAGPatterns::VerifyInstructionFlags() {
+  unsigned Errors = 0;
+  for (ptm_iterator I = ptm_begin(), E = ptm_end(); I != E; ++I) {
+    const PatternToMatch &PTM = *I;
+    SmallVector<Record*, 8> Instrs;
+    getInstructionsInTree(PTM.getDstPattern(), Instrs);
+    if (Instrs.empty())
+      continue;
+
+    // Count the number of instructions with each flag set.
+    unsigned NumSideEffects = 0;
+    unsigned NumStores = 0;
+    unsigned NumLoads = 0;
+    for (unsigned i = 0, e = Instrs.size(); i != e; ++i) {
+      const CodeGenInstruction &InstInfo = Target.getInstruction(Instrs[i]);
+      NumSideEffects += InstInfo.hasSideEffects;
+      NumStores += InstInfo.mayStore;
+      NumLoads += InstInfo.mayLoad;
+    }
+
+    // Analyze the source pattern.
+    InstAnalyzer PatInfo(*this);
+    PatInfo.Analyze(&PTM);
+
+    // Collect error messages.
+    SmallVector<std::string, 4> Msgs;
+
+    // Check for missing flags in the output.
+    // Permit extra flags for now at least.
+    if (PatInfo.hasSideEffects && !NumSideEffects)
+      Msgs.push_back("pattern has side effects, but hasSideEffects isn't set");
+
+    // Don't verify store flags on instructions with side effects. At least for
+    // intrinsics, side effects implies mayStore.
+    if (!PatInfo.hasSideEffects && PatInfo.mayStore && !NumStores)
+      Msgs.push_back("pattern may store, but mayStore isn't set");
+
+    // Similarly, mayStore implies mayLoad on intrinsics.
+    if (!PatInfo.mayStore && PatInfo.mayLoad && !NumLoads)
+      Msgs.push_back("pattern may load, but mayLoad isn't set");
+
+    // Print error messages.
+    if (Msgs.empty())
+      continue;
+    ++Errors;
+
+    for (unsigned i = 0, e = Msgs.size(); i != e; ++i)
+      PrintError(PTM.getSrcRecord()->getLoc(), Twine(Msgs[i]) + " on the " +
+                 (Instrs.size() == 1 ?
+                  "instruction" : "output instructions"));
+    // Provide the location of the relevant instruction definitions.
+    for (unsigned i = 0, e = Instrs.size(); i != e; ++i) {
+      if (Instrs[i] != PTM.getSrcRecord())
+        PrintError(Instrs[i]->getLoc(), "defined here");
+      const CodeGenInstruction &InstInfo = Target.getInstruction(Instrs[i]);
+      if (InstInfo.InferredFrom &&
+          InstInfo.InferredFrom != InstInfo.TheDef &&
+          InstInfo.InferredFrom != PTM.getSrcRecord())
+        PrintError(InstInfo.InferredFrom->getLoc(), "inferred from patttern");
+    }
+  }
+  if (Errors)
+    throw "Errors in DAG patterns";
 }
 
 /// Given a pattern result with an unresolved type, see if we can find one
@@ -3330,4 +3465,3 @@ void CodeGenDAGPatterns::GenerateVariants() {
     DEBUG(errs() << "\n");
   }
 }
-

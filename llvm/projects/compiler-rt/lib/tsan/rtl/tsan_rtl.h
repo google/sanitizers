@@ -27,6 +27,7 @@
 #define TSAN_RTL_H
 
 #include "sanitizer_common/sanitizer_common.h"
+#include "sanitizer_common/sanitizer_allocator64.h"
 #include "tsan_clock.h"
 #include "tsan_defs.h"
 #include "tsan_flags.h"
@@ -36,6 +37,30 @@
 #include "tsan_report.h"
 
 namespace __tsan {
+
+// Descriptor of user's memory block.
+struct MBlock {
+  Mutex mtx;
+  uptr size;
+  SyncVar *head;
+};
+
+#ifndef TSAN_GO
+#if defined(TSAN_COMPAT_SHADOW) && TSAN_COMPAT_SHADOW
+const uptr kAllocatorSpace = 0x7d0000000000ULL;
+#else
+const uptr kAllocatorSpace = 0x7d0000000000ULL;
+#endif
+const uptr kAllocatorSize  =  0x10000000000ULL;  // 1T.
+
+typedef SizeClassAllocator64<kAllocatorSpace, kAllocatorSize, sizeof(MBlock),
+    DefaultSizeClassMap> PrimaryAllocator;
+typedef SizeClassAllocatorLocalCache<PrimaryAllocator::kNumClasses,
+    PrimaryAllocator> AllocatorCache;
+typedef LargeMmapAllocator SecondaryAllocator;
+typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
+    SecondaryAllocator> Allocator;
+#endif
 
 void TsanPrintf(const char *format, ...);
 
@@ -56,6 +81,10 @@ class FastState {
 
   explicit FastState(u64 x)
       : x_(x) {
+  }
+
+  u64 raw() const {
+    return x_;
   }
 
   u64 tid() const {
@@ -118,7 +147,6 @@ class Shadow : public FastState {
   }
 
   bool IsZero() const { return x_ == 0; }
-  u64 raw() const { return x_; }
 
   static inline bool TidsAreEqual(const Shadow s1, const Shadow s2) {
     u64 shifted_xor = (s1.x_ ^ s2.x_) >> kTidShift;
@@ -237,6 +265,9 @@ struct ThreadState {
   uptr *shadow_stack_end;
 #endif
   ThreadClock clock;
+#ifndef TSAN_GO
+  AllocatorCache alloc_cache;
+#endif
   u64 stat[StatCnt];
   const int tid;
   int in_rtl;
@@ -381,6 +412,8 @@ class ScopedReport {
   void operator = (const ScopedReport&);
 };
 
+void RestoreStack(int tid, const u64 epoch, StackTrace *stk);
+
 void StatAggregate(u64 *dst, u64 *src);
 void StatOutput(u64 *stat);
 void ALWAYS_INLINE INLINE StatInc(ThreadState *thr, StatType typ, u64 n = 1) {
@@ -425,6 +458,7 @@ void MemoryAccessRange(ThreadState *thr, uptr pc, uptr addr,
                        uptr size, bool is_write);
 void MemoryResetRange(ThreadState *thr, uptr pc, uptr addr, uptr size);
 void MemoryRangeFreed(ThreadState *thr, uptr pc, uptr addr, uptr size);
+void MemoryRangeImitateWrite(ThreadState *thr, uptr pc, uptr addr, uptr size);
 void IgnoreCtl(ThreadState *thr, bool write, bool begin);
 
 void FuncEntry(ThreadState *thr, uptr pc);
@@ -437,8 +471,10 @@ int ThreadTid(ThreadState *thr, uptr pc, uptr uid);
 void ThreadJoin(ThreadState *thr, uptr pc, int tid);
 void ThreadDetach(ThreadState *thr, uptr pc, int tid);
 void ThreadFinalize(ThreadState *thr);
+void ThreadFinalizerGoroutine(ThreadState *thr);
 
-void MutexCreate(ThreadState *thr, uptr pc, uptr addr, bool rw, bool recursive);
+void MutexCreate(ThreadState *thr, uptr pc, uptr addr,
+                 bool rw, bool recursive, bool linker_init);
 void MutexDestroy(ThreadState *thr, uptr pc, uptr addr);
 void MutexLock(ThreadState *thr, uptr pc, uptr addr);
 void MutexUnlock(ThreadState *thr, uptr pc, uptr addr);
@@ -448,6 +484,7 @@ void MutexReadOrWriteUnlock(ThreadState *thr, uptr pc, uptr addr);
 
 void Acquire(ThreadState *thr, uptr pc, uptr addr);
 void Release(ThreadState *thr, uptr pc, uptr addr);
+void ReleaseStore(ThreadState *thr, uptr pc, uptr addr);
 
 // The hacky call uses custom calling convention and an assembly thunk.
 // It is considerably faster that a normal call for the caller

@@ -147,7 +147,7 @@ static void AnalyzerOptsToArgs(const AnalyzerOptions &Opts, ToArgsList &Res) {
                   getAnalysisPurgeModeName(Opts.AnalysisPurgeOpt));
   if (!Opts.AnalyzeSpecificFunction.empty())
     Res.push_back("-analyze-function", Opts.AnalyzeSpecificFunction);
-  if (Opts.IPAMode != Inlining)
+  if (Opts.IPAMode != BasicInlining)
     Res.push_back("-analyzer-ipa", getAnalysisIPAModeName(Opts.IPAMode));
   if (Opts.InliningMode != NoRedundancy)
     Res.push_back("-analyzer-inlining-mode",
@@ -434,6 +434,7 @@ static const char *getActionName(frontend::ActionKind Kind) {
   case frontend::PluginAction:
     llvm_unreachable("Invalid kind!");
 
+  case frontend::ASTDeclList:            return "-ast-list";
   case frontend::ASTDump:                return "-ast-dump";
   case frontend::ASTDumpXML:             return "-ast-dump-xml";
   case frontend::ASTPrint:               return "-ast-print";
@@ -558,6 +559,8 @@ static void FrontendOptsToArgs(const FrontendOptions &Opts, ToArgsList &Res) {
     for(unsigned i = 0, e = Opts.PluginArgs.size(); i != e; ++i)
       Res.push_back("-plugin-arg-" + Opts.ActionName, Opts.PluginArgs[i]);
   }
+  if (!Opts.ASTDumpFilter.empty())
+    Res.push_back("-ast-dump-filter", Opts.ASTDumpFilter);
   for (unsigned i = 0, e = Opts.Plugins.size(); i != e; ++i)
     Res.push_back("-load", Opts.Plugins[i]);
   for (unsigned i = 0, e = Opts.AddPluginActions.size(); i != e; ++i) {
@@ -809,7 +812,7 @@ static void LangOptsToArgs(const LangOptions &Opts, ToArgsList &Res) {
   Res.push_back("-fobjc-runtime=" + Opts.ObjCRuntime.getAsString());
   if (Opts.ObjCAutoRefCount)
     Res.push_back("-fobjc-arc");
-  if (Opts.ObjCRuntimeHasWeak)
+  if (Opts.ObjCARCWeak)
     Res.push_back("-fobjc-runtime-has-weak");
   if (!Opts.ObjCInferRelatedResultType)
     Res.push_back("-fno-objc-infer-related-result-type");
@@ -1124,7 +1127,6 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   Opts.AnalyzeSpecificFunction = Args.getLastArgValue(OPT_analyze_function);
   Opts.UnoptimizedCFG = Args.hasArg(OPT_analysis_UnoptimizedCFG);
   Opts.CFGAddImplicitDtors = Args.hasArg(OPT_analysis_CFGAddImplicitDtors);
-  Opts.CFGAddInitializers = Args.hasArg(OPT_analysis_CFGAddInitializers);
   Opts.TrimGraph = Args.hasArg(OPT_trim_egraph);
   Opts.MaxNodes = Args.getLastArgIntValue(OPT_analyzer_max_nodes, 150000,Diags);
   Opts.MaxLoop = Args.getLastArgIntValue(OPT_analyzer_max_loop, 4, Diags);
@@ -1151,6 +1153,36 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     checkerList.split(checkers, ",");
     for (unsigned i = 0, e = checkers.size(); i != e; ++i)
       Opts.CheckersControlList.push_back(std::make_pair(checkers[i], enable));
+  }
+  
+  // Go through the analyzer configuration options.
+  for (arg_iterator it = Args.filtered_begin(OPT_analyzer_config),
+       ie = Args.filtered_end(); it != ie; ++it) {
+    const Arg *A = *it;
+    A->claim();
+    // We can have a list of comma separated config names, e.g:
+    // '-analyzer-config key1=val1,key2=val2'
+    StringRef configList = A->getValue(Args);
+    SmallVector<StringRef, 4> configVals;
+    configList.split(configVals, ",");
+    for (unsigned i = 0, e = configVals.size(); i != e; ++i) {
+      StringRef key, val;
+      llvm::tie(key, val) = configVals[i].split("=");
+      if (val.empty()) {
+        Diags.Report(SourceLocation(),
+                     diag::err_analyzer_config_no_value) << configVals[i];
+        Success = false;
+        break;
+      }
+      if (val.find('=') != StringRef::npos) {
+        Diags.Report(SourceLocation(),
+                     diag::err_analyzer_config_multiple_values)
+          << configVals[i];
+        Success = false;
+        break;
+      }
+      Opts.Config[key] = val;
+    }
   }
 
   return Success;
@@ -1261,10 +1293,11 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.EmitGcovArcs = Args.hasArg(OPT_femit_coverage_data);
   Opts.EmitGcovNotes = Args.hasArg(OPT_femit_coverage_notes);
   Opts.EmitOpenCLArgMetadata = Args.hasArg(OPT_cl_kernel_arg_info);
-  Opts.EmitMicrosoftInlineAsm = Args.hasArg(OPT_fenable_experimental_ms_inline_asm);
   Opts.CoverageFile = Args.getLastArgValue(OPT_coverage_file);
   Opts.DebugCompilationDir = Args.getLastArgValue(OPT_fdebug_compilation_dir);
   Opts.LinkBitcodeFile = Args.getLastArgValue(OPT_mlink_bitcode_file);
+  Opts.SSPBufferSize =
+    Args.getLastArgIntValue(OPT_stack_protector_buffer_size, 8, Diags);
   Opts.StackRealignment = Args.hasArg(OPT_mstackrealign);
   if (Arg *A = Args.getLastArg(OPT_mstack_alignment)) {
     StringRef Val = A->getValue(Args);
@@ -1436,6 +1469,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     switch (A->getOption().getID()) {
     default:
       llvm_unreachable("Invalid option in group!");
+    case OPT_ast_list:
+      Opts.ProgramAction = frontend::ASTDeclList; break;
     case OPT_ast_dump:
       Opts.ProgramAction = frontend::ASTDump; break;
     case OPT_ast_dump_xml:
@@ -1542,6 +1577,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
   Opts.FixOnlyWarnings = Args.hasArg(OPT_fix_only_warnings);
   Opts.FixAndRecompile = Args.hasArg(OPT_fixit_recompile);
   Opts.FixToTemporaries = Args.hasArg(OPT_fixit_to_temp);
+  Opts.ASTDumpFilter = Args.getLastArgValue(OPT_ast_dump_filter);
 
   Opts.CodeCompleteOpts.IncludeMacros
     = Args.hasArg(OPT_code_completion_macros);
@@ -1936,13 +1972,15 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Opts.setGC(LangOptions::HybridGC);
     else if (Args.hasArg(OPT_fobjc_arc)) {
       Opts.ObjCAutoRefCount = 1;
-      if (!Opts.ObjCRuntime.isNonFragile())
-        Diags.Report(diag::err_arc_nonfragile_abi);
-    }
+      if (!Opts.ObjCRuntime.allowsARC())
+        Diags.Report(diag::err_arc_unsupported_on_runtime);
 
-    Opts.ObjCRuntimeHasWeak = Opts.ObjCRuntime.hasWeak();
-    if (Args.hasArg(OPT_fobjc_runtime_has_weak))
-      Opts.ObjCRuntimeHasWeak = 1;
+      // Only set ObjCARCWeak if ARC is enabled.
+      if (Args.hasArg(OPT_fobjc_runtime_has_weak))
+        Opts.ObjCARCWeak = 1;
+      else
+        Opts.ObjCARCWeak = Opts.ObjCRuntime.allowsWeak();
+    }
 
     if (Args.hasArg(OPT_fno_objc_infer_related_result_type))
       Opts.ObjCInferRelatedResultType = 0;
@@ -2091,9 +2129,10 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
                                  Opts.Deprecated);
 
   // FIXME: Eliminate this dependency.
-  unsigned Opt = getOptimizationLevel(Args, IK, Diags);
+  unsigned Opt = getOptimizationLevel(Args, IK, Diags),
+       OptSize = getOptimizationLevelSize(Args, IK, Diags);
   Opts.Optimize = Opt != 0;
-  Opts.OptimizeSize = getOptimizationLevelSize(Args, IK, Diags);
+  Opts.OptimizeSize = OptSize != 0;
 
   // This is the __NO_INLINE__ define, which just depends on things like the
   // optimization level and -fno-inline, not actually whether the backend has
@@ -2102,6 +2141,8 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.FastMath = Args.hasArg(OPT_ffast_math);
   Opts.FiniteMathOnly = Args.hasArg(OPT_ffinite_math_only);
+
+  Opts.EmitMicrosoftInlineAsm = Args.hasArg(OPT_fenable_experimental_ms_inline_asm);
 
   unsigned SSP = Args.getLastArgIntValue(OPT_stack_protector, 0, Diags);
   switch (SSP) {

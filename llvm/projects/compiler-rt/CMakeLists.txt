@@ -21,7 +21,7 @@ cmake_minimum_required(VERSION 2.8.8)
 
 # Detect whether the current target platform is 32-bit or 64-bit, and setup
 # the correct commandline flags needed to attempt to target 32-bit and 64-bit.
-if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+if(CMAKE_SIZEOF_VOID_P EQUAL 4 OR LLVM_BUILD_32_BITS)
   set(TARGET_X86_64_CFLAGS "-m64")
   set(TARGET_I386_CFLAGS "")
 else()
@@ -48,6 +48,48 @@ try_compile(CAN_TARGET_I386 ${CMAKE_BINARY_DIR} ${SIMPLE_SOURCE32}
             COMPILE_DEFINITIONS "${TARGET_I386_CFLAGS}"
             CMAKE_FLAGS "-DCMAKE_EXE_LINKER_FLAGS:STRING=${TARGET_I386_CFLAGS}")
 
+if(LLVM_ANDROID_TOOLCHAIN_DIR)
+  if(EXISTS ${LLVM_ANDROID_TOOLCHAIN_DIR}/arm-linux-androideabi)
+    set(CAN_TARGET_ARM_ANDROID 1)
+    set(TARGET_ARM_ANDROID_CFLAGS
+      -target arm-linux-androideabi
+      --sysroot=${LLVM_ANDROID_TOOLCHAIN_DIR}/sysroot
+      -B${LLVM_ANDROID_TOOLCHAIN_DIR}
+      )
+  else()
+    set(CAN_TARGET_ARM_ANDROID 0)
+  endif()
+  # TODO: support i686 and MIPS Android toolchains
+endif()
+
+function(filter_available_targets out_var)
+  set(archs)
+  foreach(arch ${ARGN})
+    if(${arch} STREQUAL "x86_64" AND CAN_TARGET_X86_64)
+      list(APPEND archs ${arch})
+    elseif (${arch} STREQUAL "i386" AND CAN_TARGET_I386)
+      list(APPEND archs ${arch})
+    endif()
+  endforeach()
+  set(${out_var} ${archs} PARENT_SCOPE)
+endfunction()
+
+# Provide some common commmandline flags for Sanitizer runtimes.
+set(SANITIZER_COMMON_CFLAGS
+  -fPIC
+  -fno-exceptions
+  -funwind-tables
+  -fvisibility=hidden
+  )
+if(SUPPORTS_NO_VARIADIC_MACROS_FLAG)
+  list(APPEND SANITIZER_COMMON_CFLAGS -Wno-variadic-macros)
+endif()
+check_cxx_compiler_flag(-Wno-c99-extensions
+  SUPPORTS_NO_C99_EXTENSIONS_FLAG)
+if(SUPPORTS_NO_C99_EXTENSIONS_FLAG)
+  list(APPEND SANITIZER_COMMON_CFLAGS -Wno-c99-extensions)
+endif()
+
 # Because compiler-rt spends a lot of time setting up custom compile flags,
 # define a handy helper function for it. The compile flags setting in CMake
 # has serious issues that make its syntax challenging at best.
@@ -57,6 +99,9 @@ function(set_target_compile_flags target)
   endforeach()
   set_property(TARGET ${target} PROPERTY COMPILE_FLAGS "${argstring}")
 endfunction()
+
+# Add the public header's directory to the includes for all of compiler-rt.
+include_directories(include)
 
 add_subdirectory(lib)
 

@@ -88,11 +88,10 @@ namespace {
 
     // Add the function to write out all our counters to the global destructor
     // list.
-    void insertCounterWriteout(SmallVector<std::pair<GlobalVariable *,
-                                                     MDNode *>, 8> &);
+    void insertCounterWriteout(ArrayRef<std::pair<GlobalVariable*, MDNode*> >);
     void insertIndirectCounterIncrement();
 
-    std::string mangleName(DICompileUnit CU, std::string NewStem);
+    std::string mangleName(DICompileUnit CU, const char *NewStem);
 
     bool EmitNotes;
     bool EmitData;
@@ -329,7 +328,7 @@ namespace {
   };
 }
 
-std::string GCOVProfiler::mangleName(DICompileUnit CU, std::string NewStem) {
+std::string GCOVProfiler::mangleName(DICompileUnit CU, const char *NewStem) {
   if (NamedMDNode *GCov = M->getNamedMetadata("llvm.gcov")) {
     for (int i = 0, e = GCov->getNumOperands(); i != e; ++i) {
       MDNode *N = GCov->getOperand(i);
@@ -630,7 +629,7 @@ GlobalVariable *GCOVProfiler::getEdgeStateValue() {
 }
 
 void GCOVProfiler::insertCounterWriteout(
-    SmallVector<std::pair<GlobalVariable *, MDNode *>, 8> &CountersBySP) {
+    ArrayRef<std::pair<GlobalVariable *, MDNode *> > CountersBySP) {
   FunctionType *WriteoutFTy =
       FunctionType::get(Type::getVoidTy(*Ctx), false);
   Function *WriteoutF = Function::Create(WriteoutFTy,
@@ -652,7 +651,7 @@ void GCOVProfiler::insertCounterWriteout(
       std::string FilenameGcda = mangleName(compile_unit, "gcda");
       Builder.CreateCall(StartFile,
                          Builder.CreateGlobalStringPtr(FilenameGcda));
-      for (SmallVector<std::pair<GlobalVariable *, MDNode *>, 8>::iterator
+      for (ArrayRef<std::pair<GlobalVariable *, MDNode *> >::iterator
              I = CountersBySP.begin(), E = CountersBySP.end();
            I != E; ++I) {
         DISubprogram SP(I->second);

@@ -218,6 +218,12 @@ RDYNAMIC := @RDYNAMIC@
 #ENABLE_LIBCPP = 0
 ENABLE_LIBCPP = @ENABLE_LIBCPP@
 
+# When ENABLE_CXX11 is enabled, LLVM uses c++11 mode by default to build.
+ENABLE_CXX11 = @ENABLE_CXX11@
+
+# When ENABLE_WERROR is enabled, we'll pass -Werror on the command line
+ENABLE_WERROR = @ENABLE_WERROR@
+
 # When ENABLE_OPTIMIZED is enabled, LLVM code is optimized and output is put
 # into the "Release" directories. Otherwise, LLVM code is not optimized and
 # output is put in the "Debug" directories.
@@ -251,6 +257,11 @@ ENABLE_LIBCPP = @ENABLE_LIBCPP@
 # symbols.
 #DEBUG_SYMBOLS = 1
 @DEBUG_SYMBOLS@
+
+# When KEEP_SYMBOLS is enabled, installed executables will never have their
+# symbols stripped.
+#KEEP_SYMBOLS = 1
+@KEEP_SYMBOLS@
 
 # The compiler flags to use for optimized builds.
 OPTIMIZE_OPTION := @OPTIMIZE_OPTION@
@@ -343,6 +354,10 @@ LLVM_HAS_POLLY = @LLVM_HAS_POLLY@
 # Flags supported by the linker.
 # bfd ld / gold --version-script=file
 HAVE_LINK_VERSION_SCRIPT = @HAVE_LINK_VERSION_SCRIPT@
+
+# Flags to control using libxml2
+LIBXML2_LIBS := @LIBXML2_LIBS@
+LIBXML2_INC  := @LIBXML2_INC@
 
 # Flags to control building support for Intel JIT Events API
 USE_INTEL_JITEVENTS := @USE_INTEL_JITEVENTS@

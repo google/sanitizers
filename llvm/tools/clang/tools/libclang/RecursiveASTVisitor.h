@@ -1753,7 +1753,7 @@ bool RecursiveASTVisitor<Derived>::Traverse##STMT (STMT *S) {           \
   return true;                                                          \
 }
 
-DEF_TRAVERSE_STMT(AsmStmt, {
+DEF_TRAVERSE_STMT(GCCAsmStmt, {
     StmtQueue.queue(S->getAsmString());
     for (unsigned I = 0, E = S->getNumInputs(); I < E; ++I) {
       StmtQueue.queue(S->getInputConstraintLiteral(I));
@@ -1762,7 +1762,7 @@ DEF_TRAVERSE_STMT(AsmStmt, {
       StmtQueue.queue(S->getOutputConstraintLiteral(I));
     }
     for (unsigned I = 0, E = S->getNumClobbers(); I < E; ++I) {
-      StmtQueue.queue(S->getClobber(I));
+      StmtQueue.queue(S->getClobberStringLiteral(I));
     }
     // children() iterates over inputExpr and outputExpr.
   })

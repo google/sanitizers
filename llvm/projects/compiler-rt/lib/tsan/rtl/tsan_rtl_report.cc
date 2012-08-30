@@ -38,10 +38,14 @@ void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {
 namespace __tsan {
 
 // Can be overriden by an application/test to intercept reports.
+#ifdef TSAN_EXTERNAL_HOOKS
+bool OnReport(const ReportDesc *rep, bool suppressed);
+#else
 bool WEAK OnReport(const ReportDesc *rep, bool suppressed) {
   (void)rep;
   return suppressed;
 }
+#endif
 
 static void StackStripMain(ReportStack *stack) {
   ReportStack *last_frame = 0;
@@ -50,12 +54,12 @@ static void StackStripMain(ReportStack *stack) {
   uptr prefix_len = internal_strlen(prefix);
   const char *path_prefix = flags()->strip_path_prefix;
   uptr path_prefix_len = internal_strlen(path_prefix);
+  char *pos;
   for (ReportStack *ent = stack; ent; ent = ent->next) {
     if (ent->func && 0 == internal_strncmp(ent->func, prefix, prefix_len))
       ent->func += prefix_len;
-    if (ent->file && 0 == internal_strncmp(ent->file, path_prefix,
-                                           path_prefix_len))
-      ent->file += path_prefix_len;
+    if (ent->file && (pos = internal_strstr(ent->file, path_prefix)))
+      ent->file = pos + path_prefix_len;
     if (ent->file && ent->file[0] == '.' && ent->file[1] == '/')
       ent->file += 2;
     last_frame2 = last_frame;
@@ -184,7 +188,7 @@ const ReportDesc *ScopedReport::GetReport() const {
   return rep_;
 }
 
-static void RestoreStack(int tid, const u64 epoch, StackTrace *stk) {
+void RestoreStack(int tid, const u64 epoch, StackTrace *stk) {
   ThreadContext *tctx = CTX()->threads[tid];
   if (tctx == 0)
     return;
@@ -209,7 +213,7 @@ static void RestoreStack(int tid, const u64 epoch, StackTrace *stk) {
   const u64 ebegin = eend / kTracePartSize * kTracePartSize;
   DPrintf("#%d: RestoreStack epoch=%zu ebegin=%zu eend=%zu partidx=%d\n",
           tid, (uptr)epoch, (uptr)ebegin, (uptr)eend, partidx);
-  InternalScopedBuf<uptr> stack(1024);  // FIXME: de-hardcode 1024
+  InternalScopedBuffer<uptr> stack(1024);  // FIXME: de-hardcode 1024
   for (uptr i = 0; i < hdr->stack0.Size(); i++) {
     stack[i] = hdr->stack0.Get(i);
     DPrintf2("  #%02lu: pc=%zx\n", i, stack[i]);

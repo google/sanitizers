@@ -132,8 +132,8 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
   case Stmt::ReturnStmtClass:   EmitReturnStmt(cast<ReturnStmt>(*S));     break;
 
   case Stmt::SwitchStmtClass:   EmitSwitchStmt(cast<SwitchStmt>(*S));     break;
-  case Stmt::AsmStmtClass:      EmitAsmStmt(cast<AsmStmt>(*S));           break;
-  case Stmt::MSAsmStmtClass:    EmitMSAsmStmt(cast<MSAsmStmt>(*S));       break;
+  case Stmt::GCCAsmStmtClass:   // Intentional fall-through.
+  case Stmt::MSAsmStmtClass:    EmitAsmStmt(cast<AsmStmt>(*S));           break;
 
   case Stmt::ObjCAtTryStmtClass:
     EmitObjCAtTryStmt(cast<ObjCAtTryStmt>(*S));
@@ -899,7 +899,8 @@ void CodeGenFunction::EmitCaseStmt(const CaseStmt &S) {
 
   // If the body of the case is just a 'break', and if there was no fallthrough,
   // try to not emit an empty block.
-  if ((CGM.getCodeGenOpts().OptimizationLevel > 0) && isa<BreakStmt>(S.getSubStmt())) {
+  if ((CGM.getCodeGenOpts().OptimizationLevel > 0) &&
+      isa<BreakStmt>(S.getSubStmt())) {
     JumpDest Block = BreakContinueStack.back().BreakBlock;
 
     // Only do this optimization if there are no cleanups that need emitting.
@@ -1104,7 +1105,7 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
 /// for a switch on constant.  See the comment above CollectStatementsForCase
 /// for more details.
 static bool FindCaseStatementsForValue(const SwitchStmt &S,
-                                       const llvm::APInt &ConstantCondValue,
+                                       const llvm::APSInt &ConstantCondValue,
                                 SmallVectorImpl<const Stmt*> &ResultStmts,
                                        ASTContext &C) {
   // First step, find the switch case that is being branched to.  We can do this
@@ -1168,7 +1169,7 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
 
   // See if we can constant fold the condition of the switch and therefore only
   // emit the live case statement (if any) of the switch.
-  llvm::APInt ConstantCondValue;
+  llvm::APSInt ConstantCondValue;
   if (ConstantFoldsToSimpleInteger(S.getCond(), ConstantCondValue)) {
     SmallVector<const Stmt*, 4> CaseStmts;
     if (FindCaseStatementsForValue(S, ConstantCondValue, CaseStmts,
@@ -1323,8 +1324,7 @@ AddVariableConstraints(const std::string &Constraint, const Expr &AsmExpr,
 }
 
 llvm::Value*
-CodeGenFunction::EmitAsmInputLValue(const AsmStmt &S,
-                                    const TargetInfo::ConstraintInfo &Info,
+CodeGenFunction::EmitAsmInputLValue(const TargetInfo::ConstraintInfo &Info,
                                     LValue InputValue, QualType InputType,
                                     std::string &ConstraintStr) {
   llvm::Value *Arg;
@@ -1353,7 +1353,7 @@ CodeGenFunction::EmitAsmInputLValue(const AsmStmt &S,
   return Arg;
 }
 
-llvm::Value* CodeGenFunction::EmitAsmInput(const AsmStmt &S,
+llvm::Value* CodeGenFunction::EmitAsmInput(
                                          const TargetInfo::ConstraintInfo &Info,
                                            const Expr *InputExpr,
                                            std::string &ConstraintStr) {
@@ -1363,7 +1363,7 @@ llvm::Value* CodeGenFunction::EmitAsmInput(const AsmStmt &S,
 
   InputExpr = InputExpr->IgnoreParenNoopCasts(getContext());
   LValue Dest = EmitLValue(InputExpr);
-  return EmitAsmInputLValue(S, Info, Dest, InputExpr->getType(), ConstraintStr);
+  return EmitAsmInputLValue(Info, Dest, InputExpr->getType(), ConstraintStr);
 }
 
 /// getAsmSrcLocInfo - Return the !srcloc metadata node to attach to an inline
@@ -1396,23 +1396,8 @@ static llvm::MDNode *getAsmSrcLocInfo(const StringLiteral *Str,
 }
 
 void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
-  // Analyze the asm string to decompose it into its pieces.  We know that Sema
-  // has already done this, so it is guaranteed to be successful.
-  SmallVector<AsmStmt::AsmStringPiece, 4> Pieces;
-  unsigned DiagOffs;
-  S.AnalyzeAsmString(Pieces, getContext(), DiagOffs);
-
-  // Assemble the pieces into the final asm string.
-  std::string AsmString;
-  for (unsigned i = 0, e = Pieces.size(); i != e; ++i) {
-    if (Pieces[i].isString())
-      AsmString += Pieces[i].getString();
-    else if (Pieces[i].getModifier() == '\0')
-      AsmString += '$' + llvm::utostr(Pieces[i].getOperandNo());
-    else
-      AsmString += "${" + llvm::utostr(Pieces[i].getOperandNo()) + ':' +
-                   Pieces[i].getModifier() + '}';
-  }
+  // Assemble the final asm string.
+  std::string AsmString = S.generateAsmString(getContext());
 
   // Get all the output and input constraints together.
   SmallVector<TargetInfo::ConstraintInfo, 4> OutputConstraintInfos;
@@ -1511,7 +1496,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
       InOutConstraints += ',';
 
       const Expr *InputExpr = S.getOutputExpr(i);
-      llvm::Value *Arg = EmitAsmInputLValue(S, Info, Dest, InputExpr->getType(),
+      llvm::Value *Arg = EmitAsmInputLValue(Info, Dest, InputExpr->getType(),
                                             InOutConstraints);
 
       if (llvm::Type* AdjTy =
@@ -1549,7 +1534,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
                             *InputExpr->IgnoreParenNoopCasts(getContext()),
                             Target, CGM, S);
 
-    llvm::Value *Arg = EmitAsmInput(S, Info, InputExpr, Constraints);
+    llvm::Value *Arg = EmitAsmInput(Info, InputExpr, Constraints);
 
     // If this input argument is tied to a larger output result, extend the
     // input to be the same size as the output.  The LLVM backend wants to see
@@ -1596,7 +1581,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
   // Clobbers
   for (unsigned i = 0, e = S.getNumClobbers(); i != e; i++) {
-    StringRef Clobber = S.getClobber(i)->getString();
+    StringRef Clobber = S.getClobber(i);
 
     if (Clobber != "memory" && Clobber != "cc")
     Clobber = Target.getNormalizedGCCRegisterName(Clobber);
@@ -1634,9 +1619,15 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   llvm::CallInst *Result = Builder.CreateCall(IA, Args);
   Result->addAttribute(~0, llvm::Attribute::NoUnwind);
 
+  // Add the inline asm non-standard dialect attribute on MS-style inline asms.
+  if (isa<MSAsmStmt>(&S))
+    Result->addAttribute(~0, llvm::Attribute::IANSDialect);
+
   // Slap the source location of the inline asm into a !srcloc metadata on the
-  // call.
-  Result->setMetadata("srcloc", getAsmSrcLocInfo(S.getAsmString(), *this));
+  // call.  FIXME: Handle metadata for MS-style inline asms.
+  if (const GCCAsmStmt *gccAsmStmt = dyn_cast<GCCAsmStmt>(&S))
+    Result->setMetadata("srcloc", getAsmSrcLocInfo(gccAsmStmt->getAsmString(),
+                                                   *this));
 
   // Extract all of the register value results from the asm.
   std::vector<llvm::Value*> RegResults;
@@ -1680,10 +1671,4 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
     EmitStoreThroughLValue(RValue::get(Tmp), ResultRegDests[i]);
   }
-}
-
-void CodeGenFunction::EmitMSAsmStmt(const MSAsmStmt &S) {
-  // MS-style inline assembly is not fully supported, so sema emits a warning.
-  if (!CGM.getCodeGenOpts().EmitMicrosoftInlineAsm)
-    return;
 }

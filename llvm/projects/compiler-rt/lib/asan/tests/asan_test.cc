@@ -1226,8 +1226,9 @@ TEST(AddressSanitizer, StrCatOOBTest) {
   strcat(to, from);
   strcat(to, from);
   strcat(to + from_size, from + from_size - 2);
-  // Catenate empty string is not always an error.
-  strcat(to - 1, from + from_size - 1);
+  // Passing an invalid pointer is an error even when concatenating an empty
+  // string.
+  EXPECT_DEATH(strcat(to - 1, from + from_size - 1), LeftOOBErrorMessage(1));
   // One of arguments points to not allocated memory.
   EXPECT_DEATH(strcat(to - 1, from), LeftOOBErrorMessage(1));
   EXPECT_DEATH(strcat(to, from - 1), LeftOOBErrorMessage(1));
@@ -1262,8 +1263,8 @@ TEST(AddressSanitizer, StrNCatOOBTest) {
   strncat(to, from, from_size);
   from[from_size - 1] = '\0';
   strncat(to, from, 2 * from_size);
-  // Catenating empty string is not an error.
-  strncat(to - 1, from, 0);
+  // Catenating empty string with an invalid string is still an error.
+  EXPECT_DEATH(strncat(to - 1, from, 0), LeftOOBErrorMessage(1));
   strncat(to, from + from_size - 1, 10);
   // One of arguments points to not allocated memory.
   EXPECT_DEATH(strncat(to - 1, from, 2), LeftOOBErrorMessage(1));
@@ -1336,7 +1337,7 @@ TEST(AddressSanitizer, StrArgsOverlapTest) {
   str[10] = '\0';
   str[20] = '\0';
   strcat(str, str + 10);
-  strcat(str, str + 11);
+  EXPECT_DEATH(strcat(str, str + 11), OverlapErrorMessage("strcat"));
   str[10] = '\0';
   strcat(str + 11, str);
   EXPECT_DEATH(strcat(str, str + 9), OverlapErrorMessage("strcat"));
@@ -1347,7 +1348,7 @@ TEST(AddressSanitizer, StrArgsOverlapTest) {
   memset(str, 'z', size);
   str[10] = '\0';
   strncat(str, str + 10, 10);  // from is empty
-  strncat(str, str + 11, 10);
+  EXPECT_DEATH(strncat(str, str + 11, 10), OverlapErrorMessage("strncat"));
   str[10] = '\0';
   str[20] = '\0';
   strncat(str + 5, str, 5);
@@ -1878,7 +1879,7 @@ TEST(AddressSanitizer, DISABLED_DemoTooMuchMemoryTest) {
     char *x = (char*)malloc(kAllocSize);
     memset(x, 0, kAllocSize);
     total_size += kAllocSize;
-    fprintf(stderr, "total: %ldM\n", (long)total_size >> 20);
+    fprintf(stderr, "total: %ldM %p\n", (long)total_size >> 20, x);
   }
 }
 
@@ -1906,9 +1907,40 @@ void CFAllocator_DoubleFreeOnPthread() {
   pthread_join(child, NULL);  // Shouldn't be reached.
 }
 
-TEST(AddressSanitizerMac, DISABLED_CFAllocatorDefaultDoubleFree_ChildPhread) {
+TEST(AddressSanitizerMac, CFAllocatorDefaultDoubleFree_ChildPhread) {
   EXPECT_DEATH(CFAllocator_DoubleFreeOnPthread(), "attempting double-free");
 }
+
+namespace {
+
+void *GLOB;
+
+void *CFAllocatorAllocateToGlob(void *unused) {
+  GLOB = CFAllocatorAllocate(NULL, 100, /*hint*/0);
+  return NULL;
+}
+
+void *CFAllocatorDeallocateFromGlob(void *unused) {
+  char *p = (char*)GLOB;
+  p[100] = 'A';  // ASan should report an error here.
+  CFAllocatorDeallocate(NULL, GLOB);
+  return NULL;
+}
+
+void CFAllocator_PassMemoryToAnotherThread() {
+  pthread_t th1, th2;
+  pthread_create(&th1, NULL, CFAllocatorAllocateToGlob, NULL);
+  pthread_join(th1, NULL);
+  pthread_create(&th2, NULL, CFAllocatorDeallocateFromGlob, NULL);
+  pthread_join(th2, NULL);
+}
+
+TEST(AddressSanitizerMac, CFAllocator_PassMemoryToAnotherThread) {
+  EXPECT_DEATH(CFAllocator_PassMemoryToAnotherThread(),
+               "heap-buffer-overflow");
+}
+
+}  // namespace
 
 // TODO(glider): figure out whether we still need these tests. Is it correct
 // to intercept the non-default CFAllocators?

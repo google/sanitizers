@@ -1018,7 +1018,9 @@ bool DAGTypeLegalizer::SplitVectorOperand(SDNode *N, unsigned OpNo) {
       N->dump(&DAG);
       dbgs() << "\n";
 #endif
-      llvm_unreachable("Do not know how to split this operator's operand!");
+      report_fatal_error("Do not know how to split this operator's "
+                         "operand!\n");
+
     case ISD::SETCC:             Res = SplitVecOp_VSETCC(N); break;
     case ISD::BITCAST:           Res = SplitVecOp_BITCAST(N); break;
     case ISD::EXTRACT_SUBVECTOR: Res = SplitVecOp_EXTRACT_SUBVECTOR(N); break;
@@ -1364,11 +1366,24 @@ void DAGTypeLegalizer::WidenVectorResult(SDNode *N, unsigned ResNo) {
   case ISD::FTRUNC:
     Res = WidenVecRes_Unary(N);
     break;
+  case ISD::FMA:
+    Res = WidenVecRes_Ternary(N);
+    break;
   }
 
   // If Res is null, the sub-method took care of registering the result.
   if (Res.getNode())
     SetWidenedVector(SDValue(N, ResNo), Res);
+}
+
+SDValue DAGTypeLegalizer::WidenVecRes_Ternary(SDNode *N) {
+  // Ternary op widening.
+  DebugLoc dl = N->getDebugLoc();
+  EVT WidenVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
+  SDValue InOp1 = GetWidenedVector(N->getOperand(0));
+  SDValue InOp2 = GetWidenedVector(N->getOperand(1));
+  SDValue InOp3 = GetWidenedVector(N->getOperand(2));
+  return DAG.getNode(N->getOpcode(), dl, WidenVT, InOp1, InOp2, InOp3);
 }
 
 SDValue DAGTypeLegalizer::WidenVecRes_Binary(SDNode *N) {

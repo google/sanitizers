@@ -111,6 +111,10 @@ struct MCRegisterDesc {
   uint32_t SubRegs;   // Sub-register set, described above
   uint32_t SuperRegs; // Super-register set, described above
 
+  // Offset into MCRI::SubRegIndices of a list of sub-register indices for each
+  // sub-register in SubRegs.
+  uint32_t SubRegIndices;
+
   // RegUnits - Points to the list of register units. The low 4 bits holds the
   // Scale, the high bits hold an offset into DiffLists. See MCRegUnitIterator.
   uint32_t RegUnits;
@@ -148,7 +152,6 @@ private:
   unsigned NumClasses;                        // Number of entries in the array
   unsigned NumRegUnits;                       // Number of regunits.
   const uint16_t (*RegUnitRoots)[2];          // Pointer to regunit root table.
-  const uint16_t *RegLists;                   // Pointer to the reglists array
   const uint16_t *DiffLists;                  // Pointer to the difflists array
   const char *RegStrings;                     // Pointer to the string table.
   const uint16_t *SubRegIndices;              // Pointer to the subreg lookup
@@ -168,25 +171,6 @@ private:
   DenseMap<unsigned, int> L2SEHRegs;          // LLVM to SEH regs mapping
 
 public:
-  /// RegListIterator. This iterator class is used to traverse lists of
-  /// super-registers, sub-registers, and overlapping registers. Don't use it
-  /// directly, use one of the sub-classes defined below.
-  class RegListIterator {
-    const uint16_t *Pos;
-  public:
-    explicit RegListIterator(const uint16_t *Table)
-      : Pos(Table) {}
-
-    /// isValid - Return false when the end of the list is reached.
-    bool isValid() const { return *Pos; }
-
-    /// Dereference the iterator to get the current register.
-    unsigned operator*() const { return *Pos; }
-
-    /// Pre-increment. Move to the next register.
-    void operator++() { ++Pos; }
-  };
-
   /// DiffListIterator - Base iterator class that can traverse the
   /// differentially encoded register and regunit lists in DiffLists.
   /// Don't use this class directly, use one of the specialized sub-classes
@@ -233,8 +217,8 @@ public:
     }
   };
 
-  // These iterators are allowed to sub-class RegListIterator and
-  // DiffListIterator and access internal list pointers.
+  // These iterators are allowed to sub-class DiffListIterator and access
+  // internal list pointers.
   friend class MCSubRegIterator;
   friend class MCSuperRegIterator;
   friend class MCRegAliasIterator;
@@ -247,7 +231,6 @@ public:
                           const MCRegisterClass *C, unsigned NC,
                           const uint16_t (*RURoots)[2],
                           unsigned NRU,
-                          const uint16_t *RL,
                           const uint16_t *DL,
                           const char *Strings,
                           const uint16_t *SubIndices,
@@ -257,7 +240,6 @@ public:
     NumRegs = NR;
     RAReg = RA;
     Classes = C;
-    RegLists = RL;
     DiffLists = DL;
     RegStrings = Strings;
     NumClasses = NC;
@@ -327,9 +309,7 @@ public:
   /// getSubReg - Returns the physical register number of sub-register "Index"
   /// for physical register RegNo. Return zero if the sub-register does not
   /// exist.
-  unsigned getSubReg(unsigned Reg, unsigned Idx) const {
-    return *(SubRegIndices + (Reg - 1) * NumSubRegIndices + Idx - 1);
-  }
+  unsigned getSubReg(unsigned Reg, unsigned Idx) const;
 
   /// getMatchingSuperReg - Return a super-register of the specified register
   /// Reg so its sub-register of index SubIdx is Reg.
@@ -339,12 +319,7 @@ public:
   /// getSubRegIndex - For a given register pair, return the sub-register index
   /// if the second register is a sub-register of the first. Return zero
   /// otherwise.
-  unsigned getSubRegIndex(unsigned RegNo, unsigned SubRegNo) const {
-    for (unsigned I = 1; I <= NumSubRegIndices; ++I)
-      if (getSubReg(RegNo, I) == SubRegNo)
-        return I;
-    return 0;
-  }
+  unsigned getSubRegIndex(unsigned RegNo, unsigned SubRegNo) const;
 
   /// getName - Return the human-readable symbolic target-specific name for the
   /// specified physical register.
@@ -369,36 +344,15 @@ public:
   /// number.  Returns -1 if there is no equivalent value.  The second
   /// parameter allows targets to use different numberings for EH info and
   /// debugging info.
-  int getDwarfRegNum(unsigned RegNum, bool isEH) const {
-    const DwarfLLVMRegPair *M = isEH ? EHL2DwarfRegs : L2DwarfRegs;
-    unsigned Size = isEH ? EHL2DwarfRegsSize : L2DwarfRegsSize;
-
-    DwarfLLVMRegPair Key = { RegNum, 0 };
-    const DwarfLLVMRegPair *I = std::lower_bound(M, M+Size, Key);
-    if (I == M+Size || I->FromReg != RegNum)
-      return -1;
-    return I->ToReg;
-  }
+  int getDwarfRegNum(unsigned RegNum, bool isEH) const;
 
   /// getLLVMRegNum - Map a dwarf register back to a target register.
   ///
-  int getLLVMRegNum(unsigned RegNum, bool isEH) const {
-    const DwarfLLVMRegPair *M = isEH ? EHDwarf2LRegs : Dwarf2LRegs;
-    unsigned Size = isEH ? EHDwarf2LRegsSize : Dwarf2LRegsSize;
-
-    DwarfLLVMRegPair Key = { RegNum, 0 };
-    const DwarfLLVMRegPair *I = std::lower_bound(M, M+Size, Key);
-    assert(I != M+Size && I->FromReg == RegNum && "Invalid RegNum");
-    return I->ToReg;
-  }
+  int getLLVMRegNum(unsigned RegNum, bool isEH) const;
 
   /// getSEHRegNum - Map a target register to an equivalent SEH register
   /// number.  Returns LLVM register number if there is no equivalent value.
-  int getSEHRegNum(unsigned RegNum) const {
-    const DenseMap<unsigned, int>::const_iterator I = L2SEHRegs.find(RegNum);
-    if (I == L2SEHRegs.end()) return (int)RegNum;
-    return I->second;
-  }
+  int getSEHRegNum(unsigned RegNum) const;
 
   regclass_iterator regclass_begin() const { return Classes; }
   regclass_iterator regclass_end() const { return Classes+NumClasses; }
@@ -431,36 +385,35 @@ public:
 // aliasing registers. Use these iterator classes to traverse the lists.
 
 /// MCSubRegIterator enumerates all sub-registers of Reg.
-class MCSubRegIterator : public MCRegisterInfo::RegListIterator {
+class MCSubRegIterator : public MCRegisterInfo::DiffListIterator {
 public:
-  MCSubRegIterator(unsigned Reg, const MCRegisterInfo *MCRI)
-    : RegListIterator(MCRI->RegLists + MCRI->get(Reg).SubRegs) {}
+  MCSubRegIterator(unsigned Reg, const MCRegisterInfo *MCRI) {
+    init(Reg, MCRI->DiffLists + MCRI->get(Reg).SubRegs);
+    ++*this;
+  }
 };
 
 /// MCSuperRegIterator enumerates all super-registers of Reg.
-class MCSuperRegIterator : public MCRegisterInfo::RegListIterator {
+class MCSuperRegIterator : public MCRegisterInfo::DiffListIterator {
 public:
-  MCSuperRegIterator(unsigned Reg, const MCRegisterInfo *MCRI)
-    : RegListIterator(MCRI->RegLists + MCRI->get(Reg).SuperRegs) {}
+  MCSuperRegIterator(unsigned Reg, const MCRegisterInfo *MCRI) {
+    init(Reg, MCRI->DiffLists + MCRI->get(Reg).SuperRegs);
+    ++*this;
+  }
 };
 
 /// MCRegAliasIterator enumerates all registers aliasing Reg.
 /// If IncludeSelf is set, Reg itself is included in the list.
-class MCRegAliasIterator : public MCRegisterInfo::RegListIterator {
+class MCRegAliasIterator : public MCRegisterInfo::DiffListIterator {
 public:
-  MCRegAliasIterator(unsigned Reg, const MCRegisterInfo *MCRI, bool IncludeSelf)
-    : RegListIterator(MCRI->RegLists + MCRI->get(Reg).Overlaps + !IncludeSelf)
-  {}
+  MCRegAliasIterator(unsigned Reg, const MCRegisterInfo *MCRI,
+                     bool IncludeSelf) {
+    init(Reg, MCRI->DiffLists + MCRI->get(Reg).Overlaps);
+    // Initially, the iterator points to Reg itself.
+    if (!IncludeSelf)
+      ++*this;
+  }
 };
-
-inline
-unsigned MCRegisterInfo::getMatchingSuperReg(unsigned Reg, unsigned SubIdx,
-                                             const MCRegisterClass *RC) const {
-    for (MCSuperRegIterator Supers(Reg, this); Supers.isValid(); ++Supers)
-      if (Reg == getSubReg(*Supers, SubIdx) && RC->contains(*Supers))
-        return *Supers;
-    return 0;
-}
 
 //===----------------------------------------------------------------------===//
 //                               Register Units

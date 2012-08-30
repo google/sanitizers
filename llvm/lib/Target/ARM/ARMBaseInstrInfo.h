@@ -202,6 +202,13 @@ public:
                                     unsigned SrcReg2, int CmpMask, int CmpValue,
                                     const MachineRegisterInfo *MRI) const;
 
+  virtual bool analyzeSelect(const MachineInstr *MI,
+                             SmallVectorImpl<MachineOperand> &Cond,
+                             unsigned &TrueOp, unsigned &FalseOp,
+                             bool &Optimizable) const;
+
+  virtual MachineInstr *optimizeSelect(MachineInstr *MI, bool) const;
+
   /// FoldImmediate - 'Reg' is known to be defined by a move immediate
   /// instruction, try to fold the immediate into the use instruction.
   virtual bool FoldImmediate(MachineInstr *UseMI, MachineInstr *DefMI,
@@ -352,6 +359,11 @@ ARMCC::CondCodes getInstrPredicate(const MachineInstr *MI, unsigned &PredReg);
 
 int getMatchingCondBranchOpcode(int Opc);
 
+/// Determine if MI can be folded into an ARM MOVCC instruction, and return the
+/// opcode of the SSA instruction representing the conditional MI.
+unsigned canFoldARMInstrIntoMOVCC(unsigned Reg,
+                                  MachineInstr *&MI,
+                                  const MachineRegisterInfo &MRI);
 
 /// Map pseudo instructions that imply an 'S' bit onto real opcodes. Whether
 /// the instruction is encoded with an 'S' bit is determined by the optional

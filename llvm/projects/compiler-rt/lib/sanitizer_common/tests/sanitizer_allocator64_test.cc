@@ -26,12 +26,10 @@ typedef SizeClassAllocatorLocalCache<Allocator::kNumClasses, Allocator>
 TEST(SanitizerCommon, DefaultSizeClassMap) {
 #if 0
   for (uptr i = 0; i < SCMap::kNumClasses; i++) {
-    // printf("% 3ld: % 5ld (%4lx);   ", i, SCMap::Size(i), SCMap::Size(i));
-    printf("c%ld => %ld  ", i, SCMap::Size(i));
-    if ((i % 8) == 7)
-      printf("\n");
+    printf("c%ld => %ld cached=%ld(%ld)\n",
+        i, SCMap::Size(i), SCMap::MaxCached(i) * SCMap::Size(i),
+        SCMap::MaxCached(i));
   }
-  printf("\n");
 #endif
 
   for (uptr c = 0; c < SCMap::kNumClasses; c++) {
@@ -193,6 +191,13 @@ TEST(SanitizerCommon, CombinedAllocator) {
   Allocator a;
   a.Init();
   cache.Init();
+
+  EXPECT_EQ(a.Allocate(&cache, -1, 1), (void*)0);
+  EXPECT_EQ(a.Allocate(&cache, -1, 1024), (void*)0);
+  EXPECT_EQ(a.Allocate(&cache, (uptr)-1 - 1024, 1), (void*)0);
+  EXPECT_EQ(a.Allocate(&cache, (uptr)-1 - 1024, 1024), (void*)0);
+  EXPECT_EQ(a.Allocate(&cache, (uptr)-1 - 1023, 1024), (void*)0);
+
   const uptr kNumAllocs = 100000;
   const uptr kNumIter = 10;
   for (uptr iter = 0; iter < kNumIter; iter++) {

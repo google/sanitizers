@@ -15,7 +15,7 @@
 #include "FormatStringParsing.h"
 #include "clang/Basic/LangOptions.h"
 
-using clang::analyze_format_string::ArgTypeResult;
+using clang::analyze_format_string::ArgType;
 using clang::analyze_format_string::FormatStringHandler;
 using clang::analyze_format_string::FormatSpecifier;
 using clang::analyze_format_string::LengthModifier;
@@ -229,13 +229,26 @@ clang::analyze_format_string::ParseLengthModifier(FormatSpecifier &FS,
 }
 
 //===----------------------------------------------------------------------===//
-// Methods on ArgTypeResult.
+// Methods on ArgType.
 //===----------------------------------------------------------------------===//
 
-bool ArgTypeResult::matchesType(ASTContext &C, QualType argTy) const {
+bool ArgType::matchesType(ASTContext &C, QualType argTy) const {
+  if (Ptr) {
+    // It has to be a pointer.
+    const PointerType *PT = argTy->getAs<PointerType>();
+    if (!PT)
+      return false;
+
+    // We cannot write through a const qualified pointer.
+    if (PT->getPointeeType().isConstQualified())
+      return false;
+
+    argTy = PT->getPointeeType();
+  }
+
   switch (K) {
     case InvalidTy:
-      llvm_unreachable("ArgTypeResult must be valid");
+      llvm_unreachable("ArgType must be valid");
 
     case UnknownTy:
       return true;
@@ -364,39 +377,63 @@ bool ArgTypeResult::matchesType(ASTContext &C, QualType argTy) const {
     }
   }
 
-  llvm_unreachable("Invalid ArgTypeResult Kind!");
+  llvm_unreachable("Invalid ArgType Kind!");
 }
 
-QualType ArgTypeResult::getRepresentativeType(ASTContext &C) const {
+QualType ArgType::getRepresentativeType(ASTContext &C) const {
+  QualType Res;
   switch (K) {
     case InvalidTy:
-      llvm_unreachable("No representative type for Invalid ArgTypeResult");
+      llvm_unreachable("No representative type for Invalid ArgType");
     case UnknownTy:
-      return QualType();
+      llvm_unreachable("No representative type for Unknown ArgType");
     case AnyCharTy:
-      return C.CharTy;
+      Res = C.CharTy;
+      break;
     case SpecificTy:
-      return T;
+      Res = T;
+      break;
     case CStrTy:
-      return C.getPointerType(C.CharTy);
+      Res = C.getPointerType(C.CharTy);
+      break;
     case WCStrTy:
-      return C.getPointerType(C.getWCharType());
+      Res = C.getPointerType(C.getWCharType());
+      break;
     case ObjCPointerTy:
-      return C.ObjCBuiltinIdTy;
+      Res = C.ObjCBuiltinIdTy;
+      break;
     case CPointerTy:
-      return C.VoidPtrTy;
+      Res = C.VoidPtrTy;
+      break;
     case WIntTy: {
-      return C.getWIntType();
+      Res = C.getWIntType();
+      break;
     }
   }
 
-  llvm_unreachable("Invalid ArgTypeResult Kind!");
+  if (Ptr)
+    Res = C.getPointerType(Res);
+  return Res;
 }
 
-std::string ArgTypeResult::getRepresentativeTypeName(ASTContext &C) const {
+std::string ArgType::getRepresentativeTypeName(ASTContext &C) const {
   std::string S = getRepresentativeType(C).getAsString();
-  if (Name && S != Name)
-    return std::string("'") + Name + "' (aka '" + S + "')";
+
+  std::string Alias;
+  if (Name) {
+    // Use a specific name for this type, e.g. "size_t".
+    Alias = Name;
+    if (Ptr) {
+      // If ArgType is actually a pointer to T, append an asterisk.
+      Alias += (Alias[Alias.size()-1] == '*') ? "*" : " *";
+    }
+    // If Alias is the same as the underlying type, e.g. wchar_t, then drop it.
+    if (S == Alias)
+      Alias.clear();
+  }
+
+  if (!Alias.empty())
+    return std::string("'") + Alias + "' (aka '" + S + "')";
   return std::string("'") + S + "'";
 }
 
@@ -405,7 +442,7 @@ std::string ArgTypeResult::getRepresentativeTypeName(ASTContext &C) const {
 // Methods on OptionalAmount.
 //===----------------------------------------------------------------------===//
 
-ArgTypeResult
+ArgType
 analyze_format_string::OptionalAmount::getArgType(ASTContext &Ctx) const {
   return Ctx.IntTy;
 }
@@ -680,4 +717,38 @@ bool FormatSpecifier::hasStandardLengthConversionCombination() const {
     }
   }
   return true;
+}
+
+bool FormatSpecifier::namedTypeToLengthModifier(QualType QT,
+                                                LengthModifier &LM) {
+  assert(isa<TypedefType>(QT) && "Expected a TypedefType");
+  const TypedefNameDecl *Typedef = cast<TypedefType>(QT)->getDecl();
+
+  for (;;) {
+    const IdentifierInfo *Identifier = Typedef->getIdentifier();
+    if (Identifier->getName() == "size_t") {
+      LM.setKind(LengthModifier::AsSizeT);
+      return true;
+    } else if (Identifier->getName() == "ssize_t") {
+      // Not C99, but common in Unix.
+      LM.setKind(LengthModifier::AsSizeT);
+      return true;
+    } else if (Identifier->getName() == "intmax_t") {
+      LM.setKind(LengthModifier::AsIntMax);
+      return true;
+    } else if (Identifier->getName() == "uintmax_t") {
+      LM.setKind(LengthModifier::AsIntMax);
+      return true;
+    } else if (Identifier->getName() == "ptrdiff_t") {
+      LM.setKind(LengthModifier::AsPtrDiff);
+      return true;
+    }
+
+    QualType T = Typedef->getUnderlyingType();
+    if (!isa<TypedefType>(T))
+      break;
+
+    Typedef = cast<TypedefType>(T)->getDecl();
+  }
+  return false;
 }

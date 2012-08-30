@@ -42,39 +42,66 @@ import os
 import csv
 import sys
 import glob
+import math
 import shutil
 import time
 import plistlib
 from subprocess import check_call, CalledProcessError
 
-# Project map stores info about all the "registered" projects.
-ProjectMapFile = "projectMap.csv"
+#------------------------------------------------------------------------------
+# Helper functions.
+#------------------------------------------------------------------------------
 
-# Names of the project specific scripts.
-# The script that needs to be executed before the build can start.
-CleanupScript = "cleanup_run_static_analyzer.sh"
-# This is a file containing commands for scan-build.  
-BuildScript = "run_static_analyzer.cmd"
+def detectCPUs():
+    """
+    Detects the number of CPUs on a system. Cribbed from pp.
+    """
+    # Linux, Unix and MacOS:
+    if hasattr(os, "sysconf"):
+        if os.sysconf_names.has_key("SC_NPROCESSORS_ONLN"):
+            # Linux & Unix:
+            ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
+            if isinstance(ncpus, int) and ncpus > 0:
+                return ncpus
+        else: # OSX:
+            return int(capture(['sysctl', '-n', 'hw.ncpu']))
+    # Windows:
+    if os.environ.has_key("NUMBER_OF_PROCESSORS"):
+        ncpus = int(os.environ["NUMBER_OF_PROCESSORS"])
+        if ncpus > 0:
+            return ncpus
+    return 1 # Default
 
-# The log file name.
-LogFolderName = "Logs"
-BuildLogName = "run_static_analyzer.log"
-# Summary file - contains the summary of the failures. Ex: This info can be be  
-# displayed when buildbot detects a build failure.
-NumOfFailuresInSummary = 10
-FailuresSummaryFileName = "failures.txt"
-# Summary of the result diffs.
-DiffsSummaryFileName = "diffs.txt"
+def which(command, paths = None):
+   """which(command, [paths]) - Look up the given command in the paths string
+   (or the PATH environment variable, if unspecified)."""
 
-# The scan-build result directory.
-SBOutputDirName = "ScanBuildResults"
-SBOutputDirReferencePrefix = "Ref"
+   if paths is None:
+       paths = os.environ.get('PATH','')
 
-# The list of checkers used during analyzes.
-# Currently, consists of all the non experimental checkers.
-Checkers="experimental.security.taint,core,deadcode,cplusplus,security,unix,osx,cocoa"
+   # Check for absolute match first.
+   if os.path.exists(command):
+       return command
 
-Verbose = 1
+   # Would be nice if Python had a lib function for this.
+   if not paths:
+       paths = os.defpath
+
+   # Get suffixes to search.
+   # On Cygwin, 'PATHEXT' may exist but it should not be used.
+   if os.pathsep == ';':
+       pathext = os.environ.get('PATHEXT', '').split(';')
+   else:
+       pathext = ['']
+
+   # Search the paths...
+   for path in paths.split(os.pathsep):
+       for ext in pathext:
+           p = os.path.join(path, command + ext)
+           if os.path.exists(p):
+               return p
+
+   return None
 
 # Make sure we flush the output after every print statement.
 class flushfile(object):
@@ -104,6 +131,52 @@ def getSBOutputDirName(IsReferenceBuild) :
     else :
         return SBOutputDirName
 
+#------------------------------------------------------------------------------
+# Configuration setup.
+#------------------------------------------------------------------------------
+
+# Find Clang for static analysis.
+Clang = which("clang", os.environ['PATH'])
+if not Clang:
+    print "Error: cannot find 'clang' in PATH"
+    sys.exit(-1)
+
+# Number of jobs.
+Jobs = math.ceil(detectCPUs() * 0.75)
+
+# Project map stores info about all the "registered" projects.
+ProjectMapFile = "projectMap.csv"
+
+# Names of the project specific scripts.
+# The script that needs to be executed before the build can start.
+CleanupScript = "cleanup_run_static_analyzer.sh"
+# This is a file containing commands for scan-build.  
+BuildScript = "run_static_analyzer.cmd"
+
+# The log file name.
+LogFolderName = "Logs"
+BuildLogName = "run_static_analyzer.log"
+# Summary file - contains the summary of the failures. Ex: This info can be be  
+# displayed when buildbot detects a build failure.
+NumOfFailuresInSummary = 10
+FailuresSummaryFileName = "failures.txt"
+# Summary of the result diffs.
+DiffsSummaryFileName = "diffs.txt"
+
+# The scan-build result directory.
+SBOutputDirName = "ScanBuildResults"
+SBOutputDirReferencePrefix = "Ref"
+
+# The list of checkers used during analyzes.
+# Currently, consists of all the non experimental checkers.
+Checkers="alpha.security.taint,core,deadcode,security,unix,osx"
+
+Verbose = 1
+
+#------------------------------------------------------------------------------
+# Test harness logic.
+#------------------------------------------------------------------------------
+
 # Run pre-processing script if any.
 def runCleanupScript(Dir, PBuildLogFile):
     ScriptPath = os.path.join(Dir, CleanupScript)
@@ -129,13 +202,19 @@ def runScanBuild(Dir, SBOutputDir, PBuildLogFile):
     BuildScriptPath = os.path.join(Dir, BuildScript)
     if not os.path.exists(BuildScriptPath):
         print "Error: build script is not defined: %s" % BuildScriptPath
-        sys.exit(-1)       
-    SBOptions = "-plist-html -o " + SBOutputDir + " "
+        sys.exit(-1)
+    SBOptions = "--use-analyzer " + Clang + " "
+    SBOptions += "-plist-html -o " + SBOutputDir + " "
     SBOptions += "-enable-checker " + Checkers + " "  
     try:
         SBCommandFile = open(BuildScriptPath, "r")
         SBPrefix = "scan-build " + SBOptions + " "
         for Command in SBCommandFile:
+            # If using 'make', auto imply a -jX argument
+            # to speed up analysis.  xcodebuild will
+            # automatically use the maximum number of cores.
+            if Command.startswith("make "):
+                Command += "-j" + Jobs
             SBCommand = SBPrefix + Command
             if Verbose == 1:        
                 print "  Executing: %s" % (SBCommand,)
@@ -160,7 +239,7 @@ def isValidSingleInputFile(FileName):
         (Ext == ".m") | (Ext == "")) :
         return True
     return False
-
+   
 # Run analysis on a set of preprocessed files.
 def runAnalyzePreprocessed(Dir, SBOutputDir):
     if os.path.exists(os.path.join(Dir, BuildScript)):
@@ -168,7 +247,7 @@ def runAnalyzePreprocessed(Dir, SBOutputDir):
                BuildScript
         raise Exception()       
 
-    CmdPrefix = "clang -cc1 -analyze -analyzer-output=plist -w "
+    CmdPrefix = Clang + " -cc1 -analyze -analyzer-output=plist -w "
     CmdPrefix += "-analyzer-checker=" + Checkers +" -fcxx-exceptions -fblocks "   
     
     PlistPath = os.path.join(Dir, SBOutputDir, "date")

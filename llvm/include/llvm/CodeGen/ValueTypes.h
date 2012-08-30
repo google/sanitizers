@@ -68,36 +68,38 @@ namespace llvm {
       v2i32          =  22,   //  2 x i32
       v4i32          =  23,   //  4 x i32
       v8i32          =  24,   //  8 x i32
-      v1i64          =  25,   //  1 x i64
-      v2i64          =  26,   //  2 x i64
-      v4i64          =  27,   //  4 x i64
-      v8i64          =  28,   //  8 x i64
+      v16i32         =  25,   // 16 x i32
+      v1i64          =  26,   //  1 x i64
+      v2i64          =  27,   //  2 x i64
+      v4i64          =  28,   //  4 x i64
+      v8i64          =  29,   //  8 x i64
+      v16i64         =  30,   // 16 x i64
 
-      v2f16          =  29,   //  2 x f16
-      v2f32          =  30,   //  2 x f32
-      v4f32          =  31,   //  4 x f32
-      v8f32          =  32,   //  8 x f32
-      v2f64          =  33,   //  2 x f64
-      v4f64          =  34,   //  4 x f64
+      v2f16          =  31,   //  2 x f16
+      v2f32          =  32,   //  2 x f32
+      v4f32          =  33,   //  4 x f32
+      v8f32          =  34,   //  8 x f32
+      v2f64          =  35,   //  2 x f64
+      v4f64          =  36,   //  4 x f64
 
       FIRST_VECTOR_VALUETYPE = v2i8,
       LAST_VECTOR_VALUETYPE  = v4f64,
       FIRST_INTEGER_VECTOR_VALUETYPE = v2i8,
-      LAST_INTEGER_VECTOR_VALUETYPE = v8i64,
+      LAST_INTEGER_VECTOR_VALUETYPE = v16i64,
       FIRST_FP_VECTOR_VALUETYPE = v2f16,
       LAST_FP_VECTOR_VALUETYPE = v4f64,
 
-      x86mmx         =  35,   // This is an X86 MMX value
+      x86mmx         =  37,   // This is an X86 MMX value
 
-      Glue           =  36,   // This glues nodes together during pre-RA sched
+      Glue           =  38,   // This glues nodes together during pre-RA sched
 
-      isVoid         =  37,   // This has no value
+      isVoid         =  39,   // This has no value
 
-      Untyped        =  38,   // This value takes a register, but has
+      Untyped        =  40,   // This value takes a register, but has
                               // unspecified type.  The register class
                               // will be determined by the opcode.
 
-      LAST_VALUETYPE =  39,   // This always remains at the end of the list.
+      LAST_VALUETYPE =  41,   // This always remains at the end of the list.
 
       // This is the current maximum for LAST_VALUETYPE.
       // MVT::MAX_ALLOWED_VALUETYPE is used for asserts and to size bit vectors
@@ -156,7 +158,7 @@ namespace llvm {
       return ((SimpleTy >= MVT::FIRST_FP_VALUETYPE &&
                SimpleTy <= MVT::LAST_FP_VALUETYPE) ||
               (SimpleTy >= MVT::FIRST_FP_VECTOR_VALUETYPE &&
-         SimpleTy <= MVT::LAST_FP_VECTOR_VALUETYPE));
+               SimpleTy <= MVT::LAST_FP_VECTOR_VALUETYPE));
     }
 
     /// isInteger - Return true if this is an integer, or a vector integer type.
@@ -171,6 +173,37 @@ namespace llvm {
     bool isVector() const {
       return (SimpleTy >= MVT::FIRST_VECTOR_VALUETYPE &&
               SimpleTy <= MVT::LAST_VECTOR_VALUETYPE);
+    }
+
+    /// is64BitVector - Return true if this is a 64-bit vector type.
+    bool is64BitVector() const {
+      return (SimpleTy == MVT::v8i8  || SimpleTy == MVT::v4i16 ||
+              SimpleTy == MVT::v2i32 || SimpleTy == MVT::v1i64 ||
+              SimpleTy == MVT::v2f32);
+    }
+
+    /// is128BitVector - Return true if this is a 128-bit vector type.
+    bool is128BitVector() const {
+      return (SimpleTy == MVT::v16i8 || SimpleTy == MVT::v8i16 ||
+              SimpleTy == MVT::v4i32 || SimpleTy == MVT::v2i64 ||
+              SimpleTy == MVT::v4f32 || SimpleTy == MVT::v2f64);
+    }
+
+    /// is256BitVector - Return true if this is a 256-bit vector type.
+    bool is256BitVector() const {
+      return (SimpleTy == MVT::v8f32 || SimpleTy == MVT::v4f64  ||
+              SimpleTy == MVT::v32i8 || SimpleTy == MVT::v16i16 ||
+              SimpleTy == MVT::v8i32 || SimpleTy == MVT::v4i64);
+    }
+
+    /// is512BitVector - Return true if this is a 512-bit vector type.
+    bool is512BitVector() const {
+      return (SimpleTy == MVT::v8i64 || SimpleTy == MVT::v16i32);
+    }
+
+    /// is1024BitVector - Return true if this is a 1024-bit vector type.
+    bool is1024BitVector() const {
+      return (SimpleTy == MVT::v16i64);
     }
 
     /// isPow2VectorType - Returns true if the given vector is a power of 2.
@@ -211,11 +244,13 @@ namespace llvm {
       case v16i16: return i16;
       case v2i32:
       case v4i32:
-      case v8i32: return i32;
+      case v8i32:
+      case v16i32: return i32;
       case v1i64:
       case v2i64:
       case v4i64:
-      case v8i64: return i64;
+      case v8i64:
+      case v16i64: return i64;
       case v2f16: return f16;
       case v2f32:
       case v4f32:
@@ -231,7 +266,9 @@ namespace llvm {
         llvm_unreachable("Not a vector MVT!");
       case v32i8: return 32;
       case v16i8:
-      case v16i16: return 16;
+      case v16i16:
+      case v16i32:
+      case v16i64:return 16;
       case v8i8 :
       case v8i16:
       case v8i32:
@@ -298,7 +335,9 @@ namespace llvm {
       case v4i64:
       case v8f32:
       case v4f64: return 256;
+      case v16i32:
       case v8i64: return 512;
+      case v16i64:return 1024;
       }
     }
 
@@ -371,12 +410,14 @@ namespace llvm {
         if (NumElements == 2)  return MVT::v2i32;
         if (NumElements == 4)  return MVT::v4i32;
         if (NumElements == 8)  return MVT::v8i32;
+        if (NumElements == 16) return MVT::v16i32;
         break;
       case MVT::i64:
         if (NumElements == 1)  return MVT::v1i64;
         if (NumElements == 2)  return MVT::v2i64;
         if (NumElements == 4)  return MVT::v4i64;
         if (NumElements == 8)  return MVT::v8i64;
+        if (NumElements == 16) return MVT::v16i64;
         break;
       case MVT::f16:
         if (NumElements == 2)  return MVT::v2f16;
@@ -490,32 +531,27 @@ namespace llvm {
 
     /// is64BitVector - Return true if this is a 64-bit vector type.
     bool is64BitVector() const {
-      if (!isSimple())
-        return isExtended64BitVector();
-
-      return (V == MVT::v8i8  || V==MVT::v4i16 || V==MVT::v2i32 ||
-              V == MVT::v1i64 || V==MVT::v2f32);
+      return isSimple() ? V.is64BitVector() : isExtended64BitVector();
     }
 
     /// is128BitVector - Return true if this is a 128-bit vector type.
     bool is128BitVector() const {
-      if (!isSimple())
-        return isExtended128BitVector();
-      return (V==MVT::v16i8 || V==MVT::v8i16 || V==MVT::v4i32 ||
-              V==MVT::v2i64 || V==MVT::v4f32 || V==MVT::v2f64);
+      return isSimple() ? V.is128BitVector() : isExtended128BitVector();
     }
 
     /// is256BitVector - Return true if this is a 256-bit vector type.
     bool is256BitVector() const {
-      if (!isSimple())
-        return isExtended256BitVector();
-      return (V == MVT::v8f32  || V == MVT::v4f64 || V == MVT::v32i8 ||
-              V == MVT::v16i16 || V == MVT::v8i32 || V == MVT::v4i64);
+      return isSimple() ? V.is256BitVector() : isExtended256BitVector();
     }
 
     /// is512BitVector - Return true if this is a 512-bit vector type.
     bool is512BitVector() const {
-      return isSimple() ? (V == MVT::v8i64) : isExtended512BitVector();
+      return isSimple() ? V.is512BitVector() : isExtended512BitVector();
+    }
+
+    /// is1024BitVector - Return true if this is a 1024-bit vector type.
+    bool is1024BitVector() const {
+      return isSimple() ? V.is1024BitVector() : isExtended1024BitVector();
     }
 
     /// isOverloaded - Return true if this is an overloaded type for TableGen.
@@ -708,6 +744,7 @@ namespace llvm {
     bool isExtended128BitVector() const;
     bool isExtended256BitVector() const;
     bool isExtended512BitVector() const;
+    bool isExtended1024BitVector() const;
     EVT getExtendedVectorElementType() const;
     unsigned getExtendedVectorNumElements() const;
     unsigned getExtendedSizeInBits() const;

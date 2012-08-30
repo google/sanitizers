@@ -378,8 +378,6 @@ public:
     return hasConst();
   }
 
-  bool isSupersetOf(Qualifiers Other) const;
-
   /// \brief Determine whether this set of qualifiers is a strict superset of
   /// another set of qualifiers, not considering qualifier compatibility.
   bool isStrictSupersetOf(Qualifiers Other) const;
@@ -1140,8 +1138,6 @@ private:
     unsigned TC : 8;
 
     /// Dependent - Whether this type is a dependent type (C++ [temp.dep.type]).
-    /// Note that this should stay at the end of the ivars for Type so that
-    /// subclasses can pack their bitfields into the same word.
     unsigned Dependent : 1;
 
     /// \brief Whether this type somehow involves a template parameter, even
@@ -2680,6 +2676,9 @@ public:
   bool getNoReturnAttr() const { return getExtInfo().getNoReturn(); }
   CallingConv getCallConv() const { return getExtInfo().getCC(); }
   ExtInfo getExtInfo() const { return ExtInfo(FunctionTypeBits.ExtInfo); }
+  bool isConst() const { return getTypeQuals() & Qualifiers::Const; }
+  bool isVolatile() const { return getTypeQuals() & Qualifiers::Volatile; }
+  bool isRestrict() const { return getTypeQuals() & Qualifiers::Restrict; }
 
   /// \brief Determine the type of an expression that calls a function of
   /// this type.
@@ -2847,6 +2846,8 @@ public:
     } else if (EPI.ExceptionSpecType == EST_Uninstantiated) {
       EPI.ExceptionSpecDecl = getExceptionSpecDecl();
       EPI.ExceptionSpecTemplate = getExceptionSpecTemplate();
+    } else if (EPI.ExceptionSpecType == EST_Unevaluated) {
+      EPI.ExceptionSpecDecl = getExceptionSpecDecl();
     }
     if (hasAnyConsumedArgs())
       EPI.ConsumedArguments = getConsumedArgsBuffer();
@@ -2890,11 +2891,13 @@ public:
     // NoexceptExpr sits where the arguments end.
     return *reinterpret_cast<Expr *const *>(arg_type_end());
   }
-  /// \brief If this function type has an uninstantiated exception
-  /// specification, this is the function whose exception specification
-  /// is represented by this type.
+  /// \brief If this function type has an exception specification which hasn't
+  /// been determined yet (either because it has not been evaluated or because
+  /// it has not been instantiated), this is the function whose exception
+  /// specification is represented by this type.
   FunctionDecl *getExceptionSpecDecl() const {
-    if (getExceptionSpecType() != EST_Uninstantiated)
+    if (getExceptionSpecType() != EST_Uninstantiated &&
+        getExceptionSpecType() != EST_Unevaluated)
       return 0;
     return reinterpret_cast<FunctionDecl * const *>(arg_type_end())[0];
   }
@@ -2909,7 +2912,7 @@ public:
   }
   bool isNothrow(ASTContext &Ctx) const {
     ExceptionSpecificationType EST = getExceptionSpecType();
-    assert(EST != EST_Delayed && EST != EST_Uninstantiated);
+    assert(EST != EST_Unevaluated && EST != EST_Uninstantiated);
     if (EST == EST_DynamicNone || EST == EST_BasicNoexcept)
       return true;
     if (EST != EST_ComputedNoexcept)
