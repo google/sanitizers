@@ -59,6 +59,10 @@ cd llvm_build32
 make -j$MAKE_JOBS
 cd $ROOT
 
+echo @@@BUILD_STEP lint@@@
+CHECK_LINT=$ROOT/../../../scripts/slave/check_lint.sh
+(LLVM_CHECKOUT=${LLVM_CHECKOUT} ./${CHECK_LINT}) || echo @@@STEP_WARNINGS@@@
+
 echo @@@BUILD_STEP build asan tests@@@
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
