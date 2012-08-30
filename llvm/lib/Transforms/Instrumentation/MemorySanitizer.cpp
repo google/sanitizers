@@ -48,7 +48,7 @@
 
 #define DEBUG_TYPE "msan"
 
-#include "FunctionBlackList.h"
+#include "BlackList.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
@@ -128,7 +128,7 @@ struct MemorySanitizer : public FunctionPass {
   uint64_t ShadowMask;
   // Branch weights for error reporting.
   MDNode *ColdCallWeights;
-  OwningPtr<FunctionBlackList> BL;
+  OwningPtr<BlackList> BL;
 };
 }  // namespace
 
@@ -177,7 +177,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
     return false;
-  BL.reset(new FunctionBlackList(ClBlackListFile));
+  BL.reset(new BlackList(ClBlackListFile));
   C = &(M.getContext());
   int PtrSize = TD->getPointerSizeInBits();
   switch (PtrSize) {
