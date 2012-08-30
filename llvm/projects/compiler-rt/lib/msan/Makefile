@@ -37,6 +37,7 @@ ARCH=x86_64
 OS=$(shell uname | tr '[A-Z]' '[a-z]')
 LIBMSAN_INST_DIR=$(CLANG_BUILD)/lib/clang/$(CLANG_VERSION)/lib/$(OS)
 LIBMSAN_A=$(LIBMSAN_INST_DIR)/libclang_rt.msan-$(ARCH).a
+INCLUDES=-I.. -I../../include
 
 all: msan_test
 
@@ -44,7 +45,7 @@ libmsandr_test.so: msandr_test_so.cc $(GTEST_LIB)
 	$(CXX) -shared -fPIC -g -O1 $< -o $@
 
 msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBMSAN_A)
-	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) -I.. $(MSAN_OPT) \
+	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) $(INCLUDES) $(MSAN_OPT) \
 		$< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) -Wl,-rpath=$(ROOT)
 
 msan.a: $(LIBMSAN_OBJ)
@@ -57,12 +58,12 @@ $(LIBMSAN_A): msan.a
 	cp $< $@
 
 %.o: %.cc $(RTL_HDR)
-	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ -I..
+	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ $(INCLUDES)
 
 %.o: ../interception/%.cc
 	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@
 %.o: $(COMMON)/%.cc
-	$(CXX) $(RTL_CXXFLAGS) -I.. -c $< -o $@
+	$(CXX) $(RTL_CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 t:
 	(ulimit -s 4096; make clean && make -j 10 2> log && ./msandr.sh ./msan_test --gtest_filter=-MemorySanitizerDr.*)

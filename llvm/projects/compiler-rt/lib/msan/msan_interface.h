@@ -1,6 +1,6 @@
 #ifndef MSAN_INTERFACE_H
 #define MSAN_INTERFACE_H
-#include "sanitizer_common/sanitizer_interface_defs.h"
+#include "sanitizer/common_interface_defs.h"
 
 using __sanitizer::uptr;
 using __sanitizer::sptr;
