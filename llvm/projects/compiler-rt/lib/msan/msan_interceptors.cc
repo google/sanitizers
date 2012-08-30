@@ -69,8 +69,9 @@ INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
 }
 
 INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
+  GET_MALLOC_STACK_TRACE;
   CHECK_EQ(alignment & (alignment - 1), 0);
-  *memptr = MsanReallocate(0, size, alignment, false);
+  *memptr = MsanReallocate(&stack, 0, size, alignment, false);
   CHECK_NE(memptr, 0);
   return 0;
 }
@@ -310,6 +311,7 @@ INTERCEPTOR(char*, realpath, char* path, char* abspath) {
 }
 
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
+  GET_MALLOC_STACK_TRACE;
   if (!msan_inited) {
     // Hack: dlsym calls calloc before REAL(calloc) is retrieved from dlsym.
     const size_t kCallocPoolSize = 1024;
@@ -322,15 +324,18 @@ INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
     return mem;
   }
 
-  return MsanReallocate(0, nmemb * size, sizeof(u64), true);
+  return MsanReallocate(&stack, 0, nmemb * size, sizeof(u64), true);
 }
 
 INTERCEPTOR(void *, realloc, void *ptr, size_t size) {
-  return MsanReallocate(ptr, size, sizeof(u64), false);
+  GET_MALLOC_STACK_TRACE;
+  return MsanReallocate(&stack, ptr, size, sizeof(u64), false);
 }
 
 INTERCEPTOR(void *, malloc, size_t size) {
-  return MsanReallocate(0, size, sizeof(u64), false);
+  __msan_init();
+  GET_MALLOC_STACK_TRACE;
+  return MsanReallocate(&stack, 0, size, sizeof(u64), false);
 }
 
 // static

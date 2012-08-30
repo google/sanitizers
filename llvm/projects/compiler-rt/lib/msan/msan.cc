@@ -34,9 +34,11 @@ Flags flags = {
   true,   // poison_in_malloc
   67,     // exit_code
   true,   // fast_unwinder
+  20,     // num_callers
 };
 int msan_inited = 0;
 bool msan_init_is_running;
+bool msan_track_origins;
 
 
 void ParseFlagsFromString(Flags *f, const char *str) {
@@ -44,6 +46,7 @@ void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
   ParseFlag(str, &f->exit_code, "exit_code");
   ParseFlag(str, &f->fast_unwinder, "fast_unwinder");
+  ParseFlag(str, &f->num_callers, "num_callers");
 }
 
 static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
@@ -56,14 +59,18 @@ static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
   *stack_bottom = __msan_stack_bounds.stack_bottom;
 }
 
-static void PrintCurrentStackTrace(uptr pc, uptr bp) {
+void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
   uptr stack_top, stack_bottom;
   GetCurrentStackBounds(&stack_top, &stack_bottom);
+  stack->size = 0;
+  stack->trace[0] = pc;
+  stack->max_size = max_s;
+  stack->FastUnwindStack(pc, bp, stack_top, stack_bottom);
+}
+
+static void PrintCurrentStackTrace(uptr pc, uptr bp) {
   StackTrace stack;
-  stack.size = 0;
-  stack.trace[0] = pc;
-  stack.max_size = kStackTraceMax;
-  stack.FastUnwindStack(pc, bp, stack_top, stack_bottom);
+  GetStackTrace(&stack, kStackTraceMax, pc, bp);
   stack.PrintStack(stack.trace, stack.size, false, "", 0);
 }
 
@@ -86,15 +93,17 @@ void PrintWarning(uptr pc, uptr bp) {
 
 }  // namespace __msan
 
+// Interface.
+
 void __msan_warning() {
   GET_CALLER_PC_BP_SP;
   __msan::PrintWarning(pc, bp);
 }
 
-extern "C"
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
+  // __msan_track_origins();
   ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
   msan_init_is_running = 1;
   msan_running_under_dr = IsRunningUnderDr();
@@ -109,12 +118,18 @@ void __msan_init() {
 
   __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
+
+  GetThreadStackTopAndBottom(true,
+                             &__msan_stack_bounds.stack_top,
+                             &__msan_stack_bounds.stack_bottom);
   // Printf("MemorySanitizer init done\n");
   msan_init_is_running = 0;
   msan_inited = 1;
 }
 
-// Interface.
+void __msan_track_origins() {
+  __msan::msan_track_origins = true;
+}
 
 void __msan_set_exit_code(int exit_code) {
   __msan::flags.exit_code = exit_code;

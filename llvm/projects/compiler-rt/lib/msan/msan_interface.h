@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 void __msan_init();
+void __msan_track_origins();
 void __msan_warning();
 void __msan_unpoison(void *a, uptr size);
 void __msan_clear_and_unpoison(void *a, uptr size);

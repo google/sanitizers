@@ -54,7 +54,11 @@ void MsanDeallocate(void *p) {
   allocator.Deallocate(&cache, p);
 }
 
-void *MsanReallocate(void *old_p, uptr new_size, uptr alignment, bool zeroise) {
+void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
+                     uptr alignment, bool zeroise) {
+  if (msan_track_origins && msan_inited)
+    Printf("MsanReallocate: stack.size = %zd\n", stack->size);
+
   if (!old_p)
     return MsanAllocate(new_size, alignment, zeroise);
   if (!new_size) {
