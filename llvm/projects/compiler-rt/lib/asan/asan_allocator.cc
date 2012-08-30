@@ -27,13 +27,14 @@
 
 #include "asan_allocator.h"
 #include "asan_interceptors.h"
-#include "asan_interface.h"
 #include "asan_internal.h"
 #include "asan_lock.h"
 #include "asan_mapping.h"
 #include "asan_stats.h"
+#include "asan_report.h"
 #include "asan_thread.h"
 #include "asan_thread_registry.h"
+#include "sanitizer/asan_interface.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 
 #if defined(_WIN32) && !defined(__clang__)
@@ -228,17 +229,17 @@ struct AsanChunk: public ChunkBase {
 
   void DescribeAddress(uptr addr, uptr access_size) {
     uptr offset;
-    AsanPrintf("%p is located ", (void*)addr);
+    Printf("%p is located ", (void*)addr);
     if (AddrIsInside(addr, access_size, &offset)) {
-      AsanPrintf("%zu bytes inside of", offset);
+      Printf("%zu bytes inside of", offset);
     } else if (AddrIsAtLeft(addr, access_size, &offset)) {
-      AsanPrintf("%zu bytes to the left of", offset);
+      Printf("%zu bytes to the left of", offset);
     } else if (AddrIsAtRight(addr, access_size, &offset)) {
-      AsanPrintf("%zu bytes to the right of", offset);
+      Printf("%zu bytes to the right of", offset);
     } else {
-      AsanPrintf(" somewhere around (this is AddressSanitizer bug!)");
+      Printf(" somewhere around (this is AddressSanitizer bug!)");
     }
-    AsanPrintf(" %zu-byte region [%p,%p)\n",
+    Printf(" %zu-byte region [%p,%p)\n",
                used_size, (void*)Beg(), (void*)(Beg() + used_size));
   }
 };
@@ -377,10 +378,11 @@ class MallocInfo {
     if (!ptr) return 0;
     ScopedLock lock(&mu_);
 
-    // first, check if this is our memory
-    PageGroup *g = FindPageGroupUnlocked(ptr);
-    if (!g) return 0;
-    AsanChunk *m = PtrToChunk(ptr);
+    // Make sure this is our chunk and |ptr| actually points to the beginning
+    // of the allocated memory.
+    AsanChunk *m = FindChunkByAddr(ptr);
+    if (!m || m->Beg() != ptr) return 0;
+
     if (m->chunk_state == CHUNK_ALLOCATED) {
       return m->used_size;
     } else {
@@ -564,7 +566,7 @@ class MallocInfo {
     pg->size_of_chunk = size;
     pg->last_chunk = (uptr)(mem + size * (n_chunks - 1));
     int idx = atomic_fetch_add(&n_page_groups_, 1, memory_order_relaxed);
-    CHECK(idx < (int)ASAN_ARRAY_SIZE(page_groups_));
+    CHECK(idx < (int)ARRAY_SIZE(page_groups_));
     page_groups_[idx] = pg;
     return res;
   }
@@ -584,42 +586,42 @@ void AsanThreadLocalMallocStorage::CommitBack() {
   malloc_info.SwallowThreadLocalMallocStorage(this, true);
 }
 
-static void Describe(uptr addr, uptr access_size) {
+void DescribeHeapAddress(uptr addr, uptr access_size) {
   AsanChunk *m = malloc_info.FindMallocedOrFreed(addr, access_size);
   if (!m) return;
   m->DescribeAddress(addr, access_size);
   CHECK(m->alloc_tid >= 0);
   AsanThreadSummary *alloc_thread =
       asanThreadRegistry().FindByTid(m->alloc_tid);
-  AsanStackTrace alloc_stack;
-  AsanStackTrace::UncompressStack(&alloc_stack, m->compressed_alloc_stack(),
+  StackTrace alloc_stack;
+  StackTrace::UncompressStack(&alloc_stack, m->compressed_alloc_stack(),
                                   m->compressed_alloc_stack_size());
   AsanThread *t = asanThreadRegistry().GetCurrent();
   CHECK(t);
   if (m->free_tid != kInvalidTid) {
     AsanThreadSummary *free_thread =
         asanThreadRegistry().FindByTid(m->free_tid);
-    AsanPrintf("freed by thread T%d here:\n", free_thread->tid());
-    AsanStackTrace free_stack;
-    AsanStackTrace::UncompressStack(&free_stack, m->compressed_free_stack(),
+    Printf("freed by thread T%d here:\n", free_thread->tid());
+    StackTrace free_stack;
+    StackTrace::UncompressStack(&free_stack, m->compressed_free_stack(),
                                     m->compressed_free_stack_size());
-    free_stack.PrintStack();
-    AsanPrintf("previously allocated by thread T%d here:\n",
+    PrintStack(&free_stack);
+    Printf("previously allocated by thread T%d here:\n",
                alloc_thread->tid());
 
-    alloc_stack.PrintStack();
+    PrintStack(&alloc_stack);
     t->summary()->Announce();
     free_thread->Announce();
     alloc_thread->Announce();
   } else {
-    AsanPrintf("allocated by thread T%d here:\n", alloc_thread->tid());
-    alloc_stack.PrintStack();
+    Printf("allocated by thread T%d here:\n", alloc_thread->tid());
+    PrintStack(&alloc_stack);
     t->summary()->Announce();
     alloc_thread->Announce();
   }
 }
 
-static u8 *Allocate(uptr alignment, uptr size, AsanStackTrace *stack) {
+static u8 *Allocate(uptr alignment, uptr size, StackTrace *stack) {
   __asan_init();
   CHECK(stack);
   if (size == 0) {
@@ -697,7 +699,7 @@ static u8 *Allocate(uptr alignment, uptr size, AsanStackTrace *stack) {
   CHECK(m->Beg() == addr);
   m->alloc_tid = t ? t->tid() : 0;
   m->free_tid   = kInvalidTid;
-  AsanStackTrace::CompressStack(stack, m->compressed_alloc_stack(),
+  StackTrace::CompressStack(stack, m->compressed_alloc_stack(),
                                 m->compressed_alloc_stack_size());
   PoisonShadow(addr, rounded_size, 0);
   if (size < rounded_size) {
@@ -710,7 +712,7 @@ static u8 *Allocate(uptr alignment, uptr size, AsanStackTrace *stack) {
   return (u8*)addr;
 }
 
-static void Deallocate(u8 *ptr, AsanStackTrace *stack) {
+static void Deallocate(u8 *ptr, StackTrace *stack) {
   if (!ptr) return;
   CHECK(stack);
 
@@ -726,15 +728,9 @@ static void Deallocate(u8 *ptr, AsanStackTrace *stack) {
                                        memory_order_acq_rel);
 
   if (old_chunk_state == CHUNK_QUARANTINE) {
-    AsanReport("ERROR: AddressSanitizer attempting double-free on %p:\n", ptr);
-    stack->PrintStack();
-    Describe((uptr)ptr, 1);
-    ShowStatsAndAbort();
+    ReportDoubleFree((uptr)ptr, stack);
   } else if (old_chunk_state != CHUNK_ALLOCATED) {
-    AsanReport("ERROR: AddressSanitizer attempting free on address "
-               "which was not malloc()-ed: %p\n", ptr);
-    stack->PrintStack();
-    ShowStatsAndAbort();
+    ReportFreeNotMalloced((uptr)ptr, stack);
   }
   CHECK(old_chunk_state == CHUNK_ALLOCATED);
   // With REDZONE==16 m->next is in the user area, otherwise it should be 0.
@@ -743,7 +739,7 @@ static void Deallocate(u8 *ptr, AsanStackTrace *stack) {
   CHECK(m->alloc_tid >= 0);
   AsanThread *t = asanThreadRegistry().GetCurrent();
   m->free_tid = t ? t->tid() : 0;
-  AsanStackTrace::CompressStack(stack, m->compressed_free_stack(),
+  StackTrace::CompressStack(stack, m->compressed_free_stack(),
                                 m->compressed_free_stack_size());
   uptr rounded_size = RoundUpTo(m->used_size, REDZONE);
   PoisonShadow((uptr)ptr, rounded_size, kAsanHeapFreeMagic);
@@ -769,7 +765,7 @@ static void Deallocate(u8 *ptr, AsanStackTrace *stack) {
 }
 
 static u8 *Reallocate(u8 *old_ptr, uptr new_size,
-                           AsanStackTrace *stack) {
+                           StackTrace *stack) {
   CHECK(old_ptr && new_size);
 
   // Statistics.
@@ -792,113 +788,100 @@ static u8 *Reallocate(u8 *old_ptr, uptr new_size,
 
 }  // namespace __asan
 
-// Malloc hooks declaration.
-// ASAN_NEW_HOOK(ptr, size) is called immediately after
-//   allocation of "size" bytes, which returned "ptr".
-// ASAN_DELETE_HOOK(ptr) is called immediately before
-//   deallocation of "ptr".
-// If ASAN_NEW_HOOK or ASAN_DELETE_HOOK is defined, user
-// program must provide implementation of this hook.
-// If macro is undefined, the hook is no-op.
-#ifdef ASAN_NEW_HOOK
-extern "C" void ASAN_NEW_HOOK(void *ptr, uptr size);
-#else
-static inline void ASAN_NEW_HOOK(void *ptr, uptr size) { }
-#endif
-
-#ifdef ASAN_DELETE_HOOK
-extern "C" void ASAN_DELETE_HOOK(void *ptr);
-#else
-static inline void ASAN_DELETE_HOOK(void *ptr) { }
-#endif
+// Default (no-op) implementation of malloc hooks.
+extern "C" {
+SANITIZER_WEAK_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE
+void __asan_malloc_hook(void *ptr, uptr size) {
+  (void)ptr;
+  (void)size;
+}
+SANITIZER_WEAK_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE
+void __asan_free_hook(void *ptr) {
+  (void)ptr;
+}
+}  // extern "C"
 
 namespace __asan {
 
-void *asan_memalign(uptr alignment, uptr size, AsanStackTrace *stack) {
+SANITIZER_INTERFACE_ATTRIBUTE
+void *asan_memalign(uptr alignment, uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(alignment, size, stack);
-  ASAN_NEW_HOOK(ptr, size);
+  __asan_malloc_hook(ptr, size);
   return ptr;
 }
 
-void asan_free(void *ptr, AsanStackTrace *stack) {
-  ASAN_DELETE_HOOK(ptr);
+SANITIZER_INTERFACE_ATTRIBUTE
+void asan_free(void *ptr, StackTrace *stack) {
+  __asan_free_hook(ptr);
   Deallocate((u8*)ptr, stack);
 }
 
-void *asan_malloc(uptr size, AsanStackTrace *stack) {
+SANITIZER_INTERFACE_ATTRIBUTE
+void *asan_malloc(uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(0, size, stack);
-  ASAN_NEW_HOOK(ptr, size);
+  __asan_malloc_hook(ptr, size);
   return ptr;
 }
 
-void *asan_calloc(uptr nmemb, uptr size, AsanStackTrace *stack) {
+void *asan_calloc(uptr nmemb, uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(0, nmemb * size, stack);
   if (ptr)
     REAL(memset)(ptr, 0, nmemb * size);
-  ASAN_NEW_HOOK(ptr, nmemb * size);
+  __asan_malloc_hook(ptr, nmemb * size);
   return ptr;
 }
 
-void *asan_realloc(void *p, uptr size, AsanStackTrace *stack) {
+void *asan_realloc(void *p, uptr size, StackTrace *stack) {
   if (p == 0) {
     void *ptr = (void*)Allocate(0, size, stack);
-    ASAN_NEW_HOOK(ptr, size);
+    __asan_malloc_hook(ptr, size);
     return ptr;
   } else if (size == 0) {
-    ASAN_DELETE_HOOK(p);
+    __asan_free_hook(p);
     Deallocate((u8*)p, stack);
     return 0;
   }
   return Reallocate((u8*)p, size, stack);
 }
 
-void *asan_valloc(uptr size, AsanStackTrace *stack) {
+void *asan_valloc(uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(kPageSize, size, stack);
-  ASAN_NEW_HOOK(ptr, size);
+  __asan_malloc_hook(ptr, size);
   return ptr;
 }
 
-void *asan_pvalloc(uptr size, AsanStackTrace *stack) {
+void *asan_pvalloc(uptr size, StackTrace *stack) {
   size = RoundUpTo(size, kPageSize);
   if (size == 0) {
     // pvalloc(0) should allocate one page.
     size = kPageSize;
   }
   void *ptr = (void*)Allocate(kPageSize, size, stack);
-  ASAN_NEW_HOOK(ptr, size);
+  __asan_malloc_hook(ptr, size);
   return ptr;
 }
 
 int asan_posix_memalign(void **memptr, uptr alignment, uptr size,
-                          AsanStackTrace *stack) {
+                          StackTrace *stack) {
   void *ptr = Allocate(alignment, size, stack);
   CHECK(IsAligned((uptr)ptr, alignment));
-  ASAN_NEW_HOOK(ptr, size);
+  __asan_malloc_hook(ptr, size);
   *memptr = ptr;
   return 0;
 }
 
-uptr asan_malloc_usable_size(void *ptr, AsanStackTrace *stack) {
+uptr asan_malloc_usable_size(void *ptr, StackTrace *stack) {
   CHECK(stack);
   if (ptr == 0) return 0;
   uptr usable_size = malloc_info.AllocationSize((uptr)ptr);
   if (flags()->check_malloc_usable_size && (usable_size == 0)) {
-    AsanReport("ERROR: AddressSanitizer attempting to call "
-               "malloc_usable_size() for pointer which is "
-               "not owned: %p\n", ptr);
-    stack->PrintStack();
-    Describe((uptr)ptr, 1);
-    ShowStatsAndAbort();
+    ReportMallocUsableSizeNotOwned((uptr)ptr, stack);
   }
   return usable_size;
 }
 
 uptr asan_mz_size(const void *ptr) {
   return malloc_info.AllocationSize((uptr)ptr);
-}
-
-void DescribeHeapAddress(uptr addr, uptr access_size) {
-  Describe(addr, access_size);
 }
 
 void asan_mz_force_lock() {
@@ -1089,12 +1072,8 @@ uptr __asan_get_allocated_size(const void *p) {
   uptr allocated_size = malloc_info.AllocationSize((uptr)p);
   // Die if p is not malloced or if it is already freed.
   if (allocated_size == 0) {
-    AsanReport("ERROR: AddressSanitizer attempting to call "
-               "__asan_get_allocated_size() for pointer which is "
-               "not owned: %p\n", p);
-    PRINT_CURRENT_STACK();
-    Describe((uptr)p, 1);
-    ShowStatsAndAbort();
+    GET_STACK_TRACE_HERE(kStackTraceMax);
+    ReportAsanGetAllocatedSizeNotOwned((uptr)p, &stack);
   }
   return allocated_size;
 }

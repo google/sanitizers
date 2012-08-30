@@ -499,14 +499,6 @@ Release Notes</a>.</h1>
 
 <div>
 
-<p>We have changed the way that the Type Legalizer legalizes vectors. The type
-   legalizer now attempts to promote integer elements.  This enabled the
-   implementation of vector-select.  Additionally, we see a performance boost on
-   workloads which use vectors of chars and shorts, since they are now promoted
-   to 32-bit types, which are better supported by the SIMD instruction set.
-   Floating point types are still widened as before.</p>
-
-
 <p>We have put a significant amount of work into the code generator
    infrastructure, which allows us to implement more aggressive algorithms and
    make it run faster:</p>
@@ -749,7 +741,7 @@ Release Notes</a>.</h1>
   src="http://www.w3.org/Icons/valid-html401-blue" alt="Valid HTML 4.01"></a>
 
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-07-13 16:44:23 +0400 (Fri, 13 Jul 2012) $
+  Last modified: $Date: 2012-08-30 13:23:13 +0400 (Thu, 30 Aug 2012) $
 </address>
 
 </body>

@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple i386-apple-darwin9 -analyze -analyzer-checker=core,experimental.core -analyzer-store=region -verify -fblocks -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
-// RUN: %clang_cc1 -triple x86_64-apple-darwin9 -analyze -analyzer-checker=core,experimental.core -analyzer-store=region -verify -fblocks   -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
+// RUN: %clang_cc1 -triple i386-apple-darwin9 -analyze -analyzer-checker=core,alpha.core -analyzer-store=region -verify -fblocks -analyzer-ipa=inlining -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
+// RUN: %clang_cc1 -triple x86_64-apple-darwin9 -analyze -analyzer-checker=core,alpha.core -analyzer-store=region -verify -fblocks -analyzer-ipa=inlining -analyzer-opt-analyze-nested-blocks %s -fexceptions -fcxx-exceptions
 
 // Test basic handling of references.
 char &test1_aux();
@@ -271,10 +271,24 @@ class Rdar9212495_A : public Rdar9212495_B {};
 const Rdar9212495_A& rdar9212495(const Rdar9212495_C* ptr) {
   const Rdar9212495_A& val = dynamic_cast<const Rdar9212495_A&>(*ptr);
   
+  // This is not valid C++; dynamic_cast with a reference type will throw an
+  // exception if the pointer does not match the expected type. However, our
+  // implementation of dynamic_cast will pass through a null pointer...or a
+  // "null reference"! So this branch is actually possible.
   if (&val == 0) {
-    val.bar(); // FIXME: This should eventually be a null dereference.
+    val.bar(); // expected-warning{{Called C++ object pointer is null}}
   }
   
+  return val;
+}
+
+const Rdar9212495_A* rdar9212495_ptr(const Rdar9212495_C* ptr) {
+  const Rdar9212495_A* val = dynamic_cast<const Rdar9212495_A*>(ptr);
+
+  if (val == 0) {
+    val->bar(); // expected-warning{{Called C++ object pointer is null}}
+  }
+
   return val;
 }
 
@@ -523,7 +537,8 @@ MyEnum rdar10892489_positive() {
     throw MyEnumValue;
   } catch (MyEnum e) {
     int *p = 0;
-    *p = 0xDEADBEEF; // expected-warning {{null}}
+    // FALSE NEGATIVE
+    *p = 0xDEADBEEF; // {{null}}
     return e;
   }
   return MyEnumValue;
@@ -548,7 +563,8 @@ void PR11545_positive() {
   catch (...)
   {
     int *p = 0;
-    *p = 0xDEADBEEF; // expected-warning {{null}}
+    // FALSE NEGATIVE
+    *p = 0xDEADBEEF; // {{null}}
   }
 }
 

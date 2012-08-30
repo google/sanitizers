@@ -20,6 +20,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
+#include <cctype>
 
 using namespace clang;
 
@@ -904,8 +905,6 @@ void TextDiagnostic::emitSnippetAndCaret(
 
   unsigned LineNo = SM.getLineNumber(FID, FileOffset);
   unsigned ColNo = SM.getColumnNumber(FID, FileOffset);
-  unsigned CaretEndColNo
-    = ColNo + Lexer::MeasureTokenLength(Loc, SM, LangOpts);
 
   // Rewind from the current position to the start of the line.
   const char *TokPtr = BufStart+FileOffset;
@@ -917,11 +916,6 @@ void TextDiagnostic::emitSnippetAndCaret(
   const char *LineEnd = TokPtr;
   while (*LineEnd != '\n' && *LineEnd != '\r' && *LineEnd != '\0')
     ++LineEnd;
-
-  // FIXME: This shouldn't be necessary, but the CaretEndColNo can extend past
-  // the source line length as currently being computed. See
-  // test/Misc/message-length.c.
-  CaretEndColNo = std::min(CaretEndColNo, unsigned(LineEnd - LineStart));
 
   // Copy the line of code into an std::string for ease of manipulation.
   std::string SourceLine(LineStart, LineEnd);

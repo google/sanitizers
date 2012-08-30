@@ -288,8 +288,13 @@ void MachineFunction::dump() const {
   print(dbgs());
 }
 
+StringRef MachineFunction::getName() const {
+  assert(getFunction() && "No function!");
+  return getFunction()->getName();
+}
+
 void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
-  OS << "# Machine code for function " << Fn->getName() << ": ";
+  OS << "# Machine code for function " << getName() << ": ";
   if (RegInfo) {
     OS << (RegInfo->isSSA() ? "SSA" : "Post SSA");
     if (!RegInfo->tracksLiveness())
@@ -334,7 +339,7 @@ void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
     BB->print(OS, Indexes);
   }
 
-  OS << "\n# End machine code for function " << Fn->getName() << ".\n\n";
+  OS << "\n# End machine code for function " << getName() << ".\n\n";
 }
 
 namespace llvm {
@@ -344,7 +349,7 @@ namespace llvm {
   DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
 
     static std::string getGraphName(const MachineFunction *F) {
-      return "CFG for '" + F->getFunction()->getName().str() + "' function";
+      return "CFG for '" + F->getName().str() + "' function";
     }
 
     std::string getNodeLabel(const MachineBasicBlock *Node,
@@ -377,7 +382,7 @@ namespace llvm {
 void MachineFunction::viewCFG() const
 {
 #ifndef NDEBUG
-  ViewGraph(this, "mf" + getFunction()->getName());
+  ViewGraph(this, "mf" + getName());
 #else
   errs() << "MachineFunction::viewCFG is only available in debug builds on "
          << "systems with Graphviz or gv!\n";
@@ -387,7 +392,7 @@ void MachineFunction::viewCFG() const
 void MachineFunction::viewCFGOnly() const
 {
 #ifndef NDEBUG
-  ViewGraph(this, "mf" + getFunction()->getName(), true);
+  ViewGraph(this, "mf" + getName(), true);
 #else
   errs() << "MachineFunction::viewCFGOnly is only available in debug builds on "
          << "systems with Graphviz or gv!\n";

@@ -46,10 +46,12 @@
 #include "llvm/ADT/StringExtras.h"
 using namespace llvm;
 
-static cl::opt<bool> DisableInline("disable-inlining", cl::init(false),
+static cl::opt<bool>
+DisableInline("disable-inlining", cl::init(false),
   cl::desc("Do not run the inliner pass"));
 
-static cl::opt<bool> DisableGVNLoadPRE("disable-gvn-loadpre", cl::init(false),
+static cl::opt<bool>
+DisableGVNLoadPRE("disable-gvn-loadpre", cl::init(false),
   cl::desc("Do not run the GVN load PRE pass"));
 
 const char* LTOCodeGenerator::getVersionString() {
@@ -152,7 +154,7 @@ bool LTOCodeGenerator::writeMergedModules(const char *path,
 bool LTOCodeGenerator::compile_to_file(const char** name, std::string& errMsg) {
   // make unique temp .o file to put generated object file
   sys::PathWithStatus uniqueObjPath("lto-llvm.o");
-  if ( uniqueObjPath.createTemporaryFileOnDisk(false, &errMsg) ) {
+  if (uniqueObjPath.createTemporaryFileOnDisk(false, &errMsg)) {
     uniqueObjPath.eraseFromDisk();
     return true;
   }
@@ -172,7 +174,7 @@ bool LTOCodeGenerator::compile_to_file(const char** name, std::string& errMsg) {
   }
 
   objFile.keep();
-  if ( genResult ) {
+  if (genResult) {
     uniqueObjPath.eraseFromDisk();
     return true;
   }
@@ -202,47 +204,49 @@ const void* LTOCodeGenerator::compile(size_t* length, std::string& errMsg) {
   sys::Path(_nativeObjectPath).eraseFromDisk();
 
   // return buffer, unless error
-  if ( _nativeObjectFile == NULL )
+  if (_nativeObjectFile == NULL)
     return NULL;
   *length = _nativeObjectFile->getBufferSize();
   return _nativeObjectFile->getBufferStart();
 }
 
 bool LTOCodeGenerator::determineTarget(std::string& errMsg) {
-  if ( _target == NULL ) {
-    std::string Triple = _linker.getModule()->getTargetTriple();
-    if (Triple.empty())
-      Triple = sys::getDefaultTargetTriple();
+  if (_target != NULL)
+    return false;
 
-    // create target machine from info for merged modules
-    const Target *march = TargetRegistry::lookupTarget(Triple, errMsg);
-    if ( march == NULL )
-      return true;
+  std::string Triple = _linker.getModule()->getTargetTriple();
+  if (Triple.empty())
+    Triple = sys::getDefaultTargetTriple();
 
-    // The relocation model is actually a static member of TargetMachine and
-    // needs to be set before the TargetMachine is instantiated.
-    Reloc::Model RelocModel = Reloc::Default;
-    switch( _codeModel ) {
-    case LTO_CODEGEN_PIC_MODEL_STATIC:
-      RelocModel = Reloc::Static;
-      break;
-    case LTO_CODEGEN_PIC_MODEL_DYNAMIC:
-      RelocModel = Reloc::PIC_;
-      break;
-    case LTO_CODEGEN_PIC_MODEL_DYNAMIC_NO_PIC:
-      RelocModel = Reloc::DynamicNoPIC;
-      break;
-    }
+  // create target machine from info for merged modules
+  const Target *march = TargetRegistry::lookupTarget(Triple, errMsg);
+  if (march == NULL)
+    return true;
 
-    // construct LTOModule, hand over ownership of module and target
-    SubtargetFeatures Features;
-    Features.getDefaultSubtargetFeatures(llvm::Triple(Triple));
-    std::string FeatureStr = Features.getString();
-    TargetOptions Options;
-    _target = march->createTargetMachine(Triple, _mCpu, FeatureStr, Options,
-                                         RelocModel, CodeModel::Default,
-                                         CodeGenOpt::Aggressive);
+  // The relocation model is actually a static member of TargetMachine and
+  // needs to be set before the TargetMachine is instantiated.
+  Reloc::Model RelocModel = Reloc::Default;
+  switch (_codeModel) {
+  case LTO_CODEGEN_PIC_MODEL_STATIC:
+    RelocModel = Reloc::Static;
+    break;
+  case LTO_CODEGEN_PIC_MODEL_DYNAMIC:
+    RelocModel = Reloc::PIC_;
+    break;
+  case LTO_CODEGEN_PIC_MODEL_DYNAMIC_NO_PIC:
+    RelocModel = Reloc::DynamicNoPIC;
+    break;
   }
+
+  // construct LTOModule, hand over ownership of module and target
+  SubtargetFeatures Features;
+  Features.getDefaultSubtargetFeatures(llvm::Triple(Triple));
+  std::string FeatureStr = Features.getString();
+  TargetOptions Options;
+  LTOModule::getTargetOptions(Options);
+  _target = march->createTargetMachine(Triple, _mCpu, FeatureStr, Options,
+                                       RelocModel, CodeModel::Default,
+                                       CodeGenOpt::Aggressive);
   return false;
 }
 
@@ -334,13 +338,13 @@ void LTOCodeGenerator::applyScopeRestrictions() {
 /// Optimize merged modules using various IPO passes
 bool LTOCodeGenerator::generateObjectFile(raw_ostream &out,
                                           std::string &errMsg) {
-  if ( this->determineTarget(errMsg) )
+  if (this->determineTarget(errMsg))
     return true;
 
   Module* mergedModule = _linker.getModule();
 
   // if options were requested, set them
-  if ( !_codegenOptions.empty() )
+  if (!_codegenOptions.empty())
     cl::ParseCommandLineOptions(_codegenOptions.size(),
                                 const_cast<char **>(&_codegenOptions[0]));
 
@@ -402,7 +406,7 @@ void LTOCodeGenerator::setCodeGenDebugOptions(const char *options) {
        !o.first.empty(); o = getToken(o.second)) {
     // ParseCommandLineOptions() expects argv[0] to be program name. Lazily add
     // that.
-    if ( _codegenOptions.empty() )
+    if (_codegenOptions.empty())
       _codegenOptions.push_back(strdup("libLTO"));
     _codegenOptions.push_back(strdup(o.first.str().c_str()));
   }

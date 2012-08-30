@@ -1,4 +1,4 @@
-; RUN: llc < %s -march=arm -mattr=+vfp2 | FileCheck %s
+; RUN: llc < %s -mtriple=arm-apple-ios -mattr=+vfp2 | FileCheck %s
 
 define float @f1(float %a, float %b) {
 ;CHECK: f1:
@@ -84,7 +84,7 @@ define float @f11(float %a) {
 ;CHECK: f11:
 ;CHECK: bic
 entry:
-	%tmp1 = call float @fabsf( float %a )		; <float> [#uses=1]
+	%tmp1 = call float @fabsf( float %a ) readnone	; <float> [#uses=1]
 	ret float %tmp1
 }
 
@@ -94,7 +94,7 @@ define double @f12(double %a) {
 ;CHECK: f12:
 ;CHECK: vabs.f64
 entry:
-	%tmp1 = call double @fabs( double %a )		; <double> [#uses=1]
+	%tmp1 = call double @fabs( double %a ) readnone	; <double> [#uses=1]
 	ret double %tmp1
 }
 

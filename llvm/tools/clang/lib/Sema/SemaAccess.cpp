@@ -97,14 +97,19 @@ struct EffectiveContext {
     // functions (which can gain privileges through friendship), but we
     // take that as an oversight.
     while (true) {
+      // We want to add canonical declarations to the EC lists for
+      // simplicity of checking, but we need to walk up through the
+      // actual current DC chain.  Otherwise, something like a local
+      // extern or friend which happens to be the canonical
+      // declaration will really mess us up.
+
       if (isa<CXXRecordDecl>(DC)) {
-        CXXRecordDecl *Record = cast<CXXRecordDecl>(DC)->getCanonicalDecl();
-        Records.push_back(Record);
+        CXXRecordDecl *Record = cast<CXXRecordDecl>(DC);
+        Records.push_back(Record->getCanonicalDecl());
         DC = Record->getDeclContext();
       } else if (isa<FunctionDecl>(DC)) {
-        FunctionDecl *Function = cast<FunctionDecl>(DC)->getCanonicalDecl();
-        Functions.push_back(Function);
-        
+        FunctionDecl *Function = cast<FunctionDecl>(DC);
+        Functions.push_back(Function->getCanonicalDecl());
         if (Function->getFriendObjectKind())
           DC = Function->getLexicalDeclContext();
         else
@@ -1632,25 +1637,6 @@ Sema::AccessResult Sema::CheckConstructorAccess(SourceLocation UseLoc,
   return CheckAccess(*this, UseLoc, AccessEntity);
 } 
 
-/// Checks direct (i.e. non-inherited) access to an arbitrary class
-/// member.
-Sema::AccessResult Sema::CheckDirectMemberAccess(SourceLocation UseLoc,
-                                                 NamedDecl *Target,
-                                           const PartialDiagnostic &Diag) {
-  AccessSpecifier Access = Target->getAccess();
-  if (!getLangOpts().AccessControl ||
-      Access == AS_public)
-    return AR_accessible;
-
-  CXXRecordDecl *NamingClass = cast<CXXRecordDecl>(Target->getDeclContext());
-  AccessTarget Entity(Context, AccessTarget::Member, NamingClass,
-                      DeclAccessPair::make(Target, Access),
-                      QualType());
-  Entity.setDiag(Diag);
-  return CheckAccess(*this, UseLoc, Entity);
-}
-                                           
-
 /// Checks access to an overloaded operator new or delete.
 Sema::AccessResult Sema::CheckAllocationAccess(SourceLocation OpLoc,
                                                SourceRange PlacementRange,
@@ -1691,6 +1677,44 @@ Sema::AccessResult Sema::CheckMemberOperatorAccess(SourceLocation OpLoc,
     << (ArgExpr ? ArgExpr->getSourceRange() : SourceRange());
 
   return CheckAccess(*this, OpLoc, Entity);
+}
+
+/// Checks access to the target of a friend declaration.
+Sema::AccessResult Sema::CheckFriendAccess(NamedDecl *target) {
+  assert(isa<CXXMethodDecl>(target) ||
+         (isa<FunctionTemplateDecl>(target) &&
+          isa<CXXMethodDecl>(cast<FunctionTemplateDecl>(target)
+                               ->getTemplatedDecl())));
+
+  // Friendship lookup is a redeclaration lookup, so there's never an
+  // inheritance path modifying access.
+  AccessSpecifier access = target->getAccess();
+
+  if (!getLangOpts().AccessControl || access == AS_public)
+    return AR_accessible;
+
+  CXXMethodDecl *method = dyn_cast<CXXMethodDecl>(target);
+  if (!method)
+    method = cast<CXXMethodDecl>(
+                     cast<FunctionTemplateDecl>(target)->getTemplatedDecl());
+  assert(method->getQualifier());
+
+  AccessTarget entity(Context, AccessTarget::Member,
+                      cast<CXXRecordDecl>(target->getDeclContext()),
+                      DeclAccessPair::make(target, access),
+                      /*no instance context*/ QualType());
+  entity.setDiag(diag::err_access_friend_function)
+    << method->getQualifierLoc().getSourceRange();
+
+  // We need to bypass delayed-diagnostics because we might be called
+  // while the ParsingDeclarator is active.
+  EffectiveContext EC(CurContext);
+  switch (CheckEffectiveAccess(*this, EC, target->getLocation(), entity)) {
+  case AR_accessible: return Sema::AR_accessible;
+  case AR_inaccessible: return Sema::AR_inaccessible;
+  case AR_dependent: return Sema::AR_dependent;
+  }
+  llvm_unreachable("falling off end");
 }
 
 Sema::AccessResult Sema::CheckAddressOfMemberAccess(Expr *OvlExpr,
@@ -1772,7 +1796,7 @@ void Sema::CheckLookupAccess(const LookupResult &R) {
 /// specifiers into account, but no member access expressions and such.
 ///
 /// \param Decl the declaration to check if it can be accessed
-/// \param Class the class/context from which to start the search
+/// \param Ctx the class/context from which to start the search
 /// \return true if the Decl is accessible from the Class, false otherwise.
 bool Sema::IsSimplyAccessible(NamedDecl *Decl, DeclContext *Ctx) {
   if (CXXRecordDecl *Class = dyn_cast<CXXRecordDecl>(Ctx)) {

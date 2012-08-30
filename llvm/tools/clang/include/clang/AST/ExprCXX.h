@@ -56,9 +56,9 @@ class CXXOperatorCallExpr : public CallExpr {
   SourceRange getSourceRangeImpl() const LLVM_READONLY;
 public:
   CXXOperatorCallExpr(ASTContext& C, OverloadedOperatorKind Op, Expr *fn,
-                      Expr **args, unsigned numargs, QualType t,
-                      ExprValueKind VK, SourceLocation operatorloc)
-    : CallExpr(C, CXXOperatorCallExprClass, fn, 0, args, numargs, t, VK,
+                      ArrayRef<Expr*> args, QualType t, ExprValueKind VK,
+                      SourceLocation operatorloc)
+    : CallExpr(C, CXXOperatorCallExprClass, fn, 0, args, t, VK,
                operatorloc),
       Operator(Op) {
     Range = getSourceRangeImpl();
@@ -99,9 +99,9 @@ public:
 /// the object argument).
 class CXXMemberCallExpr : public CallExpr {
 public:
-  CXXMemberCallExpr(ASTContext &C, Expr *fn, Expr **args, unsigned numargs,
+  CXXMemberCallExpr(ASTContext &C, Expr *fn, ArrayRef<Expr*> args,
                     QualType t, ExprValueKind VK, SourceLocation RP)
-    : CallExpr(C, CXXMemberCallExprClass, fn, 0, args, numargs, t, VK, RP) {}
+    : CallExpr(C, CXXMemberCallExprClass, fn, 0, args, t, VK, RP) {}
 
   CXXMemberCallExpr(ASTContext &C, EmptyShell Empty)
     : CallExpr(C, CXXMemberCallExprClass, Empty) { }
@@ -134,10 +134,9 @@ private:
 
 public:
   CUDAKernelCallExpr(ASTContext &C, Expr *fn, CallExpr *Config,
-                     Expr **args, unsigned numargs, QualType t,
-                     ExprValueKind VK, SourceLocation RP)
-    : CallExpr(C, CUDAKernelCallExprClass, fn, END_PREARG, args, numargs, t, VK,
-               RP) {
+                     ArrayRef<Expr*> args, QualType t, ExprValueKind VK,
+                     SourceLocation RP)
+    : CallExpr(C, CUDAKernelCallExprClass, fn, END_PREARG, args, t, VK, RP) {
     setConfig(Config);
   }
 
@@ -346,11 +345,11 @@ class UserDefinedLiteral : public CallExpr {
   SourceLocation UDSuffixLoc;
 
 public:
-  UserDefinedLiteral(ASTContext &C, Expr *Fn, Expr **Args, unsigned NumArgs,
+  UserDefinedLiteral(ASTContext &C, Expr *Fn, ArrayRef<Expr*> Args,
                      QualType T, ExprValueKind VK, SourceLocation LitEndLoc,
                      SourceLocation SuffixLoc)
-    : CallExpr(C, UserDefinedLiteralClass, Fn, 0, Args, NumArgs, T, VK,
-               LitEndLoc), UDSuffixLoc(SuffixLoc) {}
+    : CallExpr(C, UserDefinedLiteralClass, Fn, 0, Args, T, VK, LitEndLoc),
+      UDSuffixLoc(SuffixLoc) {}
   explicit UserDefinedLiteral(ASTContext &C, EmptyShell Empty)
     : CallExpr(C, UserDefinedLiteralClass, Empty) {}
 
@@ -498,6 +497,10 @@ public:
     else
       Operand = (TypeSourceInfo*)0;
   }
+
+  /// Determine whether this typeid has a type operand which is potentially
+  /// evaluated, per C++11 [expr.typeid]p3.
+  bool isPotentiallyEvaluated() const;
 
   bool isTypeOperand() const { return Operand.is<TypeSourceInfo *>(); }
 
@@ -904,7 +907,7 @@ protected:
   CXXConstructExpr(ASTContext &C, StmtClass SC, QualType T,
                    SourceLocation Loc,
                    CXXConstructorDecl *d, bool elidable,
-                   Expr **args, unsigned numargs,
+                   ArrayRef<Expr *> Args,
                    bool HadMultipleCandidates,
                    bool ListInitialization,
                    bool ZeroInitialization,
@@ -930,7 +933,7 @@ public:
   static CXXConstructExpr *Create(ASTContext &C, QualType T,
                                   SourceLocation Loc,
                                   CXXConstructorDecl *D, bool Elidable,
-                                  Expr **Args, unsigned NumArgs,
+                                  ArrayRef<Expr *> Args,
                                   bool HadMultipleCandidates,
                                   bool ListInitialization,
                                   bool ZeroInitialization,
@@ -1086,7 +1089,7 @@ class CXXTemporaryObjectExpr : public CXXConstructExpr {
 public:
   CXXTemporaryObjectExpr(ASTContext &C, CXXConstructorDecl *Cons,
                          TypeSourceInfo *Type,
-                         Expr **Args,unsigned NumArgs,
+                         ArrayRef<Expr *> Args,
                          SourceRange parenRange,
                          bool HadMultipleCandidates,
                          bool ZeroInitialization = false);
@@ -1254,7 +1257,8 @@ private:
              ArrayRef<Expr *> CaptureInits,
              ArrayRef<VarDecl *> ArrayIndexVars,
              ArrayRef<unsigned> ArrayIndexStarts,
-             SourceLocation ClosingBrace);
+             SourceLocation ClosingBrace,
+             bool ContainsUnexpandedParameterPack);
 
   /// \brief Construct an empty lambda expression.
   LambdaExpr(EmptyShell Empty, unsigned NumCaptures, bool HasArrayIndexVars)
@@ -1276,8 +1280,11 @@ private:
   
   /// \brief Retrieve the complete set of array-index variables.
   VarDecl **getArrayIndexVars() const {
+    unsigned ArrayIndexSize =
+        llvm::RoundUpToAlignment(sizeof(unsigned) * (NumCaptures + 1),
+                                 llvm::alignOf<VarDecl*>());
     return reinterpret_cast<VarDecl **>(
-             getArrayIndexStarts() + NumCaptures + 1);
+        reinterpret_cast<char*>(getArrayIndexStarts()) + ArrayIndexSize);
   }
 
 public:
@@ -1292,7 +1299,8 @@ public:
                             ArrayRef<Expr *> CaptureInits,
                             ArrayRef<VarDecl *> ArrayIndexVars,
                             ArrayRef<unsigned> ArrayIndexStarts,
-                            SourceLocation ClosingBrace);
+                            SourceLocation ClosingBrace,
+                            bool ContainsUnexpandedParameterPack);
 
   /// \brief Construct a new lambda expression that will be deserialized from
   /// an external source.
@@ -1492,7 +1500,7 @@ public:
 
   CXXNewExpr(ASTContext &C, bool globalNew, FunctionDecl *operatorNew,
              FunctionDecl *operatorDelete, bool usualArrayDeleteWantsSize,
-             Expr **placementArgs, unsigned numPlaceArgs,
+             ArrayRef<Expr*> placementArgs,
              SourceRange typeIdParens, Expr *arraySize,
              InitializationStyle initializationStyle, Expr *initializer,
              QualType ty, TypeSourceInfo *AllocatedTypeInfo,
@@ -1574,7 +1582,7 @@ public:
   }
 
   /// \brief Returns the CXXConstructExpr from this new-expression, or NULL.
-  const CXXConstructExpr* getConstructExpr() {
+  const CXXConstructExpr* getConstructExpr() const {
     return dyn_cast_or_null<CXXConstructExpr>(getInitializer());
   }
 
@@ -2814,8 +2822,7 @@ class CXXUnresolvedConstructExpr : public Expr {
 
   CXXUnresolvedConstructExpr(TypeSourceInfo *Type,
                              SourceLocation LParenLoc,
-                             Expr **Args,
-                             unsigned NumArgs,
+                             ArrayRef<Expr*> Args,
                              SourceLocation RParenLoc);
 
   CXXUnresolvedConstructExpr(EmptyShell Empty, unsigned NumArgs)
@@ -2827,8 +2834,7 @@ public:
   static CXXUnresolvedConstructExpr *Create(ASTContext &C,
                                             TypeSourceInfo *Type,
                                             SourceLocation LParenLoc,
-                                            Expr **Args,
-                                            unsigned NumArgs,
+                                            ArrayRef<Expr*> Args,
                                             SourceLocation RParenLoc);
 
   static CXXUnresolvedConstructExpr *CreateEmpty(ASTContext &C,

@@ -17,6 +17,7 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Scope.h"
+#include "clang/Sema/TypoCorrection.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Basic/SourceManager.h"
@@ -130,96 +131,38 @@ Retry:
       return ParseLabeledStatement(Attrs);
     }
 
+    // Look up the identifier, and typo-correct it to a keyword if it's not
+    // found.
     if (Next.isNot(tok::coloncolon)) {
-      CXXScopeSpec SS;
-      IdentifierInfo *Name = Tok.getIdentifierInfo();
-      SourceLocation NameLoc = Tok.getLocation();
-
-      if (getLangOpts().CPlusPlus)
-        CheckForTemplateAndDigraph(Next, ParsedType(),
-                                   /*EnteringContext=*/false, *Name, SS);
-
-      Sema::NameClassification Classification
-        = Actions.ClassifyName(getCurScope(), SS, Name, NameLoc, Next);
-      switch (Classification.getKind()) {
-      case Sema::NC_Keyword:
-        // The identifier was corrected to a keyword. Update the token
-        // to this keyword, and try again.
-        if (Name->getTokenID() != tok::identifier) {
-          Tok.setIdentifierInfo(Name);
-          Tok.setKind(Name->getTokenID());
-          goto Retry;
-        }
-
-        // Fall through via the normal error path.
-        // FIXME: This seems like it could only happen for context-sensitive
-        // keywords.
-
-      case Sema::NC_Error:
+      // Try to limit which sets of keywords should be included in typo
+      // correction based on what the next token is.
+      // FIXME: Pass the next token into the CorrectionCandidateCallback and
+      //        do this filtering in a more fine-grained manner.
+      CorrectionCandidateCallback DefaultValidator;
+      DefaultValidator.WantTypeSpecifiers =
+          Next.is(tok::l_paren) || Next.is(tok::less) ||
+          Next.is(tok::identifier) || Next.is(tok::star) ||
+          Next.is(tok::amp) || Next.is(tok::l_square);
+      DefaultValidator.WantExpressionKeywords =
+          Next.is(tok::l_paren) || Next.is(tok::identifier) ||
+          Next.is(tok::arrow) || Next.is(tok::period);
+      DefaultValidator.WantRemainingKeywords =
+          Next.is(tok::l_paren) || Next.is(tok::semi) ||
+          Next.is(tok::identifier) || Next.is(tok::l_brace);
+      DefaultValidator.WantCXXNamedCasts = false;
+      if (TryAnnotateName(/*IsAddressOfOperand*/false, &DefaultValidator)
+            == ANK_Error) {
         // Handle errors here by skipping up to the next semicolon or '}', and
         // eat the semicolon if that's what stopped us.
         SkipUntil(tok::r_brace, /*StopAtSemi=*/true, /*DontConsume=*/true);
         if (Tok.is(tok::semi))
           ConsumeToken();
         return StmtError();
+      }
 
-      case Sema::NC_Unknown:
-        // Either we don't know anything about this identifier, or we know that
-        // we're in a syntactic context we haven't handled yet.
-        break;
-
-      case Sema::NC_Type:
-        Tok.setKind(tok::annot_typename);
-        setTypeAnnotation(Tok, Classification.getType());
-        Tok.setAnnotationEndLoc(NameLoc);
-        PP.AnnotateCachedTokens(Tok);
-        break;
-
-      case Sema::NC_Expression:
-        Tok.setKind(tok::annot_primary_expr);
-        setExprAnnotation(Tok, Classification.getExpression());
-        Tok.setAnnotationEndLoc(NameLoc);
-        PP.AnnotateCachedTokens(Tok);
-        break;
-
-      case Sema::NC_TypeTemplate:
-      case Sema::NC_FunctionTemplate: {
-        ConsumeToken(); // the identifier
-        UnqualifiedId Id;
-        Id.setIdentifier(Name, NameLoc);
-        if (AnnotateTemplateIdToken(
-                            TemplateTy::make(Classification.getTemplateName()),
-                                    Classification.getTemplateNameKind(),
-                                    SS, SourceLocation(), Id,
-                                    /*AllowTypeAnnotation=*/false)) {
-          // Handle errors here by skipping up to the next semicolon or '}', and
-          // eat the semicolon if that's what stopped us.
-          SkipUntil(tok::r_brace, /*StopAtSemi=*/true, /*DontConsume=*/true);
-          if (Tok.is(tok::semi))
-            ConsumeToken();
-          return StmtError();
-        }
-
-        // If the next token is '::', jump right into parsing a
-        // nested-name-specifier. We don't want to leave the template-id
-        // hanging.
-        if (NextToken().is(tok::coloncolon) && TryAnnotateCXXScopeToken(false)){
-          // Handle errors here by skipping up to the next semicolon or '}', and
-          // eat the semicolon if that's what stopped us.
-          SkipUntil(tok::r_brace, /*StopAtSemi=*/true, /*DontConsume=*/true);
-          if (Tok.is(tok::semi))
-            ConsumeToken();
-          return StmtError();
-        }
-
-        // We've annotated a template-id, so try again now.
+      // If the identifier was typo-corrected, try again.
+      if (Tok.isNot(tok::identifier))
         goto Retry;
-      }
-
-      case Sema::NC_NestedNameSpecifier:
-        // FIXME: Implement this!
-        break;
-      }
     }
 
     // Fall through
@@ -289,7 +232,7 @@ Retry:
     bool msAsm = false;
     Res = ParseAsmStatement(msAsm);
     Res = Actions.ActOnFinishFullStmt(Res.get());
-    if (msAsm) return move(Res);
+    if (msAsm) return Res;
     SemiError = "asm";
     break;
   }
@@ -324,7 +267,7 @@ Retry:
     SkipUntil(tok::r_brace, true, true);
   }
 
-  return move(Res);
+  return Res;
 }
 
 /// \brief Parse an expression statement.
@@ -381,7 +324,7 @@ StmtResult Parser::ParseSEHTryBlockCommon(SourceLocation TryLoc) {
 
   StmtResult TryBlock(ParseCompoundStatement());
   if(TryBlock.isInvalid())
-    return move(TryBlock);
+    return TryBlock;
 
   StmtResult Handler;
   if (Tok.is(tok::identifier) &&
@@ -396,7 +339,7 @@ StmtResult Parser::ParseSEHTryBlockCommon(SourceLocation TryLoc) {
   }
 
   if(Handler.isInvalid())
-    return move(Handler);
+    return Handler;
 
   return Actions.ActOnSEHTryBlock(false /* IsCXXTry */,
                                   TryLoc,
@@ -441,7 +384,7 @@ StmtResult Parser::ParseSEHExceptBlock(SourceLocation ExceptLoc) {
   StmtResult Block(ParseCompoundStatement());
 
   if(Block.isInvalid())
-    return move(Block);
+    return Block;
 
   return Actions.ActOnSEHExceptBlock(ExceptLoc, FilterExpr.take(), Block.take());
 }
@@ -458,7 +401,7 @@ StmtResult Parser::ParseSEHFinallyBlock(SourceLocation FinallyBlock) {
 
   StmtResult Block(ParseCompoundStatement());
   if(Block.isInvalid())
-    return move(Block);
+    return Block;
 
   return Actions.ActOnSEHFinallyBlock(FinallyBlock,Block.take());
 }
@@ -603,7 +546,7 @@ StmtResult Parser::ParseCaseStatement(bool MissingCase, ExprResult Expr) {
       // Otherwise we link it into the current chain.
       Stmt *NextDeepest = Case.get();
       if (TopLevelCase.isInvalid())
-        TopLevelCase = move(Case);
+        TopLevelCase = Case;
       else
         Actions.ActOnCaseStmtBody(DeepestParsedCaseStmt, Case.get());
       DeepestParsedCaseStmt = NextDeepest;
@@ -636,7 +579,7 @@ StmtResult Parser::ParseCaseStatement(bool MissingCase, ExprResult Expr) {
   Actions.ActOnCaseStmtBody(DeepestParsedCaseStmt, SubStmt.get());
 
   // Return the top level parsed statement tree.
-  return move(TopLevelCase);
+  return TopLevelCase;
 }
 
 /// ParseDefaultStatement
@@ -743,7 +686,7 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
 
   Sema::CompoundScopeRAII CompoundScope(Actions);
 
-  StmtVector Stmts(Actions);
+  StmtVector Stmts;
 
   // "__label__ X, Y, Z;" is the GNU "Local Label" extension.  These are
   // only allowed at the start of a compound stmt regardless of the language.
@@ -850,7 +793,7 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
   }
 
   return Actions.ActOnCompoundStmt(T.getOpenLocation(), CloseLoc,
-                                   move_arg(Stmts), isStmtExpr);
+                                   Stmts, isStmtExpr);
 }
 
 /// ParseParenExprOrCondition:
@@ -1096,7 +1039,7 @@ StmtResult Parser::ParseSwitchStatement(SourceLocation *TrailingElseLoc) {
       SkipUntil(tok::r_brace, false, false);
     } else
       SkipUntil(tok::semi);
-    return move(Switch);
+    return Switch;
   }
 
   // C99 6.8.4p3 - In C99, the body of the switch statement is a scope, even if
@@ -1375,7 +1318,7 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
     ColonProtectionRAIIObject ColonProtection(*this, MightBeForRangeStmt);
 
     SourceLocation DeclStart = Tok.getLocation(), DeclEnd;
-    StmtVector Stmts(Actions);
+    StmtVector Stmts;
     DeclGroupPtrTy DG = ParseSimpleDeclaration(Stmts, Declarator::ForContext,
                                                DeclEnd, attrs, false,
                                                MightBeForRangeStmt ?
@@ -1495,17 +1438,16 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
   StmtResult ForEachStmt;
 
   if (ForRange) {
-    ForRangeStmt = Actions.ActOnCXXForRangeStmt(ForLoc, T.getOpenLocation(),
-                                                FirstPart.take(),
+    ForRangeStmt = Actions.ActOnCXXForRangeStmt(ForLoc, FirstPart.take(),
                                                 ForRangeInit.ColonLoc,
                                                 ForRangeInit.RangeExpr.get(),
-                                                T.getCloseLocation());
+                                                T.getCloseLocation(), true);
 
 
   // Similarly, we need to do the semantic analysis for a for-range
   // statement immediately in order to close over temporaries correctly.
   } else if (ForEach) {
-    ForEachStmt = Actions.ActOnObjCForCollectionStmt(ForLoc, T.getOpenLocation(),
+    ForEachStmt = Actions.ActOnObjCForCollectionStmt(ForLoc,
                                                      FirstPart.take(),
                                                      Collection.take(),
                                                      T.getCloseLocation());
@@ -1581,7 +1523,7 @@ StmtResult Parser::ParseGotoStatement() {
     return StmtError();
   }
 
-  return move(Res);
+  return Res;
 }
 
 /// ParseContinueStatement
@@ -1638,41 +1580,6 @@ StmtResult Parser::ParseReturnStatement() {
   return Actions.ActOnReturnStmt(ReturnLoc, R.take());
 }
 
-// needSpaceAsmToken - This function handles whitespace around asm punctuation.
-// Returns true if a space should be emitted.
-static inline bool needSpaceAsmToken(Token currTok) {
-  static Token prevTok;
-
-  // No need for space after prevToken.
-  switch(prevTok.getKind()) {
-  default:
-    break;
-  case tok::l_square:
-  case tok::r_square:
-  case tok::l_brace:
-  case tok::r_brace:
-  case tok::colon:
-    prevTok = currTok;
-    return false;
-  }
-
-  // No need for a space before currToken.
-  switch(currTok.getKind()) {
-  default:
-    break;
-  case tok::l_square:
-  case tok::r_square:
-  case tok::l_brace:
-  case tok::r_brace:
-  case tok::comma:
-  case tok::colon:
-    prevTok = currTok;
-    return false;
-  }
-  prevTok = currTok;
-  return true;
-}
-
 /// ParseMicrosoftAsmStatement. When -fms-extensions/-fasm-blocks is enabled,
 /// this routine is called to collect the tokens for an MS asm statement.
 ///
@@ -1689,139 +1596,119 @@ static inline bool needSpaceAsmToken(Token currTok) {
 ///         ms-asm-line '\n' ms-asm-instruction-block
 ///
 StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
+  // MS-style inline assembly is not fully supported, so emit a warning.
+  Diag(AsmLoc, diag::warn_unsupported_msasm);
+
   SourceManager &SrcMgr = PP.getSourceManager();
   SourceLocation EndLoc = AsmLoc;
   SmallVector<Token, 4> AsmToks;
-  SmallVector<unsigned, 4> LineEnds;
-  do {
-    bool InBraces = false;
-    unsigned short savedBraceCount = 0;
-    bool InAsmComment = false;
-    FileID FID;
-    unsigned LineNo = 0;
-    unsigned NumTokensRead = 0;
-    SourceLocation LBraceLoc;
 
-    if (Tok.is(tok::l_brace)) {
-      // Braced inline asm: consume the opening brace.
-      InBraces = true;
-      savedBraceCount = BraceCount;
-      EndLoc = LBraceLoc = ConsumeBrace();
-      ++NumTokensRead;
-    } else {
-      // Single-line inline asm; compute which line it is on.
-      std::pair<FileID, unsigned> ExpAsmLoc =
-          SrcMgr.getDecomposedExpansionLoc(EndLoc);
-      FID = ExpAsmLoc.first;
-      LineNo = SrcMgr.getLineNumber(FID, ExpAsmLoc.second);
-    }
+  bool InBraces = false;
+  unsigned short savedBraceCount = 0;
+  bool InAsmComment = false;
+  FileID FID;
+  unsigned LineNo = 0;
+  unsigned NumTokensRead = 0;
+  SourceLocation LBraceLoc;
 
-    SourceLocation TokLoc = Tok.getLocation();
-    do {
-      // If we hit EOF, we're done, period.
-      if (Tok.is(tok::eof))
-        break;
-
-      // The asm keyword is a statement separator, so multiple asm statements
-      // are allowed.
-      if (!InAsmComment && Tok.is(tok::kw_asm))
-        break;
-
-      if (!InAsmComment && Tok.is(tok::semi)) {
-        // A semicolon in an asm is the start of a comment.
-        InAsmComment = true;
-        if (InBraces) {
-          // Compute which line the comment is on.
-          std::pair<FileID, unsigned> ExpSemiLoc =
-              SrcMgr.getDecomposedExpansionLoc(TokLoc);
-          FID = ExpSemiLoc.first;
-          LineNo = SrcMgr.getLineNumber(FID, ExpSemiLoc.second);
-        }
-      } else if (!InBraces || InAsmComment) {
-        // If end-of-line is significant, check whether this token is on a
-        // new line.
-        std::pair<FileID, unsigned> ExpLoc =
-            SrcMgr.getDecomposedExpansionLoc(TokLoc);
-        if (ExpLoc.first != FID ||
-            SrcMgr.getLineNumber(ExpLoc.first, ExpLoc.second) != LineNo) {
-          // If this is a single-line __asm, we're done.
-          if (!InBraces)
-            break;
-          // We're no longer in a comment.
-          InAsmComment = false;
-        } else if (!InAsmComment && Tok.is(tok::r_brace)) {
-          // Single-line asm always ends when a closing brace is seen.
-          // FIXME: This is compatible with Apple gcc's -fasm-blocks; what
-          // does MSVC do here?
-          break;
-        }
-      }
-      if (!InAsmComment && InBraces && Tok.is(tok::r_brace) &&
-          BraceCount == (savedBraceCount + 1)) {
-        // Consume the closing brace, and finish
-        EndLoc = ConsumeBrace();
-        break;
-      }
-
-      // Consume the next token; make sure we don't modify the brace count etc.
-      // if we are in a comment.
-      EndLoc = TokLoc;
-      if (InAsmComment)
-        PP.Lex(Tok);
-      else {
-        AsmToks.push_back(Tok);
-        ConsumeAnyToken();
-      }
-      TokLoc = Tok.getLocation();
-      ++NumTokensRead;
-    } while (1);
-
-    LineEnds.push_back(AsmToks.size());
-
-    if (InBraces && BraceCount != savedBraceCount) {
-      // __asm without closing brace (this can happen at EOF).
-      Diag(Tok, diag::err_expected_rbrace);
-      Diag(LBraceLoc, diag::note_matching) << "{";
-      return StmtError();
-    } else if (NumTokensRead == 0) {
-      // Empty __asm.
-      Diag(Tok, diag::err_expected_lbrace);
-      return StmtError();
-    }
-    // Multiple adjacent asm's form together into a single asm statement
-    // in the AST.
-    if (!Tok.is(tok::kw_asm))
-      break;
-    EndLoc = ConsumeToken();
-  } while (1);
-
-  // Collect the tokens into a string
-  SmallString<512> Asm;
-  SmallString<512> TokenBuf;
-  TokenBuf.resize(512);
-  unsigned AsmLineNum = 0;
-  for (unsigned i = 0, e = AsmToks.size(); i < e; ++i) {
-    const char *ThisTokBuf = &TokenBuf[0];
-    bool StringInvalid = false;
-    unsigned ThisTokLen =
-      Lexer::getSpelling(AsmToks[i], ThisTokBuf, PP.getSourceManager(),
-                         PP.getLangOpts(), &StringInvalid);
-    if (i && (!AsmLineNum || i != LineEnds[AsmLineNum-1]) &&
-        needSpaceAsmToken(AsmToks[i]))
-      Asm += ' ';
-    Asm += StringRef(ThisTokBuf, ThisTokLen);
-    if (i + 1 == LineEnds[AsmLineNum] && i + 1 != AsmToks.size()) {
-      Asm += '\n';
-      ++AsmLineNum;
-    }
+  if (Tok.is(tok::l_brace)) {
+    // Braced inline asm: consume the opening brace.
+    InBraces = true;
+    savedBraceCount = BraceCount;
+    EndLoc = LBraceLoc = ConsumeBrace();
+    ++NumTokensRead;
+  } else {
+    // Single-line inline asm; compute which line it is on.
+    std::pair<FileID, unsigned> ExpAsmLoc =
+      SrcMgr.getDecomposedExpansionLoc(EndLoc);
+    FID = ExpAsmLoc.first;
+    LineNo = SrcMgr.getLineNumber(FID, ExpAsmLoc.second);
   }
 
-  // FIXME: We should be passing the tokens and source locations, rather than
-  // (or possibly in addition to the) AsmString.  Sema is going to interact with
-  // MC to determine Constraints, Clobbers, etc., which would be simplest to
-  // do with the tokens.
-  std::string AsmString = Asm.c_str();
-  return Actions.ActOnMSAsmStmt(AsmLoc, AsmString, EndLoc);
+  SourceLocation TokLoc = Tok.getLocation();
+  do {
+    // If we hit EOF, we're done, period.
+    if (Tok.is(tok::eof))
+      break;
+
+    if (!InAsmComment && Tok.is(tok::semi)) {
+      // A semicolon in an asm is the start of a comment.
+      InAsmComment = true;
+      if (InBraces) {
+        // Compute which line the comment is on.
+        std::pair<FileID, unsigned> ExpSemiLoc =
+          SrcMgr.getDecomposedExpansionLoc(TokLoc);
+        FID = ExpSemiLoc.first;
+        LineNo = SrcMgr.getLineNumber(FID, ExpSemiLoc.second);
+      }
+    } else if (!InBraces || InAsmComment) {
+      // If end-of-line is significant, check whether this token is on a
+      // new line.
+      std::pair<FileID, unsigned> ExpLoc =
+        SrcMgr.getDecomposedExpansionLoc(TokLoc);
+      if (ExpLoc.first != FID ||
+          SrcMgr.getLineNumber(ExpLoc.first, ExpLoc.second) != LineNo) {
+        // If this is a single-line __asm, we're done.
+        if (!InBraces)
+          break;
+        // We're no longer in a comment.
+        InAsmComment = false;
+      } else if (!InAsmComment && Tok.is(tok::r_brace)) {
+        // Single-line asm always ends when a closing brace is seen.
+        // FIXME: This is compatible with Apple gcc's -fasm-blocks; what
+        // does MSVC do here?
+        break;
+      }
+    }
+    if (!InAsmComment && InBraces && Tok.is(tok::r_brace) &&
+        BraceCount == (savedBraceCount + 1)) {
+      // Consume the closing brace, and finish
+      EndLoc = ConsumeBrace();
+      break;
+    }
+
+    // Consume the next token; make sure we don't modify the brace count etc.
+    // if we are in a comment.
+    EndLoc = TokLoc;
+    if (InAsmComment)
+      PP.Lex(Tok);
+    else {
+      AsmToks.push_back(Tok);
+      ConsumeAnyToken();
+    }
+    TokLoc = Tok.getLocation();
+    ++NumTokensRead;
+  } while (1);
+
+  if (InBraces && BraceCount != savedBraceCount) {
+    // __asm without closing brace (this can happen at EOF).
+    Diag(Tok, diag::err_expected_rbrace);
+    Diag(LBraceLoc, diag::note_matching) << "{";
+    return StmtError();
+  } else if (NumTokensRead == 0) {
+    // Empty __asm.
+    Diag(Tok, diag::err_expected_lbrace);
+    return StmtError();
+  }
+
+  // If MS-style inline assembly is disabled, then build an empty asm.
+  if (!getLangOpts().EmitMicrosoftInlineAsm) {
+    Token t;
+    t.setKind(tok::string_literal);
+    t.setLiteralData("\"/*FIXME: not done*/\"");
+    t.clearFlag(Token::NeedsCleaning);
+    t.setLength(21);
+    ExprResult AsmString(Actions.ActOnStringLiteral(&t, 1));
+    ExprVector Constraints;
+    ExprVector Exprs;
+    ExprVector Clobbers;
+    return Actions.ActOnGCCAsmStmt(AsmLoc, true, true, 0, 0, 0, Constraints,
+                                   Exprs, AsmString.take(), Clobbers, EndLoc);
+  }
+
+  // FIXME: We should be passing source locations for better diagnostics.
+  return Actions.ActOnMSAsmStmt(AsmLoc, LBraceLoc,
+                                llvm::makeArrayRef(AsmToks), EndLoc);
 }
 
 /// ParseAsmStatement - Parse a GNU extended asm statement.
@@ -1880,18 +1767,17 @@ StmtResult Parser::ParseAsmStatement(bool &msAsm) {
   }
 
   SmallVector<IdentifierInfo *, 4> Names;
-  ExprVector Constraints(Actions);
-  ExprVector Exprs(Actions);
-  ExprVector Clobbers(Actions);
+  ExprVector Constraints;
+  ExprVector Exprs;
+  ExprVector Clobbers;
 
   if (Tok.is(tok::r_paren)) {
     // We have a simple asm expression like 'asm("foo")'.
     T.consumeClose();
-    return Actions.ActOnAsmStmt(AsmLoc, /*isSimple*/ true, isVolatile,
-                                /*NumOutputs*/ 0, /*NumInputs*/ 0, 0,
-                                move_arg(Constraints), move_arg(Exprs),
-                                AsmString.take(), move_arg(Clobbers),
-                                T.getCloseLocation());
+    return Actions.ActOnGCCAsmStmt(AsmLoc, /*isSimple*/ true, isVolatile,
+                                   /*NumOutputs*/ 0, /*NumInputs*/ 0, 0,
+                                   Constraints, Exprs, AsmString.take(),
+                                   Clobbers, T.getCloseLocation());
   }
 
   // Parse Outputs, if present.
@@ -1952,11 +1838,10 @@ StmtResult Parser::ParseAsmStatement(bool &msAsm) {
   }
 
   T.consumeClose();
-  return Actions.ActOnAsmStmt(AsmLoc, false, isVolatile,
-                              NumOutputs, NumInputs, Names.data(),
-                              move_arg(Constraints), move_arg(Exprs),
-                              AsmString.take(), move_arg(Clobbers),
-                              T.getCloseLocation());
+  return Actions.ActOnGCCAsmStmt(AsmLoc, false, isVolatile, NumOutputs,
+                                 NumInputs, Names.data(), Constraints, Exprs,
+                                 AsmString.take(), Clobbers,
+                                 T.getCloseLocation());
 }
 
 /// ParseAsmOperands - Parse the asm-operands production as used by
@@ -2049,7 +1934,7 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   if (FnBody.isInvalid()) {
     Sema::CompoundScopeRAII CompoundScope(Actions);
     FnBody = Actions.ActOnCompoundStmt(LBraceLoc, LBraceLoc,
-                                       MultiStmtArg(Actions), false);
+                                       MultiStmtArg(), false);
   }
 
   BodyScope.Exit();
@@ -2086,7 +1971,7 @@ Decl *Parser::ParseFunctionTryBlock(Decl *Decl, ParseScope &BodyScope) {
   if (FnBody.isInvalid()) {
     Sema::CompoundScopeRAII CompoundScope(Actions);
     FnBody = Actions.ActOnCompoundStmt(LBraceLoc, LBraceLoc,
-                                       MultiStmtArg(Actions), false);
+                                       MultiStmtArg(), false);
   }
 
   BodyScope.Exit();
@@ -2148,7 +2033,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
   StmtResult TryBlock(ParseCompoundStatement(/*isStmtExpr=*/false,
                                              Scope::DeclScope|Scope::TryScope));
   if (TryBlock.isInvalid())
-    return move(TryBlock);
+    return TryBlock;
 
   // Borland allows SEH-handlers with 'try'
 
@@ -2166,7 +2051,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
       Handler = ParseSEHFinallyBlock(Loc);
     }
     if(Handler.isInvalid())
-      return move(Handler);
+      return Handler;
 
     return Actions.ActOnSEHTryBlock(true /* IsCXXTry */,
                                     TryLoc,
@@ -2174,7 +2059,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
                                     Handler.take());
   }
   else {
-    StmtVector Handlers(Actions);
+    StmtVector Handlers;
     ParsedAttributesWithRange attrs(AttrFactory);
     MaybeParseCXX0XAttributes(attrs);
     ProhibitAttributes(attrs);
@@ -2191,7 +2076,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
     if (Handlers.empty())
       return StmtError();
 
-    return Actions.ActOnCXXTryBlock(TryLoc, TryBlock.take(),move_arg(Handlers));
+    return Actions.ActOnCXXTryBlock(TryLoc, TryBlock.take(),Handlers);
   }
 }
 
@@ -2243,7 +2128,7 @@ StmtResult Parser::ParseCXXCatchBlock() {
   // FIXME: Possible draft standard bug: attribute-specifier should be allowed?
   StmtResult Block(ParseCompoundStatement());
   if (Block.isInvalid())
-    return move(Block);
+    return Block;
 
   return Actions.ActOnCXXCatchBlock(CatchLoc, ExceptionDecl, Block.take());
 }

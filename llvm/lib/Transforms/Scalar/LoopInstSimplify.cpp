@@ -48,7 +48,7 @@ namespace {
     }
   };
 }
-  
+
 char LoopInstSimplify::ID = 0;
 INITIALIZE_PASS_BEGIN(LoopInstSimplify, "loop-instsimplify",
                 "Simplify instructions in loops", false, false)
@@ -120,7 +120,7 @@ bool LoopInstSimplify::runOnLoop(Loop *L, LPPassManager &LPM) {
             ++NumSimplified;
           }
         }
-        LocalChanged |= RecursivelyDeleteTriviallyDeadInstructions(I);
+        LocalChanged |= RecursivelyDeleteTriviallyDeadInstructions(I, TLI);
 
         if (IsSubloopHeader && !isa<PHINode>(I))
           break;

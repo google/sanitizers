@@ -105,7 +105,6 @@ public:
   /// BuildTypeInfo - Build the RTTI type info struct for the given type.
   ///
   /// \param Force - true to force the creation of this RTTI value
-  /// \param ForEH - true if this is for exception handling
   llvm::Constant *BuildTypeInfo(QualType Ty, bool Force = false);
 };
 }
@@ -779,28 +778,24 @@ static unsigned ComputeVMIClassTypeInfoFlags(const CXXBaseSpecifier *Base,
     cast<CXXRecordDecl>(Base->getType()->getAs<RecordType>()->getDecl());
   
   if (Base->isVirtual()) {
-    if (Bases.VirtualBases.count(BaseDecl)) {
+    // Mark the virtual base as seen.
+    if (!Bases.VirtualBases.insert(BaseDecl)) {
       // If this virtual base has been seen before, then the class is diamond
       // shaped.
       Flags |= RTTIBuilder::VMI_DiamondShaped;
     } else {
       if (Bases.NonVirtualBases.count(BaseDecl))
         Flags |= RTTIBuilder::VMI_NonDiamondRepeat;
-
-      // Mark the virtual base as seen.
-      Bases.VirtualBases.insert(BaseDecl);
     }
   } else {
-    if (Bases.NonVirtualBases.count(BaseDecl)) {
+    // Mark the non-virtual base as seen.
+    if (!Bases.NonVirtualBases.insert(BaseDecl)) {
       // If this non-virtual base has been seen before, then the class has non-
       // diamond shaped repeated inheritance.
       Flags |= RTTIBuilder::VMI_NonDiamondRepeat;
     } else {
       if (Bases.VirtualBases.count(BaseDecl))
         Flags |= RTTIBuilder::VMI_NonDiamondRepeat;
-        
-      // Mark the non-virtual base as seen.
-      Bases.NonVirtualBases.insert(BaseDecl);
     }
   }
 
@@ -891,7 +886,7 @@ void RTTIBuilder::BuildVMIClassTypeInfo(const CXXRecordDecl *RD) {
       Offset = Layout.getBaseClassOffset(BaseDecl);
     };
     
-    OffsetFlags = Offset.getQuantity() << 8;
+    OffsetFlags = uint64_t(Offset.getQuantity()) << 8;
     
     // The low-order byte of __offset_flags contains flags, as given by the 
     // masks from the enumeration __offset_flags_masks.

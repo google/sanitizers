@@ -39,7 +39,7 @@ SSAUpdater::SSAUpdater(SmallVectorImpl<PHINode*> *NewPHI)
   : AV(0), ProtoType(0), ProtoName(), InsertedPHIs(NewPHI) {}
 
 SSAUpdater::~SSAUpdater() {
-  delete &getAvailableVals(AV);
+  delete static_cast<AvailableValsTy*>(AV);
 }
 
 /// Initialize - Reset this object to get ready for a new set of SSA
@@ -213,6 +213,11 @@ void SSAUpdater::RewriteUse(Use &U) {
     V = GetValueAtEndOfBlock(UserPN->getIncomingBlock(U));
   else
     V = GetValueInMiddleOfBlock(User->getParent());
+
+  // Notify that users of the existing value that it is being replaced.
+  Value *OldVal = U.get();
+  if (OldVal != V && OldVal->hasValueHandle())
+    ValueHandleBase::ValueIsRAUWd(OldVal, V);
 
   U.set(V);
 }

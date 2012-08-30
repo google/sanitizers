@@ -39,12 +39,15 @@ let neverHasSideEffects = 1 in {
 
 
 // Sign/Zero extenders
+let neverHasSideEffects = 1 in {
 def MOVSX16rr8 : I<0xBE, MRMSrcReg, (outs GR16:$dst), (ins GR8:$src),
                    "movs{bw|x}\t{$src, $dst|$dst, $src}", [], IIC_MOVSX_R16_R8>,
                    TB, OpSize;
+let mayLoad = 1 in
 def MOVSX16rm8 : I<0xBE, MRMSrcMem, (outs GR16:$dst), (ins i8mem:$src),
                    "movs{bw|x}\t{$src, $dst|$dst, $src}", [], IIC_MOVSX_R16_M8>,
                    TB, OpSize;
+} // neverHasSideEffects = 1
 def MOVSX32rr8 : I<0xBE, MRMSrcReg, (outs GR32:$dst), (ins GR8:$src),
                    "movs{bl|x}\t{$src, $dst|$dst, $src}",
                    [(set GR32:$dst, (sext GR8:$src))], IIC_MOVSX>, TB;
@@ -59,12 +62,15 @@ def MOVSX32rm16: I<0xBF, MRMSrcMem, (outs GR32:$dst), (ins i16mem:$src),
                    [(set GR32:$dst, (sextloadi32i16 addr:$src))], IIC_MOVSX>,
                    TB;
 
+let neverHasSideEffects = 1 in {
 def MOVZX16rr8 : I<0xB6, MRMSrcReg, (outs GR16:$dst), (ins GR8:$src),
                    "movz{bw|x}\t{$src, $dst|$dst, $src}", [], IIC_MOVZX_R16_R8>,
                    TB, OpSize;
+let mayLoad = 1 in
 def MOVZX16rm8 : I<0xB6, MRMSrcMem, (outs GR16:$dst), (ins i8mem:$src),
                    "movz{bw|x}\t{$src, $dst|$dst, $src}", [], IIC_MOVZX_R16_M8>,
                    TB, OpSize;
+} // neverHasSideEffects = 1
 def MOVZX32rr8 : I<0xB6, MRMSrcReg, (outs GR32:$dst), (ins GR8 :$src),
                    "movz{bl|x}\t{$src, $dst|$dst, $src}",
                    [(set GR32:$dst, (zext GR8:$src))], IIC_MOVZX>, TB;
@@ -82,6 +88,7 @@ def MOVZX32rm16: I<0xB7, MRMSrcMem, (outs GR32:$dst), (ins i16mem:$src),
 // These are the same as the regular MOVZX32rr8 and MOVZX32rm8
 // except that they use GR32_NOREX for the output operand register class
 // instead of GR32. This allows them to operate on h registers on x86-64.
+let neverHasSideEffects = 1, isCodeGenOnly = 1 in {
 def MOVZX32_NOREXrr8 : I<0xB6, MRMSrcReg,
                          (outs GR32_NOREX:$dst), (ins GR8_NOREX:$src),
                          "movz{bl|x}\t{$src, $dst|$dst, $src}",
@@ -91,6 +98,7 @@ def MOVZX32_NOREXrm8 : I<0xB6, MRMSrcMem,
                          (outs GR32_NOREX:$dst), (ins i8mem_NOREX:$src),
                          "movz{bl|x}\t{$src, $dst|$dst, $src}",
                          [], IIC_MOVZX>, TB;
+}
 
 // MOVSX64rr8 always has a REX prefix and it has an 8-bit register
 // operand, which makes it a rare instruction with an 8-bit register

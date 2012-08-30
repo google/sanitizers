@@ -251,7 +251,7 @@ def MMX_MOVDQ2Qrr : SDIi8<0xD6, MRMSrcReg, (outs VR64:$dst),
                                   (iPTR 0))))))],
                           IIC_MMX_MOVQ_RR>;
 
-def MMX_MOVQ2DQrr : SSDIi8<0xD6, MRMSrcReg, (outs VR128:$dst),
+def MMX_MOVQ2DQrr : S2SIi8<0xD6, MRMSrcReg, (outs VR128:$dst),
                             (ins VR64:$src), "movq2dq\t{$src, $dst|$dst, $src}",
           [(set VR128:$dst,
             (v2i64 (scalar_to_vector
@@ -259,7 +259,7 @@ def MMX_MOVQ2DQrr : SSDIi8<0xD6, MRMSrcReg, (outs VR128:$dst),
                            IIC_MMX_MOVQ_RR>;
 
 let neverHasSideEffects = 1 in
-def MMX_MOVQ2FR64rr: SSDIi8<0xD6, MRMSrcReg, (outs FR64:$dst),
+def MMX_MOVQ2FR64rr: S2SIi8<0xD6, MRMSrcReg, (outs FR64:$dst),
                        (ins VR64:$src), "movq2dq\t{$src, $dst|$dst, $src}", [],
                        IIC_MMX_MOVQ_RR>;
 
@@ -553,20 +553,6 @@ def MMX_PMOVMSKBrr : MMXI<0xD7, MRMSrcReg, (outs GR32:$dst), (ins VR64:$src),
                           [(set GR32:$dst, 
                                 (int_x86_mmx_pmovmskb VR64:$src))]>;
 
-
-// MMX to XMM for vector types
-def MMX_X86movq2dq : SDNode<"X86ISD::MOVQ2DQ", SDTypeProfile<1, 1,
-                            [SDTCisVT<0, v2i64>, SDTCisVT<1, x86mmx>]>>;
-
-def : Pat<(v2i64 (MMX_X86movq2dq VR64:$src)),
-          (v2i64 (MMX_MOVQ2DQrr VR64:$src))>;
-
-def : Pat<(v2i64 (MMX_X86movq2dq (load_mmx addr:$src))),
-          (v2i64 (MOVQI2PQIrm addr:$src))>;
-
-def : Pat<(v2i64 (MMX_X86movq2dq 
-                    (x86mmx (scalar_to_vector (loadi32 addr:$src))))),
-          (v2i64 (MOVDI2PDIrm addr:$src))>;
 
 // Low word of XMM to MMX.
 def MMX_X86movdq2q : SDNode<"X86ISD::MOVDQ2Q", SDTypeProfile<1, 1,

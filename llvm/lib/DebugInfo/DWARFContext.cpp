@@ -32,15 +32,17 @@ void DWARFContext::dump(raw_ostream &OS) {
   while (set.extract(arangesData, &offset))
     set.dump(OS);
 
+  uint8_t savedAddressByteSize = 0;
   OS << "\n.debug_lines contents:\n";
   for (unsigned i = 0, e = getNumCompileUnits(); i != e; ++i) {
     DWARFCompileUnit *cu = getCompileUnitAtIndex(i);
+    savedAddressByteSize = cu->getAddressByteSize();
     unsigned stmtOffset =
       cu->getCompileUnitDIE()->getAttributeValueAsUnsigned(cu, DW_AT_stmt_list,
                                                            -1U);
     if (stmtOffset != -1U) {
       DataExtractor lineData(getLineSection(), isLittleEndian(),
-                             cu->getAddressByteSize());
+                             savedAddressByteSize);
       DWARFDebugLine::DumpingState state(OS);
       DWARFDebugLine::parseStatementTable(lineData, &stmtOffset, state);
     }
@@ -54,6 +56,18 @@ void DWARFContext::dump(raw_ostream &OS) {
     OS << format("0x%8.8x: \"%s\"\n", lastOffset, s);
     lastOffset = offset;
   }
+
+  OS << "\n.debug_ranges contents:\n";
+  // In fact, different compile units may have different address byte
+  // sizes, but for simplicity we just use the address byte size of the last
+  // compile unit (there is no easy and fast way to associate address range
+  // list and the compile unit it describes).
+  DataExtractor rangesData(getRangeSection(), isLittleEndian(),
+                           savedAddressByteSize);
+  offset = 0;
+  DWARFDebugRangeList rangeList;
+  while (rangeList.extract(rangesData, &offset))
+    rangeList.dump(OS);
 }
 
 const DWARFDebugAbbrev *DWARFContext::getDebugAbbrev() {
@@ -131,77 +145,93 @@ namespace {
   };
 }
 
-DWARFCompileUnit *DWARFContext::getCompileUnitForOffset(uint32_t offset) {
+DWARFCompileUnit *DWARFContext::getCompileUnitForOffset(uint32_t Offset) {
   if (CUs.empty())
     parseCompileUnits();
 
-  DWARFCompileUnit *i = std::lower_bound(CUs.begin(), CUs.end(), offset,
-                                         OffsetComparator());
-  if (i != CUs.end())
-    return &*i;
+  DWARFCompileUnit *CU = std::lower_bound(CUs.begin(), CUs.end(), Offset,
+                                          OffsetComparator());
+  if (CU != CUs.end())
+    return &*CU;
   return 0;
 }
 
-DILineInfo DWARFContext::getLineInfoForAddress(uint64_t address,
-    DILineInfoSpecifier specifier) {
+DWARFCompileUnit *DWARFContext::getCompileUnitForAddress(uint64_t Address) {
   // First, get the offset of the compile unit.
-  uint32_t cuOffset = getDebugAranges()->findAddress(address);
+  uint32_t CUOffset = getDebugAranges()->findAddress(Address);
   // Retrieve the compile unit.
-  DWARFCompileUnit *cu = getCompileUnitForOffset(cuOffset);
-  if (!cu)
+  return getCompileUnitForOffset(CUOffset);
+}
+
+static bool getFileNameForCompileUnit(
+    DWARFCompileUnit *CU, const DWARFDebugLine::LineTable *LineTable,
+    uint64_t FileIndex, bool NeedsAbsoluteFilePath, std::string &FileName) {
+  if (CU == 0 ||
+      LineTable == 0 ||
+      !LineTable->getFileNameByIndex(FileIndex, NeedsAbsoluteFilePath,
+                                     FileName))
+    return false;
+  if (NeedsAbsoluteFilePath && sys::path::is_relative(FileName)) {
+    // We may still need to append compilation directory of compile unit.
+    SmallString<16> AbsolutePath;
+    if (const char *CompilationDir = CU->getCompilationDir()) {
+      sys::path::append(AbsolutePath, CompilationDir);
+    }
+    sys::path::append(AbsolutePath, FileName);
+    FileName = AbsolutePath.str();
+  }
+  return true;
+}
+
+bool
+DWARFContext::getFileLineInfoForCompileUnit(DWARFCompileUnit *CU,
+                                            uint64_t Address,
+                                            bool NeedsAbsoluteFilePath,
+                                            std::string &FileName,
+                                            uint32_t &Line, uint32_t &Column) {
+  // Get the line table for this compile unit.
+  const DWARFDebugLine::LineTable *LineTable = getLineTableForCompileUnit(CU);
+  if (!LineTable)
+    return false;
+  // Get the index of row we're looking for in the line table.
+  uint32_t RowIndex = LineTable->lookupAddress(Address);
+  if (RowIndex == -1U)
+    return false;
+  // Take file number and line/column from the row.
+  const DWARFDebugLine::Row &Row = LineTable->Rows[RowIndex];
+  if (!getFileNameForCompileUnit(CU, LineTable, Row.File,
+                                 NeedsAbsoluteFilePath, FileName))
+    return false;
+  Line = Row.Line;
+  Column = Row.Column;
+  return true;
+}
+
+DILineInfo DWARFContext::getLineInfoForAddress(uint64_t Address,
+    DILineInfoSpecifier Specifier) {
+  DWARFCompileUnit *CU = getCompileUnitForAddress(Address);
+  if (!CU)
     return DILineInfo();
-  SmallString<16> fileName("<invalid>");
-  SmallString<16> functionName("<invalid>");
-  uint32_t line = 0;
-  uint32_t column = 0;
-  if (specifier.needs(DILineInfoSpecifier::FunctionName)) {
-    const DWARFDebugInfoEntryMinimal *function_die =
-        cu->getFunctionDIEForAddress(address);
-    if (function_die) {
-      if (const char *name = function_die->getSubprogramName(cu))
-        functionName = name;
+  std::string FileName = "<invalid>";
+  std::string FunctionName = "<invalid>";
+  uint32_t Line = 0;
+  uint32_t Column = 0;
+  if (Specifier.needs(DILineInfoSpecifier::FunctionName)) {
+    const DWARFDebugInfoEntryMinimal *FunctionDIE =
+        CU->getFunctionDIEForAddress(Address);
+    if (FunctionDIE) {
+      if (const char *Name = FunctionDIE->getSubprogramName(CU))
+        FunctionName = Name;
     }
   }
-  if (specifier.needs(DILineInfoSpecifier::FileLineInfo)) {
-    // Get the line table for this compile unit.
-    const DWARFDebugLine::LineTable *lineTable = getLineTableForCompileUnit(cu);
-    if (lineTable) {
-      // Get the index of the row we're looking for in the line table.
-      uint64_t hiPC = cu->getCompileUnitDIE()->getAttributeValueAsUnsigned(
-          cu, DW_AT_high_pc, -1ULL);
-      uint32_t rowIndex = lineTable->lookupAddress(address, hiPC);
-      if (rowIndex != -1U) {
-        const DWARFDebugLine::Row &row = lineTable->Rows[rowIndex];
-        // Take file/line info from the line table.
-        const DWARFDebugLine::FileNameEntry &fileNameEntry =
-            lineTable->Prologue.FileNames[row.File - 1];
-        fileName = fileNameEntry.Name;
-        if (specifier.needs(DILineInfoSpecifier::AbsoluteFilePath) &&
-            sys::path::is_relative(fileName.str())) {
-          // Append include directory of file (if it is present in line table)
-          // and compilation directory of compile unit to make path absolute.
-          const char *includeDir = 0;
-          if (uint64_t includeDirIndex = fileNameEntry.DirIdx) {
-            includeDir = lineTable->Prologue
-                         .IncludeDirectories[includeDirIndex - 1];
-          }
-          SmallString<16> absFileName;
-          if (includeDir == 0 || sys::path::is_relative(includeDir)) {
-            if (const char *compilationDir = cu->getCompilationDir())
-              sys::path::append(absFileName, compilationDir);
-          }
-          if (includeDir) {
-            sys::path::append(absFileName, includeDir);
-          }
-          sys::path::append(absFileName, fileName.str());
-          fileName = absFileName;
-        }
-        line = row.Line;
-        column = row.Column;
-      }
-    }
+  if (Specifier.needs(DILineInfoSpecifier::FileLineInfo)) {
+    const bool NeedsAbsoluteFilePath =
+        Specifier.needs(DILineInfoSpecifier::AbsoluteFilePath);
+    getFileLineInfoForCompileUnit(CU, Address, NeedsAbsoluteFilePath,
+                                  FileName, Line, Column);
   }
-  return DILineInfo(fileName, functionName, line, column);
+  return DILineInfo(StringRef(FileName), StringRef(FunctionName),
+                    Line, Column);
 }
 
 void DWARFContextInMemory::anchor() { }

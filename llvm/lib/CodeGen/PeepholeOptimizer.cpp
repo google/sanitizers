@@ -78,6 +78,8 @@ STATISTIC(NumReuse,      "Number of extension results reused");
 STATISTIC(NumBitcasts,   "Number of bitcasts eliminated");
 STATISTIC(NumCmps,       "Number of compares eliminated");
 STATISTIC(NumImmFold,    "Number of move immediate folded");
+STATISTIC(NumLoadFold,   "Number of loads folded");
+STATISTIC(NumSelects,    "Number of selects optimized");
 
 namespace {
   class PeepholeOptimizer : public MachineFunctionPass {
@@ -108,12 +110,14 @@ namespace {
     bool optimizeCmpInstr(MachineInstr *MI, MachineBasicBlock *MBB);
     bool optimizeExtInstr(MachineInstr *MI, MachineBasicBlock *MBB,
                           SmallPtrSet<MachineInstr*, 8> &LocalMIs);
+    bool optimizeSelect(MachineInstr *MI);
     bool isMoveImmediate(MachineInstr *MI,
                          SmallSet<unsigned, 4> &ImmDefRegs,
                          DenseMap<unsigned, MachineInstr*> &ImmDefMIs);
     bool foldImmediate(MachineInstr *MI, MachineBasicBlock *MBB,
                        SmallSet<unsigned, 4> &ImmDefRegs,
                        DenseMap<unsigned, MachineInstr*> &ImmDefMIs);
+    bool isLoadFoldable(MachineInstr *MI, unsigned &FoldAsLoadDefReg);
   };
 }
 
@@ -384,6 +388,47 @@ bool PeepholeOptimizer::optimizeCmpInstr(MachineInstr *MI,
   return false;
 }
 
+/// Optimize a select instruction.
+bool PeepholeOptimizer::optimizeSelect(MachineInstr *MI) {
+  unsigned TrueOp = 0;
+  unsigned FalseOp = 0;
+  bool Optimizable = false;
+  SmallVector<MachineOperand, 4> Cond;
+  if (TII->analyzeSelect(MI, Cond, TrueOp, FalseOp, Optimizable))
+    return false;
+  if (!Optimizable)
+    return false;
+  if (!TII->optimizeSelect(MI))
+    return false;
+  MI->eraseFromParent();
+  ++NumSelects;
+  return true;
+}
+
+/// isLoadFoldable - Check whether MI is a candidate for folding into a later
+/// instruction. We only fold loads to virtual registers and the virtual
+/// register defined has a single use.
+bool PeepholeOptimizer::isLoadFoldable(MachineInstr *MI,
+                                       unsigned &FoldAsLoadDefReg) {
+  if (!MI->canFoldAsLoad() || !MI->mayLoad())
+    return false;
+  const MCInstrDesc &MCID = MI->getDesc();
+  if (MCID.getNumDefs() != 1)
+    return false;
+
+  unsigned Reg = MI->getOperand(0).getReg();
+  // To reduce compilation time, we check MRI->hasOneUse when inserting
+  // loads. It should be checked when processing uses of the load, since
+  // uses can be removed during peephole.
+  if (!MI->getOperand(0).getSubReg() &&
+      TargetRegisterInfo::isVirtualRegister(Reg) &&
+      MRI->hasOneUse(Reg)) {
+    FoldAsLoadDefReg = Reg;
+    return true;
+  }
+  return false;
+}
+
 bool PeepholeOptimizer::isMoveImmediate(MachineInstr *MI,
                                         SmallSet<unsigned, 4> &ImmDefRegs,
                                  DenseMap<unsigned, MachineInstr*> &ImmDefMIs) {
@@ -441,6 +486,7 @@ bool PeepholeOptimizer::runOnMachineFunction(MachineFunction &MF) {
   SmallPtrSet<MachineInstr*, 8> LocalMIs;
   SmallSet<unsigned, 4> ImmDefRegs;
   DenseMap<unsigned, MachineInstr*> ImmDefMIs;
+  unsigned FoldAsLoadDefReg;
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
     MachineBasicBlock *MBB = &*I;
 
@@ -448,37 +494,33 @@ bool PeepholeOptimizer::runOnMachineFunction(MachineFunction &MF) {
     LocalMIs.clear();
     ImmDefRegs.clear();
     ImmDefMIs.clear();
+    FoldAsLoadDefReg = 0;
 
-    bool First = true;
-    MachineBasicBlock::iterator PMII;
     for (MachineBasicBlock::iterator
            MII = I->begin(), MIE = I->end(); MII != MIE; ) {
       MachineInstr *MI = &*MII;
+      // We may be erasing MI below, increment MII now.
+      ++MII;
       LocalMIs.insert(MI);
 
+      // If there exists an instruction which belongs to the following
+      // categories, we will discard the load candidate.
       if (MI->isLabel() || MI->isPHI() || MI->isImplicitDef() ||
           MI->isKill() || MI->isInlineAsm() || MI->isDebugValue() ||
           MI->hasUnmodeledSideEffects()) {
-        ++MII;
+        FoldAsLoadDefReg = 0;
         continue;
       }
+      if (MI->mayStore() || MI->isCall())
+        FoldAsLoadDefReg = 0;
 
-      if (MI->isBitcast()) {
-        if (optimizeBitcastInstr(MI, MBB)) {
-          // MI is deleted.
-          LocalMIs.erase(MI);
-          Changed = true;
-          MII = First ? I->begin() : llvm::next(PMII);
-          continue;
-        }
-      } else if (MI->isCompare()) {
-        if (optimizeCmpInstr(MI, MBB)) {
-          // MI is deleted.
-          LocalMIs.erase(MI);
-          Changed = true;
-          MII = First ? I->begin() : llvm::next(PMII);
-          continue;
-        }
+      if ((MI->isBitcast() && optimizeBitcastInstr(MI, MBB)) ||
+          (MI->isCompare() && optimizeCmpInstr(MI, MBB)) ||
+          (MI->isSelect() && optimizeSelect(MI))) {
+        // MI is deleted.
+        LocalMIs.erase(MI);
+        Changed = true;
+        continue;
       }
 
       if (isMoveImmediate(MI, ImmDefRegs, ImmDefMIs)) {
@@ -489,9 +531,29 @@ bool PeepholeOptimizer::runOnMachineFunction(MachineFunction &MF) {
           Changed |= foldImmediate(MI, MBB, ImmDefRegs, ImmDefMIs);
       }
 
-      First = false;
-      PMII = MII;
-      ++MII;
+      // Check whether MI is a load candidate for folding into a later
+      // instruction. If MI is not a candidate, check whether we can fold an
+      // earlier load into MI.
+      if (!isLoadFoldable(MI, FoldAsLoadDefReg) && FoldAsLoadDefReg) {
+        // We need to fold load after optimizeCmpInstr, since optimizeCmpInstr
+        // can enable folding by converting SUB to CMP.
+        MachineInstr *DefMI = 0;
+        MachineInstr *FoldMI = TII->optimizeLoadInstr(MI, MRI,
+                                                      FoldAsLoadDefReg, DefMI);
+        if (FoldMI) {
+          // Update LocalMIs since we replaced MI with FoldMI and deleted DefMI.
+          LocalMIs.erase(MI);
+          LocalMIs.erase(DefMI);
+          LocalMIs.insert(FoldMI);
+          MI->eraseFromParent();
+          DefMI->eraseFromParent();
+          ++NumLoadFold;
+
+          // MI is replaced with FoldMI.
+          Changed = true;
+          continue;
+        }
+      }
     }
   }
 

@@ -44,6 +44,8 @@ def FeatureN64         : SubtargetFeature<"n64", "MipsABI", "N64",
                                 "Enable n64 ABI">;
 def FeatureEABI        : SubtargetFeature<"eabi", "MipsABI", "EABI",
                                 "Enable eabi ABI">;
+def FeatureAndroid     : SubtargetFeature<"android", "IsAndroid", "true",
+                                "Target is android">;
 def FeatureVFPU        : SubtargetFeature<"vfpu", "HasVFPU",
                                 "true", "Enable vector FPU instructions.">;
 def FeatureSEInReg     : SubtargetFeature<"seinreg", "HasSEInReg", "true",
@@ -93,9 +95,20 @@ def MipsAsmWriter : AsmWriter {
   bit isMCAsmWriter = 1;
 }
 
-def Mips : Target {
-  let InstructionSet = MipsInstrInfo;
-
-  let AssemblyWriters = [MipsAsmWriter];
+def MipsAsmParser : AsmParser {
+  let ShouldEmitMatchRegisterName = 0;
 }
 
+def MipsAsmParserVariant : AsmParserVariant {
+  int Variant = 0;
+
+  // Recognize hard coded registers.
+  string RegisterPrefix = "$";
+}
+
+def Mips : Target {
+  let InstructionSet = MipsInstrInfo;
+  let AssemblyParsers = [MipsAsmParser];
+  let AssemblyWriters = [MipsAsmWriter];
+  let AssemblyParserVariants = [MipsAsmParserVariant];
+}

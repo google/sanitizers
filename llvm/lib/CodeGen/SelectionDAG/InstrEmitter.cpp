@@ -55,7 +55,8 @@ unsigned InstrEmitter::CountResults(SDNode *Node) {
 ///
 /// Also count physreg RegisterSDNode and RegisterMaskSDNode operands preceding
 /// the chain and glue. These operands may be implicit on the machine instr.
-static unsigned countOperands(SDNode *Node, unsigned &NumImpUses) {
+static unsigned countOperands(SDNode *Node, unsigned NumExpUses,
+                              unsigned &NumImpUses) {
   unsigned N = Node->getNumOperands();
   while (N && Node->getOperand(N - 1).getValueType() == MVT::Glue)
     --N;
@@ -63,7 +64,8 @@ static unsigned countOperands(SDNode *Node, unsigned &NumImpUses) {
     --N; // Ignore chain if it exists.
 
   // Count RegisterSDNode and RegisterMaskSDNode operands for NumImpUses.
-  for (unsigned I = N; I; --I) {
+  NumImpUses = N - NumExpUses;
+  for (unsigned I = N; I > NumExpUses; --I) {
     if (isa<RegisterMaskSDNode>(Node->getOperand(I - 1)))
       continue;
     if (RegisterSDNode *RN = dyn_cast<RegisterSDNode>(Node->getOperand(I - 1)))
@@ -411,6 +413,10 @@ void InstrEmitter::AddOperand(MachineInstr *MI, SDValue Op,
   } else if (BlockAddressSDNode *BA = dyn_cast<BlockAddressSDNode>(Op)) {
     MI->addOperand(MachineOperand::CreateBA(BA->getBlockAddress(),
                                             BA->getTargetFlags()));
+  } else if (TargetIndexSDNode *TI = dyn_cast<TargetIndexSDNode>(Op)) {
+    MI->addOperand(MachineOperand::CreateTargetIndex(TI->getIndex(),
+                                                     TI->getOffset(),
+                                                     TI->getTargetFlags()));
   } else {
     assert(Op.getValueType() != MVT::Other &&
            Op.getValueType() != MVT::Glue &&
@@ -716,7 +722,8 @@ EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
   const MCInstrDesc &II = TII->get(Opc);
   unsigned NumResults = CountResults(Node);
   unsigned NumImpUses = 0;
-  unsigned NodeOperands = countOperands(Node, NumImpUses);
+  unsigned NodeOperands =
+    countOperands(Node, II.getNumOperands() - II.getNumDefs(), NumImpUses);
   bool HasPhysRegOuts = NumResults > II.getNumDefs() && II.getImplicitDefs()!=0;
 #ifndef NDEBUG
   unsigned NumMIOperands = NodeOperands + NumResults;
@@ -886,19 +893,24 @@ EmitSpecialNode(SDNode *Node, bool IsClone, bool IsCloned,
                           getZExtValue();
     MI->addOperand(MachineOperand::CreateImm(ExtraInfo));
 
+    // Remember to operand index of the group flags.
+    SmallVector<unsigned, 8> GroupIdx;
+    unsigned PrevDefGroup = 0;
+
     // Add all of the operand registers to the instruction.
     for (unsigned i = InlineAsm::Op_FirstOperand; i != NumOps;) {
       unsigned Flags =
         cast<ConstantSDNode>(Node->getOperand(i))->getZExtValue();
-      unsigned NumVals = InlineAsm::getNumOperandRegisters(Flags);
+      const unsigned NumVals = InlineAsm::getNumOperandRegisters(Flags);
 
+      GroupIdx.push_back(MI->getNumOperands());
       MI->addOperand(MachineOperand::CreateImm(Flags));
       ++i;  // Skip the ID value.
 
       switch (InlineAsm::getKind(Flags)) {
       default: llvm_unreachable("Bad flags!");
         case InlineAsm::Kind_RegDef:
-        for (; NumVals; --NumVals, ++i) {
+        for (unsigned j = 0; j != NumVals; ++j, ++i) {
           unsigned Reg = cast<RegisterSDNode>(Node->getOperand(i))->getReg();
           // FIXME: Add dead flags for physical and virtual registers defined.
           // For now, mark physical register defs as implicit to help fast
@@ -909,7 +921,7 @@ EmitSpecialNode(SDNode *Node, bool IsClone, bool IsCloned,
         break;
       case InlineAsm::Kind_RegDefEarlyClobber:
       case InlineAsm::Kind_Clobber:
-        for (; NumVals; --NumVals, ++i) {
+        for (unsigned j = 0; j != NumVals; ++j, ++i) {
           unsigned Reg = cast<RegisterSDNode>(Node->getOperand(i))->getReg();
           MI->addOperand(MachineOperand::CreateReg(Reg, /*isDef=*/ true,
                          /*isImp=*/ TargetRegisterInfo::isPhysicalRegister(Reg),
@@ -924,9 +936,33 @@ EmitSpecialNode(SDNode *Node, bool IsClone, bool IsCloned,
       case InlineAsm::Kind_Mem:  // Addressing mode.
         // The addressing mode has been selected, just add all of the
         // operands to the machine instruction.
-        for (; NumVals; --NumVals, ++i)
+        for (unsigned j = 0; j != NumVals; ++j, ++i)
           AddOperand(MI, Node->getOperand(i), 0, 0, VRBaseMap,
                      /*IsDebug=*/false, IsClone, IsCloned);
+
+        // Manually set isTied bits.
+        if (InlineAsm::getKind(Flags) == InlineAsm::Kind_RegUse) {
+          unsigned DefGroup = 0;
+          if (InlineAsm::isUseOperandTiedToDef(Flags, DefGroup)) {
+            // Check that the def groups are monotonically increasing.
+            // Otherwise, the tied uses and defs won't line up, and
+            // MI::findTiedOperandIdx() will find the wrong operand. This
+            // should be automatically enforced by the front ends when
+            // translating "+" constraints into tied def+use pairs.
+            assert(DefGroup >= PrevDefGroup &&
+                   "Tied inline asm operands must be in increasing order.");
+            PrevDefGroup = DefGroup;
+
+            unsigned DefIdx = GroupIdx[DefGroup] + 1;
+            unsigned UseIdx = GroupIdx.back() + 1;
+            for (unsigned j = 0; j != NumVals; ++j) {
+              assert(!MI->getOperand(DefIdx + j).isTied() &&
+                     "Def is already tied to another use");
+              MI->getOperand(DefIdx + j).setIsTied();
+              MI->getOperand(UseIdx + j).setIsTied();
+            }
+          }
+        }
         break;
       }
     }

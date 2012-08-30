@@ -287,7 +287,8 @@ void CGIOperandList::ProcessDisableEncoding(std::string DisableEncoding) {
 // CodeGenInstruction Implementation
 //===----------------------------------------------------------------------===//
 
-CodeGenInstruction::CodeGenInstruction(Record *R) : TheDef(R), Operands(R) {
+CodeGenInstruction::CodeGenInstruction(Record *R)
+  : TheDef(R), Operands(R), InferredFrom(0) {
   Namespace = R->getValueAsString("Namespace");
   AsmString = R->getValueAsString("AsmString");
 
@@ -297,11 +298,10 @@ CodeGenInstruction::CodeGenInstruction(Record *R) : TheDef(R), Operands(R) {
   isCompare    = R->getValueAsBit("isCompare");
   isMoveImm    = R->getValueAsBit("isMoveImm");
   isBitcast    = R->getValueAsBit("isBitcast");
+  isSelect     = R->getValueAsBit("isSelect");
   isBarrier    = R->getValueAsBit("isBarrier");
   isCall       = R->getValueAsBit("isCall");
   canFoldAsLoad = R->getValueAsBit("canFoldAsLoad");
-  mayLoad      = R->getValueAsBit("mayLoad");
-  mayStore     = R->getValueAsBit("mayStore");
   isPredicable = Operands.isPredicable || R->getValueAsBit("isPredicable");
   isConvertibleToThreeAddress = R->getValueAsBit("isConvertibleToThreeAddress");
   isCommutable = R->getValueAsBit("isCommutable");
@@ -312,8 +312,13 @@ CodeGenInstruction::CodeGenInstruction(Record *R) : TheDef(R), Operands(R) {
   hasPostISelHook = R->getValueAsBit("hasPostISelHook");
   hasCtrlDep   = R->getValueAsBit("hasCtrlDep");
   isNotDuplicable = R->getValueAsBit("isNotDuplicable");
-  hasSideEffects = R->getValueAsBit("hasSideEffects");
+
+  mayLoad      = R->getValueAsBitOrUnset("mayLoad", mayLoad_Unset);
+  mayStore     = R->getValueAsBitOrUnset("mayStore", mayStore_Unset);
+  hasSideEffects = R->getValueAsBitOrUnset("hasSideEffects",
+                                           hasSideEffects_Unset);
   neverHasSideEffects = R->getValueAsBit("neverHasSideEffects");
+
   isAsCheapAsAMove = R->getValueAsBit("isAsCheapAsAMove");
   hasExtraSrcRegAllocReq = R->getValueAsBit("hasExtraSrcRegAllocReq");
   hasExtraDefRegAllocReq = R->getValueAsBit("hasExtraDefRegAllocReq");
@@ -408,7 +413,7 @@ FlattenAsmStringVariants(StringRef Cur, unsigned Variant) {
 /// successful match, with ResOp set to the result operand to be used.
 bool CodeGenInstAlias::tryAliasOpMatch(DagInit *Result, unsigned AliasOpNo,
                                        Record *InstOpRec, bool hasSubOps,
-                                       SMLoc Loc, CodeGenTarget &T,
+                                       ArrayRef<SMLoc> Loc, CodeGenTarget &T,
                                        ResultOperand &ResOp) {
   Init *Arg = Result->getArg(AliasOpNo);
   DefInit *ADI = dynamic_cast<DefInit*>(Arg);

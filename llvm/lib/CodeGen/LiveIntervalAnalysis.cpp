@@ -27,6 +27,7 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -38,7 +39,13 @@
 #include <cmath>
 using namespace llvm;
 
+// Switch to the new experimental algorithm for computing live intervals.
+static cl::opt<bool>
+NewLiveIntervals("new-live-intervals", cl::Hidden,
+                 cl::desc("Use new algorithm forcomputing live intervals"));
+
 char LiveIntervals::ID = 0;
+char &llvm::LiveIntervalsID = LiveIntervals::ID;
 INITIALIZE_PASS_BEGIN(LiveIntervals, "liveintervals",
                 "Live Interval Analysis", false, false)
 INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
@@ -105,7 +112,19 @@ bool LiveIntervals::runOnMachineFunction(MachineFunction &fn) {
   AllocatableRegs = TRI->getAllocatableSet(fn);
   ReservedRegs = TRI->getReservedRegs(fn);
 
-  computeIntervals();
+  // Allocate space for all virtual registers.
+  VirtRegIntervals.resize(MRI->getNumVirtRegs());
+
+  if (NewLiveIntervals) {
+    // This is the new way of computing live intervals.
+    // It is independent of LiveVariables, and it can run at any time.
+    computeVirtRegs();
+    computeRegMasks();
+  } else {
+    // This is the old way of computing live intervals.
+    // It depends on LiveVariables.
+    computeIntervals();
+  }
   computeLiveInRegUnits();
 
   DEBUG(dump());
@@ -238,7 +257,6 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
       // new valno in the killing blocks.
       assert(vi.AliveBlocks.empty() && "Phi join can't pass through blocks");
       DEBUG(dbgs() << " phi-join");
-      ValNo->setHasPHIKill(true);
     } else {
       // Iterate over all of the blocks that the variable is completely
       // live in, adding [insrtIndex(begin), instrIndex(end)+4) to the
@@ -266,7 +284,6 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
         assert(getInstructionFromIndex(Start) == 0 &&
                "PHI def index points at actual instruction.");
         ValNo = interval.getNextValue(Start, VNInfoAllocator);
-        ValNo->setIsPHIDef(true);
       }
       LiveRange LR(Start, killIdx, ValNo);
       interval.addRange(LR);
@@ -340,7 +357,6 @@ void LiveIntervals::handleVirtualRegisterDef(MachineBasicBlock *mbb,
       SlotIndex killIndex = getMBBEndIdx(mbb);
       LiveRange LR(defIndex, killIndex, ValNo);
       interval.addRange(LR);
-      ValNo->setHasPHIKill(true);
       DEBUG(dbgs() << " phi-join +" << LR);
     } else {
       llvm_unreachable("Multiply defined register");
@@ -366,8 +382,7 @@ void LiveIntervals::handleRegisterDef(MachineBasicBlock *MBB,
 /// which a variable is live
 void LiveIntervals::computeIntervals() {
   DEBUG(dbgs() << "********** COMPUTING LIVE INTERVALS **********\n"
-               << "********** Function: "
-               << ((Value*)MF->getFunction())->getName() << '\n');
+               << "********** Function: " << MF->getName() << '\n');
 
   RegMaskBlocks.resize(MF->getNumBlockIDs());
 
@@ -441,6 +456,49 @@ LiveInterval* LiveIntervals::createInterval(unsigned reg) {
   return new LiveInterval(reg, Weight);
 }
 
+
+/// computeVirtRegInterval - Compute the live interval of a virtual register,
+/// based on defs and uses.
+void LiveIntervals::computeVirtRegInterval(LiveInterval *LI) {
+  assert(LRCalc && "LRCalc not initialized.");
+  assert(LI->empty() && "Should only compute empty intervals.");
+  LRCalc->reset(MF, getSlotIndexes(), DomTree, &getVNInfoAllocator());
+  LRCalc->createDeadDefs(LI);
+  LRCalc->extendToUses(LI);
+}
+
+void LiveIntervals::computeVirtRegs() {
+  for (unsigned i = 0, e = MRI->getNumVirtRegs(); i != e; ++i) {
+    unsigned Reg = TargetRegisterInfo::index2VirtReg(i);
+    if (MRI->reg_nodbg_empty(Reg))
+      continue;
+    LiveInterval *LI = createInterval(Reg);
+    VirtRegIntervals[Reg] = LI;
+    computeVirtRegInterval(LI);
+  }
+}
+
+void LiveIntervals::computeRegMasks() {
+  RegMaskBlocks.resize(MF->getNumBlockIDs());
+
+  // Find all instructions with regmask operands.
+  for (MachineFunction::iterator MBBI = MF->begin(), E = MF->end();
+       MBBI != E; ++MBBI) {
+    MachineBasicBlock *MBB = MBBI;
+    std::pair<unsigned, unsigned> &RMB = RegMaskBlocks[MBB->getNumber()];
+    RMB.first = RegMaskSlots.size();
+    for (MachineBasicBlock::iterator MI = MBB->begin(), ME = MBB->end();
+         MI != ME; ++MI)
+      for (MIOperands MO(MI); MO.isValid(); ++MO) {
+        if (!MO->isRegMask())
+          continue;
+          RegMaskSlots.push_back(Indexes->getInstructionIndex(MI).getRegSlot());
+          RegMaskBits.push_back(MO->getRegMask());
+      }
+    // Compute the number of register mask instructions in this block.
+    RMB.second = RegMaskSlots.size() - RMB.first;;
+  }
+}
 
 //===----------------------------------------------------------------------===//
 //                           Register Unit Liveness
@@ -648,7 +706,7 @@ bool LiveIntervals::shrinkToUses(LiveInterval *li,
       continue;
     if (VNI->isPHIDef()) {
       // This is a dead PHI. Remove it.
-      VNI->setIsUnused(true);
+      VNI->markUnused();
       NewLI.removeRange(*LII);
       DEBUG(dbgs() << "Dead PHI at " << VNI->def << " may separate interval\n");
       CanSeparate = true;
@@ -720,6 +778,25 @@ LiveIntervals::intervalIsInOneMBB(const LiveInterval &LI) const {
   return MBB1 == MBB2 ? MBB1 : NULL;
 }
 
+bool
+LiveIntervals::hasPHIKill(const LiveInterval &LI, const VNInfo *VNI) const {
+  for (LiveInterval::const_vni_iterator I = LI.vni_begin(), E = LI.vni_end();
+       I != E; ++I) {
+    const VNInfo *PHI = *I;
+    if (PHI->isUnused() || !PHI->isPHIDef())
+      continue;
+    const MachineBasicBlock *PHIMBB = getMBBFromIndex(PHI->def);
+    // Conservatively return true instead of scanning huge predecessor lists.
+    if (PHIMBB->pred_size() > 100)
+      return true;
+    for (MachineBasicBlock::const_pred_iterator
+         PI = PHIMBB->pred_begin(), PE = PHIMBB->pred_end(); PI != PE; ++PI)
+      if (VNI == LI.getVNInfoBefore(Indexes->getMBBEndIdx(*PI)))
+        return true;
+  }
+  return false;
+}
+
 float
 LiveIntervals::getSpillWeight(bool isDef, bool isUse, unsigned loopDepth) {
   // Limit the loop depth ridiculousness.
@@ -744,7 +821,6 @@ LiveRange LiveIntervals::addLiveRangeToEndOfBlock(unsigned reg,
   VNInfo* VN = Interval.getNextValue(
     SlotIndex(getInstructionIndex(startInst).getRegSlot()),
     getVNInfoAllocator());
-  VN->setHasPHIKill(true);
   LiveRange LR(
      SlotIndex(getInstructionIndex(startInst).getRegSlot()),
      getMBBEndIdx(startInst->getParent()), VN);

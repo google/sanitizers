@@ -142,6 +142,7 @@ if.else:
 define i32 @l4(i32 %a, i32 %b) nounwind {
 entry:
 ; CHECK: l4:
+; CHECK: xor
 ; CHECK: sub
 ; CHECK-NOT: cmp
   %cmp = icmp sgt i32 %b, %a
@@ -212,4 +213,43 @@ entry:
   %cmp = icmp sgt i32 %add, 0
   %add. = select i1 %cmp, i32 %add, i32 0
   ret i32 %add.
+}
+; PR13475
+; If we have sub a, b and cmp b, a and the result of cmp is used
+; by sbb, we should not optimize cmp away.
+define i32 @q(i32 %j.4, i32 %w, i32 %el) {
+; CHECK: q:
+; CHECK: sub
+; CHECK: cmp
+; CHECK-NEXT: sbb
+  %tmp532 = add i32 %j.4, %w
+  %tmp533 = icmp ugt i32 %tmp532, %el
+  %tmp534 = icmp ult i32 %w, %el
+  %or.cond = and i1 %tmp533, %tmp534
+  %tmp535 = sub i32 %el, %w
+  %j.5 = select i1 %or.cond, i32 %tmp535, i32 %j.4
+  ret i32 %j.5
+}
+; rdar://11873276
+define i8* @r(i8* %base, i32* nocapture %offset, i32 %size) nounwind {
+entry:
+; CHECK: r:
+; CHECK: sub
+; CHECK-NOT: cmp
+; CHECK: j
+; CHECK-NOT: sub
+; CHECK: ret
+  %0 = load i32* %offset, align 8
+  %cmp = icmp slt i32 %0, %size
+  br i1 %cmp, label %return, label %if.end
+
+if.end:
+  %sub = sub nsw i32 %0, %size
+  store i32 %sub, i32* %offset, align 8
+  %add.ptr = getelementptr inbounds i8* %base, i32 %sub
+  br label %return
+
+return:
+  %retval.0 = phi i8* [ %add.ptr, %if.end ], [ null, %entry ]
+  ret i8* %retval.0
 }

@@ -598,7 +598,8 @@ public:
   }
 
   bool SetTypeQual(TQ T, SourceLocation Loc, const char *&PrevSpec,
-                   unsigned &DiagID, const LangOptions &Lang);
+                   unsigned &DiagID, const LangOptions &Lang,
+                   bool IsTypeSpec);
 
   bool SetFunctionSpecInline(SourceLocation Loc, const char *&PrevSpec,
                              unsigned &DiagID);
@@ -1103,6 +1104,9 @@ struct DeclaratorChunk {
     /// contains the location of the ellipsis.
     unsigned isVariadic : 1;
 
+    /// Can this declaration be a constructor-style initializer?
+    unsigned isAmbiguous : 1;
+
     /// \brief Whether the ref-qualifier (if any) is an lvalue reference.
     /// Otherwise, it's an rvalue reference.
     unsigned RefQualifierIsLValueRef : 1;
@@ -1151,8 +1155,7 @@ struct DeclaratorChunk {
     /// any.
     unsigned MutableLoc;
 
-    /// \brief When ExceptionSpecType isn't EST_None or EST_Delayed, the
-    /// location of the keyword introducing the spec.
+    /// \brief The location of the keyword introducing the spec, if any.
     unsigned ExceptionSpecLoc;
 
     /// ArgInfo - This is a pointer to a new[]'d array of ParamInfo objects that
@@ -1356,6 +1359,7 @@ struct DeclaratorChunk {
   /// DeclaratorChunk::getFunction - Return a DeclaratorChunk for a function.
   /// "TheDeclarator" is the declarator that this will be added to.
   static DeclaratorChunk getFunction(bool hasProto, bool isVariadic,
+                                     bool isAmbiguous,
                                      SourceLocation EllipsisLoc,
                                      ParamInfo *ArgInfo, unsigned NumArgs,
                                      unsigned TypeQuals, 
@@ -1928,9 +1932,8 @@ public:
 struct FieldDeclarator {
   Declarator D;
   Expr *BitfieldSize;
-  explicit FieldDeclarator(DeclSpec &DS) : D(DS, Declarator::MemberContext) {
-    BitfieldSize = 0;
-  }
+  explicit FieldDeclarator(const DeclSpec &DS)
+    : D(DS, Declarator::MemberContext), BitfieldSize(0) { }
 };
 
 /// \brief Represents a C++11 virt-specifier-seq.

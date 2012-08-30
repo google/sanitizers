@@ -460,14 +460,8 @@ bool RegisterCoalescer::adjustCopiesBackFrom(const CoalescerPair &CP,
   IntB.addRange(LiveRange(FillerStart, FillerEnd, BValNo));
 
   // Okay, merge "B1" into the same value number as "B0".
-  if (BValNo != ValLR->valno) {
-    // If B1 is killed by a PHI, then the merged live range must also be killed
-    // by the same PHI, as B0 and B1 can not overlap.
-    bool HasPHIKill = BValNo->hasPHIKill();
+  if (BValNo != ValLR->valno)
     IntB.MergeValueNumberInto(BValNo, ValLR->valno);
-    if (HasPHIKill)
-      ValLR->valno->setHasPHIKill(true);
-  }
   DEBUG(dbgs() << "   result = " << IntB << '\n');
 
   // If the source instruction was killing the source register before the
@@ -494,6 +488,11 @@ bool RegisterCoalescer::hasOtherReachingDefs(LiveInterval &IntA,
                                              LiveInterval &IntB,
                                              VNInfo *AValNo,
                                              VNInfo *BValNo) {
+  // If AValNo has PHI kills, conservatively assume that IntB defs can reach
+  // the PHI values.
+  if (LIS->hasPHIKill(IntA, AValNo))
+    return true;
+
   for (LiveInterval::iterator AI = IntA.begin(), AE = IntA.end();
        AI != AE; ++AI) {
     if (AI->valno != AValNo) continue;
@@ -558,10 +557,7 @@ bool RegisterCoalescer::removeCopyByCommutingDef(const CoalescerPair &CP,
   // AValNo is the value number in A that defines the copy, A3 in the example.
   VNInfo *AValNo = IntA.getVNInfoAt(CopyIdx.getRegSlot(true));
   assert(AValNo && "COPY source not live");
-
-  // If other defs can reach uses of this def, then it's not safe to perform
-  // the optimization.
-  if (AValNo->isPHIDef() || AValNo->isUnused() || AValNo->hasPHIKill())
+  if (AValNo->isPHIDef() || AValNo->isUnused())
     return false;
   MachineInstr *DefMI = LIS->getInstructionFromIndex(AValNo->def);
   if (!DefMI)
@@ -657,6 +653,8 @@ bool RegisterCoalescer::removeCopyByCommutingDef(const CoalescerPair &CP,
     LiveInterval::iterator ULR = IntA.FindLiveRangeContaining(UseIdx);
     if (ULR == IntA.end() || ULR->valno != AValNo)
       continue;
+    // Kill flags are no longer accurate. They are recomputed after RA.
+    UseMO.setIsKill(false);
     if (TargetRegisterInfo::isPhysicalRegister(NewReg))
       UseMO.substPhysReg(NewReg, *TRI);
     else
@@ -1093,6 +1091,11 @@ bool RegisterCoalescer::joinReservedPhysReg(CoalescerPair &CP) {
   // register live range doesn't need to be accurate as long as all the
   // defs are there.
 
+  // Delete the identity copy.
+  MachineInstr *CopyMI = MRI->getVRegDef(RHS.reg);
+  LIS->RemoveMachineInstrFromMaps(CopyMI);
+  CopyMI->eraseFromParent();
+
   // We don't track kills for reserved registers.
   MRI->clearKillFlags(CP.getSrcReg());
 
@@ -1382,24 +1385,6 @@ bool RegisterCoalescer::joinIntervals(CoalescerPair &CP) {
       ++J;
   }
 
-  // Update kill info. Some live ranges are extended due to copy coalescing.
-  for (DenseMap<VNInfo*, VNInfo*>::iterator I = LHSValsDefinedFromRHS.begin(),
-         E = LHSValsDefinedFromRHS.end(); I != E; ++I) {
-    VNInfo *VNI = I->first;
-    unsigned LHSValID = LHSValNoAssignments[VNI->id];
-    if (VNI->hasPHIKill())
-      NewVNInfo[LHSValID]->setHasPHIKill(true);
-  }
-
-  // Update kill info. Some live ranges are extended due to copy coalescing.
-  for (DenseMap<VNInfo*, VNInfo*>::iterator I = RHSValsDefinedFromLHS.begin(),
-         E = RHSValsDefinedFromLHS.end(); I != E; ++I) {
-    VNInfo *VNI = I->first;
-    unsigned RHSValID = RHSValNoAssignments[VNI->id];
-    if (VNI->hasPHIKill())
-      NewVNInfo[RHSValID]->setHasPHIKill(true);
-  }
-
   // Clear kill flags where live ranges are extended.
   while (!LHSOldKills.empty())
     LHSOldKills.pop_back_val()->clearRegisterKills(LHS.reg, TRI);
@@ -1579,8 +1564,7 @@ bool RegisterCoalescer::runOnMachineFunction(MachineFunction &fn) {
   Loops = &getAnalysis<MachineLoopInfo>();
 
   DEBUG(dbgs() << "********** SIMPLE REGISTER COALESCING **********\n"
-               << "********** Function: "
-               << ((Value*)MF->getFunction())->getName() << '\n');
+               << "********** Function: " << MF->getName() << '\n');
 
   if (VerifyCoalescing)
     MF->verify(this, "Before register coalescing");

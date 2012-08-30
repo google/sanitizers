@@ -284,12 +284,11 @@ public:
     /// \brief A bitmask that indicates which code-completion contexts should
     /// contain this completion result.
     ///
-    /// The bits in the bitmask correspond to the values of 
-    /// CodeCompleteContext::Kind. To map from a completion context kind to a 
-    /// bit, subtract one from the completion context kind and shift 1 by that
-    /// number of bits. Many completions can occur in several different
-    /// contexts.
-    unsigned ShowInContexts;
+    /// The bits in the bitmask correspond to the values of
+    /// CodeCompleteContext::Kind. To map from a completion context kind to a
+    /// bit, shift 1 by that number of bits. Many completions can occur in
+    /// several different contexts.
+    uint64_t ShowInContexts;
     
     /// \brief The priority given to this code-completion result.
     unsigned Priority;
@@ -680,7 +679,7 @@ public:
   /// (e.g. because the PCH could not be loaded), this accepts the ASTUnit
   /// mainly to allow the caller to see the diagnostics.
   /// This will only receive an ASTUnit if a new one was created. If an already
-  /// created ASTUnit was passed in \param Unit then the caller can check that.
+  /// created ASTUnit was passed in \p Unit then the caller can check that.
   ///
   static ASTUnit *LoadFromCompilerInvocationAction(CompilerInvocation *CI,
                               IntrusiveRefCntPtr<DiagnosticsEngine> Diags,

@@ -93,28 +93,13 @@ if (grep /^--help-checkers$/, @ARGV) {
 }
 
 ##----------------------------------------------------------------------------##
-# Some initial preprocessing of Clang options.
+# Declaration of Clang options.  Populated later.
 ##----------------------------------------------------------------------------##
 
-# Find 'clang'
-my $ClangSB = Cwd::realpath("$RealBin/bin/clang");
-if (!defined $ClangSB || ! -x $ClangSB) {
-  $ClangSB = Cwd::realpath("$RealBin/clang");
-}
 my $Clang;
-if (!defined $ClangSB || ! -x $ClangSB) {
-  # Default to looking for 'clang' in the path.
-  $Clang = `which clang`;
-  chomp $Clang;
-  if ($Clang eq "") {
-    DieDiag("No 'clang' executable found in path.\n");
-  }
-}
-else {
-  $Clang = $ClangSB;
-}
-my $ClangCXX = $Clang . "++";
-my $ClangVersion = HtmlEscape(`$Clang --version`);
+my $ClangSB;
+my $ClangCXX;
+my $ClangVersion;
 
 ##----------------------------------------------------------------------------##
 # GetHTMLRunDir - Construct an HTML directory name for the current sub-run.
@@ -866,18 +851,86 @@ sub AddIfNotPresent {
   }
 }
 
-sub RunBuildCommand {
+sub SetEnv {
+  my $Options = shift @_;
+  foreach my $opt ('CC', 'CXX', 'CLANG', 'CLANG_CXX',
+                    'CCC_ANALYZER_ANALYSIS', 'CCC_ANALYZER_PLUGINS') {
+    die "$opt is undefined\n" if (!defined $opt);
+    $ENV{$opt} = $Options->{$opt};
+  }
+  foreach my $opt ('CCC_ANALYZER_STORE_MODEL',
+                    'CCC_ANALYZER_PLUGINS',
+                    'CCC_ANALYZER_INTERNAL_STATS',
+                    'CCC_ANALYZER_OUTPUT_FORMAT') {
+    my $x = $Options->{$opt};
+    if (defined $x) { $ENV{$opt} = $x }
+  }
+  my $Verbose = $Options->{'VERBOSE'};
+  if ($Verbose >= 2) {
+    $ENV{'CCC_ANALYZER_VERBOSE'} = 1;
+  }
+  if ($Verbose >= 3) {
+    $ENV{'CCC_ANALYZER_LOG'} = 1;
+  }
+}
+
+sub RunXcodebuild {
+  my $Args = shift;
+  my $IgnoreErrors = shift;
+  my $CCAnalyzer = shift;
+  my $CXXAnalyzer = shift;
+  my $Options = shift;
+
+  if ($IgnoreErrors) {
+    AddIfNotPresent($Args,"-PBXBuildsContinueAfterErrors=YES");
+  }
   
+  # Default to old behavior where we insert a bogus compiler.
+  SetEnv($Options);
+  
+  # Check if using iPhone SDK 3.0 (simulator).  If so the compiler being
+  # used should be gcc-4.2.
+  if (!defined $ENV{"CCC_CC"}) {
+    for (my $i = 0 ; $i < scalar(@$Args); ++$i) {
+      if ($Args->[$i] eq "-sdk" && $i + 1 < scalar(@$Args)) {
+        if (@$Args[$i+1] =~ /^iphonesimulator3/) {
+          $ENV{"CCC_CC"} = "gcc-4.2";
+          $ENV{"CCC_CXX"} = "g++-4.2";
+        }
+      }
+    }
+  }
+
+  # Disable PCH files until clang supports them.
+  AddIfNotPresent($Args,"GCC_PRECOMPILE_PREFIX_HEADER=NO");
+  
+  # When 'CC' is set, xcodebuild uses it to do all linking, even if we are
+  # linking C++ object files.  Set 'LDPLUSPLUS' so that xcodebuild uses 'g++'
+  # (via c++-analyzer) when linking such files.
+  $ENV{"LDPLUSPLUS"} = $CXXAnalyzer;
+ 
+  return (system(@$Args) >> 8); 
+}
+
+sub RunBuildCommand {  
   my $Args = shift;
   my $IgnoreErrors = shift;
   my $Cmd = $Args->[0];
   my $CCAnalyzer = shift;
   my $CXXAnalyzer = shift;
+  my $Options = shift;
   
   # Get only the part of the command after the last '/'.
   if ($Cmd =~ /\/([^\/]+)$/) {
     $Cmd = $1;
   }
+  
+  if ($Cmd eq "xcodebuild") {
+    return RunXcodebuild($Args, $IgnoreErrors, $CCAnalyzer, $CXXAnalyzer, $Options);
+  }
+  
+  # Setup the environment.
+  SetEnv($Options);
   
   if ($Cmd =~ /(.*\/?gcc[^\/]*$)/ or 
       $Cmd =~ /(.*\/?cc[^\/]*$)/ or
@@ -910,34 +963,8 @@ sub RunBuildCommand {
       AddIfNotPresent($Args,"-k");
       AddIfNotPresent($Args,"-i");
     }
-    elsif ($Cmd eq "xcodebuild") {
-      AddIfNotPresent($Args,"-PBXBuildsContinueAfterErrors=YES");
-    }
   } 
-  
-  if ($Cmd eq "xcodebuild") {
-    # Check if using iPhone SDK 3.0 (simulator).  If so the compiler being
-    # used should be gcc-4.2.
-    if (!defined $ENV{"CCC_CC"}) {
-      for (my $i = 0 ; $i < scalar(@$Args); ++$i) {
-        if ($Args->[$i] eq "-sdk" && $i + 1 < scalar(@$Args)) {
-          if (@$Args[$i+1] =~ /^iphonesimulator3/) {
-            $ENV{"CCC_CC"} = "gcc-4.2";
-            $ENV{"CCC_CXX"} = "g++-4.2";            
-          }
-        }
-      }
-    }
 
-    # Disable PCH files until clang supports them.
-    AddIfNotPresent($Args,"GCC_PRECOMPILE_PREFIX_HEADER=NO");
-    
-    # When 'CC' is set, xcodebuild uses it to do all linking, even if we are
-    # linking C++ object files.  Set 'LDPLUSPLUS' so that xcodebuild uses 'g++'
-    # (via c++-analyzer) when linking such files.
-    $ENV{"LDPLUSPLUS"} = $CXXAnalyzer;
-  }
-  
   return (system(@$Args) >> 8);
 }
 
@@ -959,74 +986,107 @@ ENDTEXT
 print <<ENDTEXT;
 OPTIONS:
 
- -analyze-headers - Also analyze functions in #included files.
+ -analyze-headers
  
- -o             - Target directory for HTML report files.  Subdirectories
-                  will be created as needed to represent separate "runs" of
-                  the analyzer.  If this option is not specified, a directory
-                  is created in /tmp (TMPDIR on Mac OS X) to store the reports.
-                  
- -h             - Display this message.
+   Also analyze functions in #included files.  By default, such functions
+   are skipped unless they are called by functions within the main source file.
+ 
+ -o <output location>
+  
+   Specifies the output directory for analyzer reports. Subdirectories will be
+   created as needed to represent separate "runs" of the analyzer. If this
+   option is not specified, a directory is created in /tmp (TMPDIR on Mac OS X)
+   to store the reports.
+
+ -h             
  --help
 
- -k             - Add a "keep on going" option to the specified build command.
- --keep-going     This option currently supports make and xcodebuild.
-                  This is a convenience option; one can specify this
-                  behavior directly using build options.
+   Display this message.
 
- --html-title [title]       - Specify the title used on generated HTML pages.
- --html-title=[title]         If not specified, a default title will be used.
+ -k
+ --keep-going
+				  
+   Add a "keep on going" option to the specified build command. This option
+   currently supports make and xcodebuild. This is a convenience option; one
+   can specify this behavior directly using build options.
 
- -plist         - By default the output of scan-build is a set of HTML files.
-                  This option outputs the results as a set of .plist files.
+ --html-title [title]
+ --html-title=[title]
+
+   Specify the title used on generated HTML pages. If not specified, a default
+   title will be used.
+
+ -plist
  
- -plist-html    - By default the output of scan-build is a set of HTML files.
-                  This option outputs the results as a set of HTML 
-                  and .plist files.
+   By default the output of scan-build is a set of HTML files. This option
+   outputs the results as a set of .plist files.
  
- --status-bugs  - By default, the exit status of $Prog is the same as the
-                  executed build command.  Specifying this option causes the
-                  exit status of $Prog to be 1 if it found potential bugs
-                  and 0 otherwise.
+ -plist-html
+ 
+   By default the output of scan-build is a set of HTML files. This option
+   outputs the results as a set of HTML and .plist files.
+ 
+ --status-bugs
+ 
+   By default, the exit status of scan-build is the same as the executed build
+   command. Specifying this option causes the exit status of scan-build to be 1
+   if it found potential bugs and 0 otherwise.
 
- --use-cc [compiler path]   - $Prog attempts to guess the default compiler for
- --use-cc=[compiler path]     your C and Objective-C code. Use this option
-                              to specify an alternate compiler.
+ --use-cc [compiler path]   
+ --use-cc=[compiler path]
+  
+   scan-build analyzes a project by interposing a "fake compiler", which
+   executes a real compiler for compilation and the static analyzer for analysis.
+   Because of the current implementation of interposition, scan-build does not
+   know what compiler your project normally uses.  Instead, it simply overrides
+   the CC environment variable, and guesses your default compiler.
+   
+   In the future, this interposition mechanism to be improved, but if you need
+   scan-build to use a specific compiler for *compilation* then you can use
+   this option to specify a path to that compiler.
 
- --use-c++ [compiler path]  - $Prog attempts to guess the default compiler for
- --use-c++=[compiler path]    your C++ and Objective-C++ code. Use this option
-                              to specify an alternate compiler.
+ --use-c++ [compiler path]
+ --use-c++=[compiler path]
+ 
+   This is the same as "-use-cc" but for C++ code.
+ 
+ -v
+ 
+   Enable verbose output from scan-build. A second and third '-v' increases
+   verbosity.
 
- -v             - Verbose output from $Prog and the analyzer.
-                  A second and third '-v' increases verbosity.
+ -V
+ --view
 
- -V             - View analysis results in a web browser when the build
- --view           completes.
+   View analysis results in a web browser when the build completes.
 
 ADVANCED OPTIONS:
 
- -constraints [model] - Specify the contraint engine used by the analyzer.
-                        By default the 'range' model is used.  Specifying 
-                        'basic' uses a simpler, less powerful constraint model
-                        used by checker-0.160 and earlier.
-
- -store [model] - Specify the store model used by the analyzer. By default,
-                  the 'region' store model is used. 'region' specifies a field-
-                  sensitive store model. Users can also specify 'basic', which
-                  is far less precise but can more quickly analyze code.
-                  'basic' was the default store model for checker-0.221 and
-                  earlier.
-
- -no-failure-reports - Do not create a 'failures' subdirectory that includes
-                       analyzer crash reports and preprocessed source files.
-
- -stats - Generates visitation statistics for the project being analyzed.
-
- -maxloop N - specifiy the number of times a block can be visited before giving
-              up. Default is 4. Increase for more comprehensive coverage at a
-              cost of speed.
- -internal-stats - Generate internal analyzer statistics.
+ -no-failure-reports
  
+   Do not create a 'failures' subdirectory that includes analyzer crash reports
+   and preprocessed source files.
+
+ -stats
+ 
+   Generates visitation statistics for the project being analyzed.
+
+ -maxloop <loop count>
+ 
+   Specifiy the number of times a block can be visited before giving up.
+   Default is 4. Increase for more comprehensive coverage at a cost of speed.
+  
+ -internal-stats
+ 
+   Generate internal analyzer statistics.
+ 
+ --use-analyzer [Xcode|path to clang] 
+ --use-analyzer=[Xcode|path to clang]
+ 
+   scan-build uses the 'clang' executable relative to itself for static
+   analysis. One can override this behavior with this option by using the
+   'clang' packaged with Xcode (on OS X) or from the PATH.
+  
 CONTROLLING CHECKERS:
 
  A default group of checkers are always run unless explicitly disabled.
@@ -1148,12 +1208,12 @@ BUILD OPTIONS
 
 EXAMPLE
 
- $Prog -o /tmp/myhtmldir make -j4
+ scan-build -o /tmp/myhtmldir make -j4
      
- The above example causes analysis reports to be deposited into
- a subdirectory of "/tmp/myhtmldir" and to run "make" with the "-j4" option.
- A different subdirectory is created each time $Prog analyzes a project.
- The analyzer should support most parallel builds, but not distributed builds.
+The above example causes analysis reports to be deposited into a subdirectory
+of "/tmp/myhtmldir" and to run "make" with the "-j4" option. A different
+subdirectory is created each time scan-build analyzes a project. The analyzer
+should support most parallel builds, but not distributed builds.
 
 ENDTEXT
 }
@@ -1207,6 +1267,7 @@ if (!@ARGV) {
 
 
 my $displayHelp = 0;
+my $AnalyzerDiscoveryMethod;
 
 while (@ARGV) {
   
@@ -1374,6 +1435,16 @@ while (@ARGV) {
     push @PluginsToLoad, "-load", shift @ARGV;
     next;
   }
+  if ($arg eq "--use-analyzer") {
+ 	shift @ARGV;
+  	$AnalyzerDiscoveryMethod = shift @ARGV;
+	next;
+  }
+  if ($arg =~ /^--use-analyzer=(.+)$/) {
+    shift @ARGV;
+	$AnalyzerDiscoveryMethod = $1;
+	next;
+  }
   
   DieDiag("unrecognized option '$arg'\n") if ($arg =~ /^-/);
   
@@ -1389,6 +1460,43 @@ if ($displayHelp) {
   DisplayHelp();
   exit 1;
 }
+
+# Find 'clang'
+if (!defined $AnalyzerDiscoveryMethod) {
+  $Clang = Cwd::realpath("$RealBin/bin/clang");
+  if (!defined $Clang || ! -x $Clang) {
+    $Clang = Cwd::realpath("$RealBin/clang");
+  }
+  if (!defined $Clang || ! -x $Clang) {
+    DieDiag("error: Cannot find an executable 'clang' relative to scan-build." .
+   	        "  Consider using --use-analyzer to pick a version of 'clang' to use for static analysis.\n");
+  }
+} 
+else {  
+  if ($AnalyzerDiscoveryMethod =~ /^[Xx]code$/) {
+	my $xcrun = `which xcrun`;
+    chomp $xcrun;
+	if ($xcrun eq "") {
+  	  DieDiag("Cannot find 'xcrun' to find 'clang' for analysis.\n");
+	}
+    $Clang = `$xcrun -toolchain XcodeDefault -find clang`;
+    chomp $Clang;  
+    if ($Clang eq "") {
+      DieDiag("No 'clang' executable found by 'xcrun'\n"); 
+    }
+  }
+  else {
+    $Clang = Cwd::realpath($AnalyzerDiscoveryMethod);
+	if (! -x $Clang) {
+   	  DieDiag("Cannot find an executable clang at '$Clang'\n");
+	}
+  }
+}
+
+$ClangCXX = $Clang;
+$ClangCXX =~ s/\-\d+\.\d+$//;
+$ClangCXX .= "++";
+$ClangVersion = HtmlEscape(`$Clang --version`);
 
 # Determine where results go.
 $CmdArgs = HtmlEscape(join(' ', map(ShellEscape($_), @ARGV)));
@@ -1413,52 +1521,44 @@ if (!defined $CmdCXX || ! -x $CmdCXX) {
   DieDiag("Executable 'c++-analyzer' does not exist at '$CmdCXX'\n") if(! -x $CmdCXX);
 }
 
-if (!defined $ClangSB || ! -x $ClangSB) {
-  Diag("'clang' executable not found in '$RealBin/bin'.\n");
-  Diag("Using 'clang' from path: $Clang\n");
-}
+Diag("Using '$Clang' for static analysis\n");
 
-# Set the appropriate environment variables.
 SetHtmlEnv(\@ARGV, $HtmlDir);
-$ENV{'CC'} = $Cmd;
-$ENV{'CXX'} = $CmdCXX;
-$ENV{'CLANG'} = $Clang;
-$ENV{'CLANG_CXX'} = $ClangCXX;
-if ($Verbose >= 2) {
-  $ENV{'CCC_ANALYZER_VERBOSE'} = 1;
-}
-if ($Verbose >= 3) {
-  $ENV{'CCC_ANALYZER_LOG'} = 1;
-}
-if ($AnalyzeHeaders) {
-  push @AnalysesToRun,"-analyzer-opt-analyze-headers";  
-}
-if ($AnalyzerStats) {
-  push @AnalysesToRun, '-analyzer-checker', 'debug.Stats';
-}
-if ($MaxLoop > 0) {
-  push @AnalysesToRun, '-analyzer-max-loop ' . $MaxLoop;
-}
+if ($AnalyzeHeaders) { push @AnalysesToRun,"-analyzer-opt-analyze-headers"; }
+if ($AnalyzerStats) { push @AnalysesToRun, '-analyzer-checker=debug.Stats'; }
+if ($MaxLoop > 0) { push @AnalysesToRun, "-analyzer-max-loop $MaxLoop"; }
 
-$ENV{'CCC_ANALYZER_ANALYSIS'} = join ' ',@AnalysesToRun;
-
-$ENV{'CCC_ANALYZER_PLUGINS'} = join ' ',@PluginsToLoad;
+# Delay setting up other environment variables in case we can do true
+# interposition.
+my $CCC_ANALYZER_ANALYSIS = join ' ',@AnalysesToRun;
+my $CCC_ANALYZER_PLUGINS = join ' ',@PluginsToLoad;
+my %Options = (
+  'CC' => $Cmd,
+  'CXX' => $CmdCXX,
+  'CLANG' => $Clang,
+  'CLANG_CXX' => $ClangCXX,
+  'VERBOSE' => $Verbose,
+  'CCC_ANALYZER_ANALYSIS' => $CCC_ANALYZER_ANALYSIS,
+  'CCC_ANALYZER_PLUGINS' => $CCC_ANALYZER_PLUGINS,
+  'OUTPUT_DIR' => $HtmlDir
+);
 
 if (defined $StoreModel) {
-  $ENV{'CCC_ANALYZER_STORE_MODEL'} = $StoreModel;
+  $Options{'CCC_ANALYZER_STORE_MODEL'} = $StoreModel;
 }
 if (defined $ConstraintsModel) {
-  $ENV{'CCC_ANALYZER_CONSTRAINTS_MODEL'} = $ConstraintsModel;
+  $Options{'CCC_ANALYZER_CONSTRAINTS_MODEL'} = $ConstraintsModel;
 }
 if (defined $InternalStats) {
-  $ENV{'CCC_ANALYZER_INTERNAL_STATS'} = 1;
+  $Options{'CCC_ANALYZER_INTERNAL_STATS'} = 1;
 }
 if (defined $OutputFormat) {
-  $ENV{'CCC_ANALYZER_OUTPUT_FORMAT'} = $OutputFormat;
+  $Options{'CCC_ANALYZER_OUTPUT_FORMAT'} = $OutputFormat;
 }
 
 # Run the build.
-my $ExitStatus = RunBuildCommand(\@ARGV, $IgnoreErrors, $Cmd, $CmdCXX);
+my $ExitStatus = RunBuildCommand(\@ARGV, $IgnoreErrors, $Cmd, $CmdCXX,
+                                \%Options);
 
 if (defined $OutputFormat) {
   if ($OutputFormat =~ /plist/) {

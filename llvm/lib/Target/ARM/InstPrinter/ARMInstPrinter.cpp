@@ -792,6 +792,25 @@ void ARMInstPrinter::printPCLabel(const MCInst *MI, unsigned OpNum,
   llvm_unreachable("Unhandled PC-relative pseudo-instruction!");
 }
 
+void ARMInstPrinter::printAdrLabelOperand(const MCInst *MI, unsigned OpNum,
+                                  raw_ostream &O) {
+  const MCOperand &MO = MI->getOperand(OpNum);
+
+  if (MO.isExpr()) {
+    O << *MO.getExpr();
+    return;
+  }
+
+  int32_t OffImm = (int32_t)MO.getImm();
+
+  if (OffImm == INT32_MIN)
+    O << "#-0";
+  else if (OffImm < 0)
+    O << "#-" << -OffImm;
+  else
+    O << "#" << OffImm;
+}
+
 void ARMInstPrinter::printThumbS4ImmOperand(const MCInst *MI, unsigned OpNum,
                                             raw_ostream &O) {
   O << "#" << MI->getOperand(OpNum).getImm() * 4;
@@ -953,12 +972,17 @@ void ARMInstPrinter::printT2AddrModeImm8s4Operand(const MCInst *MI,
 
   O << "[" << getRegisterName(MO1.getReg());
 
-  int32_t OffImm = (int32_t)MO2.getImm() / 4;
+  int32_t OffImm = (int32_t)MO2.getImm();
+
+  assert(((OffImm & 0x3) == 0) && "Not a valid immediate!");
+
   // Don't print +0.
-  if (OffImm < 0)
-    O << ", #-" << -OffImm * 4;
+  if (OffImm == INT32_MIN)
+    O << ", #-0";
+  else if (OffImm < 0)
+    O << ", #-" << -OffImm;
   else if (OffImm > 0)
-    O << ", #" << OffImm * 4;
+    O << ", #" << OffImm;
   O << "]";
 }
 
@@ -990,15 +1014,17 @@ void ARMInstPrinter::printT2AddrModeImm8s4OffsetOperand(const MCInst *MI,
                                                         unsigned OpNum,
                                                         raw_ostream &O) {
   const MCOperand &MO1 = MI->getOperand(OpNum);
-  int32_t OffImm = (int32_t)MO1.getImm() / 4;
+  int32_t OffImm = (int32_t)MO1.getImm();
+
+  assert(((OffImm & 0x3) == 0) && "Not a valid immediate!");
+
   // Don't print +0.
-  if (OffImm != 0) {
-    O << ", ";
-    if (OffImm < 0)
-      O << "#-" << -OffImm * 4;
-    else if (OffImm > 0)
-      O << "#" << OffImm * 4;
-  }
+  if (OffImm == INT32_MIN)
+    O << ", #-0";
+  else if (OffImm < 0)
+    O << ", #-" << -OffImm;
+  else if (OffImm > 0)
+    O << ", #" << OffImm;
 }
 
 void ARMInstPrinter::printT2AddrModeSoRegOperand(const MCInst *MI,

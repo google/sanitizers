@@ -14,7 +14,6 @@
 
 #define DEBUG_TYPE "postrapseudos"
 #include "llvm/CodeGen/Passes.h"
-#include "llvm/Function.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -131,13 +130,16 @@ bool ExpandPostRA::LowerSubregToReg(MachineInstr *MI) {
   } else {
     TII->copyPhysReg(*MBB, MI, MI->getDebugLoc(), DstSubReg, InsReg,
                      MI->getOperand(2).isKill());
+
+    // Implicitly define DstReg for subsequent uses.
+    MachineBasicBlock::iterator CopyMI = MI;
+    --CopyMI;
+    CopyMI->addRegisterDefined(DstReg);
+
     // Transfer the kill/dead flags, if needed.
     if (MI->getOperand(0).isDead())
       TransferDeadFlag(MI, DstSubReg, TRI);
-    DEBUG({
-        MachineBasicBlock::iterator dMI = MI;
-        dbgs() << "subreg: " << *(--dMI);
-      });
+    DEBUG(dbgs() << "subreg: " << *CopyMI);
   }
 
   DEBUG(dbgs() << '\n');
@@ -187,8 +189,7 @@ bool ExpandPostRA::LowerCopy(MachineInstr *MI) {
 bool ExpandPostRA::runOnMachineFunction(MachineFunction &MF) {
   DEBUG(dbgs() << "Machine Function\n"
                << "********** EXPANDING POST-RA PSEUDO INSTRS **********\n"
-               << "********** Function: "
-               << MF.getFunction()->getName() << '\n');
+               << "********** Function: " << MF.getName() << '\n');
   TRI = MF.getTarget().getRegisterInfo();
   TII = MF.getTarget().getInstrInfo();
 

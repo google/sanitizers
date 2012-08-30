@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -verify -fsyntax-only -triple i386-linux -pedantic %s
 
+const char const *x10; // expected-warning {{duplicate 'const' declaration specifier}}
+
 int x(*g); // expected-error {{use of undeclared identifier 'g'}}
 
 struct Type {
@@ -118,6 +120,9 @@ void CodeCompleteConsumer::() { // expected-error {{xpected unqualified-id}}
 } 
 
 ;
+
+// PR4111
+void f(sqrgl); // expected-error {{unknown type name 'sqrgl'}}
 
 // PR8380
 extern ""      // expected-error {{unknown linkage language}}

@@ -43,7 +43,6 @@ namespace ento {
 class AnalysisManager;
 class CallEvent;
 class SimpleCall;
-class ObjCMethodCall;
 
 class ExprEngine : public SubEngine {
   AnalysisManager &AMgr;
@@ -71,10 +70,10 @@ class ExprEngine : public SubEngine {
   ///  variables and symbols (as determined by a liveness analysis).
   ProgramStateRef CleanedState;
 
-  /// currentStmt - The current block-level statement.
-  const Stmt *currentStmt;
-  unsigned int currentStmtIdx;
-  const NodeBuilderContext *currentBuilderContext;
+  /// currStmt - The current block-level statement.
+  const Stmt *currStmt;
+  unsigned int currStmtIdx;
+  const NodeBuilderContext *currBldrCtx;
 
   /// Obj-C Class Identifiers.
   IdentifierInfo* NSExceptionII;
@@ -127,8 +126,8 @@ public:
   BugReporter& getBugReporter() { return BR; }
 
   const NodeBuilderContext &getBuilderContext() {
-    assert(currentBuilderContext);
-    return *currentBuilderContext;
+    assert(currBldrCtx);
+    return *currBldrCtx;
   }
 
   bool isObjCGCEnabled() { return ObjCGCEnabled; }
@@ -284,13 +283,14 @@ public:
                                    ExplodedNode *Pred,
                                    ExplodedNodeSet &Dst);
 
-  /// VisitAsmStmt - Transfer function logic for inline asm.
-  void VisitAsmStmt(const AsmStmt *A, ExplodedNode *Pred, ExplodedNodeSet &Dst);
+  /// VisitGCCAsmStmt - Transfer function logic for inline asm.
+  void VisitGCCAsmStmt(const GCCAsmStmt *A, ExplodedNode *Pred,
+                       ExplodedNodeSet &Dst);
 
   /// VisitMSAsmStmt - Transfer function logic for MS inline asm.
   void VisitMSAsmStmt(const MSAsmStmt *A, ExplodedNode *Pred,
                       ExplodedNodeSet &Dst);
-  
+
   /// VisitBlockExpr - Transfer function logic for BlockExprs.
   void VisitBlockExpr(const BlockExpr *BE, ExplodedNode *Pred, 
                       ExplodedNodeSet &Dst);
@@ -348,7 +348,7 @@ public:
   void VisitObjCForCollectionStmt(const ObjCForCollectionStmt *S, 
                                   ExplodedNode *Pred, ExplodedNodeSet &Dst);
 
-  void VisitObjCMessage(const ObjCMethodCall &Msg, ExplodedNode *Pred,
+  void VisitObjCMessage(const ObjCMessageExpr *ME, ExplodedNode *Pred,
                         ExplodedNodeSet &Dst);
 
   /// VisitReturnStmt - Transfer function logic for return statements.
@@ -378,10 +378,10 @@ public:
   void VisitCXXThisExpr(const CXXThisExpr *TE, ExplodedNode *Pred, 
                         ExplodedNodeSet & Dst);
 
-  void VisitCXXConstructExpr(const CXXConstructExpr *E, const MemRegion *Dest,
-                             ExplodedNode *Pred, ExplodedNodeSet &Dst);
+  void VisitCXXConstructExpr(const CXXConstructExpr *E, ExplodedNode *Pred,
+                             ExplodedNodeSet &Dst);
 
-  void VisitCXXDestructor(const CXXDestructorDecl *DD,
+  void VisitCXXDestructor(QualType ObjectType,
                           const MemRegion *Dest, const Stmt *S,
                           ExplodedNode *Pred, ExplodedNodeSet &Dst);
 
@@ -431,19 +431,11 @@ public:
   }
   
 protected:
-  void evalObjCMessage(StmtNodeBuilder &Bldr, const ObjCMethodCall &Msg,
-                       ExplodedNode *Pred, ProgramStateRef state,
-                       bool GenSink);
-
-  ProgramStateRef MarkBranch(ProgramStateRef state,
-                                 const Stmt *Terminator,
-                                 const LocationContext *LCtx,
-                                 bool branchTaken);
-
   /// evalBind - Handle the semantics of binding a value to a specific location.
   ///  This method is used by evalStore, VisitDeclStmt, and others.
   void evalBind(ExplodedNodeSet &Dst, const Stmt *StoreE, ExplodedNode *Pred,
-                SVal location, SVal Val, bool atDeclInit = false);
+                SVal location, SVal Val, bool atDeclInit = false,
+                const ProgramPoint *PP = 0);
 
 public:
   // FIXME: 'tag' should be removed, and a LocationContext should be used
@@ -473,10 +465,12 @@ public:
                                   const LocationContext *LCtx,
                                   ProgramStateRef State);
 
+  /// Evaluate a call, running pre- and post-call checks and allowing checkers
+  /// to be responsible for handling the evaluation of the call itself.
   void evalCall(ExplodedNodeSet &Dst, ExplodedNode *Pred,
-                const SimpleCall &Call);
+                const CallEvent &Call);
 
-  /// \bried Default implementation of call evaluation.
+  /// \brief Default implementation of call evaluation.
   void defaultEvalCall(NodeBuilder &B, ExplodedNode *Pred,
                        const CallEvent &Call);
 private:
@@ -499,7 +493,19 @@ private:
                     const ProgramPointTag *tag, bool isLoad);
 
   bool shouldInlineDecl(const Decl *D, ExplodedNode *Pred);
-  bool inlineCall(const CallEvent &Call, ExplodedNode *Pred);
+  bool inlineCall(const CallEvent &Call, const Decl *D, NodeBuilder &Bldr,
+                  ExplodedNode *Pred, ProgramStateRef State);
+
+  /// \brief Conservatively evaluate call by invalidating regions and binding
+  /// a conjured return value.
+  void conservativeEvalCall(const CallEvent &Call, NodeBuilder &Bldr,
+                            ExplodedNode *Pred, ProgramStateRef State);
+
+  /// \brief Either inline or process the call conservatively (or both), based
+  /// on DynamicDispatchBifurcation data.
+  void BifurcateCall(const MemRegion *BifurReg,
+                     const CallEvent &Call, const Decl *D, NodeBuilder &Bldr,
+                     ExplodedNode *Pred);
 
   bool replayWithoutInlining(ExplodedNode *P, const LocationContext *CalleeLC);
 };

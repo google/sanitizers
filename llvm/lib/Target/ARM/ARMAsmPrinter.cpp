@@ -529,10 +529,24 @@ bool ARMAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       return false;
     }
 
-    // These modifiers are not yet supported.
+    // This modifier is not yet supported.
     case 'h': // A range of VFP/NEON registers suitable for VLD1/VST1.
-    case 'H': // The highest-numbered register of a pair.
       return true;
+    case 'H': { // The highest-numbered register of a pair.
+      const MachineOperand &MO = MI->getOperand(OpNum);
+      if (!MO.isReg())
+        return true;
+      const TargetRegisterClass &RC = ARM::GPRRegClass;
+      const MachineFunction &MF = *MI->getParent()->getParent();
+      const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
+
+      unsigned RegIdx = TRI->getEncodingValue(MO.getReg());
+      RegIdx |= 1; //The odd register is also the higher-numbered one of a pair.
+
+      unsigned Reg = RC.getRegister(RegIdx);
+      O << ARMInstPrinter::getRegisterName(Reg);
+      return false;
+    }
     }
   }
 
@@ -1136,8 +1150,14 @@ void ARMAsmPrinter::EmitUnwindingInstruction(const MachineInstr *MI) {
       assert(SrcReg == ARM::SP &&
              "Only stack pointer as a source reg is supported");
       for (unsigned i = StartOp, NumOps = MI->getNumOperands() - NumOffset;
-           i != NumOps; ++i)
-        RegList.push_back(MI->getOperand(i).getReg());
+           i != NumOps; ++i) {
+        const MachineOperand &MO = MI->getOperand(i);
+        // Actually, there should never be any impdef stuff here. Skip it
+        // temporary to workaround PR11902.
+        if (MO.isImplicit())
+          continue;
+        RegList.push_back(MO.getReg());
+      }
       break;
     case ARM::STR_PRE_IMM:
     case ARM::STR_PRE_REG:

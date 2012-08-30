@@ -313,7 +313,7 @@ interoperation:</p>
 <ul>
 <li>The type system must reliably identify which objects are to be
 managed.  An <tt>int*</tt> might be a pointer to a <tt>malloc</tt>'ed
-array, or it might be a interior pointer to such an array, or it might
+array, or it might be an interior pointer to such an array, or it might
 point to some field or local variable.  In contrast, values of the
 retainable object pointer types are never interior.</li>
 <li>The type system must reliably indicate how to
@@ -887,6 +887,15 @@ property when the default is so reasonable.  Changing the rule away
 from non-ARC practice was acceptable because we had conservatively
 banned the synthesis in order to give ourselves exactly this
 leeway.</p></div>
+
+<p>Applying <tt>__attribute__((NSObject))</tt> to a property not of
+retainable object pointer type has the same behavior it does outside
+of ARC:  it requires the property type to be some sort of pointer and
+permits the use of modifiers other than <tt>assign</tt>.  These
+modifiers only affect the synthesized getter and setter; direct
+accesses to the ivar (even if synthesized) still have primitive
+semantics, and the value in the ivar will not be automatically
+released during deallocation.</p>
 
 </div> <!-- ownership.spelling.property -->
 
@@ -1601,6 +1610,36 @@ with a <tt>dealloc</tt> implementation outside of ARC.  Such an
 implementation must be very careful to do all the other work
 that <tt>NSObject</tt>'s <tt>dealloc</tt> would, which is outside the
 scope of this document to describe.</p></div>
+
+<p>The instance variables for an ARC-compiled class will be destroyed
+at some point after control enters the <tt>dealloc</tt> method for the
+root class of the class.  The ordering of the destruction of instance
+variables is unspecified, both within a single class and between
+subclasses and superclasses.</p>
+
+<div class="rationale"><p>Rationale: the traditional, non-ARC pattern
+for destroying instance variables is to destroy them immediately
+before calling <tt>[super&nbsp;dealloc]</tt>.  Unfortunately, message
+sends from the superclass are quite capable of reaching methods in the
+subclass, and those methods may well read or write to those instance
+variables.  Making such message sends from dealloc is generally
+discouraged, since the subclass may well rely on other invariants that
+were broken during <tt>dealloc</tt>, but it's not so inescapably
+dangerous that we felt comfortable calling it undefined behavior.
+Therefore we chose to delay destroying the instance variables to a
+point at which message sends are clearly disallowed: the point at
+which the root class's deallocation routines take over.</p>
+
+<p>In most code, the difference is not observable.  It can, however,
+be observed if an instance variable holds a strong reference to an
+object whose deallocation will trigger a side-effect which must be
+carefully ordered with respect to the destruction of the super class.
+Such code violates the design principle that semantically important
+behavior should be explicit.  A simple fix is to clear the instance
+variable manually during <tt>dealloc</tt>; a more holistic solution is
+to move semantically important side-effects out of
+<tt>dealloc</tt> and into a separate teardown phase which can rely on
+working with well-formed objects.</p></div>
 
 </div>
 

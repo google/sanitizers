@@ -135,9 +135,11 @@ _func:
 
         subw r11, pc, #3270
         adr.w r11, #-826
+        adr.w r1, #-0x0
 
 @ CHECK: subw	r11, pc, #3270          @ encoding: [0xaf,0xf6,0xc6,0x4b]
 @ CHECK: adr.w	r11, #-826              @ encoding: [0xaf,0xf2,0x3a,0x3b]
+@ CHECK: adr.w	r1, #-0                 @ encoding: [0xaf,0xf2,0x00,0x01]
 
 @------------------------------------------------------------------------------
 @ AND (immediate)
@@ -415,6 +417,23 @@ _func:
 @------------------------------------------------------------------------------
 @ DMB
 @------------------------------------------------------------------------------
+        dmb #0xf
+        dmb #0xe
+        dmb #0xd
+        dmb #0xc
+        dmb #0xb
+        dmb #0xa
+        dmb #0x9
+        dmb #0x8
+        dmb #0x7
+        dmb #0x6
+        dmb #0x5
+        dmb #0x4
+        dmb #0x3
+        dmb #0x2
+        dmb #0x1
+        dmb #0x0
+
         dmb sy
         dmb st
         dmb sh
@@ -428,6 +447,23 @@ _func:
         dmb osh
         dmb oshst
         dmb
+
+@ CHECK: dmb	sy                      @ encoding: [0xbf,0xf3,0x5f,0x8f]
+@ CHECK: dmb	st                      @ encoding: [0xbf,0xf3,0x5e,0x8f]
+@ CHECK: dmb	#0xd                    @ encoding: [0xbf,0xf3,0x5d,0x8f]
+@ CHECK: dmb	#0xc                    @ encoding: [0xbf,0xf3,0x5c,0x8f]
+@ CHECK: dmb	ish                     @ encoding: [0xbf,0xf3,0x5b,0x8f]
+@ CHECK: dmb	ishst                   @ encoding: [0xbf,0xf3,0x5a,0x8f]
+@ CHECK: dmb	#0x9                    @ encoding: [0xbf,0xf3,0x59,0x8f]
+@ CHECK: dmb	#0x8                    @ encoding: [0xbf,0xf3,0x58,0x8f]
+@ CHECK: dmb	nsh                     @ encoding: [0xbf,0xf3,0x57,0x8f]
+@ CHECK: dmb	nshst                   @ encoding: [0xbf,0xf3,0x56,0x8f]
+@ CHECK: dmb	#0x5                    @ encoding: [0xbf,0xf3,0x55,0x8f]
+@ CHECK: dmb	#0x4                    @ encoding: [0xbf,0xf3,0x54,0x8f]
+@ CHECK: dmb	osh                     @ encoding: [0xbf,0xf3,0x53,0x8f]
+@ CHECK: dmb	oshst                   @ encoding: [0xbf,0xf3,0x52,0x8f]
+@ CHECK: dmb	#0x1                    @ encoding: [0xbf,0xf3,0x51,0x8f]
+@ CHECK: dmb	#0x0                    @ encoding: [0xbf,0xf3,0x50,0x8f]
 
 @ CHECK: dmb	sy                      @ encoding: [0xbf,0xf3,0x5f,0x8f]
 @ CHECK: dmb	st                      @ encoding: [0xbf,0xf3,0x5e,0x8f]
@@ -447,6 +483,23 @@ _func:
 @------------------------------------------------------------------------------
 @ DSB
 @------------------------------------------------------------------------------
+        dsb #0xf
+        dsb #0xe
+        dsb #0xd
+        dsb #0xc
+        dsb #0xb
+        dsb #0xa
+        dsb #0x9
+        dsb #0x8
+        dsb #0x7
+        dsb #0x6
+        dsb #0x5
+        dsb #0x4
+        dsb #0x3
+        dsb #0x2
+        dsb #0x1
+        dsb #0x0
+
         dsb sy
         dsb st
         dsb sh
@@ -460,6 +513,23 @@ _func:
         dsb osh
         dsb oshst
         dsb
+
+@ CHECK: dsb	sy                      @ encoding: [0xbf,0xf3,0x4f,0x8f]
+@ CHECK: dsb	st                      @ encoding: [0xbf,0xf3,0x4e,0x8f]
+@ CHECK: dsb	#0xd                    @ encoding: [0xbf,0xf3,0x4d,0x8f]
+@ CHECK: dsb	#0xc                    @ encoding: [0xbf,0xf3,0x4c,0x8f]
+@ CHECK: dsb	ish                     @ encoding: [0xbf,0xf3,0x4b,0x8f]
+@ CHECK: dsb	ishst                   @ encoding: [0xbf,0xf3,0x4a,0x8f]
+@ CHECK: dsb	#0x9                    @ encoding: [0xbf,0xf3,0x49,0x8f]
+@ CHECK: dsb	#0x8                    @ encoding: [0xbf,0xf3,0x48,0x8f]
+@ CHECK: dsb	nsh                     @ encoding: [0xbf,0xf3,0x47,0x8f]
+@ CHECK: dsb	nshst                   @ encoding: [0xbf,0xf3,0x46,0x8f]
+@ CHECK: dsb	#0x5                    @ encoding: [0xbf,0xf3,0x45,0x8f]
+@ CHECK: dsb	#0x4                    @ encoding: [0xbf,0xf3,0x44,0x8f]
+@ CHECK: dsb	osh                     @ encoding: [0xbf,0xf3,0x43,0x8f]
+@ CHECK: dsb	oshst                   @ encoding: [0xbf,0xf3,0x42,0x8f]
+@ CHECK: dsb	#0x1                    @ encoding: [0xbf,0xf3,0x41,0x8f]
+@ CHECK: dsb	#0x0                    @ encoding: [0xbf,0xf3,0x40,0x8f]
 
 @ CHECK: dsb	sy                      @ encoding: [0xbf,0xf3,0x4f,0x8f]
 @ CHECK: dsb	st                      @ encoding: [0xbf,0xf3,0x4e,0x8f]
@@ -782,6 +852,9 @@ _func:
         ldrd r3, r5, [r6], #-8
         ldrd r3, r5, [r6]
         ldrd r8, r1, [r3, #0]
+        ldrd r0, r1, [r2, #-0]
+        ldrd r0, r1, [r2, #-0]!
+        ldrd r0, r1, [r2], #-0
 
 @ CHECK: ldrd	r3, r5, [r6, #24]       @ encoding: [0xd6,0xe9,0x06,0x35]
 @ CHECK: ldrd	r3, r5, [r6, #24]!      @ encoding: [0xf6,0xe9,0x06,0x35]
@@ -789,6 +862,9 @@ _func:
 @ CHECK: ldrd	r3, r5, [r6], #-8       @ encoding: [0x76,0xe8,0x02,0x35]
 @ CHECK: ldrd	r3, r5, [r6]            @ encoding: [0xd6,0xe9,0x00,0x35]
 @ CHECK: ldrd	r8, r1, [r3]            @ encoding: [0xd3,0xe9,0x00,0x81]
+@ CHECK: ldrd	r0, r1, [r2, #-0]       @ encoding: [0x52,0xe9,0x00,0x01]
+@ CHECK: ldrd	r0, r1, [r2, #-0]!      @ encoding: [0x72,0xe9,0x00,0x01]
+@ CHECK: ldrd	r0, r1, [r2], #-0       @ encoding: [0x72,0xe8,0x00,0x01]
 
 
 @------------------------------------------------------------------------------
@@ -2566,6 +2642,9 @@ _func:
         strd r3, r5, [r6], #-8
         strd r3, r5, [r6]
         strd r8, r1, [r3, #0]
+        strd r0, r1, [r2, #-0]
+        strd r0, r1, [r2, #-0]!
+        strd r0, r1, [r2], #-0
 
 @ CHECK: strd	r3, r5, [r6, #24]       @ encoding: [0xc6,0xe9,0x06,0x35]
 @ CHECK: strd	r3, r5, [r6, #24]!      @ encoding: [0xe6,0xe9,0x06,0x35]
@@ -2573,6 +2652,9 @@ _func:
 @ CHECK: strd	r3, r5, [r6], #-8       @ encoding: [0x66,0xe8,0x02,0x35]
 @ CHECK: strd	r3, r5, [r6]            @ encoding: [0xc6,0xe9,0x00,0x35]
 @ CHECK: strd	r8, r1, [r3]            @ encoding: [0xc3,0xe9,0x00,0x81]
+@ CHECK: strd   r0, r1, [r2, #-0]       @ encoding: [0x42,0xe9,0x00,0x01]
+@ CHECK: strd   r0, r1, [r2, #-0]!      @ encoding: [0x62,0xe9,0x00,0x01]
+@ CHECK: strd   r0, r1, [r2], #-0       @ encoding: [0x62,0xe8,0x00,0x01]
 
 
 @------------------------------------------------------------------------------

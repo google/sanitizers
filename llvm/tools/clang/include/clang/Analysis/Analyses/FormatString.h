@@ -201,7 +201,7 @@ protected:
   Kind kind;
 };
 
-class ArgTypeResult {
+class ArgType {
 public:
   enum Kind { UnknownTy, InvalidTy, SpecificTy, ObjCPointerTy, CPointerTy,
               AnyCharTy, CStrTy, WCStrTy, WIntTy };
@@ -209,25 +209,25 @@ private:
   const Kind K;
   QualType T;
   const char *Name;
-  ArgTypeResult(bool) : K(InvalidTy), Name(0) {}
+  bool Ptr;
 public:
-  ArgTypeResult(Kind k = UnknownTy) : K(k), Name(0) {}
-  ArgTypeResult(Kind k, const char *n) : K(k), Name(n) {}
-  ArgTypeResult(QualType t) : K(SpecificTy), T(t), Name(0) {}
-  ArgTypeResult(QualType t, const char *n) : K(SpecificTy), T(t), Name(n)  {}
-  ArgTypeResult(CanQualType t) : K(SpecificTy), T(t), Name(0) {}
+  ArgType(Kind k = UnknownTy, const char *n = 0) : K(k), Name(n), Ptr(false) {}
+  ArgType(QualType t, const char *n = 0)
+      : K(SpecificTy), T(t), Name(n), Ptr(false) {}
+  ArgType(CanQualType t) : K(SpecificTy), T(t), Name(0), Ptr(false) {}
 
-  static ArgTypeResult Invalid() { return ArgTypeResult(true); }
-
+  static ArgType Invalid() { return ArgType(InvalidTy); }
   bool isValid() const { return K != InvalidTy; }
 
-  const QualType *getSpecificType() const {
-    return K == SpecificTy ? &T : 0;
+  /// Create an ArgType which corresponds to the type pointer to A.
+  static ArgType PtrTo(const ArgType& A) {
+    assert(A.K >= InvalidTy && "ArgType cannot be pointer to invalid/unknown");
+    ArgType Res = A;
+    Res.Ptr = true;
+    return Res;
   }
 
   bool matchesType(ASTContext &C, QualType argTy) const;
-
-  bool matchesAnyObjCObjectRef() const { return K == ObjCPointerTy; }
 
   QualType getRepresentativeType(ASTContext &C) const;
 
@@ -279,7 +279,7 @@ public:
     return length + UsesDotPrefix;
   }
 
-  ArgTypeResult getArgType(ASTContext &Ctx) const;
+  ArgType getArgType(ASTContext &Ctx) const;
 
   void toString(raw_ostream &os) const;
 
@@ -355,6 +355,10 @@ public:
   bool hasStandardConversionSpecifier(const LangOptions &LangOpt) const;
 
   bool hasStandardLengthConversionCombination() const;
+
+  /// For a TypedefType QT, if it is a named integer type such as size_t,
+  /// assign the appropriate value to LM and return true.
+  static bool namedTypeToLengthModifier(QualType QT, LengthModifier &LM);
 };
 
 } // end analyze_format_string namespace
@@ -388,7 +392,7 @@ public:
   }
 };
 
-using analyze_format_string::ArgTypeResult;
+using analyze_format_string::ArgType;
 using analyze_format_string::LengthModifier;
 using analyze_format_string::OptionalAmount;
 using analyze_format_string::OptionalFlag;
@@ -463,7 +467,7 @@ public:
   /// will return null if the format specifier does not have
   /// a matching data argument or the matching argument matches
   /// more than one type.
-  ArgTypeResult getArgType(ASTContext &Ctx, bool IsObjCLiteral) const;
+  ArgType getArgType(ASTContext &Ctx, bool IsObjCLiteral) const;
 
   const OptionalFlag &hasThousandsGrouping() const {
       return HasThousandsGrouping;
@@ -517,34 +521,10 @@ public:
   }
 };
 
-using analyze_format_string::ArgTypeResult;
+using analyze_format_string::ArgType;
 using analyze_format_string::LengthModifier;
 using analyze_format_string::OptionalAmount;
 using analyze_format_string::OptionalFlag;
-
-class ScanfArgTypeResult : public ArgTypeResult {
-public:
-  enum Kind { UnknownTy, InvalidTy, CStrTy, WCStrTy, PtrToArgTypeResultTy };
-private:
-  Kind K;
-  ArgTypeResult A;
-  const char *Name;
-  QualType getRepresentativeType(ASTContext &C) const;
-public:
-  ScanfArgTypeResult(Kind k = UnknownTy, const char* n = 0) : K(k), Name(n) {}
-  ScanfArgTypeResult(ArgTypeResult a, const char *n = 0)
-      : K(PtrToArgTypeResultTy), A(a), Name(n) {
-    assert(A.isValid());
-  }
-
-  static ScanfArgTypeResult Invalid() { return ScanfArgTypeResult(InvalidTy); }
-
-  bool isValid() const { return K != InvalidTy; }
-
-  bool matchesType(ASTContext& C, QualType argTy) const;
-
-  std::string getRepresentativeTypeName(ASTContext& C) const;
-};
 
 class ScanfSpecifier : public analyze_format_string::FormatSpecifier {
   OptionalFlag SuppressAssignment; // '*'
@@ -574,7 +554,7 @@ public:
     return CS.consumesDataArgument() && !SuppressAssignment;
   }
 
-  ScanfArgTypeResult getArgType(ASTContext &Ctx) const;
+  ArgType getArgType(ASTContext &Ctx) const;
 
   bool fixType(QualType QT, const LangOptions &LangOpt, ASTContext &Ctx);
 

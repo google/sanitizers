@@ -32,15 +32,15 @@ static AsanLock dbghelp_lock(LINKER_INITIALIZED);
 static bool dbghelp_initialized = false;
 #pragma comment(lib, "dbghelp.lib")
 
-void AsanStackTrace::GetStackTrace(uptr max_s, uptr pc, uptr bp) {
-  max_size = max_s;
+void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
+  stack->max_size = max_s;
   void *tmp[kStackTraceMax];
 
   // FIXME: CaptureStackBackTrace might be too slow for us.
   // FIXME: Compare with StackWalk64.
   // FIXME: Look at LLVMUnhandledExceptionFilter in Signals.inc
-  uptr cs_ret = CaptureStackBackTrace(1, max_size, tmp, 0),
-         offset = 0;
+  uptr cs_ret = CaptureStackBackTrace(1, stack->max_size, tmp, 0);
+  uptr offset = 0;
   // Skip the RTL frames by searching for the PC in the stacktrace.
   // FIXME: this doesn't work well for the malloc/free stacks yet.
   for (uptr i = 0; i < cs_ret; i++) {
@@ -50,12 +50,12 @@ void AsanStackTrace::GetStackTrace(uptr max_s, uptr pc, uptr bp) {
     break;
   }
 
-  size = cs_ret - offset;
-  for (uptr i = 0; i < size; i++)
-    trace[i] = (uptr)tmp[i + offset];
+  stack->size = cs_ret - offset;
+  for (uptr i = 0; i < stack->size; i++)
+    stack->trace[i] = (uptr)tmp[i + offset];
 }
 
-bool __asan_WinSymbolize(const void *addr, char *out_buffer, int buffer_size) {
+bool WinSymbolize(const void *addr, char *out_buffer, int buffer_size) {
   ScopedLock lock(&dbghelp_lock);
   if (!dbghelp_initialized) {
     SymSetOptions(SYMOPT_DEFERRED_LOADS |
@@ -153,6 +153,10 @@ void AsanTSDSet(void *tsd) {
 }
 
 // ---------------------- Various stuff ---------------- {{{1
+void MaybeReexec() {
+  // No need to re-exec on Windows.
+}
+
 void *AsanDoesNotSupportStaticLinkage() {
 #if defined(_DEBUG)
 #error Please build the runtime with a non-debug CRT: /MD or /MT
@@ -170,6 +174,10 @@ void UnsetAlternateSignalStack() {
 
 void InstallSignalHandlers() {
   // FIXME: Decide what to do on Windows.
+}
+
+void AsanPlatformThreadInit() {
+  // Nothing here for now.
 }
 
 }  // namespace __asan

@@ -8,6 +8,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/Comment.h"
+#include "clang/AST/Decl.h"
+#include "clang/AST/DeclObjC.h"
+#include "clang/AST/DeclTemplate.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -134,5 +137,179 @@ const char *ParamCommandComment::getDirectionAsString(PassDirection D) {
   llvm_unreachable("unknown PassDirection");
 }
 
+void DeclInfo::fill() {
+  assert(!IsFilled);
+
+  // Set defaults.
+  Kind = OtherKind;
+  TemplateKind = NotTemplate;
+  IsObjCMethod = false;
+  IsInstanceMethod = false;
+  IsClassMethod = false;
+  ParamVars = ArrayRef<const ParmVarDecl *>();
+  TemplateParameters = NULL;
+
+  if (!ThisDecl) {
+    // If there is no declaration, the defaults is our only guess.
+    IsFilled = true;
+    return;
+  }
+
+  Decl::Kind K = ThisDecl->getKind();
+  switch (K) {
+  default:
+    // Defaults are should be good for declarations we don't handle explicitly.
+    break;
+  case Decl::Function:
+  case Decl::CXXMethod:
+  case Decl::CXXConstructor:
+  case Decl::CXXDestructor:
+  case Decl::CXXConversion: {
+    const FunctionDecl *FD = cast<FunctionDecl>(ThisDecl);
+    Kind = FunctionKind;
+    ParamVars = ArrayRef<const ParmVarDecl *>(FD->param_begin(),
+                                              FD->getNumParams());
+    ResultType = FD->getResultType();
+    unsigned NumLists = FD->getNumTemplateParameterLists();
+    if (NumLists != 0) {
+      TemplateKind = TemplateSpecialization;
+      TemplateParameters =
+          FD->getTemplateParameterList(NumLists - 1);
+    }
+
+    if (K == Decl::CXXMethod || K == Decl::CXXConstructor ||
+        K == Decl::CXXDestructor || K == Decl::CXXConversion) {
+      const CXXMethodDecl *MD = cast<CXXMethodDecl>(ThisDecl);
+      IsInstanceMethod = MD->isInstance();
+      IsClassMethod = !IsInstanceMethod;
+    }
+    break;
+  }
+  case Decl::ObjCMethod: {
+    const ObjCMethodDecl *MD = cast<ObjCMethodDecl>(ThisDecl);
+    Kind = FunctionKind;
+    ParamVars = ArrayRef<const ParmVarDecl *>(MD->param_begin(),
+                                              MD->param_size());
+    ResultType = MD->getResultType();
+    IsObjCMethod = true;
+    IsInstanceMethod = MD->isInstanceMethod();
+    IsClassMethod = !IsInstanceMethod;
+    break;
+  }
+  case Decl::FunctionTemplate: {
+    const FunctionTemplateDecl *FTD = cast<FunctionTemplateDecl>(ThisDecl);
+    Kind = FunctionKind;
+    TemplateKind = Template;
+    const FunctionDecl *FD = FTD->getTemplatedDecl();
+    ParamVars = ArrayRef<const ParmVarDecl *>(FD->param_begin(),
+                                              FD->getNumParams());
+    ResultType = FD->getResultType();
+    TemplateParameters = FTD->getTemplateParameters();
+    break;
+  }
+  case Decl::ClassTemplate: {
+    const ClassTemplateDecl *CTD = cast<ClassTemplateDecl>(ThisDecl);
+    Kind = ClassKind;
+    TemplateKind = Template;
+    TemplateParameters = CTD->getTemplateParameters();
+    break;
+  }
+  case Decl::ClassTemplatePartialSpecialization: {
+    const ClassTemplatePartialSpecializationDecl *CTPSD =
+        cast<ClassTemplatePartialSpecializationDecl>(ThisDecl);
+    Kind = ClassKind;
+    TemplateKind = TemplatePartialSpecialization;
+    TemplateParameters = CTPSD->getTemplateParameters();
+    break;
+  }
+  case Decl::ClassTemplateSpecialization:
+    Kind = ClassKind;
+    TemplateKind = TemplateSpecialization;
+    break;
+  case Decl::Record:
+  case Decl::CXXRecord:
+    Kind = ClassKind;
+    break;
+  case Decl::Var:
+  case Decl::Field:
+  case Decl::EnumConstant:
+  case Decl::ObjCIvar:
+  case Decl::ObjCAtDefsField:
+    Kind = VariableKind;
+    break;
+  case Decl::Namespace:
+    Kind = NamespaceKind;
+    break;
+  case Decl::Typedef: {
+    Kind = TypedefKind;
+    // If this is a typedef to something we consider a function, extract
+    // arguments and return type.
+    const TypedefDecl *TD = cast<TypedefDecl>(ThisDecl);
+    const TypeSourceInfo *TSI = TD->getTypeSourceInfo();
+    if (!TSI)
+      break;
+    TypeLoc TL = TSI->getTypeLoc().getUnqualifiedLoc();
+    while (true) {
+      TL = TL.IgnoreParens();
+      // Look through typedefs.
+      if (TypedefTypeLoc *TypedefTL = dyn_cast<TypedefTypeLoc>(&TL)) {
+        TSI = TypedefTL->getTypedefNameDecl()->getTypeSourceInfo();
+        if (TSI)
+          break;
+        TL = TSI->getTypeLoc().getUnqualifiedLoc();
+        continue;
+      }
+      // Look through qualified types.
+      if (QualifiedTypeLoc *QualifiedTL = dyn_cast<QualifiedTypeLoc>(&TL)) {
+        TL = QualifiedTL->getUnqualifiedLoc();
+        continue;
+      }
+      // Look through pointer types.
+      if (PointerTypeLoc *PointerTL = dyn_cast<PointerTypeLoc>(&TL)) {
+        TL = PointerTL->getPointeeLoc().getUnqualifiedLoc();
+        continue;
+      }
+      if (BlockPointerTypeLoc *BlockPointerTL =
+              dyn_cast<BlockPointerTypeLoc>(&TL)) {
+        TL = BlockPointerTL->getPointeeLoc().getUnqualifiedLoc();
+        continue;
+      }
+      if (MemberPointerTypeLoc *MemberPointerTL =
+              dyn_cast<MemberPointerTypeLoc>(&TL)) {
+        TL = MemberPointerTL->getPointeeLoc().getUnqualifiedLoc();
+        continue;
+      }
+      // Is this a typedef for a function type?
+      if (FunctionTypeLoc *FTL = dyn_cast<FunctionTypeLoc>(&TL)) {
+        Kind = FunctionKind;
+        ArrayRef<ParmVarDecl *> Params = FTL->getParams();
+        ParamVars = ArrayRef<const ParmVarDecl *>(Params.data(),
+                                                  Params.size());
+        ResultType = FTL->getResultLoc().getType();
+        break;
+      }
+      break;
+    }
+    break;
+  }
+  case Decl::TypeAlias:
+    Kind = TypedefKind;
+    break;
+  case Decl::TypeAliasTemplate: {
+    const TypeAliasTemplateDecl *TAT = cast<TypeAliasTemplateDecl>(ThisDecl);
+    Kind = TypedefKind;
+    TemplateKind = Template;
+    TemplateParameters = TAT->getTemplateParameters();
+    break;
+  }
+  case Decl::Enum:
+    Kind = EnumKind;
+    break;
+  }
+
+  IsFilled = true;
+}
+
 } // end namespace comments
 } // end namespace clang
+

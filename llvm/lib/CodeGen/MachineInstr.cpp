@@ -47,55 +47,6 @@ using namespace llvm;
 // MachineOperand Implementation
 //===----------------------------------------------------------------------===//
 
-/// AddRegOperandToRegInfo - Add this register operand to the specified
-/// MachineRegisterInfo.  If it is null, then the next/prev fields should be
-/// explicitly nulled out.
-void MachineOperand::AddRegOperandToRegInfo(MachineRegisterInfo *RegInfo) {
-  assert(isReg() && "Can only add reg operand to use lists");
-
-  // If the reginfo pointer is null, just explicitly null out or next/prev
-  // pointers, to ensure they are not garbage.
-  if (RegInfo == 0) {
-    Contents.Reg.Prev = 0;
-    Contents.Reg.Next = 0;
-    return;
-  }
-
-  // Otherwise, add this operand to the head of the registers use/def list.
-  MachineOperand **Head = &RegInfo->getRegUseDefListHead(getReg());
-
-  // For SSA values, we prefer to keep the definition at the start of the list.
-  // we do this by skipping over the definition if it is at the head of the
-  // list.
-  if (*Head && (*Head)->isDef())
-    Head = &(*Head)->Contents.Reg.Next;
-
-  Contents.Reg.Next = *Head;
-  if (Contents.Reg.Next) {
-    assert(getReg() == Contents.Reg.Next->getReg() &&
-           "Different regs on the same list!");
-    Contents.Reg.Next->Contents.Reg.Prev = &Contents.Reg.Next;
-  }
-
-  Contents.Reg.Prev = Head;
-  *Head = this;
-}
-
-/// RemoveRegOperandFromRegInfo - Remove this register operand from the
-/// MachineRegisterInfo it is linked with.
-void MachineOperand::RemoveRegOperandFromRegInfo() {
-  assert(isOnRegUseList() && "Reg operand is not on a use list");
-  // Unlink this from the doubly linked list of operands.
-  MachineOperand *NextOp = Contents.Reg.Next;
-  *Contents.Reg.Prev = NextOp;
-  if (NextOp) {
-    assert(NextOp->getReg() == getReg() && "Corrupt reg use/def chain!");
-    NextOp->Contents.Reg.Prev = Contents.Reg.Prev;
-  }
-  Contents.Reg.Prev = 0;
-  Contents.Reg.Next = 0;
-}
-
 void MachineOperand::setReg(unsigned Reg) {
   if (getReg() == Reg) return; // No change.
 
@@ -105,9 +56,10 @@ void MachineOperand::setReg(unsigned Reg) {
   if (MachineInstr *MI = getParent())
     if (MachineBasicBlock *MBB = MI->getParent())
       if (MachineFunction *MF = MBB->getParent()) {
-        RemoveRegOperandFromRegInfo();
+        MachineRegisterInfo &MRI = MF->getRegInfo();
+        MRI.removeRegOperandFromUseList(this);
         SmallContents.RegNo = Reg;
-        AddRegOperandToRegInfo(&MF->getRegInfo());
+        MRI.addRegOperandToUseList(this);
         return;
       }
 
@@ -136,15 +88,37 @@ void MachineOperand::substPhysReg(unsigned Reg, const TargetRegisterInfo &TRI) {
   setReg(Reg);
 }
 
+/// Change a def to a use, or a use to a def.
+void MachineOperand::setIsDef(bool Val) {
+  assert(isReg() && "Wrong MachineOperand accessor");
+  assert((!Val || !isDebug()) && "Marking a debug operation as def");
+  if (IsDef == Val)
+    return;
+  // MRI may keep uses and defs in different list positions.
+  if (MachineInstr *MI = getParent())
+    if (MachineBasicBlock *MBB = MI->getParent())
+      if (MachineFunction *MF = MBB->getParent()) {
+        MachineRegisterInfo &MRI = MF->getRegInfo();
+        MRI.removeRegOperandFromUseList(this);
+        IsDef = Val;
+        MRI.addRegOperandToUseList(this);
+        return;
+      }
+  IsDef = Val;
+}
+
 /// ChangeToImmediate - Replace this operand with a new immediate operand of
 /// the specified value.  If an operand is known to be an immediate already,
 /// the setImm method should be used.
 void MachineOperand::ChangeToImmediate(int64_t ImmVal) {
+  assert((!isReg() || !isTied()) && "Cannot change a tied operand into an imm");
   // If this operand is currently a register operand, and if this is in a
   // function, deregister the operand from the register's use/def list.
-  if (isReg() && getParent() && getParent()->getParent() &&
-      getParent()->getParent()->getParent())
-    RemoveRegOperandFromRegInfo();
+  if (isReg() && isOnRegUseList())
+    if (MachineInstr *MI = getParent())
+      if (MachineBasicBlock *MBB = MI->getParent())
+        if (MachineFunction *MF = MBB->getParent())
+          MF->getRegInfo().removeRegOperandFromUseList(this);
 
   OpKind = MO_Immediate;
   Contents.ImmVal = ImmVal;
@@ -156,24 +130,21 @@ void MachineOperand::ChangeToImmediate(int64_t ImmVal) {
 void MachineOperand::ChangeToRegister(unsigned Reg, bool isDef, bool isImp,
                                       bool isKill, bool isDead, bool isUndef,
                                       bool isDebug) {
-  // If this operand is already a register operand, use setReg to update the
+  MachineRegisterInfo *RegInfo = 0;
+  if (MachineInstr *MI = getParent())
+    if (MachineBasicBlock *MBB = MI->getParent())
+      if (MachineFunction *MF = MBB->getParent())
+        RegInfo = &MF->getRegInfo();
+  // If this operand is already a register operand, remove it from the
   // register's use/def lists.
-  if (isReg()) {
-    assert(!isEarlyClobber());
-    setReg(Reg);
-  } else {
-    // Otherwise, change this to a register and set the reg#.
-    OpKind = MO_Register;
-    SmallContents.RegNo = Reg;
+  bool WasReg = isReg();
+  if (RegInfo && WasReg)
+    RegInfo->removeRegOperandFromUseList(this);
 
-    // If this operand is embedded in a function, add the operand to the
-    // register's use/def list.
-    if (MachineInstr *MI = getParent())
-      if (MachineBasicBlock *MBB = MI->getParent())
-        if (MachineFunction *MF = MBB->getParent())
-          AddRegOperandToRegInfo(&MF->getRegInfo());
-  }
-
+  // Change this to a register and set the reg#.
+  OpKind = MO_Register;
+  SmallContents.RegNo = Reg;
+  SubReg = 0;
   IsDef = isDef;
   IsImp = isImp;
   IsKill = isKill;
@@ -182,7 +153,16 @@ void MachineOperand::ChangeToRegister(unsigned Reg, bool isDef, bool isImp,
   IsInternalRead = false;
   IsEarlyClobber = false;
   IsDebug = isDebug;
-  SubReg = 0;
+  // Ensure isOnRegUseList() returns false.
+  Contents.Reg.Prev = 0;
+  // Preserve the tie bit when the operand was already a register.
+  if (!WasReg)
+    IsTied = false;
+
+  // If this operand is embedded in a function, add the operand to the
+  // register's use/def list.
+  if (RegInfo)
+    RegInfo->addRegOperandToUseList(this);
 }
 
 /// isIdenticalTo - Return true if this operand is identical to the specified
@@ -208,6 +188,7 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
   case MachineOperand::MO_FrameIndex:
     return getIndex() == Other.getIndex();
   case MachineOperand::MO_ConstantPoolIndex:
+  case MachineOperand::MO_TargetIndex:
     return getIndex() == Other.getIndex() && getOffset() == Other.getOffset();
   case MachineOperand::MO_JumpTableIndex:
     return getIndex() == Other.getIndex();
@@ -232,8 +213,8 @@ bool MachineOperand::isIdenticalTo(const MachineOperand &Other) const {
 hash_code llvm::hash_value(const MachineOperand &MO) {
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getReg(),
-                        MO.getSubReg(), MO.isDef());
+    // Register operands don't have target flags.
+    return hash_combine(MO.getType(), MO.getReg(), MO.getSubReg(), MO.isDef());
   case MachineOperand::MO_Immediate:
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getImm());
   case MachineOperand::MO_CImmediate:
@@ -245,6 +226,7 @@ hash_code llvm::hash_value(const MachineOperand &MO) {
   case MachineOperand::MO_FrameIndex:
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getIndex());
   case MachineOperand::MO_ConstantPoolIndex:
+  case MachineOperand::MO_TargetIndex:
     return hash_combine(MO.getType(), MO.getTargetFlags(), MO.getIndex(),
                         MO.getOffset());
   case MachineOperand::MO_JumpTableIndex:
@@ -285,7 +267,7 @@ void MachineOperand::print(raw_ostream &OS, const TargetMachine *TM) const {
     OS << PrintReg(getReg(), TRI, getSubReg());
 
     if (isDef() || isKill() || isDead() || isImplicit() || isUndef() ||
-        isInternalRead() || isEarlyClobber()) {
+        isInternalRead() || isEarlyClobber() || isTied()) {
       OS << '<';
       bool NeedComma = false;
       if (isDef()) {
@@ -305,27 +287,30 @@ void MachineOperand::print(raw_ostream &OS, const TargetMachine *TM) const {
           NeedComma = true;
       }
 
-      if (isKill() || isDead() || (isUndef() && isUse()) || isInternalRead()) {
+      if (isKill()) {
         if (NeedComma) OS << ',';
-        NeedComma = false;
-        if (isKill()) {
-          OS << "kill";
-          NeedComma = true;
-        }
-        if (isDead()) {
-          OS << "dead";
-          NeedComma = true;
-        }
-        if (isUndef() && isUse()) {
-          if (NeedComma) OS << ',';
-          OS << "undef";
-          NeedComma = true;
-        }
-        if (isInternalRead()) {
-          if (NeedComma) OS << ',';
-          OS << "internal";
-          NeedComma = true;
-        }
+        OS << "kill";
+        NeedComma = true;
+      }
+      if (isDead()) {
+        if (NeedComma) OS << ',';
+        OS << "dead";
+        NeedComma = true;
+      }
+      if (isUndef() && isUse()) {
+        if (NeedComma) OS << ',';
+        OS << "undef";
+        NeedComma = true;
+      }
+      if (isInternalRead()) {
+        if (NeedComma) OS << ',';
+        OS << "internal";
+        NeedComma = true;
+      }
+      if (isTied()) {
+        if (NeedComma) OS << ',';
+        OS << "tied";
+        NeedComma = true;
       }
       OS << '>';
     }
@@ -350,6 +335,11 @@ void MachineOperand::print(raw_ostream &OS, const TargetMachine *TM) const {
     break;
   case MachineOperand::MO_ConstantPoolIndex:
     OS << "<cp#" << getIndex();
+    if (getOffset()) OS << "+" << getOffset();
+    OS << '>';
+    break;
+  case MachineOperand::MO_TargetIndex:
+    OS << "<ti#" << getIndex();
     if (getOffset()) OS << "+" << getOffset();
     OS << '>';
     break;
@@ -650,23 +640,20 @@ MachineRegisterInfo *MachineInstr::getRegInfo() {
 /// RemoveRegOperandsFromUseLists - Unlink all of the register operands in
 /// this instruction from their respective use lists.  This requires that the
 /// operands already be on their use lists.
-void MachineInstr::RemoveRegOperandsFromUseLists() {
-  for (unsigned i = 0, e = Operands.size(); i != e; ++i) {
+void MachineInstr::RemoveRegOperandsFromUseLists(MachineRegisterInfo &MRI) {
+  for (unsigned i = 0, e = Operands.size(); i != e; ++i)
     if (Operands[i].isReg())
-      Operands[i].RemoveRegOperandFromRegInfo();
-  }
+      MRI.removeRegOperandFromUseList(&Operands[i]);
 }
 
 /// AddRegOperandsToUseLists - Add all of the register operands in
 /// this instruction from their respective use lists.  This requires that the
 /// operands not be on their use lists yet.
-void MachineInstr::AddRegOperandsToUseLists(MachineRegisterInfo &RegInfo) {
-  for (unsigned i = 0, e = Operands.size(); i != e; ++i) {
+void MachineInstr::AddRegOperandsToUseLists(MachineRegisterInfo &MRI) {
+  for (unsigned i = 0, e = Operands.size(); i != e; ++i)
     if (Operands[i].isReg())
-      Operands[i].AddRegOperandToRegInfo(&RegInfo);
-  }
+      MRI.addRegOperandToUseList(&Operands[i]);
 }
-
 
 /// addOperand - Add the specified operand to the instruction.  If it is an
 /// implicit operand, it is added to the end of the operand list.  If it is
@@ -695,7 +682,7 @@ void MachineInstr::addOperand(const MachineOperand &Op) {
     while (OpNo && Operands[OpNo-1].isReg() && Operands[OpNo-1].isImplicit()) {
       --OpNo;
       if (RegInfo)
-        Operands[OpNo].RemoveRegOperandFromRegInfo();
+        RegInfo->removeRegOperandFromUseList(&Operands[OpNo]);
     }
   }
 
@@ -712,7 +699,7 @@ void MachineInstr::addOperand(const MachineOperand &Op) {
   if (Reallocate)
     for (unsigned i = 0; i != OpNo; ++i)
       if (Operands[i].isReg())
-        Operands[i].RemoveRegOperandFromRegInfo();
+        RegInfo->removeRegOperandFromUseList(&Operands[i]);
 
   // Insert the new operand at OpNo.
   Operands.insert(Operands.begin() + OpNo, Op);
@@ -723,13 +710,27 @@ void MachineInstr::addOperand(const MachineOperand &Op) {
   if (Reallocate)
     for (unsigned i = 0; i != OpNo; ++i)
       if (Operands[i].isReg())
-        Operands[i].AddRegOperandToRegInfo(RegInfo);
+        RegInfo->addRegOperandToUseList(&Operands[i]);
 
   // When adding a register operand, tell RegInfo about it.
   if (Operands[OpNo].isReg()) {
-    // Add the new operand to RegInfo, even when RegInfo is NULL.
-    // This will initialize the linked list pointers.
-    Operands[OpNo].AddRegOperandToRegInfo(RegInfo);
+    // Ensure isOnRegUseList() returns false, regardless of Op's status.
+    Operands[OpNo].Contents.Reg.Prev = 0;
+    // Ignore existing IsTied bit. This is not a property that can be copied.
+    Operands[OpNo].IsTied = false;
+    // Add the new operand to RegInfo.
+    if (RegInfo)
+      RegInfo->addRegOperandToUseList(&Operands[OpNo]);
+    // Set the IsTied bit if MC indicates this use is tied to a def.
+    if (Operands[OpNo].isUse()) {
+      int DefIdx = MCID->getOperandConstraint(OpNo, MCOI::TIED_TO);
+      if (DefIdx != -1) {
+        MachineOperand &DefMO = getOperand(DefIdx);
+        assert(DefMO.isDef() && "Use tied to operand that isn't a def");
+        DefMO.IsTied = true;
+        Operands[OpNo].IsTied = true;
+      }
+    }
     // If the register operand is flagged as early, mark the operand as such.
     if (MCID->getOperandConstraint(OpNo, MCOI::EARLY_CLOBBER) != -1)
       Operands[OpNo].setIsEarlyClobber(true);
@@ -739,7 +740,7 @@ void MachineInstr::addOperand(const MachineOperand &Op) {
   if (RegInfo) {
     for (unsigned i = OpNo + 1, e = Operands.size(); i != e; ++i) {
       assert(Operands[i].isReg() && "Should only be an implicit reg!");
-      Operands[i].AddRegOperandToRegInfo(RegInfo);
+      RegInfo->addRegOperandToUseList(&Operands[i]);
     }
   }
 }
@@ -749,12 +750,14 @@ void MachineInstr::addOperand(const MachineOperand &Op) {
 ///
 void MachineInstr::RemoveOperand(unsigned OpNo) {
   assert(OpNo < Operands.size() && "Invalid operand number");
+  untieRegOperand(OpNo);
+  MachineRegisterInfo *RegInfo = getRegInfo();
 
   // Special case removing the last one.
   if (OpNo == Operands.size()-1) {
     // If needed, remove from the reg def/use list.
-    if (Operands.back().isReg() && Operands.back().isOnRegUseList())
-      Operands.back().RemoveRegOperandFromRegInfo();
+    if (RegInfo && Operands.back().isReg() && Operands.back().isOnRegUseList())
+      RegInfo->removeRegOperandFromUseList(&Operands.back());
 
     Operands.pop_back();
     return;
@@ -763,11 +766,10 @@ void MachineInstr::RemoveOperand(unsigned OpNo) {
   // Otherwise, we are removing an interior operand.  If we have reginfo to
   // update, remove all operands that will be shifted down from their reg lists,
   // move everything down, then re-add them.
-  MachineRegisterInfo *RegInfo = getRegInfo();
   if (RegInfo) {
     for (unsigned i = OpNo, e = Operands.size(); i != e; ++i) {
       if (Operands[i].isReg())
-        Operands[i].RemoveRegOperandFromRegInfo();
+        RegInfo->removeRegOperandFromUseList(&Operands[i]);
     }
   }
 
@@ -776,7 +778,7 @@ void MachineInstr::RemoveOperand(unsigned OpNo) {
   if (RegInfo) {
     for (unsigned i = OpNo, e = Operands.size(); i != e; ++i) {
       if (Operands[i].isReg())
-        Operands[i].AddRegOperandToRegInfo(RegInfo);
+        RegInfo->addRegOperandToUseList(&Operands[i]);
     }
   }
 }
@@ -1133,6 +1135,36 @@ int MachineInstr::findFirstPredOperandIdx() const {
   return -1;
 }
 
+/// Given the index of a tied register operand, find the operand it is tied to.
+/// Defs are tied to uses and vice versa. Returns the index of the tied operand
+/// which must exist.
+unsigned MachineInstr::findTiedOperandIdx(unsigned OpIdx) const {
+  // It doesn't usually happen, but an instruction can have multiple pairs of
+  // tied operands.
+  SmallVector<unsigned, 4> Uses, Defs;
+  unsigned PairNo = ~0u;
+  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
+    const MachineOperand &MO = getOperand(i);
+    if (!MO.isReg() || !MO.isTied())
+      continue;
+    if (MO.isUse()) {
+      if (i == OpIdx)
+        PairNo = Uses.size();
+      Uses.push_back(i);
+    } else {
+      if (i == OpIdx)
+        PairNo = Defs.size();
+      Defs.push_back(i);
+    }
+  }
+  // For each tied use there must be a tied def and vice versa.
+  assert(Uses.size() == Defs.size() && "Tied uses and defs don't match");
+  assert(PairNo < Uses.size() && "OpIdx must be a tied register operand");
+
+  // Find the matching operand.
+  return (getOperand(OpIdx).isDef() ? Uses : Defs)[PairNo];
+}
+
 /// isRegTiedToUseOperand - Given the index of a register def operand,
 /// check if the register def is tied to a source operand, due to either
 /// two-address elimination or inline assembly constraints. Returns the
@@ -1311,7 +1343,12 @@ bool MachineInstr::isSafeToMove(const TargetInstrInfo *TII,
                                 AliasAnalysis *AA,
                                 bool &SawStore) const {
   // Ignore stuff that we obviously can't move.
-  if (mayStore() || isCall()) {
+  //
+  // Treat volatile loads as stores. This is not strictly necessary for
+  // volatiles, but it is required for atomic loads. It is now allowed to move
+  // a load across an atomic load with Ordering > Monotonic.
+  if (mayStore() || isCall() ||
+      (mayLoad() && hasOrderedMemoryRef())) {
     SawStore = true;
     return false;
   }
@@ -1327,8 +1364,8 @@ bool MachineInstr::isSafeToMove(const TargetInstrInfo *TII,
   // load.
   if (mayLoad() && !isInvariantLoad(AA))
     // Otherwise, this is a real load.  If there is a store between the load and
-    // end of block, or if the load is volatile, we can't move it.
-    return !SawStore && !hasVolatileMemoryRef();
+    // end of block, we can't move it.
+    return !SawStore;
 
   return true;
 }
@@ -1359,11 +1396,11 @@ bool MachineInstr::isSafeToReMat(const TargetInstrInfo *TII,
   return true;
 }
 
-/// hasVolatileMemoryRef - Return true if this instruction may have a
-/// volatile memory reference, or if the information describing the
-/// memory reference is not available. Return false if it is known to
-/// have no volatile memory references.
-bool MachineInstr::hasVolatileMemoryRef() const {
+/// hasOrderedMemoryRef - Return true if this instruction may have an ordered
+/// or volatile memory reference, or if the information describing the memory
+/// reference is not available. Return false if it is known to have no ordered
+/// memory references.
+bool MachineInstr::hasOrderedMemoryRef() const {
   // An instruction known never to access memory won't have a volatile access.
   if (!mayStore() &&
       !mayLoad() &&
@@ -1376,9 +1413,9 @@ bool MachineInstr::hasVolatileMemoryRef() const {
   if (memoperands_empty())
     return true;
 
-  // Check the memory reference information for volatile references.
+  // Check the memory reference information for ordered references.
   for (mmo_iterator I = memoperands_begin(), E = memoperands_end(); I != E; ++I)
-    if ((*I)->isVolatile())
+    if (!(*I)->isUnordered())
       return true;
 
   return false;

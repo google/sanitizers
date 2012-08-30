@@ -939,8 +939,13 @@ public:
   }
   ObjCInterfaceDecl *lookupInheritedClass(const IdentifierInfo *ICName);
 
-  // Lookup a method in the classes implementation hierarchy.
-  ObjCMethodDecl *lookupPrivateMethod(const Selector &Sel, bool Instance=true);
+  /// \brief Lookup a method in the classes implementation hierarchy.
+  ObjCMethodDecl *lookupPrivateMethod(const Selector &Sel,
+                                      bool Instance=true) const;
+
+  ObjCMethodDecl *lookupPrivateClassMethod(const Selector &Sel) {
+    return lookupPrivateMethod(Sel, false);
+  }
 
   SourceLocation getEndOfDefinitionLoc() const { 
     if (!hasDefinition())
@@ -1519,15 +1524,6 @@ public:
     return Id ? Id->getNameStart() : "";
   }
 
-  /// getNameAsCString - Get the name of identifier for the class
-  /// interface associated with this implementation as a C string
-  /// (const char*).
-  //
-  // FIXME: Deprecated, move clients to getName().
-  const char *getNameAsCString() const {
-    return Id ? Id->getNameStart() : "";
-  }
-
   /// @brief Get the name of the class associated with this interface.
   //
   // FIXME: Deprecated, move clients to getName().
@@ -1646,15 +1642,6 @@ public:
   StringRef getName() const {
     assert(getIdentifier() && "Name is not a simple identifier");
     return getIdentifier()->getName();
-  }
-
-  /// getNameAsCString - Get the name of identifier for the class
-  /// interface associated with this implementation as a C string
-  /// (const char*).
-  //
-  // FIXME: Move to StringRef API.
-  const char *getNameAsCString() const {
-    return getName().data();
   }
 
   /// @brief Get the name of the class associated with this interface.

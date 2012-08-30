@@ -75,6 +75,16 @@
 // mach_override, a handy framework for patching functions at runtime.
 // To avoid possible name clashes, our replacement functions have
 // the "wrap_" prefix on Mac.
+// An alternative to function patching is to create a dylib containing a
+// __DATA,__interpose section that associates library functions with their
+// wrappers. When this dylib is preloaded before an executable using
+// DYLD_INSERT_LIBRARIES, it routes all the calls to interposed functions done
+// through stubs to the wrapper functions. Such a library is built with
+// -DMAC_INTERPOSE_FUNCTIONS=1.
+
+#if !defined(MAC_INTERPOSE_FUNCTIONS) || !defined(__APPLE__)
+# define MAC_INTERPOSE_FUNCTIONS 0
+#endif
 
 #if defined(__APPLE__)
 # define WRAP(x) wrap_##x
@@ -101,15 +111,21 @@
     __attribute__((weak, alias("__interceptor_" #func), visibility("default")));
 #endif
 
-#define PTR_TO_REAL(x) real_##x
-#define REAL(x) __interception::PTR_TO_REAL(x)
-#define FUNC_TYPE(x) x##_f
+#if !MAC_INTERPOSE_FUNCTIONS
+# define PTR_TO_REAL(x) real_##x
+# define REAL(x) __interception::PTR_TO_REAL(x)
+# define FUNC_TYPE(x) x##_f
 
-#define DECLARE_REAL(ret_type, func, ...) \
-  typedef ret_type (*FUNC_TYPE(func))(__VA_ARGS__); \
-  namespace __interception { \
-    extern FUNC_TYPE(func) PTR_TO_REAL(func); \
-  }
+# define DECLARE_REAL(ret_type, func, ...) \
+    typedef ret_type (*FUNC_TYPE(func))(__VA_ARGS__); \
+    namespace __interception { \
+      extern FUNC_TYPE(func) PTR_TO_REAL(func); \
+    }
+#else  // MAC_INTERPOSE_FUNCTIONS
+# define REAL(x) x
+# define DECLARE_REAL(ret_type, func, ...) \
+    extern "C" ret_type func(__VA_ARGS__);
+#endif  // MAC_INTERPOSE_FUNCTIONS
 
 #define DECLARE_REAL_AND_INTERCEPTOR(ret_type, func, ...) \
   DECLARE_REAL(ret_type, func, ##__VA_ARGS__) \
@@ -118,11 +134,15 @@
 // FIXME(timurrrr): We might need to add DECLARE_REAL_EX etc to support
 // different calling conventions later.
 
-#define DEFINE_REAL_EX(ret_type, convention, func, ...) \
-  typedef ret_type (convention *FUNC_TYPE(func))(__VA_ARGS__); \
-  namespace __interception { \
-    FUNC_TYPE(func) PTR_TO_REAL(func); \
-  }
+#if !MAC_INTERPOSE_FUNCTIONS
+# define DEFINE_REAL_EX(ret_type, convention, func, ...) \
+    typedef ret_type (convention *FUNC_TYPE(func))(__VA_ARGS__); \
+    namespace __interception { \
+      FUNC_TYPE(func) PTR_TO_REAL(func); \
+    }
+#else
+# define DEFINE_REAL_EX(ret_type, convention, func, ...)
+#endif
 
 // Generally, you don't need to use DEFINE_REAL by itself, as INTERCEPTOR
 // macros does its job. In exceptional cases you may need to call REAL(foo)
@@ -147,6 +167,15 @@
 # define INTERCEPTOR_WINAPI(ret_type, func, ...) \
   INTERCEPTOR_EX(ret_type, __stdcall, func, __VA_ARGS__)
 #endif
+
+// ISO C++ forbids casting between pointer-to-function and pointer-to-object,
+// so we use casting via an integral type __interception::uptr,
+// assuming that system is POSIX-compliant. Using other hacks seem
+// challenging, as we don't even pass function type to
+// INTERCEPT_FUNCTION macro, only its name.
+namespace __interception {
+typedef unsigned long uptr;  // NOLINT
+}  // namespace __interception
 
 #define INCLUDED_FROM_INTERCEPTION_LIB
 

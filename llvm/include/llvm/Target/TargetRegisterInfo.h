@@ -152,7 +152,7 @@ public:
   }
 
   /// getSuperRegIndices - Returns a 0-terminated list of sub-register indices
-  /// that projec some super-register class into this register class. The list
+  /// that project some super-register class into this register class. The list
   /// has an entry for each Idx such that:
   ///
   ///   There exists SuperRC where:
@@ -346,6 +346,14 @@ public:
       if (*RUA < *RUB) ++RUA;
       else             ++RUB;
     } while (RUA.isValid() && RUB.isValid());
+    return false;
+  }
+
+  /// hasRegUnit - Returns true if Reg contains RegUnit.
+  bool hasRegUnit(unsigned Reg, unsigned RegUnit) const {
+    for (MCRegUnitIterator Units(Reg, this); Units.isValid(); ++Units)
+      if (*Units == RegUnit)
+        return true;
     return false;
   }
 

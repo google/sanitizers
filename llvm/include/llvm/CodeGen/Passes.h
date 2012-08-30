@@ -315,6 +315,10 @@ namespace llvm {
   ///  This pass is still in development
   extern char &StrongPHIEliminationID;
 
+  /// LiveIntervals - This analysis keeps track of the live ranges of virtual
+  /// and physical registers.
+  extern char &LiveIntervalsID;
+
   /// LiveStacks pass. An analysis keeping track of the liveness of stack slots.
   extern char &LiveStacksID;
 
@@ -391,6 +395,10 @@ namespace llvm {
   /// TailDuplicate - Duplicate blocks with unconditional branches
   /// into tails of their predecessors.
   extern char &TailDuplicateID;
+
+  /// MachineTraceMetrics - This pass computes critical path and CPU resource
+  /// usage in an ensemble of traces.
+  extern char &MachineTraceMetricsID;
 
   /// EarlyIfConverter - This pass performs if-conversion on SSA form by
   /// inserting cmov instructions.

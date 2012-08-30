@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/Calls.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclObjC.h"
@@ -29,28 +29,13 @@ StoreRef StoreManager::enterStackFrame(Store OldStore,
                                        const StackFrameContext *LCtx) {
   StoreRef Store = StoreRef(OldStore, *this);
 
-  unsigned Idx = 0;
-  for (CallEvent::param_iterator I = Call.param_begin(/*UseDefinition=*/true),
-                                 E = Call.param_end(/*UseDefinition=*/true);
-       I != E; ++I, ++Idx) {
-    const ParmVarDecl *Decl = *I;
-    assert(Decl && "Formal parameter has no decl?");
+  SmallVector<CallEvent::FrameBindingTy, 16> InitialBindings;
+  Call.getInitialStackFrameContents(LCtx, InitialBindings);
 
-    SVal ArgVal = Call.getArgSVal(Idx);
-    if (!ArgVal.isUnknown()) {
-      Store = Bind(Store.getStore(),
-                   svalBuilder.makeLoc(MRMgr.getVarRegion(Decl, LCtx)),
-                   ArgVal);
-    }
-  }
-
-  // FIXME: We will eventually want to generalize this to handle other non-
-  // parameter arguments besides 'this' (such as 'self' for ObjC methods).
-  SVal ThisVal = Call.getCXXThisVal();
-  if (isa<DefinedSVal>(ThisVal)) {
-    const CXXMethodDecl *MD = cast<CXXMethodDecl>(Call.getDecl());
-    loc::MemRegionVal ThisRegion = svalBuilder.getCXXThis(MD, LCtx);
-    Store = Bind(Store.getStore(), ThisRegion, ThisVal);
+  for (CallEvent::BindingsTy::iterator I = InitialBindings.begin(),
+                                       E = InitialBindings.end();
+       I != E; ++I) {
+    Store = Bind(Store.getStore(), I->first, I->second);
   }
 
   return Store;
@@ -237,6 +222,17 @@ const MemRegion *StoreManager::castRegion(const MemRegion *R, QualType CastToTy)
   llvm_unreachable("unreachable");
 }
 
+SVal StoreManager::evalDerivedToBase(SVal Derived, const CastExpr *Cast) {
+  // Walk through the cast path to create nested CXXBaseRegions.
+  SVal Result = Derived;
+  for (CastExpr::path_const_iterator I = Cast->path_begin(),
+                                     E = Cast->path_end();
+       I != E; ++I) {
+    Result = evalDerivedToBase(Result, (*I)->getType());
+  }
+  return Result;
+}
+
 
 /// CastRetrievedVal - Used by subclasses of StoreManager to implement
 ///  implicit casts that arise from loads from regions that are reinterpreted
@@ -384,6 +380,3 @@ bool StoreManager::FindUniqueBinding::HandleBinding(StoreManager& SMgr,
 
   return true;
 }
-
-void SubRegionMap::anchor() { }
-void SubRegionMap::Visitor::anchor() { }

@@ -18,7 +18,9 @@ add_lit_testsuite(check-llvm "Running the LLVM regression tests"
           llvm-dis llvm-extract llvm-dwarfdump
           llvm-link llvm-mc llvm-nm llvm-objdump llvm-readobj
           macho-dump opt
+          profile_rt-shared
           FileCheck count not
+          yaml2obj
   )
 set_target_properties(check-llvm PROPERTIES FOLDER "Tests")
 

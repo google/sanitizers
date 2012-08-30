@@ -21,9 +21,10 @@ add_clang_library(clangAnalysis
 add_dependencies(clangAnalysis
   ClangAttrClasses
   ClangAttrList
-  ClangDiagnosticAnalysis
   ClangCommentNodes
+  ClangDiagnosticCommon
   ClangDeclNodes
+  ClangDiagnosticAnalysis
   ClangStmtNodes
   )
 

@@ -100,7 +100,6 @@ class FindLastStoreBRVisitor
   const MemRegion *R;
   SVal V;
   bool satisfied;
-  const ExplodedNode *StoreSite;
 
 public:
   /// \brief Convenience method to create a visitor given only the MemRegion.
@@ -114,7 +113,7 @@ public:
   static void registerStatementVarDecls(BugReport &BR, const Stmt *S);
 
   FindLastStoreBRVisitor(SVal v, const MemRegion *r)
-  : R(r), V(v), satisfied(false), StoreSite(0) {
+  : R(r), V(v), satisfied(false) {
     assert (!V.isUnknown() && "Cannot track unknown value.");
 
     // TODO: Does it make sense to allow undef values here?
@@ -223,16 +222,39 @@ public:
                     const ExplodedNode *N,
                     llvm::Optional<bool> &prunable);
 };
-  
+
+/// \brief When a region containing undefined value or '0' value is passed 
+/// as an argument in a call, marks the call as interesting.
+///
+/// As a result, BugReporter will not prune the path through the function even
+/// if the region's contents are not modified/accessed by the call.
+class UndefOrNullArgVisitor
+  : public BugReporterVisitorImpl<UndefOrNullArgVisitor> {
+
+  /// The interesting memory region this visitor is tracking.
+  const MemRegion *R;
+
+public:
+  UndefOrNullArgVisitor(const MemRegion *InR) : R(InR) {}
+
+  virtual void Profile(llvm::FoldingSetNodeID &ID) const {
+    static int Tag = 0;
+    ID.AddPointer(&Tag);
+    ID.AddPointer(R);
+  }
+
+  PathDiagnosticPiece *VisitNode(const ExplodedNode *N,
+                                 const ExplodedNode *PrevN,
+                                 BugReporterContext &BRC,
+                                 BugReport &BR);
+};
+
 namespace bugreporter {
 
-BugReporterVisitor *getTrackNullOrUndefValueVisitor(const ExplodedNode *N,
-                                                    const Stmt *S,
-                                                    BugReport *R);
+void trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S, BugReport &R);
 
 const Stmt *GetDerefExpr(const ExplodedNode *N);
 const Stmt *GetDenomExpr(const ExplodedNode *N);
-const Stmt *GetCalleeExpr(const ExplodedNode *N);
 const Stmt *GetRetValExpr(const ExplodedNode *N);
 
 } // end namespace clang

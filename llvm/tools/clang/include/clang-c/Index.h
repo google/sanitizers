@@ -1904,9 +1904,9 @@ enum CXCursorKind {
    */
   CXCursor_ReturnStmt                    = 214,
 
-  /** \brief A GNU inline assembly statement extension.
+  /** \brief A GCC inline assembly statement extension.
    */
-  CXCursor_AsmStmt                       = 215,
+  CXCursor_GCCAsmStmt                    = 215,
 
   /** \brief Objective-C's overall \@try-\@catch-\@finally statement.
    */
@@ -3272,9 +3272,17 @@ enum CXCommentKind {
    * \brief A \\param or \\arg command that describes the function parameter
    * (name, passing direction, description).
    *
-   * \brief For example: \\param [in] ParamName description.
+   * For example: \\param [in] ParamName description.
    */
   CXComment_ParamCommand = 7,
+
+  /**
+   * \brief A \\tparam command that describes a template parameter (name and
+   * description).
+   *
+   * For example: \\tparam T description.
+   */
+  CXComment_TParamCommand = 8,
 
   /**
    * \brief A verbatim block command (e. g., preformatted code).  Verbatim
@@ -3286,25 +3294,52 @@ enum CXCommentKind {
    * aaa
    * \\endverbatim
    */
-  CXComment_VerbatimBlockCommand = 8,
+  CXComment_VerbatimBlockCommand = 9,
 
   /**
    * \brief A line of text that is contained within a
    * CXComment_VerbatimBlockCommand node.
    */
-  CXComment_VerbatimBlockLine = 9,
+  CXComment_VerbatimBlockLine = 10,
 
   /**
    * \brief A verbatim line command.  Verbatim line has an opening command,
    * a single line of text (up to the newline after the opening command) and
    * has no closing command.
    */
-  CXComment_VerbatimLine = 10,
+  CXComment_VerbatimLine = 11,
 
   /**
    * \brief A full comment attached to a declaration, contains block content.
    */
-  CXComment_FullComment = 11
+  CXComment_FullComment = 12
+};
+
+/**
+ * \brief The most appropriate rendering mode for an inline command, chosen on
+ * command semantics in Doxygen.
+ */
+enum CXCommentInlineCommandRenderKind {
+  /**
+   * \brief Command argument should be rendered in a normal font.
+   */
+  CXCommentInlineCommandRenderKind_Normal,
+
+  /**
+   * \brief Command argument should be rendered in a bold font.
+   */
+  CXCommentInlineCommandRenderKind_Bold,
+
+  /**
+   * \brief Command argument should be rendered in a monospaced font.
+   */
+  CXCommentInlineCommandRenderKind_Monospaced,
+
+  /**
+   * \brief Command argument should be rendered emphasized (typically italic
+   * font).
+   */
+  CXCommentInlineCommandRenderKind_Emphasized
 };
 
 /**
@@ -3344,7 +3379,7 @@ CINDEX_LINKAGE unsigned clang_Comment_getNumChildren(CXComment Comment);
 /**
  * \param Comment AST node of any kind.
  *
- * \param ArgIdx argument index (zero-based).
+ * \param ChildIdx child index (zero-based).
  *
  * \returns the specified child of the AST node.
  */
@@ -3384,6 +3419,15 @@ CINDEX_LINKAGE CXString clang_TextComment_getText(CXComment Comment);
  */
 CINDEX_LINKAGE
 CXString clang_InlineCommandComment_getCommandName(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_InlineCommand AST node.
+ *
+ * \returns the most appropriate rendering mode, chosen on command
+ * semantics in Doxygen.
+ */
+CINDEX_LINKAGE enum CXCommentInlineCommandRenderKind
+clang_InlineCommandComment_getRenderKind(CXComment Comment);
 
 /**
  * \param Comment a \c CXComment_InlineCommand AST node.
@@ -3528,6 +3572,63 @@ enum CXCommentParamPassDirection clang_ParamCommandComment_getDirection(
                                                             CXComment Comment);
 
 /**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns template parameter name.
+ */
+CINDEX_LINKAGE
+CXString clang_TParamCommandComment_getParamName(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns non-zero if the parameter that this AST node represents was found
+ * in the template parameter list and
+ * \c clang_TParamCommandComment_getDepth and
+ * \c clang_TParamCommandComment_getIndex functions will return a meaningful
+ * value.
+ */
+CINDEX_LINKAGE
+unsigned clang_TParamCommandComment_isParamPositionValid(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns zero-based nesting depth of this parameter in the template parameter list.
+ *
+ * For example,
+ * \verbatim
+ *     template<typename C, template<typename T> class TT>
+ *     void test(TT<int> aaa);
+ * \endverbatim
+ * for C and TT nesting depth is 0,
+ * for T nesting depth is 1.
+ */
+CINDEX_LINKAGE
+unsigned clang_TParamCommandComment_getDepth(CXComment Comment);
+
+/**
+ * \param Comment a \c CXComment_TParamCommand AST node.
+ *
+ * \returns zero-based parameter index in the template parameter list at a
+ * given nesting depth.
+ *
+ * For example,
+ * \verbatim
+ *     template<typename C, template<typename T> class TT>
+ *     void test(TT<int> aaa);
+ * \endverbatim
+ * for C and TT nesting depth is 0, so we can ask for index at depth 0:
+ * at depth 0 C's index is 0, TT's index is 1.
+ *
+ * For T nesting depth is 1, so we can ask for index at depth 0 and 1:
+ * at depth 0 T's index is 1 (same as TT's),
+ * at depth 1 T's index is 0.
+ */
+CINDEX_LINKAGE
+unsigned clang_TParamCommandComment_getIndex(CXComment Comment, unsigned Depth);
+
+/**
  * \param Comment a \c CXComment_VerbatimBlockLine AST node.
  *
  * \returns text contained in the AST node.
@@ -3570,11 +3671,35 @@ CINDEX_LINKAGE CXString clang_HTMLTagComment_getAsString(CXComment Comment);
  * \li "param-name-index-invalid" and "param-descr-index-invalid" are used if
  * parameter index is invalid.
  *
+ * Template parameter documentation is rendered as a \<dl\> list with
+ * parameters sorted in template parameter list order.  CSS classes used:
+ * \li "tparam-name-index-NUMBER" for parameter name (\<dt\>);
+ * \li "tparam-descr-index-NUMBER" for parameter description (\<dd\>);
+ * \li "tparam-name-index-other" and "tparam-descr-index-other" are used for
+ * names inside template template parameters;
+ * \li "tparam-name-index-invalid" and "tparam-descr-index-invalid" are used if
+ * parameter position is invalid.
+ *
  * \param Comment a \c CXComment_FullComment AST node.
  *
  * \returns string containing an HTML fragment.
  */
 CINDEX_LINKAGE CXString clang_FullComment_getAsHTML(CXComment Comment);
+
+/**
+ * \brief Convert a given full parsed comment to an XML document.
+ *
+ * A Relax NG schema for the XML can be found in comment-xml-schema.rng file
+ * inside clang source tree.
+ *
+ * \param TU the translation unit \c Comment belongs to.
+ *
+ * \param Comment a \c CXComment_FullComment AST node.
+ *
+ * \returns string containing an XML document.
+ */
+CINDEX_LINKAGE CXString clang_FullComment_getAsXML(CXTranslationUnit TU,
+                                                   CXComment Comment);
 
 /**
  * @}

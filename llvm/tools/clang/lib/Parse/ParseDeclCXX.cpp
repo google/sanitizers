@@ -581,7 +581,7 @@ Decl *Parser::ParseUsingDeclaration(unsigned Context,
 
   if (IsAliasDecl) {
     TemplateParameterLists *TemplateParams = TemplateInfo.TemplateParams;
-    MultiTemplateParamsArg TemplateParamsArg(Actions,
+    MultiTemplateParamsArg TemplateParamsArg(
       TemplateParams ? TemplateParams->data() : 0,
       TemplateParams ? TemplateParams->size() : 0);
     // FIXME: Propagate attributes.
@@ -1279,8 +1279,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
   if (TemplateId) {
     // Explicit specialization, class template partial specialization,
     // or explicit instantiation.
-    ASTTemplateArgsPtr TemplateArgsPtr(Actions,
-                                       TemplateId->getTemplateArgs(),
+    ASTTemplateArgsPtr TemplateArgsPtr(TemplateId->getTemplateArgs(),
                                        TemplateId->NumArgs);
     if (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation &&
         TUK == Sema::TUK_Declaration) {
@@ -1362,7 +1361,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
                        TemplateArgsPtr,
                        TemplateId->RAngleLoc,
                        attrs.getList(),
-                       MultiTemplateParamsArg(Actions,
+                       MultiTemplateParamsArg(
                                     TemplateParams? &(*TemplateParams)[0] : 0,
                                  TemplateParams? TemplateParams->size() : 0));
     }
@@ -1389,7 +1388,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
       Actions.ActOnTemplatedFriendTag(getCurScope(), DS.getFriendSpecLoc(),
                                       TagType, StartLoc, SS,
                                       Name, NameLoc, attrs.getList(),
-                                      MultiTemplateParamsArg(Actions,
+                                      MultiTemplateParamsArg(
                                     TemplateParams? &(*TemplateParams)[0] : 0,
                                  TemplateParams? TemplateParams->size() : 0));
   } else {
@@ -1869,7 +1868,7 @@ void Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
   ParseDeclarationSpecifiers(DS, TemplateInfo, AS, DSC_class,
                              &CommonLateParsedAttrs);
 
-  MultiTemplateParamsArg TemplateParams(Actions,
+  MultiTemplateParamsArg TemplateParams(
       TemplateInfo.TemplateParams? TemplateInfo.TemplateParams->data() : 0,
       TemplateInfo.TemplateParams? TemplateInfo.TemplateParams->size() : 0);
 
@@ -2052,11 +2051,11 @@ void Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
     if (DS.isFriendSpecified()) {
       // TODO: handle initializers, bitfields, 'delete'
       ThisDecl = Actions.ActOnFriendFunctionDecl(getCurScope(), DeclaratorInfo,
-                                                 move(TemplateParams));
+                                                 TemplateParams);
     } else {
       ThisDecl = Actions.ActOnCXXMemberDeclarator(getCurScope(), AS,
                                                   DeclaratorInfo,
-                                                  move(TemplateParams),
+                                                  TemplateParams,
                                                   BitfieldSize.release(),
                                                   VS, HasInClassInit);
       if (AccessAttrs)
@@ -2571,7 +2570,7 @@ Parser::MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
     T.consumeOpen();
 
     // Parse the optional expression-list.
-    ExprVector ArgExprs(Actions);
+    ExprVector ArgExprs;
     CommaLocsTy CommaLocs;
     if (Tok.isNot(tok::r_paren) && ParseExpressionList(ArgExprs, CommaLocs)) {
       SkipUntil(tok::r_paren);
@@ -2586,7 +2585,7 @@ Parser::MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
 
     return Actions.ActOnMemInitializer(ConstructorDecl, getCurScope(), SS, II,
                                        TemplateTypeTy, DS, IdLoc,
-                                       T.getOpenLocation(), ArgExprs.take(),
+                                       T.getOpenLocation(), ArgExprs.data(),
                                        ArgExprs.size(), T.getCloseLocation(),
                                        EllipsisLoc);
   }
@@ -2773,9 +2772,6 @@ void Parser::DeallocateParsedClasses(Parser::ParsingClass *Class) {
 /// This routine should be called when we have finished parsing the
 /// definition of a class, but have not yet popped the Scope
 /// associated with the class's definition.
-///
-/// \returns true if the class we've popped is a top-level class,
-/// false otherwise.
 void Parser::PopParsingClass(Sema::ParsingClassState state) {
   assert(!ClassStack.empty() && "Mismatched push/pop for class parsing");
 

@@ -21,10 +21,12 @@ SyncVar::SyncVar(uptr addr)
   : mtx(MutexTypeSyncVar, StatMtxSyncVar)
   , addr(addr)
   , owner_tid(kInvalidTid)
+  , last_lock()
   , recursion()
   , is_rw()
   , is_recursive()
-  , is_broken() {
+  , is_broken()
+  , is_linker_init() {
 }
 
 SyncTab::Part::Part()
@@ -47,6 +49,31 @@ SyncTab::~SyncTab() {
 
 SyncVar* SyncTab::GetAndLock(ThreadState *thr, uptr pc,
                              uptr addr, bool write_lock) {
+#ifndef TSAN_GO
+  if (PrimaryAllocator::PointerIsMine((void*)addr)) {
+    MBlock *b = user_mblock(thr, (void*)addr);
+    Lock l(&b->mtx);
+    SyncVar *res = 0;
+    for (res = b->head; res; res = res->next) {
+      if (res->addr == addr)
+        break;
+    }
+    if (res == 0) {
+      StatInc(thr, StatSyncCreated);
+      void *mem = internal_alloc(MBlockSync, sizeof(SyncVar));
+      res = new(mem) SyncVar(addr);
+      res->creation_stack.ObtainCurrent(thr, pc);
+      res->next = b->head;
+      b->head = res;
+    }
+    if (write_lock)
+      res->mtx.Lock();
+    else
+      res->mtx.ReadLock();
+    return res;
+  }
+#endif
+
   Part *p = &tab_[PartIdx(addr)];
   {
     ReadLock l(&p->mtx);
@@ -71,7 +98,9 @@ SyncVar* SyncTab::GetAndLock(ThreadState *thr, uptr pc,
       StatInc(thr, StatSyncCreated);
       void *mem = internal_alloc(MBlockSync, sizeof(SyncVar));
       res = new(mem) SyncVar(addr);
+#ifndef TSAN_GO
       res->creation_stack.ObtainCurrent(thr, pc);
+#endif
       res->next = p->val;
       p->val = res;
     }
@@ -84,6 +113,34 @@ SyncVar* SyncTab::GetAndLock(ThreadState *thr, uptr pc,
 }
 
 SyncVar* SyncTab::GetAndRemove(ThreadState *thr, uptr pc, uptr addr) {
+#ifndef TSAN_GO
+  if (PrimaryAllocator::PointerIsMine((void*)addr)) {
+    MBlock *b = user_mblock(thr, (void*)addr);
+    SyncVar *res = 0;
+    {
+      Lock l(&b->mtx);
+      SyncVar **prev = &b->head;
+      res = *prev;
+      while (res) {
+        if (res->addr == addr) {
+          if (res->is_linker_init)
+            return 0;
+          *prev = res->next;
+          break;
+        }
+        prev = &res->next;
+        res = *prev;
+      }
+    }
+    if (res) {
+      StatInc(thr, StatSyncDestroyed);
+      res->mtx.Lock();
+      res->mtx.Unlock();
+    }
+    return res;
+  }
+#endif
+
   Part *p = &tab_[PartIdx(addr)];
   SyncVar *res = 0;
   {
@@ -92,6 +149,8 @@ SyncVar* SyncTab::GetAndRemove(ThreadState *thr, uptr pc, uptr addr) {
     res = *prev;
     while (res) {
       if (res->addr == addr) {
+        if (res->is_linker_init)
+          return 0;
         *prev = res->next;
         break;
       }

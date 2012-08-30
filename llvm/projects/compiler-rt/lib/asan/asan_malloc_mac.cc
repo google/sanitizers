@@ -1,4 +1,4 @@
-//===-- asan_rtl.cc -------------------------------------------------------===//
+//===-- asan_malloc_mac.cc ------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -18,12 +18,12 @@
 #include <CoreFoundation/CFBase.h>
 #include <dlfcn.h>
 #include <malloc/malloc.h>
-#include <setjmp.h>
 
 #include "asan_allocator.h"
 #include "asan_interceptors.h"
 #include "asan_internal.h"
 #include "asan_mac.h"
+#include "asan_report.h"
 #include "asan_stack.h"
 
 // Similar code is used in Google Perftools,
@@ -37,6 +37,30 @@ static malloc_zone_t *system_malloc_zone = 0;
 static malloc_zone_t *system_purgeable_zone = 0;
 static malloc_zone_t asan_zone;
 CFAllocatorRef cf_asan = 0;
+
+// _CFRuntimeCreateInstance() checks whether the supplied allocator is
+// kCFAllocatorSystemDefault and, if it is not, stores the allocator reference
+// at the beginning of the allocated memory and returns the pointer to the
+// allocated memory plus sizeof(CFAllocatorRef). See
+// http://www.opensource.apple.com/source/CF/CF-635.21/CFRuntime.c
+// Pointers returned by _CFRuntimeCreateInstance() can then be passed directly
+// to free() or CFAllocatorDeallocate(), which leads to false invalid free
+// reports.
+// The corresponding rdar bug is http://openradar.appspot.com/radar?id=1796404.
+void* ALWAYS_INLINE get_saved_cfallocator_ref(void *ptr) {
+  if (flags()->replace_cfallocator) {
+    // Make sure we're not hitting the previous page. This may be incorrect
+    // if ASan's malloc returns an address ending with 0xFF8, which will be
+    // then padded to a page boundary with a CFAllocatorRef.
+    uptr arith_ptr = (uptr)ptr;
+    if ((arith_ptr & 0xFFF) > sizeof(CFAllocatorRef)) {
+      CFAllocatorRef *saved =
+          (CFAllocatorRef*)(arith_ptr - sizeof(CFAllocatorRef));
+      if ((*saved == cf_asan) && asan_mz_size(saved)) ptr = (void*)saved;
+    }
+  }
+  return ptr;
+}
 
 // The free() implementation provided by OS X calls malloc_zone_from_ptr()
 // to find the owner of |ptr|. If the result is 0, an invalid free() is
@@ -65,17 +89,7 @@ INTERCEPTOR(void, free, void *ptr) {
     malloc_zone_free(zone, ptr);
 #endif
   } else {
-    if (flags()->replace_cfallocator) {
-      // Make sure we're not hitting the previous page. This may be incorrect
-      // if ASan's malloc returns an address ending with 0xFF8, which will be
-      // then padded to a page boundary with a CFAllocatorRef.
-      uptr arith_ptr = (uptr)ptr;
-      if ((arith_ptr & 0xFFF) > sizeof(CFAllocatorRef)) {
-        CFAllocatorRef *saved =
-            (CFAllocatorRef*)(arith_ptr - sizeof(CFAllocatorRef));
-        if ((*saved == cf_asan) && asan_mz_size(saved)) ptr = (void*)saved;
-      }
-    }
+    if (!asan_mz_size(ptr)) ptr = get_saved_cfallocator_ref(ptr);
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
     asan_free(ptr, &stack);
   }
@@ -95,10 +109,14 @@ namespace __asan {
 // See http://code.google.com/p/address-sanitizer/issues/detail?id=87
 // and http://opensource.apple.com/source/CF/CF-550.43/CFRuntime.c
 INTERCEPTOR(void, __CFInitialize) {
+  // If the runtime is built as dynamic library, __CFInitialize wrapper may be
+  // called before __asan_init.
+#if !MAC_INTERPOSE_FUNCTIONS
   CHECK(flags()->replace_cfallocator);
   CHECK(asan_inited);
+#endif
   REAL(__CFInitialize)();
-  if (!cf_asan) ReplaceCFAllocator();
+  if (!cf_asan && asan_inited) ReplaceCFAllocator();
 }
 
 namespace {
@@ -152,35 +170,37 @@ void *mz_valloc(malloc_zone_t *zone, size_t size) {
   return asan_memalign(kPageSize, size, &stack);
 }
 
-void print_zone_for_ptr(void *ptr) {
-  malloc_zone_t *orig_zone = malloc_zone_from_ptr(ptr);
-  if (orig_zone) {
-    if (orig_zone->zone_name) {
-      AsanPrintf("malloc_zone_from_ptr(%p) = %p, which is %s\n",
-                 ptr, orig_zone, orig_zone->zone_name);
-    } else {
-      AsanPrintf("malloc_zone_from_ptr(%p) = %p, which doesn't have a name\n",
-                 ptr, orig_zone);
-    }
-  } else {
-    AsanPrintf("malloc_zone_from_ptr(%p) = 0\n", ptr);
-  }
-}
+#define GET_ZONE_FOR_PTR(ptr) \
+  malloc_zone_t *zone_ptr = malloc_zone_from_ptr(ptr); \
+  const char *zone_name = (zone_ptr == 0) ? 0 : zone_ptr->zone_name
 
 void ALWAYS_INLINE free_common(void *context, void *ptr) {
   if (!ptr) return;
-  if (!flags()->mac_ignore_invalid_free || asan_mz_size(ptr)) {
+  if (asan_mz_size(ptr)) {
     GET_STACK_TRACE_HERE_FOR_FREE(ptr);
     asan_free(ptr, &stack);
   } else {
-    // Let us just leak this memory for now.
-    AsanPrintf("free_common(%p) -- attempting to free unallocated memory.\n"
-               "AddressSanitizer is ignoring this error on Mac OS now.\n",
-               ptr);
-    print_zone_for_ptr(ptr);
-    GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-    stack.PrintStack();
-    return;
+    // If the pointer does not belong to any of the zones, use one of the
+    // fallback methods to free memory.
+    malloc_zone_t *zone_ptr = malloc_zone_from_ptr(ptr);
+    if (zone_ptr == system_purgeable_zone) {
+      // allocations from malloc_default_purgeable_zone() done before
+      // __asan_init() may be occasionally freed via free_common().
+      // see http://code.google.com/p/address-sanitizer/issues/detail?id=99.
+      malloc_zone_free(zone_ptr, ptr);
+    } else {
+      // If the memory chunk pointer was moved to store additional
+      // CFAllocatorRef, fix it back.
+      ptr = get_saved_cfallocator_ref(ptr);
+      GET_STACK_TRACE_HERE_FOR_FREE(ptr);
+      if (!flags()->mac_ignore_invalid_free) {
+        asan_free(ptr, &stack);
+      } else {
+        GET_ZONE_FOR_PTR(ptr);
+        WarnMacFreeUnallocated((uptr)ptr, (uptr)zone_ptr, zone_name, &stack);
+        return;
+      }
+    }
   }
 }
 
@@ -205,14 +225,9 @@ void *mz_realloc(malloc_zone_t *zone, void *ptr, size_t size) {
       // We can't recover from reallocating an unknown address, because
       // this would require reading at most |size| bytes from
       // potentially unaccessible memory.
-      AsanPrintf("mz_realloc(%p) -- attempting to realloc unallocated memory.\n"
-                 "This is an unrecoverable problem, exiting now.\n",
-                 ptr);
-      print_zone_for_ptr(ptr);
       GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-      stack.PrintStack();
-      ShowStatsAndAbort();
-      return 0;  // unreachable
+      GET_ZONE_FOR_PTR(ptr);
+      ReportMacMzReallocUnknown((uptr)ptr, (uptr)zone_ptr, zone_name, &stack);
     }
   }
 }
@@ -229,21 +244,16 @@ void *cf_realloc(void *ptr, CFIndex size, CFOptionFlags hint, void *info) {
       // We can't recover from reallocating an unknown address, because
       // this would require reading at most |size| bytes from
       // potentially unaccessible memory.
-      AsanPrintf("cf_realloc(%p) -- attempting to realloc unallocated memory.\n"
-                 "This is an unrecoverable problem, exiting now.\n",
-                 ptr);
-      print_zone_for_ptr(ptr);
       GET_STACK_TRACE_HERE_FOR_FREE(ptr);
-      stack.PrintStack();
-      ShowStatsAndAbort();
-      return 0;  // unreachable
+      GET_ZONE_FOR_PTR(ptr);
+      ReportMacCfReallocUnknown((uptr)ptr, (uptr)zone_ptr, zone_name, &stack);
     }
   }
 }
 
 void mz_destroy(malloc_zone_t* zone) {
   // A no-op -- we will not be destroyed!
-  AsanPrintf("mz_destroy() called -- ignoring\n");
+  Printf("mz_destroy() called -- ignoring\n");
 }
   // from AvailabilityMacros.h
 #if defined(MAC_OS_X_VERSION_10_6) && \
@@ -336,8 +346,10 @@ void ReplaceCFAllocator() {
         /*reallocate*/ &cf_realloc,
         /*deallocate*/ &cf_free,
         /*preferredSize*/ 0 };
-  cf_asan = CFAllocatorCreate(kCFAllocatorUseContext, &asan_context);
-  CFAllocatorSetDefault(cf_asan);
+  if (!cf_asan)
+    cf_asan = CFAllocatorCreate(kCFAllocatorUseContext, &asan_context);
+  if (CFAllocatorGetDefault() != cf_asan)
+    CFAllocatorSetDefault(cf_asan);
 }
 
 void ReplaceSystemMalloc() {

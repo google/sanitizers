@@ -121,7 +121,7 @@ GetCurrentOrNextStmt(const ExplodedNode *N) {
 /// Recursively scan through a path and prune out calls and macros pieces
 /// that aren't needed.  Return true if afterwards the path contains
 /// "interesting stuff" which means it should be pruned from the parent path.
-static bool RemoveUneededCalls(PathPieces &pieces) {
+bool BugReporter::RemoveUneededCalls(PathPieces &pieces, BugReport *R) {
   bool containsSomethingInteresting = false;
   const unsigned N = pieces.size();
   
@@ -134,16 +134,22 @@ static bool RemoveUneededCalls(PathPieces &pieces) {
     switch (piece->getKind()) {
       case PathDiagnosticPiece::Call: {
         PathDiagnosticCallPiece *call = cast<PathDiagnosticCallPiece>(piece);
+        // Check if the location context is interesting.
+        assert(LocationContextMap.count(call));
+        if (R->isInteresting(LocationContextMap[call])) {
+          containsSomethingInteresting = true;
+          break;
+        }
         // Recursively clean out the subclass.  Keep this call around if
         // it contains any informative diagnostics.
-        if (!RemoveUneededCalls(call->path))
+        if (!RemoveUneededCalls(call->path, R))
           continue;
         containsSomethingInteresting = true;
         break;
       }
       case PathDiagnosticPiece::Macro: {
         PathDiagnosticMacroPiece *macro = cast<PathDiagnosticMacroPiece>(piece);
-        if (!RemoveUneededCalls(macro->subPieces))
+        if (!RemoveUneededCalls(macro->subPieces, R))
           continue;
         containsSomethingInteresting = true;
         break;
@@ -430,53 +436,60 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
     NextNode = GetPredecessorNode(N);
 
     ProgramPoint P = N->getLocation();
-    
-    if (const CallExitEnd *CE = dyn_cast<CallExitEnd>(&P)) {
-      PathDiagnosticCallPiece *C =
-        PathDiagnosticCallPiece::construct(N, *CE, SMgr);
-      PD.getActivePath().push_front(C);
-      PD.pushActivePath(&C->path);
-      CallStack.push_back(StackDiagPair(C, N));
-      continue;      
-    }
-    
-    if (const CallEnter *CE = dyn_cast<CallEnter>(&P)) {
-      PD.popActivePath();
-      // The current active path should never be empty.  Either we
-      // just added a bunch of stuff to the top-level path, or
-      // we have a previous CallExitEnd.  If the front of the active
-      // path is not a PathDiagnosticCallPiece, it means that the
-      // path terminated within a function call.  We must then take the
-      // current contents of the active path and place it within
-      // a new PathDiagnosticCallPiece.
-      assert(!PD.getActivePath().empty());
-      PathDiagnosticCallPiece *C = 
-        dyn_cast<PathDiagnosticCallPiece>(PD.getActivePath().front());
-      if (!C) {
-        const Decl *Caller = CE->getLocationContext()->getDecl();
-        C = PathDiagnosticCallPiece::construct(PD.getActivePath(), Caller);
+
+    do {
+      if (const CallExitEnd *CE = dyn_cast<CallExitEnd>(&P)) {
+        PathDiagnosticCallPiece *C =
+            PathDiagnosticCallPiece::construct(N, *CE, SMgr);
+        GRBugReporter& BR = PDB.getBugReporter();
+        BR.addCallPieceLocationContextPair(C, CE->getCalleeContext());
+        PD.getActivePath().push_front(C);
+        PD.pushActivePath(&C->path);
+        CallStack.push_back(StackDiagPair(C, N));
+        break;
       }
-      C->setCallee(*CE, SMgr);
-      if (!CallStack.empty()) {
-        assert(CallStack.back().first == C);
-        CallStack.pop_back();
+
+      if (const CallEnter *CE = dyn_cast<CallEnter>(&P)) {
+        // Flush all locations, and pop the active path.
+        bool VisitedEntireCall = PD.isWithinCall();
+        PD.popActivePath();
+
+        // Either we just added a bunch of stuff to the top-level path, or
+        // we have a previous CallExitEnd.  If the former, it means that the
+        // path terminated within a function call.  We must then take the
+        // current contents of the active path and place it within
+        // a new PathDiagnosticCallPiece.
+        PathDiagnosticCallPiece *C;
+        if (VisitedEntireCall) {
+          C = cast<PathDiagnosticCallPiece>(PD.getActivePath().front());
+        } else {
+          const Decl *Caller = CE->getLocationContext()->getDecl();
+          C = PathDiagnosticCallPiece::construct(PD.getActivePath(), Caller);
+          GRBugReporter& BR = PDB.getBugReporter();
+          BR.addCallPieceLocationContextPair(C, CE->getCalleeContext());
+        }
+
+        C->setCallee(*CE, SMgr);
+        if (!CallStack.empty()) {
+          assert(CallStack.back().first == C);
+          CallStack.pop_back();
+        }
+        break;
       }
-      continue;
-    }
 
-    if (const BlockEdge *BE = dyn_cast<BlockEdge>(&P)) {
-      const CFGBlock *Src = BE->getSrc();
-      const CFGBlock *Dst = BE->getDst();
-      const Stmt *T = Src->getTerminator();
+      if (const BlockEdge *BE = dyn_cast<BlockEdge>(&P)) {
+        const CFGBlock *Src = BE->getSrc();
+        const CFGBlock *Dst = BE->getDst();
+        const Stmt *T = Src->getTerminator();
 
-      if (!T)
-        continue;
+        if (!T)
+          break;
 
-      PathDiagnosticLocation Start =
-        PathDiagnosticLocation::createBegin(T, SMgr,
-                                                N->getLocationContext());
+        PathDiagnosticLocation Start =
+            PathDiagnosticLocation::createBegin(T, SMgr,
+                N->getLocationContext());
 
-      switch (T->getStmtClass()) {
+        switch (T->getStmtClass()) {
         default:
           break;
 
@@ -485,16 +498,16 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
           const Stmt *S = GetNextStmt(N);
 
           if (!S)
-            continue;
+            break;
 
           std::string sbuf;
           llvm::raw_string_ostream os(sbuf);
           const PathDiagnosticLocation &End = PDB.getEnclosingStmtLocation(S);
 
           os << "Control jumps to line "
-          << End.asLocation().getExpansionLineNumber();
-          PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                                os.str()));
+              << End.asLocation().getExpansionLineNumber();
+          PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+              Start, End, os.str()));
           break;
         }
 
@@ -507,52 +520,52 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
             PathDiagnosticLocation End(S, SMgr, LC);
 
             switch (S->getStmtClass()) {
-              default:
-                os << "No cases match in the switch statement. "
-                "Control jumps to line "
-                << End.asLocation().getExpansionLineNumber();
-                break;
-              case Stmt::DefaultStmtClass:
-                os << "Control jumps to the 'default' case at line "
-                << End.asLocation().getExpansionLineNumber();
-                break;
+            default:
+              os << "No cases match in the switch statement. "
+              "Control jumps to line "
+              << End.asLocation().getExpansionLineNumber();
+              break;
+            case Stmt::DefaultStmtClass:
+              os << "Control jumps to the 'default' case at line "
+              << End.asLocation().getExpansionLineNumber();
+              break;
 
-              case Stmt::CaseStmtClass: {
-                os << "Control jumps to 'case ";
-                const CaseStmt *Case = cast<CaseStmt>(S);
-                const Expr *LHS = Case->getLHS()->IgnoreParenCasts();
+            case Stmt::CaseStmtClass: {
+              os << "Control jumps to 'case ";
+              const CaseStmt *Case = cast<CaseStmt>(S);
+              const Expr *LHS = Case->getLHS()->IgnoreParenCasts();
 
-                // Determine if it is an enum.
-                bool GetRawInt = true;
+              // Determine if it is an enum.
+              bool GetRawInt = true;
 
-                if (const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(LHS)) {
-                  // FIXME: Maybe this should be an assertion.  Are there cases
-                  // were it is not an EnumConstantDecl?
-                  const EnumConstantDecl *D =
+              if (const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(LHS)) {
+                // FIXME: Maybe this should be an assertion.  Are there cases
+                // were it is not an EnumConstantDecl?
+                const EnumConstantDecl *D =
                     dyn_cast<EnumConstantDecl>(DR->getDecl());
 
-                  if (D) {
-                    GetRawInt = false;
-                    os << *D;
-                  }
+                if (D) {
+                  GetRawInt = false;
+                  os << *D;
                 }
-
-                if (GetRawInt)
-                  os << LHS->EvaluateKnownConstInt(PDB.getASTContext());
-
-                os << ":'  at line "
-                << End.asLocation().getExpansionLineNumber();
-                break;
               }
+
+              if (GetRawInt)
+                os << LHS->EvaluateKnownConstInt(PDB.getASTContext());
+
+              os << ":'  at line "
+                  << End.asLocation().getExpansionLineNumber();
+              break;
             }
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                             os.str()));
+            }
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, os.str()));
           }
           else {
             os << "'Default' branch taken. ";
             const PathDiagnosticLocation &End = PDB.ExecutionContinues(os, N);
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                             os.str()));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, os.str()));
           }
 
           break;
@@ -563,12 +576,12 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
           std::string sbuf;
           llvm::raw_string_ostream os(sbuf);
           PathDiagnosticLocation End = PDB.ExecutionContinues(os, N);
-          PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                           os.str()));
+          PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+              Start, End, os.str()));
           break;
         }
 
-          // Determine control-flow for ternary '?'.
+        // Determine control-flow for ternary '?'.
         case Stmt::BinaryConditionalOperatorClass:
         case Stmt::ConditionalOperatorClass: {
           std::string sbuf;
@@ -585,12 +598,12 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
           if (const Stmt *S = End.asStmt())
             End = PDB.getEnclosingStmtLocation(S);
 
-          PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                           os.str()));
+          PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+              Start, End, os.str()));
           break;
         }
 
-          // Determine control-flow for short-circuited '&&' and '||'.
+        // Determine control-flow for short-circuited '&&' and '||'.
         case Stmt::BinaryOperatorClass: {
           if (!PDB.supportsLogicalOpControlFlow())
             break;
@@ -607,16 +620,16 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
               os << "false";
               PathDiagnosticLocation End(B->getLHS(), SMgr, LC);
               PathDiagnosticLocation Start =
-                PathDiagnosticLocation::createOperatorLoc(B, SMgr);
-              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                               os.str()));
+                  PathDiagnosticLocation::createOperatorLoc(B, SMgr);
+              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                  Start, End, os.str()));
             }
             else {
               os << "true";
               PathDiagnosticLocation Start(B->getLHS(), SMgr, LC);
               PathDiagnosticLocation End = PDB.ExecutionContinues(N);
-              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                               os.str()));
+              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                  Start, End, os.str()));
             }
           }
           else {
@@ -627,16 +640,16 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
               os << "false";
               PathDiagnosticLocation Start(B->getLHS(), SMgr, LC);
               PathDiagnosticLocation End = PDB.ExecutionContinues(N);
-              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                               os.str()));
+              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                  Start, End, os.str()));
             }
             else {
               os << "true";
               PathDiagnosticLocation End(B->getLHS(), SMgr, LC);
               PathDiagnosticLocation Start =
-                PathDiagnosticLocation::createOperatorLoc(B, SMgr);
-              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                               os.str()));
+                  PathDiagnosticLocation::createOperatorLoc(B, SMgr);
+              PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                  Start, End, os.str()));
             }
           }
 
@@ -654,8 +667,8 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
             if (const Stmt *S = End.asStmt())
               End = PDB.getEnclosingStmtLocation(S);
 
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                             os.str()));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, os.str()));
           }
           else {
             PathDiagnosticLocation End = PDB.ExecutionContinues(N);
@@ -663,8 +676,8 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
             if (const Stmt *S = End.asStmt())
               End = PDB.getEnclosingStmtLocation(S);
 
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                              "Loop condition is false.  Exiting loop"));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, "Loop condition is false.  Exiting loop"));
           }
 
           break;
@@ -681,16 +694,16 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
             if (const Stmt *S = End.asStmt())
               End = PDB.getEnclosingStmtLocation(S);
 
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                             os.str()));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, os.str()));
           }
           else {
             PathDiagnosticLocation End = PDB.ExecutionContinues(N);
             if (const Stmt *S = End.asStmt())
               End = PDB.getEnclosingStmtLocation(S);
 
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                            "Loop condition is true.  Entering loop body"));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, "Loop condition is true.  Entering loop body"));
           }
 
           break;
@@ -703,16 +716,17 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
             End = PDB.getEnclosingStmtLocation(S);
 
           if (*(Src->succ_begin()+1) == Dst)
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                        "Taking false branch"));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, "Taking false branch"));
           else
-            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(Start, End,
-                                                         "Taking true branch"));
+            PD.getActivePath().push_front(new PathDiagnosticControlFlowPiece(
+                Start, End, "Taking true branch"));
 
           break;
         }
+        }
       }
-    }
+    } while(0);
 
     if (NextNode) {
       // Add diagnostic pieces from custom visitors.
@@ -868,6 +882,7 @@ public:
   void rawAddEdge(PathDiagnosticLocation NewLoc);
 
   void addContext(const Stmt *S);
+  void addContext(const PathDiagnosticLocation &L);
   void addExtendedContext(const Stmt *S);
 };
 } // end anonymous namespace
@@ -1035,7 +1050,10 @@ void EdgeBuilder::addContext(const Stmt *S) {
     return;
 
   PathDiagnosticLocation L(S, PDB.getSourceManager(), PDB.LC);
+  addContext(L);
+}
 
+void EdgeBuilder::addContext(const PathDiagnosticLocation &L) {
   while (!CLocs.empty()) {
     const PathDiagnosticLocation &TopContextLoc = CLocs.back();
 
@@ -1151,25 +1169,24 @@ static void GenerateExtensivePathDiagnostic(PathDiagnostic& PD,
       }
       
       if (const CallExitEnd *CE = dyn_cast<CallExitEnd>(&P)) {
-        const StackFrameContext *LCtx =
-          CE->getLocationContext()->getCurrentStackFrame();
-        // FIXME: This needs to handle implicit calls.
-        if (const Stmt *S = CE->getCalleeContext()->getCallSite()) {
-          if (const Expr *Ex = dyn_cast<Expr>(S))
+        const Stmt *S = CE->getCalleeContext()->getCallSite();
+        if (const Expr *Ex = dyn_cast_or_null<Expr>(S)) {
             reversePropagateIntererstingSymbols(*PDB.getBugReport(), IE,
                                                 N->getState().getPtr(), Ex,
                                                 N->getLocationContext());
-          PathDiagnosticLocation Loc(S,
-                                     PDB.getSourceManager(),
-                                     LCtx);
-          EB.addEdge(Loc, true);
-          EB.flushLocations();
-          PathDiagnosticCallPiece *C =
-            PathDiagnosticCallPiece::construct(N, *CE, SM);
-          PD.getActivePath().push_front(C);
-          PD.pushActivePath(&C->path);
-          CallStack.push_back(StackDiagPair(C, N));
         }
+        
+        PathDiagnosticCallPiece *C =
+          PathDiagnosticCallPiece::construct(N, *CE, SM);
+        GRBugReporter& BR = PDB.getBugReporter();
+        BR.addCallPieceLocationContextPair(C, CE->getCalleeContext());
+
+        EB.addEdge(C->callReturn, true);
+        EB.flushLocations();
+
+        PD.getActivePath().push_front(C);
+        PD.pushActivePath(&C->path);
+        CallStack.push_back(StackDiagPair(C, N));
         break;
       }
       
@@ -1183,30 +1200,28 @@ static void GenerateExtensivePathDiagnostic(PathDiagnostic& PD,
         EB.addEdge(pos);
         
         // Flush all locations, and pop the active path.
+        bool VisitedEntireCall = PD.isWithinCall();
         EB.flushLocations();
         PD.popActivePath();
-        assert(!PD.getActivePath().empty());
         PDB.LC = N->getLocationContext();
 
-        // The current active path should never be empty.  Either we
-        // just added a bunch of stuff to the top-level path, or
-        // we have a previous CallExitEnd.  If the front of the active
-        // path is not a PathDiagnosticCallPiece, it means that the
+        // Either we just added a bunch of stuff to the top-level path, or
+        // we have a previous CallExitEnd.  If the former, it means that the
         // path terminated within a function call.  We must then take the
         // current contents of the active path and place it within
         // a new PathDiagnosticCallPiece.
-        PathDiagnosticCallPiece *C =
-          dyn_cast<PathDiagnosticCallPiece>(PD.getActivePath().front());
-        if (!C) {
-          const Decl * Caller = CE->getLocationContext()->getDecl();
+        PathDiagnosticCallPiece *C;
+        if (VisitedEntireCall) {
+          C = cast<PathDiagnosticCallPiece>(PD.getActivePath().front());
+        } else {
+          const Decl *Caller = CE->getLocationContext()->getDecl();
           C = PathDiagnosticCallPiece::construct(PD.getActivePath(), Caller);
+          GRBugReporter& BR = PDB.getBugReporter();
+          BR.addCallPieceLocationContextPair(C, CE->getCalleeContext());
         }
 
-        // FIXME: We still need a location for implicit calls.
-        if (CE->getCallExpr()) {
-          C->setCallee(*CE, SM);
-          EB.addContext(CE->getCallExpr());
-        }
+        C->setCallee(*CE, SM);
+        EB.addContext(C->getLocation());
 
         if (!CallStack.empty()) {
           assert(CallStack.back().first == C);
@@ -1346,6 +1361,9 @@ BugReport::~BugReport() {
   for (visitor_iterator I = visitor_begin(), E = visitor_end(); I != E; ++I) {
     delete *I;
   }
+  while (!interestingSymbols.empty()) {
+    popInterestingSymbolsAndRegions();
+  }
 }
 
 const Decl *BugReport::getDeclWithIssue() const {
@@ -1387,11 +1405,11 @@ void BugReport::markInteresting(SymbolRef sym) {
     return;
 
   // If the symbol wasn't already in our set, note a configuration change.
-  if (interestingSymbols.insert(sym).second)
+  if (getInterestingSymbols().insert(sym).second)
     ++ConfigurationChangeToken;
 
   if (const SymbolMetadata *meta = dyn_cast<SymbolMetadata>(sym))
-    interestingRegions.insert(meta->getRegion());
+    getInterestingRegions().insert(meta->getRegion());
 }
 
 void BugReport::markInteresting(const MemRegion *R) {
@@ -1400,11 +1418,11 @@ void BugReport::markInteresting(const MemRegion *R) {
 
   // If the base region wasn't already in our set, note a configuration change.
   R = R->getBaseRegion();
-  if (interestingRegions.insert(R).second)
+  if (getInterestingRegions().insert(R).second)
     ++ConfigurationChangeToken;
 
   if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(R))
-    interestingSymbols.insert(SR->getSymbol());
+    getInterestingSymbols().insert(SR->getSymbol());
 }
 
 void BugReport::markInteresting(SVal V) {
@@ -1412,30 +1430,70 @@ void BugReport::markInteresting(SVal V) {
   markInteresting(V.getAsSymbol());
 }
 
-bool BugReport::isInteresting(SVal V) const {
+void BugReport::markInteresting(const LocationContext *LC) {
+  if (!LC)
+    return;
+  InterestingLocationContexts.insert(LC);
+}
+
+bool BugReport::isInteresting(SVal V) {
   return isInteresting(V.getAsRegion()) || isInteresting(V.getAsSymbol());
 }
 
-bool BugReport::isInteresting(SymbolRef sym) const {
+bool BugReport::isInteresting(SymbolRef sym) {
   if (!sym)
     return false;
   // We don't currently consider metadata symbols to be interesting
   // even if we know their region is interesting. Is that correct behavior?
-  return interestingSymbols.count(sym);
+  return getInterestingSymbols().count(sym);
 }
 
-bool BugReport::isInteresting(const MemRegion *R) const {
+bool BugReport::isInteresting(const MemRegion *R) {
   if (!R)
     return false;
   R = R->getBaseRegion();
-  bool b = interestingRegions.count(R);
+  bool b = getInterestingRegions().count(R);
   if (b)
     return true;
   if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(R))
-    return interestingSymbols.count(SR->getSymbol());
+    return getInterestingSymbols().count(SR->getSymbol());
   return false;
 }
-  
+
+bool BugReport::isInteresting(const LocationContext *LC) {
+  if (!LC)
+    return false;
+  return InterestingLocationContexts.count(LC);
+}
+
+void BugReport::lazyInitializeInterestingSets() {
+  if (interestingSymbols.empty()) {
+    interestingSymbols.push_back(new Symbols());
+    interestingRegions.push_back(new Regions());
+  }
+}
+
+BugReport::Symbols &BugReport::getInterestingSymbols() {
+  lazyInitializeInterestingSets();
+  return *interestingSymbols.back();
+}
+
+BugReport::Regions &BugReport::getInterestingRegions() {
+  lazyInitializeInterestingSets();
+  return *interestingRegions.back();
+}
+
+void BugReport::pushInterestingSymbolsAndRegions() {
+  interestingSymbols.push_back(new Symbols(getInterestingSymbols()));
+  interestingRegions.push_back(new Regions(getInterestingRegions()));
+}
+
+void BugReport::popInterestingSymbolsAndRegions() {
+  delete interestingSymbols.back();
+  interestingSymbols.pop_back();
+  delete interestingRegions.back();
+  interestingRegions.pop_back();
+}
 
 const Stmt *BugReport::getStmt() const {
   if (!ErrorNode)
@@ -1537,9 +1595,12 @@ void BugReporter::FlushReports() {
          I = bugTypes.begin(), E = bugTypes.end(); I != E; ++I)
     const_cast<BugType*>(*I)->FlushReports(*this);
 
-  typedef llvm::FoldingSet<BugReportEquivClass> SetTy;
-  for (SetTy::iterator EI=EQClasses.begin(), EE=EQClasses.end(); EI!=EE;++EI){
-    BugReportEquivClass& EQ = *EI;
+  // We need to flush reports in deterministic order to ensure the order
+  // of the reports is consistent between runs.
+  typedef std::vector<BugReportEquivClass *> ContVecTy;
+  for (ContVecTy::iterator EI=EQClassesVector.begin(), EE=EQClassesVector.end();
+       EI != EE; ++EI){
+    BugReportEquivClass& EQ = **EI;
     FlushReport(EQ);
   }
 
@@ -1791,12 +1852,13 @@ static void CompactPathDiagnostic(PathPieces &path, const SourceManager& SM) {
 }
 
 void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
-                        SmallVectorImpl<BugReport *> &bugReports) {
+                                           PathDiagnosticConsumer &PC,
+                                           ArrayRef<BugReport *> &bugReports) {
 
   assert(!bugReports.empty());
   SmallVector<const ExplodedNode *, 10> errorNodes;
-  for (SmallVectorImpl<BugReport*>::iterator I = bugReports.begin(),
-    E = bugReports.end(); I != E; ++I) {
+  for (ArrayRef<BugReport*>::iterator I = bugReports.begin(),
+                                      E = bugReports.end(); I != E; ++I) {
       errorNodes.push_back((*I)->getErrorNode());
   }
 
@@ -1816,8 +1878,7 @@ void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
   const ExplodedNode *N = GPair.second.first;
 
   // Start building the path diagnostic...
-  PathDiagnosticBuilder PDB(*this, R, BackMap.get(),
-                            getPathDiagnosticConsumer());
+  PathDiagnosticBuilder PDB(*this, R, BackMap.get(), &PC);
 
   // Register additional node visitors.
   R->addVisitor(new NilReceiverBRVisitor());
@@ -1865,6 +1926,8 @@ void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
     case PathDiagnosticConsumer::Minimal:
       GenerateMinimalPathDiagnostic(PD, PDB, N, visitors);
       break;
+    case PathDiagnosticConsumer::None:
+      llvm_unreachable("PathDiagnosticConsumer::None should never appear here");
     }
 
     // Clean up the visitors we used.
@@ -1876,7 +1939,7 @@ void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
 
   // Finally, prune the diagnostic path of uninteresting stuff.
   if (R->shouldPrunePath()) {
-    bool hasSomethingInteresting = RemoveUneededCalls(PD.getMutablePieces());
+    bool hasSomethingInteresting = RemoveUneededCalls(PD.getMutablePieces(), R);
     assert(hasSomethingInteresting);
     (void) hasSomethingInteresting;
   }
@@ -2020,53 +2083,21 @@ FindReportInEquivalenceClass(BugReportEquivClass& EQ,
   return exampleReport;
 }
 
-//===----------------------------------------------------------------------===//
-// DiagnosticCache.  This is a hack to cache analyzer diagnostics.  It
-// uses global state, which eventually should go elsewhere.
-//===----------------------------------------------------------------------===//
-namespace {
-class DiagCacheItem : public llvm::FoldingSetNode {
-  llvm::FoldingSetNodeID ID;
-public:
-  DiagCacheItem(BugReport *R, PathDiagnostic *PD) {
-    R->Profile(ID);
-    PD->Profile(ID);
-  }
-  
-  void Profile(llvm::FoldingSetNodeID &id) {
-    id = ID;
-  }
-  
-  llvm::FoldingSetNodeID &getID() { return ID; }
-};
-}
-
-static bool IsCachedDiagnostic(BugReport *R, PathDiagnostic *PD) {
-  // FIXME: Eventually this diagnostic cache should reside in something
-  // like AnalysisManager instead of being a static variable.  This is
-  // really unsafe in the long term.
-  typedef llvm::FoldingSet<DiagCacheItem> DiagnosticCache;
-  static DiagnosticCache DC;
-  
-  void *InsertPos;
-  DiagCacheItem *Item = new DiagCacheItem(R, PD);
-  
-  if (DC.FindNodeOrInsertPos(Item->getID(), InsertPos)) {
-    delete Item;
-    return true;
-  }
-  
-  DC.InsertNode(Item, InsertPos);
-  return false;
-}
-
 void BugReporter::FlushReport(BugReportEquivClass& EQ) {
   SmallVector<BugReport*, 10> bugReports;
   BugReport *exampleReport = FindReportInEquivalenceClass(EQ, bugReports);
-  if (!exampleReport)
-    return;
-  
-  PathDiagnosticConsumer* PD = getPathDiagnosticConsumer();
+  if (exampleReport) {
+    const PathDiagnosticConsumers &C = getPathDiagnosticConsumers();
+    for (PathDiagnosticConsumers::const_iterator I=C.begin(),
+                                                 E=C.end(); I != E; ++I) {
+      FlushReport(exampleReport, **I, bugReports);
+    }
+  }
+}
+
+void BugReporter::FlushReport(BugReport *exampleReport,
+                              PathDiagnosticConsumer &PD,
+                              ArrayRef<BugReport*> bugReports) {
 
   // FIXME: Make sure we use the 'R' for the path that was actually used.
   // Probably doesn't make a difference in practice.
@@ -2075,65 +2106,39 @@ void BugReporter::FlushReport(BugReportEquivClass& EQ) {
   OwningPtr<PathDiagnostic>
     D(new PathDiagnostic(exampleReport->getDeclWithIssue(),
                          exampleReport->getBugType().getName(),
-                         !PD || PD->useVerboseDescription()
+                         PD.useVerboseDescription()
                          ? exampleReport->getDescription() 
                          : exampleReport->getShortDescription(),
                          BT.getCategory()));
 
-  if (!bugReports.empty())
-    GeneratePathDiagnostic(*D.get(), bugReports);
-  
+  // Generate the full path diagnostic, using the generation scheme
+  // specified by the PathDiagnosticConsumer.
+  if (PD.getGenerationScheme() != PathDiagnosticConsumer::None) {
+    if (!bugReports.empty())
+      GeneratePathDiagnostic(*D.get(), PD, bugReports);
+  }
+
+  // If the path is empty, generate a single step path with the location
+  // of the issue.
+  if (D->path.empty()) {
+    PathDiagnosticLocation L = exampleReport->getLocation(getSourceManager());
+    PathDiagnosticPiece *piece =
+      new PathDiagnosticEventPiece(L, exampleReport->getDescription());
+    BugReport::ranges_iterator Beg, End;
+    llvm::tie(Beg, End) = exampleReport->getRanges();
+    for ( ; Beg != End; ++Beg)
+      piece->addRange(*Beg);
+    D->getActivePath().push_back(piece);
+  }
+
   // Get the meta data.
-  const BugReport::ExtraTextList &Meta =
-                                  exampleReport->getExtraText();
+  const BugReport::ExtraTextList &Meta = exampleReport->getExtraText();
   for (BugReport::ExtraTextList::const_iterator i = Meta.begin(),
                                                 e = Meta.end(); i != e; ++i) {
     D->addMeta(*i);
   }
 
-  // Emit a summary diagnostic to the regular Diagnostics engine.
-  BugReport::ranges_iterator Beg, End;
-  llvm::tie(Beg, End) = exampleReport->getRanges();
-  DiagnosticsEngine &Diag = getDiagnostic();
-  
-  if (!IsCachedDiagnostic(exampleReport, D.get())) {
-    // Search the description for '%', as that will be interpretted as a
-    // format character by FormatDiagnostics.
-    StringRef desc = exampleReport->getShortDescription();
-
-    SmallString<512> TmpStr;
-    llvm::raw_svector_ostream Out(TmpStr);
-    for (StringRef::iterator I=desc.begin(), E=desc.end(); I!=E; ++I) {
-      if (*I == '%')
-        Out << "%%";
-      else
-        Out << *I;
-    }
-    
-    Out.flush();
-    unsigned ErrorDiag = Diag.getCustomDiagID(DiagnosticsEngine::Warning, TmpStr);
-
-    DiagnosticBuilder diagBuilder = Diag.Report(
-      exampleReport->getLocation(getSourceManager()).asLocation(), ErrorDiag);
-    for (BugReport::ranges_iterator I = Beg; I != End; ++I)
-      diagBuilder << *I;
-  }
-
-  // Emit a full diagnostic for the path if we have a PathDiagnosticConsumer.
-  if (!PD)
-    return;
-
-  if (D->path.empty()) {
-    PathDiagnosticPiece *piece = new PathDiagnosticEventPiece(
-                                 exampleReport->getLocation(getSourceManager()),
-                                 exampleReport->getDescription());
-    for ( ; Beg != End; ++Beg)
-      piece->addRange(*Beg);
-
-    D->getActivePath().push_back(piece);
-  }
-
-  PD->HandlePathDiagnostic(D.take());
+  PD.HandlePathDiagnostic(D.take());
 }
 
 void BugReporter::EmitBasicReport(const Decl *DeclWithIssue,

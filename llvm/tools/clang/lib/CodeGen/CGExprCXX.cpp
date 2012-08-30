@@ -33,6 +33,11 @@ RValue CodeGenFunction::EmitCXXMemberCall(const CXXMethodDecl *MD,
   assert(MD->isInstance() &&
          "Trying to emit a member call expr on a static method!");
 
+  // C++11 [class.mfct.non-static]p2:
+  //   If a non-static member function of a class X is called for an object that
+  //   is not of type X, or of a type derived from X, the behavior is undefined.
+  EmitCheck(CT_MemberCall, This, getContext().getRecordType(MD->getParent()));
+
   CallArgList Args;
 
   // Push the this ptr.
@@ -123,7 +128,14 @@ static bool canDevirtualizeMemberFunctionCalls(ASTContext &Context,
     
     return false;
   }
-  
+
+  // We can devirtualize calls on an object accessed by a class member access
+  // expression, since by C++11 [basic.life]p6 we know that it can't refer to
+  // a derived class object constructed in the same location.
+  if (const MemberExpr *ME = dyn_cast<MemberExpr>(Base))
+    if (const ValueDecl *VD = dyn_cast<ValueDecl>(ME->getMemberDecl()))
+      return VD->getType()->isRecordType();
+
   // We can always devirtualize calls on temporary object expressions.
   if (isa<CXXConstructExpr>(Base))
     return true;
@@ -329,6 +341,8 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
     This = EmitScalarExpr(BaseExpr);
   else 
     This = EmitLValue(BaseExpr).getAddress();
+
+  EmitCheck(CT_MemberCall, This, QualType(MPT->getClass(), 0));
 
   // Ask the ABI to load the callee.  Note that This is modified.
   llvm::Value *Callee =
@@ -942,7 +956,6 @@ static void EmitNewInitializer(CodeGenFunction &CGF, const CXXNewExpr *E,
   if (E->isArray()) {
     if (const CXXConstructExpr *CCE = dyn_cast_or_null<CXXConstructExpr>(Init)){
       CXXConstructorDecl *Ctor = CCE->getConstructor();
-      bool RequiresZeroInitialization = false;
       if (Ctor->isTrivial()) {
         // If new expression did not specify value-initialization, then there
         // is no initialization.
@@ -955,13 +968,11 @@ static void EmitNewInitializer(CodeGenFunction &CGF, const CXXNewExpr *E,
           EmitZeroMemSet(CGF, ElementType, NewPtr, AllocSizeWithoutCookie);
           return;
         }
-
-        RequiresZeroInitialization = true;
       }
 
       CGF.EmitCXXAggrConstructorCall(Ctor, NumElements, NewPtr,
                                      CCE->arg_begin(),  CCE->arg_end(),
-                                     RequiresZeroInitialization);
+                                     CCE->requiresZeroInitialization());
       return;
     } else if (Init && isa<ImplicitValueInitExpr>(Init) &&
                CGF.CGM.getTypes().isZeroInitializable(ElementType)) {
@@ -1643,15 +1654,9 @@ llvm::Value *CodeGenFunction::EmitCXXTypeidExpr(const CXXTypeidExpr *E) {
   //   polymorphic class type, the result refers to a std::type_info object
   //   representing the type of the most derived object (that is, the dynamic
   //   type) to which the glvalue refers.
-  if (E->getExprOperand()->isGLValue()) {
-    if (const RecordType *RT =
-          E->getExprOperand()->getType()->getAs<RecordType>()) {
-      const CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
-      if (RD->isPolymorphic())
-        return EmitTypeidFromVTable(*this, E->getExprOperand(), 
-                                    StdTypeInfoPtrTy);
-    }
-  }
+  if (E->isPotentiallyEvaluated())
+    return EmitTypeidFromVTable(*this, E->getExprOperand(), 
+                                StdTypeInfoPtrTy);
 
   QualType OperandTy = E->getExprOperand()->getType();
   return Builder.CreateBitCast(CGM.GetAddrOfRTTIDescriptor(OperandTy),

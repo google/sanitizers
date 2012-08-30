@@ -227,7 +227,7 @@ Sema::ActOnCXXNamedCast(SourceLocation OpLoc, tok::TokenKind Kind,
     CheckExtraCXXDefaultArguments(D);
   }
 
-  return BuildCXXNamedCast(OpLoc, Kind, TInfo, move(E),
+  return BuildCXXNamedCast(OpLoc, Kind, TInfo, E,
                            SourceRange(LAngleBracketLoc, RAngleBracketLoc),
                            SourceRange(LParenLoc, RParenLoc));
 }
@@ -1331,8 +1331,7 @@ TryStaticImplicitCast(Sema &Self, ExprResult &SrcExpr, QualType DestType,
   if (InitSeq.Failed() && (CStyle || !DestType->isReferenceType()))
     return TC_NotApplicable;
     
-  ExprResult Result
-    = InitSeq.Perform(Self, Entity, InitKind, MultiExprArg(Self, &SrcExprRaw, 1));
+  ExprResult Result = InitSeq.Perform(Self, Entity, InitKind, SrcExprRaw);
   if (Result.isInvalid()) {
     msg = 0;
     return TC_Failed;
@@ -1343,7 +1342,7 @@ TryStaticImplicitCast(Sema &Self, ExprResult &SrcExpr, QualType DestType,
   else
     Kind = CK_NoOp;
   
-  SrcExpr = move(Result);
+  SrcExpr = Result;
   return TC_Success;
 }
 
@@ -1477,6 +1476,21 @@ void Sema::CheckCompatibleReinterpretCast(QualType SrcType, QualType DestType,
   Diag(Range.getBegin(), DiagID) << SrcType << DestType << Range;
 }
 
+static void DiagnoseCastOfObjCSEL(Sema &Self, const ExprResult &SrcExpr,
+                                  QualType DestType) {
+  QualType SrcType = SrcExpr.get()->getType();
+  if (const PointerType *SrcPtrTy = SrcType->getAs<PointerType>())
+    if (SrcPtrTy->isObjCSelType()) {
+      QualType DT = DestType;
+      if (isa<PointerType>(DestType))
+        DT = DestType->getPointeeType();
+      if (!DT.getUnqualifiedType()->isVoidType())
+        Self.Diag(SrcExpr.get()->getExprLoc(),
+                  diag::warn_cast_pointer_from_sel)
+        << SrcType << DestType << SrcExpr.get()->getSourceRange();
+    }
+}
+
 static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
                                         QualType DestType, bool CStyle,
                                         const SourceRange &OpRange,
@@ -1498,7 +1512,7 @@ static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
           SingleFunctionExpr,
           Expr::getValueKindForType(DestType) == VK_RValue // Convert Fun to Ptr 
         ) && SingleFunctionExpr.isUsable()) {
-      SrcExpr = move(SingleFunctionExpr);
+      SrcExpr = SingleFunctionExpr;
       SrcType = SrcExpr.get()->getType();
     } else {
       return TC_NotApplicable;
@@ -1721,7 +1735,9 @@ static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
   if (CStyle && DestType->isObjCObjectPointerType()) {
     return TC_Success;
   }
-    
+  if (CStyle)
+    DiagnoseCastOfObjCSEL(Self, SrcExpr, DestType);
+  
   // Not casting away constness, so the only remaining check is for compatible
   // pointer categories.
 
@@ -1884,6 +1900,43 @@ void CastOperation::CheckCXXCStyleCast(bool FunctionalStyle,
   // Clear out SrcExpr if there was a fatal error.
   if (tcr != TC_Success)
     SrcExpr = ExprError();
+}
+
+/// DiagnoseBadFunctionCast - Warn whenever a function call is cast to a 
+///  non-matching type. Such as enum function call to int, int call to
+/// pointer; etc. Cast to 'void' is an exception.
+static void DiagnoseBadFunctionCast(Sema &Self, const ExprResult &SrcExpr,
+                                  QualType DestType) {
+  if (Self.Diags.getDiagnosticLevel(diag::warn_bad_function_cast,
+                                    SrcExpr.get()->getExprLoc()) 
+        == DiagnosticsEngine::Ignored)
+    return;
+  
+  if (!isa<CallExpr>(SrcExpr.get()))
+    return;
+  
+  QualType SrcType = SrcExpr.get()->getType();
+  if (DestType.getUnqualifiedType()->isVoidType())
+    return;
+  if ((SrcType->isAnyPointerType() || SrcType->isBlockPointerType())
+      && (DestType->isAnyPointerType() || DestType->isBlockPointerType()))
+    return;
+  if (SrcType->isIntegerType() && DestType->isIntegerType() &&
+      (SrcType->isBooleanType() == DestType->isBooleanType()) &&
+      (SrcType->isEnumeralType() == DestType->isEnumeralType()))
+    return;
+  if (SrcType->isRealFloatingType() && DestType->isRealFloatingType())
+    return;
+  if (SrcType->isEnumeralType() && DestType->isEnumeralType())
+    return;
+  if (SrcType->isComplexType() && DestType->isComplexType())
+    return;
+  if (SrcType->isComplexIntegerType() && DestType->isComplexIntegerType())
+    return;
+  
+  Self.Diag(SrcExpr.get()->getExprLoc(),
+            diag::warn_bad_function_cast)
+            << SrcType << DestType << SrcExpr.get()->getSourceRange();
 }
 
 /// Check the semantics of a C-style cast operation, in C.
@@ -2058,7 +2111,8 @@ void CastOperation::CheckCStyleCast() {
       return;
     }
   }
-  
+  DiagnoseCastOfObjCSEL(Self, SrcExpr, DestType);
+  DiagnoseBadFunctionCast(Self, SrcExpr, DestType);
   Kind = Self.PrepareScalarCast(SrcExpr, DestType);
   if (SrcExpr.isInvalid())
     return;

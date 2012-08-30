@@ -222,10 +222,14 @@ namespace llvm {
     bool isCompare;
     bool isMoveImm;
     bool isBitcast;
+    bool isSelect;
     bool isBarrier;
     bool isCall;
     bool canFoldAsLoad;
-    bool mayLoad, mayStore;
+    bool mayLoad;
+    bool mayLoad_Unset;
+    bool mayStore;
+    bool mayStore_Unset;
     bool isPredicable;
     bool isConvertibleToThreeAddress;
     bool isCommutable;
@@ -237,6 +241,7 @@ namespace llvm {
     bool hasCtrlDep;
     bool isNotDuplicable;
     bool hasSideEffects;
+    bool hasSideEffects_Unset;
     bool neverHasSideEffects;
     bool isAsCheapAsAMove;
     bool hasExtraSrcRegAllocReq;
@@ -244,6 +249,14 @@ namespace llvm {
     bool isCodeGenOnly;
     bool isPseudo;
 
+    /// Are there any undefined flags?
+    bool hasUndefFlags() const {
+      return mayLoad_Unset || mayStore_Unset || hasSideEffects_Unset;
+    }
+
+    // The record used to infer instruction flags, or NULL if no flag values
+    // have been inferred.
+    Record *InferredFrom;
 
     CodeGenInstruction(Record *R);
 
@@ -318,7 +331,7 @@ namespace llvm {
     CodeGenInstAlias(Record *R, CodeGenTarget &T);
 
     bool tryAliasOpMatch(DagInit *Result, unsigned AliasOpNo,
-                         Record *InstOpRec, bool hasSubOps, SMLoc Loc,
+                         Record *InstOpRec, bool hasSubOps, ArrayRef<SMLoc> Loc,
                          CodeGenTarget &T, ResultOperand &ResOp);
   };
 }

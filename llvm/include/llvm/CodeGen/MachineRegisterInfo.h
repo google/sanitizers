@@ -57,6 +57,26 @@ class MachineRegisterInfo {
   /// physical registers.
   MachineOperand **PhysRegUseDefLists;
 
+  /// getRegUseDefListHead - Return the head pointer for the register use/def
+  /// list for the specified virtual or physical register.
+  MachineOperand *&getRegUseDefListHead(unsigned RegNo) {
+    if (TargetRegisterInfo::isVirtualRegister(RegNo))
+      return VRegInfo[RegNo].second;
+    return PhysRegUseDefLists[RegNo];
+  }
+
+  MachineOperand *getRegUseDefListHead(unsigned RegNo) const {
+    if (TargetRegisterInfo::isVirtualRegister(RegNo))
+      return VRegInfo[RegNo].second;
+    return PhysRegUseDefLists[RegNo];
+  }
+
+  /// Get the next element in the use-def chain.
+  static MachineOperand *getNextOperandForReg(const MachineOperand *MO) {
+    assert(MO && MO->isReg() && "This is not a register operand!");
+    return MO->Contents.Reg.Next;
+  }
+
   /// UsedPhysRegs - This is a bit vector that is computed and set by the
   /// register allocator, and must be kept up to date by passes that run after
   /// register allocation (though most don't modify this).  This is used
@@ -129,11 +149,20 @@ public:
   // Register Info
   //===--------------------------------------------------------------------===//
 
+  // Strictly for use by MachineInstr.cpp.
+  void addRegOperandToUseList(MachineOperand *MO);
+
+  // Strictly for use by MachineInstr.cpp.
+  void removeRegOperandFromUseList(MachineOperand *MO);
+
   /// reg_begin/reg_end - Provide iteration support to walk over all definitions
   /// and uses of a register within the MachineFunction that corresponds to this
   /// MachineRegisterInfo object.
   template<bool Uses, bool Defs, bool SkipDebug>
   class defusechain_iterator;
+
+  // Make it a friend so it can access getNextOperandForReg().
+  template<bool, bool, bool> friend class defusechain_iterator;
 
   /// reg_iterator/reg_begin/reg_end - Walk all defs and uses of the specified
   /// register.
@@ -172,6 +201,15 @@ public:
   /// specified register (it may be live-in).
   bool def_empty(unsigned RegNo) const { return def_begin(RegNo) == def_end(); }
 
+  /// hasOneDef - Return true if there is exactly one instruction defining the
+  /// specified register.
+  bool hasOneDef(unsigned RegNo) const {
+    def_iterator DI = def_begin(RegNo);
+    if (DI == def_end())
+      return false;
+    return ++DI == def_end();
+  }
+
   /// use_iterator/use_begin/use_end - Walk all uses of the specified register.
   typedef defusechain_iterator<true,false,false> use_iterator;
   use_iterator use_begin(unsigned RegNo) const {
@@ -185,7 +223,12 @@ public:
 
   /// hasOneUse - Return true if there is exactly one instruction using the
   /// specified register.
-  bool hasOneUse(unsigned RegNo) const;
+  bool hasOneUse(unsigned RegNo) const {
+    use_iterator UI = use_begin(RegNo);
+    if (UI == use_end())
+      return false;
+    return ++UI == use_end();
+  }
 
   /// use_nodbg_iterator/use_nodbg_begin/use_nodbg_end - Walk all uses of the
   /// specified register, skipping those marked as Debug.
@@ -217,20 +260,6 @@ public:
   /// That function will return NULL if the virtual registers have incompatible
   /// constraints.
   void replaceRegWith(unsigned FromReg, unsigned ToReg);
-
-  /// getRegUseDefListHead - Return the head pointer for the register use/def
-  /// list for the specified virtual or physical register.
-  MachineOperand *&getRegUseDefListHead(unsigned RegNo) {
-    if (TargetRegisterInfo::isVirtualRegister(RegNo))
-      return VRegInfo[RegNo].second;
-    return PhysRegUseDefLists[RegNo];
-  }
-
-  MachineOperand *getRegUseDefListHead(unsigned RegNo) const {
-    if (TargetRegisterInfo::isVirtualRegister(RegNo))
-      return VRegInfo[RegNo].second;
-    return PhysRegUseDefLists[RegNo];
-  }
 
   /// getVRegDef - Return the machine instr that defines the specified virtual
   /// register or null if none is found.  This assumes that the code is in SSA
@@ -439,10 +468,6 @@ public:
                         const TargetRegisterInfo &TRI,
                         const TargetInstrInfo &TII);
 
-private:
-  void HandleVRegListReallocation();
-
-public:
   /// defusechain_iterator - This class provides iterator support for machine
   /// operands in the function that use or define a specific register.  If
   /// ReturnUses is true it returns uses of registers, if ReturnDefs is true it
@@ -486,13 +511,22 @@ public:
     // Iterator traversal: forward iteration only
     defusechain_iterator &operator++() {          // Preincrement
       assert(Op && "Cannot increment end iterator!");
-      Op = Op->getNextOperandForReg();
+      Op = getNextOperandForReg(Op);
 
-      // If this is an operand we don't care about, skip it.
-      while (Op && ((!ReturnUses && Op->isUse()) ||
-                    (!ReturnDefs && Op->isDef()) ||
-                    (SkipDebug && Op->isDebug())))
-        Op = Op->getNextOperandForReg();
+      // All defs come before the uses, so stop def_iterator early.
+      if (!ReturnUses) {
+        if (Op) {
+          if (Op->isUse())
+            Op = 0;
+          else
+            assert(!Op->isDebug() && "Can't have debug defs");
+        }
+      } else {
+        // If this is an operand we don't care about, skip it.
+        while (Op && ((!ReturnDefs && Op->isDef()) ||
+                      (SkipDebug && Op->isDebug())))
+          Op = getNextOperandForReg(Op);
+      }
 
       return *this;
     }

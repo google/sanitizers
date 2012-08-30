@@ -35,6 +35,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetData.h"
+#include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include <memory>
 using namespace llvm;
@@ -214,6 +215,11 @@ DontPlaceZerosInBSS("nozero-initialized-in-bss",
   cl::init(false));
 
 static cl::opt<bool>
+DisableSimplifyLibCalls("disable-simplify-libcalls",
+  cl::desc("Disable simplify-libcalls"),
+  cl::init(false));
+
+static cl::opt<bool>
 EnableGuaranteedTailCallOpt("tailcallopt",
   cl::desc("Turn fastcc calls into tail calls by (potentially) changing ABI."),
   cl::init(false));
@@ -261,6 +267,11 @@ static cl::opt<std::string> StartAfter("start-after",
   cl::desc("Resume compilation after a specific pass"),
   cl::value_desc("pass-name"),
   cl::init(""));
+
+static cl::opt<unsigned>
+SSPBufferSize("stack-protector-buffer-size", cl::init(8),
+              cl::desc("Lower bound for a buffer to be considered for "
+                       "stack protection"));
 
 // GetFileNameRoot - Helper function to get the basename of a filename.
 static inline std::string
@@ -453,6 +464,7 @@ int main(int argc, char **argv) {
   Options.PositionIndependentExecutable = EnablePIE;
   Options.EnableSegmentedStacks = SegmentedStacks;
   Options.UseInitArray = UseInitArray;
+  Options.SSPBufferSize = SSPBufferSize;
 
   std::auto_ptr<TargetMachine>
     target(TheTarget->createTargetMachine(TheTriple.getTriple(),
@@ -486,6 +498,12 @@ int main(int argc, char **argv) {
 
   // Build up all of the passes that we want to do to the module.
   PassManager PM;
+
+  // Add an appropriate TargetLibraryInfo pass for the module's triple.
+  TargetLibraryInfo *TLI = new TargetLibraryInfo(TheTriple);
+  if (DisableSimplifyLibCalls)
+    TLI->disableAllFunctions();
+  PM.add(TLI);
 
   // Add the target data from the target machine, if it exists, or the module.
   if (const TargetData *TD = Target.getTargetData())

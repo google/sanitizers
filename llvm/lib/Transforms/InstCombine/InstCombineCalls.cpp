@@ -51,8 +51,8 @@ Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
   // if the size is something we can handle with a single primitive load/store.
   // A single load+store correctly handles overlapping memory in the memmove
   // case.
-  unsigned Size = MemOpLength->getZExtValue();
-  if (Size == 0) return MI;  // Delete this mem transfer.
+  uint64_t Size = MemOpLength->getLimitedValue();
+  assert(Size && "0-sized memory transfering should be removed already.");
 
   if (Size > 8 || (Size&(Size-1)))
     return 0;  // If not 1/2/4/8 bytes, exit.
@@ -133,11 +133,9 @@ Instruction *InstCombiner::SimplifyMemSet(MemSetInst *MI) {
   ConstantInt *FillC = dyn_cast<ConstantInt>(MI->getValue());
   if (!LenC || !FillC || !FillC->getType()->isIntegerTy(8))
     return 0;
-  uint64_t Len = LenC->getZExtValue();
+  uint64_t Len = LenC->getLimitedValue();
   Alignment = MI->getAlignment();
-
-  // If the length is zero, this is a no-op
-  if (Len == 0) return MI; // memset(d,c,0,a) -> noop
+  assert(Len && "0-sized memory setting should be removed already.");
 
   // memset(s,c,n) -> store s, c (for n=1,2,4,8)
   if (Len <= 8 && isPowerOf2_32((uint32_t)Len)) {
@@ -170,7 +168,7 @@ Instruction *InstCombiner::SimplifyMemSet(MemSetInst *MI) {
 /// the heavy lifting.
 ///
 Instruction *InstCombiner::visitCallInst(CallInst &CI) {
-  if (isFreeCall(&CI))
+  if (isFreeCall(&CI, TLI))
     return visitFree(CI);
 
   // If the caller function is nounwind, mark the call as nounwind, even if the
@@ -245,7 +243,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   default: break;
   case Intrinsic::objectsize: {
     uint64_t Size;
-    if (getObjectSize(II->getArgOperand(0), Size, TD))
+    if (getObjectSize(II->getArgOperand(0), Size, TD, TLI))
       return ReplaceInstUsesWith(CI, ConstantInt::get(CI.getType(), Size));
     return 0;
   }
@@ -795,7 +793,7 @@ Instruction *InstCombiner::tryOptimizeCall(CallInst *CI, const TargetData *TD) {
   if (CI->getCalledFunction() == 0) return 0;
 
   InstCombineFortifiedLibCalls Simplifier(this);
-  Simplifier.fold(CI, TD);
+  Simplifier.fold(CI, TD, TLI);
   return Simplifier.NewInstruction;
 }
 
@@ -879,7 +877,7 @@ static IntrinsicInst *FindInitTrampoline(Value *Callee) {
 // visitCallSite - Improvements for call and invoke instructions.
 //
 Instruction *InstCombiner::visitCallSite(CallSite CS) {
-  if (isAllocLikeFn(CS.getInstruction()))
+  if (isAllocLikeFn(CS.getInstruction(), TLI))
     return visitAllocSite(*CS.getInstruction());
 
   bool Changed = false;

@@ -11,12 +11,14 @@
 //
 // This test file should be compiled w/o asan instrumentation.
 //===----------------------------------------------------------------------===//
+
 #include "asan_allocator.h"
-#include "asan_interface.h"
 #include "asan_internal.h"
 #include "asan_mapping.h"
 #include "asan_stack.h"
 #include "asan_test_utils.h"
+#include "asan_test_config.h"
+#include "sanitizer/asan_interface.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -41,17 +43,17 @@ TEST(AddressSanitizer, InternalSimpleDeathTest) {
 
 static void MallocStress(size_t n) {
   u32 seed = my_rand(&global_seed);
-  __asan::AsanStackTrace stack1;
+  __asan::StackTrace stack1;
   stack1.trace[0] = 0xa123;
   stack1.trace[1] = 0xa456;
   stack1.size = 2;
 
-  __asan::AsanStackTrace stack2;
+  __asan::StackTrace stack2;
   stack2.trace[0] = 0xb123;
   stack2.trace[1] = 0xb456;
   stack2.size = 2;
 
-  __asan::AsanStackTrace stack3;
+  __asan::StackTrace stack3;
   stack3.trace[0] = 0xc123;
   stack3.trace[1] = 0xc456;
   stack3.size = 2;
@@ -209,20 +211,21 @@ static uptr pc_array[] = {
 
 void CompressStackTraceTest(size_t n_iter) {
   u32 seed = my_rand(&global_seed);
-  const size_t kNumPcs = ASAN_ARRAY_SIZE(pc_array);
+  const size_t kNumPcs = ARRAY_SIZE(pc_array);
   u32 compressed[2 * kNumPcs];
 
   for (size_t iter = 0; iter < n_iter; iter++) {
     std::random_shuffle(pc_array, pc_array + kNumPcs);
-    __asan::AsanStackTrace stack0, stack1;
+    __asan::StackTrace stack0, stack1;
     stack0.CopyFrom(pc_array, kNumPcs);
     stack0.size = std::max((size_t)1, (size_t)(my_rand(&seed) % stack0.size));
     size_t compress_size =
       std::max((size_t)2, (size_t)my_rand(&seed) % (2 * kNumPcs));
     size_t n_frames =
-      __asan::AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+      __asan::StackTrace::CompressStack(&stack0, compressed, compress_size);
+    Ident(n_frames);
     assert(n_frames <= stack0.size);
-    __asan::AsanStackTrace::UncompressStack(&stack1, compressed, compress_size);
+    __asan::StackTrace::UncompressStack(&stack1, compressed, compress_size);
     assert(stack1.size == n_frames);
     for (size_t i = 0; i < stack1.size; i++) {
       assert(stack0.trace[i] == stack1.trace[i]);
@@ -235,17 +238,17 @@ TEST(AddressSanitizer, CompressStackTraceTest) {
 }
 
 void CompressStackTraceBenchmark(size_t n_iter) {
-  const size_t kNumPcs = ASAN_ARRAY_SIZE(pc_array);
+  const size_t kNumPcs = ARRAY_SIZE(pc_array);
   u32 compressed[2 * kNumPcs];
   std::random_shuffle(pc_array, pc_array + kNumPcs);
 
-  __asan::AsanStackTrace stack0;
+  __asan::StackTrace stack0;
   stack0.CopyFrom(pc_array, kNumPcs);
   stack0.size = kNumPcs;
   for (size_t iter = 0; iter < n_iter; iter++) {
     size_t compress_size = kNumPcs;
     size_t n_frames =
-      __asan::AsanStackTrace::CompressStack(&stack0, compressed, compress_size);
+      __asan::StackTrace::CompressStack(&stack0, compressed, compress_size);
     Ident(n_frames);
   }
 }
@@ -255,7 +258,7 @@ TEST(AddressSanitizer, CompressStackTraceBenchmark) {
 }
 
 TEST(AddressSanitizer, QuarantineTest) {
-  __asan::AsanStackTrace stack;
+  __asan::StackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
 
@@ -275,8 +278,9 @@ TEST(AddressSanitizer, QuarantineTest) {
 }
 
 void *ThreadedQuarantineTestWorker(void *unused) {
+  (void)unused;
   u32 seed = my_rand(&global_seed);
-  __asan::AsanStackTrace stack;
+  __asan::StackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
 
@@ -302,7 +306,8 @@ TEST(AddressSanitizer, ThreadedQuarantineTest) {
 }
 
 void *ThreadedOneSizeMallocStress(void *unused) {
-  __asan::AsanStackTrace stack;
+  (void)unused;
+  __asan::StackTrace stack;
   stack.trace[0] = 0x890;
   stack.size = 1;
   const size_t kNumMallocs = 1000;
@@ -478,9 +483,10 @@ TEST(AddressSanitizerInterface, GetFreeBytesTest) {
 
 static const size_t kManyThreadsMallocSizes[] = {5, 1UL<<10, 1UL<<20, 357};
 static const size_t kManyThreadsIterations = 250;
-static const size_t kManyThreadsNumThreads = 200;
+static const size_t kManyThreadsNumThreads = (__WORDSIZE == 32) ? 40 : 200;
 
 void *ManyThreadsWithStatsWorker(void *arg) {
+  (void)arg;
   for (size_t iter = 0; iter < kManyThreadsIterations; iter++) {
     for (size_t size_index = 0; size_index < 4; size_index++) {
       free(Ident(malloc(kManyThreadsMallocSizes[size_index])));
@@ -524,6 +530,12 @@ TEST(AddressSanitizerInterface, DeathCallbackTest) {
   __asan_set_death_callback(MyDeathCallback);
   EXPECT_DEATH(DoDoubleFree(), "MyDeathCallback");
   __asan_set_death_callback(NULL);
+}
+
+TEST(AddressSanitizerInterface, OnErrorCallbackTest) {
+  __asan_set_on_error_callback(MyDeathCallback);
+  EXPECT_DEATH(DoDoubleFree(), "MyDeathCallback.*double-free");
+  __asan_set_on_error_callback(NULL);
 }
 
 static const char* kUseAfterPoisonErrorMessage = "use-after-poison";
@@ -666,20 +678,16 @@ TEST(AddressSanitizerInterface, DISABLED_InvalidPoisonAndUnpoisonCallsTest) {
 }
 
 static void ErrorReportCallbackOneToZ(const char *report) {
-  int len = strlen(report);
-  char *dup = (char*)malloc(len);
-  strcpy(dup, report);
-  for (int i = 0; i < len; i++) {
-    if (dup[i] == '1') dup[i] = 'Z';
-  }
-  int written = write(2, dup, len);
-  ASSERT_EQ(len, written);
-  free(dup);
+  write(2, "ABCDEF", 6);
+  write(2, report, strlen(report));
+  write(2, "ABCDEF", 6);
+  _exit(1);
 }
 
 TEST(AddressSanitizerInterface, SetErrorReportCallbackTest) {
   __asan_set_error_report_callback(ErrorReportCallbackOneToZ);
-  EXPECT_DEATH(__asan_report_error(0, 0, 0, 0, true, 1), "size Z");
+  EXPECT_DEATH(__asan_report_error(0, 0, 0, 0, true, 1),
+               ASAN_PCRE_DOTALL "ABCDEF.*AddressSanitizer.*WRITE.*ABCDEF");
   __asan_set_error_report_callback(NULL);
 }
 

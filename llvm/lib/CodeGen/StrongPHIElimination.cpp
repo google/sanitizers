@@ -404,9 +404,9 @@ bool StrongPHIElimination::runOnMachineFunction(MachineFunction &MF) {
 }
 
 void StrongPHIElimination::addReg(unsigned Reg) {
-  if (RegNodeMap.count(Reg))
-    return;
-  RegNodeMap[Reg] = new (Allocator) Node(Reg);
+  Node *&N = RegNodeMap[Reg];
+  if (!N)
+    N = new (Allocator) Node(Reg);
 }
 
 StrongPHIElimination::Node*
@@ -672,8 +672,8 @@ void StrongPHIElimination::InsertCopiesForPHI(MachineInstr *PHI,
       LiveInterval &SrcInterval = LI->getInterval(SrcReg);
       SlotIndex PredIndex = LI->getMBBEndIdx(PredBB);
       VNInfo *SrcVNI = SrcInterval.getVNInfoBefore(PredIndex);
+      (void)SrcVNI;
       assert(SrcVNI);
-      SrcVNI->setHasPHIKill(true);
       continue;
     }
 
@@ -714,8 +714,9 @@ void StrongPHIElimination::InsertCopiesForPHI(MachineInstr *PHI,
         assert(getRegColor(CopyReg) == CopyReg);
       }
 
-      if (!InsertedSrcCopyMap.count(std::make_pair(PredBB, PHIColor)))
-        InsertedSrcCopyMap[std::make_pair(PredBB, PHIColor)] = CopyInstr;
+      // Insert into map if not already there.
+      InsertedSrcCopyMap.insert(std::make_pair(std::make_pair(PredBB, PHIColor),
+                                               CopyInstr));
     }
 
     SrcMO.setReg(CopyReg);
@@ -744,7 +745,6 @@ void StrongPHIElimination::InsertCopiesForPHI(MachineInstr *PHI,
     SlotIndex PHIIndex = LI->getInstructionIndex(PHI);
     VNInfo *DestVNI = DestLI.getVNInfoAt(PHIIndex.getRegSlot());
     assert(DestVNI);
-    DestVNI->setIsPHIDef(true);
   
     // Prior to PHI elimination, the live ranges of PHIs begin at their defining
     // instruction. After PHI elimination, PHI instructions are replaced by VNs
@@ -777,7 +777,6 @@ void StrongPHIElimination::InsertCopiesForPHI(MachineInstr *PHI,
   SlotIndex DestCopyIndex = LI->getInstructionIndex(CopyInstr);
   VNInfo *CopyVNI = CopyLI.getNextValue(MBBStartIndex,
                                         LI->getVNInfoAllocator());
-  CopyVNI->setIsPHIDef(true);
   CopyLI.addRange(LiveRange(MBBStartIndex,
                             DestCopyIndex.getRegSlot(),
                             CopyVNI));

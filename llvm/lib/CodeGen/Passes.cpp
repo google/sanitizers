@@ -88,6 +88,10 @@ PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
                    cl::desc("Print machine instrs"),
                    cl::value_desc("pass-name"), cl::init("option-unspecified"));
 
+// Experimental option to run live inteerval analysis early.
+static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
+    cl::desc("Run live interval analysis earlier in the pipeline"));
+
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
 /// i.e. -disable-mypass=false has no effect.
@@ -452,7 +456,8 @@ void TargetPassConfig::addMachinePasses() {
   printAndVerify("After Instruction Selection");
 
   // Expand pseudo-instructions emitted by ISel.
-  addPass(&ExpandISelPseudosID);
+  if (addPass(&ExpandISelPseudosID))
+    printAndVerify("After ExpandISelPseudos");
 
   // Add passes that optimize machine instructions in SSA form.
   if (getOptLevel() != CodeGenOpt::None) {
@@ -648,6 +653,11 @@ void TargetPassConfig::addOptimizedRegAlloc(FunctionPass *RegAllocPass) {
     addPass(&MachineLoopInfoID);
     addPass(&PHIEliminationID);
   }
+
+  // Eventually, we want to run LiveIntervals before PHI elimination.
+  if (EarlyLiveIntervals)
+    addPass(&LiveIntervalsID);
+
   addPass(&TwoAddressInstructionPassID);
 
   if (EnableStrongPHIElim)

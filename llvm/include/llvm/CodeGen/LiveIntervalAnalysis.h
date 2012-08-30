@@ -241,17 +241,14 @@ namespace llvm {
     /// print - Implement the dump method.
     virtual void print(raw_ostream &O, const Module* = 0) const;
 
-    /// isReMaterializable - Returns true if every definition of MI of every
-    /// val# of the specified interval is re-materializable. Also returns true
-    /// by reference if all of the defs are load instructions.
-    bool isReMaterializable(const LiveInterval &li,
-                            const SmallVectorImpl<LiveInterval*> *SpillIs,
-                            bool &isLoad);
-
     /// intervalIsInOneMBB - If LI is confined to a single basic block, return
     /// a pointer to that block.  If LI is live in to or out of any block,
     /// return NULL.
     MachineBasicBlock *intervalIsInOneMBB(const LiveInterval &LI) const;
+
+    /// Returns true if VNI is killed by any PHI-def values in LI.
+    /// This may conservatively return true to avoid expensive computations.
+    bool hasPHIKill(const LiveInterval &LI, const VNInfo *VNI) const;
 
     /// addKillFlags - Add kill flags to any instruction that kills a virtual
     /// register.
@@ -347,6 +344,12 @@ namespace llvm {
     /// computeIntervals - Compute live intervals.
     void computeIntervals();
 
+    /// Compute live intervals for all virtual registers.
+    void computeVirtRegs();
+
+    /// Compute RegMaskSlots and RegMaskBits.
+    void computeRegMasks();
+
     /// handleRegisterDef - update intervals for a register def
     /// (calls handleVirtualRegisterDef)
     void handleRegisterDef(MachineBasicBlock *MBB,
@@ -375,6 +378,7 @@ namespace llvm {
 
     void computeLiveInRegUnits();
     void computeRegUnitInterval(LiveInterval*);
+    void computeVirtRegInterval(LiveInterval*);
 
     class HMEditor;
   };

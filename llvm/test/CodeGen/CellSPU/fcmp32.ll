@@ -1,4 +1,4 @@
-; RUN: llc --march=cellspu %s -o - | FileCheck %s
+; RUN: llc --mtriple=cellspu-unknown-elf %s -o - | FileCheck %s
 
 ; Exercise the floating point comparison operators for f32:
 
@@ -15,8 +15,8 @@ define i1 @fcmp_eq(float %arg1, float %arg2) {
 define i1 @fcmp_mag_eq(float %arg1, float %arg2) {
 ; CHECK: fcmeq
 ; CHECK: bi $lr
-        %1 = call float @fabsf(float %arg1)
-        %2 = call float @fabsf(float %arg2)
+        %1 = call float @fabsf(float %arg1) readnone
+        %2 = call float @fabsf(float %arg2) readnone
         %3 = fcmp oeq float %1, %2
         ret i1 %3
 }

@@ -63,7 +63,7 @@ DWARFCompileUnit::extract(uint32_t offset, DataExtractor debug_info_data,
     Version = debug_info_data.getU16(&offset);
     bool abbrevsOK = debug_info_data.getU32(&offset) == abbrevs->getOffset();
     Abbrevs = abbrevs;
-    AddrSize = debug_info_data.getU8 (&offset);
+    AddrSize = debug_info_data.getU8(&offset);
 
     bool versionOK = DWARFContext::isSupportedVersion(Version);
     bool addrSizeOK = AddrSize == 4 || AddrSize == 8;
@@ -94,7 +94,9 @@ void DWARFCompileUnit::dump(raw_ostream &OS) {
      << " (next CU at " << format("0x%08x", getNextCompileUnitOffset())
      << ")\n";
 
-  getCompileUnitDIE(false)->dump(OS, this, -1U);
+  const DWARFDebugInfoEntryMinimal *CU = getCompileUnitDIE(false);
+  assert(CU && "Null Compile Unit?");
+  CU->dump(OS, this, -1U);
 }
 
 const char *DWARFCompileUnit::getCompilationDir() {
@@ -174,11 +176,11 @@ size_t DWARFCompileUnit::extractDIEsIfNeeded(bool cu_die_only) {
       addDIE(die);
       return 1;
     }
-    else if (depth == 0 && initial_die_array_size == 1) {
+    else if (depth == 0 && initial_die_array_size == 1)
       // Don't append the CU die as we already did that
-    } else {
-      addDIE (die);
-    }
+      ;
+    else
+      addDIE(die);
 
     const DWARFAbbreviationDeclaration *abbrDecl =
       die.getAbbreviationDeclarationPtr();
@@ -199,9 +201,9 @@ size_t DWARFCompileUnit::extractDIEsIfNeeded(bool cu_die_only) {
   // Give a little bit of info if we encounter corrupt DWARF (our offset
   // should always terminate at or before the start of the next compilation
   // unit header).
-  if (offset > next_cu_offset) {
-    fprintf (stderr, "warning: DWARF compile unit extends beyond its bounds cu 0x%8.8x at 0x%8.8x'\n", getOffset(), offset);
-  }
+  if (offset > next_cu_offset)
+    fprintf(stderr, "warning: DWARF compile unit extends beyond its"
+                    "bounds cu 0x%8.8x at 0x%8.8x'\n", getOffset(), offset);
 
   setDIERelations();
   return DieArray.size();

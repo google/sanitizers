@@ -889,8 +889,7 @@ bool Parser::AnnotateTemplateIdToken(TemplateTy Template, TemplateNameKind TNK,
     return true;
   }
 
-  ASTTemplateArgsPtr TemplateArgsPtr(Actions, TemplateArgs.data(),
-                                     TemplateArgs.size());
+  ASTTemplateArgsPtr TemplateArgsPtr(TemplateArgs);
 
   // Build the annotation token.
   if (TNK == TNK_Type_template && AllowTypeAnnotation) {
@@ -942,8 +941,6 @@ bool Parser::AnnotateTemplateIdToken(TemplateTy Template, TemplateNameKind TNK,
       Tok.setLocation(TemplateKWLoc);
     else
       Tok.setLocation(TemplateNameLoc);
-
-    TemplateArgsPtr.release();
   }
 
   // Common fields for the annotation token
@@ -969,8 +966,7 @@ void Parser::AnnotateTemplateIdTokenAsType() {
           TemplateId->Kind == TNK_Dependent_template_name) &&
          "Only works for type and dependent templates");
 
-  ASTTemplateArgsPtr TemplateArgsPtr(Actions,
-                                     TemplateId->getTemplateArgs(),
+  ASTTemplateArgsPtr TemplateArgsPtr(TemplateId->getTemplateArgs(),
                                      TemplateId->NumArgs);
 
   TypeResult Type

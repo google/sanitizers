@@ -87,4 +87,3 @@ void rdar11817693::operator=(const rdar11817693& src) {
   operator=(dynamic_cast<const rdar11817693_BaseBase&>(src));
 }
 
-

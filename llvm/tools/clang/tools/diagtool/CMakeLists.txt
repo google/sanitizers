@@ -1,5 +1,8 @@
-set( LLVM_LINK_COMPONENTS
+set(LLVM_LINK_COMPONENTS
+  ${LLVM_TARGETS_TO_BUILD}
+  asmparser
   support
+  mc
   )
 
 add_clang_executable(diagtool
@@ -27,6 +30,3 @@ if(UNIX)
 else()
   set(CLANGXX_LINK_OR_COPY copy)
 endif()
-
-install(TARGETS diagtool 
-  RUNTIME DESTINATION bin)

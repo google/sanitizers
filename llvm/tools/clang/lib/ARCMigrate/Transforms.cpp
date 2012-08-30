@@ -40,7 +40,7 @@ bool MigrationPass::CFBridgingFunctionsDefined() {
 
 bool trans::canApplyWeak(ASTContext &Ctx, QualType type,
                          bool AllowOnUnknownClass) {
-  if (!Ctx.getLangOpts().ObjCRuntimeHasWeak)
+  if (!Ctx.getLangOpts().ObjCARCWeak)
     return false;
 
   QualType T = type;
@@ -59,7 +59,7 @@ bool trans::canApplyWeak(ASTContext &Ctx, QualType type,
       return false; // id/NSObject is not safe for weak.
     if (!AllowOnUnknownClass && !Class->hasDefinition())
       return false; // forward classes are not verifiable, therefore not safe.
-    if (Class->isArcWeakrefUnavailable())
+    if (Class && Class->isArcWeakrefUnavailable())
       return false;
   }
 

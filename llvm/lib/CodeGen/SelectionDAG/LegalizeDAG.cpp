@@ -428,7 +428,7 @@ ExpandUnalignedLoad(LoadSDNode *LD, SelectionDAG &DAG,
   DebugLoc dl = LD->getDebugLoc();
   if (VT.isFloatingPoint() || VT.isVector()) {
     EVT intVT = EVT::getIntegerVT(*DAG.getContext(), LoadedVT.getSizeInBits());
-    if (TLI.isTypeLegal(intVT)) {
+    if (TLI.isTypeLegal(intVT) && TLI.isTypeLegal(LoadedVT)) {
       // Expand to a (misaligned) integer load of the same size,
       // then bitconvert to floating point or vector.
       SDValue newLoad = DAG.getLoad(intVT, dl, Chain, Ptr, LD->getPointerInfo(),
@@ -436,8 +436,9 @@ ExpandUnalignedLoad(LoadSDNode *LD, SelectionDAG &DAG,
                                     LD->isNonTemporal(),
                                     LD->isInvariant(), LD->getAlignment());
       SDValue Result = DAG.getNode(ISD::BITCAST, dl, LoadedVT, newLoad);
-      if (VT.isFloatingPoint() && LoadedVT != VT)
-        Result = DAG.getNode(ISD::FP_EXTEND, dl, VT, Result);
+      if (LoadedVT != VT)
+        Result = DAG.getNode(VT.isFloatingPoint() ? ISD::FP_EXTEND :
+                             ISD::ANY_EXTEND, dl, VT, Result);
 
       ValResult = Result;
       ChainResult = Chain;
@@ -2041,7 +2042,7 @@ SDValue SelectionDAGLegalize::ExpandLegalINT_TO_FP(bool isSigned,
                                                    SDValue Op0,
                                                    EVT DestVT,
                                                    DebugLoc dl) {
-  if (Op0.getValueType() == MVT::i32) {
+  if (Op0.getValueType() == MVT::i32 && TLI.isTypeLegal(MVT::f64)) {
     // simple 32-bit [signed|unsigned] integer to float/double expansion
 
     // Get the stack frame index of a 8 byte buffer.

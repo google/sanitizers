@@ -25,7 +25,6 @@
           <li><a href="#linkage_private">'<tt>private</tt>' Linkage</a></li>
           <li><a href="#linkage_linker_private">'<tt>linker_private</tt>' Linkage</a></li>
           <li><a href="#linkage_linker_private_weak">'<tt>linker_private_weak</tt>' Linkage</a></li>
-          <li><a href="#linkage_linker_private_weak_def_auto">'<tt>linker_private_weak_def_auto</tt>' Linkage</a></li>
           <li><a href="#linkage_internal">'<tt>internal</tt>' Linkage</a></li>
           <li><a href="#linkage_available_externally">'<tt>available_externally</tt>' Linkage</a></li>
           <li><a href="#linkage_linkonce">'<tt>linkonce</tt>' Linkage</a></li>
@@ -34,6 +33,7 @@
           <li><a href="#linkage_appending">'<tt>appending</tt>' Linkage</a></li>
           <li><a href="#linkage_externweak">'<tt>extern_weak</tt>' Linkage</a></li>
           <li><a href="#linkage_linkonce_odr">'<tt>linkonce_odr</tt>' Linkage</a></li>
+          <li><a href="#linkage_linkonce_odr_auto_hide">'<tt>linkonce_odr_auto_hide</tt>' Linkage</a></li>
           <li><a href="#linkage_weak">'<tt>weak_odr</tt>' Linkage</a></li>
           <li><a href="#linkage_external">'<tt>external</tt>' Linkage</a></li>
           <li><a href="#linkage_dllimport">'<tt>dllimport</tt>' Linkage</a></li>
@@ -258,6 +258,7 @@
           <li><a href="#int_log">'<tt>llvm.log.*</tt>' Intrinsic</a></li>
           <li><a href="#int_fma">'<tt>llvm.fma.*</tt>' Intrinsic</a></li>
           <li><a href="#int_fabs">'<tt>llvm.fabs.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_floor">'<tt>llvm.floor.*</tt>' Intrinsic</a></li>
         </ol>
       </li>
       <li><a href="#int_manip">Bit Manipulation Intrinsics</a>
@@ -575,15 +576,6 @@ define i32 @main() {   <i>; i32()* </i>&nbsp;
       linker. The symbols are removed by the linker from the final linked image
       (executable or dynamic library).</dd>
 
-  <dt><tt><b><a name="linkage_linker_private_weak_def_auto">linker_private_weak_def_auto</a></b></tt></dt>
-  <dd>Similar to "<tt>linker_private_weak</tt>", but it's known that the address
-      of the object is not taken. For instance, functions that had an inline
-      definition, but the compiler decided not to inline it. Note,
-      unlike <tt>linker_private</tt> and <tt>linker_private_weak</tt>,
-      <tt>linker_private_weak_def_auto</tt> may have only <tt>default</tt>
-      visibility.  The symbols are removed by the linker from the final linked
-      image (executable or dynamic library).</dd>
-
   <dt><tt><b><a name="linkage_internal">internal</a></b></tt></dt>
   <dd>Similar to private, but the value shows as a local symbol
       (<tt>STB_LOCAL</tt> in the case of ELF) in the object file. This
@@ -651,6 +643,14 @@ define i32 @main() {   <i>; i32()* </i>&nbsp;
       and <tt>weak_odr</tt> linkage types to indicate that the global will only
       be merged with equivalent globals.  These linkage types are otherwise the
       same as their non-<tt>odr</tt> versions.</dd>
+
+  <dt><tt><b><a name="linkage_linkonce_odr_auto_hide">linkonce_odr_auto_hide</a></b></tt></dt>
+  <dd>Similar to "<tt>linkonce_odr</tt>", but nothing in the translation unit
+      takes the address of this definition. For instance, functions that had an
+      inline definition, but the compiler decided not to inline it.
+      <tt>linkonce_odr_auto_hide</tt> may have only <tt>default</tt> visibility.
+      The symbols are removed by the linker from the final linked image
+      (executable or dynamic library).</dd>
 
   <dt><tt><b><a name="linkage_external">external</a></b></tt></dt>
   <dd>If none of the above identifiers are used, the global is externally
@@ -1206,6 +1206,13 @@ define void @f() optsize { ... }
   <dd>This attribute suppresses lazy symbol binding for the function. This
       may make calls to the function faster, at the cost of extra program
       startup time if the function is not called during program startup.</dd>
+
+  <dt><tt><b>ia_nsdialect</b></tt></dt>
+  <dd>This attribute indicates the associated inline assembly call is using a
+      non-standard assembly dialect.  The standard dialect is ATT, which is
+      assumed when this attribute is not present.  When present, the dialect
+      is assumed to be Intel.  Currently, ATT and Intel are the only supported
+      dialects.</dd>
 
   <dt><tt><b>inlinehint</b></tt></dt>
   <dd>This attribute indicates that the source code contained a hint that inlining
@@ -2780,7 +2787,7 @@ second_end:
       make it fit in <tt>TYPE</tt>.</dd>
 
   <dt><b><tt>inttoptr (CST to TYPE)</tt></b></dt>
-  <dd>Convert a integer constant to a pointer constant.  TYPE must be a pointer
+  <dd>Convert an integer constant to a pointer constant.  TYPE must be a pointer
       type.  CST must be of integer type. The CST value is zero extended,
       truncated, or unchanged to make it fit in a pointer size. This one is
       <i>really</i> dangerous!</dd>
@@ -7544,6 +7551,40 @@ LLVM</a>.</p>
 
 </div>
 
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_floor">'<tt>llvm.floor.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.floor</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.floor.f32(float  %Val)
+  declare double    @llvm.floor.f64(double %Val)
+  declare x86_fp80  @llvm.floor.f80(x86_fp80  %Val)
+  declare fp128     @llvm.floor.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.floor.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.floor.*</tt>' intrinsics return the floor of
+   the operand.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>floor</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
 </div>
 
 <!-- ======================================================================= -->
@@ -8680,7 +8721,7 @@ codegen.</p>
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-07-23 12:51:15 +0400 (Mon, 23 Jul 2012) $
+  Last modified: $Date: 2012-08-17 22:33:14 +0400 (Fri, 17 Aug 2012) $
 </address>
 
 </body>

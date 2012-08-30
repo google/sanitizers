@@ -215,8 +215,10 @@ bool MachineCSE::hasLivePhysRegDefUses(const MachineInstr *MI,
     if (MO.isDef() &&
         (MO.isDead() || isPhysDefTriviallyDead(Reg, I, MBB->end())))
       continue;
-    for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
-      PhysRefs.insert(*AI);
+    // Reading constant physregs is ok.
+    if (!MRI->isConstantPhysReg(Reg, *MBB->getParent()))
+      for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
+        PhysRefs.insert(*AI);
     if (MO.isDef())
       PhysDefs.push_back(Reg);
   }
@@ -324,6 +326,29 @@ bool MachineCSE::isProfitableToCSE(unsigned CSReg, unsigned Reg,
                                    MachineInstr *CSMI, MachineInstr *MI) {
   // FIXME: Heuristics that works around the lack the live range splitting.
 
+  // If CSReg is used at all uses of Reg, CSE should not increase register
+  // pressure of CSReg.
+  bool MayIncreasePressure = true;
+  if (TargetRegisterInfo::isVirtualRegister(CSReg) &&
+      TargetRegisterInfo::isVirtualRegister(Reg)) {
+    MayIncreasePressure = false;
+    SmallPtrSet<MachineInstr*, 8> CSUses;
+    for (MachineRegisterInfo::use_nodbg_iterator I =MRI->use_nodbg_begin(CSReg),
+         E = MRI->use_nodbg_end(); I != E; ++I) {
+      MachineInstr *Use = &*I;
+      CSUses.insert(Use);
+    }
+    for (MachineRegisterInfo::use_nodbg_iterator I = MRI->use_nodbg_begin(Reg),
+         E = MRI->use_nodbg_end(); I != E; ++I) {
+      MachineInstr *Use = &*I;
+      if (!CSUses.count(Use)) {
+        MayIncreasePressure = true;
+        break;
+      }
+    }
+  }
+  if (!MayIncreasePressure) return true;
+
   // Heuristics #1: Don't CSE "cheap" computation if the def is not local or in
   // an immediate predecessor. We don't want to increase register pressure and
   // end up causing other computation to be spilled.
@@ -394,6 +419,7 @@ bool MachineCSE::ProcessBlock(MachineBasicBlock *MBB) {
   bool Changed = false;
 
   SmallVector<std::pair<unsigned, unsigned>, 8> CSEPairs;
+  SmallVector<unsigned, 2> ImplicitDefsToUpdate;
   for (MachineBasicBlock::iterator I = MBB->begin(), E = MBB->end(); I != E; ) {
     MachineInstr *MI = &*I;
     ++I;
@@ -463,15 +489,24 @@ bool MachineCSE::ProcessBlock(MachineBasicBlock *MBB) {
 
     // Check if it's profitable to perform this CSE.
     bool DoCSE = true;
-    unsigned NumDefs = MI->getDesc().getNumDefs();
+    unsigned NumDefs = MI->getDesc().getNumDefs() +
+                       MI->getDesc().getNumImplicitDefs();
+    
     for (unsigned i = 0, e = MI->getNumOperands(); NumDefs && i != e; ++i) {
       MachineOperand &MO = MI->getOperand(i);
       if (!MO.isReg() || !MO.isDef())
         continue;
       unsigned OldReg = MO.getReg();
       unsigned NewReg = CSMI->getOperand(i).getReg();
-      if (OldReg == NewReg)
+
+      // Go through implicit defs of CSMI and MI, if a def is not dead at MI,
+      // we should make sure it is not dead at CSMI.
+      if (MO.isImplicit() && !MO.isDead() && CSMI->getOperand(i).isDead())
+        ImplicitDefsToUpdate.push_back(i);
+      if (OldReg == NewReg) {
+        --NumDefs;
         continue;
+      }
 
       assert(TargetRegisterInfo::isVirtualRegister(OldReg) &&
              TargetRegisterInfo::isVirtualRegister(NewReg) &&
@@ -503,6 +538,11 @@ bool MachineCSE::ProcessBlock(MachineBasicBlock *MBB) {
         MRI->clearKillFlags(CSEPairs[i].second);
       }
 
+      // Go through implicit defs of CSMI and MI, if a def is not dead at MI,
+      // we should make sure it is not dead at CSMI.
+      for (unsigned i = 0, e = ImplicitDefsToUpdate.size(); i != e; ++i)
+        CSMI->getOperand(ImplicitDefsToUpdate[i]).setIsDead(false);
+
       if (CrossMBBPhysDef) {
         // Add physical register defs now coming in from a predecessor to MBB
         // livein list.
@@ -526,6 +566,7 @@ bool MachineCSE::ProcessBlock(MachineBasicBlock *MBB) {
       Exps.push_back(MI);
     }
     CSEPairs.clear();
+    ImplicitDefsToUpdate.clear();
   }
 
   return Changed;

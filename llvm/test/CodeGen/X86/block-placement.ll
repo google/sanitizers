@@ -7,10 +7,15 @@ define i32 @test_ifchains(i32 %i, i32* %a, i32 %b) {
 ; that is not expected to run.
 ; CHECK: test_ifchains:
 ; CHECK: %entry
+; CHECK-NOT: .align
 ; CHECK: %else1
+; CHECK-NOT: .align
 ; CHECK: %else2
+; CHECK-NOT: .align
 ; CHECK: %else3
+; CHECK-NOT: .align
 ; CHECK: %else4
+; CHECK-NOT: .align
 ; CHECK: %exit
 ; CHECK: %then1
 ; CHECK: %then2
@@ -76,8 +81,11 @@ define i32 @test_loop_cold_blocks(i32 %i, i32* %a) {
 ; Check that we sink cold loop blocks after the hot loop body.
 ; CHECK: test_loop_cold_blocks:
 ; CHECK: %entry
+; CHECK-NOT: .align
 ; CHECK: %unlikely1
+; CHECK-NOT: .align
 ; CHECK: %unlikely2
+; CHECK: .align
 ; CHECK: %body1
 ; CHECK: %body2
 ; CHECK: %body3
@@ -634,7 +642,7 @@ define void @test_unnatural_cfg_backwards_inner_loop() {
 ;
 ; CHECK: test_unnatural_cfg_backwards_inner_loop
 ; CHECK: %entry
-; CHECK: %body
+; CHECK: [[BODY:# BB#[0-9]+]]:
 ; CHECK: %loop2b
 ; CHECK: %loop1
 ; CHECK: %loop2a

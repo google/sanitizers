@@ -111,6 +111,7 @@ cross-compile-build-tools:
 	  cd BuildTools ; \
 	  unset CFLAGS ; \
 	  unset CXXFLAGS ; \
+	  unset SDKROOT ; \
 	  $(PROJ_SRC_DIR)/configure --build=$(BUILD_TRIPLE) \
 		--host=$(BUILD_TRIPLE) --target=$(BUILD_TRIPLE) \
 	        --disable-polly ; \
@@ -244,13 +245,13 @@ build-for-llvm-top:
 SVN = svn
 SVN-UPDATE-OPTIONS =
 AWK = awk
-SUB-SVN-DIRS = $(AWK) '/\?\ \ \ \ \ \ / {print $$2}'   \
+SUB-SVN-DIRS = $(AWK) '/I|\?      / {print $$2}'   \
 		| LC_ALL=C xargs $(SVN) info 2>/dev/null \
 		| $(AWK) '/^Path:\ / {print $$2}'
 
 update:
 	$(SVN) $(SVN-UPDATE-OPTIONS) update $(LLVM_SRC_ROOT)
-	@ $(SVN) status $(LLVM_SRC_ROOT) | $(SUB-SVN-DIRS) | xargs $(SVN) $(SVN-UPDATE-OPTIONS) update
+	@ $(SVN) status --no-ignore $(LLVM_SRC_ROOT) | $(SUB-SVN-DIRS) | xargs $(SVN) $(SVN-UPDATE-OPTIONS) update
 
 happiness: update all check-all
 

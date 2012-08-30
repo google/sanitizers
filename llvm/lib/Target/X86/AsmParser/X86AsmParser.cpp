@@ -39,7 +39,9 @@ private:
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
   bool Error(SMLoc L, const Twine &Msg,
-             ArrayRef<SMRange> Ranges = ArrayRef<SMRange>()) {
+             ArrayRef<SMRange> Ranges = ArrayRef<SMRange>(),
+             bool matchingInlineAsm = false) {
+    if (matchingInlineAsm) return true;
     return Parser.Error(L, Msg, Ranges);
   }
 
@@ -64,6 +66,12 @@ private:
   bool MatchAndEmitInstruction(SMLoc IDLoc,
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                                MCStreamer &Out);
+
+  bool MatchInstruction(SMLoc IDLoc,
+                        SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                        SmallVectorImpl<MCInst> &MCInsts,
+                        unsigned &OrigErrorInfo,
+                        bool matchingInlineAsm = false);
 
   /// isSrcOp - Returns true if operand is either (%rsi) or %ds:%(rsi)
   /// in 64bit mode or (%esi) or %es:(%esi) in 32bit mode.
@@ -1508,13 +1516,28 @@ bool X86AsmParser::
 MatchAndEmitInstruction(SMLoc IDLoc,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                         MCStreamer &Out) {
+  SmallVector<MCInst, 2> Insts;
+  unsigned ErrorInfo;
+  bool Error = MatchInstruction(IDLoc, Operands, Insts, ErrorInfo);
+  if (!Error)
+    for (unsigned i = 0, e = Insts.size(); i != e; ++i)
+      Out.EmitInstruction(Insts[i]);
+  return Error;
+}
+
+bool X86AsmParser::
+MatchInstruction(SMLoc IDLoc,
+                 SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                 SmallVectorImpl<MCInst> &MCInsts, unsigned &OrigErrorInfo,
+                 bool matchingInlineAsm) {
   assert(!Operands.empty() && "Unexpect empty operand list!");
   X86Operand *Op = static_cast<X86Operand*>(Operands[0]);
   assert(Op->isToken() && "Leading operand should always be a mnemonic!");
+  ArrayRef<SMRange> EmptyRanges = ArrayRef<SMRange>();
 
   // First, handle aliases that expand to multiple instructions.
   // FIXME: This should be replaced with a real .td file alias mechanism.
-  // Also, MatchInstructionImpl should do actually *do* the EmitInstruction
+  // Also, MatchInstructionImpl should actually *do* the EmitInstruction
   // call.
   if (Op->getToken() == "fstsw" || Op->getToken() == "fstcw" ||
       Op->getToken() == "fstsww" || Op->getToken() == "fstcww" ||
@@ -1523,7 +1546,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     MCInst Inst;
     Inst.setOpcode(X86::WAIT);
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst);
+    MCInsts.push_back(Inst);
 
     const char *Repl =
       StringSwitch<const char*>(Op->getToken())
@@ -1542,7 +1565,6 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   }
 
   bool WasOriginallyInvalidOperand = false;
-  unsigned OrigErrorInfo;
   MCInst Inst;
 
   // First, try a direct match.
@@ -1557,13 +1579,15 @@ MatchAndEmitInstruction(SMLoc IDLoc,
       ;
 
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst);
+    MCInsts.push_back(Inst);
     return false;
   case Match_MissingFeature:
-    Error(IDLoc, "instruction requires a CPU feature not currently enabled");
+    Error(IDLoc, "instruction requires a CPU feature not currently enabled",
+          EmptyRanges, matchingInlineAsm);
     return true;
   case Match_ConversionFail:
-    return Error(IDLoc, "unable to convert operands to instruction");
+    return Error(IDLoc, "unable to convert operands to instruction",
+                 EmptyRanges, matchingInlineAsm);
   case Match_InvalidOperand:
     WasOriginallyInvalidOperand = true;
     break;
@@ -1615,7 +1639,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     (Match3 == Match_Success) + (Match4 == Match_Success);
   if (NumSuccessfulMatches == 1) {
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst);
+    MCInsts.push_back(Inst);
     return false;
   }
 
@@ -1642,7 +1666,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
       OS << "'" << Base << MatchChars[i] << "'";
     }
     OS << ")";
-    Error(IDLoc, OS.str());
+    Error(IDLoc, OS.str(), EmptyRanges, matchingInlineAsm);
     return true;
   }
 
@@ -1653,31 +1677,36 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   if ((Match1 == Match_MnemonicFail) && (Match2 == Match_MnemonicFail) &&
       (Match3 == Match_MnemonicFail) && (Match4 == Match_MnemonicFail)) {
     if (!WasOriginallyInvalidOperand) {
+      ArrayRef<SMRange> Ranges = matchingInlineAsm ? EmptyRanges :
+        Op->getLocRange();
       return Error(IDLoc, "invalid instruction mnemonic '" + Base + "'",
-                   Op->getLocRange());
+                   Ranges, matchingInlineAsm);
     }
 
     // Recover location info for the operand if we know which was the problem.
     if (OrigErrorInfo != ~0U) {
       if (OrigErrorInfo >= Operands.size())
-        return Error(IDLoc, "too few operands for instruction");
+        return Error(IDLoc, "too few operands for instruction",
+                     EmptyRanges, matchingInlineAsm);
 
       X86Operand *Operand = (X86Operand*)Operands[OrigErrorInfo];
       if (Operand->getStartLoc().isValid()) {
         SMRange OperandRange = Operand->getLocRange();
         return Error(Operand->getStartLoc(), "invalid operand for instruction",
-                     OperandRange);
+                     OperandRange, matchingInlineAsm);
       }
     }
 
-    return Error(IDLoc, "invalid operand for instruction");
+    return Error(IDLoc, "invalid operand for instruction", EmptyRanges,
+                 matchingInlineAsm);
   }
 
   // If one instruction matched with a missing feature, report this as a
   // missing feature.
   if ((Match1 == Match_MissingFeature) + (Match2 == Match_MissingFeature) +
       (Match3 == Match_MissingFeature) + (Match4 == Match_MissingFeature) == 1){
-    Error(IDLoc, "instruction requires a CPU feature not currently enabled");
+    Error(IDLoc, "instruction requires a CPU feature not currently enabled",
+          EmptyRanges, matchingInlineAsm);
     return true;
   }
 
@@ -1685,12 +1714,14 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   // operand failure.
   if ((Match1 == Match_InvalidOperand) + (Match2 == Match_InvalidOperand) +
       (Match3 == Match_InvalidOperand) + (Match4 == Match_InvalidOperand) == 1){
-    Error(IDLoc, "invalid operand for instruction");
+    Error(IDLoc, "invalid operand for instruction", EmptyRanges,
+          matchingInlineAsm);
     return true;
   }
 
   // If all of these were an outright failure, report it in a useless way.
-  Error(IDLoc, "unknown use of instruction mnemonic without a size suffix");
+  Error(IDLoc, "unknown use of instruction mnemonic without a size suffix",
+        EmptyRanges, matchingInlineAsm);
   return true;
 }
 

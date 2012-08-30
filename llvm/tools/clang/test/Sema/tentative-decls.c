@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -fsyntax-only -verify
+// RUN: %clang_cc1 %s -fsyntax-only -Wprivate-extern -verify
 
 // PR3310
 struct a x1; // expected-note 2{{forward declaration of 'struct a'}}
@@ -32,7 +32,9 @@ int i2 = 3; // expected-error{{non-static declaration of 'i2' follows static dec
 static int i3 = 5;
 extern int i3;
 
-__private_extern__ int pExtern;
+// rdar://7703982
+__private_extern__ int pExtern; // expected-warning {{use of __private_extern__ on a declaration may not produce external symbol private to the linkage unit and is deprecated}} \
+// expected-note {{use __attribute__((visibility("hidden"))) attribute instead}}
 int pExtern = 0;
 
 int i4;

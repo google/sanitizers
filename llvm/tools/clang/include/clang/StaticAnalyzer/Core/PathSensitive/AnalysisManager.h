@@ -19,6 +19,7 @@
 #include "clang/Frontend/AnalyzerOptions.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/PathDiagnostic.h"
+#include "clang/StaticAnalyzer/Core/PathDiagnosticConsumers.h"
 
 namespace clang {
 
@@ -32,8 +33,7 @@ class AnalysisManager : public BugReporterData {
   ASTContext &Ctx;
   DiagnosticsEngine &Diags;
   const LangOptions &LangOpts;
-
-  OwningPtr<PathDiagnosticConsumer> PD;
+  PathDiagnosticConsumers PathConsumers;
 
   // Configurable components creators.
   StoreManagerCreator CreateStoreMgr;
@@ -81,17 +81,24 @@ public:
   /// strategy. We get better code coverage when retry is enabled.
   bool NoRetryExhausted;
 
+  typedef llvm::StringMap<std::string> ConfigTable;
+  
+  /// \brief A key-value table of use-specified configuration values.
+  const ConfigTable &Config;
+  
 public:
-  AnalysisManager(ASTContext &ctx, DiagnosticsEngine &diags, 
-                  const LangOptions &lang, PathDiagnosticConsumer *pd,
+  AnalysisManager(ASTContext &ctx,DiagnosticsEngine &diags,
+                  const LangOptions &lang,
+                  const PathDiagnosticConsumers &Consumers,
                   StoreManagerCreator storemgr,
                   ConstraintManagerCreator constraintmgr, 
                   CheckerManager *checkerMgr,
+                  const ConfigTable &Config,
                   unsigned maxnodes, unsigned maxvisit,
                   bool vizdot, bool vizubi, AnalysisPurgeMode purge,
                   bool eager, bool trim,
                   bool useUnoptimizedCFG,
-                  bool addImplicitDtors, bool addInitializers,
+                  bool addImplicitDtors,
                   bool eagerlyTrimEGraph,
                   AnalysisIPAMode ipa,
                   unsigned inlineMaxStack,
@@ -99,12 +106,7 @@ public:
                   AnalysisInliningMode inliningMode,
                   bool NoRetry);
 
-  /// Construct a clone of the given AnalysisManager with the given ASTContext
-  /// and DiagnosticsEngine.
-  AnalysisManager(ASTContext &ctx, DiagnosticsEngine &diags,
-                  AnalysisManager &ParentAM);
-
-  ~AnalysisManager() { FlushDiagnostics(); }
+  ~AnalysisManager();
   
   void ClearContexts() {
     AnaCtxMgr.clear();
@@ -140,14 +142,11 @@ public:
     return LangOpts;
   }
 
-  virtual PathDiagnosticConsumer *getPathDiagnosticConsumer() {
-    return PD.get();
+  ArrayRef<PathDiagnosticConsumer*> getPathDiagnosticConsumers()  {
+    return PathConsumers;
   }
-  
-  void FlushDiagnostics() {
-    if (PD.get())
-      PD->FlushDiagnostics(0);
-  }
+
+  void FlushDiagnostics();
 
   unsigned getMaxNodes() const { return MaxNodes; }
 
@@ -169,7 +168,7 @@ public:
 
   bool shouldEagerlyAssume() const { return EagerlyAssume; }
 
-  bool shouldInlineCall() const { return (IPAMode == Inlining); }
+  bool shouldInlineCall() const { return (IPAMode != None); }
 
   CFG *getCFG(Decl const *D) {
     return AnaCtxMgr.getContext(D)->getCFG();

@@ -43,7 +43,7 @@ static Qualifiers::ObjCLifetime getImpliedARCOwnership(
   if (attrs & (ObjCPropertyDecl::OBJC_PR_retain |
                ObjCPropertyDecl::OBJC_PR_strong |
                ObjCPropertyDecl::OBJC_PR_copy)) {
-    return type->getObjCARCImplicitLifetime();
+    return Qualifiers::OCL_Strong;
   } else if (attrs & ObjCPropertyDecl::OBJC_PR_weak) {
     return Qualifiers::OCL_Weak;
   } else if (attrs & ObjCPropertyDecl::OBJC_PR_unsafe_unretained) {
@@ -102,6 +102,15 @@ static void checkARCPropertyDecl(Sema &S, ObjCPropertyDecl *property) {
     << propertyLifetime;
 }
 
+static unsigned deduceWeakPropertyFromType(Sema &S, QualType T) {
+  if ((S.getLangOpts().getGC() != LangOptions::NonGC && 
+       T.isObjCGCWeak()) ||
+      (S.getLangOpts().ObjCAutoRefCount &&
+       T.getObjCLifetime() == Qualifiers::OCL_Weak))
+    return ObjCDeclSpec::DQ_PR_weak;
+  return 0;
+}
+
 Decl *Sema::ActOnProperty(Scope *S, SourceLocation AtLoc,
                           SourceLocation LParenLoc,
                           FieldDeclarator &FD,
@@ -114,12 +123,8 @@ Decl *Sema::ActOnProperty(Scope *S, SourceLocation AtLoc,
   unsigned Attributes = ODS.getPropertyAttributes();
   TypeSourceInfo *TSI = GetTypeForDeclarator(FD.D, S);
   QualType T = TSI->getType();
-  if ((getLangOpts().getGC() != LangOptions::NonGC && 
-       T.isObjCGCWeak()) ||
-      (getLangOpts().ObjCAutoRefCount &&
-       T.getObjCLifetime() == Qualifiers::OCL_Weak))
-    Attributes |= ObjCDeclSpec::DQ_PR_weak;
-
+  Attributes |= deduceWeakPropertyFromType(*this, T);
+  
   bool isReadWrite = ((Attributes & ObjCDeclSpec::DQ_PR_readwrite) ||
                       // default is readwrite!
                       !(Attributes & ObjCDeclSpec::DQ_PR_readonly));
@@ -236,6 +241,15 @@ static bool LocPropertyAttribute( ASTContext &Context, const char *attrName,
   
 }
 
+static unsigned getOwnershipRule(unsigned attr) {
+  return attr & (ObjCPropertyDecl::OBJC_PR_assign |
+                 ObjCPropertyDecl::OBJC_PR_retain |
+                 ObjCPropertyDecl::OBJC_PR_copy   |
+                 ObjCPropertyDecl::OBJC_PR_weak   |
+                 ObjCPropertyDecl::OBJC_PR_strong |
+                 ObjCPropertyDecl::OBJC_PR_unsafe_unretained);
+}
+
 Decl *
 Sema::HandlePropertyInClassExtension(Scope *S,
                                      SourceLocation AtLoc,
@@ -342,13 +356,11 @@ Sema::HandlePropertyInClassExtension(Scope *S,
   // with continuation class's readwrite property attribute!
   unsigned PIkind = PIDecl->getPropertyAttributesAsWritten();
   if (isReadWrite && (PIkind & ObjCPropertyDecl::OBJC_PR_readonly)) {
-    unsigned retainCopyNonatomic =
-    (ObjCPropertyDecl::OBJC_PR_retain |
-     ObjCPropertyDecl::OBJC_PR_strong |
-     ObjCPropertyDecl::OBJC_PR_copy |
-     ObjCPropertyDecl::OBJC_PR_nonatomic);
-    if ((Attributes & retainCopyNonatomic) !=
-        (PIkind & retainCopyNonatomic)) {
+    PIkind |= deduceWeakPropertyFromType(*this, PIDecl->getType());
+    unsigned ClassExtensionMemoryModel = getOwnershipRule(Attributes);
+    unsigned PrimaryClassMemoryModel = getOwnershipRule(PIkind);
+    if (PrimaryClassMemoryModel && ClassExtensionMemoryModel &&
+        (PrimaryClassMemoryModel != ClassExtensionMemoryModel)) {
       Diag(AtLoc, diag::warn_property_attr_mismatch);
       Diag(PIDecl->getLocation(), diag::note_property_declare);
     }
@@ -543,6 +555,23 @@ static void checkARCPropertyImpl(Sema &S, SourceLocation propertyImplLoc,
       ivarLifetime == Qualifiers::OCL_Autoreleasing)
     return;
 
+  // If the ivar is private, and it's implicitly __unsafe_unretained
+  // becaues of its type, then pretend it was actually implicitly
+  // __strong.  This is only sound because we're processing the
+  // property implementation before parsing any method bodies.
+  if (ivarLifetime == Qualifiers::OCL_ExplicitNone &&
+      propertyLifetime == Qualifiers::OCL_Strong &&
+      ivar->getAccessControl() == ObjCIvarDecl::Private) {
+    SplitQualType split = ivarType.split();
+    if (split.Quals.hasObjCLifetime()) {
+      assert(ivarType->isObjCARCImplicitlyUnretainedType());
+      split.Quals.setObjCLifetime(Qualifiers::OCL_Strong);
+      ivarType = S.Context.getQualifiedType(split);
+      ivar->setType(ivarType);
+      return;
+    }
+  }
+
   switch (propertyLifetime) {
   case Qualifiers::OCL_Strong:
     S.Diag(propertyImplLoc, diag::err_arc_strong_property_ownership)
@@ -632,7 +661,13 @@ DiagnoseClassAndClassExtPropertyMismatch(Sema &S, ObjCInterfaceDecl *ClassDecl,
       // property.
       if (Attributes & ObjCDeclSpec::DQ_PR_readonly) {
         if (!classExtPropertyAttr ||
-            (classExtPropertyAttr & ObjCDeclSpec::DQ_PR_readwrite))
+            (classExtPropertyAttr & 
+              (ObjCDeclSpec::DQ_PR_readwrite|
+               ObjCDeclSpec::DQ_PR_assign |
+               ObjCDeclSpec::DQ_PR_unsafe_unretained |
+               ObjCDeclSpec::DQ_PR_copy |
+               ObjCDeclSpec::DQ_PR_retain |
+               ObjCDeclSpec::DQ_PR_strong)))
           continue;
         warn = true;
         break;
@@ -730,8 +765,6 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
         (PIkind & ObjCPropertyDecl::OBJC_PR_readonly) &&
         property->hasAttr<IBOutletAttr>() &&
         !AtLoc.isValid()) {
-      unsigned rwPIKind = (PIkind | ObjCPropertyDecl::OBJC_PR_readwrite);
-      rwPIKind &= (~ObjCPropertyDecl::OBJC_PR_readonly);
       Diag(IC->getLocation(), diag::warn_auto_readonly_iboutlet_property);
       Diag(property->getLocation(), diag::note_property_declare);
       SourceLocation readonlyLoc;
@@ -859,13 +892,15 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
           if (lifetime == Qualifiers::OCL_Weak) {
             bool err = false;
             if (const ObjCObjectPointerType *ObjT =
-                PropertyIvarType->getAs<ObjCObjectPointerType>())
-              if (ObjT->getInterfaceDecl()->isArcWeakrefUnavailable()) {
+                PropertyIvarType->getAs<ObjCObjectPointerType>()) {
+              const ObjCInterfaceDecl *ObjI = ObjT->getInterfaceDecl();
+              if (ObjI && ObjI->isArcWeakrefUnavailable()) {
                 Diag(PropertyDiagLoc, diag::err_arc_weak_unavailable_property);
                 Diag(property->getLocation(), diag::note_property_declare);
                 err = true;
               }
-            if (!err && !getLangOpts().ObjCRuntimeHasWeak) {
+            }
+            if (!err && !getLangOpts().ObjCARCWeak) {
               Diag(PropertyDiagLoc, diag::err_arc_weak_no_runtime);
               Diag(property->getLocation(), diag::note_property_declare);
             }
@@ -1464,8 +1499,8 @@ static void CollectClassPropertyImplementations(ObjCContainerDecl *CDecl,
     for (ObjCProtocolDecl::prop_iterator P = PDecl->prop_begin(),
          E = PDecl->prop_end(); P != E; ++P) {
       ObjCPropertyDecl *Prop = *P;
-      if (!PropMap.count(Prop->getIdentifier()))
-        PropMap[Prop->getIdentifier()] = Prop;
+      // Insert into PropMap if not there already.
+      PropMap.insert(std::make_pair(Prop->getIdentifier(), Prop));
     }
     // scan through protocol's protocols.
     for (ObjCProtocolDecl::protocol_iterator PI = PDecl->protocol_begin(),

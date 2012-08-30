@@ -61,6 +61,8 @@ struct ThreadClock {
       nclk_ = tid + 1;
   }
 
+  void Disable(unsigned tid);
+
   uptr size() const {
     return nclk_;
   }
@@ -68,6 +70,7 @@ struct ThreadClock {
   void acquire(const SyncClock *src);
   void release(SyncClock *dst) const;
   void acq_rel(SyncClock *dst);
+  void ReleaseStore(SyncClock *dst) const;
 
  private:
   uptr nclk_;

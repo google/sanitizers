@@ -74,7 +74,7 @@ protected:
   /// HasThumb2 - True if Thumb2 instructions are supported.
   bool HasThumb2;
 
-  /// IsMClass - True if the subtarget belongs to the 'M' profile of CPUs - 
+  /// IsMClass - True if the subtarget belongs to the 'M' profile of CPUs -
   /// v6m, v7m for example.
   bool IsMClass;
 
@@ -154,6 +154,9 @@ protected:
 
   /// TargetTriple - What processor and OS we're targeting.
   Triple TargetTriple;
+
+  /// SchedModel - Processor specific instruction costs.
+  const MCSchedModel *SchedModel;
 
   /// Selected instruction itineraries (one entry per itinerary class.)
   InstrItineraryData InstrItins;

@@ -15,19 +15,13 @@
 #ifndef ASAN_FLAGS_H
 #define ASAN_FLAGS_H
 
-#include "sanitizer_common/sanitizer_interface_defs.h"
+#include "sanitizer/common_interface_defs.h"
 
 // ASan flag values can be defined in three ways:
 // 1) initialized with default values at startup.
-// 2) overriden from user-specified string __asan_default_options.
+// 2) overriden from string returned by user-specified function
+//    __asan_default_options().
 // 3) overriden from env variable ASAN_OPTIONS.
-
-extern "C" {
-#if !defined(_WIN32)
-  // We do not need to redefine the defaults right now on Windows.
-  char *__asan_default_options SANITIZER_WEAK_ATTRIBUTE;
-#endif
-}
 
 namespace __asan {
 
@@ -49,6 +43,8 @@ struct Flags {
   // on globals, 1 - detect buffer overflow, 2 - print data about registered
   // globals).
   int  report_globals;
+  // If set, attempts to catch initialization order issues.
+  bool check_initialization_order;
   // Max number of stack frames kept for each allocation.
   int  malloc_context_size;
   // If set, uses custom wrappers and replacements for libc string functions
@@ -88,7 +84,13 @@ struct Flags {
   // By default, disable core dumper on 64-bit - it makes little sense
   // to dump 16T+ core.
   bool disable_core;
+  // Allow the tool to re-exec the program. This may interfere badly with the
+  // debugger.
+  bool allow_reexec;
+  // Strips this prefix from file paths in error reports.
+  const char *strip_path_prefix;
 };
+
 Flags *flags();
 void InitializeFlags(Flags *f, const char *env);
 

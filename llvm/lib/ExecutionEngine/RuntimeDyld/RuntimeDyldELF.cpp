@@ -55,7 +55,7 @@ public:
 
   const MemoryBuffer& getBuffer() const { return *InputData; }
 
-  // Methods for type inquiry through isa, cast, and dyn_cast
+  // Methods for type inquiry through isa, cast and dyn_cast
   static inline bool classof(const Binary *v) {
     return (isa<ELFObjectFile<target_endianness, is64Bits> >(v)
             && classof(cast<ELFObjectFile<target_endianness, is64Bits> >(v)));
@@ -208,10 +208,9 @@ void RuntimeDyldELF::resolveX86_64Relocation(uint8_t *LocalAddress,
   case ELF::R_X86_64_32:
   case ELF::R_X86_64_32S: {
     Value += Addend;
-    // FIXME: Handle the possibility of this assertion failing
-    assert((Type == ELF::R_X86_64_32 && !(Value & 0xFFFFFFFF00000000ULL)) ||
-           (Type == ELF::R_X86_64_32S &&
-            (Value & 0xFFFFFFFF00000000ULL) == 0xFFFFFFFF00000000ULL));
+    assert((Type == ELF::R_X86_64_32 && (Value <= UINT32_MAX)) ||
+           (Type == ELF::R_X86_64_32S && 
+             ((int64_t)Value <= INT32_MAX && (int64_t)Value >= INT32_MIN)));
     uint32_t TruncatedAddr = (Value & 0xFFFFFFFF);
     uint32_t *Target = reinterpret_cast<uint32_t*>(LocalAddress);
     *Target = TruncatedAddr;
@@ -220,7 +219,7 @@ void RuntimeDyldELF::resolveX86_64Relocation(uint8_t *LocalAddress,
   case ELF::R_X86_64_PC32: {
     uint32_t *Placeholder = reinterpret_cast<uint32_t*>(LocalAddress);
     int64_t RealOffset = *Placeholder + Value + Addend - FinalAddress;
-    assert(RealOffset <= 214783647 && RealOffset >= -214783648);
+    assert(RealOffset <= INT32_MAX && RealOffset >= INT32_MIN);
     int32_t TruncOffset = (RealOffset & 0xFFFFFFFF);
     *Placeholder = TruncOffset;
     break;
@@ -248,7 +247,7 @@ void RuntimeDyldELF::resolveX86Relocation(uint8_t *LocalAddress,
     }
     default:
       // There are other relocation types, but it appears these are the
-      //  only ones currently used by the LLVM ELF object writer
+      // only ones currently used by the LLVM ELF object writer
       llvm_unreachable("Relocation type not implemented yet!");
       break;
   }
@@ -307,6 +306,44 @@ void RuntimeDyldELF::resolveARMRelocation(uint8_t *LocalAddress,
   }
 }
 
+void RuntimeDyldELF::resolveMIPSRelocation(uint8_t *LocalAddress,
+                                           uint32_t FinalAddress,
+                                           uint32_t Value,
+                                           uint32_t Type,
+                                           int32_t Addend) {
+  uint32_t* TargetPtr = (uint32_t*)LocalAddress;
+  Value += Addend;
+
+  DEBUG(dbgs() << "resolveMipselocation, LocalAddress: " << LocalAddress
+               << " FinalAddress: " << format("%p",FinalAddress)
+               << " Value: " << format("%x",Value)
+               << " Type: " << format("%x",Type)
+               << " Addend: " << format("%x",Addend)
+               << "\n");
+
+  switch(Type) {
+  default:
+    llvm_unreachable("Not implemented relocation type!");
+    break;
+  case ELF::R_MIPS_32:
+    *TargetPtr = Value + (*TargetPtr);
+    break;
+  case ELF::R_MIPS_26:
+    *TargetPtr = ((*TargetPtr) & 0xfc000000) | (( Value & 0x0fffffff) >> 2);
+    break;
+  case ELF::R_MIPS_HI16:
+    // Get the higher 16-bits. Also add 1 if bit 15 is 1.
+    Value += ((*TargetPtr) & 0x0000ffff) << 16;
+    *TargetPtr = ((*TargetPtr) & 0xffff0000) |
+                 (((Value + 0x8000) >> 16) & 0xffff);
+    break;
+   case ELF::R_MIPS_LO16:
+    Value += ((*TargetPtr) & 0x0000ffff);
+    *TargetPtr = ((*TargetPtr) & 0xffff0000) | (Value & 0xffff);
+    break;
+   }
+}
+
 void RuntimeDyldELF::resolveRelocation(uint8_t *LocalAddress,
                                        uint64_t FinalAddress,
                                        uint64_t Value,
@@ -326,6 +363,12 @@ void RuntimeDyldELF::resolveRelocation(uint8_t *LocalAddress,
     resolveARMRelocation(LocalAddress, (uint32_t)(FinalAddress & 0xffffffffL),
                          (uint32_t)(Value & 0xffffffffL), Type,
                          (uint32_t)(Addend & 0xffffffffL));
+    break;
+  case Triple::mips:    // Fall through.
+  case Triple::mipsel:
+    resolveMIPSRelocation(LocalAddress, (uint32_t)(FinalAddress & 0xffffffffL),
+                          (uint32_t)(Value & 0xffffffffL), Type,
+                          (uint32_t)(Addend & 0xffffffffL));
     break;
   default: llvm_unreachable("Unsupported CPU type!");
   }
@@ -421,6 +464,53 @@ void RuntimeDyldELF::processRelocationRef(const ObjRelocationInfo &Rel,
         addRelocationForSection(RE, Value.SectionID);
 
       resolveRelocation(Target, (uint64_t)Target, (uint64_t)Section.Address +
+                        Section.StubOffset, RelType, 0);
+      Section.StubOffset += getMaxStubSize();
+    }
+  } else if (Arch == Triple::mipsel && RelType == ELF::R_MIPS_26) {
+    // This is an Mips branch relocation, need to use a stub function.
+    DEBUG(dbgs() << "\t\tThis is a Mips branch relocation.");
+    SectionEntry &Section = Sections[Rel.SectionID];
+    uint8_t *Target = Section.Address + Rel.Offset;
+    uint32_t *TargetAddress = (uint32_t *)Target;
+
+    // Extract the addend from the instruction.
+    uint32_t Addend = ((*TargetAddress) & 0x03ffffff) << 2;
+
+    Value.Addend += Addend;
+
+    //  Look up for existing stub.
+    StubMap::const_iterator i = Stubs.find(Value);
+    if (i != Stubs.end()) {
+      resolveRelocation(Target, (uint64_t)Target,
+                        (uint64_t)Section.Address +
+                        i->second, RelType, 0);
+      DEBUG(dbgs() << " Stub function found\n");
+    } else {
+      // Create a new stub function.
+      DEBUG(dbgs() << " Create a new stub function\n");
+      Stubs[Value] = Section.StubOffset;
+      uint8_t *StubTargetAddr = createStubFunction(Section.Address +
+                                                   Section.StubOffset);
+
+      // Creating Hi and Lo relocations for the filled stub instructions.
+      RelocationEntry REHi(Rel.SectionID,
+                           StubTargetAddr - Section.Address,
+                           ELF::R_MIPS_HI16, Value.Addend);
+      RelocationEntry RELo(Rel.SectionID,
+                           StubTargetAddr - Section.Address + 4,
+                           ELF::R_MIPS_LO16, Value.Addend);
+
+      if (Value.SymbolName) {
+        addRelocationForSymbol(REHi, Value.SymbolName);
+        addRelocationForSymbol(RELo, Value.SymbolName);
+      } else {
+        addRelocationForSection(REHi, Value.SectionID);
+        addRelocationForSection(RELo, Value.SectionID);
+      }
+
+      resolveRelocation(Target, (uint64_t)Target,
+                        (uint64_t)Section.Address +
                         Section.StubOffset, RelType, 0);
       Section.StubOffset += getMaxStubSize();
     }

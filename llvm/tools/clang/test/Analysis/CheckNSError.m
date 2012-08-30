@@ -1,4 +1,3 @@
-// RUN: %clang_cc1 -analyze -analyzer-checker=core,osx.cocoa.NSError,osx.coreFoundation.CFError -analyzer-store=region -analyzer-constraints=basic -verify -Wno-objc-root-class %s
 // RUN: %clang_cc1 -analyze -analyzer-checker=core,osx.cocoa.NSError,osx.coreFoundation.CFError -analyzer-store=region -analyzer-constraints=range -verify -Wno-objc-root-class %s
 
 
@@ -23,7 +22,7 @@ extern NSString * const NSXMLParserErrorDomain ;
 
 @implementation A
 - (void)myMethodWhichMayFail:(NSError **)error {   // expected-warning {{Method accepting NSError** should have a non-void return value to indicate whether or not an error occurred}}
-  *error = [NSError errorWithDomain:@"domain" code:1 userInfo:0]; // expected-warning {{Potential null dereference.}}
+  *error = [NSError errorWithDomain:@"domain" code:1 userInfo:0]; // expected-warning {{Potential null dereference}}
 }
 
 - (BOOL)myMethodWhichMayFail2:(NSError **)error {  // no-warning
@@ -36,7 +35,7 @@ struct __CFError {};
 typedef struct __CFError* CFErrorRef;
 
 void foo(CFErrorRef* error) { // expected-warning {{Function accepting CFErrorRef* should have a non-void return value to indicate whether or not an error occurred}}
-  *error = 0;  // expected-warning {{Potential null dereference.}}
+  *error = 0;  // expected-warning {{Potential null dereference}}
 }
 
 int f1(CFErrorRef* error) {

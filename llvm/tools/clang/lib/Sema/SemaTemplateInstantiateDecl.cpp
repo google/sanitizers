@@ -935,8 +935,6 @@ TemplateDeclInstantiator::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
   if (!Instantiated)
     return 0;
 
-  Instantiated->setAccess(D->getAccess());
-
   // Link the instantiated function template declaration to the function
   // template from which it was instantiated.
   FunctionTemplateDecl *InstTemplate
@@ -954,8 +952,12 @@ TemplateDeclInstantiator::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
     InstTemplate->setInstantiatedFromMemberTemplate(D);
 
   // Make declarations visible in the appropriate context.
-  if (!isFriend)
+  if (!isFriend) {
     Owner->addDecl(InstTemplate);
+  } else if (InstTemplate->getDeclContext()->isRecord() &&
+             !D->getPreviousDecl()) {
+    SemaRef.CheckFriendAccess(InstTemplate);
+  }
 
   return InstTemplate;
 }
@@ -1526,7 +1528,15 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
   if (D->isPure())
     SemaRef.CheckPureMethod(Method, SourceRange());
 
-  Method->setAccess(D->getAccess());
+  // Propagate access.  For a non-friend declaration, the access is
+  // whatever we're propagating from.  For a friend, it should be the
+  // previous declaration we just found.
+  if (isFriend && Method->getPreviousDecl())
+    Method->setAccess(Method->getPreviousDecl()->getAccess());
+  else 
+    Method->setAccess(D->getAccess());
+  if (FunctionTemplate)
+    FunctionTemplate->setAccess(Method->getAccess());
 
   SemaRef.CheckOverrideControl(Method);
 
@@ -1536,18 +1546,28 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
   if (D->isDeletedAsWritten())
     Method->setDeletedAsWritten();
 
+  // If there's a function template, let our caller handle it.
   if (FunctionTemplate) {
-    // If there's a function template, let our caller handle it.
+    // do nothing
+
+  // Don't hide a (potentially) valid declaration with an invalid one.
   } else if (Method->isInvalidDecl() && !Previous.empty()) {
-    // Don't hide a (potentially) valid declaration with an invalid one.
-  } else {
-    NamedDecl *DeclToAdd = (TemplateParams
-                            ? cast<NamedDecl>(FunctionTemplate)
-                            : Method);
-    if (isFriend)
-      Record->makeDeclVisibleInContext(DeclToAdd);
-    else if (!IsClassScopeSpecialization)
-      Owner->addDecl(DeclToAdd);
+    // do nothing
+
+  // Otherwise, check access to friends and make them visible.
+  } else if (isFriend) {
+    // We only need to re-check access for methods which we didn't
+    // manage to match during parsing.
+    if (!D->getPreviousDecl())
+      SemaRef.CheckFriendAccess(Method);
+
+    Record->makeDeclVisibleInContext(Method);
+
+  // Otherwise, add the declaration.  We don't need to do this for
+  // class-scope specializations because we'll have matched them with
+  // the appropriate template.
+  } else if (!IsClassScopeSpecialization) {
+    Owner->addDecl(Method);
   }
 
   if (D->isExplicitlyDefaulted()) {
@@ -2395,8 +2415,17 @@ void Sema::InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
 
   InstantiatingTemplate Inst(*this, PointOfInstantiation, Decl,
                              InstantiatingTemplate::ExceptionSpecification());
-  if (Inst)
+  if (Inst) {
+    // We hit the instantiation depth limit. Clear the exception specification
+    // so that our callers don't have to cope with EST_Uninstantiated.
+    FunctionProtoType::ExtProtoInfo EPI = Proto->getExtProtoInfo();
+    EPI.ExceptionSpecType = EST_None;
+    Decl->setType(Context.getFunctionType(Proto->getResultType(),
+                                          Proto->arg_type_begin(),
+                                          Proto->getNumArgs(),
+                                          EPI));
     return;
+  }
 
   // Enter the scope of this instantiation. We don't use
   // PushDeclContext because we don't have a scope.
@@ -2461,6 +2490,8 @@ TemplateDeclInstantiator::InitFunctionInstantiation(FunctionDecl *New,
       FunctionDecl *ExceptionSpecTemplate = Tmpl;
       if (EPI.ExceptionSpecType == EST_Uninstantiated)
         ExceptionSpecTemplate = EPI.ExceptionSpecTemplate;
+      assert(EPI.ExceptionSpecType != EST_Unevaluated &&
+             "instantiating implicitly-declared special member");
 
       // Mark the function has having an uninstantiated exception specification.
       const FunctionProtoType *NewProto
@@ -3000,7 +3031,7 @@ ExprResult Sema::SubstInitializer(Expr *Init,
       isa<CXXTemporaryObjectExpr>(Construct))
     return SubstExpr(Init, TemplateArgs);
 
-  ASTOwningVector<Expr*> NewArgs(*this);
+  SmallVector<Expr*, 8> NewArgs;
   if (SubstExprs(Construct->getArgs(), Construct->getNumArgs(), true,
                  TemplateArgs, NewArgs))
     return ExprError();
@@ -3012,7 +3043,7 @@ ExprResult Sema::SubstInitializer(Expr *Init,
   // Build a ParenListExpr to represent anything else.
   // FIXME: Fake locations!
   SourceLocation Loc = PP.getLocForEndOfToken(Init->getLocStart());
-  return ActOnParenListExpr(Loc, Loc, move_arg(NewArgs));
+  return ActOnParenListExpr(Loc, Loc, NewArgs);
 }
 
 // TODO: this could be templated if the various decl types used the
@@ -3431,7 +3462,7 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
 void Sema::PerformPendingInstantiations(bool LocalOnly) {
   // Load pending instantiations from the external source.
   if (!LocalOnly && ExternalSource) {
-    SmallVector<std::pair<ValueDecl *, SourceLocation>, 4> Pending;
+    SmallVector<PendingImplicitInstantiation, 4> Pending;
     ExternalSource->ReadPendingInstantiations(Pending);
     PendingInstantiations.insert(PendingInstantiations.begin(),
                                  Pending.begin(), Pending.end());

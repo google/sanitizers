@@ -30,8 +30,8 @@ class raw_ostream;
 
 /// MCAsmBackend - Generic interface to target specific assembler backends.
 class MCAsmBackend {
-  MCAsmBackend(const MCAsmBackend &);   // DO NOT IMPLEMENT
-  void operator=(const MCAsmBackend &);  // DO NOT IMPLEMENT
+  MCAsmBackend(const MCAsmBackend &) LLVM_DELETED_FUNCTION;
+  void operator=(const MCAsmBackend &) LLVM_DELETED_FUNCTION;
 protected: // Can only create subclasses.
   MCAsmBackend();
 
@@ -132,6 +132,13 @@ public:
   virtual void relaxInstruction(const MCInst &Inst, MCInst &Res) const = 0;
 
   /// @}
+
+  /// getMinimumNopSize - Returns the minimum size of a nop in bytes on this
+  /// target. The assembler will use this to emit excess padding in situations
+  /// where the padding required for simple alignment would be less than the
+  /// minimum nop size.
+  ///
+  virtual unsigned getMinimumNopSize() const { return 1; }
 
   /// writeNopData - Write an (optimal) nop sequence of Count bytes to the given
   /// output. If the target cannot generate such a sequence, it should return an

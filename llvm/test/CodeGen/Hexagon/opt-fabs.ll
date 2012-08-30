@@ -1,4 +1,4 @@
-; RUN: llc -march=hexagon -mcpu=hexagonv5  < %s | FileCheck %s
+; RUN: llc -mtriple=hexagon-unknown-elf -mcpu=hexagonv5  < %s | FileCheck %s
 ; Optimize fabsf to clrbit in V5.
 
 ; CHECK: r{{[0-9]+}} = clrbit(r{{[0-9]+}}, #31)
@@ -8,7 +8,7 @@ entry:
   %x.addr = alloca float, align 4
   store float %x, float* %x.addr, align 4
   %0 = load float* %x.addr, align 4
-  %call = call float @fabsf(float %0)
+  %call = call float @fabsf(float %0) readnone
   ret float %call
 }
 
