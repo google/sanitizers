@@ -61,7 +61,7 @@ cd $ROOT
 
 echo @@@BUILD_STEP lint@@@
 CHECK_LINT=$ROOT/../../../scripts/slave/check_lint.sh
-(LLVM_CHECKOUT=${LLVM_CHECKOUT} ./${CHECK_LINT}) || echo @@@STEP_WARNINGS@@@
+(LLVM_CHECKOUT=${LLVM_CHECKOUT} ${CHECK_LINT}) || echo @@@STEP_WARNINGS@@@
 
 echo @@@BUILD_STEP build asan tests@@@
 ASAN_PATH=projects/compiler-rt/lib/asan
