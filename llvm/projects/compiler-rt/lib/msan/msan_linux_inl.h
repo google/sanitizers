@@ -70,7 +70,7 @@ void GdbBackTrace() {
   system(cmd);
 }
 
-// TODO: move ASan stacktrace-related code to sanitizer_common and reuse it here
+// TODO: get rid of this once we are sure that the common unwinder is ok.
 void PrintStack(uptr *addr, uptr size) {
   MemoryMappingLayout proc_maps;
   uptr frame_num = 0;
@@ -96,8 +96,10 @@ void BacktraceStackTrace() {
 }
 
 static void MsanTrap(int, siginfo_t *siginfo, void *context) {
-  __msan_warning();
   ucontext_t *ucontext = (ucontext_t*)context;
+  uptr pc = ucontext->uc_mcontext.gregs[REG_RIP];
+  uptr bp = ucontext->uc_mcontext.gregs[REG_RBP];
+  PrintWarning(pc + 1 /*1 will be subtracted back in StackTrace::Print */, bp);
   ucontext->uc_mcontext.gregs[REG_RIP] += 2;
 }
 

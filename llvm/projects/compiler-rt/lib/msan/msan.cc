@@ -3,6 +3,7 @@
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_flags.h"
+#include "sanitizer_common/sanitizer_stacktrace.h"
 
 #include <interception/interception.h>
 
@@ -20,22 +21,10 @@ THREADLOCAL long long __msan_retval_tls[8];
 THREADLOCAL long long __msan_va_arg_tls[100];
 THREADLOCAL long long __msan_va_arg_overflow_size_tls;
 
+THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
+
 static bool IsRunningUnderDr() {
   return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
-}
-
-void __msan_warning() {
-  if (msan_expect_umr) {
-    // Printf("Expected UMR\n");
-    msan_expected_umr_found = 1;
-    return;
-  }
-  Printf("***UMR***\n");
-  __msan::BacktraceStackTrace();
-  if (__msan::flags.exit_code >= 0) {
-    Printf("Exiting\n");
-    Die();
-  }
 }
 
 namespace __msan {
@@ -44,6 +33,7 @@ Flags flags = {
   false,  // poison_with_zeroes
   true,   // poison_in_malloc
   67,     // exit_code
+  true,   // fast_unwinder
 };
 int msan_inited = 0;
 bool msan_init_is_running;
@@ -53,10 +43,53 @@ void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_with_zeroes, "poison_with_zeroes");
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
   ParseFlag(str, &f->exit_code, "exit_code");
+  ParseFlag(str, &f->fast_unwinder, "fast_unwinder");
+}
+
+static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
+  if (__msan_stack_bounds.stack_top == 0) {
+    GetThreadStackTopAndBottom(false,
+                               &__msan_stack_bounds.stack_top,
+                               &__msan_stack_bounds.stack_bottom);
+  }
+  *stack_top = __msan_stack_bounds.stack_top;
+  *stack_bottom = __msan_stack_bounds.stack_bottom;
+}
+
+static void PrintCurrentStackTrace(uptr pc, uptr bp) {
+  uptr stack_top, stack_bottom;
+  GetCurrentStackBounds(&stack_top, &stack_bottom);
+  StackTrace stack;
+  stack.size = 0;
+  stack.trace[0] = pc;
+  stack.max_size = kStackTraceMax;
+  stack.FastUnwindStack(pc, bp, stack_top, stack_bottom);
+  stack.PrintStack(stack.trace, stack.size, false, "", 0);
+}
+
+void PrintWarning(uptr pc, uptr bp) {
+  if (msan_expect_umr) {
+    // Printf("Expected UMR\n");
+    msan_expected_umr_found = 1;
+    return;
+  }
+  Report(" WARNING: MemorySanitizer: UMR (uninitialized-memory-read)\n");
+  if (flags.fast_unwinder)
+    PrintCurrentStackTrace(pc, bp);
+  else
+    BacktraceStackTrace();
+  if (__msan::flags.exit_code >= 0) {
+    Printf("Exiting\n");
+    Die();
+  }
 }
 
 }  // namespace __msan
 
+void __msan_warning() {
+  GET_CALLER_PC_BP_SP;
+  __msan::PrintWarning(pc, bp);
+}
 
 extern "C"
 void __msan_init() {

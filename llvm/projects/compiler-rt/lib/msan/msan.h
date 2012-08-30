@@ -31,6 +31,7 @@ struct Flags {
   bool poison_with_zeroes;  // default: false
   bool poison_in_malloc;  // default: true
   int  exit_code;
+  bool fast_unwinder;
 };
 
 extern Flags flags;
