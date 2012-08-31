@@ -20,6 +20,8 @@ static const uptr kBad1Beg    = 0x100000000;  // 4G
 static const uptr kBad1End    = kShadowBeg - 1;
 static const uptr kBad2Beg    = kShadowEnd + 1;
 static const uptr kBad2End    = kMemBeg - 1;
+static const uptr kOriginsBeg = kBad2Beg;
+static const uptr kOriginsEnd = kBad2End;
 
 char *GetProcSelfMaps() {
   // FIXME
@@ -42,13 +44,14 @@ uptr ReadFromFile(const char *path, char *buff, uptr size) {
   return res;
 }
 
-bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
+bool InitShadow(bool prot1, bool prot2, bool map_shadow, bool init_origins) {
   if (0) {
     Printf("__msan_init %p\n", &__msan_init);
-    Printf("Memory: %12lx %12lx\n", kMemBeg, kMemEnd);
-    Printf("Bad2  : %12lx %12lx\n", kBad2Beg, kBad2End);
-    Printf("Shadow: %12lx %12lx\n", kShadowBeg, kShadowEnd);
-    Printf("Bad1  : %12lx %12lx\n", kBad1Beg, kBad1End);
+    Printf("Memory   : %p %p\n", kMemBeg, kMemEnd);
+    Printf("Bad2     : %p %p\n", kBad2Beg, kBad2End);
+    Printf("Origins  : %p %p\n", kOriginsBeg, kOriginsEnd);
+    Printf("Shadow   : %p %p\n", kShadowBeg, kShadowEnd);
+    Printf("Bad1     : %p %p\n", kBad1Beg, kBad1End);
   }
 
   if (prot1 && !Mprotect(kBad1Beg, kBad1End - kBad1Beg))
@@ -57,7 +60,11 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow) {
     return false;
   if (map_shadow) {
     void *shadow = MmapFixedNoReserve(kShadowBeg, kShadowEnd - kShadowBeg);
-    return shadow == (void*)kShadowBeg;
+    if (shadow != (void*)kShadowBeg) return false;
+  }
+  if (init_origins) {
+    void *origins = MmapFixedNoReserve(kOriginsBeg, kOriginsEnd - kOriginsBeg);
+    if (origins != (void*)kOriginsBeg) return false;
   }
   return true;
 }

@@ -108,7 +108,7 @@ void __msan_init() {
   msan_init_is_running = 1;
   msan_running_under_dr = IsRunningUnderDr();
   __msan_clear_on_return();
-  if (!InitShadow(/*true*/ false, true, true)) {
+  if (!InitShadow(/*true*/ false, true, true, msan_track_origins)) {
     // FIXME: eugenis, do we need *false* above?
     Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
     Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
