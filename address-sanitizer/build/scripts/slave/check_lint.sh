@@ -13,7 +13,7 @@ fi
 if [ ! -d cpplint ]; then
   svn co -r82 http://google-styleguide.googlecode.com/svn/trunk/cpplint cpplint
 fi
-CPPLINT=cpplint/cpplint.py
+CPPLINT=${CURRENT_DIR}/cpplint/cpplint.py
 
 # Filters
 # TODO: remove some of these filters
