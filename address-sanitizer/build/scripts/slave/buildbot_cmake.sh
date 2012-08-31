@@ -60,7 +60,7 @@ make -j$MAKE_JOBS
 cd $ROOT
 
 echo @@@BUILD_STEP lint@@@
-CHECK_LINT=$ROOT/../../../scripts/slave/check_lint.sh
+CHECK_LINT=$ROOT/projects/compiler-rt/lib/sanitizer_common/scripts/check_lint.sh
 (LLVM_CHECKOUT=${LLVM_CHECKOUT} ${CHECK_LINT}) || echo @@@STEP_WARNINGS@@@
 
 echo @@@BUILD_STEP build asan tests@@@
