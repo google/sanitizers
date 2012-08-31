@@ -41,10 +41,6 @@ TSAN_PATH=`pwd`/llvm/projects/compiler-rt/lib/tsan/
 (cd $ASAN_PATH && make -f Makefile.old get_third_party)
 (cd $TSAN_PATH && make -f Makefile.old install_deps)
 
-echo @@@BUILD_STEP lint@@@
-(cd $ASAN_PATH && make -f Makefile.old lint)
-(cd $TSAN_PATH && make -f Makefile.old lint)
-
 echo @@@BUILD_STEP build llvm@@@
 rm -rf llvm-build
 mkdir llvm-build
