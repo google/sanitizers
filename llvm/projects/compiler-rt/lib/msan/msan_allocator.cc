@@ -1,4 +1,5 @@
 #include "sanitizer_common/sanitizer_allocator64.h"
+#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "msan.h"
 
 namespace __msan {
@@ -56,8 +57,11 @@ void MsanDeallocate(void *p) {
 
 void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
                      uptr alignment, bool zeroise) {
-  if (msan_track_origins && msan_inited)
-    Printf("MsanReallocate: stack.size = %zd\n", stack->size);
+  if (msan_track_origins && msan_inited) {
+    u32 stack_id = StackDepotPut(stack->trace, stack->size);
+    // if ((stack_id % 1024) == 0)
+    //  Printf("ALLOC: stack.size = %zd id=%d\n", stack->size, stack_id);
+  }
 
   if (!old_p)
     return MsanAllocate(new_size, alignment, zeroise);

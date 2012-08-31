@@ -25,6 +25,7 @@ void MsanDeallocate(void *ptr);
 void GdbBackTrace();  // FIXME
 void BacktraceStackTrace();
 void InstallTrapHandler();
+void ReplaceOperatorsNewAndDelete();
 
 // Flags.
 struct Flags {

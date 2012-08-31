@@ -103,6 +103,7 @@ void __msan_warning() {
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
+  ReplaceOperatorsNewAndDelete();
   ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
   msan_init_is_running = 1;
   msan_running_under_dr = IsRunningUnderDr();

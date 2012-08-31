@@ -333,7 +333,6 @@ INTERCEPTOR(void *, realloc, void *ptr, size_t size) {
 }
 
 INTERCEPTOR(void *, malloc, size_t size) {
-  __msan_init();
   GET_MALLOC_STACK_TRACE;
   return MsanReallocate(&stack, 0, size, sizeof(u64), false);
 }
