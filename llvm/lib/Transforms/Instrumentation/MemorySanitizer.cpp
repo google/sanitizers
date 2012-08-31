@@ -71,6 +71,12 @@
 
 using namespace llvm;
 
+// This is an important flag that makes the reports much more informative
+// at the cost of greater slowdown. Not fully implemented yet.
+// FIXME: this should be a top-level clang flag, e.g. -fmemory-sanitizer-full.
+static cl::opt<bool> ClTrackOrigins("msan-track-origins",
+       cl::desc("Track origins (allocation sites) of poisoned memory"),
+       cl::Hidden, cl::init(false));
 static cl::opt<bool> ClUseTrap("msan-use-trap",
        cl::desc("use trap (ud2) instead of __msan_warning"),
        cl::Hidden, cl::init(true));
@@ -189,10 +195,13 @@ bool MemorySanitizer::doInitialization(Module &M) {
 
   ColdCallWeights = MDBuilder(*C).createBranchWeights(1, 1000);
 
-  // Always insert a call to __msan_init into the module's CTORs.
+  // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
   IRBuilder<> IRB(*C);
-  Value *MsanInit = M.getOrInsertFunction("__msan_init", IRB.getVoidTy(), NULL);
-  appendToGlobalCtors(M, cast<Function>(MsanInit), 0);
+  if (ClTrackOrigins)
+    appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
+        "__msan_track_origins", IRB.getVoidTy(), NULL)), 0);
+  appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
+      "__msan_init", IRB.getVoidTy(), NULL)), 0);
 
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
