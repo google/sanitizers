@@ -46,6 +46,7 @@ void *MsanAllocate(uptr size, uptr alignment, bool zeroise) {
 }
 
 void MsanDeallocate(void *p) {
+  CHECK(p);
   Init();
   Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(p));
   uptr size = meta->requested_size;

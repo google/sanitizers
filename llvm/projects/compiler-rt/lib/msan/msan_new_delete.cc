@@ -38,7 +38,7 @@ void *operator new[](size_t size, std::nothrow_t const&) throw()
 { OPERATOR_NEW_BODY; }
 
 #define OPERATOR_DELETE_BODY \
-  MsanDeallocate(ptr)
+  if (ptr) MsanDeallocate(ptr)
 
 void operator delete(void *ptr) throw() { OPERATOR_DELETE_BODY; }
 void operator delete[](void *ptr) throw() { OPERATOR_DELETE_BODY; }
