@@ -919,6 +919,20 @@ TEST(MemorySanitizerOrigins, SetGet) {
   EXPECT_EQ(0, __msan_get_origin(&x));
 }
 
+TEST(MemorySanitizerOrigins, Xor) {
+  S8 *x = GetPoisoned<S8>(0);
+  S8 *y = GetPoisoned<S8>(1);
+  S8 *z = GetPoisoned<S8>(2);
+  __msan_set_origin(x, sizeof(*x), 0x1234);
+  __msan_set_origin(y, sizeof(*y), 0x5678);
+  __msan_set_origin(z, sizeof(*z), 0);
+  *z = *x ^ *y;
+  u32 origin = __msan_get_origin(z);
+  printf("origins: %x %x %x\n", __msan_get_origin(x),
+         __msan_get_origin(y), __msan_get_origin(z));
+}
+
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);

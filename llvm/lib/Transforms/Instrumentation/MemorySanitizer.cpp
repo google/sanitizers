@@ -130,8 +130,10 @@ struct MemorySanitizer : public FunctionPass {
   GlobalVariable *VAArgOverflowSizeTLS;
   // The run-time callback to print a warning.
   Value *WarningFn;
-  // The shadow address is computed as ApplicationAddress & ~ShadowMask.
+  // ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
   uint64_t ShadowMask;
+  // OriginAddr is computed as (ShadowAddr+Offset) & ~3ULL
+  uint64_t OriginOffset;
   // Branch weights for error reporting.
   MDNode *ColdCallWeights;
   OwningPtr<BlackList> BL;
@@ -187,8 +189,14 @@ bool MemorySanitizer::doInitialization(Module &M) {
   C = &(M.getContext());
   int PtrSize = TD->getPointerSizeInBits();
   switch (PtrSize) {
-    case 64: ShadowMask = 1ULL << 46; break;
-    case 32: ShadowMask = 1ULL << 31; break;
+    case 64:
+      ShadowMask = 1ULL << 46;
+      OriginOffset = 1ULL << 45;
+      break;
+    case 32:
+      ShadowMask = 1ULL << 31;
+      OriginOffset = 1ULL << 30;
+      break;
     default: llvm_unreachable("unsupported pointer size");
   }
   IntptrTy = Type::getIntNTy(*C, PtrSize);
@@ -371,6 +379,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateIntToPtr(ShadowLong, PointerType::get(ShadowTy, 0));
   }
 
+  // OriginAddr = (ShadowAddr + OriginOffset) & ~3ULL
+  //            = Addr & (~ShadowAddr & ~3ULL) + OriginOffset
+  Value *getOriginPtr(Value *Addr, IRBuilder<> &IRB) {
+    Value *ShadowLong =
+        IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
+                      ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask & ~3ULL));
+    Value *Add =
+        IRB.CreateAdd(ShadowLong,
+                      ConstantInt::get(MS.IntptrTy, MS.OriginOffset));
+    return IRB.CreateIntToPtr(Add, PointerType::get(IRB.getInt32Ty(), 0));
+  }
+
   // Compute the shadow address for a given function argument.
   // Shadow = ParamTLS+ArgOffset.
   Value *getShadowPtrForArgument(Value *A, IRBuilder<> &IRB,
@@ -461,10 +481,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // For everything else the shadow is zero.
     return getCleanShadow(V);
   }
-  
+
   // Get the shadow for i-th argument of the instruction I.
   Value *getShadow(Instruction *I, int i) {
     return getShadow(I->getOperand(i));
+  }
+
+  Value *getOrigin(Value *V) {
+    return NULL;
+  }
+
+  Value *getOrigin(Instruction *I, int i) {
+    return getOrigin(I->getOperand(i));
   }
 
   // Remember the place where a check for ShadowVal should be inserted.
@@ -510,6 +538,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       insertCheck(Shadow, &I);
     if (ClTrapOnDirtyAccess)
       insertCheck(getShadow(Addr), &I);
+
+    if (!ClTrackOrigins) return;
+    // Not fully implemented yet.
+    Value *OriginAddr = getOriginPtr(Addr, IRB);
+    IRB.CreateStore(IRB.getInt32(0x666), OriginAddr);
   }
 
   // Casts.
