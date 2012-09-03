@@ -123,6 +123,7 @@ struct MemorySanitizer : public FunctionPass {
   TargetData *TD;
   LLVMContext *C;
   Type *IntptrTy;
+  Type *OriginTy;
   // We store the shadow for parameters and retvals in separate TLS globals.
   GlobalVariable *ParamTLS;
   GlobalVariable *RetvalTLS;
@@ -200,6 +201,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
     default: llvm_unreachable("unsupported pointer size");
   }
   IntptrTy = Type::getIntNTy(*C, PtrSize);
+  OriginTy = Type::getIntNTy(*C, 32);
 
   ColdCallWeights = MDBuilder(*C).createBranchWeights(1, 1000);
 
@@ -207,7 +209,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
   IRBuilder<> IRB(*C);
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
         "__msan_init", IRB.getVoidTy(), NULL)), 0);
-  
+
   new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(IRB.getInt32Ty(), ClTrackOrigins),
                      "__msan_track_origins");
@@ -246,7 +248,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Function &F;
   MemorySanitizer &MS;
   SmallVector<PHINode *, 16> PHINodes;
-  ValueMap<Value*, Value*> ShadowMap;
+  ValueMap<Value*, Value*> ShadowMap, OriginMap;
   Value *VAArgTLSCopy;
   Value *VAArgOverflowSize;
   bool InsertChecks;
@@ -421,12 +423,22 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     ShadowMap[V] = SV;
   }
 
+  void setOrigin(Value *V, Value *Origin) {
+    assert(OriginMap[V] == 0);
+    OriginMap[V] = Origin;
+  }
+
   // Create a clean (zero) shadow value for a given value.
   Value *getCleanShadow(Value *V) {
     Type *ShadowTy = getShadowTy(V);
     if (!ShadowTy)
       return NULL;
     return  Constant::getNullValue(ShadowTy);
+  }
+
+  // Create a clean (zero) origin.
+  Value *getCleanOrigin() {
+    return Constant::getNullValue(MS.OriginTy);
   }
 
   // Get the shadow value for a given Value.
@@ -488,7 +500,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   Value *getOrigin(Value *V) {
-    return NULL;
+    Value *Origin = OriginMap[V];
+    if (!Origin)
+      Origin = getCleanOrigin();
+    return Origin;
   }
 
   Value *getOrigin(Instruction *I, int i) {
@@ -517,11 +532,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
     IRBuilder<> IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
-    Value *ShadowPtr = getShadowPtr(I.getPointerOperand(), ShadowTy, IRB);
+    Value *Addr = I.getPointerOperand();
+    Value *ShadowPtr = getShadowPtr(Addr, ShadowTy, IRB);
     setShadow(&I, IRB.CreateLoad(ShadowPtr, "_msld"));
 
     if (ClTrapOnDirtyAccess)
       insertCheck(getShadow(I.getPointerOperand()), &I);
+
+    if (ClTrackOrigins) {
+      DEBUG(dbgs() << "ORIGINS: " << I << "\n");
+      setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
+    }
   }
 
   void visitStoreInst(StoreInst &I) {
@@ -539,10 +560,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClTrapOnDirtyAccess)
       insertCheck(getShadow(Addr), &I);
 
-    if (!ClTrackOrigins) return;
-    // Not fully implemented yet.
-    Value *OriginAddr = getOriginPtr(Addr, IRB);
-    IRB.CreateStore(IRB.getInt32(0x666), OriginAddr);
+    if (ClTrackOrigins) {
+      DEBUG(dbgs() << "ORIGINS: " << I << "\n");
+      IRB.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRB));
+    }
   }
 
   // Casts.
@@ -629,6 +650,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void handleShadowOr(BinaryOperator &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I,  IRB.CreateOr(getShadow(&I, 0), getShadow(&I, 1), "_msprop"));
+    if (ClTrackOrigins) {
+      DEBUG(dbgs() << "ORIGINS: " << I << "\n");
+      // FIXME
+      setOrigin(&I, getOrigin(&I, 0));
+    }
   }
 
   void handleShadowOr(Instruction &I) {
