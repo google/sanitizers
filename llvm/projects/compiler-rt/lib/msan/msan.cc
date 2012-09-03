@@ -103,6 +103,11 @@ void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
   ReplaceOperatorsNewAndDelete();
+  if (StackIsUnlimited()) {
+    // Printf("Unlimited stack, doing reexec\n");
+    SetSaneStackLimit();
+    ReExec();
+  }
   ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
   msan_init_is_running = 1;
   msan_running_under_dr = IsRunningUnderDr();
@@ -217,7 +222,7 @@ void __msan_load_unpoisoned(void *src, uptr size, void *dst) {
 void __msan_set_origin(void *a, uptr size, u32 origin) {
   if (!__msan_track_origins) return;
   uptr x = (uptr)a;
-  uptr aligned = x & ~3ULL;
+  uptr aligned = MEM_TO_ORIGIN(x & ~3ULL);
   for (uptr addr = aligned; addr < aligned + size; addr += size) {
     *(u32*)addr = origin;
   }

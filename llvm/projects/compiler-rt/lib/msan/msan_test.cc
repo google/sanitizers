@@ -908,8 +908,15 @@ TEST(MemorySanitizerDr, StackStoreInDSOTest) {
 }
 
 TEST(MemorySanitizerOrigins, SetGet) {
+  EXPECT_EQ(TrackingOrigins(), __msan_track_origins);
   if (!TrackingOrigins()) return;
-  fprintf(stderr, "SetGet\n");
+  int x;
+  __msan_set_origin(&x, sizeof(x), 1234);
+  EXPECT_EQ(1234, __msan_get_origin(&x));
+  __msan_set_origin(&x, sizeof(x), 5678);
+  EXPECT_EQ(5678, __msan_get_origin(&x));
+  __msan_set_origin(&x, sizeof(x), 0);
+  EXPECT_EQ(0, __msan_get_origin(&x));
 }
 
 int main(int argc, char **argv) {

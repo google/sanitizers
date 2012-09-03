@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <unwind.h>
 #include <execinfo.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+
 
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_procmaps.h"
@@ -116,6 +119,42 @@ void InstallTrapHandler() {
   sigact.sa_sigaction = MsanTrap;
   sigact.sa_flags = SA_SIGINFO;
   CHECK(0 == sigaction(SIGILL, &sigact, 0));
+}
+
+bool StackIsUnlimited() {
+  struct rlimit rlim;
+  CHECK_EQ(0, getrlimit(RLIMIT_STACK, &rlim));
+  return (rlim.rlim_cur == (uptr)-1);
+}
+
+void SetSaneStackLimit() {
+  struct rlimit rlim;
+  rlim.rlim_max = 32 * 1024 * 1024;
+  rlim.rlim_cur = 32 * 1024 * 1024;
+  CHECK_EQ(0, setrlimit(RLIMIT_STACK, &rlim));
+  CHECK(!StackIsUnlimited());
+}
+
+void ReExec() {
+  static char *buff;
+  uptr buff_size = 0;
+  static const int kMaxArgv = 100;
+  char *argv[kMaxArgv + 1];
+  ReadFileToBuffer("/proc/self/cmdline", &buff, &buff_size, 1024 * 1024);
+  argv[0] = buff;
+  // Printf("argv[0]: %s\n", argv[0]);
+  int argc, i;
+  for (argc = 1, i = 1; ; i++) {
+    if (buff[i] == 0) {
+      if (buff[i+1] == 0) break;
+      argv[argc] = &buff[i+1];
+      // Printf("argv[%d]: %s\n", i, argv[argc]);
+      CHECK_LE(argc, kMaxArgv);  // FIXME: make this more flexible.
+      argc++;
+    }
+  }
+  argv[argc] = 0;
+  execv(argv[0], argv);
 }
 
 }

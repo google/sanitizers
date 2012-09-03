@@ -27,6 +27,10 @@ void BacktraceStackTrace();
 void InstallTrapHandler();
 void ReplaceOperatorsNewAndDelete();
 
+bool StackIsUnlimited();
+void SetSaneStackLimit();
+void ReExec();
+
 // Flags.
 struct Flags {
   bool poison_with_zeroes;  // default: false
