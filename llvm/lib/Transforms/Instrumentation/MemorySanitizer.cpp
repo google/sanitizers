@@ -649,11 +649,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void handleShadowOr(BinaryOperator &I) {
     IRBuilder<> IRB(&I);
-    setShadow(&I,  IRB.CreateOr(getShadow(&I, 0), getShadow(&I, 1), "_msprop"));
+    Value *Shadow0 = getShadow(&I, 0);
+    Value *Shadow1 = getShadow(&I, 1);
+    setShadow(&I,  IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
     if (ClTrackOrigins) {
       DEBUG(dbgs() << "ORIGINS: " << I << "\n");
-      // FIXME
-      setOrigin(&I, getOrigin(&I, 0));
+      setOrigin(&I, IRB.CreateSelect(
+          IRB.CreateICmpNE(Shadow0, getCleanShadow(Shadow0)),
+          getOrigin(&I, 0), getOrigin(&I, 1)));
     }
   }
 
