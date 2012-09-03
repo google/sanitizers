@@ -38,7 +38,6 @@ Flags flags = {
 };
 int msan_inited = 0;
 bool msan_init_is_running;
-bool msan_track_origins;
 
 
 void ParseFlagsFromString(Flags *f, const char *str) {
@@ -108,7 +107,9 @@ void __msan_init() {
   msan_init_is_running = 1;
   msan_running_under_dr = IsRunningUnderDr();
   __msan_clear_on_return();
-  if (!InitShadow(/*true*/ false, true, true, msan_track_origins)) {
+  if (__msan_track_origins)
+    Printf("msan_track_origins\n");
+  if (!InitShadow(/*true*/ false, true, true, __msan_track_origins)) {
     // FIXME: eugenis, do we need *false* above?
     Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
     Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
@@ -125,10 +126,6 @@ void __msan_init() {
   // Printf("MemorySanitizer init done\n");
   msan_init_is_running = 0;
   msan_inited = 1;
-}
-
-void __msan_track_origins() {
-  __msan::msan_track_origins = true;
 }
 
 void __msan_set_exit_code(int exit_code) {
@@ -215,6 +212,23 @@ void __msan_partial_poison(void* data, void* shadow, uptr size) {
 void __msan_load_unpoisoned(void *src, uptr size, void *dst) {
   internal_memcpy(dst, src, size);
   __msan_unpoison(dst, size);
+}
+
+void __msan_set_origin(void *a, uptr size, u32 origin) {
+  if (!__msan_track_origins) return;
+  uptr x = (uptr)a;
+  uptr aligned = x & ~3ULL;
+  for (uptr addr = aligned; addr < aligned + size; addr += size) {
+    *(u32*)addr = origin;
+  }
+}
+
+u32 __msan_get_origin(void *a) {
+  if (!__msan_track_origins) return 0;
+  uptr x = (uptr)a;
+  uptr aligned = x & ~3ULL;
+  uptr origin_ptr = MEM_TO_ORIGIN(aligned);
+  return *(u32*)origin_ptr;
 }
 
 #include "msan_linux_inl.h"

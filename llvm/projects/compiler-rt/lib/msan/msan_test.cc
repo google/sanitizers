@@ -41,6 +41,14 @@ T *GetPoisoned(int i = 0, T val = 0) {
   return res;
 }
 
+static bool TrackingOrigins() {
+  long x;
+  __msan_set_origin(&x, sizeof(x), 0x1234);
+  u32 origin = __msan_get_origin(&x);
+  __msan_set_origin(&x, sizeof(x), 0);
+  return origin == 0x1234;
+}
+
 template<class T> NOINLINE T ReturnPoisoned() { return *GetPoisoned<T>(); }
 
 static volatile S1 v_s1;
@@ -897,6 +905,11 @@ static void StackStoreInDSOFn(int* x, int* y) {
 
 TEST(MemorySanitizerDr, StackStoreInDSOTest) {
   dso_stack_store(StackStoreInDSOFn, 1);
+}
+
+TEST(MemorySanitizerOrigins, SetGet) {
+  if (!TrackingOrigins()) return;
+  fprintf(stderr, "SetGet\n");
 }
 
 int main(int argc, char **argv) {

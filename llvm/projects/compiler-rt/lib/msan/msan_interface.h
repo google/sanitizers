@@ -4,13 +4,14 @@
 
 using __sanitizer::uptr;
 using __sanitizer::sptr;
+using __sanitizer::u32;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+extern const int __msan_track_origins;
 void __msan_init();
-void __msan_track_origins();
 void __msan_warning();
 void __msan_unpoison(void *a, uptr size);
 void __msan_clear_and_unpoison(void *a, uptr size);
@@ -25,6 +26,9 @@ void __msan_load_unpoisoned(void *src, uptr size, void *dst);
 
 // Returns the offset of the first (at least partially) poisoned byte, or -1 if the whole range is good.
 sptr __msan_test_shadow(const void *x, uptr size);
+
+void __msan_set_origin(void *a, uptr size, u32 origin);
+u32 __msan_get_origin(void *a);
 
 void __msan_clear_on_return();
 

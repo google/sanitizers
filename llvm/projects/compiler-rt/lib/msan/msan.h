@@ -5,12 +5,12 @@
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "msan_interface.h"
 
-#define MEM_TO_SHADOW(mem) ((mem) & ~0x400000000000ULL)
+#define MEM_TO_SHADOW(mem) ((mem)             & ~0x400000000000ULL)
+#define MEM_TO_ORIGIN(mem) (MEM_TO_SHADOW(mem) + 0x200000000000ULL)
 
 namespace __msan {
 extern int msan_inited;
 extern bool msan_init_is_running;
-extern bool msan_track_origins;
 
 uptr ReadFromFile(const char *path, char *buff, uptr size);
 bool ProtectRange(uptr beg, uptr end);
@@ -43,7 +43,7 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp);
 #define GET_MALLOC_STACK_TRACE                                     \
   StackTrace stack;                                                \
   stack.size = 0;                                                  \
-  if (msan_track_origins && msan_inited)                           \
+  if (__msan_track_origins && msan_inited)                           \
     GetStackTrace(&stack, flags.num_callers,                       \
       StackTrace::GetCurrentPc(), GET_CURRENT_FRAME())
 

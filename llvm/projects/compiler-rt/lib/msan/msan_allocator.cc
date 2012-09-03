@@ -57,7 +57,7 @@ void MsanDeallocate(void *p) {
 
 void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
                      uptr alignment, bool zeroise) {
-  if (msan_track_origins && msan_inited) {
+  if (__msan_track_origins && msan_inited) {
     u32 stack_id = StackDepotPut(stack->trace, stack->size);
     // if ((stack_id % 1024) == 0)
     //  Printf("ALLOC: stack.size = %zd id=%d\n", stack->size, stack_id);

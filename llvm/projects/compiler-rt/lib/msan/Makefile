@@ -30,8 +30,10 @@ CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1
 RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding -fno-exceptions
 LDFLAGS=-pie
+ORIGINS=0
+MSAN_ORIGINS=-mllvm -msan-track-origins=$(ORIGINS)
 MSAN_EXTRA_OPT=
-MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT)
+MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT) $(MSAN_ORIGINS)
 # MSAN_DEBUG=-mllvm -debug-only=msan
 CLANG_VERSION=3.2
 ARCH=x86_64
@@ -89,3 +91,5 @@ $(GTEST_LIB):
 
 clean: 
 	rm -f *.o msan_test msan.a $(LIBMSAN_A)
+gtest_clean:
+	rm -rf $(GTEST_BUILD_DIR)

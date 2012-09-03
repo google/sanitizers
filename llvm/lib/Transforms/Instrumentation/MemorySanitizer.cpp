@@ -197,11 +197,12 @@ bool MemorySanitizer::doInitialization(Module &M) {
 
   // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
   IRBuilder<> IRB(*C);
-  if (ClTrackOrigins)
-    appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
-        "__msan_track_origins", IRB.getVoidTy(), NULL)), 0);
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
-      "__msan_init", IRB.getVoidTy(), NULL)), 0);
+        "__msan_init", IRB.getVoidTy(), NULL)), 0);
+  
+  new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::LinkOnceODRLinkage,
+                     ConstantInt::get(IRB.getInt32Ty(), ClTrackOrigins),
+                     "__msan_track_origins");
 
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
