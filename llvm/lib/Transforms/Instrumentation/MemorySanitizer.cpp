@@ -434,6 +434,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void setOrigin(Value *V, Value *Origin) {
+    if (!ClTrackOrigins) return;
     assert(OriginMap[V] == 0);
     DEBUG(dbgs() << "ORIGIN: " << *V << "  ==> " << *Origin << "\n");
     OriginMap[V] = Origin;
@@ -511,6 +512,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   Value *getOrigin(Value *V) {
+    if (!ClTrackOrigins) return 0;
     Value *Origin = OriginMap[V];
     if (!Origin)
       Origin = getCleanOrigin();
@@ -581,20 +583,24 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitSExtInst(SExtInst &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateSExt(getShadow(&I, 0), I.getType(), "_msprop"));
+    setOrigin(&I, getOrigin(&I, 0));
   }
 
   void visitZExtInst(ZExtInst &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateZExt(getShadow(&I, 0), I.getType(), "_msprop"));
+    setOrigin(&I, getOrigin(&I, 0));
   }
 
   void visitTruncInst(TruncInst &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateTrunc(getShadow(&I, 0), I.getType(), "_msprop"));
+    setOrigin(&I, getOrigin(&I, 0));
   }
 
   void visitBitCastInst(BitCastInst &I) {
     setShadow(&I, getShadow(&I, 0));
+    setOrigin(&I, getOrigin(&I, 0));
   }
 
   void visitPtrToIntInst(PtrToIntInst &I) {
