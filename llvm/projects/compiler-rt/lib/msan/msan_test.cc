@@ -987,7 +987,10 @@ TEST(MemorySanitizerOrigins, BinaryOp) {
   BinaryOpOriginTest<S4>(MUL<S4>);
   BinaryOpOriginTest<U4>(OR<U4>);
   BinaryOpOriginTest<U4>(AND<U4>);
-  // BinaryOpOriginTest<double>(ADD<U4>);
+  BinaryOpOriginTest<double>(ADD<U4>);
+  BinaryOpOriginTest<float>(ADD<S4>);
+  BinaryOpOriginTest<double>(ADD<double>);
+  BinaryOpOriginTest<float>(ADD<double>);
 }
 
 TEST(MemorySanitizerOrigins, Unary) {

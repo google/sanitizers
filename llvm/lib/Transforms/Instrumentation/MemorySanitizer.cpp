@@ -697,6 +697,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           "_msprop");
     Shadow = IRB.CreateIntCast(Shadow, getShadowTy(&I), false);
     setShadow(&I, Shadow);
+    setOriginForNaryOp(I);
   }
 
   void visitFAdd(BinaryOperator &I) { handleShadowOr(I); }
