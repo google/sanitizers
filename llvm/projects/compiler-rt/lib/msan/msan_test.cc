@@ -365,6 +365,8 @@ void TestFloatingPoint() {
   T *x = GetPoisoned<T>();
   T *y = GetPoisoned<T>(1);
   EXPECT_POISONED(v = *x);
+  EXPECT_POISONED(v_s8 = *x);
+  EXPECT_POISONED(v_s4 = *x);
   g[0] = *x;
   g[1] = *x + *y;
   g[2] = *x - *y;
@@ -943,9 +945,9 @@ INLINE
 void BinaryOpOriginTest(BinaryOp op) {
   u32 ox = rand();
   u32 oy = rand();
-  T *x = GetPoisonedO<T>(0, ox);
-  T *y = GetPoisonedO<T>(1, oy);
-  T *z = GetPoisonedO<T>(2, 0);
+  T *x = GetPoisonedO<T>(0, ox, 0);
+  T *y = GetPoisonedO<T>(1, oy, 0);
+  T *z = GetPoisonedO<T>(2, 0, 0);
 
   *z = op(*x, *y);
   u32 origin = __msan_get_origin(z);
@@ -953,7 +955,7 @@ void BinaryOpOriginTest(BinaryOp op) {
   EXPECT_EQ(true, origin == ox || origin == oy);
 
   // y is poisoned, x is not.
-  *x = 0;
+  *x = 10101;
   *y = *GetPoisonedO<T>(1, oy);
   __msan_break_optimization(x);
   __msan_set_origin(z, sizeof(*z), 0);
@@ -963,7 +965,7 @@ void BinaryOpOriginTest(BinaryOp op) {
 
   // x is poisoned, y is not.
   *x = *GetPoisonedO<T>(0, ox);
-  *y = 0;
+  *y = 10101010;
   __msan_break_optimization(y);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = op(*x, *y);
@@ -976,15 +978,15 @@ template<class T> INLINE T ADD(const T &a, const T&b) { return a + b; }
 template<class T> INLINE T SUB(const T &a, const T&b) { return a - b; }
 template<class T> INLINE T MUL(const T &a, const T&b) { return a * b; }
 template<class T> INLINE T AND(const T &a, const T&b) { return a & b; }
-template<class T> INLINE T OR(const T &a, const T&b) { return a | b; }
+template<class T> INLINE T OR (const T &a, const T&b) { return a | b; }
 
 TEST(MemorySanitizerOrigins, BinaryOp) {
   BinaryOpOriginTest<S8>(XOR<S8>);
   BinaryOpOriginTest<U8>(ADD<U8>);
   BinaryOpOriginTest<S4>(SUB<S4>);
   BinaryOpOriginTest<S4>(MUL<S4>);
-  BinaryOpOriginTest<U4>(AND<U4>);
   BinaryOpOriginTest<U4>(OR<U4>);
+  BinaryOpOriginTest<U4>(AND<U4>);
   // BinaryOpOriginTest<double>(ADD<U4>);
 }
 

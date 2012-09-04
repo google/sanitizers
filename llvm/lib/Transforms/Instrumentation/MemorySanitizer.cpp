@@ -676,7 +676,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Origin = IRB.CreateSelect(
           IRB.CreateICmpNE(getShadow(&I, Op - 1),
                            getCleanShadow(I.getOperand(Op - 1))),
-          Origin, getOrigin(&I, 1));
+          Origin, getOrigin(&I, Op));
     setOrigin(&I, Origin);
   }
 
