@@ -643,6 +643,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *V1S2 = IRB.CreateAnd(V1, S2);
     Value *S1V2 = IRB.CreateAnd(S1, V2);
     setShadow(&I, IRB.CreateOr(S1S2, IRB.CreateOr(V1S2, S1V2)));
+    setOriginForBinaryOp(I);
   }
 
   void visitOr(BinaryOperator &I) {
@@ -664,6 +665,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *V1S2 = IRB.CreateAnd(V1, S2);
     Value *S1V2 = IRB.CreateAnd(S1, V2);
     setShadow(&I, IRB.CreateOr(S1S2, IRB.CreateOr(V1S2, S1V2)));
+    setOriginForBinaryOp(I);
+  }
+
+  void setOriginForBinaryOp(Instruction &I) {
+    if (!ClTrackOrigins) return;
+    IRBuilder<> IRB(&I);
+    setOrigin(&I, IRB.CreateSelect(
+        IRB.CreateICmpNE(getShadow(&I, 0), getCleanShadow(I.getOperand(0))),
+        getOrigin(&I, 0), getOrigin(&I, 1)));
   }
 
   void handleShadowOr(BinaryOperator &I) {
@@ -671,10 +681,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Shadow0 = getShadow(&I, 0);
     Value *Shadow1 = getShadow(&I, 1);
     setShadow(&I,  IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
-    if (ClTrackOrigins)
-      setOrigin(&I, IRB.CreateSelect(
-          IRB.CreateICmpNE(Shadow0, getCleanShadow(Shadow0)),
-          getOrigin(&I, 0), getOrigin(&I, 1)));
+    setOriginForBinaryOp(I);
   }
 
   void handleShadowOr(Instruction &I) {

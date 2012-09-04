@@ -3,6 +3,7 @@
 #include "gtest/gtest.h"
 
 #include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <assert.h>
 #include <wchar.h>
@@ -23,6 +24,7 @@ typedef   signed short     S2;
 typedef   signed int       S4;
 typedef   signed long long S8;
 #define NOINLINE      __attribute__((noinline))
+#define INLINE      __attribute__((always_inline))
 
 
 #define EXPECT_POISONED(action) \
@@ -936,23 +938,23 @@ TEST(MemorySanitizerOrigins, SetGet) {
   EXPECT_EQ(0, __msan_get_origin(&x));
 }
 
-TEST(MemorySanitizerOrigins, Xor) {
-  const u32 ox = 0x1234;
-  const u32 oy = 0x5678;
-  S8 *x = GetPoisonedO<S8>(0, ox);
-  S8 *y = GetPoisonedO<S8>(1, oy);
-  S8 *z = GetPoisonedO<S8>(2, 0);
+template<class T, class BinaryOp>
+INLINE
+void BinaryOpOriginTest(BinaryOp op) {
+  u32 ox = rand();
+  u32 oy = rand();
+  T *x = GetPoisonedO<T>(0, ox);
+  T *y = GetPoisonedO<T>(1, oy);
+  T *z = GetPoisonedO<T>(2, 0);
 
-  *z = *x ^ *y;
+  *z = op(*x, *y);
   u32 origin = __msan_get_origin(z);
   EXPECT_POISONED_O(v_s8 = *z, origin);
   EXPECT_EQ(true, origin == ox || origin == oy);
-  printf("origins: %x %x %x\n", __msan_get_origin(x),
-         __msan_get_origin(y), __msan_get_origin(z));
 
   // y is poisoned, x is not.
   *x = 0;
-  *y = *GetPoisonedO<S8>(1, oy);
+  *y = *GetPoisonedO<T>(1, oy);
   __msan_break_optimization(x);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
@@ -960,13 +962,29 @@ TEST(MemorySanitizerOrigins, Xor) {
   EXPECT_EQ(__msan_get_origin(z), oy);
 
   // x is poisoned, y is not.
-  *x = *GetPoisonedO<S8>(0, ox);
+  *x = *GetPoisonedO<T>(0, ox);
   *y = 0;
   __msan_break_optimization(y);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
   EXPECT_POISONED_O(v_s8 = *z, ox);
   EXPECT_EQ(__msan_get_origin(z), ox);
+}
+
+template<class T> INLINE T XOR(const T &a, const T&b) { return a ^ b; }
+template<class T> INLINE T ADD(const T &a, const T&b) { return a + b; }
+template<class T> INLINE T SUB(const T &a, const T&b) { return a - b; }
+template<class T> INLINE T MUL(const T &a, const T&b) { return a * b; }
+template<class T> INLINE T AND(const T &a, const T&b) { return a & b; }
+template<class T> INLINE T OR(const T &a, const T&b) { return a | b; }
+
+TEST(MemorySanitizerOrigins, BinaryOp) {
+  BinaryOpOriginTest<S8>(XOR<S8>);
+  BinaryOpOriginTest<U8>(ADD<U8>);
+  BinaryOpOriginTest<S4>(SUB<S4>);
+  BinaryOpOriginTest<S4>(MUL<S4>);
+  BinaryOpOriginTest<U4>(AND<U4>);
+  BinaryOpOriginTest<U4>(OR<U4>);
 }
 
 TEST(MemorySanitizerOrigins, Unary) {
