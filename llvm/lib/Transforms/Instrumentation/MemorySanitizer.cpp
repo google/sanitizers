@@ -643,7 +643,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *V1S2 = IRB.CreateAnd(V1, S2);
     Value *S1V2 = IRB.CreateAnd(S1, V2);
     setShadow(&I, IRB.CreateOr(S1S2, IRB.CreateOr(V1S2, S1V2)));
-    setOriginForBinaryOp(I);
+    setOriginForNaryOp(I);
   }
 
   void visitOr(BinaryOperator &I) {
@@ -665,15 +665,19 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *V1S2 = IRB.CreateAnd(V1, S2);
     Value *S1V2 = IRB.CreateAnd(S1, V2);
     setShadow(&I, IRB.CreateOr(S1S2, IRB.CreateOr(V1S2, S1V2)));
-    setOriginForBinaryOp(I);
+    setOriginForNaryOp(I);
   }
 
-  void setOriginForBinaryOp(Instruction &I) {
+  void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
-    setOrigin(&I, IRB.CreateSelect(
-        IRB.CreateICmpNE(getShadow(&I, 0), getCleanShadow(I.getOperand(0))),
-        getOrigin(&I, 0), getOrigin(&I, 1)));
+    Value *Origin = getOrigin(&I, 0);
+    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
+      Origin = IRB.CreateSelect(
+          IRB.CreateICmpNE(getShadow(&I, Op - 1),
+                           getCleanShadow(I.getOperand(Op - 1))),
+          Origin, getOrigin(&I, 1));
+    setOrigin(&I, Origin);
   }
 
   void handleShadowOr(BinaryOperator &I) {
@@ -681,18 +685,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Shadow0 = getShadow(&I, 0);
     Value *Shadow1 = getShadow(&I, 1);
     setShadow(&I,  IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
-    setOriginForBinaryOp(I);
+    setOriginForNaryOp(I);
   }
 
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
-    Value* temp = getShadow(&I, 0);
-    for (unsigned op = 1; op < I.getNumOperands(); ++op)
-      temp = IRB.CreateOr(temp,
-          IRB.CreateIntCast(getShadow(&I, op), temp->getType(), false),
+    Value* Shadow = getShadow(&I, 0);
+    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
+      Shadow = IRB.CreateOr(Shadow,
+          IRB.CreateIntCast(getShadow(&I, Op), Shadow->getType(), false),
           "_msprop");
-    temp = IRB.CreateIntCast(temp, getShadowTy(&I), false);
-    setShadow(&I, temp);
+    Shadow = IRB.CreateIntCast(Shadow, getShadowTy(&I), false);
+    setShadow(&I, Shadow);
   }
 
   void visitFAdd(BinaryOperator &I) { handleShadowOr(I); }

@@ -957,7 +957,7 @@ void BinaryOpOriginTest(BinaryOp op) {
   *y = *GetPoisonedO<T>(1, oy);
   __msan_break_optimization(x);
   __msan_set_origin(z, sizeof(*z), 0);
-  *z = *x ^ *y;
+  *z = op(*x, *y);
   EXPECT_POISONED_O(v_s8 = *z, oy);
   EXPECT_EQ(__msan_get_origin(z), oy);
 
@@ -966,7 +966,7 @@ void BinaryOpOriginTest(BinaryOp op) {
   *y = 0;
   __msan_break_optimization(y);
   __msan_set_origin(z, sizeof(*z), 0);
-  *z = *x ^ *y;
+  *z = op(*x, *y);
   EXPECT_POISONED_O(v_s8 = *z, ox);
   EXPECT_EQ(__msan_get_origin(z), ox);
 }
@@ -985,6 +985,7 @@ TEST(MemorySanitizerOrigins, BinaryOp) {
   BinaryOpOriginTest<S4>(MUL<S4>);
   BinaryOpOriginTest<U4>(AND<U4>);
   BinaryOpOriginTest<U4>(OR<U4>);
+  // BinaryOpOriginTest<double>(ADD<U4>);
 }
 
 TEST(MemorySanitizerOrigins, Unary) {
