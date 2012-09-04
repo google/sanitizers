@@ -512,7 +512,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   // Remember the place where a check for ShadowVal should be inserted.
-  void insertCheck(Value *ShadowVal, Instruction *OrigIns) {
+  void insertCheck(Value *Val, Instruction *OrigIns) {
+    assert(Val);
+    Value *ShadowVal = getShadow(Val);
     if (!ShadowVal) return;
     Instruction *Shadow = dyn_cast<Instruction>(ShadowVal);
     if (!Shadow) return;
@@ -538,7 +540,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, IRB.CreateLoad(ShadowPtr, "_msld"));
 
     if (ClTrapOnDirtyAccess)
-      insertCheck(getShadow(I.getPointerOperand()), &I);
+      insertCheck(I.getPointerOperand(), &I);
 
     if (ClTrackOrigins)
       setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
@@ -555,9 +557,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
     // If the store is volatile, add a check.
     if (I.isVolatile())
-      insertCheck(Shadow, &I);
+      insertCheck(Val, &I);
     if (ClTrapOnDirtyAccess)
-      insertCheck(getShadow(Addr), &I);
+      insertCheck(Addr, &I);
 
     if (ClTrackOrigins)
       IRB.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRB));
@@ -677,7 +679,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void handleDiv(Instruction &I) {
     IRBuilder<> IRB(&I);
     // Strict on the second argument.
-    insertCheck(getShadow(&I, 1), &I);
+    insertCheck(I.getOperand(1), &I);
     setShadow(&I, getShadow(&I, 0));
   }
 
@@ -1007,7 +1009,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       dumpInst(I);
     DEBUG(dbgs() << "DEFAULT: " << I << "\n");
     for (size_t i = 0, n = I.getNumOperands(); i < n; i++)
-      insertCheck(getShadow(&I, i), &I);
+      insertCheck(I.getOperand(i), &I);
     setShadow(&I, getCleanShadow(&I));
   }
 };
