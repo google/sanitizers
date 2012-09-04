@@ -50,7 +50,7 @@ T *GetPoisoned(int i = 0, T val = 0) {
 }
 
 template<class T>
-T *GetPoisonedWithOrigin(int i, u32 origin, T val = 0) {
+T *GetPoisonedO(int i, u32 origin, T val = 0) {
   T *res = (T*)&poisoned_array[i];
   *res = val;
   __msan_poison(&poisoned_array[i], sizeof(T));
@@ -939,9 +939,9 @@ TEST(MemorySanitizerOrigins, SetGet) {
 TEST(MemorySanitizerOrigins, Xor) {
   const u32 ox = 0x1234;
   const u32 oy = 0x5678;
-  S8 *x = GetPoisonedWithOrigin<S8>(0, ox);
-  S8 *y = GetPoisonedWithOrigin<S8>(1, oy);
-  S8 *z = GetPoisonedWithOrigin<S8>(2, 0);
+  S8 *x = GetPoisonedO<S8>(0, ox);
+  S8 *y = GetPoisonedO<S8>(1, oy);
+  S8 *z = GetPoisonedO<S8>(2, 0);
 
   *z = *x ^ *y;
   u32 origin = __msan_get_origin(z);
@@ -952,7 +952,7 @@ TEST(MemorySanitizerOrigins, Xor) {
 
   // y is poisoned, x is not.
   *x = 0;
-  *y = *GetPoisonedWithOrigin<S8>(1, oy);
+  *y = *GetPoisonedO<S8>(1, oy);
   __msan_break_optimization(x);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
@@ -960,7 +960,7 @@ TEST(MemorySanitizerOrigins, Xor) {
   EXPECT_EQ(__msan_get_origin(z), oy);
 
   // x is poisoned, y is not.
-  *x = *GetPoisonedWithOrigin<S8>(0, ox);
+  *x = *GetPoisonedO<S8>(0, ox);
   *y = 0;
   __msan_break_optimization(y);
   __msan_set_origin(z, sizeof(*z), 0);
@@ -970,25 +970,28 @@ TEST(MemorySanitizerOrigins, Xor) {
 }
 
 TEST(MemorySanitizerOrigins, Unary) {
-  EXPECT_POISONED_O(v_s8 = *GetPoisonedWithOrigin<S8>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s4 = *GetPoisonedWithOrigin<S8>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s2 = *GetPoisonedWithOrigin<S8>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s1 = *GetPoisonedWithOrigin<S8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s8 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s4 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s2 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s1 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
 
-  EXPECT_POISONED_O(v_s8 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s4 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s2 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s1 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s8 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s4 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s2 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s1 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
 
-  EXPECT_POISONED_O(v_s8 = *GetPoisonedWithOrigin<U4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s4 = *GetPoisonedWithOrigin<U4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s2 = *GetPoisonedWithOrigin<U4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_s1 = *GetPoisonedWithOrigin<U4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s8 = *GetPoisonedO<U4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s4 = *GetPoisonedO<U4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s2 = *GetPoisonedO<U4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s1 = *GetPoisonedO<U4>(0, __LINE__), __LINE__);
 
-  EXPECT_POISONED_O(v_u8 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_u4 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_u2 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
-  EXPECT_POISONED_O(v_u1 = *GetPoisonedWithOrigin<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_u8 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_u4 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_u2 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_u1 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+
+  EXPECT_POISONED_O(v_p = (void*)*GetPoisonedO<S8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_u8 = (U8)*GetPoisonedO<void*>(0, __LINE__), __LINE__);
 }
 
 int main(int argc, char **argv) {
