@@ -129,6 +129,7 @@ struct MemorySanitizer : public FunctionPass {
   GlobalVariable *RetvalTLS;
   GlobalVariable *VAArgTLS;
   GlobalVariable *VAArgOverflowSizeTLS;
+  GlobalVariable *OriginTLS;
   // The run-time callback to print a warning.
   Value *WarningFn;
   // ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
@@ -239,6 +240,9 @@ bool MemorySanitizer::doInitialization(Module &M) {
     false, GlobalVariable::ExternalLinkage, 0,
     "__msan_va_arg_overflow_size_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
+  OriginTLS = new GlobalVariable(M, IRB.getInt32Ty(),
+    false, GlobalVariable::ExternalLinkage, 0, "__msan_origin_tls", 0,
+    GlobalVariable::GeneralDynamicTLSModel);
   return true;
 }
 
@@ -256,14 +260,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
   static const unsigned AMD64FpEndOffset = 176;
 
-  struct ShadowAndInsertPoint {
+  struct ShadowOriginAndInsertPoint {
     Instruction *Shadow;
+    Instruction *Origin;
     Instruction *OrigIns;
-    ShadowAndInsertPoint(Instruction *S, Instruction *I) :
-      Shadow(S), OrigIns(I) { }
-    ShadowAndInsertPoint() : Shadow(0), OrigIns(0) { }
+    ShadowOriginAndInsertPoint(Instruction *S, Instruction *O, Instruction *I) :
+      Shadow(S), Origin(O), OrigIns(I) { }
+    ShadowOriginAndInsertPoint() : Shadow(0), Origin(0), OrigIns(0) { }
   };
-  SmallVector<ShadowAndInsertPoint, 16> InstrumentationSet;
+  SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationSet;
 
   SmallVector<CallInst*, 16> VAStartInstrumentationSet;
 
@@ -342,12 +347,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     for (size_t i = 0, n = InstrumentationSet.size(); i < n; i++) {
       Instruction *Shadow = InstrumentationSet[i].Shadow;
       Instruction *OrigIns = InstrumentationSet[i].OrigIns;
+      Instruction *Origin = InstrumentationSet[i].Origin;
       IRBuilder<> IRB(OrigIns);
       Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
       Instruction *CheckTerm =
           splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
-      IRBuilder<> IRB2(CheckTerm);
-      CallInst *Call = IRB2.CreateCall(MS.WarningFn);
+
+      IRB.SetInsertPoint(CheckTerm);
+      if (ClTrackOrigins)
+        IRB.CreateStore(Origin ? (Value*)Origin : (Value*)IRB.getInt32(0),
+                        MS.OriginTLS);
+      CallInst *Call = IRB.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
       DEBUG(dbgs() << "  SHAD : " << *Shadow << "\n");
       DEBUG(dbgs() << "  CHECK: " << *Cmp << "\n");
@@ -519,7 +529,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Instruction *Shadow = dyn_cast<Instruction>(ShadowVal);
     if (!Shadow) return;
     if (!InsertChecks) return;
-    InstrumentationSet.push_back(ShadowAndInsertPoint(Shadow, OrigIns));
+    Instruction *Origin = dyn_cast<Instruction>(getOrigin(Val));
+    InstrumentationSet.push_back(
+        ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
   }
 
   //------------------- Visitors.

@@ -934,6 +934,7 @@ TEST(MemorySanitizerOrigins, Xor) {
   u32 origin = __msan_get_origin(z);
   EXPECT_POISONED(v_s8 = *z);
   EXPECT_EQ(true, origin == ox || origin == oy);
+  EXPECT_EQ(origin, __msan_get_origin_tls());
   printf("origins: %x %x %x\n", __msan_get_origin(x),
          __msan_get_origin(y), __msan_get_origin(z));
 
@@ -945,6 +946,7 @@ TEST(MemorySanitizerOrigins, Xor) {
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
   EXPECT_POISONED(v_s8 = *z);
+  EXPECT_EQ(__msan_get_origin_tls(), oy);
   EXPECT_EQ(__msan_get_origin(z), oy);
 
   // x is poisoned, y is not.
@@ -955,6 +957,7 @@ TEST(MemorySanitizerOrigins, Xor) {
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
   EXPECT_POISONED(v_s8 = *z);
+  EXPECT_EQ(__msan_get_origin_tls(), ox);
   EXPECT_EQ(__msan_get_origin(z), ox);
 }
 

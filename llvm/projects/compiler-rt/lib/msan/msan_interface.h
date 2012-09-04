@@ -48,6 +48,9 @@ int  __msan_has_dynamic_component();
 int __msan_get_retval_tls_offset();
 int __msan_get_param_tls_offset();
 
+// For testing.
+u32 __msan_get_origin_tls();
+
 void __msan_partial_poison(void* data, void* shadow, uptr size);
 
 #ifdef __cplusplus

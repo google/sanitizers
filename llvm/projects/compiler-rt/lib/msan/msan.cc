@@ -20,6 +20,7 @@ THREADLOCAL long long __msan_param_tls[100];
 THREADLOCAL long long __msan_retval_tls[8];
 THREADLOCAL long long __msan_va_arg_tls[100];
 THREADLOCAL long long __msan_va_arg_overflow_size_tls;
+THREADLOCAL u32       __msan_origin_tls;
 
 THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
 
@@ -84,6 +85,9 @@ void PrintWarning(uptr pc, uptr bp) {
     PrintCurrentStackTrace(pc, bp);
   else
     BacktraceStackTrace();
+  if (__msan_track_origins) {
+    Report("  ORIGIN: %x\n", __msan_origin_tls);
+  }
   if (__msan::flags.exit_code >= 0) {
     Printf("Exiting\n");
     Die();
@@ -234,6 +238,10 @@ u32 __msan_get_origin(void *a) {
   uptr aligned = x & ~3ULL;
   uptr origin_ptr = MEM_TO_ORIGIN(aligned);
   return *(u32*)origin_ptr;
+}
+
+u32 __msan_get_origin_tls() {
+  return __msan_origin_tls;
 }
 
 #include "msan_linux_inl.h"
