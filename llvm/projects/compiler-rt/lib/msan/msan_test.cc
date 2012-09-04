@@ -41,6 +41,15 @@ T *GetPoisoned(int i = 0, T val = 0) {
   return res;
 }
 
+template<class T>
+T *GetPoisonedWithOrigin(int i, u32 origin, T val = 0) {
+  T *res = (T*)&poisoned_array[i];
+  *res = val;
+  __msan_poison(&poisoned_array[i], sizeof(T));
+  __msan_set_origin(&poisoned_array[i], sizeof(T), origin);
+  return res;
+}
+
 static bool TrackingOrigins() {
   long x;
   __msan_set_origin(&x, sizeof(x), 0x1234);
@@ -920,16 +929,12 @@ TEST(MemorySanitizerOrigins, SetGet) {
 }
 
 TEST(MemorySanitizerOrigins, Xor) {
-  S8 *x = GetPoisoned<S8>(0);
-  S8 *y = GetPoisoned<S8>(1);
-  S8 *z = GetPoisoned<S8>(2);
   const int ox = 0x1234;
   const int oy = 0x5678;
+  S8 *x = GetPoisonedWithOrigin<S8>(0, ox);
+  S8 *y = GetPoisonedWithOrigin<S8>(1, oy);
+  S8 *z = GetPoisonedWithOrigin<S8>(2, 0);
 
-  // Both x and y are poisoned.
-  __msan_set_origin(x, sizeof(*x), ox);
-  __msan_set_origin(y, sizeof(*y), oy);
-  __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
   u32 origin = __msan_get_origin(z);
   EXPECT_POISONED(v_s8 = *z);
@@ -940,9 +945,8 @@ TEST(MemorySanitizerOrigins, Xor) {
 
   // y is poisoned, x is not.
   *x = 0;
-  *y = *GetPoisoned<S8>(1);
+  *y = *GetPoisonedWithOrigin<S8>(1, oy);
   __msan_break_optimization(x);
-  __msan_set_origin(y, sizeof(*y), oy);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
   EXPECT_POISONED(v_s8 = *z);
@@ -950,10 +954,9 @@ TEST(MemorySanitizerOrigins, Xor) {
   EXPECT_EQ(__msan_get_origin(z), oy);
 
   // x is poisoned, y is not.
-  *x = *GetPoisoned<S8>(0);
+  *x = *GetPoisonedWithOrigin<S8>(0, ox);
   *y = 0;
   __msan_break_optimization(y);
-  __msan_set_origin(x, sizeof(*x), ox);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
   EXPECT_POISONED(v_s8 = *z);
