@@ -25,11 +25,19 @@ typedef   signed long long S8;
 #define NOINLINE      __attribute__((noinline))
 
 
-#define EXPECT_POISONED(action)      \
+#define EXPECT_POISONED(action) \
     do {                        \
       __msan_set_expect_umr(1); \
       action;                   \
       __msan_set_expect_umr(0); \
+    } while (0)
+
+#define EXPECT_POISONED_WITH_ORIGIN(action, origin) \
+    do {                                            \
+      __msan_set_expect_umr(1);                     \
+      action;                                       \
+      __msan_set_expect_umr(0);                     \
+      EXPECT_EQ(origin, __msan_get_origin_tls());   \
     } while (0)
 
 static U8 poisoned_array[100];
@@ -937,9 +945,8 @@ TEST(MemorySanitizerOrigins, Xor) {
 
   *z = *x ^ *y;
   u32 origin = __msan_get_origin(z);
-  EXPECT_POISONED(v_s8 = *z);
+  EXPECT_POISONED_WITH_ORIGIN(v_s8 = *z, origin);
   EXPECT_EQ(true, origin == ox || origin == oy);
-  EXPECT_EQ(origin, __msan_get_origin_tls());
   printf("origins: %x %x %x\n", __msan_get_origin(x),
          __msan_get_origin(y), __msan_get_origin(z));
 
@@ -949,8 +956,7 @@ TEST(MemorySanitizerOrigins, Xor) {
   __msan_break_optimization(x);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
-  EXPECT_POISONED(v_s8 = *z);
-  EXPECT_EQ(__msan_get_origin_tls(), oy);
+  EXPECT_POISONED_WITH_ORIGIN(v_s8 = *z, oy);
   EXPECT_EQ(__msan_get_origin(z), oy);
 
   // x is poisoned, y is not.
@@ -959,8 +965,7 @@ TEST(MemorySanitizerOrigins, Xor) {
   __msan_break_optimization(y);
   __msan_set_origin(z, sizeof(*z), 0);
   *z = *x ^ *y;
-  EXPECT_POISONED(v_s8 = *z);
-  EXPECT_EQ(__msan_get_origin_tls(), ox);
+  EXPECT_POISONED_WITH_ORIGIN(v_s8 = *z, ox);
   EXPECT_EQ(__msan_get_origin(z), ox);
 }
 
