@@ -425,6 +425,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void setOrigin(Value *V, Value *Origin) {
     assert(OriginMap[V] == 0);
+    DEBUG(dbgs() << "ORIGIN: " << *V << "  ==> " << *Origin << "\n");
     OriginMap[V] = Origin;
   }
 
@@ -539,10 +540,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClTrapOnDirtyAccess)
       insertCheck(getShadow(I.getPointerOperand()), &I);
 
-    if (ClTrackOrigins) {
-      DEBUG(dbgs() << "ORIGINS: " << I << "\n");
+    if (ClTrackOrigins)
       setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
-    }
   }
 
   void visitStoreInst(StoreInst &I) {
@@ -560,10 +559,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClTrapOnDirtyAccess)
       insertCheck(getShadow(Addr), &I);
 
-    if (ClTrackOrigins) {
-      DEBUG(dbgs() << "ORIGINS: " << I << "\n");
+    if (ClTrackOrigins)
       IRB.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRB));
-    }
   }
 
   // Casts.
@@ -652,12 +649,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Shadow0 = getShadow(&I, 0);
     Value *Shadow1 = getShadow(&I, 1);
     setShadow(&I,  IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
-    if (ClTrackOrigins) {
-      DEBUG(dbgs() << "ORIGINS: " << I << "\n");
+    if (ClTrackOrigins)
       setOrigin(&I, IRB.CreateSelect(
           IRB.CreateICmpNE(Shadow0, getCleanShadow(Shadow0)),
           getOrigin(&I, 0), getOrigin(&I, 1)));
-    }
   }
 
   void handleShadowOr(Instruction &I) {
