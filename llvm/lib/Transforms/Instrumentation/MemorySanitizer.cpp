@@ -680,7 +680,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOrigin(&I, Origin);
   }
 
-  void handleShadowOr(BinaryOperator &I) {
+  // Shadow = Shadow0 | Shadow1
+  void handleShadowOrBinary(Instruction &I) {
     IRBuilder<> IRB(&I);
     Value *Shadow0 = getShadow(&I, 0);
     Value *Shadow1 = getShadow(&I, 1);
@@ -688,6 +689,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  // Shadow = Shadow0 | ... | ShadowN with proper casting.
+  // FIXME: is the casting actually correct?
+  // FIXME: merge this with handleShadowOrBinary.
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
     Value* Shadow = getShadow(&I, 0);
@@ -700,13 +704,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
-  void visitFAdd(BinaryOperator &I) { handleShadowOr(I); }
-  void visitFSub(BinaryOperator &I) { handleShadowOr(I); }
-  void visitFMul(BinaryOperator &I) { handleShadowOr(I); }
-  void visitAdd(BinaryOperator &I) { handleShadowOr(I); }
-  void visitSub(BinaryOperator &I) { handleShadowOr(I); }
-  void visitXor(BinaryOperator &I) { handleShadowOr(I); }
-  void visitMul(BinaryOperator &I) { handleShadowOr(I); }
+  void visitFAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitFSub(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitFMul(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitSub(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitXor(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitMul(BinaryOperator &I) { handleShadowOrBinary(I); }
 
   void handleDiv(Instruction &I) {
     IRBuilder<> IRB(&I);
@@ -754,11 +758,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClHandleICmp && I.isEquality())
       handleEqualityComparison(I);
     else
-      handleShadowOr(I);
+      handleShadowOrBinary(I);
   }
 
   void visitFCmpInst(FCmpInst &I) {
-    handleShadowOr(I);
+    handleShadowOrBinary(I);
   }
 
   void handleShift(BinaryOperator &I) {
