@@ -132,6 +132,7 @@ struct MemorySanitizer : public FunctionPass {
   GlobalVariable *OriginTLS;
   // The run-time callback to print a warning.
   Value *WarningFn;
+  Value *MsanCopyOriginFn;
   // ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
   uint64_t ShadowMask;
   // OriginAddr is computed as (ShadowAddr+Offset) & ~3ULL
@@ -226,6 +227,8 @@ bool MemorySanitizer::doInitialization(Module &M) {
   } else {
     WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
   }
+  MsanCopyOriginFn = M.getOrInsertFunction("__msan_copy_origin",
+    IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
@@ -809,6 +812,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     bool isVolatile = I.isVolatile();
 
     IRB.CreateMemCpy(ShadowDst, ShadowSrc, Size, Align, isVolatile);
+    if (ClTrackOrigins)
+      IRB.CreateCall3(MS.MsanCopyOriginFn, Dst, Src, Size);
   }
 
   void handleMemMove(MemMoveInst &I) {

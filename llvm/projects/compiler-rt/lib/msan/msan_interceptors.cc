@@ -402,6 +402,8 @@ void __msan_copy_origin(void *dst, const void *src, uptr size) {
   if (!MEM_IS_APP(dst) || !MEM_IS_APP(src)) return;
   uptr d = MEM_TO_ORIGIN(dst);
   uptr s = MEM_TO_ORIGIN(src);
+  // FIXME: this is slow and not precise for unaligned data.
+  // FIXME: handle memmove case.
   for (uptr i = 0; i < size; i++)
     *(char*)(d+i) = *(char*)(s+i);
 }

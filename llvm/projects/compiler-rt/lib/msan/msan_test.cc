@@ -1063,8 +1063,7 @@ TEST(MemorySanitizerOrigins, LargeMemCpy) {
   MemCpyTest<U8, 10000>();
 }
 
-// FIXME: enable this.
-TEST(MemorySanitizerOrigins, DISABLED_SmallMemCpy) {
+TEST(MemorySanitizerOrigins, SmallMemCpy) {
   if (!TrackingOrigins()) return;
   MemCpyTest<U8, 1>();
   MemCpyTest<U8, 2>();
