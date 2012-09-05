@@ -981,6 +981,7 @@ template<class T> INLINE T AND(const T &a, const T&b) { return a & b; }
 template<class T> INLINE T OR (const T &a, const T&b) { return a | b; }
 
 TEST(MemorySanitizerOrigins, BinaryOp) {
+  if (!TrackingOrigins()) return;
   BinaryOpOriginTest<S8>(XOR<S8>);
   BinaryOpOriginTest<U8>(ADD<U8>);
   BinaryOpOriginTest<S4>(SUB<S4>);
@@ -994,6 +995,7 @@ TEST(MemorySanitizerOrigins, BinaryOp) {
 }
 
 TEST(MemorySanitizerOrigins, Unary) {
+  if (!TrackingOrigins()) return;
   EXPECT_POISONED_O(v_s8 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
   EXPECT_POISONED_O(v_s4 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
   EXPECT_POISONED_O(v_s2 = *GetPoisonedO<S8>(0, __LINE__), __LINE__);
@@ -1016,6 +1018,12 @@ TEST(MemorySanitizerOrigins, Unary) {
 
   EXPECT_POISONED_O(v_p = (void*)*GetPoisonedO<S8>(0, __LINE__), __LINE__);
   EXPECT_POISONED_O(v_u8 = (U8)*GetPoisonedO<void*>(0, __LINE__), __LINE__);
+}
+
+TEST(MemorySanitizerOrigins, EQ) {
+  if (!TrackingOrigins()) return;
+  EXPECT_POISONED_O(v_u1 = *GetPoisonedO<S4>(0, __LINE__) <= 11, __LINE__);
+  EXPECT_POISONED_O(v_u1 = *GetPoisonedO<float>(0, __LINE__) == 1.1, __LINE__);
 }
 
 int main(int argc, char **argv) {

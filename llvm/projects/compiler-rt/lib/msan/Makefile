@@ -69,7 +69,7 @@ $(LIBMSAN_A): msan.a
 	$(CXX) $(RTL_CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 t:
-	(make clean && make -j 10 2> log && ./msandr.sh ./msan_test )
+	(make clean && make gtest_clean && make -j 10 2> log && ./msandr.sh ./msan_test )
 
 
 # Do once: cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ~/llvm_msan/

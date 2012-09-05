@@ -531,7 +531,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Instruction *Shadow = dyn_cast<Instruction>(ShadowVal);
     if (!Shadow) return;
     if (!InsertChecks) return;
-    Instruction *Origin = dyn_cast<Instruction>(getOrigin(Val));
+    Value *OriginVal = getOrigin(Val);
+    Instruction *Origin = 0;
+    if (OriginVal)
+      Origin = dyn_cast<Instruction>(Val);
     InstrumentationSet.push_back(
         ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
   }
@@ -680,7 +683,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOrigin(&I, Origin);
   }
 
-  // Shadow = Shadow0 | Shadow1
+  // Shadow = Shadow0 | Shadow1, all 3 have the same type.
   void handleShadowOrBinary(Instruction &I) {
     IRBuilder<> IRB(&I);
     Value *Shadow0 = getShadow(&I, 0);
@@ -758,11 +761,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClHandleICmp && I.isEquality())
       handleEqualityComparison(I);
     else
-      handleShadowOrBinary(I);
+      handleShadowOr(I);
   }
 
   void visitFCmpInst(FCmpInst &I) {
-    handleShadowOrBinary(I);
+    handleShadowOr(I);
   }
 
   void handleShift(BinaryOperator &I) {
