@@ -1043,6 +1043,34 @@ TEST(MemorySanitizerOrigins, SHIFT) {
   EXPECT_POISONED_O(v_s8 = -10 << *GetPoisonedO<S8>(0, __LINE__), __LINE__);
 }
 
+template<class T, int N>
+void MemCpyTest() {
+  int ox = __LINE__;
+  T *x = new T[N];
+  T *y = new T[N];
+  __msan_poison(x, N * sizeof(T));
+  __msan_set_origin(x, N * sizeof(T), ox);
+  __msan_set_origin(y, N * sizeof(T), 777777);
+  memcpy(y, x, N * sizeof(T));
+  EXPECT_POISONED_O(v_s1 = y[0], ox);
+  EXPECT_POISONED_O(v_s1 = y[N/2], ox);
+  EXPECT_POISONED_O(v_s1 = y[N-1], ox);
+}
+
+TEST(MemorySanitizerOrigins, LargeMemCpy) {
+  if (!TrackingOrigins()) return;
+  MemCpyTest<U1, 10000>();
+  MemCpyTest<U8, 10000>();
+}
+
+// FIXME: enable this.
+TEST(MemorySanitizerOrigins, DISABLED_SmallMemCpy) {
+  if (!TrackingOrigins()) return;
+  MemCpyTest<U8, 1>();
+  MemCpyTest<U8, 2>();
+  MemCpyTest<U8, 3>();
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);

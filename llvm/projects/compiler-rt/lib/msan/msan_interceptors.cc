@@ -397,11 +397,21 @@ void __msan_clear_and_unpoison(void *a, uptr size) {
   fast_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 
+void __msan_copy_origin(void *dst, const void *src, uptr size) {
+  if (!__msan_track_origins) return;
+  if (!MEM_IS_APP(dst) || !MEM_IS_APP(src)) return;
+  uptr d = MEM_TO_ORIGIN(dst);
+  uptr s = MEM_TO_ORIGIN(src);
+  for (uptr i = 0; i < size; i++)
+    *(char*)(d+i) = *(char*)(s+i);
+}
+
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
   if (IS_IN_SHADOW(dst)) return;
   if (IS_IN_SHADOW(src)) return;
   fast_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
-         (void*)MEM_TO_SHADOW((uptr)src), size);
+              (void*)MEM_TO_SHADOW((uptr)src), size);
+  __msan_copy_origin(dst, src, size);
 }
 
 void __msan_move_poison(void *dst, const void *src, uptr size) {

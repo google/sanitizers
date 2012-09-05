@@ -5,8 +5,11 @@
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "msan_interface.h"
 
-#define MEM_TO_SHADOW(mem) ((mem)             & ~0x400000000000ULL)
+#define MEM_TO_SHADOW(mem) (((uptr)mem)       & ~0x400000000000ULL)
 #define MEM_TO_ORIGIN(mem) (MEM_TO_SHADOW(mem) + 0x200000000000ULL)
+#define MEM_IS_APP(mem)    ((uptr)mem >=         0x600000000000ULL)
+#define MEM_IS_SHADOW(mem) ((uptr)mem >=         0x200000000000ULL && \
+                            (uptr)mem <=         0x400000000000ULL)
 
 namespace __msan {
 extern int msan_inited;

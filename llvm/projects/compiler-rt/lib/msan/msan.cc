@@ -227,7 +227,7 @@ void __msan_set_origin(void *a, uptr size, u32 origin) {
   if (!__msan_track_origins) return;
   uptr x = (uptr)a;
   uptr aligned = MEM_TO_ORIGIN(x & ~3ULL);
-  for (uptr addr = aligned; addr < aligned + size; addr += size) {
+  for (uptr addr = aligned; addr < aligned + size; addr += 4) {
     *(u32*)addr = origin;
   }
 }

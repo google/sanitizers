@@ -28,7 +28,7 @@ static const uptr kOriginsEnd = kBad2End;
 
 char *GetProcSelfMaps() {
   // FIXME
-  static const int kSize = 1 << 20;
+  static const int kSize = 1 << 22;
   static char maps[kSize];
   size_t s = ReadFromFile("/proc/self/maps", maps, kSize - 1);
   maps[s] = 0;
