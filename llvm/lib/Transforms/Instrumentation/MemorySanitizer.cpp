@@ -752,6 +752,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         IRB.CreateICmpEQ(IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
     Si->setName("_msprop_icmp");
     setShadow(&I, Si);
+    setOriginForNaryOp(I);
   }
 
   void visitICmpInst(ICmpInst &I) {

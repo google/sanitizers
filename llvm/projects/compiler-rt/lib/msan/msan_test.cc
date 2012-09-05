@@ -1023,6 +1023,7 @@ TEST(MemorySanitizerOrigins, Unary) {
 TEST(MemorySanitizerOrigins, EQ) {
   if (!TrackingOrigins()) return;
   EXPECT_POISONED_O(v_u1 = *GetPoisonedO<S4>(0, __LINE__) <= 11, __LINE__);
+  EXPECT_POISONED_O(v_u1 = *GetPoisonedO<S4>(0, __LINE__) == 11, __LINE__);
   EXPECT_POISONED_O(v_u1 = *GetPoisonedO<float>(0, __LINE__) == 1.1, __LINE__);
 }
 
