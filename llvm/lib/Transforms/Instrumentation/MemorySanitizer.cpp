@@ -828,6 +828,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     bool isVolatile = I.isVolatile();
 
     IRB.CreateMemMove(ShadowDst, ShadowSrc, Size, Align, isVolatile);
+    if (ClTrackOrigins)
+      IRB.CreateCall3(MS.MsanCopyOriginFn, Dst, Src, Size);
   }
 
   void handleVAStart(IntrinsicInst &I) {

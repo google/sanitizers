@@ -1048,13 +1048,21 @@ void MemCpyTest() {
   int ox = __LINE__;
   T *x = new T[N];
   T *y = new T[N];
+  T *z = new T[N];
   __msan_poison(x, N * sizeof(T));
   __msan_set_origin(x, N * sizeof(T), ox);
   __msan_set_origin(y, N * sizeof(T), 777777);
-  memcpy(y, x, N * sizeof(T));
+  __msan_set_origin(z, N * sizeof(T), 888888);
+  v_p = x;
+  memcpy(y, v_p, N * sizeof(T));
   EXPECT_POISONED_O(v_s1 = y[0], ox);
   EXPECT_POISONED_O(v_s1 = y[N/2], ox);
   EXPECT_POISONED_O(v_s1 = y[N-1], ox);
+  v_p = x;
+  memmove(z, v_p, N * sizeof(T));
+  EXPECT_POISONED_O(v_s1 = z[0], ox);
+  EXPECT_POISONED_O(v_s1 = z[N/2], ox);
+  EXPECT_POISONED_O(v_s1 = z[N-1], ox);
 }
 
 TEST(MemorySanitizerOrigins, LargeMemCpy) {

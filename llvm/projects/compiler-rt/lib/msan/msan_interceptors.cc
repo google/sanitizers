@@ -419,9 +419,10 @@ void __msan_copy_poison(void *dst, const void *src, uptr size) {
 void __msan_move_poison(void *dst, const void *src, uptr size) {
   if (IS_IN_SHADOW(dst)) return;
   if (IS_IN_SHADOW(src)) return;
-  CHECK(REAL(memmove));;
+  CHECK(REAL(memmove));
   REAL(memmove)((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
+  __msan_copy_origin(dst, src, size);
 }
 
 void __msan_memcpy_with_poison(void *dst, const void *src, uptr size) {
