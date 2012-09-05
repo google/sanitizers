@@ -716,6 +716,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Strict on the second argument.
     insertCheck(I.getOperand(1), &I);
     setShadow(&I, getShadow(&I, 0));
+    setOrigin(&I, getOrigin(&I, 0));
   }
 
   void visitUDiv(BinaryOperator &I) { handleDiv(I); }
