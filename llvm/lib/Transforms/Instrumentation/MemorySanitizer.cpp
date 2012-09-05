@@ -777,6 +777,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *V2 = I.getOperand(1);
     Value *Shift = IRB.CreateBinOp(I.getOpcode(), S1, V2);
     setShadow(&I, IRB.CreateOr(Shift, S2Conv));
+    setOriginForNaryOp(I);
   }
 
   void visitShl(BinaryOperator &I) { handleShift(I); }

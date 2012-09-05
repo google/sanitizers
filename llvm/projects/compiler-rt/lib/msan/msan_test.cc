@@ -1033,6 +1033,16 @@ TEST(MemorySanitizerOrigins, DIV) {
   EXPECT_POISONED_O(v_s4 = 100 / *GetPoisonedO<S4>(0, __LINE__, 1), __LINE__);
 }
 
+TEST(MemorySanitizerOrigins, SHIFT) {
+  if (!TrackingOrigins()) return;
+  EXPECT_POISONED_O(v_u8 = *GetPoisonedO<U8>(0, __LINE__) >> 10, __LINE__);
+  EXPECT_POISONED_O(v_s8 = *GetPoisonedO<S8>(0, __LINE__) >> 10, __LINE__);
+  EXPECT_POISONED_O(v_s8 = *GetPoisonedO<S8>(0, __LINE__) << 10, __LINE__);
+  EXPECT_POISONED_O(v_u8 = 10U << *GetPoisonedO<U8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s8 = -10 >> *GetPoisonedO<S8>(0, __LINE__), __LINE__);
+  EXPECT_POISONED_O(v_s8 = -10 << *GetPoisonedO<S8>(0, __LINE__), __LINE__);
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);
