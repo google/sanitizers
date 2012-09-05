@@ -347,16 +347,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     for (size_t i = 0, n = InstrumentationSet.size(); i < n; i++) {
       Instruction *Shadow = InstrumentationSet[i].Shadow;
       Instruction *OrigIns = InstrumentationSet[i].OrigIns;
-      Instruction *Origin = InstrumentationSet[i].Origin;
       IRBuilder<> IRB(OrigIns);
       Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
       Instruction *CheckTerm =
           splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);
-      if (ClTrackOrigins)
+      if (ClTrackOrigins) {
+        Instruction *Origin = InstrumentationSet[i].Origin;
         IRB.CreateStore(Origin ? (Value*)Origin : (Value*)IRB.getInt32(0),
                         MS.OriginTLS);
+      }
       CallInst *Call = IRB.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
       DEBUG(dbgs() << "  SHAD : " << *Shadow << "\n");
@@ -526,15 +527,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // Remember the place where a check for ShadowVal should be inserted.
   void insertCheck(Value *Val, Instruction *OrigIns) {
     assert(Val);
-    Value *ShadowVal = getShadow(Val);
-    if (!ShadowVal) return;
-    Instruction *Shadow = dyn_cast<Instruction>(ShadowVal);
-    if (!Shadow) return;
     if (!InsertChecks) return;
-    Value *OriginVal = getOrigin(Val);
-    Instruction *Origin = 0;
-    if (OriginVal)
-      Origin = dyn_cast<Instruction>(Val);
+    Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
+    if (!Shadow) return;
+    Instruction *Origin = dyn_cast_or_null<Instruction>(getOrigin(Val));
     InstrumentationSet.push_back(
         ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
   }

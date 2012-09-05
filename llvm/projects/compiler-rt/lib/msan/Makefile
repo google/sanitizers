@@ -70,6 +70,8 @@ $(LIBMSAN_A): msan.a
 
 t:
 	(make clean && make gtest_clean && make -j 10 2> log && ./msandr.sh ./msan_test )
+to:
+	(make clean && make gtest_clean && make -j 10 ORIGINS=1 2> log && ./msandr.sh ./msan_test )
 
 
 # Do once: cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ~/llvm_msan/
