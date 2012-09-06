@@ -35,12 +35,6 @@ else
   svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
 fi
 
-echo @@@BUILD_STEP install deps@@@
-ASAN_PATH=`pwd`/llvm/projects/compiler-rt/lib/asan/
-TSAN_PATH=`pwd`/llvm/projects/compiler-rt/lib/tsan/
-(cd $ASAN_PATH && make -f Makefile.old get_third_party)
-(cd $TSAN_PATH && make -f Makefile.old install_deps)
-
 echo @@@BUILD_STEP build llvm@@@
 rm -rf llvm-build
 mkdir llvm-build
@@ -56,21 +50,11 @@ echo @@@BUILD_STEP test llvm@@@
 cd llvm-build
 make check-all || echo @@@STEP_WARNINGS@@@
 
-echo @@@BUILD_STEP build asan@@@
-cd $ASAN_PATH
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD -j$MAKE_JOBS
-
-echo @@@BUILD_STEP asan test32@@@
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD t32  || echo @@@STEP_FAILURE@@@
-
-echo @@@BUILD_STEP asan test64@@@
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD t64  || echo @@@STEP_FAILURE@@@
-
-echo @@@BUILD_STEP asan output_tests@@@
-make -f Makefile.old CLANG_BUILD=$CLANG_BUILD output_tests  || echo @@@STEP_FAILURE@@@
-
 if [ $CHECK_TSAN == 1 ] ; then
   echo @@@BUILD_STEP prepare for testing tsan@@@
+
+  TSAN_PATH=`pwd`/llvm/projects/compiler-rt/lib/tsan/
+  (cd $TSAN_PATH && make -f Makefile.old install_deps)
 
   export PATH=$CLANG_BUILD/bin:$GCC_BUILD/bin:$PATH
   export LD_LIBRARY_PATH=$GCC_BUILD/lib64
