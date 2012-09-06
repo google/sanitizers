@@ -82,6 +82,8 @@ static void* volatile v_p;
 static volatile double v_d;
 static volatile int g_one = 1;
 static volatile int g_zero = 0;
+static volatile int g_0 = 0;
+static volatile int g_1 = 1;
 
 S4 a_s4[100];
 S8 a_s8[100];
@@ -1076,6 +1078,19 @@ TEST(MemorySanitizerOrigins, SmallMemCpy) {
   MemCpyTest<U8, 1>();
   MemCpyTest<U8, 2>();
   MemCpyTest<U8, 3>();
+}
+
+TEST(MemorySanitizerOrigins, Select) {
+  if (!TrackingOrigins()) return;
+  v_s8 = g_one ? 1 : *GetPoisonedO<S4>(0, __LINE__);
+  EXPECT_POISONED_O(v_s8 = *GetPoisonedO<S4>(0, __LINE__), __LINE__);
+  S4 x;
+  __msan_break_optimization(&x);
+  x = g_1 ? *GetPoisonedO<S4>(0, __LINE__) : 0;
+  fprintf(stderr, "zzz %d\n", __msan_get_origin(&x));
+
+  EXPECT_POISONED_O(v_s8 = g_1 ? *GetPoisonedO<S4>(0, __LINE__) : 1, __LINE__);
+  EXPECT_POISONED_O(v_s8 = g_0 ? 1 : *GetPoisonedO<S4>(0, __LINE__), __LINE__);
 }
 
 int main(int argc, char **argv) {

@@ -1027,6 +1027,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I,  IRB.CreateSelect(I.getCondition(),
             getShadow(I.getTrueValue()), getShadow(I.getFalseValue()),
             "_msprop"));
+    if (ClTrackOrigins)
+      setOrigin(&I, IRB.CreateSelect(I.getCondition(),
+            getOrigin(I.getTrueValue()), getOrigin(I.getFalseValue())));
   }
 
   void visitLandingPadInst(LandingPadInst &I) {
