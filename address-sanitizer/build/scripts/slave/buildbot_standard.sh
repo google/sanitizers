@@ -53,7 +53,7 @@ make check-all || echo @@@STEP_WARNINGS@@@
 if [ $CHECK_TSAN == 1 ] ; then
   echo @@@BUILD_STEP prepare for testing tsan@@@
 
-  TSAN_PATH=`pwd`/llvm/projects/compiler-rt/lib/tsan/
+  TSAN_PATH=$BUILD_ROOT/llvm/projects/compiler-rt/lib/tsan/
   (cd $TSAN_PATH && make -f Makefile.old install_deps)
 
   export PATH=$CLANG_BUILD/bin:$GCC_BUILD/bin:$PATH
