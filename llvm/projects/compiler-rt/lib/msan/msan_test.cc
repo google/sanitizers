@@ -1087,7 +1087,6 @@ TEST(MemorySanitizerOrigins, Select) {
   S4 x;
   __msan_break_optimization(&x);
   x = g_1 ? *GetPoisonedO<S4>(0, __LINE__) : 0;
-  fprintf(stderr, "zzz %d\n", __msan_get_origin(&x));
 
   EXPECT_POISONED_O(v_s8 = g_1 ? *GetPoisonedO<S4>(0, __LINE__) : 1, __LINE__);
   EXPECT_POISONED_O(v_s8 = g_0 ? 1 : *GetPoisonedO<S4>(0, __LINE__), __LINE__);

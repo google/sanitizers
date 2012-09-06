@@ -254,7 +254,7 @@ namespace {
 struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Function &F;
   MemorySanitizer &MS;
-  SmallVector<PHINode *, 16> PHINodes;
+  SmallVector<PHINode *, 16> ShadowPHINodes, OriginPHINodes;
   ValueMap<Value*, Value*> ShadowMap, OriginMap;
   Value *VAArgTLSCopy;
   Value *VAArgOverflowSize;
@@ -296,12 +296,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     // Finalize PHI nodes.
-    for (size_t i = 0, n = PHINodes.size(); i < n; i++) {
-      PHINode *PN = PHINodes[i];
+    for (size_t i = 0, n = ShadowPHINodes.size(); i < n; i++) {
+      PHINode *PN = ShadowPHINodes[i];
       PHINode *PNS = cast<PHINode>(getShadow(PN));
+      PHINode *PNO = ClTrackOrigins ? cast<PHINode>(getOrigin(PN)) : 0;
       size_t NumValues = PN->getNumIncomingValues();
       for (size_t v = 0; v < NumValues; v++) {
         PNS->addIncoming(getShadow(PN, v), PN->getIncomingBlock(v));
+        if (PNO)
+          PNO->addIncoming(getOrigin(PN, v), PN->getIncomingBlock(v));
       }
     }
 
@@ -1005,10 +1008,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void visitPHINode(PHINode &I) {
     IRBuilder<> IRB(&I);
-    PHINode *PNS = IRB.CreatePHI(getShadowTy(&I), I.getNumIncomingValues(),
-                                 "_msphi");
-    PHINodes.push_back(&I);
-    setShadow(&I, PNS);
+    ShadowPHINodes.push_back(&I);
+    setShadow(&I, IRB.CreatePHI(getShadowTy(&I), I.getNumIncomingValues(),
+                                "_msphi_s"));
+    if (ClTrackOrigins)
+      setOrigin(&I, IRB.CreatePHI(MS.OriginTy, I.getNumIncomingValues(),
+                                  "_msphi_o"));
   }
 
   void visitAllocaInst(AllocaInst &I) {
