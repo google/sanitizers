@@ -93,7 +93,11 @@ void PrintWarning(uptr pc, uptr bp) {
   else
     BacktraceStackTrace();
   if (__msan_track_origins) {
-    Report("  ORIGIN: %x\n", __msan_origin_tls);
+    if (const char *so = __msan_get_origin_descr_if_stack(__msan_origin_tls)) {
+      Report("  ORIGIN: stack allocation %s\n", so);
+    } else {
+      Report("  ORIGIN: %x\n", __msan_origin_tls);
+    }
   }
   if (__msan::flags.exit_code >= 0) {
     Printf("Exiting\n");
@@ -251,7 +255,7 @@ void __msan_set_alloca_origin(void *a, uptr size, const char *descr) {
   u32 id = *id_ptr;
   if (id == first_timer) {
     id = atomic_fetch_add(&__msan::NumStackOriginDescrs,
-                              1, memory_order_relaxed);
+                          1, memory_order_relaxed);
     *id_ptr = id;
     CHECK_LT(id, __msan::kNumStackOriginDescrs);
     __msan::StackOriginDescr[id] = descr + 4;

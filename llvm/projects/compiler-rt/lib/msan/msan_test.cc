@@ -1111,18 +1111,23 @@ extern "C"
 NOINLINE void AllocaTOTest() {
   int ar[100];
   __msan_break_optimization(ar);
-  EXPECT_POISONED_S(v_s8 = ar[10], "ar@AllocaTOTest");
+  v_s8 = ar[10];
   // fprintf(stderr, "Descr: %s\n",
   //        __msan_get_origin_descr_if_stack(__msan_get_origin_tls()));
 }
 
 TEST(MemorySanitizerOrigins, Alloca) {
   if (!TrackingOrigins()) return;
-  AllocaTOTest();
-  AllocaTOTest();
-  AllocaTOTest();
-  AllocaTOTest();
-  AllocaTOTest();
+  EXPECT_POISONED_S(AllocaTOTest(), "ar@AllocaTOTest");
+  EXPECT_POISONED_S(AllocaTOTest(), "ar@AllocaTOTest");
+  EXPECT_POISONED_S(AllocaTOTest(), "ar@AllocaTOTest");
+  EXPECT_POISONED_S(AllocaTOTest(), "ar@AllocaTOTest");
+}
+
+// FIXME: replace with a lit-like test.
+TEST(MemorySanitizerOrigins, AllocaDeath) {
+  if (!TrackingOrigins()) return;
+  EXPECT_DEATH(AllocaTOTest(), "ORIGIN: stack allocation ar@AllocaTOTest");
 }
 
 int main(int argc, char **argv) {
