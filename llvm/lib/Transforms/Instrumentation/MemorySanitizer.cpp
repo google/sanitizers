@@ -186,10 +186,10 @@ static BranchInst *splitBlockAndInsertIfThen(Value *Cmp,
   return CheckTerm;
 }
 
-// Create a constant for Str so that we can pass it to the run-time lib.
-static GlobalVariable *createPrivateGlobalForString(Module &M, StringRef Str) {
+// Create a non-const global for Str so that we can pass it to the run-time lib.
+static GlobalVariable *createPrivateNonConstGlobalForString(Module &M, StringRef Str) {
   Constant *StrConst = ConstantDataArray::getString(M.getContext(), Str);
-  return new GlobalVariable(M, StrConst->getType(), true,
+  return new GlobalVariable(M, StrConst->getType(), /*isConstant=*/false,
                             GlobalValue::PrivateLinkage, StrConst, "");
 }
 
@@ -241,7 +241,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
     IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
     IRB.getVoidTy(),
-    IRB.getInt8PtrTy(), IntptrTy, IntptrTy, IRB.getInt8PtrTy(), NULL);
+    IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), NULL);
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
@@ -1041,14 +1041,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClTrackOrigins) {
       SmallString<2048> StackDescriptionStorage;
       raw_svector_ostream StackDescription(StackDescriptionStorage);
-      StackDescription << I.getName() << "@" << F.getName();
-      Value *Descr = createPrivateGlobalForString(*F.getParent(),
-                                                  StackDescription.str());
-      IRB.CreateCall4(MS.MsanSetAllocaOriginFn,
+      // We create a string with a description of the stack allocation and
+      // pass it into __msan_set_alloca_origin.
+      // It will be printed by the run-time if stack-originated UMR us found.
+      // The first 4 bytes of the string are set to '----' and will be replaced
+      // by __msan_va_arg_overflow_size_tls at the first call.
+      StackDescription << "----" << I.getName() << "@" << F.getName();
+      Value *Descr =
+          createPrivateNonConstGlobalForString(*F.getParent(),
+                                               StackDescription.str());
+      IRB.CreateCall3(MS.MsanSetAllocaOriginFn,
                       IRB.CreatePointerCast(&I, IRB.getInt8PtrTy()),
                       ConstantInt::get(MS.IntptrTy, Size),
-                      ConstantExpr::getPtrToInt(cast<Constant>(&F),
-                                                MS.IntptrTy),
                       IRB.CreatePointerCast(Descr, IRB.getInt8PtrTy()));
     }
   }

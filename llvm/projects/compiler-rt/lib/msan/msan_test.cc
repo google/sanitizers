@@ -42,6 +42,21 @@ typedef   signed long long S8;
       EXPECT_EQ(origin, __msan_get_origin_tls());   \
     } while (0)
 
+#define EXPECT_POISONED_S(action, stack_origin) \
+    do {                                            \
+      __msan_set_expect_umr(1);                     \
+      action;                                       \
+      __msan_set_expect_umr(0);                     \
+      u32 id = __msan_get_origin_tls();             \
+      const char *str = __msan_get_origin_descr_if_stack(id); \
+      if (!str || strcmp(str, stack_origin)) {      \
+        fprintf(stderr, "EXPECT_POISONED_S: id=%u %s, %s", \
+                id, stack_origin, str);  \
+        EXPECT_EQ(1, 0);                            \
+      }                                             \
+    } while (0)
+
+
 static U8 poisoned_array[100];
 template<class T>
 T *GetPoisoned(int i = 0, T val = 0) {
@@ -1092,14 +1107,21 @@ TEST(MemorySanitizerOrigins, Select) {
   EXPECT_POISONED_O(v_s8 = g_0 ? 1 : *GetPoisonedO<S4>(0, __LINE__), __LINE__);
 }
 
+extern "C"
 NOINLINE void AllocaTOTest() {
   int ar[100];
   __msan_break_optimization(ar);
-  EXPECT_POISONED_O(v_s8 = ar[10], 0xfafafafa);
+  EXPECT_POISONED_S(v_s8 = ar[10], "ar@AllocaTOTest");
+  // fprintf(stderr, "Descr: %s\n",
+  //        __msan_get_origin_descr_if_stack(__msan_get_origin_tls()));
 }
 
 TEST(MemorySanitizerOrigins, Alloca) {
   if (!TrackingOrigins()) return;
+  AllocaTOTest();
+  AllocaTOTest();
+  AllocaTOTest();
+  AllocaTOTest();
   AllocaTOTest();
 }
 

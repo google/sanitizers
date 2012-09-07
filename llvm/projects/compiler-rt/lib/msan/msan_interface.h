@@ -29,7 +29,7 @@ void __msan_load_unpoisoned(void *src, uptr size, void *dst);
 sptr __msan_test_shadow(const void *x, uptr size);
 
 void __msan_set_origin(void *a, uptr size, u32 origin);
-void __msan_set_alloca_origin(void *a, uptr size, uptr pc, const char *descr);
+void __msan_set_alloca_origin(void *a, uptr size, const char *descr);
 u32 __msan_get_origin(void *a);
 
 void __msan_clear_on_return();
@@ -52,6 +52,7 @@ int __msan_get_param_tls_offset();
 
 // For testing.
 u32 __msan_get_origin_tls();
+const char *__msan_get_origin_descr_if_stack(u32 id);
 
 void __msan_partial_poison(void* data, void* shadow, uptr size);
 

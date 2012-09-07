@@ -1,5 +1,6 @@
 #include "msan_interface.h"
 #include "msan.h"
+#include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_flags.h"
@@ -39,6 +40,12 @@ Flags flags = {
 };
 int msan_inited = 0;
 bool msan_init_is_running;
+
+// Array of stack origins.
+// FIXME: make it resizable.
+static const uptr kNumStackOriginDescrs = 1024 * 1024;
+static const char *StackOriginDescr[kNumStackOriginDescrs];
+static atomic_uint32_t NumStackOriginDescrs;
 
 
 void ParseFlagsFromString(Flags *f, const char *str) {
@@ -232,14 +239,38 @@ void __msan_set_origin(void *a, uptr size, u32 origin) {
   }
 }
 
-void __msan_set_alloca_origin(void *a, uptr size, uptr pc, const char *descr) {
-  // if (internal_strstr(descr, "AllocaTOTest") != 0)
-  //   Printf("__msan_set_alloca_origin: pc=%p descr=%s\n", pc, descr);
-  // FIXME: set the origin to something useful. Options:
-  //  - last 4 bytes of PC (requires ASLR off)
-  //  - encode pc+descr into a u32 id
-  __msan_set_origin(a, size, 0xfafafafa);
+// 'descr' is created at compile time and contains '----' in the beginning.
+// When we see descr for the first time we replace '----' with a uniq id
+// and set the origin to (id | (31-th bit)).
+void __msan_set_alloca_origin(void *a, uptr size, const char *descr) {
+  static const u32 dash = '-';
+  static const u32 first_timer =
+      dash + (dash << 8) + (dash << 16) + (dash << 24);
+  u32 *id_ptr = (u32*)descr;
+  bool print = false;  // internal_strstr(descr + 4, "AllocaTOTest") != 0;
+  u32 id = *id_ptr;
+  if (id == first_timer) {
+    id = atomic_fetch_add(&__msan::NumStackOriginDescrs,
+                              1, memory_order_relaxed);
+    *id_ptr = id;
+    CHECK_LT(id, __msan::kNumStackOriginDescrs);
+    __msan::StackOriginDescr[id] = descr + 4;
+    if (print)
+      Printf("First time: id=%d %s \n", id, descr + 4);
+  }
+  id |= 1U << 31;
+  if (print)
+    Printf("__msan_set_alloca_origin: descr=%s id=%x\n", descr + 4, id);
+  __msan_set_origin(a, size, id);
 }
+
+const char *__msan_get_origin_descr_if_stack(u32 id) {
+  if ((id >> 31) == 0) return 0;
+  id &= (1U << 31) - 1;
+  CHECK_LT(id, __msan::kNumStackOriginDescrs);
+  return __msan::StackOriginDescr[id];
+}
+
 
 u32 __msan_get_origin(void *a) {
   if (!__msan_track_origins) return 0;
