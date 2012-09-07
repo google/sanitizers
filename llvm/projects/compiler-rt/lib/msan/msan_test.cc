@@ -1092,6 +1092,17 @@ TEST(MemorySanitizerOrigins, Select) {
   EXPECT_POISONED_O(v_s8 = g_0 ? 1 : *GetPoisonedO<S4>(0, __LINE__), __LINE__);
 }
 
+NOINLINE void AllocaTOTest() {
+  int ar[100];
+  __msan_break_optimization(ar);
+  EXPECT_POISONED_O(v_s8 = ar[10], 0xfafafafa);
+}
+
+TEST(MemorySanitizerOrigins, Alloca) {
+  if (!TrackingOrigins()) return;
+  AllocaTOTest();
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);

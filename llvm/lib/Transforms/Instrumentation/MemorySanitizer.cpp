@@ -50,6 +50,7 @@
 
 #include "BlackList.h"
 #include "llvm/ADT/DepthFirstIterator.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
 #include "llvm/Function.h"
@@ -133,6 +134,7 @@ struct MemorySanitizer : public FunctionPass {
   // The run-time callback to print a warning.
   Value *WarningFn;
   Value *MsanCopyOriginFn;
+  Value *MsanSetAllocaOriginFn;
   // ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
   uint64_t ShadowMask;
   // OriginAddr is computed as (ShadowAddr+Offset) & ~3ULL
@@ -184,6 +186,14 @@ static BranchInst *splitBlockAndInsertIfThen(Value *Cmp,
   return CheckTerm;
 }
 
+// Create a constant for Str so that we can pass it to the run-time lib.
+static GlobalVariable *createPrivateGlobalForString(Module &M, StringRef Str) {
+  Constant *StrConst = ConstantDataArray::getString(M.getContext(), Str);
+  return new GlobalVariable(M, StrConst->getType(), true,
+                            GlobalValue::PrivateLinkage, StrConst, "");
+}
+
+
 bool MemorySanitizer::doInitialization(Module &M) {
   TD = getAnalysisIfAvailable<TargetData>();
   if (!TD)
@@ -229,6 +239,9 @@ bool MemorySanitizer::doInitialization(Module &M) {
   }
   MsanCopyOriginFn = M.getOrInsertFunction("__msan_copy_origin",
     IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
+  MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
+    IRB.getVoidTy(),
+    IRB.getInt8PtrTy(), IntptrTy, IntptrTy, IRB.getInt8PtrTy(), NULL);
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
@@ -1018,12 +1031,25 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void visitAllocaInst(AllocaInst &I) {
     setShadow(&I, getCleanShadow(&I));
-    if (ClPoisonStack) {
-      IRBuilder<> IRB(I.getNextNode());
-      Value *ShadowBase = getShadowPtr(&I, Type::getInt8PtrTy(*MS.C), IRB);
-      uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
-      IRB.CreateMemSet(ShadowBase, IRB.getInt8(ClPoisonStackPattern),
-                       Size, I.getAlignment());
+    if (!ClPoisonStack) return;
+    IRBuilder<> IRB(I.getNextNode());
+    Value *ShadowBase = getShadowPtr(&I, Type::getInt8PtrTy(*MS.C), IRB);
+    uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
+    IRB.CreateMemSet(ShadowBase, IRB.getInt8(ClPoisonStackPattern),
+                     Size, I.getAlignment());
+
+    if (ClTrackOrigins) {
+      SmallString<2048> StackDescriptionStorage;
+      raw_svector_ostream StackDescription(StackDescriptionStorage);
+      StackDescription << I.getName() << "@" << F.getName();
+      Value *Descr = createPrivateGlobalForString(*F.getParent(),
+                                                  StackDescription.str());
+      IRB.CreateCall4(MS.MsanSetAllocaOriginFn,
+                      IRB.CreatePointerCast(&I, IRB.getInt8PtrTy()),
+                      ConstantInt::get(MS.IntptrTy, Size),
+                      ConstantExpr::getPtrToInt(cast<Constant>(&F),
+                                                MS.IntptrTy),
+                      IRB.CreatePointerCast(Descr, IRB.getInt8PtrTy()));
     }
   }
 
@@ -1041,6 +1067,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Do nothing.
     // See http://code.google.com/p/memory-sanitizer/issues/detail?id=1
     setShadow(&I, getCleanShadow(&I));
+    setOrigin(&I, getCleanOrigin());
   }
 
   void visitGetElementPtrInst(GetElementPtrInst &I) {

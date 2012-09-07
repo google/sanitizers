@@ -29,6 +29,7 @@ void __msan_load_unpoisoned(void *src, uptr size, void *dst);
 sptr __msan_test_shadow(const void *x, uptr size);
 
 void __msan_set_origin(void *a, uptr size, u32 origin);
+void __msan_set_alloca_origin(void *a, uptr size, uptr pc, const char *descr);
 u32 __msan_get_origin(void *a);
 
 void __msan_clear_on_return();

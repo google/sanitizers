@@ -232,6 +232,15 @@ void __msan_set_origin(void *a, uptr size, u32 origin) {
   }
 }
 
+void __msan_set_alloca_origin(void *a, uptr size, uptr pc, const char *descr) {
+  // if (internal_strstr(descr, "AllocaTOTest") != 0)
+  //   Printf("__msan_set_alloca_origin: pc=%p descr=%s\n", pc, descr);
+  // FIXME: set the origin to something useful. Options:
+  //  - last 4 bytes of PC (requires ASLR off)
+  //  - encode pc+descr into a u32 id
+  __msan_set_origin(a, size, 0xfafafafa);
+}
+
 u32 __msan_get_origin(void *a) {
   if (!__msan_track_origins) return 0;
   uptr x = (uptr)a;
