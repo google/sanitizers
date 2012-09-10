@@ -126,7 +126,7 @@ struct MemorySanitizer : public FunctionPass {
   Type *IntptrTy;
   Type *OriginTy;
   // We store the shadow for parameters and retvals in separate TLS globals.
-  GlobalVariable *ParamTLS;
+  GlobalVariable *ParamTLS, *ParamOriginTLS;
   GlobalVariable *RetvalTLS, *RetvalOriginTLS;
   GlobalVariable *VAArgTLS;
   GlobalVariable *VAArgOverflowSizeTLS;
@@ -253,6 +253,10 @@ bool MemorySanitizer::doInitialization(Module &M) {
   ParamTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 1000),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_param_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
+  ParamOriginTLS = new GlobalVariable(M, ArrayType::get(OriginTy, 1000),
+    false, GlobalVariable::ExternalLinkage, 0, "__msan_param_origin_tls", 0,
+    GlobalVariable::GeneralDynamicTLSModel);
+
   VAArgTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 1000),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_va_arg_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
@@ -430,12 +434,22 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // Compute the shadow address for a given function argument.
   // Shadow = ParamTLS+ArgOffset.
   Value *getShadowPtrForArgument(Value *A, IRBuilder<> &IRB,
-                                    int ArgOffset) {
+                                 int ArgOffset) {
     Value *Base = IRB.CreatePointerCast(MS.ParamTLS, MS.IntptrTy);
     Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
     return IRB.CreateIntToPtr(Base, PointerType::get(getShadowTy(A), 0),
                               "_msarg");
   }
+
+  Value *getOriginPtrForArgument(Value *A, IRBuilder<> &IRB,
+                                 int ArgOffset) {
+    if (!ClTrackOrigins) return NULL;
+    Value *Base = IRB.CreatePointerCast(MS.ParamOriginTLS, MS.IntptrTy);
+    Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
+    return IRB.CreateIntToPtr(Base, PointerType::get(MS.OriginTy, 0),
+                              "_msarg_o");
+  }
+
 
   Value *getShadowPtrForVAArgument(Value *A, IRBuilder<> &IRB,
                                     int ArgOffset) {
@@ -525,6 +539,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           }
           DEBUG(dbgs() << "  ARG:    "  << *AI << " ==> " <<
                 **ShadowPtr << "\n");
+          if (ClTrackOrigins)
+            setOrigin(A, EntryIRB.CreateLoad(
+                getOriginPtrForArgument(AI, EntryIRB, ArgOffset)));
         }
         ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       }
@@ -953,6 +970,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         Size = MS.TD->getTypeAllocSize(A->getType());
         Store = IRB.CreateStore(ArgShadow, ArgShadowBase);
       }
+      if (ClTrackOrigins)
+        IRB.CreateStore(getOrigin(A),
+                        getOriginPtrForArgument(A, IRB, ArgOffset));
       assert(Size != 0 && Store != 0);
       DEBUG(dbgs() << "  Param:" << *Store << "\n");
       ArgOffset += TargetData::RoundUpAlignment(Size, 8);

@@ -1144,6 +1144,20 @@ TEST(MemorySanitizerOrigins, Retval) {
   EXPECT_POISONED_O(v_s4 = RetvalOriginTest(__LINE__), __LINE__);
 }
 
+NOINLINE void ParamOriginTest(int param, u32 origin) {
+  EXPECT_POISONED_O(v_s4 = param, origin);
+}
+
+TEST(MemorySanitizerOrigins, Param) {
+  if (!TrackingOrigins()) return;
+  int *a = new int;
+  u32 origin = __LINE__;
+  __msan_break_optimization(a);
+  __msan_set_origin(a, sizeof(int), origin);
+  ParamOriginTest(*a, origin);
+  delete a;
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);
