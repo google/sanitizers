@@ -42,6 +42,8 @@ void *MsanAllocate(uptr size, uptr alignment, bool zeroise) {
     __msan_clear_and_unpoison(res, size);
   else if (flags.poison_in_malloc)
     __msan_poison(res, size);
+  if (__msan_track_origins)
+    __msan_set_origin(res, size, 0x456789);  // FIXME: set proper origin
   return res;
 }
 

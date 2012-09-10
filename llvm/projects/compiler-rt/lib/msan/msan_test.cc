@@ -1130,6 +1130,20 @@ TEST(MemorySanitizerOrigins, AllocaDeath) {
   EXPECT_DEATH(AllocaTOTest(), "ORIGIN: stack allocation ar@AllocaTOTest");
 }
 
+NOINLINE int RetvalOriginTest(u32 origin) {
+  int *a = new int;
+  __msan_break_optimization(a);
+  __msan_set_origin(a, sizeof(int), origin);
+  int res = *a;
+  delete a;
+  return res;
+}
+
+TEST(MemorySanitizerOrigins, Retval) {
+  if (!TrackingOrigins()) return;
+  EXPECT_POISONED_O(v_s4 = RetvalOriginTest(__LINE__), __LINE__);
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);

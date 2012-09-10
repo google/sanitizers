@@ -127,7 +127,7 @@ struct MemorySanitizer : public FunctionPass {
   Type *OriginTy;
   // We store the shadow for parameters and retvals in separate TLS globals.
   GlobalVariable *ParamTLS;
-  GlobalVariable *RetvalTLS;
+  GlobalVariable *RetvalTLS, *RetvalOriginTLS;
   GlobalVariable *VAArgTLS;
   GlobalVariable *VAArgOverflowSizeTLS;
   GlobalVariable *OriginTLS;
@@ -246,6 +246,10 @@ bool MemorySanitizer::doInitialization(Module &M) {
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
     0, GlobalVariable::GeneralDynamicTLSModel);
+  RetvalOriginTLS = new GlobalVariable(M, OriginTy,
+    false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_origin_tls",
+    0, GlobalVariable::GeneralDynamicTLSModel);
+
   ParamTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 1000),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_param_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
@@ -446,6 +450,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Base = IRB.CreatePointerCast(MS.RetvalTLS, MS.IntptrTy);
     return IRB.CreateIntToPtr(Base, PointerType::get(getShadowTy(A), 0),
                               "_msret");
+  }
+
+  Value *getOriginPtrForRetval(IRBuilder<> &IRB) {
+    // We keep a single origin for the entire retval. Might be too optimistic.
+    return MS.RetvalOriginTLS;
   }
 
   void setShadow(Value *V, Value *SV) {
@@ -1001,6 +1010,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       if (CS.isCall()) {
         IRBuilder<> IRBAfter(I.getNextNode());
         setShadow(&I, IRBAfter.CreateLoad(Base));
+        if (ClTrackOrigins)
+          setOrigin(&I, IRBAfter.CreateLoad(getOriginPtrForRetval(IRBAfter)));
       } else {
         // FIXME: create the real shadow store in one of the successors.
         setShadow(&I, getCleanShadow(&I));
@@ -1014,8 +1025,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     if (Value *RetVal = I.getReturnValue()) {
       // Set the shadow for the RetVal.
-      Value *Base = getShadowPtrForRetval(RetVal, IRB);
-      IRB.CreateStore(getShadow(RetVal), Base);
+      IRB.CreateStore(getShadow(RetVal), getShadowPtrForRetval(RetVal, IRB));
+      if (ClTrackOrigins)
+        IRB.CreateStore(getOrigin(RetVal), getOriginPtrForRetval(IRB));
     }
   }
 
