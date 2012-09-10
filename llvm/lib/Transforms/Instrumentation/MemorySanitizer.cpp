@@ -559,10 +559,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   Value *getOrigin(Value *V) {
     if (!ClTrackOrigins) return 0;
-    Value *Origin = OriginMap[V];
-    if (!Origin)
-      Origin = getCleanOrigin();
-    return Origin;
+    if (isa<Instruction>(V) || isa<Argument>(V)) {
+      Value *Origin = OriginMap[V];
+      if (!Origin) {
+        errs() << "NO ORIGIN: " << *V << "\n";
+        Origin = getCleanOrigin();
+      }
+      return Origin;
+    }
+    return getCleanOrigin();
   }
 
   Value *getOrigin(Instruction *I, int i) {
@@ -1035,6 +1040,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       } else {
         // FIXME: create the real shadow store in one of the successors.
         setShadow(&I, getCleanShadow(&I));
+        if (ClTrackOrigins)
+          setOrigin(&I, getCleanOrigin());
       }
     }
   }
@@ -1071,6 +1078,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                      Size, I.getAlignment());
 
     if (ClTrackOrigins) {
+      setOrigin(&I, getCleanOrigin());
       SmallString<2048> StackDescriptionStorage;
       raw_svector_ostream StackDescription(StackDescriptionStorage);
       // We create a string with a description of the stack allocation and
@@ -1127,6 +1135,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     for (size_t i = 0, n = I.getNumOperands(); i < n; i++)
       insertCheck(I.getOperand(i), &I);
     setShadow(&I, getCleanShadow(&I));
+    setOrigin(&I, getCleanOrigin());
   }
 };
 
