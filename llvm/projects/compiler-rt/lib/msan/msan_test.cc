@@ -648,13 +648,13 @@ NOINLINE void ExpectPoisoned(int a) {
   EXPECT_POISONED(v_s4 = a);
 }
 
-// FIXME: start compiling the test w/o -fno-exceptions
 TEST(MemorySanitizer, Invoke) {
   StructWithDtor s; // Will cause the calls to become invokes.
   ExpectGood(0);
   ExpectPoisoned(*GetPoisoned<int>());
   ExpectGood(0);
   ExpectPoisoned(*GetPoisoned<int>());
+  EXPECT_POISONED(v_s4 = ReturnPoisoned<S4>());
 }
 
 TEST(MemorySanitizer, ptrtoint) {

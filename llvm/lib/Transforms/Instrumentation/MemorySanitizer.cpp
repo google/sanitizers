@@ -1027,23 +1027,32 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           MS.VAArgOverflowSizeTLS);
     }
     // Now, get the shadow for the RetVal.
-    if (I.getType()->isSized()) {
-      IRBuilder<> IRBBefore(&I);
-      // Untill we have full dynamic coverage, make sure the retval shadow is 0.
-      Value *Base = getShadowPtrForRetval(&I, IRBBefore);
-      IRBBefore.CreateStore(getCleanShadow(&I), Base);
-      if (CS.isCall()) {
-        IRBuilder<> IRBAfter(I.getNextNode());
-        setShadow(&I, IRBAfter.CreateLoad(Base));
-        if (ClTrackOrigins)
-          setOrigin(&I, IRBAfter.CreateLoad(getOriginPtrForRetval(IRBAfter)));
-      } else {
-        // FIXME: create the real shadow store in one of the successors.
+    if (!I.getType()->isSized()) return;
+    IRBuilder<> IRBBefore(&I);
+    // Untill we have full dynamic coverage, make sure the retval shadow is 0.
+    Value *Base = getShadowPtrForRetval(&I, IRBBefore);
+    IRBBefore.CreateStore(getCleanShadow(&I), Base);
+    Instruction *NextInsn = 0;
+    if (CS.isCall()) {
+      NextInsn = I.getNextNode();
+    } else {
+      BasicBlock *NormalDest = cast<InvokeInst>(&I)->getNormalDest();
+      if (!NormalDest->getSinglePredecessor()) {
+        // FIXME: this case is tricky, so we are just conservative here.
+        // Perhaps we need to split the edge between this BB and NormalDest,
+        // but a naive attempt to use SplitEdge leads to a crash.
         setShadow(&I, getCleanShadow(&I));
-        if (ClTrackOrigins)
-          setOrigin(&I, getCleanOrigin());
+        setOrigin(&I, getCleanOrigin());
+        return;
       }
+      NextInsn = NormalDest->getFirstInsertionPt();
+      assert(NextInsn);
     }
+    IRBuilder<> IRBAfter(NextInsn);
+    setShadow(&I, IRBAfter.CreateLoad(getShadowPtrForRetval(&I, IRBAfter),
+                                      "_msret"));
+    if (ClTrackOrigins)
+      setOrigin(&I, IRBAfter.CreateLoad(getOriginPtrForRetval(IRBAfter)));
   }
 
   void visitBrInst(BranchInst &I) { }
