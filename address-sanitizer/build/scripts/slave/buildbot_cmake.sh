@@ -37,6 +37,11 @@ else
   svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
 fi
 
+if [ "$PLATFORM" == "Darwin" ]; then
+  export CC=clang
+  export CXX=clang++
+fi
+
 ROOT=`pwd`
 LLVM_CHECKOUT=$ROOT/llvm
 BUILD_TYPE=Release
