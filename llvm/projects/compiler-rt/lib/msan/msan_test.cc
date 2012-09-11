@@ -1158,6 +1158,12 @@ TEST(MemorySanitizerOrigins, Param) {
   delete a;
 }
 
+TEST(MemorySanitizerOrigins, Invoke) {
+  if (!TrackingOrigins()) return;
+  StructWithDtor s; // Will cause the calls to become invokes.
+  EXPECT_POISONED_O(v_s4 = RetvalOriginTest(__LINE__), __LINE__);
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);
