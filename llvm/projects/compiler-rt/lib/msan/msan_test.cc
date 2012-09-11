@@ -1127,7 +1127,7 @@ TEST(MemorySanitizerOrigins, Alloca) {
 // FIXME: replace with a lit-like test.
 TEST(MemorySanitizerOrigins, AllocaDeath) {
   if (!TrackingOrigins()) return;
-  EXPECT_DEATH(AllocaTOTest(), "ORIGIN: stack allocation ar@AllocaTOTest");
+  EXPECT_DEATH(AllocaTOTest(), "ORIGIN: stack allocation: ar@AllocaTOTest");
 }
 
 NOINLINE int RetvalOriginTest(u32 origin) {
