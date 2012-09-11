@@ -48,16 +48,16 @@ BUILD_TYPE=Release
 echo @@@BUILD_STEP build 64-bit llvm@@@
 if [ ! -d llvm_build64 ]; then
   mkdir llvm_build64
-  (cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $LLVM_CHECKOUT)
 fi
+(cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $LLVM_CHECKOUT)
 (cd llvm_build64 && make -j$MAKE_JOBS)
 
 echo @@@BUILD_STEP build 32-bit llvm@@@
 if [ ! -d llvm_build32 ]; then
   mkdir llvm_build32
-  (cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-                            -DLLVM_BUILD_32_BITS=ON $LLVM_CHECKOUT)
 fi
+(cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+                          -DLLVM_BUILD_32_BITS=ON $LLVM_CHECKOUT)
 (cd llvm_build32 && make -j$MAKE_JOBS)
 
 echo @@@BUILD_STEP lint@@@
