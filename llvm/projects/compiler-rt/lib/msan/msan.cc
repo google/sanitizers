@@ -4,6 +4,7 @@
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_flags.h"
+#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
 
 #include <interception/interception.h>
@@ -80,7 +81,7 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
 static void PrintCurrentStackTrace(uptr pc, uptr bp) {
   StackTrace stack;
   GetStackTrace(&stack, kStackTraceMax, pc, bp);
-  stack.PrintStack(stack.trace, stack.size, false, "", 0);
+  StackTrace::PrintStack(stack.trace, stack.size, false, "", 0);
 }
 
 void PrintWarning(uptr pc, uptr bp) {
@@ -96,9 +97,15 @@ void PrintWarning(uptr pc, uptr bp) {
     BacktraceStackTrace();
   if (__msan_track_origins) {
     if (const char *so = __msan_get_origin_descr_if_stack(__msan_origin_tls)) {
-      Report("  ORIGIN: stack allocation %s\n", so);
+      Printf("  ORIGIN: stack allocation: %s\n", so);
+    } else if (__msan_origin_tls != 0) {
+      uptr size = 0;
+      uptr *trace = StackDepotGet(__msan_origin_tls, &size);
+      Printf("  ORIGIN: heap allocation:\n");
+      StackTrace::PrintStack(trace, size, false, "", 0);
     } else {
-      Report("  ORIGIN: %x\n", __msan_origin_tls);
+      Printf("  ORIGIN: empty. Might be a bug in MemorySanitizer, "
+             "please report to MemorySanitizer developers.\n");
     }
   }
   if (__msan::flags.exit_code >= 0) {

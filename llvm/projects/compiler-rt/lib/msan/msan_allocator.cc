@@ -33,7 +33,8 @@ void Init() {
   allocator.Init();
 }
 
-void *MsanAllocate(uptr size, uptr alignment, bool zeroise) {
+static void *MsanAllocate(StackTrace *stack, uptr size,
+                          uptr alignment, bool zeroise) {
   Init();
   void *res = allocator.Allocate(&cache, size, alignment, false);
   Metadata *meta = reinterpret_cast<Metadata*>(allocator.GetMetaData(res));
@@ -42,8 +43,14 @@ void *MsanAllocate(uptr size, uptr alignment, bool zeroise) {
     __msan_clear_and_unpoison(res, size);
   else if (flags.poison_in_malloc)
     __msan_poison(res, size);
-  if (__msan_track_origins)
-    __msan_set_origin(res, size, 0x456789);  // FIXME: set proper origin
+  if (__msan_track_origins) {
+    u32 stack_id = StackDepotPut(stack->trace, stack->size);
+    CHECK(stack_id);
+    CHECK_EQ((stack_id >> 31), 0);  // Higher bit is occupied by stack origins.
+    // if ((stack_id % 1024) == 0 || stack_id < 100)
+    //  Printf("ALLOC: stack.size = %zd id=%d\n", stack->size, stack_id);
+    __msan_set_origin(res, size, stack_id);;
+  }
   return res;
 }
 
@@ -60,14 +67,8 @@ void MsanDeallocate(void *p) {
 
 void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
                      uptr alignment, bool zeroise) {
-  if (__msan_track_origins && msan_inited) {
-    u32 stack_id = StackDepotPut(stack->trace, stack->size);
-    // if ((stack_id % 1024) == 0)
-    //  Printf("ALLOC: stack.size = %zd id=%d\n", stack->size, stack_id);
-  }
-
   if (!old_p)
-    return MsanAllocate(new_size, alignment, zeroise);
+    return MsanAllocate(stack, new_size, alignment, zeroise);
   if (!new_size) {
     MsanDeallocate(old_p);
     return 0;
@@ -83,7 +84,7 @@ void *MsanReallocate(StackTrace *stack, void *old_p, uptr new_size,
     return old_p;
   }
   uptr memcpy_size = Min(new_size, old_size);
-  void *new_p = MsanAllocate(new_size, alignment, zeroise);
+  void *new_p = MsanAllocate(stack, new_size, alignment, zeroise);
   // Printf("realloc: old_size %zd new_size %zd\n", old_size, new_size);
   if (new_p)
     __msan_memcpy_with_poison(new_p, old_p, memcpy_size);
