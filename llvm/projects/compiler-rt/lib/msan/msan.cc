@@ -96,16 +96,18 @@ void PrintWarning(uptr pc, uptr bp) {
   else
     BacktraceStackTrace();
   if (__msan_track_origins) {
-    if (const char *so = __msan_get_origin_descr_if_stack(__msan_origin_tls)) {
+    Printf("  raw origin id: %d\n", __msan_origin_tls);
+    if (__msan_origin_tls == 0 || __msan_origin_tls == -1) {
+      Printf("  ORIGIN: invalid (%x). Might be a bug in MemorySanitizer, "
+             "please report to MemorySanitizer developers.\n",
+             __msan_origin_tls);
+    } else if (const char *so = __msan_get_origin_descr_if_stack(__msan_origin_tls)) {
       Printf("  ORIGIN: stack allocation: %s\n", so);
     } else if (__msan_origin_tls != 0) {
       uptr size = 0;
       uptr *trace = StackDepotGet(__msan_origin_tls, &size);
       Printf("  ORIGIN: heap allocation:\n");
       StackTrace::PrintStack(trace, size, false, "", 0);
-    } else {
-      Printf("  ORIGIN: empty. Might be a bug in MemorySanitizer, "
-             "please report to MemorySanitizer developers.\n");
     }
   }
   if (__msan::flags.exit_code >= 0) {
@@ -172,11 +174,18 @@ void __msan_set_expect_umr(int expect_umr) {
 }
 
 void __msan_print_shadow(const void *x, uptr size) {
-  unsigned char *s = (unsigned char*)MEM_TO_SHADOW((uptr)x);
-  for (uptr i = 0; i < (uptr)size; i++) {
+  unsigned char *s = (unsigned char*)MEM_TO_SHADOW(x);
+  u32 *o = (u32*)MEM_TO_ORIGIN(x);
+  for (uptr i = 0; i < size; i++) {
     Printf("%x ", s[i]);
   }
   Printf("\n");
+  if (__msan_track_origins) {
+    for (uptr i = 0; i < size / 4; i++) {
+      Printf(" o: %x ", o[i]);
+    }
+    Printf("\n");
+  }
 }
 
 void __msan_print_param_shadow() {

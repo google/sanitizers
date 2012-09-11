@@ -62,6 +62,8 @@ void MsanDeallocate(void *p) {
   // This memory will not be reused by anyone else, so we are free to keep it
   // poisoned.
   __msan_poison(p, size);
+  if (__msan_track_origins)
+    __msan_set_origin(p, size, -1);
   allocator.Deallocate(&cache, p);
 }
 
