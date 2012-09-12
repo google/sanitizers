@@ -114,11 +114,11 @@ if [ $BUILD_ANDROID == 1 ] ; then
 
     if [ ! -d llvm_build64/android ]; then
         mkdir llvm_build64/android
-        (cd llvm_build64/android && \
-            cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-            -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
-            -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
-            $LLVM_CHECKOUT)
     fi
+    (cd llvm_build64/android && \
+        cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+        -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
+        -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
+        $LLVM_CHECKOUT)
     (cd llvm_build64/android && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
 fi
