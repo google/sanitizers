@@ -4,6 +4,7 @@ set -x
 set -e
 set -u
 
+ROOT=`pwd`
 PLATFORM=`uname`
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
@@ -36,14 +37,22 @@ else
   svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang $REV_ARG
   svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
 fi
+LLVM_CHECKOUT=$ROOT/llvm
 
 if [ "$PLATFORM" == "Darwin" ]; then
-  export CC=clang
-  export CXX=clang++
+  # Use bootstrap build on Darwin: first build clang, then use this new
+  # clang to build and run ASan tests.
+  echo @@@BUILD_STEP build fresh clang@@@
+  if [ ! -d clang_build ]; then
+    mkdir clang_build
+  fi
+  (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release $LLVM_CHECKOUT)
+  (cd clang_build && make clang -j$MAKE_JOBS)
+  CLANG=${ROOT}/clang_build/bin/clang
+  export CC=${CLANG}
+  export CXX=${CLANG}++
 fi
 
-ROOT=`pwd`
-LLVM_CHECKOUT=$ROOT/llvm
 BUILD_TYPE=Release
 echo @@@BUILD_STEP build 64-bit llvm@@@
 if [ ! -d llvm_build64 ]; then
