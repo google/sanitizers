@@ -47,7 +47,7 @@ if [ "$PLATFORM" == "Darwin" ]; then
     mkdir clang_build
   fi
   (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release $LLVM_CHECKOUT)
-  (cd clang_build && make clang -j$MAKE_JOBS)
+  (cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
   CLANG=${ROOT}/clang_build/bin/clang
   export CC=${CLANG}
   export CXX=${CLANG}++
@@ -59,7 +59,7 @@ if [ ! -d llvm_build64 ]; then
   mkdir llvm_build64
 fi
 (cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $LLVM_CHECKOUT)
-(cd llvm_build64 && make -j$MAKE_JOBS)
+(cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP build 32-bit llvm@@@
 if [ ! -d llvm_build32 ]; then
@@ -67,7 +67,7 @@ if [ ! -d llvm_build32 ]; then
 fi
 (cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
                           -DLLVM_BUILD_32_BITS=ON $LLVM_CHECKOUT)
-(cd llvm_build32 && make -j$MAKE_JOBS)
+(cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP lint@@@
 CHECK_LINT=${LLVM_CHECKOUT}/projects/compiler-rt/lib/sanitizer_common/scripts/check_lint.sh
@@ -78,19 +78,19 @@ ASAN_TESTS_PATH=$ASAN_PATH/tests
 ASAN_TEST_BINARY=$ASAN_TESTS_PATH/$BUILD_TYPE/AsanTest
 
 echo @@@BUILD_STEP run 64-bit asan tests@@@
-(cd llvm_build64 && make -j$MAKE_JOBS check-asan)
+(cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 # Run unit test binary in a single shard.
 ./llvm_build64/$ASAN_TEST_BINARY
 
 echo @@@BUILD_STEP run 32-bit asan tests@@@
-(cd llvm_build32 && make -j$MAKE_JOBS check-asan)
+(cd llvm_build32 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 # Run unit test binary in a single shard.
 ./llvm_build32/$ASAN_TEST_BINARY
 
 if [ "$PLATFORM" == "Darwin" ]; then
 echo @@@BUILD_STEP build asan dynamic runtime@@@
 # Building a fat binary for both 32 and 64 bits.
-(cd llvm_build64/$ASAN_PATH && make -j$MAKE_JOBS clang_rt.asan_osx_dynamic)
+(cd llvm_build64/$ASAN_PATH && make -j$MAKE_JOBS clang_rt.asan_osx_dynamic) || echo @@@STEP_FAILURE@@@
 fi
 
 SANITIZER_COMMON_PATH=projects/compiler-rt/lib/sanitizer_common
@@ -98,12 +98,12 @@ SANITIZER_COMMON_TESTS=$SANITIZER_COMMON_PATH/tests
 SANITIZER_COMMON_TEST_BINARY=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/SanitizerUnitTest
 
 echo @@@BUILD_STEP run 64-bit sanitizer tests@@@
-(cd llvm_build64 && make -j$MAKE_JOBS check-sanitizer)
+(cd llvm_build64 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
 # Run unit test binary in a single shard.
 ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY}
 
 echo @@@BUILD_STEP run 32-bit sanitizer tests@@@
-(cd llvm_build32 && make -j$MAKE_JOBS check-sanitizer)
+(cd llvm_build32 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
 # Run unit test binary in a single shard.
 ./llvm_build32/${SANITIZER_COMMON_TEST_BINARY}
 
@@ -120,5 +120,5 @@ if [ $BUILD_ANDROID == 1 ] ; then
             -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
             $LLVM_CHECKOUT)
     fi
-    (cd llvm_build64/android && make -j$MAKE_JOBS AsanUnitTests)
+    (cd llvm_build64/android && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
 fi
