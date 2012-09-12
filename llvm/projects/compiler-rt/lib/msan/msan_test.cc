@@ -15,6 +15,13 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#if defined(__i386__) || defined(__x86_64__)
+# include <emmintrin.h>
+# define MSAN_HAS_M128 1
+#else
+# define MSAN_HAS_M128 0
+#endif
+
 typedef unsigned char      U1;
 typedef unsigned short     U2;
 typedef unsigned int       U4;
@@ -99,6 +106,10 @@ static volatile int g_one = 1;
 static volatile int g_zero = 0;
 static volatile int g_0 = 0;
 static volatile int g_1 = 1;
+
+#if MSAN_HAS_M128
+static volatile __m128i v_m128;
+#endif
 
 S4 a_s4[100];
 S8 a_s8[100];
@@ -883,6 +894,19 @@ TEST(MemorySanitizer, StructByVal) {
   StructByValTestFunc1(s);
   StructByValTestFunc2(0, s);
 }
+
+
+#if MSAN_HAS_M128
+NOINLINE __m128i m128Eq(__m128i *a, __m128i *b) { return *a == *b; }
+NOINLINE __m128i m128Lt(__m128i *a, __m128i *b) { return *a < *b; }
+TEST(MemorySanitizer, m128) {
+  __m128i a = _mm_set1_epi16(0x1234);
+  __m128i b = _mm_set1_epi16(0x7890);
+  v_m128 = m128Eq(&a, &b);
+  v_m128 = m128Lt(&a, &b);
+}
+// FIXME: add more tests for __m128i.
+#endif  // MSAN_HAS_M128
 
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {

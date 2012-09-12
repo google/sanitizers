@@ -375,7 +375,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Instruction *Shadow = InstrumentationSet[i].Shadow;
       Instruction *OrigIns = InstrumentationSet[i].OrigIns;
       IRBuilder<> IRB(OrigIns);
-      Value *Cmp = IRB.CreateICmpNE(Shadow, getCleanShadow(Shadow), "_mscmp");
+      Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
+      Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
+                                    getCleanShadow(ConvertedShadow), "_mscmp");
       Instruction *CheckTerm =
           splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
 
@@ -387,7 +389,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       }
       CallInst *Call = IRB.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
-      DEBUG(dbgs() << "  SHAD : " << *Shadow << "\n");
+      DEBUG(dbgs() << "  SHAD : " << *ConvertedShadow << "\n");
       DEBUG(dbgs() << "  CHECK: " << *Cmp << "\n");
     }
     DEBUG(dbgs() << "DONE:\n" << F);
@@ -403,10 +405,27 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
     // For integer type, shadow is the same as the original type.
     // This may return weird-sized types like i1.
-    if (IntegerType* it = dyn_cast<IntegerType>(OrigTy))
+    if (IntegerType *it = dyn_cast<IntegerType>(OrigTy))
       return it;
+    if (VectorType *vt = dyn_cast<VectorType>(OrigTy))
+      return VectorType::getInteger(vt);
     uint32_t TypeSize = MS.TD->getTypeStoreSizeInBits(OrigTy);
     return IntegerType::get(*MS.C, TypeSize);
+  }
+
+  // 'ty' is either integer or vector of integers.
+  // Return an integer type of this size.
+  Type *getShadowTyNoVec(Type *ty) {
+    if (isa<IntegerType>(ty)) return ty;
+    VectorType *vt = cast<VectorType>(ty);
+    return IntegerType::get(*MS.C, vt->getBitWidth());
+  }
+
+  Value *convertToShadowTyNoVec(Value *V, IRBuilder<> &IRB) {
+    Type *Ty = V->getType();
+    Type *NoVecTy = getShadowTyNoVec(Ty);
+    if (Ty == NoVecTy) return V;
+    return IRB.CreateBitCast(V, NoVecTy);
   }
 
   // Compute the shadow address that corresponds to a given application address.
@@ -593,7 +612,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (TypeSize != 8  && TypeSize != 16 &&
         TypeSize != 32 && TypeSize != 64 && TypeSize != 128) {
       // Ignore all unusual sizes.
-      setShadow(&I, getCleanShadow(dyn_cast<Value>(&I)));
+      setShadow(&I, getCleanShadow(&I));
       return ;
     }
     IRBuilder<> IRB(&I);
@@ -648,7 +667,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void visitBitCastInst(BitCastInst &I) {
-    setShadow(&I, getShadow(&I, 0));
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateBitCast(getShadow(&I, 0), getShadowTy(&I)));
     setOrigin(&I, getOrigin(&I, 0));
   }
 
@@ -721,11 +741,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
     Value *Origin = getOrigin(&I, 0);
-    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
-      Origin = IRB.CreateSelect(
-          IRB.CreateICmpNE(getShadow(&I, Op - 1),
-                           getCleanShadow(I.getOperand(Op - 1))),
-          Origin, getOrigin(&I, Op));
+    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op) {
+      Value *S = convertToShadowTyNoVec(getShadow(&I, Op - 1), IRB);
+      Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
+                                Origin, getOrigin(&I, Op));
+    }
     setOrigin(&I, Origin);
   }
 
@@ -794,10 +814,19 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Now dealing with i = (C == 0) comparison (or C != 0, does not matter now)
     // Result is defined if one of the following is true
     // * there is a defined 1 bit in C
-    // * C is fully defined and == 0
+    // * C is fully defined
     // Si = !(C & ~Sc) && Sc
-    Value* Zero = ConstantInt::get(A->getType(), 0);
-    Value* MinusOne = ConstantInt::get(A->getType(), -1, /* isSigned */ true);
+    Value* Zero = Constant::getNullValue(Sc->getType());
+    Value* MinusOne = Constant::getAllOnesValue(Sc->getType());
+#if 0
+    errs() << "Sc:  " << *Sc << "\n";
+    errs() << "Sa:  " << *Sa << "\n";
+    errs() << "Sb:  " << *Sb << "\n";
+    errs() << "Zero:" << *Zero << "\n";
+    errs() << "C:   " << *C << "\n";
+    errs() << "A:   " << *A << "\n";
+    errs() << "B:   " << *B << "\n";
+#endif
     Value* Si = IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
         IRB.CreateICmpEQ(IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
     Si->setName("_msprop_icmp");
