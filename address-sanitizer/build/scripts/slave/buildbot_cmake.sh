@@ -107,9 +107,10 @@ echo @@@BUILD_STEP run 32-bit sanitizer tests@@@
 # Run unit test binary in a single shard.
 ./llvm_build32/${SANITIZER_COMMON_TEST_BINARY}
 
-ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
+BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
+    ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
 
     if [ ! -d llvm_build64/android ]; then
         mkdir llvm_build64/android
