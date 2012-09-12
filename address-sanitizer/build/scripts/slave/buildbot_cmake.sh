@@ -143,5 +143,5 @@ if [ $RUN_ANDROID == 1 ] ; then
         LD_LIBRARY_PATH=$DEVICE_ROOT \
         $DEVICE_ROOT/AsanTest; \
         echo $?>$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`)
+    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
 fi
