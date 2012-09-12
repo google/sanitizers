@@ -138,8 +138,7 @@ if [ $RUN_ANDROID == 1 ] ; then
     $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
     $ADB push llvm_build64/android/projects/compiler-rt/lib/asan/tests/Release/AsanTest $DEVICE_ROOT/
 
-    $ADB shell "ASAN_OPTIONS=verbosity=1,debug=1 \
-        LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
+    $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
         LD_LIBRARY_PATH=$DEVICE_ROOT \
         $DEVICE_ROOT/AsanTest; \
         echo $?>$DEVICE_ROOT/error_code"
