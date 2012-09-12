@@ -122,3 +122,24 @@ if [ $BUILD_ANDROID == 1 ] ; then
         $LLVM_CHECKOUT)
     (cd llvm_build64/android && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
 fi
+
+RUN_ANDROID=${RUN_ANDROID:-0}
+if [ $RUN_ANDROID == 1 ] ; then
+    echo @@@BUILD_STEP run Android tests@@@
+    ADB=$ROOT/../../../android-sdk-linux/platform-tools/adb
+    DEVICE_ROOT=/data/local/asan_test
+
+    $ADB shell rm -rf $DEVICE_ROOT
+    $ADB shell mkdir $DEVICE_ROOT
+
+    ASAN_RT_LIB=libclang_rt.asan-arm-android.so
+    ASAN_RT_LIB_PATH=`find llvm_build64/android/lib -name $ASAN_RT_LIB`
+    echo "ASan runtime: $ASAN_RT_LIB_PATH"
+    $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
+    $ADB push llvm_build64/android/projects/compiler-rt/lib/asan/tests/Release/AsanTest $DEVICE_ROOT/
+
+    $ADB shell ASAN_OPTIONS=verbosity=1,debug=1 \
+        LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
+        LD_LIBRARY_PATH=$DEVICE_ROOT \
+        $DEVICE_ROOT/AsanTest
+fi
