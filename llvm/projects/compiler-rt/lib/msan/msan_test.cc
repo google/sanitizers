@@ -478,6 +478,20 @@ TEST(MemorySanitizer, read) {
   delete x;
 }
 
+TEST(MemorySanitizer, pread) {
+  char *x = new char[32];
+  int fd = open("/proc/self/stat", O_RDONLY);
+  assert(fd > 0);
+  int sz = pread(fd, x, 32, 0);
+  assert(sz == 32);
+  v_s1 = x[0];
+  v_s1 = x[16];
+  v_s1 = x[31];
+  close(fd);
+  delete x;
+}
+
+
 TEST(MemorySanitizer, stat) {
   struct stat* st = new struct stat;
   int res = stat("/proc/self/stat", st);
