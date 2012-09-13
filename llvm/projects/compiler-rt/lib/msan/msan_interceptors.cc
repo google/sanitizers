@@ -401,6 +401,10 @@ void __msan_poison(void *a, uptr size) {
                   __msan::flags.poison_with_zeroes ? 0 : -1, size);
 }
 
+void __msan_poison_stack(void *a, uptr size) {
+  __msan_poison(a, size);
+}
+
 void __msan_clear_and_unpoison(void *a, uptr size) {
   fast_memset(a, 0, size);
   fast_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);

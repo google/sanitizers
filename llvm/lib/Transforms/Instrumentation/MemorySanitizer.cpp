@@ -84,6 +84,9 @@ static cl::opt<bool> ClUseTrap("msan-use-trap",
 static cl::opt<bool> ClPoisonStack("msan-poison-stack",
        cl::desc("poison uninitialized stack variables"),
        cl::Hidden, cl::init(true));
+static cl::opt<bool> ClPoisonStackWithCall("msan-poison-stack-with-call",
+       cl::desc("poison uninitialized stack variables with a call"),
+       cl::Hidden, cl::init(true));
 static cl::opt<int> ClPoisonStackPattern("msan-poison-stack-pattern",
        cl::desc("poison uninitialized stack variables with the given patter"),
        cl::Hidden, cl::init(0xff));
@@ -135,6 +138,7 @@ struct MemorySanitizer : public FunctionPass {
   Value *WarningFn;
   Value *MsanCopyOriginFn;
   Value *MsanSetAllocaOriginFn;
+  Value *MsanPoisonStackFn;
   // ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
   uint64_t ShadowMask;
   // OriginAddr is computed as (ShadowAddr+Offset) & ~3ULL
@@ -242,6 +246,8 @@ bool MemorySanitizer::doInitialization(Module &M) {
   MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
     IRB.getVoidTy(),
     IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), NULL);
+  MsanPoisonStackFn = M.getOrInsertFunction("__msan_poison_stack",
+    IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
@@ -1110,10 +1116,16 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setShadow(&I, getCleanShadow(&I));
     if (!ClPoisonStack) return;
     IRBuilder<> IRB(I.getNextNode());
-    Value *ShadowBase = getShadowPtr(&I, Type::getInt8PtrTy(*MS.C), IRB);
     uint64_t Size = MS.TD->getTypeAllocSize(I.getAllocatedType());
-    IRB.CreateMemSet(ShadowBase, IRB.getInt8(ClPoisonStackPattern),
-                     Size, I.getAlignment());
+    if (ClPoisonStackWithCall) {
+      IRB.CreateCall2(MS.MsanPoisonStackFn,
+                      IRB.CreatePointerCast(&I, IRB.getInt8PtrTy()),
+                      ConstantInt::get(MS.IntptrTy, Size));
+    } else {
+      Value *ShadowBase = getShadowPtr(&I, Type::getInt8PtrTy(*MS.C), IRB);
+      IRB.CreateMemSet(ShadowBase, IRB.getInt8(ClPoisonStackPattern),
+                       Size, I.getAlignment());
+    }
 
     if (ClTrackOrigins) {
       setOrigin(&I, getCleanOrigin());

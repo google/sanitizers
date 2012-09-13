@@ -20,6 +20,7 @@ void __msan_copy_poison(void *dst, const void *src, uptr size);
 void __msan_copy_origin(void *dst, const void *src, uptr size);
 void __msan_move_poison(void *dst, const void *src, uptr size);
 void __msan_poison(void *a, uptr size);
+void __msan_poison_stack(void *a, uptr size);
 
 // Copy size bytes from src to dst and unpoison the result.
 // Useful to implement unsafe loads.
