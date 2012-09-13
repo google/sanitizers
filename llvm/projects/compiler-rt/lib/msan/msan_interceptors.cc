@@ -398,11 +398,13 @@ void __msan_unpoison(void *a, uptr size) {
 void __msan_poison(void *a, uptr size) {
   if (IS_IN_SHADOW(a)) return;
   fast_memset((void*)MEM_TO_SHADOW((uptr)a),
-                  __msan::flags.poison_with_zeroes ? 0 : -1, size);
+                  __msan::flags.poison_heap_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_poison_stack(void *a, uptr size) {
-  __msan_poison(a, size);
+  if (IS_IN_SHADOW(a)) return;
+  fast_memset((void*)MEM_TO_SHADOW((uptr)a),
+                  __msan::flags.poison_stack_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_clear_and_unpoison(void *a, uptr size) {

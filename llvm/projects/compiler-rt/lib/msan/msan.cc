@@ -35,7 +35,8 @@ static bool IsRunningUnderDr() {
 namespace __msan {
 
 Flags flags = {
-  false,  // poison_with_zeroes
+  false,  // poison_heap_with_zeroes
+  false,  // poison_stack_with_zeroes
   true,   // poison_in_malloc
   67,     // exit_code
   true,   // fast_unwinder
@@ -52,7 +53,8 @@ static atomic_uint32_t NumStackOriginDescrs;
 
 
 void ParseFlagsFromString(Flags *f, const char *str) {
-  ParseFlag(str, &f->poison_with_zeroes, "poison_with_zeroes");
+  ParseFlag(str, &f->poison_heap_with_zeroes, "poison_heap_with_zeroes");
+  ParseFlag(str, &f->poison_stack_with_zeroes, "poison_stack_with_zeroes");
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
   ParseFlag(str, &f->exit_code, "exit_code");
   ParseFlag(str, &f->fast_unwinder, "fast_unwinder");
