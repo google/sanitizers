@@ -76,6 +76,9 @@ CHECK_LINT=${LLVM_CHECKOUT}/projects/compiler-rt/lib/sanitizer_common/scripts/ch
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
 ASAN_TEST_BINARY=$ASAN_TESTS_PATH/$BUILD_TYPE/AsanTest
+TSAN_PATH=projects/compiler-rt/lib/tsan
+TSAN_RTL_TEST_BINARY=$TSAN_PATH/rtl_tests/$BUILD_TYPE/TsanRtlTest
+TSAN_UNIT_TEST_BINARY=$TSAN_PATH/unit_tests/$BUILD_TYPE/TsanUnitTest
 
 echo @@@BUILD_STEP run 64-bit asan tests@@@
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
@@ -86,6 +89,15 @@ echo @@@BUILD_STEP run 32-bit asan tests@@@
 (cd llvm_build32 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 # Run unit test binary in a single shard.
 ./llvm_build32/$ASAN_TEST_BINARY
+
+if [ "$PLATFORM" == "Linux" ]; then
+echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
+# Build tsan unit tests.
+(cd llvm_build64 && make -j$MAKE_JOBS TsanUnitTests) || echo @@@STEP_FAILURE@@@
+# Run tsan unit test binaries.
+./llvm_build64/$TSAN_RTL_TEST_BINARY
+./llvm_build64/$TSAN_UNIT_TEST_BINARY
+fi
 
 if [ "$PLATFORM" == "Darwin" ]; then
 echo @@@BUILD_STEP build asan dynamic runtime@@@
