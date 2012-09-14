@@ -55,11 +55,11 @@ STATISTIC(NumTimesRetriedWithoutInlining,
 //===----------------------------------------------------------------------===//
 
 ExprEngine::ExprEngine(AnalysisManager &mgr, bool gcEnabled,
-                       SetOfConstDecls *VisitedCallees,
+                       SetOfConstDecls *VisitedCalleesIn,
                        FunctionSummariesTy *FS)
   : AMgr(mgr),
     AnalysisDeclContexts(mgr.getAnalysisDeclContextManager()),
-    Engine(*this, VisitedCallees, FS),
+    Engine(*this, FS),
     G(Engine.getGraph()),
     StateMgr(getContext(), mgr.getStoreManagerCreator(),
              mgr.getConstraintManagerCreator(), G.getAllocator(),
@@ -68,19 +68,18 @@ ExprEngine::ExprEngine(AnalysisManager &mgr, bool gcEnabled,
     svalBuilder(StateMgr.getSValBuilder()),
     EntryNode(NULL),
     currStmt(NULL), currStmtIdx(0), currBldrCtx(0),
-    NSExceptionII(NULL), NSExceptionInstanceRaiseSelectors(NULL),
-    RaiseSel(GetNullarySelector("raise", getContext())),
-    ObjCGCEnabled(gcEnabled), BR(mgr, *this) {
-  
-  if (mgr.shouldEagerlyTrimExplodedGraph()) {
-    // Enable eager node reclaimation when constructing the ExplodedGraph.  
-    G.enableNodeReclamation();
-  }
+    ObjCNoRet(mgr.getASTContext()),
+    ObjCGCEnabled(gcEnabled), BR(mgr, *this),
+    VisitedCallees(VisitedCalleesIn)
+{
+    if (mgr.options.eagerlyTrimExplodedGraph) {
+      // Enable eager node reclaimation when constructing the ExplodedGraph.
+      G.enableNodeReclamation();
+    }
 }
 
 ExprEngine::~ExprEngine() {
   BR.FlushReports();
-  delete [] NSExceptionInstanceRaiseSelectors;
 }
 
 //===----------------------------------------------------------------------===//
@@ -228,7 +227,7 @@ static bool shouldRemoveDeadBindings(AnalysisManager &AMgr,
                                      const LocationContext *LC) {
   
   // Are we never purging state values?
-  if (AMgr.getPurgeMode() == PurgeNone)
+  if (AMgr.options.AnalysisPurgeOpt == PurgeNone)
     return false;
 
   // Is this the beginning of a basic block?
@@ -445,7 +444,7 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
   Loc dest = state->getLValue(varDecl, Pred->getLocationContext());
 
   VisitCXXDestructor(varType, cast<loc::MemRegionVal>(dest).getRegion(),
-                     Dtor.getTriggerStmt(), Pred, Dst);
+                     Dtor.getTriggerStmt(), /*IsBase=*/false, Pred, Dst);
 }
 
 void ExprEngine::ProcessBaseDtor(const CFGBaseDtor D,
@@ -463,7 +462,7 @@ void ExprEngine::ProcessBaseDtor(const CFGBaseDtor D,
   SVal BaseVal = getStoreManager().evalDerivedToBase(ThisVal, BaseTy);
 
   VisitCXXDestructor(BaseTy, cast<loc::MemRegionVal>(BaseVal).getRegion(),
-                     CurDtor->getBody(), Pred, Dst);
+                     CurDtor->getBody(), /*IsBase=*/true, Pred, Dst);
 }
 
 void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
@@ -479,7 +478,7 @@ void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
 
   VisitCXXDestructor(Member->getType(),
                      cast<loc::MemRegionVal>(FieldVal).getRegion(),
-                     CurDtor->getBody(), Pred, Dst);
+                     CurDtor->getBody(), /*IsBase=*/false, Pred, Dst);
 }
 
 void ExprEngine::ProcessTemporaryDtor(const CFGTemporaryDtor D,
@@ -525,6 +524,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::CXXNoexceptExprClass:
     case Stmt::PackExpansionExprClass:
     case Stmt::SubstNonTypeTemplateParmPackExprClass:
+    case Stmt::FunctionParmPackExprClass:
     case Stmt::SEHTryStmtClass:
     case Stmt::SEHExceptStmtClass:
     case Stmt::LambdaExprClass:
@@ -704,11 +704,11 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
 
       Bldr.takeNodes(Pred);
       
-      if (AMgr.shouldEagerlyAssume() &&
+      if (AMgr.options.eagerlyAssumeBinOpBifurcation &&
           (B->isRelationalOp() || B->isEqualityOp())) {
         ExplodedNodeSet Tmp;
         VisitBinaryOperator(cast<BinaryOperator>(S), Pred, Tmp);
-        evalEagerlyAssume(Dst, Tmp, cast<Expr>(S));
+        evalEagerlyAssumeBinOpBifurcation(Dst, Tmp, cast<Expr>(S));
       }
       else
         VisitBinaryOperator(cast<BinaryOperator>(S), Pred, Dst);
@@ -924,10 +924,10 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::UnaryOperatorClass: {
       Bldr.takeNodes(Pred);
       const UnaryOperator *U = cast<UnaryOperator>(S);
-      if (AMgr.shouldEagerlyAssume() && (U->getOpcode() == UO_LNot)) {
+      if (AMgr.options.eagerlyAssumeBinOpBifurcation && (U->getOpcode() == UO_LNot)) {
         ExplodedNodeSet Tmp;
         VisitUnaryOperator(U, Pred, Tmp);
-        evalEagerlyAssume(Dst, Tmp, U);
+        evalEagerlyAssumeBinOpBifurcation(Dst, Tmp, U);
       }
       else
         VisitUnaryOperator(U, Pred, Dst);
@@ -1024,7 +1024,7 @@ void ExprEngine::processCFGBlockEntrance(const BlockEdge &L,
   // FIXME: Refactor this into a checker.
   ExplodedNode *pred = nodeBuilder.getContext().getPred();
   
-  if (nodeBuilder.getContext().blockCount() >= AMgr.getMaxVisit()) {
+  if (nodeBuilder.getContext().blockCount() >= AMgr.options.maxBlockVisitOnPath) {
     static SimpleProgramPointTag tag("ExprEngine : Block count exceeded");
     const ExplodedNode *Sink =
                    nodeBuilder.generateSink(pred->getState(), pred, &tag);
@@ -1042,7 +1042,8 @@ void ExprEngine::processCFGBlockEntrance(const BlockEdge &L,
       // no-inlining policy in the state and enqueuing the new work item on
       // the list. Replay should almost never fail. Use the stats to catch it
       // if it does.
-      if ((!AMgr.NoRetryExhausted && replayWithoutInlining(pred, CalleeLC)))
+      if ((!AMgr.options.NoRetryExhausted &&
+           replayWithoutInlining(pred, CalleeLC)))
         return;
       NumMaxBlockCountReachedInInlined++;
     } else
@@ -1735,15 +1736,17 @@ void ExprEngine::evalLocation(ExplodedNodeSet &Dst,
 }
 
 std::pair<const ProgramPointTag *, const ProgramPointTag*>
-ExprEngine::getEagerlyAssumeTags() {
+ExprEngine::geteagerlyAssumeBinOpBifurcationTags() {
   static SimpleProgramPointTag
-         EagerlyAssumeTrue("ExprEngine : Eagerly Assume True"),
-         EagerlyAssumeFalse("ExprEngine : Eagerly Assume False");
-  return std::make_pair(&EagerlyAssumeTrue, &EagerlyAssumeFalse);
+         eagerlyAssumeBinOpBifurcationTrue("ExprEngine : Eagerly Assume True"),
+         eagerlyAssumeBinOpBifurcationFalse("ExprEngine : Eagerly Assume False");
+  return std::make_pair(&eagerlyAssumeBinOpBifurcationTrue,
+                        &eagerlyAssumeBinOpBifurcationFalse);
 }
 
-void ExprEngine::evalEagerlyAssume(ExplodedNodeSet &Dst, ExplodedNodeSet &Src,
-                                   const Expr *Ex) {
+void ExprEngine::evalEagerlyAssumeBinOpBifurcation(ExplodedNodeSet &Dst,
+                                                   ExplodedNodeSet &Src,
+                                                   const Expr *Ex) {
   StmtNodeBuilder Bldr(Src, Dst, *currBldrCtx);
   
   for (ExplodedNodeSet::iterator I=Src.begin(), E=Src.end(); I!=E; ++I) {
@@ -1761,7 +1764,7 @@ void ExprEngine::evalEagerlyAssume(ExplodedNodeSet &Dst, ExplodedNodeSet &Src,
     nonloc::SymbolVal *SEV = dyn_cast<nonloc::SymbolVal>(&V);
     if (SEV && SEV->isExpression()) {
       const std::pair<const ProgramPointTag *, const ProgramPointTag*> &tags =
-        getEagerlyAssumeTags();
+        geteagerlyAssumeBinOpBifurcationTags();
 
       // First assume that the condition is true.
       if (ProgramStateRef StateTrue = state->assume(*SEV, true)) {
@@ -1931,7 +1934,7 @@ struct DOTGraphTraits<ExplodedNode*> :
         if (StmtPoint *L = dyn_cast<StmtPoint>(&Loc)) {
           const Stmt *S = L->getStmt();
 
-          Out << S->getStmtClassName() << ' ' << (void*) S << ' ';
+          Out << S->getStmtClassName() << ' ' << (const void*) S << ' ';
           LangOptions LO; // FIXME.
           S->printPretty(Out, 0, PrintingPolicy(LO));
           printLocation(Out, S->getLocStart());
@@ -2037,8 +2040,8 @@ struct DOTGraphTraits<ExplodedNode*> :
     }
 
     ProgramStateRef state = N->getState();
-    Out << "\\|StateID: " << (void*) state.getPtr()
-        << " NodeID: " << (void*) N << "\\|";
+    Out << "\\|StateID: " << (const void*) state.getPtr()
+        << " NodeID: " << (const void*) N << "\\|";
     state->printDOT(Out);
 
     Out << "\\l";    

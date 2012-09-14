@@ -947,11 +947,12 @@ void RetainSummaryManager::updateSummaryForCall(const RetainSummary *&S,
     // This can generally only happen if we know that the callback will only be
     // called when the return value is already being deallocated.
     if (const FunctionCall *FC = dyn_cast<FunctionCall>(&Call)) {
-      IdentifierInfo *Name = FC->getDecl()->getIdentifier();
-
-      // This callback frees the associated buffer.
-      if (Name->isStr("CGBitmapContextCreateWithData"))
-        RE = S->getRetEffect();
+      if (IdentifierInfo *Name = FC->getDecl()->getIdentifier()) {
+        // When the CGBitmapContext is deallocated, the callback here will free
+        // the associated data buffer.
+        if (Name->isStr("CGBitmapContextCreateWithData"))
+          RE = S->getRetEffect();
+      }
     }
 
     S = getPersistentSummary(RE, RecEffect, DefEffect);
@@ -1073,6 +1074,8 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
       // The headers on OS X 10.8 use cf_consumed/ns_returns_retained,
       // but we can fully model NSMakeCollectable ourselves.
       AllowAnnotations = false;
+    } else if (FName == "CFPlugInInstanceCreate") {
+      S = getPersistentSummary(RetEffect::MakeNoRet());
     } else if (FName == "IOBSDNameMatching" ||
                FName == "IOServiceMatching" ||
                FName == "IOServiceNameMatching" ||
@@ -1145,6 +1148,11 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
       break;
 
     if (RetTy->isPointerType()) {
+      if (FD->getAttr<CFAuditedTransferAttr>()) {
+        S = getCFCreateGetRuleSummary(FD);
+        break;
+      }
+      
       // For CoreFoundation ('CF') types.
       if (cocoa::isRefType(RetTy, "CF", FName)) {
         if (isRetain(FD, FName))
@@ -2256,21 +2264,29 @@ CFRefLeakReportVisitor::getEndPath(BugReporterContext &BRC,
     // objects.  Only "copy", "alloc", "retain" and "new" transfer ownership
     // to the caller for NS objects.
     const Decl *D = &EndN->getCodeDecl();
-    if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
-      os << " is returned from a method whose name ('"
-         << MD->getSelector().getAsString()
-         << "') does not start with 'copy', 'mutableCopy', 'alloc' or 'new'."
-            "  This violates the naming convention rules"
-            " given in the Memory Management Guide for Cocoa";
-    }
+    
+    os << (isa<ObjCMethodDecl>(D) ? " is returned from a method "
+                                  : " is returned from a function ");
+    
+    if (D->getAttr<CFReturnsNotRetainedAttr>())
+      os << "that is annotated as CF_RETURNS_NOT_RETAINED";
+    else if (D->getAttr<NSReturnsNotRetainedAttr>())
+      os << "that is annotated as NS_RETURNS_NOT_RETAINED";
     else {
-      const FunctionDecl *FD = cast<FunctionDecl>(D);
-      os << " is returned from a function whose name ('"
-         << *FD
-         << "') does not contain 'Copy' or 'Create'.  This violates the naming"
-            " convention rules given in the Memory Management Guide for Core"
-            " Foundation";
-    }    
+      if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
+        os << "whose name ('" << MD->getSelector().getAsString()
+           << "') does not start with 'copy', 'mutableCopy', 'alloc' or 'new'."
+              "  This violates the naming convention rules"
+              " given in the Memory Management Guide for Cocoa";
+      }
+      else {
+        const FunctionDecl *FD = cast<FunctionDecl>(D);
+        os << "whose name ('" << *FD
+           << "') does not contain 'Copy' or 'Create'.  This violates the naming"
+              " convention rules given in the Memory Management Guide for Core"
+              " Foundation";
+      }
+    }
   }
   else if (RV->getKind() == RefVal::ErrorGCLeakReturned) {
     ObjCMethodDecl &MD = cast<ObjCMethodDecl>(EndN->getCodeDecl());
@@ -3429,9 +3445,8 @@ ProgramStateRef RetainCountChecker::evalAssume(ProgramStateRef state,
   RefBindings::Factory &RefBFactory = state->get_context<RefBindings>();
 
   for (RefBindings::iterator I = B.begin(), E = B.end(); I != E; ++I) {
-    // Check if the symbol is null (or equal to any constant).
-    // If this is the case, stop tracking the symbol.
-    if (state->getSymVal(I.getKey())) {
+    // Check if the symbol is null stop tracking the symbol.
+    if (state->getConstraintManager().isNull(state, I.getKey()).isTrue()) {
       changed = true;
       B = RefBFactory.remove(B, I.getKey());
     }

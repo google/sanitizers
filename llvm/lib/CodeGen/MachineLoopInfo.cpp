@@ -74,6 +74,8 @@ MachineBasicBlock *MachineLoop::getBottomBlock() {
   return BotMBB;
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void MachineLoop::dump() const {
   print(dbgs());
 }
+#endif

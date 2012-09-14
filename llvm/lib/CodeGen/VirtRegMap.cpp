@@ -126,9 +126,11 @@ void VirtRegMap::print(raw_ostream &OS, const Module*) const {
   OS << '\n';
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void VirtRegMap::dump() const {
   print(dbgs());
 }
+#endif
 
 //===----------------------------------------------------------------------===//
 //                              VirtRegRewriter
@@ -200,7 +202,7 @@ bool VirtRegRewriter::runOnMachineFunction(MachineFunction &fn) {
   DEBUG(VRM->dump());
 
   // Add kill flags while we still have virtual registers.
-  LIS->addKillFlags();
+  LIS->addKillFlags(VRM);
 
   // Live-in lists on basic blocks are required for physregs.
   addMBBLiveIns();

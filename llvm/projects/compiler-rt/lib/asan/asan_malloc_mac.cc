@@ -25,6 +25,8 @@
 #include "asan_mac.h"
 #include "asan_report.h"
 #include "asan_stack.h"
+#include "asan_stats.h"
+#include "asan_thread_registry.h"
 
 // Similar code is used in Google Perftools,
 // http://code.google.com/p/google-perftools.
@@ -108,7 +110,7 @@ namespace __asan {
 //
 // See http://code.google.com/p/address-sanitizer/issues/detail?id=87
 // and http://opensource.apple.com/source/CF/CF-550.43/CFRuntime.c
-INTERCEPTOR(void, __CFInitialize) {
+INTERCEPTOR(void, __CFInitialize, void) {
   // If the runtime is built as dynamic library, __CFInitialize wrapper may be
   // called before __asan_init.
 #if !MAC_INTERPOSE_FUNCTIONS
@@ -276,7 +278,6 @@ void mz_free_definite_size(malloc_zone_t* zone, void *ptr, size_t size) {
 #endif
 #endif
 
-// malloc_introspection callbacks.  I'm not clear on what all of these do.
 kern_return_t mi_enumerator(task_t task, void *,
                             unsigned type_mask, vm_address_t zone_address,
                             memory_reader_t reader,
@@ -312,17 +313,12 @@ void mi_force_unlock(malloc_zone_t *zone) {
   asan_mz_force_unlock();
 }
 
-// This function is currently unused, and we build with -Werror.
-#if 0
 void mi_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {
-  // TODO(csilvers): figure out how to fill these out
-  // TODO(glider): port this from tcmalloc when ready.
-  stats->blocks_in_use = 0;
-  stats->size_in_use = 0;
-  stats->max_size_in_use = 0;
-  stats->size_allocated = 0;
+  AsanMallocStats malloc_stats;
+  asanThreadRegistry().FillMallocStatistics(&malloc_stats);
+  CHECK(sizeof(malloc_statistics_t) == sizeof(AsanMallocStats));
+  internal_memcpy(stats, &malloc_stats, sizeof(malloc_statistics_t));
 }
-#endif
 
 #if defined(MAC_OS_X_VERSION_10_6) && \
     MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
@@ -364,6 +360,7 @@ void ReplaceSystemMalloc() {
   asan_introspection.log = &mi_log;
   asan_introspection.force_lock = &mi_force_lock;
   asan_introspection.force_unlock = &mi_force_unlock;
+  asan_introspection.statistics = &mi_statistics;
 
   internal_memset(&asan_zone, 0, sizeof(malloc_zone_t));
 

@@ -199,6 +199,9 @@ enum StatType {
   StatInt_raise,
   StatInt_kill,
   StatInt_pthread_kill,
+  StatInt_sleep,
+  StatInt_usleep,
+  StatInt_nanosleep,
 
   // Dynamic annotations.
   StatAnnotation,
@@ -247,7 +250,7 @@ enum StatType {
   StatMtxAtExit,
 
   // This must be the last.
-  StatCnt,
+  StatCnt
 };
 
 }  // namespace __tsan

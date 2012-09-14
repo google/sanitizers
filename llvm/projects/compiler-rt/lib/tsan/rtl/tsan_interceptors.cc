@@ -51,7 +51,6 @@ extern "C" void *pthread_self();
 extern "C" void _exit(int status);
 extern "C" int __cxa_atexit(void (*func)(void *arg), void *arg, void *dso);
 extern "C" int *__errno_location();
-extern "C" int usleep(unsigned usec);
 const int PTHREAD_MUTEX_RECURSIVE = 1;
 const int PTHREAD_MUTEX_RECURSIVE_NP = 1;
 const int kPthreadAttrSize = 56;
@@ -68,6 +67,12 @@ void *const MAP_FAILED = (void*)-1;
 const int PTHREAD_BARRIER_SERIAL_THREAD = -1;
 const int MAP_FIXED = 0x10;
 typedef long long_t;  // NOLINT
+
+// From /usr/include/unistd.h
+# define F_ULOCK 0      /* Unlock a previously locked region.  */
+# define F_LOCK  1      /* Lock a region for exclusive use.  */
+# define F_TLOCK 2      /* Test and lock a region for exclusive use.  */
+# define F_TEST  3      /* Test a region for other processes locks.  */
 
 typedef void (*sighandler_t)(int sig);
 
@@ -213,6 +218,27 @@ static void invoke_free_hook(void *ptr) {
   __tsan_free_hook(ptr);
 }
 
+TSAN_INTERCEPTOR(unsigned, sleep, unsigned sec) {
+  SCOPED_TSAN_INTERCEPTOR(sleep, sec);
+  unsigned res = sleep(sec);
+  AfterSleep(thr, pc);
+  return res;
+}
+
+TSAN_INTERCEPTOR(int, usleep, long_t usec) {
+  SCOPED_TSAN_INTERCEPTOR(usleep, usec);
+  int res = usleep(usec);
+  AfterSleep(thr, pc);
+  return res;
+}
+
+TSAN_INTERCEPTOR(int, nanosleep, void *req, void *rem) {
+  SCOPED_TSAN_INTERCEPTOR(nanosleep, req, rem);
+  int res = nanosleep(req, rem);
+  AfterSleep(thr, pc);
+  return res;
+}
+
 class AtExitContext {
  public:
   AtExitContext()
@@ -269,7 +295,7 @@ static void finalize(void *arg) {
   {
     ScopedInRtl in_rtl;
     DestroyAndFree(atexit_ctx);
-    usleep(flags()->atexit_sleep_ms * 1000);
+    REAL(usleep)(flags()->atexit_sleep_ms * 1000);
   }
   int status = Finalize(cur_thread());
   if (status)
@@ -333,7 +359,7 @@ TSAN_INTERCEPTOR(void*, calloc, uptr size, uptr n) {
   {
     SCOPED_INTERCEPTOR_RAW(calloc, size, n);
     p = user_alloc(thr, pc, n * size);
-    internal_memset(p, 0, n * size);
+    if (p) internal_memset(p, 0, n * size);
   }
   invoke_malloc_hook(p, n * size);
   return p;
@@ -1340,11 +1366,11 @@ TSAN_INTERCEPTOR(int, sigaction, int sig, sigaction_t *act, sigaction_t *old) {
 }
 
 TSAN_INTERCEPTOR(sighandler_t, signal, int sig, sighandler_t h) {
-  sigaction_t act = {};
+  sigaction_t act;
   act.sa_handler = h;
   REAL(memset)(&act.sa_mask, -1, sizeof(act.sa_mask));
   act.sa_flags = 0;
-  sigaction_t old = {};
+  sigaction_t old;
   int res = sigaction(sig, &act, &old);
   if (res)
     return SIG_ERR;
@@ -1572,6 +1598,9 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(raise);
   TSAN_INTERCEPT(kill);
   TSAN_INTERCEPT(pthread_kill);
+  TSAN_INTERCEPT(sleep);
+  TSAN_INTERCEPT(usleep);
+  TSAN_INTERCEPT(nanosleep);
 
   atexit_ctx = new(internal_alloc(MBlockAtExit, sizeof(AtExitContext)))
       AtExitContext();

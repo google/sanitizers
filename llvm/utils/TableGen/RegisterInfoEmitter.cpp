@@ -770,7 +770,7 @@ RegisterInfoEmitter::runMCDesc(raw_ostream &OS, CodeGenTarget &Target,
      << TargetName << "RegDiffLists, "
      << TargetName << "RegStrings, "
      << TargetName << "SubRegIdxLists, "
-     << SubRegIndices.size() << ",\n"
+     << (SubRegIndices.size() + 1) << ",\n"
      << "  " << TargetName << "RegEncodingTable);\n\n";
 
   EmitRegMapping(OS, Regs, false);
@@ -876,14 +876,22 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
   VTSeqs.emit(OS, printSimpleValueType, "MVT::Other");
   OS << "};\n";
 
-  // Emit SubRegIndex names, skipping 0
-  OS << "\nstatic const char *const SubRegIndexTable[] = { \"";
+  // Emit SubRegIndex names, skipping 0.
+  OS << "\nstatic const char *const SubRegIndexNameTable[] = { \"";
   for (unsigned i = 0, e = SubRegIndices.size(); i != e; ++i) {
     OS << SubRegIndices[i]->getName();
-    if (i+1 != e)
+    if (i + 1 != e)
       OS << "\", \"";
   }
   OS << "\" };\n\n";
+
+  // Emit SubRegIndex lane masks, including 0.
+  OS << "\nstatic const unsigned SubRegIndexLaneMaskTable[] = {\n  ~0u,\n";
+  for (unsigned i = 0, e = SubRegIndices.size(); i != e; ++i) {
+    OS << format("  0x%08x, // ", SubRegIndices[i]->LaneMask)
+       << SubRegIndices[i]->getName() << '\n';
+  }
+  OS << " };\n\n";
 
   OS << "\n";
 
@@ -1055,8 +1063,8 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
     for (unsigned i = 0, e = SubRegIndices.size(); i != e; ++i) {
       bool Open = false;
       for (unsigned j = 0; j != e; ++j) {
-        if (CodeGenSubRegIndex *Comp =
-            SubRegIndices[i]->compose(SubRegIndices[j])) {
+        CodeGenSubRegIndex *Comp = SubRegIndices[i]->compose(SubRegIndices[j]);
+        if (Comp && Comp != SubRegIndices[j]) {
           if (!Open) {
             OS << "  case " << SubRegIndices[i]->getQualifiedName()
               << ": switch(IdxB) {\n    default: return IdxB;\n";
@@ -1122,7 +1130,7 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
      << "(unsigned RA, unsigned DwarfFlavour, unsigned EHFlavour)\n"
      << "  : TargetRegisterInfo(" << TargetName << "RegInfoDesc"
      << ", RegisterClasses, RegisterClasses+" << RegisterClasses.size() <<",\n"
-     << "             SubRegIndexTable) {\n"
+     << "             SubRegIndexNameTable, SubRegIndexLaneMaskTable) {\n"
      << "  InitMCRegisterInfo(" << TargetName << "RegDesc, "
      << Regs.size()+1 << ", RA,\n                     " << TargetName
      << "MCRegisterClasses, " << RegisterClasses.size() << ",\n"
@@ -1131,7 +1139,7 @@ RegisterInfoEmitter::runTargetDesc(raw_ostream &OS, CodeGenTarget &Target,
      << "                     " << TargetName << "RegDiffLists,\n"
      << "                     " << TargetName << "RegStrings,\n"
      << "                     " << TargetName << "SubRegIdxLists,\n"
-     << "                     " << SubRegIndices.size() << ",\n"
+     << "                     " << SubRegIndices.size() + 1 << ",\n"
      << "                     " << TargetName << "RegEncodingTable);\n\n";
 
   EmitRegMapping(OS, Regs, true);

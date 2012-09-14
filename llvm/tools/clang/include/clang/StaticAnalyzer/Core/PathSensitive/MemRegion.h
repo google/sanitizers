@@ -140,6 +140,9 @@ public:
 
   const MemRegion *getBaseRegion() const;
 
+  /// Check if the region is a subregion of the given region.
+  virtual bool isSubRegionOf(const MemRegion *R) const;
+
   const MemRegion *StripCasts(bool StripBaseCasts = true) const;
 
   bool hasGlobalsOrParametersStorage() const;
@@ -416,7 +419,7 @@ public:
 
   MemRegionManager* getMemRegionManager() const;
 
-  bool isSubRegionOf(const MemRegion* R) const;
+  virtual bool isSubRegionOf(const MemRegion* R) const;
 
   static bool classof(const MemRegion* R) {
     return R->getKind() > END_MEMSPACES;

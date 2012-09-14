@@ -41,6 +41,7 @@ static bool CanPHITrans(Instruction *Inst) {
   return false;
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void PHITransAddr::dump() const {
   if (Addr == 0) {
     dbgs() << "PHITransAddr: null\n";
@@ -50,6 +51,7 @@ void PHITransAddr::dump() const {
   for (unsigned i = 0, e = InstInputs.size(); i != e; ++i)
     dbgs() << "  Input #" << i << " is " << *InstInputs[i] << "\n";
 }
+#endif
 
 
 static bool VerifySubExpr(Value *Expr,

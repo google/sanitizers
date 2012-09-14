@@ -240,6 +240,7 @@ void SchedulePostRATDList::exitRegion() {
   ScheduleDAGInstrs::exitRegion();
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 /// dumpSchedule - dump the scheduled Sequence.
 void SchedulePostRATDList::dumpSchedule() const {
   for (unsigned i = 0, e = Sequence.size(); i != e; i++) {
@@ -249,6 +250,7 @@ void SchedulePostRATDList::dumpSchedule() const {
       dbgs() << "**** NOOP ****\n";
   }
 }
+#endif
 
 bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
   TII = Fn.getTarget().getInstrInfo();

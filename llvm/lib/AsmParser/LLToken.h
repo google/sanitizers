@@ -72,6 +72,7 @@ namespace lltok {
     kw_asm,
     kw_sideeffect,
     kw_alignstack,
+    kw_inteldialect,
     kw_gc,
     kw_c,
 
@@ -107,7 +108,6 @@ namespace lltok {
     kw_naked,
     kw_nonlazybind,
     kw_address_safety,
-    kw_ia_nsdialect,
 
     kw_type,
     kw_opaque,

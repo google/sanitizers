@@ -29,32 +29,8 @@ bool isHTMLHexCharacterReferenceCharacter(char C) {
          (C >= 'A' && C <= 'F');
 }
 
-bool isHTMLTagName(StringRef Name) {
-  return llvm::StringSwitch<bool>(Name)
-      .Cases("em", "strong", true)
-      .Cases("tt", "i", "b", "big", "small", true)
-      .Cases("strike", "s", "u", "font", true)
-      .Case("a", true)
-      .Case("hr", true)
-      .Cases("div", "span", true)
-      .Cases("h1", "h2", "h3", true)
-      .Cases("h4", "h5", "h6", true)
-      .Case("code", true)
-      .Case("blockquote", true)
-      .Cases("sub", "sup", true)
-      .Case("img", true)
-      .Case("p", true)
-      .Case("br", true)
-      .Case("pre", true)
-      .Cases("ins", "del", true)
-      .Cases("ul", "ol", "li", true)
-      .Cases("dl", "dt", "dd", true)
-      .Cases("table", "caption", true)
-      .Cases("thead", "tfoot", "tbody", true)
-      .Cases("colgroup", "col", true)
-      .Cases("tr", "th", "td", true)
-      .Default(false);
-}
+#include "clang/AST/CommentHTMLTags.inc"
+
 } // unnamed namespace
 
 StringRef Lexer::resolveHTMLNamedCharacterReference(StringRef Name) const {
@@ -383,18 +359,23 @@ void Lexer::lexCommentText(Token &T) {
         }
 
         const StringRef CommandName(BufferPtr + 1, Length);
-        StringRef EndName;
 
-        if (Traits.isVerbatimBlockCommand(CommandName, EndName)) {
-          setupAndLexVerbatimBlock(T, TokenPtr, *BufferPtr, EndName);
+        const CommandInfo *Info = Traits.getCommandInfoOrNULL(CommandName);
+        if (!Info) {
+          formTokenWithChars(T, TokenPtr, tok::unknown_command);
+          T.setUnknownCommandName(CommandName);
           return;
         }
-        if (Traits.isVerbatimLineCommand(CommandName)) {
-          setupAndLexVerbatimLine(T, TokenPtr);
+        if (Info->IsVerbatimBlockCommand) {
+          setupAndLexVerbatimBlock(T, TokenPtr, *BufferPtr, Info);
+          return;
+        }
+        if (Info->IsVerbatimLineCommand) {
+          setupAndLexVerbatimLine(T, TokenPtr, Info);
           return;
         }
         formTokenWithChars(T, TokenPtr, tok::command);
-        T.setCommandName(CommandName);
+        T.setCommandID(Info->getID());
         return;
       }
 
@@ -447,14 +428,15 @@ void Lexer::lexCommentText(Token &T) {
 
 void Lexer::setupAndLexVerbatimBlock(Token &T,
                                      const char *TextBegin,
-                                     char Marker, StringRef EndName) {
+                                     char Marker, const CommandInfo *Info) {
+  assert(Info->IsVerbatimBlockCommand);
+
   VerbatimBlockEndCommandName.clear();
   VerbatimBlockEndCommandName.append(Marker == '\\' ? "\\" : "@");
-  VerbatimBlockEndCommandName.append(EndName);
+  VerbatimBlockEndCommandName.append(Info->EndCommandName);
 
-  StringRef Name(BufferPtr + 1, TextBegin - (BufferPtr + 1));
   formTokenWithChars(T, TextBegin, tok::verbatim_block_begin);
-  T.setVerbatimBlockName(Name);
+  T.setVerbatimBlockID(Info->getID());
 
   // If there is a newline following the verbatim opening command, skip the
   // newline so that we don't create an tok::verbatim_block_line with empty
@@ -495,7 +477,7 @@ again:
     const char *End = BufferPtr + VerbatimBlockEndCommandName.size();
     StringRef Name(BufferPtr + 1, End - (BufferPtr + 1));
     formTokenWithChars(T, End, tok::verbatim_block_end);
-    T.setVerbatimBlockName(Name);
+    T.setVerbatimBlockID(Traits.getCommandInfo(Name)->getID());
     State = LS_Normal;
     return;
   } else {
@@ -525,10 +507,11 @@ void Lexer::lexVerbatimBlockBody(Token &T) {
   lexVerbatimBlockFirstLine(T);
 }
 
-void Lexer::setupAndLexVerbatimLine(Token &T, const char *TextBegin) {
-  const StringRef Name(BufferPtr + 1, TextBegin - BufferPtr - 1);
+void Lexer::setupAndLexVerbatimLine(Token &T, const char *TextBegin,
+                                    const CommandInfo *Info) {
+  assert(Info->IsVerbatimLineCommand);
   formTokenWithChars(T, TextBegin, tok::verbatim_line_name);
-  T.setVerbatimLineName(Name);
+  T.setVerbatimLineID(Info->getID());
 
   State = LS_VerbatimLineText;
 }
@@ -719,11 +702,11 @@ void Lexer::lexHTMLEndTag(Token &T) {
 }
 
 Lexer::Lexer(llvm::BumpPtrAllocator &Allocator, const CommandTraits &Traits,
-             SourceLocation FileLoc, const CommentOptions &CommOpts,
+             SourceLocation FileLoc,
              const char *BufferStart, const char *BufferEnd):
     Allocator(Allocator), Traits(Traits),
     BufferStart(BufferStart), BufferEnd(BufferEnd),
-    FileLoc(FileLoc), CommOpts(CommOpts), BufferPtr(BufferStart),
+    FileLoc(FileLoc), BufferPtr(BufferStart),
     CommentState(LCS_BeforeComment), State(LS_Normal) {
 }
 

@@ -318,7 +318,9 @@ SVal SimpleSValBuilder::evalBinOpNN(ProgramStateRef state,
         return makeTruthVal(false, resultTy);
       case BO_Xor:
       case BO_Sub:
-        return makeIntVal(0, resultTy);
+        if (resultTy->isIntegralOrEnumerationType())
+          return makeIntVal(0, resultTy);
+        return evalCastFromNonLoc(makeIntVal(0, /*Unsigned=*/false), resultTy);
       case BO_Or:
       case BO_And:
         return evalCastFromNonLoc(lhs, resultTy);
@@ -505,7 +507,8 @@ SVal SimpleSValBuilder::evalBinOpNN(ProgramStateRef state,
       } else if (isa<SymbolData>(Sym)) {
         // Does the symbol simplify to a constant?  If so, "fold" the constant
         // by setting 'lhs' to a ConcreteInt and try again.
-        if (const llvm::APSInt *Constant = state->getSymVal(Sym)) {
+        if (const llvm::APSInt *Constant = state->getConstraintManager()
+                                                  .getSymVal(state, Sym)) {
           lhs = nonloc::ConcreteInt(*Constant);
           continue;
         }
@@ -916,14 +919,8 @@ SVal SimpleSValBuilder::evalBinOpLN(ProgramStateRef state,
     else if (isa<SubRegion>(region)) {
       superR = region;
       index = rhs;
-      if (const PointerType *PT = resultTy->getAs<PointerType>()) {
-        elementType = PT->getPointeeType();
-      }
-      else {
-        const ObjCObjectPointerType *OT =
-          resultTy->getAs<ObjCObjectPointerType>();
-        elementType = OT->getPointeeType();
-      }
+      if (resultTy->isAnyPointerType())
+        elementType = resultTy->getPointeeType();
     }
 
     if (NonLoc *indexV = dyn_cast<NonLoc>(&index)) {
@@ -946,7 +943,7 @@ const llvm::APSInt *SimpleSValBuilder::getKnownValue(ProgramStateRef state,
     return &X->getValue();
 
   if (SymbolRef Sym = V.getAsSymbol())
-    return state->getSymVal(Sym);
+    return state->getConstraintManager().getSymVal(state, Sym);
 
   // FIXME: Add support for SymExprs.
   return NULL;

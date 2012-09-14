@@ -316,7 +316,6 @@ struct PageGroup {
 
 class MallocInfo {
  public:
-
   explicit MallocInfo(LinkerInitialized x) : mu_(x) { }
 
   AsanChunk *AllocateChunks(u8 size_class, uptr n_chunks) {
@@ -610,14 +609,14 @@ void DescribeHeapAddress(uptr addr, uptr access_size) {
                alloc_thread->tid());
 
     PrintStack(&alloc_stack);
-    t->summary()->Announce();
-    free_thread->Announce();
-    alloc_thread->Announce();
+    DescribeThread(t->summary());
+    DescribeThread(free_thread);
+    DescribeThread(alloc_thread);
   } else {
     Printf("allocated by thread T%d here:\n", alloc_thread->tid());
     PrintStack(&alloc_stack);
-    t->summary()->Announce();
-    alloc_thread->Announce();
+    DescribeThread(t->summary());
+    DescribeThread(alloc_thread);
   }
 }
 

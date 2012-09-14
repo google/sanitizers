@@ -110,7 +110,7 @@ public:
     return true;
   }
 
-  bool VisitTypedefDecl(TypedefNameDecl *D) {
+  bool VisitTypedefNameDecl(TypedefNameDecl *D) {
     IndexCtx.handleTypedefName(D);
     IndexCtx.indexTypeSourceInfo(D->getTypeSourceInfo(), D);
     return true;
@@ -325,7 +325,7 @@ void IndexingContext::indexDeclContext(const DeclContext *DC) {
   }
 }
 
-void IndexingContext::indexTopLevelDecl(Decl *D) {
+void IndexingContext::indexTopLevelDecl(const Decl *D) {
   if (isNotFromSourceFile(D->getLocation()))
     return;
 

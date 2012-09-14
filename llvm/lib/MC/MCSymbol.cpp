@@ -76,6 +76,8 @@ void MCSymbol::print(raw_ostream &OS) const {
   OS << '"' << getName() << '"';
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void MCSymbol::dump() const {
   print(dbgs());
 }
+#endif

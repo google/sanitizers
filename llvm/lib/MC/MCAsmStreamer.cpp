@@ -517,13 +517,19 @@ void MCAsmStreamer::EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
 /// @param Size - The size of the common symbol.
 void MCAsmStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                           unsigned ByteAlign) {
-  assert(MAI.getLCOMMDirectiveType() != LCOMM::None &&
-         "Doesn't have .lcomm, can't emit it!");
   OS << "\t.lcomm\t" << *Symbol << ',' << Size;
   if (ByteAlign > 1) {
-    assert(MAI.getLCOMMDirectiveType() == LCOMM::ByteAlignment &&
-           "Alignment not supported on .lcomm!");
-    OS << ',' << ByteAlign;
+    switch (MAI.getLCOMMDirectiveAlignmentType()) {
+    case LCOMM::NoAlignment:
+      llvm_unreachable("alignment not supported on .lcomm!");
+    case LCOMM::ByteAlignment:
+      OS << ',' << ByteAlign;
+      break;
+    case LCOMM::Log2Alignment:
+      assert(isPowerOf2_32(ByteAlign) && "alignment must be a power of 2");
+      OS << ',' << Log2_32(ByteAlign);
+      break;
+    }
   }
   EmitEOL();
 }

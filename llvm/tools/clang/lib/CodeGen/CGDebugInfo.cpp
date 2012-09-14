@@ -157,7 +157,7 @@ StringRef CGDebugInfo::getObjCMethodName(const ObjCMethodDecl *OMD) {
       OS << OID->getName();
   } else if (const ObjCCategoryImplDecl *OCD = 
              dyn_cast<const ObjCCategoryImplDecl>(DC)){
-      OS << ((NamedDecl *)OCD)->getIdentifier()->getNameStart() << '(' <<
+      OS << ((const NamedDecl *)OCD)->getIdentifier()->getNameStart() << '(' <<
           OCD->getIdentifier()->getNameStart() << ')';
   }
   OS << ' ' << OMD->getSelector().getAsString() << ']';
@@ -523,7 +523,7 @@ llvm::DIType CGDebugInfo::createRecordFwdDecl(const RecordDecl *RD,
     RDName = getClassName(RD);
     Tag = llvm::dwarf::DW_TAG_class_type;
   }
-  else if (RD->isStruct())
+  else if (RD->isStruct() || RD->isInterface())
     Tag = llvm::dwarf::DW_TAG_structure_type;
   else if (RD->isUnion())
     Tag = llvm::dwarf::DW_TAG_union_type;
@@ -891,12 +891,12 @@ CGDebugInfo::getOrCreateMethodType(const CXXMethodDecl *Method,
       // TODO: This and the artificial type below are misleading, the
       // types aren't artificial the argument is, but the current
       // metadata doesn't represent that.
-      ThisPtrType = DBuilder.createArtificialType(ThisPtrType);
+      ThisPtrType = DBuilder.createObjectPointerType(ThisPtrType);
       Elts.push_back(ThisPtrType);
     } else {
       llvm::DIType ThisPtrType = getOrCreateType(ThisPtr, Unit);
       TypeCache[ThisPtr.getAsOpaquePtr()] = ThisPtrType;
-      ThisPtrType = DBuilder.createArtificialType(ThisPtrType);
+      ThisPtrType = DBuilder.createObjectPointerType(ThisPtrType);
       Elts.push_back(ThisPtrType);
     }
   }
@@ -1985,7 +1985,7 @@ llvm::DISubprogram CGDebugInfo::getFunctionDeclaration(const Decl *D) {
 
 // getOrCreateFunctionType - Construct DIType. If it is a c++ method, include
 // implicit parameter "this".
-llvm::DIType CGDebugInfo::getOrCreateFunctionType(const Decl * D,
+llvm::DIType CGDebugInfo::getOrCreateFunctionType(const Decl *D,
                                                   QualType FnType,
                                                   llvm::DIFile F) {
 
@@ -1998,9 +1998,11 @@ llvm::DIType CGDebugInfo::getOrCreateFunctionType(const Decl * D,
     // First element is always return type. For 'void' functions it is NULL.
     Elts.push_back(getOrCreateType(OMethod->getResultType(), F));
     // "self" pointer is always first argument.
-    Elts.push_back(getOrCreateType(OMethod->getSelfDecl()->getType(), F));
-    // "cmd" pointer is always second argument.
-    Elts.push_back(getOrCreateType(OMethod->getCmdDecl()->getType(), F));
+    llvm::DIType SelfTy = getOrCreateType(OMethod->getSelfDecl()->getType(), F);
+    Elts.push_back(DBuilder.createObjectPointerType(SelfTy));
+    // "_cmd" pointer is always second argument.
+    llvm::DIType CmdTy = getOrCreateType(OMethod->getCmdDecl()->getType(), F);
+    Elts.push_back(DBuilder.createArtificialType(CmdTy));
     // Get rest of the arguments.
     for (ObjCMethodDecl::param_const_iterator PI = OMethod->param_begin(), 
            PE = OMethod->param_end(); PI != PE; ++PI)
@@ -2295,8 +2297,16 @@ void CGDebugInfo::EmitDeclare(const VarDecl *VD, unsigned Tag,
   unsigned Flags = 0;
   if (VD->isImplicit())
     Flags |= llvm::DIDescriptor::FlagArtificial;
+  // If this is the first argument and it is implicit then
+  // give it an object pointer flag.
+  // FIXME: There has to be a better way to do this, but for static
+  // functions there won't be an implicit param at arg1 and
+  // otherwise it is 'self' or 'this'.
+  if (isa<ImplicitParamDecl>(VD) && ArgNo == 1)
+    Flags |= llvm::DIDescriptor::FlagObjectPointer;
+
   llvm::MDNode *Scope = LexicalBlockStack.back();
-    
+
   StringRef Name = VD->getName();
   if (!Name.empty()) {
     if (VD->hasAttr<BlocksAttr>()) {

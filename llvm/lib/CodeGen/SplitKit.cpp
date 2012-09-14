@@ -356,6 +356,7 @@ void SplitEditor::reset(LiveRangeEdit &LRE, ComplementSpillMode SM) {
   Edit->anyRematerializable(0);
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void SplitEditor::dump() const {
   if (RegAssign.empty()) {
     dbgs() << " empty\n";
@@ -366,6 +367,7 @@ void SplitEditor::dump() const {
     dbgs() << " [" << I.start() << ';' << I.stop() << "):" << I.value();
   dbgs() << '\n';
 }
+#endif
 
 VNInfo *SplitEditor::defValue(unsigned RegIdx,
                               const VNInfo *ParentVNI,

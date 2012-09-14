@@ -70,24 +70,31 @@ public:
   }
 };
 
+enum ReallocPairKind {
+  RPToBeFreedAfterFailure,
+  // The symbol has been freed when reallocation failed.
+  RPIsFreeOnFailure,
+  // The symbol does not need to be freed after reallocation fails.
+  RPDoNotTrackAfterFailure
+};
+
 /// \class ReallocPair
 /// \brief Stores information about the symbol being reallocated by a call to
 /// 'realloc' to allow modeling failed reallocation later in the path.
 struct ReallocPair {
   // \brief The symbol which realloc reallocated.
   SymbolRef ReallocatedSym;
-  // \brief The flag is true if the symbol does not need to be freed after
-  // reallocation fails.
-  bool IsFreeOnFailure;
+  ReallocPairKind Kind;
 
-  ReallocPair(SymbolRef S, bool F) : ReallocatedSym(S), IsFreeOnFailure(F) {}
+  ReallocPair(SymbolRef S, ReallocPairKind K) :
+    ReallocatedSym(S), Kind(K) {}
   void Profile(llvm::FoldingSetNodeID &ID) const {
-    ID.AddInteger(IsFreeOnFailure);
+    ID.AddInteger(Kind);
     ID.AddPointer(ReallocatedSym);
   }
   bool operator==(const ReallocPair &X) const {
     return ReallocatedSym == X.ReallocatedSym &&
-           IsFreeOnFailure == X.IsFreeOnFailure;
+           Kind == X.Kind;
   }
 };
 
@@ -926,10 +933,16 @@ ProgramStateRef MallocChecker::ReallocMem(CheckerContext &C,
     if (!stateRealloc)
       return 0;
 
+    ReallocPairKind Kind = RPToBeFreedAfterFailure;
+    if (FreesOnFail)
+      Kind = RPIsFreeOnFailure;
+    else if (!ReleasedAllocated)
+      Kind = RPDoNotTrackAfterFailure;
+
     // Record the info about the reallocated symbol so that we could properly
     // process failed reallocation.
     stateRealloc = stateRealloc->set<ReallocPairs>(ToPtr,
-                     ReallocPair(FromPtr, FreesOnFail || !ReleasedAllocated));
+                                                   ReallocPair(FromPtr, Kind));
     // The reallocated symbol should stay alive for as long as the new symbol.
     C.getSymbolManager().addSymbolDependency(ToPtr, FromPtr);
     return stateRealloc;
@@ -1275,9 +1288,8 @@ ProgramStateRef MallocChecker::evalAssume(ProgramStateRef state,
                                               bool Assumption) const {
   RegionStateTy RS = state->get<RegionState>();
   for (RegionStateTy::iterator I = RS.begin(), E = RS.end(); I != E; ++I) {
-    // If the symbol is assumed to NULL or another constant, this will
-    // return an APSInt*.
-    if (state->getSymVal(I.getKey()))
+    // If the symbol is assumed to be NULL, remove it from consideration.
+    if (state->getConstraintManager().isNull(state, I.getKey()).isTrue())
       state = state->remove<RegionState>(I.getKey());
   }
 
@@ -1285,18 +1297,22 @@ ProgramStateRef MallocChecker::evalAssume(ProgramStateRef state,
   // restore the state of the pointer being reallocated.
   ReallocMap RP = state->get<ReallocPairs>();
   for (ReallocMap::iterator I = RP.begin(), E = RP.end(); I != E; ++I) {
-    // If the symbol is assumed to NULL or another constant, this will
-    // return an APSInt*.
-    if (state->getSymVal(I.getKey())) {
-      SymbolRef ReallocSym = I.getData().ReallocatedSym;
-      const RefState *RS = state->get<RegionState>(ReallocSym);
-      if (RS) {
-        if (RS->isReleased() && ! I.getData().IsFreeOnFailure)
+    // If the symbol is assumed to be NULL, remove it from consideration.
+    if (!state->getConstraintManager().isNull(state, I.getKey()).isTrue())
+      continue;
+    SymbolRef ReallocSym = I.getData().ReallocatedSym;
+    if (const RefState *RS = state->get<RegionState>(ReallocSym)) {
+      if (RS->isReleased()) {
+        if (I.getData().Kind == RPToBeFreedAfterFailure)
           state = state->set<RegionState>(ReallocSym,
-                             RefState::getAllocated(RS->getStmt()));
+              RefState::getAllocated(RS->getStmt()));
+        else if (I.getData().Kind == RPDoNotTrackAfterFailure)
+          state = state->remove<RegionState>(ReallocSym);
+        else
+          assert(I.getData().Kind == RPIsFreeOnFailure);
       }
-      state = state->remove<ReallocPairs>(I.getKey());
     }
+    state = state->remove<ReallocPairs>(I.getKey());
   }
 
   return state;

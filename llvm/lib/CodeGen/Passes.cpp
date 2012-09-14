@@ -447,8 +447,8 @@ void TargetPassConfig::addMachinePasses() {
     const PassInfo *TPI = PR->getPassInfo(PrintMachineInstrs.getValue());
     const PassInfo *IPI = PR->getPassInfo(StringRef("print-machineinstrs"));
     assert (TPI && IPI && "Pass ID not registered!");
-    const char *TID = (char *)(TPI->getTypeInfo());
-    const char *IID = (char *)(IPI->getTypeInfo());
+    const char *TID = (const char *)(TPI->getTypeInfo());
+    const char *IID = (const char *)(IPI->getTypeInfo());
     insertPass(TID, IID);
   }
 
@@ -528,6 +528,10 @@ void TargetPassConfig::addMachineSSAOptimization() {
   // Optimize PHIs before DCE: removing dead PHI cycles may make more
   // instructions dead.
   addPass(&OptimizePHIsID);
+
+  // This pass merges large allocas. StackSlotColoring is a different pass
+  // which merges spill slots.
+  addPass(&StackColoringID);
 
   // If the target requests it, assign local variables to stack slots relative
   // to one another and simplify frame index references where possible.

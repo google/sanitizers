@@ -25,6 +25,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/DenseMapInfo.h"
+#include "llvm/InlineAsm.h"
 #include "llvm/Support/DebugLoc.h"
 #include <vector>
 
@@ -610,6 +611,7 @@ public:
   bool isImplicitDef() const { return getOpcode()==TargetOpcode::IMPLICIT_DEF; }
   bool isInlineAsm() const { return getOpcode() == TargetOpcode::INLINEASM; }
   bool isStackAligningInlineAsm() const;
+  InlineAsm::AsmDialect getInlineAsmDialect() const;
   bool isInsertSubreg() const {
     return getOpcode() == TargetOpcode::INSERT_SUBREG;
   }
@@ -782,6 +784,14 @@ public:
                         const TargetInstrInfo *TII,
                         const TargetRegisterInfo *TRI) const;
 
+  /// tieOperands - Add a tie between the register operands at DefIdx and
+  /// UseIdx. The tie will cause the register allocator to ensure that the two
+  /// operands are assigned the same physical register.
+  ///
+  /// Tied operands are managed automatically for explicit operands in the
+  /// MCInstrDesc. This method is for exceptional cases like inline asm.
+  void tieOperands(unsigned DefIdx, unsigned UseIdx);
+
   /// findTiedOperandIdx - Given the index of a tied register operand, find the
   /// operand it is tied to. Defs are tied to uses and vice versa. Returns the
   /// index of the tied operand which must exist.
@@ -791,12 +801,26 @@ public:
   /// check if the register def is tied to a source operand, due to either
   /// two-address elimination or inline assembly constraints. Returns the
   /// first tied use operand index by reference if UseOpIdx is not null.
-  bool isRegTiedToUseOperand(unsigned DefOpIdx, unsigned *UseOpIdx = 0) const;
+  bool isRegTiedToUseOperand(unsigned DefOpIdx, unsigned *UseOpIdx = 0) const {
+    const MachineOperand &MO = getOperand(DefOpIdx);
+    if (!MO.isReg() || !MO.isDef() || !MO.isTied())
+      return false;
+    if (UseOpIdx)
+      *UseOpIdx = findTiedOperandIdx(DefOpIdx);
+    return true;
+  }
 
   /// isRegTiedToDefOperand - Return true if the use operand of the specified
   /// index is tied to an def operand. It also returns the def operand index by
   /// reference if DefOpIdx is not null.
-  bool isRegTiedToDefOperand(unsigned UseOpIdx, unsigned *DefOpIdx = 0) const;
+  bool isRegTiedToDefOperand(unsigned UseOpIdx, unsigned *DefOpIdx = 0) const {
+    const MachineOperand &MO = getOperand(UseOpIdx);
+    if (!MO.isReg() || !MO.isUse() || !MO.isTied())
+      return false;
+    if (DefOpIdx)
+      *DefOpIdx = findTiedOperandIdx(UseOpIdx);
+    return true;
+  }
 
   /// clearKillInfo - Clears kill flags on all operands.
   ///
@@ -942,9 +966,11 @@ private:
 
   /// untieRegOperand - Break any tie involving OpIdx.
   void untieRegOperand(unsigned OpIdx) {
-    const MachineOperand &MO = getOperand(OpIdx);
-    if (MO.isReg() && MO.isTied())
-      getOperand(findTiedOperandIdx(OpIdx)).setIsTied(false);
+    MachineOperand &MO = getOperand(OpIdx);
+    if (MO.isReg() && MO.isTied()) {
+      getOperand(findTiedOperandIdx(OpIdx)).TiedTo = 0;
+      MO.TiedTo = 0;
+    }
   }
 
   /// addImplicitDefUseOperands - Add all implicit def and use operands to

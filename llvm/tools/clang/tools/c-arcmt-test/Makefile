@@ -22,7 +22,13 @@ NO_INSTALL = 1
 include $(CLANG_LEVEL)/../../Makefile.config
 
 LINK_COMPONENTS := $(TARGETS_TO_BUILD) asmparser support mc
-USEDLIBS = clang.a clangARCMigrate.a clangRewrite.a \
+
+# Note that 'USEDLIBS' must include all of the core clang libraries
+# as clang.dll is unavailable on cygming yet.
+USEDLIBS = clang.a \
+	   clangARCMigrate.a \
+	   clangRewriteFrontend.a \
+	   clangRewriteCore.a \
 	   clangFrontend.a clangDriver.a \
 	   clangSerialization.a clangParse.a clangSema.a \
 	   clangAnalysis.a clangEdit.a clangAST.a clangLex.a clangBasic.a

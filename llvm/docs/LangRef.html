@@ -1207,13 +1207,6 @@ define void @f() optsize { ... }
       may make calls to the function faster, at the cost of extra program
       startup time if the function is not called during program startup.</dd>
 
-  <dt><tt><b>ia_nsdialect</b></tt></dt>
-  <dd>This attribute indicates the associated inline assembly call is using a
-      non-standard assembly dialect.  The standard dialect is ATT, which is
-      assumed when this attribute is not present.  When present, the dialect
-      is assumed to be Intel.  Currently, ATT and Intel are the only supported
-      dialects.</dd>
-
   <dt><tt><b>inlinehint</b></tt></dt>
   <dd>This attribute indicates that the source code contained a hint that inlining
       this function is desirable (such as the "inline" keyword in C/C++).  It
@@ -2901,8 +2894,18 @@ call void asm sideeffect "eieio", ""()
 call void asm alignstack "eieio", ""()
 </pre>
 
-<p>If both keywords appear the '<tt>sideeffect</tt>' keyword must come
-   first.</p>
+<p>Inline asms also support using non-standard assembly dialects.  The assumed
+   dialect is ATT.  When the '<tt>inteldialect</tt>' keyword is present, the
+   inline asm is using the Intel dialect.  Currently, ATT and Intel are the
+   only supported dialects.  An example is:</p>
+
+<pre class="doc_code">
+call void asm inteldialect "eieio", ""()
+</pre>
+
+<p>If multiple keywords appear the '<tt>sideeffect</tt>' keyword must come
+   first, the '<tt>alignstack</tt>' keyword second and the
+   '<tt>inteldialect</tt>' keyword last.</p>
 
 <!--
 <p>TODO: The format of the asm and constraints string still need to be
@@ -8721,7 +8724,7 @@ codegen.</p>
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-08-17 22:33:14 +0400 (Fri, 17 Aug 2012) $
+  Last modified: $Date: 2012-09-05 23:00:49 +0400 (Wed, 05 Sep 2012) $
 </address>
 
 </body>

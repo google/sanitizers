@@ -23,10 +23,26 @@ using namespace clang;
 using namespace ento;
 
 QualType CallEvent::getResultType() const {
-  QualType ResultTy = getDeclaredResultType();
+  const Expr *E = getOriginExpr();
+  assert(E && "Calls without origin expressions do not have results");
+  QualType ResultTy = E->getType();
 
-  if (ResultTy.isNull())
-    ResultTy = getOriginExpr()->getType();
+  ASTContext &Ctx = getState()->getStateManager().getContext();
+
+  // A function that returns a reference to 'int' will have a result type
+  // of simply 'int'. Check the origin expr's value kind to recover the
+  // proper type.
+  switch (E->getValueKind()) {
+  case VK_LValue:
+    ResultTy = Ctx.getLValueReferenceType(ResultTy);
+    break;
+  case VK_XValue:
+    ResultTy = Ctx.getRValueReferenceType(ResultTy);
+    break;
+  case VK_RValue:
+    // No adjustment is necessary.
+    break;
+  }
 
   return ResultTy;
 }
@@ -45,7 +61,7 @@ static bool isCallbackArg(SVal V, QualType T) {
   // Check if a callback is passed inside a struct (for both, struct passed by
   // reference and by value). Dig just one level into the struct for now.
 
-  if (isa<PointerType>(T) || isa<ReferenceType>(T))
+  if (T->isAnyPointerType() || T->isReferenceType())
     T = T->getPointeeType();
 
   if (const RecordType *RT = T->getAsStructureType()) {
@@ -236,6 +252,16 @@ bool CallEvent::isCallStmt(const Stmt *S) {
                           || isa<CXXNewExpr>(S);
 }
 
+/// \brief Returns the result type, adjusted for references.
+QualType CallEvent::getDeclaredResultType(const Decl *D) {
+  assert(D);
+  if (const FunctionDecl* FD = dyn_cast<FunctionDecl>(D))
+    return FD->getResultType();
+  else if (const ObjCMethodDecl* MD = dyn_cast<ObjCMethodDecl>(D))
+    return MD->getResultType();
+  return QualType();
+}
+
 static void addParameterValuesToBindings(const StackFrameContext *CalleeCtx,
                                          CallEvent::BindingsTy &Bindings,
                                          SValBuilder &SVB,
@@ -283,14 +309,6 @@ void AnyFunctionCall::getInitialStackFrameContents(
   SValBuilder &SVB = getState()->getStateManager().getSValBuilder();
   addParameterValuesToBindings(CalleeCtx, Bindings, SVB, *this,
                                D->param_begin(), D->param_end());
-}
-
-QualType AnyFunctionCall::getDeclaredResultType() const {
-  const FunctionDecl *D = getDecl();
-  if (!D)
-    return QualType();
-
-  return D->getResultType();
 }
 
 bool AnyFunctionCall::argumentsMayEscape() const {
@@ -376,6 +394,25 @@ void CXXInstanceCall::getExtraInvalidatedRegions(RegionList &Regions) const {
     Regions.push_back(R);
 }
 
+SVal CXXInstanceCall::getCXXThisVal() const {
+  const Expr *Base = getCXXThisExpr();
+  // FIXME: This doesn't handle an overloaded ->* operator.
+  if (!Base)
+    return UnknownVal();
+
+  SVal ThisVal = getSVal(Base);
+
+  // FIXME: This is only necessary because we can call member functions on
+  // struct rvalues, which do not have regions we can use for a 'this' pointer.
+  // Ideally this should eventually be changed to an assert, i.e. all
+  // non-Unknown, non-null 'this' values should be loc::MemRegionVals.
+  if (isa<DefinedSVal>(ThisVal))
+    if (!ThisVal.getAsRegion() && !ThisVal.isConstant())
+      return UnknownVal();
+
+  return ThisVal;
+}
+
 
 RuntimeDefinition CXXInstanceCall::getRuntimeDefinition() const {
   // Do we have a decl at all?
@@ -400,13 +437,30 @@ RuntimeDefinition CXXInstanceCall::getRuntimeDefinition() const {
 
   // Is the type a C++ class? (This is mostly a defensive check.)
   QualType RegionType = DynType.getType()->getPointeeType();
+  assert(!RegionType.isNull() && "DynamicTypeInfo should always be a pointer.");
+
   const CXXRecordDecl *RD = RegionType->getAsCXXRecordDecl();
   if (!RD || !RD->hasDefinition())
     return RuntimeDefinition();
 
   // Find the decl for this method in that class.
   const CXXMethodDecl *Result = MD->getCorrespondingMethodInClass(RD, true);
-  assert(Result && "At the very least the static decl should show up.");
+  if (!Result) {
+    // We might not even get the original statically-resolved method due to
+    // some particularly nasty casting (e.g. casts to sister classes).
+    // However, we should at least be able to search up and down our own class
+    // hierarchy, and some real bugs have been caught by checking this.
+    assert(!RD->isDerivedFrom(MD->getParent()) && "Couldn't find known method");
+    
+    // FIXME: This is checking that our DynamicTypeInfo is at least as good as
+    // the static type. However, because we currently don't update
+    // DynamicTypeInfo when an object is cast, we can't actually be sure the
+    // DynamicTypeInfo is up to date. This assert should be re-enabled once
+    // this is fixed. <rdar://problem/12287087>
+    //assert(!MD->getParent()->isDerivedFrom(RD) && "Bad DynamicTypeInfo");
+
+    return RuntimeDefinition();
+  }
 
   // Does the decl that we found have an implementation?
   const FunctionDecl *Definition;
@@ -459,6 +513,18 @@ const Expr *CXXMemberCall::getCXXThisExpr() const {
   return getOriginExpr()->getImplicitObjectArgument();
 }
 
+RuntimeDefinition CXXMemberCall::getRuntimeDefinition() const {
+  // C++11 [expr.call]p1: ...If the selected function is non-virtual, or if the
+  // id-expression in the class member access expression is a qualified-id,
+  // that function is called. Otherwise, its final overrider in the dynamic type
+  // of the object expression is called.
+  if (const MemberExpr *ME = dyn_cast<MemberExpr>(getOriginExpr()->getCallee()))
+    if (ME->hasQualifier())
+      return AnyFunctionCall::getRuntimeDefinition();
+  
+  return CXXInstanceCall::getRuntimeDefinition();
+}
+
 
 const Expr *CXXMemberOperatorCall::getCXXThisExpr() const {
   return getOriginExpr()->getArg(0);
@@ -501,15 +567,6 @@ void BlockCall::getInitialStackFrameContents(const StackFrameContext *CalleeCtx,
 }
 
 
-QualType BlockCall::getDeclaredResultType() const {
-  const BlockDataRegion *BR = getBlockRegion();
-  if (!BR)
-    return QualType();
-  QualType BlockTy = BR->getCodeRegion()->getLocationType();
-  return cast<FunctionType>(BlockTy->getPointeeType())->getResultType();
-}
-
-
 SVal CXXConstructorCall::getCXXThisVal() const {
   if (Data)
     return loc::MemRegionVal(static_cast<const MemRegion *>(Data));
@@ -539,8 +596,17 @@ void CXXConstructorCall::getInitialStackFrameContents(
 
 SVal CXXDestructorCall::getCXXThisVal() const {
   if (Data)
-    return loc::MemRegionVal(static_cast<const MemRegion *>(Data));
+    return loc::MemRegionVal(DtorDataTy::getFromOpaqueValue(Data).getPointer());
   return UnknownVal();
+}
+
+RuntimeDefinition CXXDestructorCall::getRuntimeDefinition() const {
+  // Base destructors are always called non-virtually.
+  // Skip CXXInstanceCall's devirtualization logic in this case.
+  if (isBaseDestructor())
+    return AnyFunctionCall::getRuntimeDefinition();
+
+  return CXXInstanceCall::getRuntimeDefinition();
 }
 
 
@@ -564,14 +630,6 @@ void
 ObjCMethodCall::getExtraInvalidatedRegions(RegionList &Regions) const {
   if (const MemRegion *R = getReceiverSVal().getAsRegion())
     Regions.push_back(R);
-}
-
-QualType ObjCMethodCall::getDeclaredResultType() const {
-  const ObjCMethodDecl *D = getDecl();
-  if (!D)
-    return QualType();
-
-  return D->getResultType();
 }
 
 SVal ObjCMethodCall::getSelfSVal() const {
@@ -880,5 +938,5 @@ CallEventManager::getCaller(const StackFrameContext *CalleeCtx,
     Trigger = Dtor->getBody();
 
   return getCXXDestructorCall(Dtor, Trigger, ThisVal.getAsRegion(),
-                              State, CallerCtx);
+                              isa<CFGBaseDtor>(E), State, CallerCtx);
 }

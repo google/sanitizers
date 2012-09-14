@@ -14,7 +14,6 @@
 #ifndef LLVM_CODEGEN_MACHINEOPERAND_H
 #define LLVM_CODEGEN_MACHINEOPERAND_H
 
-#include "llvm/ADT/Hashing.h"
 #include "llvm/Support/DataTypes.h"
 #include <cassert>
 
@@ -30,6 +29,7 @@ class MachineRegisterInfo;
 class MDNode;
 class TargetMachine;
 class TargetRegisterInfo;
+class hash_code;
 class raw_ostream;
 class MCSymbol;
 
@@ -69,6 +69,11 @@ private:
     /// TargetFlags - This is a set of target-specific operand flags.
     unsigned char TargetFlags;
   };
+
+  /// TiedTo - Non-zero when this register operand is tied to another register
+  /// operand. The encoding of this field is described in the block comment
+  /// before MachineInstr::tieOperands().
+  unsigned char TiedTo : 4;
 
   /// IsDef/IsImp/IsKill/IsDead flags - These are only valid for MO_Register
   /// operands.
@@ -123,14 +128,6 @@ private:
   /// by the MachineInstr before all input registers are read.  This is used to
   /// model the GCC inline asm '&' constraint modifier.
   bool IsEarlyClobber : 1;
-
-  /// IsTied - True if this MO_Register operand is tied to another operand on
-  /// the instruction. Tied operands form def-use pairs that must be assigned
-  /// the same physical register by the register allocator, but they will have
-  /// different virtual registers while the code is in SSA form.
-  ///
-  /// See MachineInstr::isRegTiedToUseOperand() and isRegTiedToDefOperand().
-  bool IsTied : 1;
 
   /// IsDebug - True if this MO_Register 'use' operand is in a debug pseudo,
   /// not a real instruction.  Such uses should be ignored during codegen.
@@ -309,7 +306,7 @@ public:
 
   bool isTied() const {
     assert(isReg() && "Wrong MachineOperand accessor");
-    return IsTied;
+    return TiedTo;
   }
 
   bool isDebug() const {
@@ -388,11 +385,6 @@ public:
   void setIsEarlyClobber(bool Val = true) {
     assert(isReg() && IsDef && "Wrong MachineOperand accessor");
     IsEarlyClobber = Val;
-  }
-
-  void setIsTied(bool Val = true) {
-    assert(isReg() && "Wrong MachineOperand accessor");
-    IsTied = Val;
   }
 
   void setIsDebug(bool Val = true) {
@@ -577,7 +569,7 @@ public:
     Op.IsUndef = isUndef;
     Op.IsInternalRead = isInternalRead;
     Op.IsEarlyClobber = isEarlyClobber;
-    Op.IsTied = false;
+    Op.TiedTo = 0;
     Op.IsDebug = isDebug;
     Op.SmallContents.RegNo = Reg;
     Op.Contents.Reg.Prev = 0;
@@ -636,11 +628,11 @@ public:
     Op.setTargetFlags(TargetFlags);
     return Op;
   }
-  static MachineOperand CreateBA(const BlockAddress *BA,
+  static MachineOperand CreateBA(const BlockAddress *BA, int64_t Offset,
                                  unsigned char TargetFlags = 0) {
     MachineOperand Op(MachineOperand::MO_BlockAddress);
     Op.Contents.OffsetedInfo.Val.BA = BA;
-    Op.setOffset(0); // Offset is always 0.
+    Op.setOffset(Offset);
     Op.setTargetFlags(TargetFlags);
     return Op;
   }

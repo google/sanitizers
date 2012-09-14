@@ -27,10 +27,9 @@
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
 
-namespace __sanitizer {
-using namespace __asan;
+namespace __asan {
 
-void Die() {
+static void AsanDie() {
   static atomic_uint32_t num_calls;
   if (atomic_fetch_add(&num_calls, 1, memory_order_relaxed) != 0) {
     // Don't die twice - run a busy loop.
@@ -49,20 +48,17 @@ void Die() {
   Exit(flags()->exitcode);
 }
 
-SANITIZER_INTERFACE_ATTRIBUTE
-void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {
+static void AsanCheckFailed(const char *file, int line, const char *cond,
+                            u64 v1, u64 v2) {
   Report("AddressSanitizer CHECK failed: %s:%d \"%s\" (0x%zx, 0x%zx)\n",
              file, line, cond, (uptr)v1, (uptr)v2);
+  // FIXME: check for infinite recursion without a thread-local counter here.
   PRINT_CURRENT_STACK();
   ShowStatsAndAbort();
 }
 
-}  // namespace __sanitizer
-
-namespace __asan {
-
 // -------------------------- Flags ------------------------- {{{1
-static const int kMallocContextSize = 30;
+static const int kDeafultMallocContextSize = 30;
 
 static Flags asan_flags;
 
@@ -82,7 +78,7 @@ static void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->report_globals, "report_globals");
   ParseFlag(str, &f->check_initialization_order, "initialization_order");
   ParseFlag(str, &f->malloc_context_size, "malloc_context_size");
-  CHECK(f->malloc_context_size <= kMallocContextSize);
+  CHECK((uptr)f->malloc_context_size <= kStackTraceMax);
 
   ParseFlag(str, &f->replace_str, "replace_str");
   ParseFlag(str, &f->replace_intrin, "replace_intrin");
@@ -102,6 +98,8 @@ static void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->disable_core, "disable_core");
   ParseFlag(str, &f->strip_path_prefix, "strip_path_prefix");
   ParseFlag(str, &f->allow_reexec, "allow_reexec");
+  ParseFlag(str, &f->print_full_thread_history, "print_full_thread_history");
+  ParseFlag(str, &f->log_path, "log_path");
 }
 
 extern "C" {
@@ -113,14 +111,14 @@ const char* __asan_default_options() { return ""; }
 void InitializeFlags(Flags *f, const char *env) {
   internal_memset(f, 0, sizeof(*f));
 
-  f->quarantine_size = (ASAN_LOW_MEMORY) ? 1UL << 24 : 1UL << 28;
+  f->quarantine_size = (ASAN_LOW_MEMORY) ? 1UL << 26 : 1UL << 28;
   f->symbolize = false;
   f->verbosity = 0;
   f->redzone = (ASAN_LOW_MEMORY) ? 64 : 128;
   f->debug = false;
   f->report_globals = 1;
   f->check_initialization_order = true;
-  f->malloc_context_size = kMallocContextSize;
+  f->malloc_context_size = kDeafultMallocContextSize;
   f->replace_str = true;
   f->replace_intrin = true;
   f->replace_cfallocator = true;
@@ -139,6 +137,8 @@ void InitializeFlags(Flags *f, const char *env) {
   f->disable_core = (__WORDSIZE == 64);
   f->strip_path_prefix = "";
   f->allow_reexec = true;
+  f->print_full_thread_history = true;
+  f->log_path = 0;
 
   // Override from user-specified string.
   ParseFlagsFromString(f, __asan_default_options());
@@ -169,7 +169,11 @@ static void ReserveShadowMemoryRange(uptr beg, uptr end) {
   CHECK(((end + 1) % kPageSize) == 0);
   uptr size = end - beg + 1;
   void *res = MmapFixedNoReserve(beg, size);
-  CHECK(res == (void*)beg && "ReserveShadowMemoryRange failed");
+  if (res != (void*)beg) {
+    Report("ReserveShadowMemoryRange failed while trying to map 0x%zx bytes. "
+           "Perhaps you're using ulimit -v\n", size);
+    Abort();
+  }
 }
 
 // --------------- LowLevelAllocateCallbac ---------- {{{1
@@ -284,12 +288,16 @@ void __asan_init() {
   // Make sure we are not statically linked.
   AsanDoesNotSupportStaticLinkage();
 
+  // Install tool-specific callbacks in sanitizer_common.
+  SetDieCallback(AsanDie);
+  SetCheckFailedCallback(AsanCheckFailed);
   SetPrintfAndReportCallback(AppendToErrorMessageBuffer);
 
   // Initialize flags. This must be done early, because most of the
   // initialization steps look at flags().
   const char *options = GetEnv("ASAN_OPTIONS");
   InitializeFlags(flags(), options);
+  __sanitizer_set_report_path(flags()->log_path);
 
   if (flags()->verbosity && options) {
     Report("Parsed ASAN_OPTIONS: %s\n", options);

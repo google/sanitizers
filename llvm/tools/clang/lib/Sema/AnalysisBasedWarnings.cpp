@@ -1089,22 +1089,42 @@ class ThreadSafetyReporter : public clang::thread_safety::ThreadSafetyHandler {
   }
 
   void handleMutexNotHeld(const NamedDecl *D, ProtectedOperationKind POK,
-                          Name LockName, LockKind LK, SourceLocation Loc) {
+                          Name LockName, LockKind LK, SourceLocation Loc,
+                          Name *PossibleMatch) {
     unsigned DiagID = 0;
-    switch (POK) {
-      case POK_VarAccess:
-        DiagID = diag::warn_variable_requires_lock;
-        break;
-      case POK_VarDereference:
-        DiagID = diag::warn_var_deref_requires_lock;
-        break;
-      case POK_FunctionCall:
-        DiagID = diag::warn_fun_requires_lock;
-        break;
+    if (PossibleMatch) {
+      switch (POK) {
+        case POK_VarAccess:
+          DiagID = diag::warn_variable_requires_lock_precise;
+          break;
+        case POK_VarDereference:
+          DiagID = diag::warn_var_deref_requires_lock_precise;
+          break;
+        case POK_FunctionCall:
+          DiagID = diag::warn_fun_requires_lock_precise;
+          break;
+      }
+      PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
+        << D->getName() << LockName << LK);
+      PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_found_mutex_near_match)
+                               << *PossibleMatch);
+      Warnings.push_back(DelayedDiag(Warning, OptionalNotes(1, Note)));
+    } else {
+      switch (POK) {
+        case POK_VarAccess:
+          DiagID = diag::warn_variable_requires_lock;
+          break;
+        case POK_VarDereference:
+          DiagID = diag::warn_var_deref_requires_lock;
+          break;
+        case POK_FunctionCall:
+          DiagID = diag::warn_fun_requires_lock;
+          break;
+      }
+      PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
+        << D->getName() << LockName << LK);
+      Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
     }
-    PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
-      << D->getName() << LockName << LK);
-    Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
 
   void handleFunExcludesLock(Name FunName, Name LockName, SourceLocation Loc) {
@@ -1199,7 +1219,8 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   AC.getCFGBuildOptions().AddEHEdges = false;
   AC.getCFGBuildOptions().AddInitializers = true;
   AC.getCFGBuildOptions().AddImplicitDtors = true;
-  
+  AC.getCFGBuildOptions().AddTemporaryDtors = true;
+
   // Force that certain expressions appear as CFGElements in the CFG.  This
   // is used to speed up various analyses.
   // FIXME: This isn't the right factoring.  This is here for initial

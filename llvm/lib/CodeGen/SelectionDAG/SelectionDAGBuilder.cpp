@@ -19,6 +19,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/ConstantFolding.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Constants.h"
 #include "llvm/CallingConv.h"
 #include "llvm/DebugInfo.h"
@@ -4874,7 +4875,21 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     Res = DAG.getNode(ISD::INSERT_SUBVECTOR, dl, DestVT,
                       getValue(I.getArgOperand(0)),
                       getValue(I.getArgOperand(1)),
-                      DAG.getConstant(Idx, MVT::i32));
+                      DAG.getIntPtrConstant(Idx));
+    setValue(&I, Res);
+    return 0;
+  }
+  case Intrinsic::x86_avx_vextractf128_pd_256:
+  case Intrinsic::x86_avx_vextractf128_ps_256:
+  case Intrinsic::x86_avx_vextractf128_si_256:
+  case Intrinsic::x86_avx2_vextracti128: {
+    DebugLoc dl = getCurDebugLoc();
+    EVT DestVT = TLI.getValueType(I.getType());
+    uint64_t Idx = (cast<ConstantInt>(I.getArgOperand(1))->getZExtValue() & 1) *
+                   DestVT.getVectorNumElements();
+    Res = DAG.getNode(ISD::EXTRACT_SUBVECTOR, dl, DestVT,
+                      getValue(I.getArgOperand(0)),
+                      DAG.getIntPtrConstant(Idx));
     setValue(&I, Res);
     return 0;
   }
@@ -5201,14 +5216,40 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
                                         rw==1)); /* write */
     return 0;
   }
-
-  case Intrinsic::invariant_start:
   case Intrinsic::lifetime_start:
+  case Intrinsic::lifetime_end: {
+    bool IsStart = (Intrinsic == Intrinsic::lifetime_start);
+    // Stack coloring is not enabled in O0, discard region information.
+    if (TM.getOptLevel() == CodeGenOpt::None)
+      return 0;
+
+    SmallVector<Value *, 4> Allocas;
+    GetUnderlyingObjects(I.getArgOperand(1), Allocas, TD);
+
+    for (SmallVector<Value*, 4>::iterator Object = Allocas.begin(),
+         E = Allocas.end(); Object != E; ++Object) {
+      AllocaInst *LifetimeObject = dyn_cast_or_null<AllocaInst>(*Object);
+
+      // Could not find an Alloca.
+      if (!LifetimeObject)
+        continue;
+
+      int FI = FuncInfo.StaticAllocaMap[LifetimeObject];
+
+      SDValue Ops[2];
+      Ops[0] = getRoot();
+      Ops[1] = DAG.getFrameIndex(FI, TLI.getPointerTy(), true);
+      unsigned Opcode = (IsStart ? ISD::LIFETIME_START : ISD::LIFETIME_END);
+
+      Res = DAG.getNode(Opcode, dl, MVT::Other, Ops, 2);
+      DAG.setRoot(Res);
+    }
+  }
+  case Intrinsic::invariant_start:
     // Discard region information.
     setValue(&I, DAG.getUNDEF(TLI.getPointerTy()));
     return 0;
   case Intrinsic::invariant_end:
-  case Intrinsic::lifetime_end:
     // Discard region information.
     return 0;
   case Intrinsic::donothing:
@@ -6064,12 +6105,14 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
   const MDNode *SrcLoc = CS.getInstruction()->getMetadata("srcloc");
   AsmNodeOperands.push_back(DAG.getMDNode(SrcLoc));
 
-  // Remember the HasSideEffect and AlignStack bits as operand 3.
+  // Remember the HasSideEffect, AlignStack and AsmDialect bits as operand 3.
   unsigned ExtraInfo = 0;
   if (IA->hasSideEffects())
     ExtraInfo |= InlineAsm::Extra_HasSideEffects;
   if (IA->isAlignStack())
     ExtraInfo |= InlineAsm::Extra_IsAlignStack;
+  // Set the asm dialect.
+  ExtraInfo |= IA->getDialect() * InlineAsm::Extra_AsmDialect;
   AsmNodeOperands.push_back(DAG.getTargetConstant(ExtraInfo,
                                                   TLI.getPointerTy()));
 

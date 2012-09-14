@@ -44,5 +44,7 @@ bool MCAsmParser::ParseExpression(const MCExpr *&Res) {
 }
 
 void MCParsedAsmOperand::dump() const {
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   dbgs() << "  " << *this;
+#endif
 }

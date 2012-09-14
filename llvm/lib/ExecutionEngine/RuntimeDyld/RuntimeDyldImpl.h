@@ -177,6 +177,10 @@ protected:
     return true;
   }
 
+  uint64_t getSectionLoadAddress(unsigned SectionID) {
+    return Sections[SectionID].LoadAddress;
+  }
+
   uint8_t *getSectionAddress(unsigned SectionID) {
     return (uint8_t*)Sections[SectionID].Address;
   }
@@ -270,11 +274,20 @@ public:
     return getSectionAddress(Loc.first) + Loc.second;
   }
 
+  uint64_t getSymbolLoadAddress(StringRef Name) {
+    // FIXME: Just look up as a function for now. Overly simple of course.
+    // Work in progress.
+    if (GlobalSymbolTable.find(Name) == GlobalSymbolTable.end())
+      return 0;
+    SymbolLoc Loc = GlobalSymbolTable.lookup(Name);
+    return getSectionLoadAddress(Loc.first) + Loc.second;
+  }
+
   void resolveRelocations();
 
   void reassignSectionAddress(unsigned SectionID, uint64_t Addr);
 
-  void mapSectionAddress(void *LocalAddress, uint64_t TargetAddress);
+  void mapSectionAddress(const void *LocalAddress, uint64_t TargetAddress);
 
   // Is the linker in an error state?
   bool hasError() { return HasError; }

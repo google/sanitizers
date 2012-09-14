@@ -10,6 +10,7 @@ set(SANITIZER_SOURCES
   sanitizer_mac.cc
   sanitizer_posix.cc
   sanitizer_printf.cc
+  sanitizer_stackdepot.cc
   sanitizer_stacktrace.cc
   sanitizer_symbolizer.cc
   sanitizer_symbolizer_linux.cc
@@ -18,9 +19,7 @@ set(SANITIZER_SOURCES
   sanitizer_win.cc
   )
 
-set(SANITIZER_CFLAGS -O3 ${SANITIZER_COMMON_CFLAGS})
-
-set(SANITIZER_COMMON_DEFINITIONS)
+set(SANITIZER_CFLAGS ${SANITIZER_COMMON_CFLAGS})
 
 set(SANITIZER_RUNTIME_LIBRARIES)
 if(APPLE)
@@ -45,15 +44,23 @@ else()
       ${SANITIZER_CFLAGS} ${TARGET_I386_CFLAGS})
     list(APPEND SANITIZER_RUNTIME_LIBRARIES RTSanitizerCommon.i386)
   endif()
-  if(CAN_TARGET_ARM_ANDROID)
+  if(ANDROID)
     add_library(RTSanitizerCommon.arm.android OBJECT ${SANITIZER_SOURCES})
     set_target_compile_flags(RTSanitizerCommon.arm.android
-      ${SANITIZER_CFLAGS} ${TARGET_ARM_ANDROID_CFLAGS})
+      ${SANITIZER_CFLAGS})
     list(APPEND SANITIZER_RUNTIME_LIBRARIES RTSanitizerCommon.arm.android)
   endif()
 endif()
 
-set_property(TARGET ${SANITIZER_RUNTIME_LIBRARIES} APPEND PROPERTY
-  COMPILE_DEFINITIONS ${SANITIZER_COMMON_DEFINITIONS})
+# Unit tests for common sanitizer runtime.
+if(LLVM_INCLUDE_TESTS)
+  # Build stand-alone static sanitizer runtime for use in unit tests.
+  add_library(RTSanitizerCommon.test STATIC ${SANITIZER_SOURCES})
+  # Build test library with debug info.
+  set_target_compile_flags(RTSanitizerCommon.test
+    ${SANITIZER_CFLAGS} -g)
+  set_target_properties(RTSanitizerCommon.test PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
-# FIXME: Add support for running sanitizer_common unit tests.
+  add_subdirectory(tests)
+endif()

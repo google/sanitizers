@@ -18,8 +18,12 @@
 namespace clang {
 namespace comments {
 
+namespace {
+#include "clang/AST/CommentHTMLTagsProperties.inc"
+} // unnamed namespace
+
 Sema::Sema(llvm::BumpPtrAllocator &Allocator, const SourceManager &SourceMgr,
-           DiagnosticsEngine &Diags, const CommandTraits &Traits) :
+           DiagnosticsEngine &Diags, CommandTraits &Traits) :
     Allocator(Allocator), SourceMgr(SourceMgr), Diags(Diags), Traits(Traits),
     ThisDeclInfo(NULL), BriefCommand(NULL), ReturnsCommand(NULL) {
 }
@@ -40,8 +44,8 @@ ParagraphComment *Sema::actOnParagraphComment(
 
 BlockCommandComment *Sema::actOnBlockCommandStart(SourceLocation LocBegin,
                                                   SourceLocation LocEnd,
-                                                  StringRef Name) {
-  return new (Allocator) BlockCommandComment(LocBegin, LocEnd, Name);
+                                                  unsigned CommandID) {
+  return new (Allocator) BlockCommandComment(LocBegin, LocEnd, CommandID);
 }
 
 void Sema::actOnBlockCommandArgs(BlockCommandComment *Command,
@@ -59,14 +63,14 @@ void Sema::actOnBlockCommandFinish(BlockCommandComment *Command,
 
 ParamCommandComment *Sema::actOnParamCommandStart(SourceLocation LocBegin,
                                                   SourceLocation LocEnd,
-                                                  StringRef Name) {
+                                                  unsigned CommandID) {
   ParamCommandComment *Command =
-      new (Allocator) ParamCommandComment(LocBegin, LocEnd, Name);
+      new (Allocator) ParamCommandComment(LocBegin, LocEnd, CommandID);
 
   if (!isFunctionDecl())
     Diag(Command->getLocation(),
          diag::warn_doc_param_not_attached_to_a_function_decl)
-      << Command->getCommandNameRange();
+      << Command->getCommandNameRange(Traits);
 
   return Command;
 }
@@ -152,14 +156,14 @@ void Sema::actOnParamCommandFinish(ParamCommandComment *Command,
 
 TParamCommandComment *Sema::actOnTParamCommandStart(SourceLocation LocBegin,
                                                     SourceLocation LocEnd,
-                                                    StringRef Name) {
+                                                    unsigned CommandID) {
   TParamCommandComment *Command =
-      new (Allocator) TParamCommandComment(LocBegin, LocEnd, Name);
+      new (Allocator) TParamCommandComment(LocBegin, LocEnd, CommandID);
 
   if (!isTemplateOrSpecialization())
     Diag(Command->getLocation(),
          diag::warn_doc_tparam_not_attached_to_a_template_decl)
-      << Command->getCommandNameRange();
+      << Command->getCommandNameRange(Traits);
 
   return Command;
 }
@@ -235,19 +239,20 @@ void Sema::actOnTParamCommandFinish(TParamCommandComment *Command,
 
 InlineCommandComment *Sema::actOnInlineCommand(SourceLocation CommandLocBegin,
                                                SourceLocation CommandLocEnd,
-                                               StringRef CommandName) {
+                                               unsigned CommandID) {
   ArrayRef<InlineCommandComment::Argument> Args;
+  StringRef CommandName = Traits.getCommandInfo(CommandID)->Name;
   return new (Allocator) InlineCommandComment(
                                   CommandLocBegin,
                                   CommandLocEnd,
-                                  CommandName,
+                                  CommandID,
                                   getInlineCommandRenderKind(CommandName),
                                   Args);
 }
 
 InlineCommandComment *Sema::actOnInlineCommand(SourceLocation CommandLocBegin,
                                                SourceLocation CommandLocEnd,
-                                               StringRef CommandName,
+                                               unsigned CommandID,
                                                SourceLocation ArgLocBegin,
                                                SourceLocation ArgLocEnd,
                                                StringRef Arg) {
@@ -255,21 +260,29 @@ InlineCommandComment *Sema::actOnInlineCommand(SourceLocation CommandLocBegin,
   Argument *A = new (Allocator) Argument(SourceRange(ArgLocBegin,
                                                      ArgLocEnd),
                                          Arg);
+  StringRef CommandName = Traits.getCommandInfo(CommandID)->Name;
 
   return new (Allocator) InlineCommandComment(
                                   CommandLocBegin,
                                   CommandLocEnd,
-                                  CommandName,
+                                  CommandID,
                                   getInlineCommandRenderKind(CommandName),
                                   llvm::makeArrayRef(A, 1));
 }
 
 InlineContentComment *Sema::actOnUnknownCommand(SourceLocation LocBegin,
                                                 SourceLocation LocEnd,
-                                                StringRef Name) {
+                                                StringRef CommandName) {
+  unsigned CommandID = Traits.registerUnknownCommand(CommandName)->getID();
+  return actOnUnknownCommand(LocBegin, LocEnd, CommandID);
+}
+
+InlineContentComment *Sema::actOnUnknownCommand(SourceLocation LocBegin,
+                                                SourceLocation LocEnd,
+                                                unsigned CommandID) {
   ArrayRef<InlineCommandComment::Argument> Args;
   return new (Allocator) InlineCommandComment(
-                                  LocBegin, LocEnd, Name,
+                                  LocBegin, LocEnd, CommandID,
                                   InlineCommandComment::RenderNormal,
                                   Args);
 }
@@ -281,11 +294,12 @@ TextComment *Sema::actOnText(SourceLocation LocBegin,
 }
 
 VerbatimBlockComment *Sema::actOnVerbatimBlockStart(SourceLocation Loc,
-                                                    StringRef Name) {
+                                                    unsigned CommandID) {
+  StringRef CommandName = Traits.getCommandInfo(CommandID)->Name;
   return new (Allocator) VerbatimBlockComment(
                                   Loc,
-                                  Loc.getLocWithOffset(1 + Name.size()),
-                                  Name);
+                                  Loc.getLocWithOffset(1 + CommandName.size()),
+                                  CommandID);
 }
 
 VerbatimBlockLineComment *Sema::actOnVerbatimBlockLine(SourceLocation Loc,
@@ -303,13 +317,13 @@ void Sema::actOnVerbatimBlockFinish(
 }
 
 VerbatimLineComment *Sema::actOnVerbatimLine(SourceLocation LocBegin,
-                                             StringRef Name,
+                                             unsigned CommandID,
                                              SourceLocation TextBegin,
                                              StringRef Text) {
   return new (Allocator) VerbatimLineComment(
                               LocBegin,
                               TextBegin.getLocWithOffset(Text.size()),
-                              Name,
+                              CommandID,
                               TextBegin,
                               Text);
 }
@@ -401,21 +415,24 @@ FullComment *Sema::actOnFullComment(
 }
 
 void Sema::checkBlockCommandEmptyParagraph(BlockCommandComment *Command) {
+  if (Traits.getCommandInfo(Command->getCommandID())->IsEmptyParagraphAllowed)
+    return;
+
   ParagraphComment *Paragraph = Command->getParagraph();
   if (Paragraph->isWhitespace()) {
     SourceLocation DiagLoc;
     if (Command->getNumArgs() > 0)
       DiagLoc = Command->getArgRange(Command->getNumArgs() - 1).getEnd();
     if (!DiagLoc.isValid())
-      DiagLoc = Command->getCommandNameRange().getEnd();
+      DiagLoc = Command->getCommandNameRange(Traits).getEnd();
     Diag(DiagLoc, diag::warn_doc_block_command_empty_paragraph)
-      << Command->getCommandName()
+      << Command->getCommandName(Traits)
       << Command->getSourceRange();
   }
 }
 
 void Sema::checkReturnsCommand(const BlockCommandComment *Command) {
-  if (!Traits.isReturnsCommand(Command->getCommandName()))
+  if (!Traits.getCommandInfo(Command->getCommandID())->IsReturnsCommand)
     return;
   if (isFunctionDecl()) {
     if (ThisDeclInfo->ResultType->isVoidType()) {
@@ -436,7 +453,7 @@ void Sema::checkReturnsCommand(const BlockCommandComment *Command) {
       }
       Diag(Command->getLocation(),
            diag::warn_doc_returns_attached_to_a_void_function)
-        << Command->getCommandName()
+        << Command->getCommandName(Traits)
         << DiagKind
         << Command->getSourceRange();
     }
@@ -444,20 +461,20 @@ void Sema::checkReturnsCommand(const BlockCommandComment *Command) {
   }
   Diag(Command->getLocation(),
        diag::warn_doc_returns_not_attached_to_a_function_decl)
-    << Command->getCommandName()
+    << Command->getCommandName(Traits)
     << Command->getSourceRange();
 }
 
 void Sema::checkBlockCommandDuplicate(const BlockCommandComment *Command) {
-  StringRef Name = Command->getCommandName();
+  const CommandInfo *Info = Traits.getCommandInfo(Command->getCommandID());
   const BlockCommandComment *PrevCommand = NULL;
-  if (Traits.isBriefCommand(Name)) {
+  if (Info->IsBriefCommand) {
     if (!BriefCommand) {
       BriefCommand = Command;
       return;
     }
     PrevCommand = BriefCommand;
-  } else if (Traits.isReturnsCommand(Name)) {
+  } else if (Info->IsReturnsCommand) {
     if (!ReturnsCommand) {
       ReturnsCommand = Command;
       return;
@@ -467,18 +484,20 @@ void Sema::checkBlockCommandDuplicate(const BlockCommandComment *Command) {
     // We don't want to check this command for duplicates.
     return;
   }
+  StringRef CommandName = Command->getCommandName(Traits);
+  StringRef PrevCommandName = PrevCommand->getCommandName(Traits);
   Diag(Command->getLocation(), diag::warn_doc_block_command_duplicate)
-      << Name
+      << CommandName
       << Command->getSourceRange();
-  if (Name == PrevCommand->getCommandName())
+  if (CommandName == PrevCommandName)
     Diag(PrevCommand->getLocation(), diag::note_doc_block_command_previous)
-        << PrevCommand->getCommandName()
-        << Command->getSourceRange();
+        << PrevCommandName
+        << PrevCommand->getSourceRange();
   else
     Diag(PrevCommand->getLocation(),
          diag::note_doc_block_command_previous_alias)
-        << PrevCommand->getCommandName()
-        << Name;
+        << PrevCommandName
+        << CommandName;
 }
 
 void Sema::resolveParamCommandIndexes(const FullComment *FC) {
@@ -665,7 +684,7 @@ unsigned Sema::correctTypoInParmVarReference(
   if (Corrector.getBestDecl())
     return Corrector.getBestDeclIndex();
   else
-    return ParamCommandComment::InvalidParamIndex;;
+    return ParamCommandComment::InvalidParamIndex;
 }
 
 namespace {
@@ -736,38 +755,13 @@ StringRef Sema::correctTypoInTParamReference(
 
 InlineCommandComment::RenderKind
 Sema::getInlineCommandRenderKind(StringRef Name) const {
-  assert(Traits.isInlineCommand(Name));
+  assert(Traits.getCommandInfo(Name)->IsInlineCommand);
 
   return llvm::StringSwitch<InlineCommandComment::RenderKind>(Name)
       .Case("b", InlineCommandComment::RenderBold)
       .Cases("c", "p", InlineCommandComment::RenderMonospaced)
       .Cases("a", "e", "em", InlineCommandComment::RenderEmphasized)
       .Default(InlineCommandComment::RenderNormal);
-}
-
-bool Sema::isHTMLEndTagOptional(StringRef Name) {
-  return llvm::StringSwitch<bool>(Name)
-      .Case("p", true)
-      .Case("li", true)
-      .Case("dt", true)
-      .Case("dd", true)
-      .Case("tr", true)
-      .Case("th", true)
-      .Case("td", true)
-      .Case("thead", true)
-      .Case("tfoot", true)
-      .Case("tbody", true)
-      .Case("colgroup", true)
-      .Default(false);
-}
-
-bool Sema::isHTMLEndTagForbidden(StringRef Name) {
-  return llvm::StringSwitch<bool>(Name)
-      .Case("br", true)
-      .Case("hr", true)
-      .Case("img", true)
-      .Case("col", true)
-      .Default(false);
 }
 
 } // end namespace comments

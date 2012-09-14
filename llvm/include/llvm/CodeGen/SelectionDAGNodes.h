@@ -1483,15 +1483,17 @@ public:
 
 class BlockAddressSDNode : public SDNode {
   const BlockAddress *BA;
+  int64_t Offset;
   unsigned char TargetFlags;
   friend class SelectionDAG;
   BlockAddressSDNode(unsigned NodeTy, EVT VT, const BlockAddress *ba,
-                     unsigned char Flags)
+                     int64_t o, unsigned char Flags)
     : SDNode(NodeTy, DebugLoc(), getSDVTList(VT)),
-             BA(ba), TargetFlags(Flags) {
+             BA(ba), Offset(o), TargetFlags(Flags) {
   }
 public:
   const BlockAddress *getBlockAddress() const { return BA; }
+  int64_t getOffset() const { return Offset; }
   unsigned char getTargetFlags() const { return TargetFlags; }
 
   static bool classof(const BlockAddressSDNode *) { return true; }
@@ -1745,10 +1747,10 @@ public:
 
 class SDNodeIterator : public std::iterator<std::forward_iterator_tag,
                                             SDNode, ptrdiff_t> {
-  SDNode *Node;
+  const SDNode *Node;
   unsigned Operand;
 
-  SDNodeIterator(SDNode *N, unsigned Op) : Node(N), Operand(Op) {}
+  SDNodeIterator(const SDNode *N, unsigned Op) : Node(N), Operand(Op) {}
 public:
   bool operator==(const SDNodeIterator& x) const {
     return Operand == x.Operand;
@@ -1779,8 +1781,8 @@ public:
     return Operand - Other.Operand;
   }
 
-  static SDNodeIterator begin(SDNode *N) { return SDNodeIterator(N, 0); }
-  static SDNodeIterator end  (SDNode *N) {
+  static SDNodeIterator begin(const SDNode *N) { return SDNodeIterator(N, 0); }
+  static SDNodeIterator end  (const SDNode *N) {
     return SDNodeIterator(N, N->getNumOperands());
   }
 

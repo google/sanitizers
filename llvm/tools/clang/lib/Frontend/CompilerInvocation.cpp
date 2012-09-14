@@ -51,7 +51,7 @@ static const char *getAnalysisStoreName(AnalysisStores Kind) {
     llvm_unreachable("Unknown analysis store!");
 #define ANALYSIS_STORE(NAME, CMDFLAG, DESC, CREATFN) \
   case NAME##Model: return CMDFLAG;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
   }
 }
 
@@ -61,7 +61,7 @@ static const char *getAnalysisConstraintName(AnalysisConstraints Kind) {
     llvm_unreachable("Unknown analysis constraints!");
 #define ANALYSIS_CONSTRAINTS(NAME, CMDFLAG, DESC, CREATFN) \
   case NAME##Model: return CMDFLAG;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
   }
 }
 
@@ -71,7 +71,7 @@ static const char *getAnalysisDiagClientName(AnalysisDiagClients Kind) {
     llvm_unreachable("Unknown analysis client!");
 #define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATFN, AUTOCREATE) \
   case PD_##NAME: return CMDFLAG;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
   }
 }
 
@@ -81,7 +81,7 @@ static const char *getAnalysisPurgeModeName(AnalysisPurgeMode Kind) {
     llvm_unreachable("Unknown analysis purge mode!");
 #define ANALYSIS_PURGE(NAME, CMDFLAG, DESC) \
   case NAME: return CMDFLAG;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
   }
 }
 
@@ -91,7 +91,7 @@ static const char *getAnalysisIPAModeName(AnalysisIPAMode Kind) {
     llvm_unreachable("Unknown analysis ipa mode!");
 #define ANALYSIS_IPA(NAME, CMDFLAG, DESC) \
   case NAME: return CMDFLAG;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
   }
 }
 
@@ -102,7 +102,7 @@ static const char *
     llvm_unreachable("Unknown analysis inlining mode!");
 #define ANALYSIS_INLINE_SELECTION(NAME, CMDFLAG, DESC) \
   case NAME: return CMDFLAG;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
   }
 }
 
@@ -147,7 +147,7 @@ static void AnalyzerOptsToArgs(const AnalyzerOptions &Opts, ToArgsList &Res) {
                   getAnalysisPurgeModeName(Opts.AnalysisPurgeOpt));
   if (!Opts.AnalyzeSpecificFunction.empty())
     Res.push_back("-analyze-function", Opts.AnalyzeSpecificFunction);
-  if (Opts.IPAMode != BasicInlining)
+  if (Opts.IPAMode != DynamicDispatchBifurcate)
     Res.push_back("-analyzer-ipa", getAnalysisIPAModeName(Opts.IPAMode));
   if (Opts.InliningMode != NoRedundancy)
     Res.push_back("-analyzer-inlining-mode",
@@ -159,13 +159,13 @@ static void AnalyzerOptsToArgs(const AnalyzerOptions &Opts, ToArgsList &Res) {
     Res.push_back("-analyzer-display-progress");
   if (Opts.AnalyzeNestedBlocks)
     Res.push_back("-analyzer-opt-analyze-nested-blocks");
-  if (Opts.EagerlyAssume)
+  if (Opts.eagerlyAssumeBinOpBifurcation)
     Res.push_back("-analyzer-eagerly-assume");
   if (Opts.TrimGraph)
     Res.push_back("-trim-egraph");
-  if (Opts.VisualizeEGDot)
+  if (Opts.visualizeExplodedGraphWithGraphViz)
     Res.push_back("-analyzer-viz-egraph-graphviz");
-  if (Opts.VisualizeEGUbi)
+  if (Opts.visualizeExplodedGraphWithUbiGraph)
     Res.push_back("-analyzer-viz-egraph-ubigraph");
   if (Opts.NoRetryExhausted)
     Res.push_back("-analyzer-disable-retry-exhausted");
@@ -797,6 +797,8 @@ static void LangOptsToArgs(const LangOptions &Opts, ToArgsList &Res) {
     Res.push_back("-fno-access-control");
   if (!Opts.CharIsSigned)
     Res.push_back("-fno-signed-char");
+  if (Opts.CPlusPlus && !Opts.WChar)
+    Res.push_back("-fno-wchar");
   if (Opts.ShortWChar)
     Res.push_back("-fshort-wchar");
   if (!Opts.ElideConstructors)
@@ -931,7 +933,7 @@ static void TargetOptsToArgs(const TargetOptions &Opts,
 
 void CompilerInvocation::toArgs(std::vector<std::string> &Res) const {
   ToArgsList List(Res);
-  AnalyzerOptsToArgs(getAnalyzerOpts(), List);
+  AnalyzerOptsToArgs(*getAnalyzerOpts(), List);
   CodeGenOptsToArgs(getCodeGenOpts(), List);
   DependencyOutputOptsToArgs(getDependencyOutputOpts(), List);
   DiagnosticOptsToArgs(getDiagnosticOpts(), List);
@@ -1024,7 +1026,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     AnalysisStores Value = llvm::StringSwitch<AnalysisStores>(Name)
 #define ANALYSIS_STORE(NAME, CMDFLAG, DESC, CREATFN) \
       .Case(CMDFLAG, NAME##Model)
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NumStores);
     if (Value == NumStores) {
       Diags.Report(diag::err_drv_invalid_value)
@@ -1040,7 +1042,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     AnalysisConstraints Value = llvm::StringSwitch<AnalysisConstraints>(Name)
 #define ANALYSIS_CONSTRAINTS(NAME, CMDFLAG, DESC, CREATFN) \
       .Case(CMDFLAG, NAME##Model)
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NumConstraints);
     if (Value == NumConstraints) {
       Diags.Report(diag::err_drv_invalid_value)
@@ -1056,7 +1058,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     AnalysisDiagClients Value = llvm::StringSwitch<AnalysisDiagClients>(Name)
 #define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATFN, AUTOCREAT) \
       .Case(CMDFLAG, PD_##NAME)
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NUM_ANALYSIS_DIAG_CLIENTS);
     if (Value == NUM_ANALYSIS_DIAG_CLIENTS) {
       Diags.Report(diag::err_drv_invalid_value)
@@ -1072,7 +1074,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     AnalysisPurgeMode Value = llvm::StringSwitch<AnalysisPurgeMode>(Name)
 #define ANALYSIS_PURGE(NAME, CMDFLAG, DESC) \
       .Case(CMDFLAG, NAME)
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NumPurgeModes);
     if (Value == NumPurgeModes) {
       Diags.Report(diag::err_drv_invalid_value)
@@ -1088,7 +1090,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     AnalysisIPAMode Value = llvm::StringSwitch<AnalysisIPAMode>(Name)
 #define ANALYSIS_IPA(NAME, CMDFLAG, DESC) \
       .Case(CMDFLAG, NAME)
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NumIPAModes);
     if (Value == NumIPAModes) {
       Diags.Report(diag::err_drv_invalid_value)
@@ -1104,7 +1106,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     AnalysisInliningMode Value = llvm::StringSwitch<AnalysisInliningMode>(Name)
 #define ANALYSIS_INLINING_MODE(NAME, CMDFLAG, DESC) \
       .Case(CMDFLAG, NAME)
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NumInliningModes);
     if (Value == NumInliningModes) {
       Diags.Report(diag::err_drv_invalid_value)
@@ -1116,21 +1118,22 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   }
 
   Opts.ShowCheckerHelp = Args.hasArg(OPT_analyzer_checker_help);
-  Opts.VisualizeEGDot = Args.hasArg(OPT_analyzer_viz_egraph_graphviz);
-  Opts.VisualizeEGUbi = Args.hasArg(OPT_analyzer_viz_egraph_ubigraph);
+  Opts.visualizeExplodedGraphWithGraphViz =
+    Args.hasArg(OPT_analyzer_viz_egraph_graphviz);
+  Opts.visualizeExplodedGraphWithUbiGraph =
+    Args.hasArg(OPT_analyzer_viz_egraph_ubigraph);
   Opts.NoRetryExhausted = Args.hasArg(OPT_analyzer_disable_retry_exhausted);
   Opts.AnalyzeAll = Args.hasArg(OPT_analyzer_opt_analyze_headers);
   Opts.AnalyzerDisplayProgress = Args.hasArg(OPT_analyzer_display_progress);
   Opts.AnalyzeNestedBlocks =
     Args.hasArg(OPT_analyzer_opt_analyze_nested_blocks);
-  Opts.EagerlyAssume = Args.hasArg(OPT_analyzer_eagerly_assume);
+  Opts.eagerlyAssumeBinOpBifurcation = Args.hasArg(OPT_analyzer_eagerly_assume);
   Opts.AnalyzeSpecificFunction = Args.getLastArgValue(OPT_analyze_function);
   Opts.UnoptimizedCFG = Args.hasArg(OPT_analysis_UnoptimizedCFG);
-  Opts.CFGAddImplicitDtors = Args.hasArg(OPT_analysis_CFGAddImplicitDtors);
   Opts.TrimGraph = Args.hasArg(OPT_trim_egraph);
   Opts.MaxNodes = Args.getLastArgIntValue(OPT_analyzer_max_nodes, 150000,Diags);
-  Opts.MaxLoop = Args.getLastArgIntValue(OPT_analyzer_max_loop, 4, Diags);
-  Opts.EagerlyTrimEGraph = !Args.hasArg(OPT_analyzer_no_eagerly_trim_egraph);
+  Opts.maxBlockVisitOnPath = Args.getLastArgIntValue(OPT_analyzer_max_loop, 4, Diags);
+  Opts.eagerlyTrimExplodedGraph = !Args.hasArg(OPT_analyzer_no_eagerly_trim_egraph);
   Opts.PrintStats = Args.hasArg(OPT_analyzer_stats);
   Opts.InlineMaxStackDepth =
     Args.getLastArgIntValue(OPT_analyzer_inline_max_stack_depth,
@@ -1869,6 +1872,9 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   // OpenCL and C++ both have bool, true, false keywords.
   Opts.Bool = Opts.OpenCL || Opts.CPlusPlus;
 
+  // C++ has wchar_t keyword.
+  Opts.WChar = Opts.CPlusPlus;
+
   Opts.GNUKeywords = Opts.GNUMode;
   Opts.CXXOperatorNames = Opts.CPlusPlus;
 
@@ -2076,6 +2082,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.Modules = Args.hasArg(OPT_fmodules);
   Opts.CharIsSigned = !Args.hasArg(OPT_fno_signed_char);
+  Opts.WChar = Opts.CPlusPlus && !Args.hasArg(OPT_fno_wchar);
   Opts.ShortWChar = Args.hasArg(OPT_fshort_wchar);
   Opts.ShortEnums = Args.hasArg(OPT_fshort_enums);
   Opts.Freestanding = Args.hasArg(OPT_ffreestanding);
@@ -2143,6 +2150,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.FiniteMathOnly = Args.hasArg(OPT_ffinite_math_only);
 
   Opts.EmitMicrosoftInlineAsm = Args.hasArg(OPT_fenable_experimental_ms_inline_asm);
+
+  Opts.RetainCommentsFromSystemHeaders =
+      Args.hasArg(OPT_fretain_comments_from_system_headers);
 
   unsigned SSP = Args.getLastArgIntValue(OPT_stack_protector, 0, Diags);
   switch (SSP) {
@@ -2321,7 +2331,7 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
     }
   }
 
-  Success = ParseAnalyzerArgs(Res.getAnalyzerOpts(), *Args, Diags) && Success;
+  Success = ParseAnalyzerArgs(*Res.getAnalyzerOpts(), *Args, Diags) && Success;
   Success = ParseMigratorArgs(Res.getMigratorOpts(), *Args) && Success;
   ParseDependencyOutputArgs(Res.getDependencyOutputOpts(), *Args);
   Success = ParseDiagnosticArgs(Res.getDiagnosticOpts(), *Args, &Diags)

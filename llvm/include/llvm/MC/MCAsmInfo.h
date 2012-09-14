@@ -33,7 +33,7 @@ namespace llvm {
   }
 
   namespace LCOMM {
-    enum LCOMMType { None, NoAlignment, ByteAlignment };
+    enum LCOMMType { NoAlignment, ByteAlignment, Log2Alignment };
   }
 
   /// MCAsmInfo - This class is intended to be used as a base class for asm
@@ -247,13 +247,13 @@ namespace llvm {
     /// .long a - b
     bool HasAggressiveSymbolFolding;           // Defaults to true.
 
-    /// LCOMMDirectiveType - Describes if the target supports the .lcomm
-    /// directive and whether it has an alignment parameter.
-    LCOMM::LCOMMType LCOMMDirectiveType;     // Defaults to LCOMM::None.
-
-    /// COMMDirectiveAlignmentIsInBytes - True is COMMDirective's optional
+    /// COMMDirectiveAlignmentIsInBytes - True is .comm's and .lcomms optional
     /// alignment is to be specified in bytes instead of log2(n).
     bool COMMDirectiveAlignmentIsInBytes;    // Defaults to true;
+
+    /// LCOMMDirectiveAlignment - Describes if the .lcomm directive for the
+    /// target supports an alignment argument and how it is interpreted.
+    LCOMM::LCOMMType LCOMMDirectiveAlignmentType; // Defaults to NoAlignment.
 
     /// HasDotTypeDotSizeDirective - True if the target has .type and .size
     /// directives, this is true for most ELF targets.
@@ -496,13 +496,13 @@ namespace llvm {
     bool hasAggressiveSymbolFolding() const {
       return HasAggressiveSymbolFolding;
     }
-    LCOMM::LCOMMType getLCOMMDirectiveType() const {
-      return LCOMMDirectiveType;
-    }
-    bool hasDotTypeDotSizeDirective() const {return HasDotTypeDotSizeDirective;}
     bool getCOMMDirectiveAlignmentIsInBytes() const {
       return COMMDirectiveAlignmentIsInBytes;
     }
+    LCOMM::LCOMMType getLCOMMDirectiveAlignmentType() const {
+      return LCOMMDirectiveAlignmentType;
+    }
+    bool hasDotTypeDotSizeDirective() const {return HasDotTypeDotSizeDirective;}
     bool hasSingleParameterDotFile() const { return HasSingleParameterDotFile; }
     bool hasNoDeadStrip() const { return HasNoDeadStrip; }
     bool hasSymbolResolver() const { return HasSymbolResolver; }

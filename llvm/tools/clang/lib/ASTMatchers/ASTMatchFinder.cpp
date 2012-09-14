@@ -27,10 +27,75 @@ namespace ast_matchers {
 namespace internal {
 namespace {
 
+typedef MatchFinder::MatchCallback MatchCallback;
+
+/// \brief A \c RecursiveASTVisitor that builds a map from nodes to their
+/// parents as defined by the \c RecursiveASTVisitor.
+///
+/// Note that the relationship described here is purely in terms of AST
+/// traversal - there are other relationships (for example declaration context)
+/// in the AST that are better modeled by special matchers.
+///
+/// FIXME: Currently only builds up the map using \c Stmt and \c Decl nodes.
+class ParentMapASTVisitor : public RecursiveASTVisitor<ParentMapASTVisitor> {
+public:
+  /// \brief Maps from a node to its parent.
+  typedef llvm::DenseMap<const void*, ast_type_traits::DynTypedNode> ParentMap;
+
+  /// \brief Builds and returns the translation unit's parent map.
+  ///
+  ///  The caller takes ownership of the returned \c ParentMap.
+  static ParentMap *buildMap(TranslationUnitDecl &TU) {
+    ParentMapASTVisitor Visitor(new ParentMap);
+    Visitor.TraverseDecl(&TU);
+    return Visitor.Parents;
+  }
+
+private:
+  typedef RecursiveASTVisitor<ParentMapASTVisitor> VisitorBase;
+
+  ParentMapASTVisitor(ParentMap *Parents) : Parents(Parents) {}
+
+  bool shouldVisitTemplateInstantiations() const { return true; }
+  bool shouldVisitImplicitCode() const { return true; }
+
+  template <typename T>
+  bool TraverseNode(T *Node, bool (VisitorBase::*traverse)(T*)) {
+    if (Node == NULL)
+      return true;
+    if (ParentStack.size() > 0)
+      (*Parents)[Node] = ParentStack.back();
+    ParentStack.push_back(ast_type_traits::DynTypedNode::create(*Node));
+    bool Result = (this->*traverse)(Node);
+    ParentStack.pop_back();
+    return Result;
+  }
+
+  bool TraverseDecl(Decl *DeclNode) {
+    return TraverseNode(DeclNode, &VisitorBase::TraverseDecl);
+  }
+
+  bool TraverseStmt(Stmt *StmtNode) {
+    return TraverseNode(StmtNode, &VisitorBase::TraverseStmt);
+  }
+
+  ParentMap *Parents;
+  llvm::SmallVector<ast_type_traits::DynTypedNode, 16> ParentStack;
+
+  friend class RecursiveASTVisitor<ParentMapASTVisitor>;
+};
+
 // We use memoization to avoid running the same matcher on the same
 // AST node twice.  This pair is the key for looking up match
 // result.  It consists of an ID of the MatcherInterface (for
 // identifying the matcher) and a pointer to the AST node.
+//
+// We currently only memoize on nodes whose pointers identify the
+// nodes (\c Stmt and \c Decl, but not \c QualType or \c TypeLoc).
+// For \c QualType and \c TypeLoc it is possible to implement
+// generation of keys for each type.
+// FIXME: Benchmark whether memoization of non-pointer typed nodes
+// provides enough benefit for the additional amount of code.
 typedef std::pair<uint64_t, const void*> UntypedMatchInput;
 
 // Used to store the result of a match and possibly bound nodes.
@@ -50,13 +115,13 @@ public:
   // descendants of a traversed node. max_depth is the maximum depth
   // to traverse: use 1 for matching the children and INT_MAX for
   // matching the descendants.
-  MatchChildASTVisitor(const UntypedBaseMatcher *BaseMatcher,
+  MatchChildASTVisitor(const DynTypedMatcher *Matcher,
                        ASTMatchFinder *Finder,
                        BoundNodesTreeBuilder *Builder,
                        int MaxDepth,
                        ASTMatchFinder::TraversalKind Traversal,
                        ASTMatchFinder::BindKind Bind)
-      : BaseMatcher(BaseMatcher),
+      : Matcher(Matcher),
         Finder(Finder),
         Builder(Builder),
         CurrentDepth(-1),
@@ -76,10 +141,13 @@ public:
   //     Traverse*(c) for each child c of 'node'.
   //   - Traverse*(c) in turn calls Traverse(c), completing the
   //     recursion.
-  template <typename T>
-  bool findMatch(const T &Node) {
+  bool findMatch(const ast_type_traits::DynTypedNode &DynNode) {
     reset();
-    traverse(Node);
+    if (const Decl *D = DynNode.get<Decl>())
+      traverse(*D);
+    else if (const Stmt *S = DynNode.get<Stmt>())
+      traverse(*S);
+    // FIXME: Add other base types after adding tests.
     return Matches;
   }
 
@@ -148,7 +216,8 @@ private:
       return baseTraverse(Node);
     }
     if (Bind != ASTMatchFinder::BK_All) {
-      if (BaseMatcher->matches(Node, Finder, Builder)) {
+      if (Matcher->matches(ast_type_traits::DynTypedNode::create(Node),
+                           Finder, Builder)) {
         Matches = true;
         return false;  // Abort as soon as a match is found.
       }
@@ -163,7 +232,8 @@ private:
       return true;
     } else {
       BoundNodesTreeBuilder RecursiveBuilder;
-      if (BaseMatcher->matches(Node, Finder, &RecursiveBuilder)) {
+      if (Matcher->matches(ast_type_traits::DynTypedNode::create(Node),
+                           Finder, &RecursiveBuilder)) {
         // After the first match the matcher succeeds.
         Matches = true;
         Builder->addMatch(RecursiveBuilder.build());
@@ -176,7 +246,7 @@ private:
     }
   }
 
-  const UntypedBaseMatcher *const BaseMatcher;
+  const DynTypedMatcher *const Matcher;
   ASTMatchFinder *const Finder;
   BoundNodesTreeBuilder *const Builder;
   int CurrentDepth;
@@ -191,9 +261,9 @@ private:
 class MatchASTVisitor : public RecursiveASTVisitor<MatchASTVisitor>,
                         public ASTMatchFinder {
 public:
-  MatchASTVisitor(std::vector< std::pair<const UntypedBaseMatcher*,
-                               MatchFinder::MatchCallback*> > *Triggers)
-     : Triggers(Triggers),
+  MatchASTVisitor(std::vector<std::pair<const internal::DynTypedMatcher*,
+                                        MatchCallback*> > *MatcherCallbackPairs)
+     : MatcherCallbackPairs(MatcherCallbackPairs),
        ActiveASTContext(NULL) {
   }
 
@@ -207,7 +277,7 @@ public:
   bool VisitTypedefDecl(TypedefDecl *DeclNode) {
     // When we see 'typedef A B', we add name 'B' to the set of names
     // A's canonical type maps to.  This is necessary for implementing
-    // IsDerivedFrom(x) properly, where x can be the name of the base
+    // isDerivedFrom(x) properly, where x can be the name of the base
     // class or any of its aliases.
     //
     // In general, the is-alias-of (as defined by typedefs) relation
@@ -228,7 +298,7 @@ public:
     //      `- E
     //
     // It is wrong to assume that the relation is a chain.  A correct
-    // implementation of IsDerivedFrom() needs to recognize that B and
+    // implementation of isDerivedFrom() needs to recognize that B and
     // E are aliases, even though neither is a typedef of the other.
     // Therefore, we cannot simply walk through one typedef chain to
     // find out whether the type name matches.
@@ -243,23 +313,23 @@ public:
   bool TraverseStmt(Stmt *StmtNode);
   bool TraverseType(QualType TypeNode);
   bool TraverseTypeLoc(TypeLoc TypeNode);
+  bool TraverseNestedNameSpecifier(NestedNameSpecifier *NNS);
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS);
 
   // Matches children or descendants of 'Node' with 'BaseMatcher'.
-  template <typename T>
-  bool memoizedMatchesRecursively(const T &Node,
-                                  const UntypedBaseMatcher &BaseMatcher,
+  bool memoizedMatchesRecursively(const ast_type_traits::DynTypedNode &Node,
+                                  const DynTypedMatcher &Matcher,
                                   BoundNodesTreeBuilder *Builder, int MaxDepth,
                                   TraversalKind Traversal, BindKind Bind) {
-    TOOLING_COMPILE_ASSERT((llvm::is_same<T, Decl>::value) ||
-                           (llvm::is_same<T, Stmt>::value),
-                           type_does_not_support_memoization);
-    const UntypedMatchInput input(BaseMatcher.getID(), &Node);
+    const UntypedMatchInput input(Matcher.getID(), Node.getMemoizationData());
+    assert(input.second &&
+           "Fix getMemoizationData once more types allow recursive matching.");
     std::pair<MemoizationMap::iterator, bool> InsertResult
       = ResultCache.insert(std::make_pair(input, MemoizedMatchResult()));
     if (InsertResult.second) {
       BoundNodesTreeBuilder DescendantBoundNodesBuilder;
       InsertResult.first->second.ResultOfMatch =
-        matchesRecursively(Node, BaseMatcher, &DescendantBoundNodesBuilder,
+        matchesRecursively(Node, Matcher, &DescendantBoundNodesBuilder,
                            MaxDepth, Traversal, Bind);
       InsertResult.first->second.Nodes =
         DescendantBoundNodesBuilder.build();
@@ -269,12 +339,12 @@ public:
   }
 
   // Matches children or descendants of 'Node' with 'BaseMatcher'.
-  template <typename T>
-  bool matchesRecursively(const T &Node, const UntypedBaseMatcher &BaseMatcher,
+  bool matchesRecursively(const ast_type_traits::DynTypedNode &Node,
+                          const DynTypedMatcher &Matcher,
                           BoundNodesTreeBuilder *Builder, int MaxDepth,
                           TraversalKind Traversal, BindKind Bind) {
     MatchChildASTVisitor Visitor(
-      &BaseMatcher, this, Builder, MaxDepth, Traversal, Bind);
+      &Matcher, this, Builder, MaxDepth, Traversal, Bind);
     return Visitor.findMatch(Node);
   }
 
@@ -283,37 +353,50 @@ public:
                                   BoundNodesTreeBuilder *Builder);
 
   // Implements ASTMatchFinder::MatchesChildOf.
-  virtual bool matchesChildOf(const Decl &DeclNode,
-                              const UntypedBaseMatcher &BaseMatcher,
+  virtual bool matchesChildOf(const ast_type_traits::DynTypedNode &Node,
+                              const DynTypedMatcher &Matcher,
                               BoundNodesTreeBuilder *Builder,
                               TraversalKind Traversal,
                               BindKind Bind) {
-    return matchesRecursively(DeclNode, BaseMatcher, Builder, 1, Traversal,
+    return matchesRecursively(Node, Matcher, Builder, 1, Traversal,
                               Bind);
   }
-  virtual bool matchesChildOf(const Stmt &StmtNode,
-                              const UntypedBaseMatcher &BaseMatcher,
-                              BoundNodesTreeBuilder *Builder,
-                              TraversalKind Traversal,
-                              BindKind Bind) {
-    return matchesRecursively(StmtNode, BaseMatcher, Builder, 1, Traversal,
-                              Bind);
-  }
-
   // Implements ASTMatchFinder::MatchesDescendantOf.
-  virtual bool matchesDescendantOf(const Decl &DeclNode,
-                                   const UntypedBaseMatcher &BaseMatcher,
+  virtual bool matchesDescendantOf(const ast_type_traits::DynTypedNode &Node,
+                                   const DynTypedMatcher &Matcher,
                                    BoundNodesTreeBuilder *Builder,
                                    BindKind Bind) {
-    return memoizedMatchesRecursively(DeclNode, BaseMatcher, Builder, INT_MAX,
+    return memoizedMatchesRecursively(Node, Matcher, Builder, INT_MAX,
                                       TK_AsIs, Bind);
   }
-  virtual bool matchesDescendantOf(const Stmt &StmtNode,
-                                   const UntypedBaseMatcher &BaseMatcher,
-                                   BoundNodesTreeBuilder *Builder,
-                                   BindKind Bind) {
-    return memoizedMatchesRecursively(StmtNode, BaseMatcher, Builder, INT_MAX,
-                                      TK_AsIs, Bind);
+  // Implements ASTMatchFinder::matchesAncestorOf.
+  virtual bool matchesAncestorOf(const ast_type_traits::DynTypedNode &Node,
+                                 const DynTypedMatcher &Matcher,
+                                 BoundNodesTreeBuilder *Builder) {
+    if (!Parents) {
+      // We always need to run over the whole translation unit, as
+      // \c hasAncestor can escape any subtree.
+      Parents.reset(ParentMapASTVisitor::buildMap(
+        *ActiveASTContext->getTranslationUnitDecl()));
+    }
+    ast_type_traits::DynTypedNode Ancestor = Node;
+    while (Ancestor.get<TranslationUnitDecl>() !=
+           ActiveASTContext->getTranslationUnitDecl()) {
+      assert(Ancestor.getMemoizationData() &&
+             "Invariant broken: only nodes that support memoization may be "
+             "used in the parent map.");
+      ParentMapASTVisitor::ParentMap::const_iterator I =
+        Parents->find(Ancestor.getMemoizationData());
+      if (I == Parents->end()) {
+        assert(false &&
+               "Found node that is not in the parent map.");
+        return false;
+      }
+      Ancestor = I->second;
+      if (Matcher.matches(Ancestor, this, Builder))
+        return true;
+    }
+    return false;
   }
 
   bool shouldVisitTemplateInstantiations() const { return true; }
@@ -358,21 +441,22 @@ private:
   // result callback for every node that matches.
   template <typename T>
   void match(const T &node) {
-    for (std::vector< std::pair<const UntypedBaseMatcher*,
-                      MatchFinder::MatchCallback*> >::const_iterator
-             It = Triggers->begin(), End = Triggers->end();
-         It != End; ++It) {
+    for (std::vector<std::pair<const internal::DynTypedMatcher*,
+                               MatchCallback*> >::const_iterator
+             I = MatcherCallbackPairs->begin(), E = MatcherCallbackPairs->end();
+         I != E; ++I) {
       BoundNodesTreeBuilder Builder;
-      if (It->first->matches(node, this, &Builder)) {
+      if (I->first->matches(ast_type_traits::DynTypedNode::create(node),
+                            this, &Builder)) {
         BoundNodesTree BoundNodes = Builder.build();
-        MatchVisitor Visitor(ActiveASTContext, It->second);
+        MatchVisitor Visitor(ActiveASTContext, I->second);
         BoundNodes.visitMatches(&Visitor);
       }
     }
   }
 
-  std::vector< std::pair<const UntypedBaseMatcher*,
-               MatchFinder::MatchCallback*> > *const Triggers;
+  std::vector<std::pair<const internal::DynTypedMatcher*,
+                        MatchCallback*> > *const MatcherCallbackPairs;
   ASTContext *ActiveASTContext;
 
   // Maps a canonical type to its TypedefDecls.
@@ -381,16 +465,16 @@ private:
   // Maps (matcher, node) -> the match result for memoization.
   typedef llvm::DenseMap<UntypedMatchInput, MemoizedMatchResult> MemoizationMap;
   MemoizationMap ResultCache;
+
+  llvm::OwningPtr<ParentMapASTVisitor::ParentMap> Parents;
 };
 
 // Returns true if the given class is directly or indirectly derived
-// from a base type with the given name.  A class is considered to be
-// also derived from itself.
+// from a base type with the given name.  A class is not considered to be
+// derived from itself.
 bool MatchASTVisitor::classIsDerivedFrom(const CXXRecordDecl *Declaration,
                                          const Matcher<NamedDecl> &Base,
                                          BoundNodesTreeBuilder *Builder) {
-  if (Base.matches(*Declaration, this, Builder))
-    return true;
   if (!Declaration->hasDefinition())
     return false;
   typedef CXXRecordDecl::base_class_const_iterator BaseIterator;
@@ -439,6 +523,8 @@ bool MatchASTVisitor::classIsDerivedFrom(const CXXRecordDecl *Declaration,
     }
     assert(ClassDecl != NULL);
     assert(ClassDecl != Declaration);
+    if (Base.matches(*ClassDecl, this, Builder))
+      return true;
     if (classIsDerivedFrom(ClassDecl, Base, Builder))
       return true;
   }
@@ -472,13 +558,29 @@ bool MatchASTVisitor::TraverseTypeLoc(TypeLoc TypeLoc) {
       TraverseTypeLoc(TypeLoc);
 }
 
+bool MatchASTVisitor::TraverseNestedNameSpecifier(NestedNameSpecifier *NNS) {
+  match(*NNS);
+  return RecursiveASTVisitor<MatchASTVisitor>::TraverseNestedNameSpecifier(NNS);
+}
+
+bool MatchASTVisitor::TraverseNestedNameSpecifierLoc(
+    NestedNameSpecifierLoc NNS) {
+  match(NNS);
+  // We only match the nested name specifier here (as opposed to traversing it)
+  // because the traversal is already done in the parallel "Loc"-hierarchy.
+  match(*NNS.getNestedNameSpecifier());
+  return
+      RecursiveASTVisitor<MatchASTVisitor>::TraverseNestedNameSpecifierLoc(NNS);
+}
+
 class MatchASTConsumer : public ASTConsumer {
 public:
-  MatchASTConsumer(std::vector< std::pair<const UntypedBaseMatcher*,
-                                MatchFinder::MatchCallback*> > *Triggers,
-                   MatchFinder::ParsingDoneTestCallback *ParsingDone)
-      : Visitor(Triggers),
-        ParsingDone(ParsingDone) {}
+  MatchASTConsumer(
+    std::vector<std::pair<const internal::DynTypedMatcher*,
+                          MatchCallback*> > *MatcherCallbackPairs,
+    MatchFinder::ParsingDoneTestCallback *ParsingDone)
+    : Visitor(MatcherCallbackPairs),
+      ParsingDone(ParsingDone) {}
 
 private:
   virtual void HandleTranslationUnit(ASTContext &Context) {
@@ -508,9 +610,9 @@ MatchFinder::ParsingDoneTestCallback::~ParsingDoneTestCallback() {}
 MatchFinder::MatchFinder() : ParsingDone(NULL) {}
 
 MatchFinder::~MatchFinder() {
-  for (std::vector< std::pair<const internal::UntypedBaseMatcher*,
-                    MatchFinder::MatchCallback*> >::const_iterator
-           It = Triggers.begin(), End = Triggers.end();
+  for (std::vector<std::pair<const internal::DynTypedMatcher*,
+                             MatchCallback*> >::const_iterator
+           It = MatcherCallbackPairs.begin(), End = MatcherCallbackPairs.end();
        It != End; ++It) {
     delete It->first;
   }
@@ -518,24 +620,36 @@ MatchFinder::~MatchFinder() {
 
 void MatchFinder::addMatcher(const DeclarationMatcher &NodeMatch,
                              MatchCallback *Action) {
-  Triggers.push_back(std::make_pair(
-    new internal::TypedBaseMatcher<Decl>(NodeMatch), Action));
+  MatcherCallbackPairs.push_back(std::make_pair(
+    new internal::Matcher<Decl>(NodeMatch), Action));
 }
 
 void MatchFinder::addMatcher(const TypeMatcher &NodeMatch,
                              MatchCallback *Action) {
-  Triggers.push_back(std::make_pair(
-    new internal::TypedBaseMatcher<QualType>(NodeMatch), Action));
+  MatcherCallbackPairs.push_back(std::make_pair(
+    new internal::Matcher<QualType>(NodeMatch), Action));
 }
 
 void MatchFinder::addMatcher(const StatementMatcher &NodeMatch,
                              MatchCallback *Action) {
-  Triggers.push_back(std::make_pair(
-    new internal::TypedBaseMatcher<Stmt>(NodeMatch), Action));
+  MatcherCallbackPairs.push_back(std::make_pair(
+    new internal::Matcher<Stmt>(NodeMatch), Action));
+}
+
+void MatchFinder::addMatcher(const NestedNameSpecifierMatcher &NodeMatch,
+                             MatchCallback *Action) {
+  MatcherCallbackPairs.push_back(std::make_pair(
+    new NestedNameSpecifierMatcher(NodeMatch), Action));
+}
+
+void MatchFinder::addMatcher(const NestedNameSpecifierLocMatcher &NodeMatch,
+                             MatchCallback *Action) {
+  MatcherCallbackPairs.push_back(std::make_pair(
+    new NestedNameSpecifierLocMatcher(NodeMatch), Action));
 }
 
 ASTConsumer *MatchFinder::newASTConsumer() {
-  return new internal::MatchASTConsumer(&Triggers, ParsingDone);
+  return new internal::MatchASTConsumer(&MatcherCallbackPairs, ParsingDone);
 }
 
 void MatchFinder::registerTestCallbackAfterParsing(

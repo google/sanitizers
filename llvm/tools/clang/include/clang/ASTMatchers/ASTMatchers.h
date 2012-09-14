@@ -65,6 +65,7 @@ namespace ast_matchers {
 class BoundNodes {
 public:
   /// \brief Returns the AST node bound to \c ID.
+  ///
   /// Returns NULL if there was no node bound to \c ID or if there is a node but
   /// it cannot be converted to the specified type.
   template <typename T>
@@ -109,6 +110,8 @@ internal::Matcher<T> id(const std::string &ID,
 typedef internal::Matcher<Decl> DeclarationMatcher;
 typedef internal::Matcher<QualType> TypeMatcher;
 typedef internal::Matcher<Stmt> StatementMatcher;
+typedef internal::Matcher<NestedNameSpecifier> NestedNameSpecifierMatcher;
+typedef internal::Matcher<NestedNameSpecifierLoc> NestedNameSpecifierLocMatcher;
 /// @}
 
 /// \brief Matches any node.
@@ -1107,11 +1110,11 @@ AST_MATCHER_P(CXXOperatorCallExpr,
 /// \brief Matches C++ classes that are directly or indirectly derived from
 /// a class matching \c Base.
 ///
-/// Note that a class is considered to be also derived from itself.
+/// Note that a class is not considered to be derived from itself.
 ///
-/// Example matches X, Y, Z, C (Base == hasName("X"))
+/// Example matches Y, Z, C (Base == hasName("X"))
 /// \code
-///   class X;                // A class is considered to be derived from itself
+///   class X;
 ///   class Y : public X {};  // directly derived
 ///   class Z : public Y {};  // indirectly derived
 ///   typedef X A;
@@ -1134,6 +1137,21 @@ AST_MATCHER_P(CXXRecordDecl, isDerivedFrom,
 inline internal::Matcher<CXXRecordDecl> isDerivedFrom(StringRef BaseName) {
   assert(!BaseName.empty());
   return isDerivedFrom(hasName(BaseName));
+}
+
+/// \brief Similar to \c isDerivedFrom(), but also matches classes that directly
+/// match \c Base.
+inline internal::Matcher<CXXRecordDecl> isSameOrDerivedFrom(
+    internal::Matcher<NamedDecl> Base) {
+  return anyOf(Base, isDerivedFrom(Base));
+}
+
+/// \brief Overloaded method as shortcut for
+/// \c isSameOrDerivedFrom(hasName(...)).
+inline internal::Matcher<CXXRecordDecl> isSameOrDerivedFrom(
+    StringRef BaseName) {
+  assert(!BaseName.empty());
+  return isSameOrDerivedFrom(hasName(BaseName));
 }
 
 /// \brief Matches AST nodes that have child AST nodes that match the
@@ -1177,7 +1195,6 @@ hasDescendant(const internal::Matcher<DescendantT> &DescendantMatcher) {
     internal::HasDescendantMatcher,
     DescendantT>(DescendantMatcher);
 }
-
 
 /// \brief Matches AST nodes that have child AST nodes that match the
 /// provided matcher.
@@ -1234,6 +1251,25 @@ forEachDescendant(
   return internal::ArgumentAdaptingMatcher<
     internal::ForEachDescendantMatcher,
     DescendantT>(DescendantMatcher);
+}
+
+/// \brief Matches AST nodes that have an ancestor that matches the provided
+/// matcher.
+///
+/// Given
+/// \code
+/// void f() { if (true) { int x = 42; } }
+/// void g() { for (;;) { int x = 43; } }
+/// \endcode
+/// \c expr(integerLiteral(hasAncsestor(ifStmt()))) matches \c 42, but not 43.
+///
+/// Usable as: Any Matcher
+template <typename AncestorT>
+internal::ArgumentAdaptingMatcher<internal::HasAncestorMatcher, AncestorT>
+hasAncestor(const internal::Matcher<AncestorT> &AncestorMatcher) {
+  return internal::ArgumentAdaptingMatcher<
+    internal::HasAncestorMatcher,
+    AncestorT>(AncestorMatcher);
 }
 
 /// \brief Matches if the provided matcher does not match.
@@ -2252,6 +2288,83 @@ inline internal::PolymorphicMatcherWithParam0<
 isExplicitTemplateSpecialization() {
   return internal::PolymorphicMatcherWithParam0<
     internal::IsExplicitTemplateSpecializationMatcher>();
+}
+
+/// \brief Matches nested name specifiers.
+///
+/// Given
+/// \code
+///   namespace ns {
+///     struct A { static void f(); };
+///     void A::f() {}
+///     void g() { A::f(); }
+///   }
+///   ns::A a;
+/// \endcode
+/// nestedNameSpecifier()
+///   matches "ns::" and both "A::"
+const internal::VariadicAllOfMatcher<NestedNameSpecifier> nestedNameSpecifier;
+
+/// \brief Same as \c nestedNameSpecifier but matches \c NestedNameSpecifierLoc.
+const internal::VariadicAllOfMatcher<
+  NestedNameSpecifierLoc> nestedNameSpecifierLoc;
+
+/// \brief Matches \c NestedNameSpecifierLocs for which the given inner
+/// NestedNameSpecifier-matcher matches.
+inline internal::BindableMatcher<NestedNameSpecifierLoc> loc(
+    const internal::Matcher<NestedNameSpecifier> &InnerMatcher) {
+  return internal::BindableMatcher<NestedNameSpecifierLoc>(
+      new internal::LocMatcher<NestedNameSpecifierLoc, NestedNameSpecifier>(
+          InnerMatcher));
+}
+
+/// \brief Matches nested name specifiers that specify a type matching the
+/// given \c QualType matcher without qualifiers.
+/// FIXME: This is a temporary solution. Switch to using Type-matchers as soon
+/// as we have those.
+///
+/// Given
+/// \code
+///   struct A { struct B { struct C {}; }; };
+///   A::B::C c;
+/// \endcode
+/// nestedNameSpecifier(specifiesType(hasDeclaration(recordDecl(hasName("A")))))
+///   matches "A::"
+AST_MATCHER_P(NestedNameSpecifier, specifiesType,
+              internal::Matcher<QualType>, InnerMatcher) {
+  if (Node.getAsType() == NULL)
+    return false;
+  return InnerMatcher.matches(QualType(Node.getAsType(), 0), Finder, Builder);
+}
+
+/// \brief Matches on the prefix of a \c NestedNameSpecifier or
+/// \c NestedNameSpecifierLoc.
+///
+/// Given
+/// \code
+///   struct A { struct B { struct C {}; }; };
+///   A::B::C c;
+/// \endcode
+/// nestedNameSpecifier(hasPrefix(specifiesType(asString("struct A")))) and
+/// nestedNameSpecifierLoc(hasPrefix(loc(specifiesType(asString("struct A")))))
+///   both match "A::"
+LOC_TRAVERSE_MATCHER(hasPrefix, NestedNameSpecifier, getPrefix)
+
+/// \brief Matches nested name specifiers that specify a namespace matching the
+/// given namespace matcher.
+///
+/// Given
+/// \code
+///   namespace ns { struct A {}; }
+///   ns::A a;
+/// \endcode
+/// nestedNameSpecifier(specifiesNamespace(hasName("ns")))
+///   matches "ns::"
+AST_MATCHER_P(NestedNameSpecifier, specifiesNamespace,
+              internal::Matcher<NamespaceDecl>, InnerMatcher) {
+  if (Node.getAsNamespace() == NULL)
+    return false;
+  return InnerMatcher.matches(*Node.getAsNamespace(), Finder, Builder);
 }
 
 } // end namespace ast_matchers

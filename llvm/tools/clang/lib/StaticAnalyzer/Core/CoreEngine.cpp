@@ -243,11 +243,6 @@ void CoreEngine::dispatchWorkItem(ExplodedNode* Pred, ProgramPoint Loc,
 
     case ProgramPoint::CallEnterKind: {
       CallEnter CEnter = cast<CallEnter>(Loc);
-      if (AnalyzedCallees)
-        if (const CallExpr* CE =
-            dyn_cast_or_null<CallExpr>(CEnter.getCallExpr()))
-          if (const Decl *CD = CE->getCalleeDecl())
-            AnalyzedCallees->insert(CD);
       SubEng.processCallEnter(CEnter, Pred);
       break;
     }
@@ -519,9 +514,9 @@ void CoreEngine::enqueueStmtNode(ExplodedNode *N,
     return;
   }
 
-  const CFGStmt *CS = (*Block)[Idx].getAs<CFGStmt>();
-  const Stmt *St = CS ? CS->getStmt() : 0;
-  PostStmt Loc(St, N->getLocationContext());
+  // At this point, we know we're processing a normal statement.
+  CFGStmt CS = cast<CFGStmt>((*Block)[Idx]);
+  PostStmt Loc(CS.getStmt(), N->getLocationContext());
 
   if (Loc == N->getLocation()) {
     // Note: 'N' should be a fresh node because otherwise it shouldn't be

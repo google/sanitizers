@@ -21,7 +21,8 @@ ReportDesc::ReportDesc()
     , mops(MBlockReportMop)
     , locs(MBlockReportLoc)
     , mutexes(MBlockReportMutex)
-    , threads(MBlockReportThread) {
+    , threads(MBlockReportThread)
+    , sleep() {
 }
 
 ReportDesc::~ReportDesc() {
@@ -48,7 +49,7 @@ static void PrintHeader(ReportType typ) {
   TsanPrintf(" (pid=%d)\n", GetPid());
 }
 
-static void PrintStack(const ReportStack *ent) {
+void PrintStack(const ReportStack *ent) {
   for (int i = 0; ent; ent = ent->next, i++) {
     TsanPrintf("    #%d %s %s:%d", i, ent->func, ent->file, ent->line);
     if (ent->col)
@@ -58,6 +59,7 @@ static void PrintStack(const ReportStack *ent) {
     else
       TsanPrintf(" (%p)\n", (void*)ent->pc);
   }
+  TsanPrintf("\n");
 }
 
 static void PrintMop(const ReportMop *mop, bool first) {
@@ -77,8 +79,12 @@ static void PrintLocation(const ReportLocation *loc) {
     TsanPrintf("  Location is global '%s' of size %zu at %zx %s:%d\n",
                loc->name, loc->size, loc->addr, loc->file, loc->line);
   } else if (loc->type == ReportLocationHeap) {
-    TsanPrintf("  Location is heap of size %zu at %zx allocated "
-               "by thread %d:\n", loc->size, loc->addr, loc->tid);
+    TsanPrintf("  Location is heap block of size %zu at %p allocated",
+        loc->size, loc->addr);
+    if (loc->tid == 0)
+      TsanPrintf(" by main thread:\n");
+    else
+      TsanPrintf(" by thread %d:\n", loc->tid);
     PrintStack(loc->stack);
   } else if (loc->type == ReportLocationStack) {
     TsanPrintf("  Location is stack of thread %d:\n", loc->tid);
@@ -105,6 +111,11 @@ static void PrintThread(const ReportThread *rt) {
   PrintStack(rt->stack);
 }
 
+static void PrintSleep(const ReportStack *s) {
+  TsanPrintf("  As if synchronized via sleep:\n");
+  PrintStack(s);
+}
+
 void PrintReport(const ReportDesc *rep) {
   TsanPrintf("==================\n");
   PrintHeader(rep->typ);
@@ -117,6 +128,9 @@ void PrintReport(const ReportDesc *rep) {
 
   for (uptr i = 0; i < rep->mops.Size(); i++)
     PrintMop(rep->mops[i], i == 0);
+
+  if (rep->sleep)
+    PrintSleep(rep->sleep);
 
   for (uptr i = 0; i < rep->locs.Size(); i++)
     PrintLocation(rep->locs[i]);
@@ -132,7 +146,7 @@ void PrintReport(const ReportDesc *rep) {
 
 #else
 
-static void PrintStack(const ReportStack *ent) {
+void PrintStack(const ReportStack *ent) {
   for (int i = 0; ent; ent = ent->next, i++) {
     TsanPrintf("  %s()\n      %s:%d +0x%zx\n",
         ent->func, ent->file, ent->line, (void*)ent->offset);

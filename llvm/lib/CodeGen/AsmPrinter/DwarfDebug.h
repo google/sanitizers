@@ -96,7 +96,8 @@ typedef struct DotDebugLocEntry {
   DotDebugLocEntry(const MCSymbol *B, const MCSymbol *E, const ConstantFP *FPtr)
     : Begin(B), End(E), Variable(0), Merged(false), 
       Constant(true) { Constants.CFP = FPtr; EntryKind = E_ConstantFP; }
-  DotDebugLocEntry(const MCSymbol *B, const MCSymbol *E, const ConstantInt *IPtr)
+  DotDebugLocEntry(const MCSymbol *B, const MCSymbol *E,
+                   const ConstantInt *IPtr)
     : Begin(B), End(E), Variable(0), Merged(false), 
       Constant(true) { Constants.CIP = IPtr; EntryKind = E_ConstantInt; }
 
@@ -163,6 +164,16 @@ public:
       return true;
     return false;
   }
+
+  bool isObjectPointer()             const {
+    if (Var.isObjectPointer())
+      return true;
+    if (Var.getTag() == dwarf::DW_TAG_arg_variable
+        && getType().isObjectPointer())
+      return true;
+    return false;
+  }
+  
   bool variableHasComplexAddress()   const {
     assert(Var.Verify() && "Invalid complex DbgVariable!");
     return Var.hasComplexAddress();

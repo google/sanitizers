@@ -427,9 +427,11 @@ void Region::print(raw_ostream &OS, bool print_tree, unsigned level,
     OS.indent(level*2) << "} \n";
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void Region::dump() const {
   print(dbgs(), true, getDepth(), printStyle.getValue());
 }
+#endif
 
 void Region::clearNodeCache() {
   // Free the cached nodes.

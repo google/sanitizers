@@ -44,6 +44,13 @@ struct AddressInfo {
   }
   // Deletes all strings and sets all fields to zero.
   void Clear();
+
+  void FillAddressAndModuleInfo(uptr addr, const char *mod_name,
+                                uptr mod_offset) {
+    address = addr;
+    module = internal_strdup(mod_name);
+    module_offset = mod_offset;
+  }
 };
 
 // Fills at most "max_frames" elements of "frames" with descriptions
@@ -71,7 +78,6 @@ class LoadedModule {
     uptr end;
   };
   char *full_name_;
-  char *short_name_;
   uptr base_address_;
   static const uptr kMaxNumberOfAddressRanges = 8;
   AddressRange ranges_[kMaxNumberOfAddressRanges];

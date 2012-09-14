@@ -47,7 +47,6 @@ namespace {
     PathGenerationScheme getGenerationScheme() const { return Extensive; }
     bool supportsLogicalOpControlFlow() const { return true; }
     bool supportsAllBlockEdges() const { return true; }
-    virtual bool useVerboseDescription() const { return false; }
     virtual bool supportsCrossFileDiagnostics() const {
       return SupportsCrossFileDiagnostics;
     }
@@ -247,6 +246,7 @@ static void ReportEvent(raw_ostream &o, const PathDiagnosticPiece& P,
   // Output the short text.
   // FIXME: Really use a short string.
   Indent(o, indent) << "<key>message</key>\n";
+  Indent(o, indent);
   EmitString(o, P.getString()) << '\n';
   
   // Finish up.
@@ -443,7 +443,7 @@ void PlistDiagnostics::FlushDiagnosticsImpl(
 
     // Output the bug type and bug category.
     o << "   <key>description</key>";
-    EmitString(o, D->getDescription()) << '\n';
+    EmitString(o, D->getShortDescription()) << '\n';
     o << "   <key>category</key>";
     EmitString(o, D->getCategory()) << '\n';
     o << "   <key>type</key>";
@@ -500,22 +500,22 @@ void PlistDiagnostics::FlushDiagnosticsImpl(
     if (!filesMade->empty()) {
       StringRef lastName;
       PDFileEntry::ConsumerFiles *files = filesMade->getFiles(*D);
-      if (!files)
-        continue;
-      for (PDFileEntry::ConsumerFiles::const_iterator CI = files->begin(),
-              CE = files->end(); CI != CE; ++CI) {
-        StringRef newName = CI->first;
-        if (newName != lastName) {
-          if (!lastName.empty()) {
-            o << "  </array>\n";
+      if (files) {
+        for (PDFileEntry::ConsumerFiles::const_iterator CI = files->begin(),
+                CE = files->end(); CI != CE; ++CI) {
+          StringRef newName = CI->first;
+          if (newName != lastName) {
+            if (!lastName.empty()) {
+              o << "  </array>\n";
+            }
+            lastName = newName;
+            o <<  "  <key>" << lastName << "_files</key>\n";
+            o << "  <array>\n";
           }
-          lastName = newName;
-          o <<  "  <key>" << lastName << "_files</key>\n";
-          o << "  <array>\n";
+          o << "   <string>" << CI->second << "</string>\n";
         }
-        o << "   <string>" << CI->second << "</string>\n";
+        o << "  </array>\n";
       }
-      o << "  </array>\n";
     }
 
     // Close up the entry.

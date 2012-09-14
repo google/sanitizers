@@ -32,10 +32,12 @@ void MCOperand::print(raw_ostream &OS, const MCAsmInfo *MAI) const {
   OS << ">";
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void MCOperand::dump() const {
   print(dbgs(), 0);
   dbgs() << "\n";
 }
+#endif
 
 void MCInst::print(raw_ostream &OS, const MCAsmInfo *MAI) const {
   OS << "<MCInst " << getOpcode();
@@ -62,7 +64,9 @@ void MCInst::dump_pretty(raw_ostream &OS, const MCAsmInfo *MAI,
   OS << ">";
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void MCInst::dump() const {
   print(dbgs(), 0);
   dbgs() << "\n";
 }
+#endif

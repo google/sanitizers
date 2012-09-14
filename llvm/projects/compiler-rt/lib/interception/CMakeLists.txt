@@ -6,14 +6,19 @@ set(INTERCEPTION_SOURCES
   interception_win.cc
   )
 
+set(MACH_OVERRIDE_SOURCES
+  mach_override/mach_override.c
+  )
+
 # Only add this C file if we're building on a Mac. Other source files can be
 # harmlessly compiled on any platform, but the C file is complained about due
 # to pedantic rules about empty translation units.
 if (APPLE)
-  list(APPEND INTERCEPTION_SOURCES mach_override/mach_override.c)
+  list(APPEND INTERCEPTION_SOURCES ${MACH_OVERRIDE_SOURCES})
+  set_source_files_properties(${MACH_OVERRIDE_SOURCES} PROPERTIES COMPILE_FLAGS "-std=c99 ${INTERCEPTION_CFLAGS}")
 endif ()
 
-set(INTERCEPTION_CFLAGS -O3 ${SANITIZER_COMMON_CFLAGS})
+set(INTERCEPTION_CFLAGS ${SANITIZER_COMMON_CFLAGS})
 
 if(APPLE)
   # Build universal binary on APPLE.
@@ -34,9 +39,9 @@ else()
     set_target_compile_flags(RTInterception.i386
       ${INTERCEPTION_CFLAGS} ${TARGET_I386_CFLAGS})
   endif()
-  if(CAN_TARGET_ARM_ANDROID)
+  if(ANDROID)
     add_library(RTInterception.arm.android OBJECT ${INTERCEPTION_SOURCES})
     set_target_compile_flags(RTInterception.arm.android
-      ${INTERCEPTION_CFLAGS} ${TARGET_ARM_ANDROID_CFLAGS})
+      ${INTERCEPTION_CFLAGS})
   endif()
 endif()

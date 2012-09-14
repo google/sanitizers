@@ -409,7 +409,6 @@ bool store_and_advance(char *&buffer_ptr, char *buffer_end, const T& value,
 /// combining them, this (as an optimization) directly combines the integers.
 template <typename InputIteratorT>
 hash_code hash_combine_range_impl(InputIteratorT first, InputIteratorT last) {
-  typedef typename std::iterator_traits<InputIteratorT>::value_type ValueT;
   const size_t seed = get_execution_seed();
   char buffer[64], *buffer_ptr = buffer;
   char *const buffer_end = buffer_ptr + array_lengthof(buffer);
@@ -711,7 +710,7 @@ hash_code hash_combine(const T1 &arg1) {
 #endif
 
 
-// Implementation details for implementatinos of hash_value overloads provided
+// Implementation details for implementations of hash_value overloads provided
 // here.
 namespace hashing {
 namespace detail {

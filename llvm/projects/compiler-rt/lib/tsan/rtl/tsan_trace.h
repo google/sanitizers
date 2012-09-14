@@ -19,12 +19,12 @@
 
 namespace __tsan {
 
-const int kTracePartSize = 16 * 1024;
 #ifndef TSAN_HISTORY_SIZE  // in kibitraces
-const int kTraceParts = 8;
-#else
-const int kTraceParts = TSAN_HISTORY_SIZE * 1024 / kTracePartSize;
+#define TSAN_HISTORY_SIZE 128
 #endif
+
+const int kTracePartSize = 16 * 1024;
+const int kTraceParts = TSAN_HISTORY_SIZE * 1024 / kTracePartSize;
 const int kTraceSize = kTracePartSize * kTraceParts;
 
 // Must fit into 3 bits.
@@ -35,7 +35,7 @@ enum EventType {
   EventTypeLock,
   EventTypeUnlock,
   EventTypeRLock,
-  EventTypeRUnlock,
+  EventTypeRUnlock
 };
 
 // Represents a thread event (from most significant bit):
@@ -47,12 +47,12 @@ struct TraceHeader {
   StackTrace stack0;  // Start stack for the trace.
   u64        epoch0;  // Start epoch for the trace.
 #ifndef TSAN_GO
-  uptr       stack0buf[kShadowStackSize];
+  uptr       stack0buf[kTraceStackSize];
 #endif
 
   TraceHeader()
 #ifndef TSAN_GO
-      : stack0(stack0buf, kShadowStackSize)
+      : stack0(stack0buf, kTraceStackSize)
 #else
       : stack0()
 #endif

@@ -217,6 +217,7 @@ PUNCTUATOR(greatergreatergreater, ">>>")
 //   KEYALTIVEC - This is a keyword in AltiVec
 //   KEYBORLAND - This is a keyword if Borland extensions are enabled
 //   BOOLSUPPORT - This is a keyword if 'bool' is a built-in type
+//   WCHARSUPPORT - This is a keyword if 'wchar_t' is a built-in type
 //
 KEYWORD(auto                        , KEYALL)
 KEYWORD(break                       , KEYALL)
@@ -295,7 +296,7 @@ KEYWORD(typename                    , KEYCXX)
 KEYWORD(typeid                      , KEYCXX)
 KEYWORD(using                       , KEYCXX)
 KEYWORD(virtual                     , KEYCXX)
-KEYWORD(wchar_t                     , KEYCXX)
+KEYWORD(wchar_t                     , WCHARSUPPORT)
 
 // C++ 2.5p2: Alternative Representations.
 CXX_KEYWORD_OPERATOR(and     , ampamp)
@@ -505,6 +506,7 @@ KEYWORD(__if_not_exists               , KEYMS)
 KEYWORD(__single_inheritance          , KEYMS)
 KEYWORD(__multiple_inheritance        , KEYMS)
 KEYWORD(__virtual_inheritance         , KEYMS)
+KEYWORD(__interface                   , KEYMS)
 ALIAS("__int8"           , char       , KEYMS)
 ALIAS("__int16"          , short      , KEYMS)
 ALIAS("__int32"          , int        , KEYMS)
@@ -518,7 +520,6 @@ ALIAS("_thiscall"        , __thiscall , KEYMS)
 ALIAS("_uuidof"          , __uuidof   , KEYMS | KEYBORLAND)
 ALIAS("_inline"          , inline     , KEYMS)
 ALIAS("_declspec"        , __declspec , KEYMS)
-ALIAS("__interface"      , struct     , KEYMS)
 
 // Borland Extensions which should be disabled in strict conformance mode.
 ALIAS("_pascal"      , __pascal   , KEYBORLAND)

@@ -122,7 +122,8 @@ static const char *GetArmArchForMCpu(StringRef Value) {
     .Case("xscale", "xscale")
     .Cases("arm1136j-s", "arm1136jf-s", "arm1176jz-s",
            "arm1176jzf-s", "cortex-m0", "armv6")
-    .Cases("cortex-a8", "cortex-r4", "cortex-m3", "cortex-a9", "armv7")
+    .Cases("cortex-a8", "cortex-r4", "cortex-m3", "cortex-a9", "cortex-a15",
+           "armv7")
     .Default(0);
 }
 
@@ -2064,7 +2065,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
                       Arch == llvm::Triple::mips64 ||
                       Arch == llvm::Triple::mips64el;
 
-  const bool IsAndroid = Triple.getEnvironment() == llvm::Triple::ANDROIDEABI;
+  const bool IsAndroid = Triple.getEnvironment() == llvm::Triple::Android;
 
   // Do not use 'gnu' hash style for Mips targets because .gnu.hash
   // and the MIPS ABI require .dynsym to be sorted in different ways.
@@ -2123,6 +2124,11 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
                       Paths);
       addPathIfExists(LibPath + "/" + MultiarchTriple, Paths);
       addPathIfExists(LibPath + "/../" + Multilib, Paths);
+    }
+    // On Android, libraries in the parent prefix of the GCC installation are
+    // preferred to the ones under sysroot.
+    if (IsAndroid) {
+      addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib", Paths);
     }
   }
   addPathIfExists(SysRoot + "/lib/" + MultiarchTriple, Paths);
@@ -2342,16 +2348,22 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   StringRef LibDir = GCCInstallation.getParentLibPath();
   StringRef InstallDir = GCCInstallation.getInstallPath();
   StringRef Version = GCCInstallation.getVersion().Text;
-  if (!addLibStdCXXIncludePaths(LibDir + "/../include/c++/" + Version,
-                                (GCCInstallation.getTriple().str() +
-                                 GCCInstallation.getMultiarchSuffix()),
-                                DriverArgs, CC1Args)) {
+  StringRef TripleStr = GCCInstallation.getTriple().str();
+
+  const std::string IncludePathCandidates[] = {
+    LibDir.str() + "/../include/c++/" + Version.str(),
     // Gentoo is weird and places its headers inside the GCC install, so if the
     // first attempt to find the headers fails, try this pattern.
-    addLibStdCXXIncludePaths(InstallDir + "/include/g++-v4",
-                             (GCCInstallation.getTriple().str() +
-                              GCCInstallation.getMultiarchSuffix()),
-                             DriverArgs, CC1Args);
+    InstallDir.str() + "/include/g++-v4",
+    // Android standalone toolchain has C++ headers in yet another place.
+    LibDir.str() + "/../" + TripleStr.str() + "/include/c++/" + Version.str(),
+  };
+
+  for (unsigned i = 0; i < llvm::array_lengthof(IncludePathCandidates); ++i) {
+    if (addLibStdCXXIncludePaths(IncludePathCandidates[i], (TripleStr +
+                GCCInstallation.getMultiarchSuffix()),
+            DriverArgs, CC1Args))
+      break;
   }
 }
 

@@ -29,6 +29,26 @@ static Type *getPromotedType(Type *Ty) {
   return Ty;
 }
 
+/// reduceToSingleValueType - Given an aggregate type which ultimately holds a
+/// single scalar element, like {{{type}}} or [1 x type], return type.
+static Type *reduceToSingleValueType(Type *T) {
+  while (!T->isSingleValueType()) {
+    if (StructType *STy = dyn_cast<StructType>(T)) {
+      if (STy->getNumElements() == 1)
+        T = STy->getElementType(0);
+      else
+        break;
+    } else if (ArrayType *ATy = dyn_cast<ArrayType>(T)) {
+      if (ATy->getNumElements() == 1)
+        T = ATy->getElementType();
+      else
+        break;
+    } else
+      break;
+  }
+
+  return T;
+}
 
 Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
   unsigned DstAlign = getKnownAlignment(MI->getArgOperand(0), TD);
@@ -74,34 +94,33 @@ Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
   // dest address will be promotable.  See if we can find a better type than the
   // integer datatype.
   Value *StrippedDest = MI->getArgOperand(0)->stripPointerCasts();
+  MDNode *CopyMD = 0;
   if (StrippedDest != MI->getArgOperand(0)) {
     Type *SrcETy = cast<PointerType>(StrippedDest->getType())
                                     ->getElementType();
     if (TD && SrcETy->isSized() && TD->getTypeStoreSize(SrcETy) == Size) {
       // The SrcETy might be something like {{{double}}} or [1 x double].  Rip
       // down through these levels if so.
-      while (!SrcETy->isSingleValueType()) {
-        if (StructType *STy = dyn_cast<StructType>(SrcETy)) {
-          if (STy->getNumElements() == 1)
-            SrcETy = STy->getElementType(0);
-          else
-            break;
-        } else if (ArrayType *ATy = dyn_cast<ArrayType>(SrcETy)) {
-          if (ATy->getNumElements() == 1)
-            SrcETy = ATy->getElementType();
-          else
-            break;
-        } else
-          break;
-      }
+      SrcETy = reduceToSingleValueType(SrcETy);
 
       if (SrcETy->isSingleValueType()) {
         NewSrcPtrTy = PointerType::get(SrcETy, SrcAddrSp);
         NewDstPtrTy = PointerType::get(SrcETy, DstAddrSp);
+
+        // If the memcpy has metadata describing the members, see if we can
+        // get the TBAA tag describing our copy.
+        if (MDNode *M = MI->getMetadata(LLVMContext::MD_tbaa_struct)) {
+          if (M->getNumOperands() == 3 &&
+              isa<ConstantInt>(M->getOperand(0)) &&
+              cast<ConstantInt>(M->getOperand(0))->isNullValue() &&
+              isa<ConstantInt>(M->getOperand(1)) &&
+              cast<ConstantInt>(M->getOperand(1))->getValue() == Size &&
+              isa<MDNode>(M->getOperand(2)))
+            CopyMD = cast<MDNode>(M->getOperand(2));
+        }
       }
     }
   }
-
 
   // If the memcpy/memmove provides better alignment info than we can
   // infer, use it.
@@ -112,8 +131,12 @@ Instruction *InstCombiner::SimplifyMemTransfer(MemIntrinsic *MI) {
   Value *Dest = Builder->CreateBitCast(MI->getArgOperand(0), NewDstPtrTy);
   LoadInst *L = Builder->CreateLoad(Src, MI->isVolatile());
   L->setAlignment(SrcAlign);
+  if (CopyMD)
+    L->setMetadata(LLVMContext::MD_tbaa, CopyMD);
   StoreInst *S = Builder->CreateStore(L, Dest, MI->isVolatile());
   S->setAlignment(DstAlign);
+  if (CopyMD)
+    S->setMetadata(LLVMContext::MD_tbaa, CopyMD);
 
   // Set the size of the copy to 0, it will be deleted on the next iteration.
   MI->setArgOperand(2, Constant::getNullValue(MemOpLength->getType()));
