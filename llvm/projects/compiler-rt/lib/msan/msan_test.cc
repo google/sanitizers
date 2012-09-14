@@ -937,39 +937,45 @@ NOINLINE StructWithHole ReturnStructWithHole() {
   return res;
 }
 
-struct IntStruct3 {
-  int a, b, c;
-};
+TEST(MemorySanitizer, StructWithHole) {
+  StructWithHole a = ReturnStructWithHole();
+  __msan_break_optimization(&a);
+}
 
-NOINLINE IntStruct3 ReturnIntStruct3a() {
-  IntStruct3 res;
+template <class T>
+NOINLINE T ReturnStruct() {
+  T res;
   __msan_poison(&res, sizeof(res));
   res.a = 1;
   return res;
 }
 
-NOINLINE IntStruct3 ReturnIntStruct3b() {
-  IntStruct3 res;
-  __msan_poison(&res, sizeof(res));
-  res.b = 1;
-  return res;
-}
-
-TEST(MemorySanitizer, IntStruct3a) {
-  IntStruct3 s1 = ReturnIntStruct3a();
+template <class T>
+NOINLINE void TestReturnStruct() {
+  T s1 = ReturnStruct<T>();
   v_s4 = s1.a;
   EXPECT_POISONED(v_s4 = s1.b);
 }
 
-TEST(MemorySanitizer, IntStruct3b) {
-  IntStruct3 s2 = ReturnIntStruct3b();
-  v_s4 = s2.b;
-  EXPECT_POISONED(v_s4 = s2.a);
-}
+struct SSS1 {int a, b, c;};
+struct SSS2 {int b, a, c;};
+struct SSS3 {int b, c, a;};
+struct SSS4 {int c, b, a;};
 
-TEST(MemorySanitizer, StructWithHole) {
-  StructWithHole a = ReturnStructWithHole();
-  __msan_break_optimization(&a);
+struct SSS5 {int a; float b;};
+struct SSS6 {int a; double b;};
+struct SSS7 {long b; int a;};
+struct SSS8 {short b; long a;};
+
+TEST(MemorySanitizer, IntStruct3) {
+  TestReturnStruct<SSS1>();
+  TestReturnStruct<SSS2>();
+  TestReturnStruct<SSS3>();
+  TestReturnStruct<SSS4>();
+  TestReturnStruct<SSS5>();
+  TestReturnStruct<SSS6>();
+  TestReturnStruct<SSS7>();
+  TestReturnStruct<SSS8>();
 }
 
 struct LongStruct {
