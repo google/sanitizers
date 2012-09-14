@@ -1218,11 +1218,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void visitInsertValueInst(InsertValueInst &I) {
+    IRBuilder<> IRB(&I);
     DEBUG(dbgs() << "InsertValue:  " << I << "\n");
-    Value *Agg = I.getAggregateOperand();
-    Value *AggShadow = getShadow(Agg);
+    Value *AggShadow = getShadow(I.getAggregateOperand());
+    Value *InsShadow = getShadow(I.getInsertedValueOperand());
     DEBUG(dbgs() << "   AggShadow:  " << *AggShadow << "\n");
-    setShadow(&I, getCleanShadow(&I));
+    DEBUG(dbgs() << "   InsShadow:  " << *InsShadow << "\n");
+    Value *Res = IRB.CreateInsertValue(AggShadow, InsShadow, I.getIndices());
+    DEBUG(dbgs() << "   Res:        " << *Res << "\n");
+    setShadow(&I, Res);
     setOrigin(&I, getCleanOrigin());
   }
 
