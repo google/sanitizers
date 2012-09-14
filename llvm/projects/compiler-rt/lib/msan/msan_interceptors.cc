@@ -272,6 +272,9 @@ INTERCEPTOR(int, __lxstat, int magic, char* path, void* buf) {
 }
 
 INTERCEPTOR(int, pipe, int pipefd[2]) {
+  if (msan_init_is_running)
+    return REAL(pipe)(pipefd);
+
   ENSURE_MSAN_INITED();
   int res = REAL(pipe)(pipefd);
   if (!res)

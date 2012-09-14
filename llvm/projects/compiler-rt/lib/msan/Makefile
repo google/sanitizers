@@ -25,7 +25,7 @@ LIBMSAN_OBJ=$(patsubst %.cc,%.o,$(LIBMSAN_SRC)) \
 
 
 #CXX=$(HOME)/llvm_msan/build/Release+Asserts/bin/clang++
-CLANG_BUILD=$(ROOT)/../../../../build/Release+Asserts
+CLANG_BUILD=$(ROOT)/../../../../build
 CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1
 RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding -fno-exceptions
