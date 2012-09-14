@@ -37,7 +37,7 @@ using namespace object;
 using std::string;
 
 static cl::opt<bool>
-UseSymbolTable("use-symbol-table", cl::init(true),
+UseSymbolTable("use-symbol-table", cl::init(false),
                cl::desc("Prefer names in symbol table to names "
                         "in debug info"));
 
