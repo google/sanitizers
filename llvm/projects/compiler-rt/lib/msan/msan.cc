@@ -179,7 +179,7 @@ void __msan_print_shadow(const void *x, uptr size) {
   unsigned char *s = (unsigned char*)MEM_TO_SHADOW(x);
   u32 *o = (u32*)MEM_TO_ORIGIN(x);
   for (uptr i = 0; i < size; i++) {
-    Printf("%x ", s[i]);
+    Printf("%x%x ", s[i] >> 4, s[i] & 0xf);
   }
   Printf("\n");
   if (__msan_track_origins) {
