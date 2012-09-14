@@ -534,6 +534,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return  Constant::getNullValue(ShadowTy);
   }
 
+  // We don't have getAllOnesValue for struct types...
+  Constant *getPoisonedShadow(Type *ShadowTy) {
+    assert(ShadowTy);
+    if (isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy))
+      return Constant::getAllOnesValue(ShadowTy);
+    StructType *ST = cast<StructType>(ShadowTy);
+    SmallVector<Constant *, 4> Vals;
+    for (unsigned i = 0, n = ST->getNumElements(); i < n; i++)
+      Vals.push_back(getPoisonedShadow(ST->getElementType(i)));
+    return ConstantStruct::get(ST, Vals);
+  }
+
   // Create a clean (zero) origin.
   Value *getCleanOrigin() {
     return Constant::getNullValue(MS.OriginTy);
@@ -549,6 +561,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         assert(Shadow);
       }
       return Shadow;
+    }
+    if (UndefValue *U = dyn_cast<UndefValue>(V)) {
+      Value *AllOnes = getPoisonedShadow(getShadowTy(V));
+      DEBUG(dbgs() << "Undef: " << *U << " ==> " << *AllOnes << "\n");
+      return AllOnes;
     }
     if (Argument *A = dyn_cast<Argument>(V)) {
       // For arguments we compute the shadow on demand and store it in the map.
@@ -1197,6 +1214,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *ResShadow = IRB.CreateExtractValue(AggShadow, I.getIndices());
     DEBUG(dbgs() << "   ResShadow:  " << *ResShadow << "\n");
     setShadow(&I, ResShadow);
+    setOrigin(&I, getCleanOrigin());
+  }
+
+  void visitInsertValueInst(InsertValueInst &I) {
+    DEBUG(dbgs() << "InsertValue:  " << I << "\n");
+    Value *Agg = I.getAggregateOperand();
+    Value *AggShadow = getShadow(Agg);
+    DEBUG(dbgs() << "   AggShadow:  " << *AggShadow << "\n");
+    setShadow(&I, getCleanShadow(&I));
     setOrigin(&I, getCleanOrigin());
   }
 

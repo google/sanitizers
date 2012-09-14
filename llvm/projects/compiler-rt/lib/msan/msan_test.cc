@@ -938,7 +938,7 @@ NOINLINE StructWithHole ReturnStructWithHole() {
 }
 
 struct IntStruct3 {
-  int a, b;
+  int a, b, c;
 };
 
 NOINLINE IntStruct3 ReturnIntStruct3a() {
@@ -955,14 +955,17 @@ NOINLINE IntStruct3 ReturnIntStruct3b() {
   return res;
 }
 
-// FIXME
-TEST(MemorySanitizer, DISABLED_IntStruct3) {
+TEST(MemorySanitizer, DISABLED_IntStruct3a) {
   IntStruct3 s1 = ReturnIntStruct3a();
   v_s4 = s1.a;
   EXPECT_POISONED(v_s4 = s1.b);
+}
+
+// FIXME
+TEST(MemorySanitizer, DISABLED_IntStruct3b) {
   IntStruct3 s2 = ReturnIntStruct3b();
-  v_s4 = s1.b;
-  EXPECT_POISONED(v_s4 = s1.a);
+  v_s4 = s2.b;
+  EXPECT_POISONED(v_s4 = s2.a);
 }
 
 TEST(MemorySanitizer, StructWithHole) {
