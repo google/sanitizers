@@ -956,14 +956,13 @@ NOINLINE IntStruct3 ReturnIntStruct3b() {
   return res;
 }
 
-TEST(MemorySanitizer, DISABLED_IntStruct3a) {
+TEST(MemorySanitizer, IntStruct3a) {
   IntStruct3 s1 = ReturnIntStruct3a();
   v_s4 = s1.a;
   EXPECT_POISONED(v_s4 = s1.b);
 }
 
-// FIXME
-TEST(MemorySanitizer, DISABLED_IntStruct3b) {
+TEST(MemorySanitizer, IntStruct3b) {
   IntStruct3 s2 = ReturnIntStruct3b();
   v_s4 = s2.b;
   EXPECT_POISONED(v_s4 = s2.a);
