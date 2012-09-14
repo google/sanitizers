@@ -22,6 +22,7 @@
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Analysis/Visitors/CFGRecStmtDeclVisitor.h"
 #include "clang/Analysis/Analyses/UninitializedValues.h"
+#include "clang/Analysis/DomainSpecific/ObjCNoReturn.h"
 #include "llvm/Support/SaveAndRestore.h"
 
 using namespace clang;
@@ -412,6 +413,7 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
   const CFGBlock *block;
   AnalysisDeclContext &ac;
   const ClassifyRefs &classification;
+  ObjCNoReturn objCNoRet;
   UninitVariablesHandler *handler;
 
 public:
@@ -420,16 +422,18 @@ public:
                     const ClassifyRefs &classification,
                     UninitVariablesHandler *handler)
     : vals(vals), cfg(cfg), block(block), ac(ac),
-      classification(classification), handler(handler) {}
+      classification(classification), objCNoRet(ac.getASTContext()),
+      handler(handler) {}
 
   void reportUse(const Expr *ex, const VarDecl *vd);
 
-  void VisitObjCForCollectionStmt(ObjCForCollectionStmt *FS);
+  void VisitBinaryOperator(BinaryOperator *bo);
   void VisitBlockExpr(BlockExpr *be);
   void VisitCallExpr(CallExpr *ce);
-  void VisitDeclStmt(DeclStmt *ds);
   void VisitDeclRefExpr(DeclRefExpr *dr);
-  void VisitBinaryOperator(BinaryOperator *bo);
+  void VisitDeclStmt(DeclStmt *ds);
+  void VisitObjCForCollectionStmt(ObjCForCollectionStmt *FS);
+  void VisitObjCMessageExpr(ObjCMessageExpr *ME);
 
   bool isTrackedVar(const VarDecl *vd) {
     return ::isTrackedVar(vd, cast<DeclContext>(ac.getDecl()));
@@ -605,14 +609,26 @@ void TransferFunctions::VisitBlockExpr(BlockExpr *be) {
 }
 
 void TransferFunctions::VisitCallExpr(CallExpr *ce) {
-  // After a call to a function like setjmp or vfork, any variable which is
-  // initialized anywhere within this function may now be initialized. For now,
-  // just assume such a call initializes all variables.
-  // FIXME: Only mark variables as initialized if they have an initializer which
-  // is reachable from here.
-  Decl *Callee = ce->getCalleeDecl();
-  if (Callee && Callee->hasAttr<ReturnsTwiceAttr>())
-    vals.setAllScratchValues(Initialized);
+  if (Decl *Callee = ce->getCalleeDecl()) {
+    if (Callee->hasAttr<ReturnsTwiceAttr>()) {
+      // After a call to a function like setjmp or vfork, any variable which is
+      // initialized anywhere within this function may now be initialized. For
+      // now, just assume such a call initializes all variables.  FIXME: Only
+      // mark variables as initialized if they have an initializer which is
+      // reachable from here.
+      vals.setAllScratchValues(Initialized);
+    }
+    else if (Callee->hasAttr<AnalyzerNoReturnAttr>()) {
+      // Functions labeled like "analyzer_noreturn" are often used to denote
+      // "panic" functions that in special debug situations can still return,
+      // but for the most part should not be treated as returning.  This is a
+      // useful annotation borrowed from the static analyzer that is useful for
+      // suppressing branch-specific false positives when we call one of these
+      // functions but keep pretending the path continues (when in reality the
+      // user doesn't care).
+      vals.setAllScratchValues(Unknown);
+    }
+  }
 }
 
 void TransferFunctions::VisitDeclRefExpr(DeclRefExpr *dr) {
@@ -674,6 +690,14 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
         vals[VD] = Uninitialized;
       }
     }
+  }
+}
+
+void TransferFunctions::VisitObjCMessageExpr(ObjCMessageExpr *ME) {
+  // If the Objective-C message expression is an implicit no-return that
+  // is not modeled in the CFG, set the tracked dataflow values to Unknown.
+  if (objCNoRet.isImplicitNoReturn(ME)) {
+    vals.setAllScratchValues(Unknown);
   }
 }
 

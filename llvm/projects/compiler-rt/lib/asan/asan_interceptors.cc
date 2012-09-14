@@ -271,6 +271,11 @@ INTERCEPTOR(char*, strchr, const char *str, int c) {
 #if MAC_INTERPOSE_FUNCTIONS
   if (!asan_inited) return REAL(strchr)(str, c);
 #endif
+  // strchr is called inside create_purgeable_zone() when MallocGuardEdges=1 is
+  // used.
+  if (asan_init_is_running) {
+    return REAL(strchr)(str, c);
+  }
   ENSURE_ASAN_INITED();
   char *result = REAL(strchr)(str, c);
   if (flags()->replace_str) {
@@ -620,7 +625,7 @@ void InitializeAsanInterceptors() {
 #if !MAC_INTERPOSE_FUNCTIONS
     // If we're using dynamic interceptors on Mac, these two are just plain
     // functions.
-    *(uptr*)&REAL(memcpy) = (uptr)REAL(memmove);
+    internal_memcpy(&REAL(memcpy), &REAL(memmove), sizeof(REAL(memmove)));
 #endif
   }
 

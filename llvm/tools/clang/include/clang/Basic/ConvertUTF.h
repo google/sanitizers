@@ -147,7 +147,6 @@ ConversionResult ConvertUTF32toUTF8 (
   const UTF32** sourceStart, const UTF32* sourceEnd,
   UTF8** targetStart, UTF8* targetEnd, ConversionFlags flags);
 
-#ifdef CLANG_NEEDS_THESE_ONE_DAY
 ConversionResult ConvertUTF16toUTF32 (
   const UTF16** sourceStart, const UTF16* sourceEnd,
   UTF32** targetStart, UTF32* targetEnd, ConversionFlags flags);
@@ -159,7 +158,9 @@ ConversionResult ConvertUTF32toUTF16 (
 
 Boolean isLegalUTF8Sequence(const UTF8 *source, const UTF8 *sourceEnd);
 
-Boolean isLegalUTF8String(const UTF8 *source, const UTF8 *sourceEnd);
+Boolean isLegalUTF8String(const UTF8 **source, const UTF8 *sourceEnd);
+
+unsigned getNumBytesForUTF8(UTF8 firstByte);
 
 #ifdef __cplusplus
 }
@@ -175,11 +176,13 @@ namespace clang {
  * Convert an UTF8 StringRef to UTF8, UTF16, or UTF32 depending on
  * WideCharWidth. The converted data is written to ResultPtr, which needs to
  * point to at least WideCharWidth * (Source.Size() + 1) bytes. On success,
- * ResultPtr will point one after the end of the copied string.
+ * ResultPtr will point one after the end of the copied string. On failure,
+ * ResultPtr will not be changed, and ErrorPtr will be set to the location of
+ * the first character which could not be converted.
  * \return true on success.
  */
 bool ConvertUTF8toWide(unsigned WideCharWidth, llvm::StringRef Source,
-                       char *&ResultPtr);
+                       char *&ResultPtr, const UTF8 *&ErrorPtr);
 
 /**
  * Convert an Unicode code point to UTF8 sequence.
@@ -194,7 +197,6 @@ bool ConvertUTF8toWide(unsigned WideCharWidth, llvm::StringRef Source,
 bool ConvertCodePointToUTF8(unsigned Source, char *&ResultPtr);
 
 }
-#endif
 
 #endif
 

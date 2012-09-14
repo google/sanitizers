@@ -1008,6 +1008,30 @@ Decl *TemplateDeclInstantiator::VisitCXXRecordDecl(CXXRecordDecl *D) {
   return Record;
 }
 
+/// \brief Adjust the given function type for an instantiation of the
+/// given declaration, to cope with modifications to the function's type that
+/// aren't reflected in the type-source information.
+///
+/// \param D The declaration we're instantiating.
+/// \param TInfo The already-instantiated type.
+static QualType adjustFunctionTypeForInstantiation(ASTContext &Context,
+                                                   FunctionDecl *D,
+                                                   TypeSourceInfo *TInfo) {
+  const FunctionProtoType *OrigFunc
+    = D->getType()->castAs<FunctionProtoType>();
+  const FunctionProtoType *NewFunc
+    = TInfo->getType()->castAs<FunctionProtoType>();
+  if (OrigFunc->getExtInfo() == NewFunc->getExtInfo())
+    return TInfo->getType();
+
+  FunctionProtoType::ExtProtoInfo NewEPI = NewFunc->getExtProtoInfo();
+  NewEPI.ExtInfo = OrigFunc->getExtInfo();
+  return Context.getFunctionType(NewFunc->getResultType(),
+                                 NewFunc->arg_type_begin(),
+                                 NewFunc->getNumArgs(),
+                                 NewEPI);
+}
+
 /// Normal class members are of more specific types and therefore
 /// don't make it here.  This function serves two purposes:
 ///   1) instantiating function templates
@@ -1048,7 +1072,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
   TypeSourceInfo *TInfo = SubstFunctionType(D, Params);
   if (!TInfo)
     return 0;
-  QualType T = TInfo->getType();
+  QualType T = adjustFunctionTypeForInstantiation(SemaRef.Context, D, TInfo);
 
   NestedNameSpecifierLoc QualifierLoc = D->getQualifierLoc();
   if (QualifierLoc) {
@@ -1366,7 +1390,7 @@ TemplateDeclInstantiator::VisitCXXMethodDecl(CXXMethodDecl *D,
   TypeSourceInfo *TInfo = SubstFunctionType(D, Params);
   if (!TInfo)
     return 0;
-  QualType T = TInfo->getType();
+  QualType T = adjustFunctionTypeForInstantiation(SemaRef.Context, D, TInfo);
 
   // \brief If the type of this function, after ignoring parentheses,
   // is not *directly* a function type, then we're instantiating a function
@@ -1657,7 +1681,7 @@ Decl *TemplateDeclInstantiator::VisitNonTypeTemplateParmDecl(
     IsExpandedParameterPack = true;
     DI = D->getTypeSourceInfo();
     T = DI->getType();
-  } else if (isa<PackExpansionTypeLoc>(TL)) {
+  } else if (D->isPackExpansion()) {
     // The non-type template parameter pack's type is a pack expansion of types.
     // Determine whether we need to expand this parameter pack into separate
     // types.
@@ -1771,27 +1795,121 @@ Decl *TemplateDeclInstantiator::VisitNonTypeTemplateParmDecl(
   return Param;
 }
 
+static void collectUnexpandedParameterPacks(
+    Sema &S,
+    TemplateParameterList *Params,
+    SmallVectorImpl<UnexpandedParameterPack> &Unexpanded) {
+  for (TemplateParameterList::const_iterator I = Params->begin(),
+                                             E = Params->end(); I != E; ++I) {
+    if ((*I)->isTemplateParameterPack())
+      continue;
+    if (NonTypeTemplateParmDecl *NTTP = dyn_cast<NonTypeTemplateParmDecl>(*I))
+      S.collectUnexpandedParameterPacks(NTTP->getTypeSourceInfo()->getTypeLoc(),
+                                        Unexpanded);
+    if (TemplateTemplateParmDecl *TTP = dyn_cast<TemplateTemplateParmDecl>(*I))
+      collectUnexpandedParameterPacks(S, TTP->getTemplateParameters(),
+                                      Unexpanded);
+  }
+}
+
 Decl *
 TemplateDeclInstantiator::VisitTemplateTemplateParmDecl(
                                                   TemplateTemplateParmDecl *D) {
   // Instantiate the template parameter list of the template template parameter.
   TemplateParameterList *TempParams = D->getTemplateParameters();
   TemplateParameterList *InstParams;
-  {
+  SmallVector<TemplateParameterList*, 8> ExpandedParams;
+
+  bool IsExpandedParameterPack = false;
+
+  if (D->isExpandedParameterPack()) {
+    // The template template parameter pack is an already-expanded pack
+    // expansion of template parameters. Substitute into each of the expanded
+    // parameters.
+    ExpandedParams.reserve(D->getNumExpansionTemplateParameters());
+    for (unsigned I = 0, N = D->getNumExpansionTemplateParameters();
+         I != N; ++I) {
+      LocalInstantiationScope Scope(SemaRef);
+      TemplateParameterList *Expansion =
+        SubstTemplateParams(D->getExpansionTemplateParameters(I));
+      if (!Expansion)
+        return 0;
+      ExpandedParams.push_back(Expansion);
+    }
+
+    IsExpandedParameterPack = true;
+    InstParams = TempParams;
+  } else if (D->isPackExpansion()) {
+    // The template template parameter pack expands to a pack of template
+    // template parameters. Determine whether we need to expand this parameter
+    // pack into separate parameters.
+    SmallVector<UnexpandedParameterPack, 2> Unexpanded;
+    collectUnexpandedParameterPacks(SemaRef, D->getTemplateParameters(),
+                                    Unexpanded);
+
+    // Determine whether the set of unexpanded parameter packs can and should
+    // be expanded.
+    bool Expand = true;
+    bool RetainExpansion = false;
+    llvm::Optional<unsigned> NumExpansions;
+    if (SemaRef.CheckParameterPacksForExpansion(D->getLocation(),
+                                                TempParams->getSourceRange(),
+                                                Unexpanded,
+                                                TemplateArgs,
+                                                Expand, RetainExpansion,
+                                                NumExpansions))
+      return 0;
+
+    if (Expand) {
+      for (unsigned I = 0; I != *NumExpansions; ++I) {
+        Sema::ArgumentPackSubstitutionIndexRAII SubstIndex(SemaRef, I);
+        LocalInstantiationScope Scope(SemaRef);
+        TemplateParameterList *Expansion = SubstTemplateParams(TempParams);
+        if (!Expansion)
+          return 0;
+        ExpandedParams.push_back(Expansion);
+      }
+
+      // Note that we have an expanded parameter pack. The "type" of this
+      // expanded parameter pack is the original expansion type, but callers
+      // will end up using the expanded parameter pack types for type-checking.
+      IsExpandedParameterPack = true;
+      InstParams = TempParams;
+    } else {
+      // We cannot fully expand the pack expansion now, so just substitute
+      // into the pattern.
+      Sema::ArgumentPackSubstitutionIndexRAII SubstIndex(SemaRef, -1);
+
+      LocalInstantiationScope Scope(SemaRef);
+      InstParams = SubstTemplateParams(TempParams);
+      if (!InstParams)
+        return 0;
+    }
+  } else {
     // Perform the actual substitution of template parameters within a new,
     // local instantiation scope.
     LocalInstantiationScope Scope(SemaRef);
     InstParams = SubstTemplateParams(TempParams);
     if (!InstParams)
-      return NULL;
+      return 0;
   }
 
   // Build the template template parameter.
-  TemplateTemplateParmDecl *Param
-    = TemplateTemplateParmDecl::Create(SemaRef.Context, Owner, D->getLocation(),
+  TemplateTemplateParmDecl *Param;
+  if (IsExpandedParameterPack)
+    Param = TemplateTemplateParmDecl::Create(SemaRef.Context, Owner,
+                                             D->getLocation(),
                                    D->getDepth() - TemplateArgs.getNumLevels(),
-                                       D->getPosition(), D->isParameterPack(),
-                                       D->getIdentifier(), InstParams);
+                                             D->getPosition(),
+                                             D->getIdentifier(), InstParams,
+                                             ExpandedParams);
+  else
+    Param = TemplateTemplateParmDecl::Create(SemaRef.Context, Owner,
+                                             D->getLocation(),
+                                   D->getDepth() - TemplateArgs.getNumLevels(),
+                                             D->getPosition(),
+                                             D->isParameterPack(),
+                                             D->getIdentifier(), InstParams);
   Param->setDefaultArgument(D->getDefaultArgument(), false);
   Param->setAccess(AS_public);
 
@@ -1813,7 +1931,12 @@ Decl *TemplateDeclInstantiator::VisitUsingDirectiveDecl(UsingDirectiveDecl *D) {
                                  D->getIdentLocation(),
                                  D->getNominatedNamespace(),
                                  D->getCommonAncestor());
-  Owner->addDecl(Inst);
+
+  // Add the using directive to its declaration context
+  // only if this is not a function or method.
+  if (!Owner->isFunctionOrMethod())
+    Owner->addDecl(Inst);
+
   return Inst;
 }
 
@@ -3298,7 +3421,8 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
       if (Decl *FD = Found->dyn_cast<Decl *>())
         return cast<NamedDecl>(FD);
 
-      unsigned PackIdx = ArgumentPackSubstitutionIndex;
+      int PackIdx = ArgumentPackSubstitutionIndex;
+      assert(PackIdx != -1 && "found declaration pack but not pack expanding");
       return cast<NamedDecl>((*Found->get<DeclArgumentPack *>())[PackIdx]);
     }
 

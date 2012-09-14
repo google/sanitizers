@@ -383,7 +383,7 @@ CINDEX_LINKAGE unsigned clang_equalRanges(CXSourceRange range1,
                                           CXSourceRange range2);
 
 /**
- * \brief Returns non-zero if \arg range is null.
+ * \brief Returns non-zero if \p range is null.
  */
 CINDEX_LINKAGE int clang_Range_isNull(CXSourceRange range);
 
@@ -2040,7 +2040,8 @@ typedef struct {
  * \brief A comment AST node.
  */
 typedef struct {
-  const void *Data;
+  const void *ASTNode;
+  CXTranslationUnit TranslationUnit;
 } CXComment;
 
 /**
@@ -2068,9 +2069,9 @@ CINDEX_LINKAGE CXCursor clang_getTranslationUnitCursor(CXTranslationUnit);
 CINDEX_LINKAGE unsigned clang_equalCursors(CXCursor, CXCursor);
 
 /**
- * \brief Returns non-zero if \arg cursor is null.
+ * \brief Returns non-zero if \p cursor is null.
  */
-CINDEX_LINKAGE int clang_Cursor_isNull(CXCursor);
+CINDEX_LINKAGE int clang_Cursor_isNull(CXCursor cursor);
 
 /**
  * \brief Compute a hash value for the given cursor.
@@ -3692,14 +3693,11 @@ CINDEX_LINKAGE CXString clang_FullComment_getAsHTML(CXComment Comment);
  * A Relax NG schema for the XML can be found in comment-xml-schema.rng file
  * inside clang source tree.
  *
- * \param TU the translation unit \c Comment belongs to.
- *
  * \param Comment a \c CXComment_FullComment AST node.
  *
  * \returns string containing an XML document.
  */
-CINDEX_LINKAGE CXString clang_FullComment_getAsXML(CXTranslationUnit TU,
-                                                   CXComment Comment);
+CINDEX_LINKAGE CXString clang_FullComment_getAsXML(CXComment Comment);
 
 /**
  * @}
@@ -4965,7 +4963,8 @@ typedef enum {
   CXIdxEntity_CXXConstructor        = 22,
   CXIdxEntity_CXXDestructor         = 23,
   CXIdxEntity_CXXConversionFunction = 24,
-  CXIdxEntity_CXXTypeAlias          = 25
+  CXIdxEntity_CXXTypeAlias          = 25,
+  CXIdxEntity_CXXInterface          = 26
 
 } CXIdxEntityKind;
 

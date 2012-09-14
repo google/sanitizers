@@ -1650,7 +1650,7 @@ public:
   /// \brief Checks availability of the function depending on the current
   /// function context.Inside an unavailable function,unavailability is ignored.
   ///
-  /// \returns true if \arg FD is unavailable and current context is inside
+  /// \returns true if \p FD is unavailable and current context is inside
   /// an available function, false otherwise.
   bool isFunctionConsideredUnavailable(FunctionDecl *FD);
 
@@ -4832,7 +4832,8 @@ public:
                                    TemplateArgument &Converted,
                                CheckTemplateArgumentKind CTAK = CTAK_Specified);
   bool CheckTemplateArgument(TemplateTemplateParmDecl *Param,
-                             const TemplateArgumentLoc &Arg);
+                             const TemplateArgumentLoc &Arg,
+                             unsigned ArgumentPackIndex);
 
   ExprResult
   BuildExpressionFromDeclTemplateArgument(const TemplateArgument &Arg,
@@ -5279,6 +5280,8 @@ public:
   enum TemplateDeductionResult {
     /// \brief Template argument deduction was successful.
     TDK_Success = 0,
+    /// \brief The declaration was invalid; do nothing.
+    TDK_Invalid,
     /// \brief Template argument deduction exceeded the maximum template
     /// instantiation depth (which has already been diagnosed).
     TDK_InstantiationDepth,
@@ -6049,7 +6052,7 @@ public:
 
   /// Ensure attributes are consistent with type.
   /// \param [in, out] Attributes The attributes to check; they will
-  /// be modified to be consistent with \arg PropertyTy.
+  /// be modified to be consistent with \p PropertyTy.
   void CheckObjCPropertyAttributes(Decl *PropertyPtrTy,
                                    SourceLocation Loc,
                                    unsigned &Attributes,
@@ -6796,6 +6799,7 @@ public:
   /// \return true iff there were any incompatible types.
   bool CheckMessageArgumentTypes(QualType ReceiverType,
                                  Expr **Args, unsigned NumArgs, Selector Sel,
+                                 ArrayRef<SourceLocation> SelectorLocs,
                                  ObjCMethodDecl *Method, bool isClassMessage,
                                  bool isSuperMessage,
                                  SourceLocation lbrac, SourceLocation rbrac,
@@ -7243,6 +7247,14 @@ public:
   }
 
   AvailabilityResult getCurContextAvailability() const;
+  
+  const DeclContext *getCurObjCLexicalContext() const {
+    const DeclContext *DC = getCurLexicalContext();
+    // A category implicitly has the attribute of the interface.
+    if (const ObjCCategoryDecl *CatD = dyn_cast<ObjCCategoryDecl>(DC))
+      DC = CatD->getClassInterface();
+    return DC;
+  }
 };
 
 /// \brief RAII object that enters a new expression evaluation context.

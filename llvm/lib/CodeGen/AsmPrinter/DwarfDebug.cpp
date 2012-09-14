@@ -326,10 +326,13 @@ DIE *DwarfDebug::updateSubprogramScopeDIE(CompileUnit *SPCU,
       if (SPTag == dwarf::DW_TAG_subroutine_type)
         for (unsigned i = 1, N = Args.getNumElements(); i < N; ++i) {
           DIE *Arg = new DIE(dwarf::DW_TAG_formal_parameter);
-          DIType ATy = DIType(DIType(Args.getElement(i)));
+          DIType ATy = DIType(Args.getElement(i));
           SPCU->addType(Arg, ATy);
           if (ATy.isArtificial())
             SPCU->addFlag(Arg, dwarf::DW_AT_artificial);
+          if (ATy.isObjectPointer())
+            SPCU->addDIEEntry(SPDie, dwarf::DW_AT_object_pointer, dwarf::DW_FORM_ref4,
+                              Arg);
           SPDie->addChild(Arg);
         }
       DIE *SPDeclDie = SPDie;
@@ -496,14 +499,17 @@ DIE *DwarfDebug::constructScopeDIE(CompileUnit *TheCU, LexicalScope *Scope) {
     return NULL;
 
   SmallVector<DIE *, 8> Children;
+  DIE *ObjectPointer = NULL;
 
   // Collect arguments for current function.
   if (LScopes.isCurrentFunctionScope(Scope))
     for (unsigned i = 0, N = CurrentFnArguments.size(); i < N; ++i)
       if (DbgVariable *ArgDV = CurrentFnArguments[i])
         if (DIE *Arg = 
-            TheCU->constructVariableDIE(ArgDV, Scope->isAbstractScope()))
+            TheCU->constructVariableDIE(ArgDV, Scope->isAbstractScope())) {
           Children.push_back(Arg);
+          if (ArgDV->isObjectPointer()) ObjectPointer = Arg;
+        }
 
   // Collect lexical scope children first.
   const SmallVector<DbgVariable *, 8> &Variables = ScopeVariables.lookup(Scope);
@@ -543,6 +549,10 @@ DIE *DwarfDebug::constructScopeDIE(CompileUnit *TheCU, LexicalScope *Scope) {
   for (SmallVector<DIE *, 8>::iterator I = Children.begin(),
          E = Children.end(); I != E; ++I)
     ScopeDIE->addChild(*I);
+
+  if (DS.isSubprogram() && ObjectPointer != NULL)
+    TheCU->addDIEEntry(ScopeDIE, dwarf::DW_AT_object_pointer,
+                       dwarf::DW_FORM_ref4, ObjectPointer);
 
   if (DS.isSubprogram())
     TheCU->addPubTypes(DISubprogram(DS));
@@ -591,7 +601,8 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
   unsigned ID = GetOrCreateSourceID(FN, CompilationDir);
 
   DIE *Die = new DIE(dwarf::DW_TAG_compile_unit);
-  CompileUnit *NewCU = new CompileUnit(ID, DIUnit.getLanguage(), Die, Asm, this);
+  CompileUnit *NewCU = new CompileUnit(ID, DIUnit.getLanguage(), Die,
+                                       Asm, this);
   NewCU->addString(Die, dwarf::DW_AT_producer, DIUnit.getProducer());
   NewCU->addUInt(Die, dwarf::DW_AT_language, dwarf::DW_FORM_data2,
                  DIUnit.getLanguage());
@@ -1424,7 +1435,7 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
                                        MF->getFunction()->getContext());
     recordSourceLine(FnStartDL.getLine(), FnStartDL.getCol(),
                      FnStartDL.getScope(MF->getFunction()->getContext()),
-                     DWARF2_LINE_DEFAULT_IS_STMT ? DWARF2_FLAG_IS_STMT : 0);
+                     0);
   }
 }
 

@@ -22,6 +22,7 @@
 #include "llvm/LLVMContext.h"
 #include "llvm/MDBuilder.h"
 #include "llvm/Metadata.h"
+#include "llvm/Module.h"
 #include "llvm/Operator.h"
 #include "llvm/Type.h"
 #include "llvm/ADT/DenseMap.h"
@@ -54,6 +55,7 @@ DupRet("simplifycfg-dup-ret", cl::Hidden, cl::init(false),
        cl::desc("Duplicate return instructions into unconditional branches"));
 
 STATISTIC(NumSpeculations, "Number of speculative executed instructions");
+STATISTIC(NumLookupTables, "Number of switch instructions turned into lookup tables");
 
 namespace {
   /// ValueEqualityComparisonCase - Represents a case of a switch.
@@ -732,8 +734,8 @@ namespace {
 }
 
 static int ConstantIntSortPredicate(const void *P1, const void *P2) {
-  const ConstantInt *LHS = *(const ConstantInt**)P1;
-  const ConstantInt *RHS = *(const ConstantInt**)P2;
+  const ConstantInt *LHS = *(const ConstantInt*const*)P1;
+  const ConstantInt *RHS = *(const ConstantInt*const*)P2;
   if (LHS->getValue().ult(RHS->getValue()))
     return 1;
   if (LHS->getValue() == RHS->getValue())
@@ -750,38 +752,27 @@ static inline bool HasBranchWeights(const Instruction* I) {
   return false;
 }
 
-/// Tries to get a branch weight for the given instruction, returns NULL if it
-/// can't. Pos starts at 0.
-static ConstantInt* GetWeight(Instruction* I, int Pos) {
-  MDNode* ProfMD = I->getMetadata(LLVMContext::MD_prof);
-  if (ProfMD && ProfMD->getOperand(0)) {
-    if (MDString* MDS = dyn_cast<MDString>(ProfMD->getOperand(0))) {
-      if (MDS->getString().equals("branch_weights")) {
-        assert(ProfMD->getNumOperands() >= 3);
-        return dyn_cast<ConstantInt>(ProfMD->getOperand(1 + Pos));
-      }
-    }
-  }
-
-  return 0;
-}
-
-/// Scale the given weights based on the new TI's metadata. Scaling is done by
-/// multiplying every weight by the sum of the successor's weights.
-static void ScaleWeights(Instruction* STI, MutableArrayRef<uint64_t> Weights) {
-  // Sum the successor's weights
-  assert(HasBranchWeights(STI));
-  unsigned Scale = 0;
-  MDNode* ProfMD = STI->getMetadata(LLVMContext::MD_prof);
-  for (unsigned i = 1; i < ProfMD->getNumOperands(); ++i) {
-    ConstantInt* CI = dyn_cast<ConstantInt>(ProfMD->getOperand(i));
+/// Get Weights of a given TerminatorInst, the default weight is at the front
+/// of the vector. If TI is a conditional eq, we need to swap the branch-weight
+/// metadata.
+static void GetBranchWeights(TerminatorInst *TI,
+                             SmallVectorImpl<uint64_t> &Weights) {
+  MDNode* MD = TI->getMetadata(LLVMContext::MD_prof);
+  assert(MD);
+  for (unsigned i = 1, e = MD->getNumOperands(); i < e; ++i) {
+    ConstantInt* CI = dyn_cast<ConstantInt>(MD->getOperand(i));
     assert(CI);
-    Scale += CI->getValue().getZExtValue();
+    Weights.push_back(CI->getValue().getZExtValue());
   }
 
-  // Skip default, as it's replaced during the folding
-  for (unsigned i = 1; i < Weights.size(); ++i) {
-    Weights[i] *= Scale;
+  // If TI is a conditional eq, the default case is the false case,
+  // and the corresponding branch-weight data is at index 2. We swap the
+  // default weight to be the first entry.
+  if (BranchInst* BI = dyn_cast<BranchInst>(TI)) {
+    assert(Weights.size() == 2);
+    ICmpInst *ICI = cast<ICmpInst>(BI->getCondition());
+    if (ICI->getPredicate() == ICmpInst::ICMP_EQ)
+      std::swap(Weights.front(), Weights.back());
   }
 }
 
@@ -836,52 +827,22 @@ bool SimplifyCFGOpt::FoldValueComparisonIntoPredecessors(TerminatorInst *TI,
 
       // Update the branch weight metadata along the way
       SmallVector<uint64_t, 8> Weights;
-      uint64_t PredDefaultWeight = 0;
       bool PredHasWeights = HasBranchWeights(PTI);
       bool SuccHasWeights = HasBranchWeights(TI);
 
-      if (PredHasWeights) {
-        MDNode* MD = PTI->getMetadata(LLVMContext::MD_prof);
-        assert(MD);
-        for (unsigned i = 1, e = MD->getNumOperands(); i < e; ++i) {
-          ConstantInt* CI = dyn_cast<ConstantInt>(MD->getOperand(i));
-          assert(CI);
-          Weights.push_back(CI->getValue().getZExtValue());
-        }
-
-        // If the predecessor is a conditional eq, then swap the default weight
-        // to be the first entry.
-        if (BranchInst* BI = dyn_cast<BranchInst>(PTI)) {
-          assert(Weights.size() == 2);
-          ICmpInst *ICI = cast<ICmpInst>(BI->getCondition());
-
-          if (ICI->getPredicate() == ICmpInst::ICMP_EQ) {
-            std::swap(Weights.front(), Weights.back());
-          }
-        }
-
-        PredDefaultWeight = Weights.front();
-      } else if (SuccHasWeights) {
+      if (PredHasWeights)
+        GetBranchWeights(PTI, Weights);
+      else if (SuccHasWeights)
         // If there are no predecessor weights but there are successor weights,
         // populate Weights with 1, which will later be scaled to the sum of
         // successor's weights
         Weights.assign(1 + PredCases.size(), 1);
-        PredDefaultWeight = 1;
-      }
 
-      uint64_t SuccDefaultWeight = 0;
-      if (SuccHasWeights) {
-        int Index = 0;
-        if (BranchInst* BI = dyn_cast<BranchInst>(TI)) {
-          ICmpInst* ICI = dyn_cast<ICmpInst>(BI->getCondition());
-          assert(ICI);
-
-          if (ICI->getPredicate() == ICmpInst::ICMP_EQ)
-            Index = 1;
-        }
-
-        SuccDefaultWeight = GetWeight(TI, Index)->getValue().getZExtValue();
-      }
+      SmallVector<uint64_t, 8> SuccWeights;
+      if (SuccHasWeights)
+        GetBranchWeights(TI, SuccWeights);
+      else if (PredHasWeights)
+        SuccWeights.assign(1 + BBCases.size(), 1);
 
       if (PredDefault == BB) {
         // If this is the default destination from PTI, only the edges in TI
@@ -894,7 +855,9 @@ bool SimplifyCFGOpt::FoldValueComparisonIntoPredecessors(TerminatorInst *TI,
             // The default destination is BB, we don't need explicit targets.
             std::swap(PredCases[i], PredCases.back());
 
-            if (PredHasWeights) {
+            if (PredHasWeights || SuccHasWeights) {
+              // Increase weight for the default case.
+              Weights[0] += Weights[i+1];
               std::swap(Weights[i+1], Weights.back());
               Weights.pop_back();
             }
@@ -910,28 +873,30 @@ bool SimplifyCFGOpt::FoldValueComparisonIntoPredecessors(TerminatorInst *TI,
           NewSuccessors.push_back(BBDefault);
         }
 
-        if (SuccHasWeights) {
-          ScaleWeights(TI, Weights);
-          Weights.front() *= SuccDefaultWeight;
-        } else if (PredHasWeights) {
-          Weights.front() /= (1 + BBCases.size());
-        }
-
+        unsigned CasesFromPred = Weights.size();
+        uint64_t ValidTotalSuccWeight = 0;
         for (unsigned i = 0, e = BBCases.size(); i != e; ++i)
           if (!PTIHandled.count(BBCases[i].Value) &&
               BBCases[i].Dest != BBDefault) {
             PredCases.push_back(BBCases[i]);
             NewSuccessors.push_back(BBCases[i].Dest);
-            if (SuccHasWeights) {
-              Weights.push_back(PredDefaultWeight *
-                                GetWeight(TI, i)->getValue().getZExtValue());
-            } else if (PredHasWeights) {
-              // Split the old default's weight amongst the children
-              assert(PredDefaultWeight != 0);
-              Weights.push_back(PredDefaultWeight / (1 + BBCases.size()));
+            if (SuccHasWeights || PredHasWeights) {
+              // The default weight is at index 0, so weight for the ith case
+              // should be at index i+1. Scale the cases from successor by
+              // PredDefaultWeight (Weights[0]).
+              Weights.push_back(Weights[0] * SuccWeights[i+1]);
+              ValidTotalSuccWeight += SuccWeights[i+1];
             }
           }
 
+        if (SuccHasWeights || PredHasWeights) {
+          ValidTotalSuccWeight += SuccWeights[0];
+          // Scale the cases from predecessor by ValidTotalSuccWeight.
+          for (unsigned i = 1; i < CasesFromPred; ++i)
+            Weights[i] *= ValidTotalSuccWeight;
+          // Scale the default weight by SuccDefaultWeight (SuccWeights[0]).
+          Weights[0] *= SuccWeights[0];
+        }
       } else {
         // FIXME: preserve branch weight metadata, similarly to the 'then'
         // above. For now, drop it.
@@ -2977,6 +2942,285 @@ static bool ForwardSwitchConditionToPHI(SwitchInst *SI) {
   return Changed;
 }
 
+/// ValidLookupTableConstant - Return true if the backend will be able to handle
+/// initializing an array of constants like C.
+static bool ValidLookupTableConstant(Constant *C) {
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C))
+    return CE->isGEPWithNoNotionalOverIndexing();
+
+  return isa<ConstantFP>(C) ||
+      isa<ConstantInt>(C) ||
+      isa<ConstantPointerNull>(C) ||
+      isa<GlobalValue>(C) ||
+      isa<UndefValue>(C);
+}
+
+/// GetCaseResulsts - Try to determine the resulting constant values in phi
+/// nodes at the common destination basic block for one of the case
+/// destinations of a switch instruction.
+static bool GetCaseResults(SwitchInst *SI,
+                           BasicBlock *CaseDest,
+                           BasicBlock **CommonDest,
+                           SmallVector<std::pair<PHINode*,Constant*>, 4> &Res) {
+  // The block from which we enter the common destination.
+  BasicBlock *Pred = SI->getParent();
+
+  // If CaseDest is empty, continue to its successor.
+  if (CaseDest->getFirstNonPHIOrDbg() == CaseDest->getTerminator() &&
+      !isa<PHINode>(CaseDest->begin())) {
+
+    TerminatorInst *Terminator = CaseDest->getTerminator();
+    if (Terminator->getNumSuccessors() != 1)
+      return false;
+
+    Pred = CaseDest;
+    CaseDest = Terminator->getSuccessor(0);
+  }
+
+  // If we did not have a CommonDest before, use the current one.
+  if (!*CommonDest)
+    *CommonDest = CaseDest;
+  // If the destination isn't the common one, abort.
+  if (CaseDest != *CommonDest)
+    return false;
+
+  // Get the values for this case from phi nodes in the destination block.
+  BasicBlock::iterator I = (*CommonDest)->begin();
+  while (PHINode *PHI = dyn_cast<PHINode>(I++)) {
+    int Idx = PHI->getBasicBlockIndex(Pred);
+    if (Idx == -1)
+      continue;
+
+    Constant *ConstVal = dyn_cast<Constant>(PHI->getIncomingValue(Idx));
+    if (!ConstVal)
+      return false;
+
+    // Be conservative about which kinds of constants we support.
+    if (!ValidLookupTableConstant(ConstVal))
+      return false;
+
+    Res.push_back(std::make_pair(PHI, ConstVal));
+  }
+
+  return true;
+}
+
+/// BuildLookupTable - Build a lookup table with the contents of Results, using
+/// DefaultResult to fill the holes in the table. If the table ends up
+/// containing the same result in each element, set *SingleResult to that value
+/// and return NULL.
+static GlobalVariable *BuildLookupTable(Module &M,
+                                        uint64_t TableSize,
+                                        ConstantInt *Offset,
+              const SmallVector<std::pair<ConstantInt*, Constant*>, 4>& Results,
+                                        Constant *DefaultResult,
+                                        Constant **SingleResult) {
+  assert(Results.size() && "Need values to build lookup table");
+  assert(TableSize >= Results.size() && "Table needs to hold all values");
+
+  // If all values in the table are equal, this is that value.
+  Constant *SameResult = Results.begin()->second;
+
+  // Build up the table contents.
+  std::vector<Constant*> TableContents(TableSize);
+  for (size_t I = 0, E = Results.size(); I != E; ++I) {
+    ConstantInt *CaseVal = Results[I].first;
+    Constant *CaseRes = Results[I].second;
+
+    uint64_t Idx = (CaseVal->getValue() - Offset->getValue()).getLimitedValue();
+    TableContents[Idx] = CaseRes;
+
+    if (CaseRes != SameResult)
+      SameResult = NULL;
+  }
+
+  // Fill in any holes in the table with the default result.
+  if (Results.size() < TableSize) {
+    for (unsigned i = 0; i < TableSize; ++i) {
+      if (!TableContents[i])
+        TableContents[i] = DefaultResult;
+    }
+
+    if (DefaultResult != SameResult)
+      SameResult = NULL;
+  }
+
+  // Same result was used in the entire table; just return that.
+  if (SameResult) {
+    *SingleResult = SameResult;
+    return NULL;
+  }
+
+  ArrayType *ArrayTy = ArrayType::get(DefaultResult->getType(), TableSize);
+  Constant *Initializer = ConstantArray::get(ArrayTy, TableContents);
+
+  GlobalVariable *GV = new GlobalVariable(M, ArrayTy, /*constant=*/ true,
+                                          GlobalVariable::PrivateLinkage,
+                                          Initializer,
+                                          "switch.table");
+  GV->setUnnamedAddr(true);
+  return GV;
+}
+
+/// SwitchToLookupTable - If the switch is only used to initialize one or more
+/// phi nodes in a common successor block with different constant values,
+/// replace the switch with lookup tables.
+static bool SwitchToLookupTable(SwitchInst *SI,
+                                IRBuilder<> &Builder) {
+  assert(SI->getNumCases() > 1 && "Degenerate switch?");
+  // FIXME: Handle unreachable cases.
+
+  // FIXME: If the switch is too sparse for a lookup table, perhaps we could
+  // split off a dense part and build a lookup table for that.
+
+  // FIXME: If the results are all integers and the lookup table would fit in a
+  // target-legal register, we should store them as a bitmap and use shift/mask
+  // to look up the result.
+
+  // FIXME: This creates arrays of GEPs to constant strings, which means each
+  // GEP needs a runtime relocation in PIC code. We should just build one big
+  // string and lookup indices into that.
+
+  // Ignore the switch if the number of cases are too small.
+  // This is similar to the check when building jump tables in
+  // SelectionDAGBuilder::handleJTSwitchCase.
+  // FIXME: Determine the best cut-off.
+  if (SI->getNumCases() < 4)
+    return false;
+
+  // Figure out the corresponding result for each case value and phi node in the
+  // common destination, as well as the the min and max case values.
+  assert(SI->case_begin() != SI->case_end());
+  SwitchInst::CaseIt CI = SI->case_begin();
+  ConstantInt *MinCaseVal = CI.getCaseValue();
+  ConstantInt *MaxCaseVal = CI.getCaseValue();
+
+  BasicBlock *CommonDest = NULL;
+  typedef SmallVector<std::pair<ConstantInt*, Constant*>, 4> ResultListTy;
+  SmallDenseMap<PHINode*, ResultListTy> ResultLists;
+  SmallDenseMap<PHINode*, Constant*> DefaultResults;
+  SmallDenseMap<PHINode*, Type*> ResultTypes;
+  SmallVector<PHINode*, 4> PHIs;
+
+  for (SwitchInst::CaseIt E = SI->case_end(); CI != E; ++CI) {
+    ConstantInt *CaseVal = CI.getCaseValue();
+    if (CaseVal->getValue().slt(MinCaseVal->getValue()))
+      MinCaseVal = CaseVal;
+    if (CaseVal->getValue().sgt(MaxCaseVal->getValue()))
+      MaxCaseVal = CaseVal;
+
+    // Resulting value at phi nodes for this case value.
+    typedef SmallVector<std::pair<PHINode*, Constant*>, 4> ResultsTy;
+    ResultsTy Results;
+    if (!GetCaseResults(SI, CI.getCaseSuccessor(), &CommonDest, Results))
+      return false;
+
+    // Append the result from this case to the list for each phi.
+    for (ResultsTy::iterator I = Results.begin(), E = Results.end(); I!=E; ++I) {
+      if (!ResultLists.count(I->first))
+        PHIs.push_back(I->first);
+      ResultLists[I->first].push_back(std::make_pair(CaseVal, I->second));
+    }
+  }
+
+  // Get the resulting values for the default case.
+  SmallVector<std::pair<PHINode*, Constant*>, 4> DefaultResultsList;
+  if (!GetCaseResults(SI, SI->getDefaultDest(), &CommonDest, DefaultResultsList))
+    return false;
+  for (size_t I = 0, E = DefaultResultsList.size(); I != E; ++I) {
+    PHINode *PHI = DefaultResultsList[I].first;
+    Constant *Result = DefaultResultsList[I].second;
+    DefaultResults[PHI] = Result;
+    ResultTypes[PHI] = Result->getType();
+  }
+
+  APInt RangeSpread = MaxCaseVal->getValue() - MinCaseVal->getValue();
+  // The table density should be at lest 40%. This is the same criterion as for
+  // jump tables, see SelectionDAGBuilder::handleJTSwitchCase.
+  // FIXME: Find the best cut-off.
+  // Be careful to avoid overlow in the density computation.
+  if (RangeSpread.zextOrSelf(64).ugt(UINT64_MAX / 4 - 1))
+    return false;
+  uint64_t TableSize = RangeSpread.getLimitedValue() + 1;
+  if (SI->getNumCases() * 10 < TableSize * 4)
+    return false;
+
+  // Build the lookup tables.
+  SmallDenseMap<PHINode*, GlobalVariable*> LookupTables;
+  SmallDenseMap<PHINode*, Constant*> SingleResults;
+
+  Module &Mod = *CommonDest->getParent()->getParent();
+  for (SmallVector<PHINode*, 4>::iterator I = PHIs.begin(), E = PHIs.end();
+       I != E; ++I) {
+    PHINode *PHI = *I;
+
+    Constant *SingleResult = NULL;
+    LookupTables[PHI] = BuildLookupTable(Mod, TableSize, MinCaseVal,
+                                         ResultLists[PHI], DefaultResults[PHI],
+                                         &SingleResult);
+    SingleResults[PHI] = SingleResult;
+  }
+
+  // Create the BB that does the lookups.
+  BasicBlock *LookupBB = BasicBlock::Create(Mod.getContext(),
+                                            "switch.lookup",
+                                            CommonDest->getParent(),
+                                            CommonDest);
+
+  // Check whether the condition value is within the case range, and branch to
+  // the new BB.
+  Builder.SetInsertPoint(SI);
+  Value *TableIndex = Builder.CreateSub(SI->getCondition(), MinCaseVal,
+                                        "switch.tableidx");
+  Value *Cmp = Builder.CreateICmpULT(TableIndex, ConstantInt::get(
+      MinCaseVal->getType(), TableSize));
+  Builder.CreateCondBr(Cmp, LookupBB, SI->getDefaultDest());
+
+  // Populate the BB that does the lookups.
+  Builder.SetInsertPoint(LookupBB);
+  bool ReturnedEarly = false;
+  for (SmallVector<PHINode*, 4>::iterator I = PHIs.begin(), E = PHIs.end();
+       I != E; ++I) {
+    PHINode *PHI = *I;
+    // There was a single result for this phi; just use that.
+    if (Constant *SingleResult = SingleResults[PHI]) {
+      PHI->addIncoming(SingleResult, LookupBB);
+      continue;
+    }
+
+    Value *GEPIndices[] = { Builder.getInt32(0), TableIndex };
+    Value *GEP = Builder.CreateInBoundsGEP(LookupTables[PHI], GEPIndices,
+                                           "switch.gep");
+    Value *Result = Builder.CreateLoad(GEP, "switch.load");
+
+    // If the result is only going to be used to return from the function,
+    // we want to do that right here.
+    if (PHI->hasOneUse() && isa<ReturnInst>(*PHI->use_begin())) {
+      if (CommonDest->getFirstNonPHIOrDbg() == CommonDest->getTerminator()) {
+        Builder.CreateRet(Result);
+        ReturnedEarly = true;
+      }
+    }
+
+    if (!ReturnedEarly)
+      PHI->addIncoming(Result, LookupBB);
+  }
+
+  if (!ReturnedEarly)
+    Builder.CreateBr(CommonDest);
+
+  // Remove the switch.
+  for (unsigned i = 0; i < SI->getNumSuccessors(); ++i) {
+    BasicBlock *Succ = SI->getSuccessor(i);
+    if (Succ == SI->getDefaultDest()) continue;
+    Succ->removePredecessor(SI->getParent());
+  }
+  SI->eraseFromParent();
+
+  ++NumLookupTables;
+  return true;
+}
+
 bool SimplifyCFGOpt::SimplifySwitch(SwitchInst *SI, IRBuilder<> &Builder) {
   // If this switch is too complex to want to look at, ignore it.
   if (!isValueEqualityComparison(SI))
@@ -3014,6 +3258,9 @@ bool SimplifyCFGOpt::SimplifySwitch(SwitchInst *SI, IRBuilder<> &Builder) {
     return SimplifyCFG(BB) | true;
 
   if (ForwardSwitchConditionToPHI(SI))
+    return SimplifyCFG(BB) | true;
+
+  if (SwitchToLookupTable(SI, Builder))
     return SimplifyCFG(BB) | true;
 
   return false;

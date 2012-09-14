@@ -34,3 +34,19 @@ void ignore_const() {
   const char ***y = (const char ***)malloc(1 * sizeof(char *)); // expected-warning {{Result of 'malloc' is converted to a pointer of type 'const char **', which is incompatible with sizeof operand type 'char *'}}
   free(x);
 }
+
+int *mallocArraySize() {
+  static const int sTable[10];
+  static const int nestedTable[10][2];
+  int *table = malloc(sizeof sTable);
+  int *table1 = malloc(sizeof nestedTable);
+  int (*table2)[2] = malloc(sizeof nestedTable);
+  int (*table3)[10][2] = malloc(sizeof nestedTable);
+  return table;
+}
+
+int *mallocWrongArraySize() {
+  static const double sTable[10];
+  int *table = malloc(sizeof sTable); // expected-warning {{Result of 'malloc' is converted to a pointer of type 'int', which is incompatible with sizeof operand type 'const double [10]'}}
+  return table;
+}

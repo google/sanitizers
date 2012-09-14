@@ -1613,15 +1613,14 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   llvm::FunctionType *FTy =
     llvm::FunctionType::get(ResultType, ArgTypes, false);
 
+  bool HasSideEffect = S.isVolatile() || S.getNumOutputs() == 0;
+  llvm::InlineAsm::AsmDialect AsmDialect = isa<MSAsmStmt>(&S) ?
+    llvm::InlineAsm::AD_Intel : llvm::InlineAsm::AD_ATT;
   llvm::InlineAsm *IA =
-    llvm::InlineAsm::get(FTy, AsmString, Constraints,
-                         S.isVolatile() || S.getNumOutputs() == 0);
+    llvm::InlineAsm::get(FTy, AsmString, Constraints, HasSideEffect,
+                         /* IsAlignStack */ false, AsmDialect);
   llvm::CallInst *Result = Builder.CreateCall(IA, Args);
   Result->addAttribute(~0, llvm::Attribute::NoUnwind);
-
-  // Add the inline asm non-standard dialect attribute on MS-style inline asms.
-  if (isa<MSAsmStmt>(&S))
-    Result->addAttribute(~0, llvm::Attribute::IANSDialect);
 
   // Slap the source location of the inline asm into a !srcloc metadata on the
   // call.  FIXME: Handle metadata for MS-style inline asms.

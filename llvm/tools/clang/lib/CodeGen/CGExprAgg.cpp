@@ -552,7 +552,7 @@ void AggExprEmitter::VisitCastExpr(CastExpr *E) {
     // FIXME: Can this actually happen? We have no test coverage for it.
     assert(isa<CXXDynamicCastExpr>(E) && "CK_Dynamic without a dynamic_cast?");
     LValue LV = CGF.EmitCheckedLValue(E->getSubExpr(),
-                                      CodeGenFunction::CT_Load);
+                                      CodeGenFunction::TCK_Load);
     // FIXME: Do we also need to handle property references here?
     if (LV.isSimple())
       CGF.EmitDynamicCast(LV.getAddress(), cast<CXXDynamicCastExpr>(E));
@@ -647,6 +647,7 @@ void AggExprEmitter::VisitCastExpr(CastExpr *E) {
   case CK_ARCReclaimReturnedObject:
   case CK_ARCExtendBlockObject:
   case CK_CopyAndAutoreleaseBlockObject:
+  case CK_BuiltinFnToFnPtr:
     llvm_unreachable("cast kind invalid for aggregate types");
   }
 }

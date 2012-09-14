@@ -523,6 +523,23 @@ class T2MulLong<bits<3> opc22_20, bits<4> opc7_4,
   let Inst{7-4}   = opc7_4;
   let Inst{3-0}   = Rm;
 }
+class T2MlaLong<bits<3> opc22_20, bits<4> opc7_4,
+                dag oops, dag iops, InstrItinClass itin,
+                string opc, string asm, list<dag> pattern>
+  : T2I<oops, iops, itin, opc, asm, pattern> {
+  bits<4> RdLo;
+  bits<4> RdHi;
+  bits<4> Rn;
+  bits<4> Rm;
+
+  let Inst{31-23} = 0b111110111;
+  let Inst{22-20} = opc22_20;
+  let Inst{19-16} = Rn;
+  let Inst{15-12} = RdLo;
+  let Inst{11-8}  = RdHi;
+  let Inst{7-4}   = opc7_4;
+  let Inst{3-0}   = Rm;
+}
 
 
 /// T2I_bin_irs - Defines a set of (op reg, {so_imm|r|so_reg}) patterns for a
@@ -757,33 +774,6 @@ multiclass T2I_bin_ii12rs<bits<3> op23_21, string opc, PatFrag opnode,
      let Inst{24} = 1;
      let Inst{23-21} = op23_21;
    }
-
-   // Predicated versions.
-   def CCri : t2PseudoExpand<(outs GPRnopc:$Rd),
-                             (ins GPRnopc:$Rfalse, GPRnopc:$Rn, t2_so_imm:$imm,
-                                  pred:$p, cc_out:$s), 4, IIC_iALUi, [],
-                             (!cast<Instruction>(NAME#ri) GPRnopc:$Rd,
-                              GPRnopc:$Rn, t2_so_imm:$imm, pred:$p, cc_out:$s)>,
-              RegConstraint<"$Rfalse = $Rd">;
-   def CCri12 : t2PseudoExpand<(outs GPRnopc:$Rd),
-                             (ins GPRnopc:$Rfalse, GPR:$Rn, imm0_4095:$imm,
-                                  pred:$p),
-                             4, IIC_iALUi, [],
-                             (!cast<Instruction>(NAME#ri12) GPRnopc:$Rd,
-                              GPR:$Rn, imm0_4095:$imm, pred:$p)>,
-                RegConstraint<"$Rfalse = $Rd">;
-   def CCrr : t2PseudoExpand<(outs GPRnopc:$Rd),
-                             (ins GPRnopc:$Rfalse, GPRnopc:$Rn, rGPR:$Rm,
-                                  pred:$p, cc_out:$s), 4, IIC_iALUr, [],
-                             (!cast<Instruction>(NAME#rr) GPRnopc:$Rd,
-                              GPRnopc:$Rn, rGPR:$Rm, pred:$p, cc_out:$s)>,
-              RegConstraint<"$Rfalse = $Rd">;
-   def CCrs : t2PseudoExpand<(outs GPRnopc:$Rd),
-                             (ins GPRnopc:$Rfalse, GPRnopc:$Rn, t2_so_reg:$Rm,
-                                  pred:$p, cc_out:$s), 4, IIC_iALUsi, [],
-                             (!cast<Instruction>(NAME#rs) GPRnopc:$Rd,
-                              GPRnopc:$Rn, t2_so_reg:$Rm, pred:$p, cc_out:$s)>,
-              RegConstraint<"$Rfalse = $Rd">;
 }
 
 /// T2I_adde_sube_irs - Defines a set of (op reg, {so_imm|r|so_reg}) patterns
@@ -2438,15 +2428,17 @@ def t2UMULL : T2MulLong<0b010, 0b0000,
 } // isCommutable
 
 // Multiply + accumulate
-def t2SMLAL : T2MulLong<0b100, 0b0000,
+def t2SMLAL : T2MlaLong<0b100, 0b0000,
                   (outs rGPR:$RdLo, rGPR:$RdHi),
-                  (ins rGPR:$Rn, rGPR:$Rm), IIC_iMAC64,
-                  "smlal", "\t$RdLo, $RdHi, $Rn, $Rm", []>;
+                  (ins rGPR:$Rn, rGPR:$Rm, rGPR:$RLo, rGPR:$RHi), IIC_iMAC64,
+                  "smlal", "\t$RdLo, $RdHi, $Rn, $Rm", []>,
+                  RegConstraint<"$RLo = $RdLo, $RHi = $RdHi">;
 
-def t2UMLAL : T2MulLong<0b110, 0b0000,
+def t2UMLAL : T2MlaLong<0b110, 0b0000,
                   (outs rGPR:$RdLo, rGPR:$RdHi),
-                  (ins rGPR:$Rn, rGPR:$Rm), IIC_iMAC64,
-                  "umlal", "\t$RdLo, $RdHi, $Rn, $Rm", []>;
+                  (ins rGPR:$Rn, rGPR:$Rm, rGPR:$RLo, rGPR:$RHi), IIC_iMAC64,
+                  "umlal", "\t$RdLo, $RdHi, $Rn, $Rm", []>,
+                  RegConstraint<"$RLo = $RdLo, $RHi = $RdHi">;
 
 def t2UMAAL : T2MulLong<0b110, 0b0110,
                   (outs rGPR:$RdLo, rGPR:$RdHi),
@@ -3050,37 +3042,6 @@ def t2MOVCCror : T2I_movcc_sh<0b11, (outs rGPR:$Rd),
                  RegConstraint<"$false = $Rd">;
 } // isCodeGenOnly = 1
 
-multiclass T2I_bincc_irs<Instruction iri, Instruction irr, Instruction irs,
-                   InstrItinClass iii, InstrItinClass iir, InstrItinClass iis> {
-   // shifted imm
-   def ri : t2PseudoExpand<(outs rGPR:$Rd),
-                           (ins rGPR:$Rfalse, rGPR:$Rn, t2_so_imm:$imm,
-                                pred:$p, cc_out:$s),
-                           4, iii, [],
-                  (iri rGPR:$Rd, rGPR:$Rn, t2_so_imm:$imm, pred:$p, cc_out:$s)>,
-                           RegConstraint<"$Rfalse = $Rd">;
-   // register
-   def rr : t2PseudoExpand<(outs rGPR:$Rd),
-                           (ins rGPR:$Rfalse, rGPR:$Rn, rGPR:$Rm,
-                                pred:$p, cc_out:$s),
-                           4, iir, [],
-                        (irr rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, pred:$p, cc_out:$s)>,
-                           RegConstraint<"$Rfalse = $Rd">;
-   // shifted register
-   def rs : t2PseudoExpand<(outs rGPR:$Rd),
-                           (ins rGPR:$Rfalse, rGPR:$Rn, t2_so_reg:$ShiftedRm,
-                                pred:$p, cc_out:$s),
-                           4, iis, [],
-            (irs rGPR:$Rd, rGPR:$Rn, t2_so_reg:$ShiftedRm, pred:$p, cc_out:$s)>,
-                           RegConstraint<"$Rfalse = $Rd">;
-} // T2I_bincc_irs
-
-defm t2ANDCC : T2I_bincc_irs<t2ANDri, t2ANDrr, t2ANDrs,
-                             IIC_iBITi, IIC_iBITr, IIC_iBITsi>;
-defm t2ORRCC : T2I_bincc_irs<t2ORRri, t2ORRrr, t2ORRrs,
-                             IIC_iBITi, IIC_iBITr, IIC_iBITsi>;
-defm t2EORCC : T2I_bincc_irs<t2EORri, t2EORrr, t2EORrs,
-                             IIC_iBITi, IIC_iBITr, IIC_iBITsi>;
 } // neverHasSideEffects
 
 //===----------------------------------------------------------------------===//

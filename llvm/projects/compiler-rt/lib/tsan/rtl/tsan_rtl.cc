@@ -15,7 +15,9 @@
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
+#include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_placement_new.h"
+#include "sanitizer_common/sanitizer_symbolizer.h"
 #include "tsan_defs.h"
 #include "tsan_platform.h"
 #include "tsan_rtl.h"
@@ -32,7 +34,6 @@ namespace __tsan {
 
 #ifndef TSAN_GO
 THREADLOCAL char cur_thread_placeholder[sizeof(ThreadState)] ALIGNED(64);
-char allocator_placeholder[sizeof(Allocator)] ALIGNED(64);
 #endif
 static char ctx_placeholder[sizeof(Context)] ALIGNED(64);
 
@@ -52,7 +53,7 @@ Context::Context()
 }
 
 // The objects are allocated in TLS, so one may rely on zero-initialization.
-ThreadState::ThreadState(Context *ctx, int tid, u64 epoch,
+ThreadState::ThreadState(Context *ctx, int tid, int unique_id, u64 epoch,
                          uptr stk_addr, uptr stk_size,
                          uptr tls_addr, uptr tls_size)
   : fast_state(tid, epoch)
@@ -63,6 +64,7 @@ ThreadState::ThreadState(Context *ctx, int tid, u64 epoch,
   // , in_rtl()
   , shadow_stack_pos(&shadow_stack[0])
   , tid(tid)
+  , unique_id(unique_id)
   , stk_addr(stk_addr)
   , stk_size(stk_size)
   , tls_addr(tls_addr)
@@ -121,8 +123,8 @@ static void MemoryProfileThread(void *arg) {
   fd_t fd = (fd_t)(uptr)arg;
   for (int i = 0; ; i++) {
     InternalScopedBuffer<char> buf(4096);
-    WriteMemoryProfile(buf, buf.size(), i);
-    internal_write(fd, buf, internal_strlen(buf));
+    WriteMemoryProfile(buf.data(), buf.size(), i);
+    internal_write(fd, buf.data(), internal_strlen(buf.data()));
     SleepForSeconds(1);
   }
 }
@@ -131,9 +133,9 @@ static void InitializeMemoryProfile() {
   if (flags()->profile_memory == 0 || flags()->profile_memory[0] == 0)
     return;
   InternalScopedBuffer<char> filename(4096);
-  internal_snprintf(filename, filename.size(), "%s.%d",
+  internal_snprintf(filename.data(), filename.size(), "%s.%d",
       flags()->profile_memory, GetPid());
-  fd_t fd = internal_open(filename, true);
+  fd_t fd = internal_open(filename.data(), true);
   if (fd == kInvalidFd) {
     TsanPrintf("Failed to open memory profile file '%s'\n", &filename[0]);
     Die();
@@ -163,6 +165,9 @@ void Initialize(ThreadState *thr) {
   if (is_initialized)
     return;
   is_initialized = true;
+  // Install tool-specific callbacks in sanitizer_common.
+  SetCheckFailedCallback(TsanCheckFailed);
+
   ScopedInRtl in_rtl;
 #ifndef TSAN_GO
   InitializeAllocator();
@@ -180,6 +185,11 @@ void Initialize(ThreadState *thr) {
   InitializeSuppressions();
   InitializeMemoryProfile();
   InitializeMemoryFlush();
+
+  const char *external_symbolizer = flags()->external_symbolizer_path;
+  if (external_symbolizer != 0 && external_symbolizer[0] != '\0') {
+    InitializeExternalSymbolizer(external_symbolizer);
+  }
 
   if (ctx->flags.verbosity)
     TsanPrintf("***** Running under ThreadSanitizer v2 (pid %d) *****\n",
@@ -222,6 +232,22 @@ int Finalize(ThreadState *thr) {
   StatOutput(ctx->stat);
   return failed ? flags()->exitcode : 0;
 }
+
+#ifndef TSAN_GO
+u32 CurrentStackId(ThreadState *thr, uptr pc) {
+  if (thr->shadow_stack_pos == 0)  // May happen during bootstrap.
+    return 0;
+  if (pc) {
+    thr->shadow_stack_pos[0] = pc;
+    thr->shadow_stack_pos++;
+  }
+  u32 id = StackDepotPut(thr->shadow_stack,
+                         thr->shadow_stack_pos - thr->shadow_stack);
+  if (pc)
+    thr->shadow_stack_pos--;
+  return id;
+}
+#endif
 
 void TraceSwitch(ThreadState *thr) {
   thr->nomalloc++;
@@ -418,9 +444,11 @@ static void MemoryRangeSet(ThreadState *thr, uptr pc, uptr addr, uptr size,
     addr += offset;
     size -= offset;
   }
-  CHECK_EQ(addr % 8, 0);
-  CHECK(IsAppMem(addr));
-  CHECK(IsAppMem(addr + size - 1));
+  DCHECK_EQ(addr % 8, 0);
+  // If a user passes some insane arguments (memset(0)),
+  // let it just crash as usual.
+  if (!IsAppMem(addr) || !IsAppMem(addr + size - 1))
+    return;
   (void)thr;
   (void)pc;
   // Some programs mmap like hundreds of GBs but actually used a small part.

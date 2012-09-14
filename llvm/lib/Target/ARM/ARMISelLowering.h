@@ -173,6 +173,9 @@ namespace llvm {
       VMULLs,       // ...signed
       VMULLu,       // ...unsigned
 
+      UMLAL,        // 64bit Unsigned Accumulate Multiply
+      SMLAL,        // 64bit Signed Accumulate Multiply
+
       // Operands of the standard BUILD_VECTOR node are not legalized, which
       // is fine if BUILD_VECTORs are always lowered to shuffles or other
       // operations, but for ARM some BUILD_VECTORs are legal as-is and their
@@ -256,6 +259,11 @@ namespace llvm {
                                     SelectionDAG &DAG) const;
 
     virtual const char *getTargetNodeName(unsigned Opcode) const;
+
+    virtual bool isSelectSupported(SelectSupportKind Kind) const {
+      // ARM does not support scalar condition selects on vectors.
+      return (Kind != ScalarCondVectorVal);
+    }
 
     /// getSetCCResultType - Return the value type to use for ISD::SETCC.
     virtual EVT getSetCCResultType(EVT VT) const;

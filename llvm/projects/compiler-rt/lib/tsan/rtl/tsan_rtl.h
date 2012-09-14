@@ -42,6 +42,8 @@ namespace __tsan {
 struct MBlock {
   Mutex mtx;
   uptr size;
+  u32 alloc_tid;
+  u32 alloc_stack_id;
   SyncVar *head;
 };
 
@@ -60,8 +62,11 @@ typedef SizeClassAllocatorLocalCache<PrimaryAllocator::kNumClasses,
 typedef LargeMmapAllocator SecondaryAllocator;
 typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
     SecondaryAllocator> Allocator;
+Allocator *allocator();
 #endif
 
+void TsanCheckFailed(const char *file, int line, const char *cond,
+                     u64 v1, u64 v2);
 void TsanPrintf(const char *format, ...);
 
 // FastState (from most significant bit):
@@ -270,6 +275,7 @@ struct ThreadState {
 #endif
   u64 stat[StatCnt];
   const int tid;
+  const int unique_id;
   int in_rtl;
   bool is_alive;
   const uptr stk_addr;
@@ -282,11 +288,16 @@ struct ThreadState {
   bool in_signal_handler;
   SignalContext *signal_ctx;
 
+#ifndef TSAN_GO
+  u32 last_sleep_stack_id;
+  ThreadClock last_sleep_clock;
+#endif
+
   // Set in regions of runtime that must be signal-safe and fork-safe.
   // If set, malloc must not be called.
   int nomalloc;
 
-  explicit ThreadState(Context *ctx, int tid, u64 epoch,
+  explicit ThreadState(Context *ctx, int tid, int unique_id, u64 epoch,
                        uptr stk_addr, uptr stk_size,
                        uptr tls_addr, uptr tls_size);
 };
@@ -305,7 +316,7 @@ enum ThreadStatus {
   ThreadStatusCreated,   // Created but not yet running.
   ThreadStatusRunning,   // The thread is currently running.
   ThreadStatusFinished,  // Joinable thread is finished but not yet joined.
-  ThreadStatusDead,      // Joined, but some info (trace) is still alive.
+  ThreadStatusDead       // Joined, but some info (trace) is still alive.
 };
 
 // An info about a thread that is hold for some time after its termination.
@@ -401,6 +412,7 @@ class ScopedReport {
   void AddThread(const ThreadContext *tctx);
   void AddMutex(const SyncVar *s);
   void AddLocation(uptr addr, uptr size);
+  void AddSleep(u32 stack_id);
 
   const ReportDesc *GetReport() const;
 
@@ -441,6 +453,9 @@ bool IsExpectedReport(uptr addr, uptr size);
 #else
 # define DPrintf2(...)
 #endif
+
+u32 CurrentStackId(ThreadState *thr, uptr pc);
+void PrintCurrentStack(ThreadState *thr, uptr pc);
 
 void Initialize(ThreadState *thr);
 int Finalize(ThreadState *thr);
@@ -485,6 +500,7 @@ void MutexReadOrWriteUnlock(ThreadState *thr, uptr pc, uptr addr);
 void Acquire(ThreadState *thr, uptr pc, uptr addr);
 void Release(ThreadState *thr, uptr pc, uptr addr);
 void ReleaseStore(ThreadState *thr, uptr pc, uptr addr);
+void AfterSleep(ThreadState *thr, uptr pc);
 
 // The hacky call uses custom calling convention and an assembly thunk.
 // It is considerably faster that a normal call for the caller
@@ -496,9 +512,12 @@ void ReleaseStore(ThreadState *thr, uptr pc, uptr addr);
 // The caller may not create the stack frame for itself at all,
 // so we create a reserve stack frame for it (1024b must be enough).
 #define HACKY_CALL(f) \
-  __asm__ __volatile__("sub $0x400, %%rsp;" \
+  __asm__ __volatile__("sub $1024, %%rsp;" \
+                       "/*.cfi_adjust_cfa_offset 1024;*/" \
                        "call " #f "_thunk;" \
-                       "add $0x400, %%rsp;" ::: "memory");
+                       "add $1024, %%rsp;" \
+                       "/*.cfi_adjust_cfa_offset -1024;*/" \
+                       ::: "memory", "cc");
 #else
 #define HACKY_CALL(f) f()
 #endif

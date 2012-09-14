@@ -656,6 +656,8 @@ void ScheduleDAGRRList::EmitNode(SUnit *SU) {
     break;
   case ISD::MERGE_VALUES:
   case ISD::TokenFactor:
+  case ISD::LIFETIME_START:
+  case ISD::LIFETIME_END:
   case ISD::CopyToReg:
   case ISD::CopyFromReg:
   case ISD::EH_LABEL:
@@ -1756,6 +1758,7 @@ public:
     return V;
   }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   void dump(ScheduleDAG *DAG) const {
     // Emulate pop() without clobbering NodeQueueIds.
     std::vector<SUnit*> DumpQueue = Queue;
@@ -1766,6 +1769,7 @@ public:
       SU->dump(DAG);
     }
   }
+#endif
 };
 
 typedef RegReductionPriorityQueue<bu_ls_rr_sort>
@@ -1893,6 +1897,7 @@ unsigned RegReductionPQBase::getNodePriority(const SUnit *SU) const {
 //===----------------------------------------------------------------------===//
 
 void RegReductionPQBase::dumpRegPressure() const {
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   for (TargetRegisterInfo::regclass_iterator I = TRI->regclass_begin(),
          E = TRI->regclass_end(); I != E; ++I) {
     const TargetRegisterClass *RC = *I;
@@ -1902,6 +1907,7 @@ void RegReductionPQBase::dumpRegPressure() const {
     DEBUG(dbgs() << RC->getName() << ": " << RP << " / " << RegLimit[Id]
           << '\n');
   }
+#endif
 }
 
 bool RegReductionPQBase::HighRegPressure(const SUnit *SU) const {

@@ -40,6 +40,7 @@ namespace llvm {
 
   public:
     const unsigned EnumValue;
+    unsigned LaneMask;
 
     CodeGenSubRegIndex(Record *R, unsigned Enum);
     CodeGenSubRegIndex(StringRef N, StringRef Nspace, unsigned Enum);
@@ -80,11 +81,11 @@ namespace llvm {
     // Update the composite maps of components specified in 'ComposedOf'.
     void updateComponents(CodeGenRegBank&);
 
-    // Clean out redundant composite mappings.
-    void cleanComposites();
-
     // Return the map of composites.
     const CompMap &getComposites() const { return Composed; }
+
+    // Compute LaneMask from Composed. Return LaneMask.
+    unsigned computeLaneMask();
 
   private:
     CompMap Composed;
@@ -439,6 +440,7 @@ namespace llvm {
 
     // Registers.
     std::vector<CodeGenRegister*> Registers;
+    StringMap<CodeGenRegister*> RegistersByName;
     DenseMap<Record*, CodeGenRegister*> Def2Reg;
     unsigned NumNativeRegUnits;
 
@@ -489,6 +491,9 @@ namespace llvm {
     // Populate the Composite map from sub-register relationships.
     void computeComposites();
 
+    // Compute a lane mask for each sub-register index.
+    void computeSubRegIndexLaneMasks();
+
   public:
     CodeGenRegBank(RecordKeeper&);
 
@@ -518,6 +523,9 @@ namespace llvm {
     }
 
     const std::vector<CodeGenRegister*> &getRegisters() { return Registers; }
+    const StringMap<CodeGenRegister*> &getRegistersByName() {
+      return RegistersByName;
+    }
 
     // Find a register from its Record def.
     CodeGenRegister *getReg(Record*);

@@ -16,6 +16,7 @@
 #ifndef LLVM_CLANG_GR_EXPRENGINE
 #define LLVM_CLANG_GR_EXPRENGINE
 
+#include "clang/Analysis/DomainSpecific/ObjCNoReturn.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SubEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CoreEngine.h"
@@ -74,13 +75,10 @@ class ExprEngine : public SubEngine {
   const Stmt *currStmt;
   unsigned int currStmtIdx;
   const NodeBuilderContext *currBldrCtx;
-
-  /// Obj-C Class Identifiers.
-  IdentifierInfo* NSExceptionII;
-
-  /// Obj-C Selectors.
-  Selector* NSExceptionInstanceRaiseSelectors;
-  Selector RaiseSel;
+  
+  /// Helper object to determine if an Objective-C message expression
+  /// implicitly never returns.
+  ObjCNoReturn ObjCNoRet;
   
   /// Whether or not GC is enabled in this analysis.
   bool ObjCGCEnabled;
@@ -90,9 +88,13 @@ class ExprEngine : public SubEngine {
   ///  destructor is called before the rest of the ExprEngine is destroyed.
   GRBugReporter BR;
 
+  /// The functions which have been analyzed through inlining. This is owned by
+  /// AnalysisConsumer. It can be null.
+  SetOfConstDecls *VisitedCallees;
+
 public:
   ExprEngine(AnalysisManager &mgr, bool gcEnabled,
-             SetOfConstDecls *VisitedCallees,
+             SetOfConstDecls *VisitedCalleesIn,
              FunctionSummariesTy *FS);
 
   ~ExprEngine();
@@ -381,8 +383,8 @@ public:
   void VisitCXXConstructExpr(const CXXConstructExpr *E, ExplodedNode *Pred,
                              ExplodedNodeSet &Dst);
 
-  void VisitCXXDestructor(QualType ObjectType,
-                          const MemRegion *Dest, const Stmt *S,
+  void VisitCXXDestructor(QualType ObjectType, const MemRegion *Dest,
+                          const Stmt *S, bool IsBaseDtor,
                           ExplodedNode *Pred, ExplodedNodeSet &Dst);
 
   void VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
@@ -396,14 +398,14 @@ public:
                                 ExplodedNode *Pred, 
                                 ExplodedNodeSet &Dst);
   
-  /// evalEagerlyAssume - Given the nodes in 'Src', eagerly assume symbolic
+  /// evalEagerlyAssumeBinOpBifurcation - Given the nodes in 'Src', eagerly assume symbolic
   ///  expressions of the form 'x != 0' and generate new nodes (stored in Dst)
   ///  with those assumptions.
-  void evalEagerlyAssume(ExplodedNodeSet &Dst, ExplodedNodeSet &Src, 
+  void evalEagerlyAssumeBinOpBifurcation(ExplodedNodeSet &Dst, ExplodedNodeSet &Src, 
                          const Expr *Ex);
   
   std::pair<const ProgramPointTag *, const ProgramPointTag*>
-    getEagerlyAssumeTags();
+    geteagerlyAssumeBinOpBifurcationTags();
 
   SVal evalMinus(SVal X) {
     return X.isValid() ? svalBuilder.evalMinus(cast<NonLoc>(X)) : X;
@@ -491,6 +493,10 @@ private:
                     ExplodedNode *Pred,
                     ProgramStateRef St, SVal location,
                     const ProgramPointTag *tag, bool isLoad);
+
+  /// Count the stack depth and determine if the call is recursive.
+  void examineStackFrames(const Decl *D, const LocationContext *LCtx,
+                          bool &IsRecursive, unsigned &StackDepth);
 
   bool shouldInlineDecl(const Decl *D, ExplodedNode *Pred);
   bool inlineCall(const CallEvent &Call, const Decl *D, NodeBuilder &Bldr,

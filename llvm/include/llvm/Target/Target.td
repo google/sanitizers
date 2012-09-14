@@ -495,7 +495,8 @@ def ptr_rc : PointerLikeRegClass<0>;
 
 /// unknown definition - Mark this operand as being of unknown type, causing
 /// it to be resolved by inference in the context it is used.
-def unknown;
+class unknown_class;
+def unknown : unknown_class;
 
 /// AsmOperandClass - Representation for the kinds of operands which the target
 /// specific parser can create and the assembly matcher may need to distinguish.
@@ -602,23 +603,31 @@ def f64imm : Operand<f64>;
 ///
 def zero_reg;
 
+/// OperandWithDefaultOps - This Operand class can be used as the parent class
+/// for an Operand that needs to be initialized with a default value if
+/// no value is supplied in a pattern.  This class can be used to simplify the
+/// pattern definitions for instructions that have target specific flags
+/// encoded as immediate operands.
+class OperandWithDefaultOps<ValueType ty, dag defaultops>
+  : Operand<ty> {
+  dag DefaultOps = defaultops;
+}
+
 /// PredicateOperand - This can be used to define a predicate operand for an
 /// instruction.  OpTypes specifies the MIOperandInfo for the operand, and
 /// AlwaysVal specifies the value of this predicate when set to "always
 /// execute".
 class PredicateOperand<ValueType ty, dag OpTypes, dag AlwaysVal>
-  : Operand<ty> {
+  : OperandWithDefaultOps<ty, AlwaysVal> {
   let MIOperandInfo = OpTypes;
-  dag DefaultOps = AlwaysVal;
 }
 
 /// OptionalDefOperand - This is used to define a optional definition operand
 /// for an instruction. DefaultOps is the register the operand represents if
 /// none is supplied, e.g. zero_reg.
 class OptionalDefOperand<ValueType ty, dag OpTypes, dag defaultops>
-  : Operand<ty> {
+  : OperandWithDefaultOps<ty, defaultops> {
   let MIOperandInfo = OpTypes;
-  dag DefaultOps = defaultops;
 }
 
 
@@ -744,6 +753,18 @@ def BUNDLE : Instruction {
   let OutOperandList = (outs);
   let InOperandList = (ins variable_ops);
   let AsmString = "BUNDLE";
+}
+def LIFETIME_START : Instruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins i32imm:$id);
+  let AsmString = "LIFETIME_START";
+  let neverHasSideEffects = 1;
+}
+def LIFETIME_END : Instruction {
+  let OutOperandList = (outs);
+  let InOperandList = (ins i32imm:$id);
+  let AsmString = "LIFETIME_END";
+  let neverHasSideEffects = 1;
 }
 }
 
@@ -968,6 +989,9 @@ class Processor<string n, ProcessorItineraries pi, list<SubtargetFeature> f> {
 // ProcessorModel allows subtargets to specify the more general
 // SchedMachineModel instead if a ProcessorItinerary. Subtargets will
 // gradually move to this newer form.
+//
+// Although this class always passes NoItineraries to the Processor
+// class, the SchedMachineModel may still define valid Itineraries.
 class ProcessorModel<string n, SchedMachineModel m, list<SubtargetFeature> f>
   : Processor<n, NoItineraries, f> {
   let SchedModel = m;

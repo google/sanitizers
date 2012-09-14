@@ -903,7 +903,7 @@ std::string NamedDecl::getQualifiedNameAsString(const PrintingPolicy &P) const {
     } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(*I)) {
       const FunctionProtoType *FT = 0;
       if (FD->hasWrittenPrototype())
-        FT = dyn_cast<FunctionProtoType>(FD->getType()->getAs<FunctionType>());
+        FT = dyn_cast<FunctionProtoType>(FD->getType()->castAs<FunctionType>());
 
       OS << *FD << '(';
       if (FT) {
@@ -1859,7 +1859,7 @@ unsigned FunctionDecl::getBuiltinID() const {
 /// based on its FunctionType.  This is the length of the ParamInfo array
 /// after it has been created.
 unsigned FunctionDecl::getNumParams() const {
-  const FunctionType *FT = getType()->getAs<FunctionType>();
+  const FunctionType *FT = getType()->castAs<FunctionType>();
   if (isa<FunctionNoProtoType>(FT))
     return 0;
   return cast<FunctionProtoType>(FT)->getNumArgs();
@@ -2762,6 +2762,10 @@ void RecordDecl::completeDefinition() {
   TagDecl::completeDefinition();
 }
 
+static bool isFieldOrIndirectField(Decl::Kind K) {
+  return FieldDecl::classofKind(K) || IndirectFieldDecl::classofKind(K);
+}
+
 void RecordDecl::LoadFieldsFromExternalStorage() const {
   ExternalASTSource *Source = getASTContext().getExternalSource();
   assert(hasExternalLexicalStorage() && Source && "No external storage?");
@@ -2771,7 +2775,8 @@ void RecordDecl::LoadFieldsFromExternalStorage() const {
 
   SmallVector<Decl*, 64> Decls;
   LoadedFieldsFromExternalStorage = true;  
-  switch (Source->FindExternalLexicalDeclsBy<FieldDecl>(this, Decls)) {
+  switch (Source->FindExternalLexicalDecls(this, isFieldOrIndirectField,
+                                           Decls)) {
   case ELR_Success:
     break;
     
@@ -2783,7 +2788,7 @@ void RecordDecl::LoadFieldsFromExternalStorage() const {
 #ifndef NDEBUG
   // Check that all decls we got were FieldDecls.
   for (unsigned i=0, e=Decls.size(); i != e; ++i)
-    assert(isa<FieldDecl>(Decls[i]));
+    assert(isa<FieldDecl>(Decls[i]) || isa<IndirectFieldDecl>(Decls[i]));
 #endif
 
   if (Decls.empty())

@@ -306,9 +306,11 @@ BasicBlock *Loop::getUniqueExitBlock() const {
   return 0;
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void Loop::dump() const {
   print(dbgs());
 }
+#endif
 
 //===----------------------------------------------------------------------===//
 // UnloopUpdater implementation

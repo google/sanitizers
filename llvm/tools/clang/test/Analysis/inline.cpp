@@ -268,19 +268,75 @@ namespace OperatorNew {
   }
 }
 
-namespace TemporaryConstructor {
-  class BoolWrapper {
-  public:
-    BoolWrapper() {
-      clang_analyzer_checkInlined(true); // expected-warning{{TRUE}}
-      value = true;
-    }
-    bool value;
+
+namespace VirtualWithSisterCasts {
+  // This entire set of tests exercises casts from sister classes and
+  // from classes outside the hierarchy, which can very much confuse
+  // code that uses DynamicTypeInfo or needs to construct CXXBaseObjectRegions.
+  // These examples used to cause crashes in +Asserts builds.
+  struct Parent {
+    virtual int foo();
+    int x;
   };
 
-  void test() {
-    // PR13717 - Don't crash when a CXXTemporaryObjectExpr is inlined.
-    if (BoolWrapper().value)
-      return;
+  struct A : Parent {
+    virtual int foo() { return 42; }
+  };
+
+  struct B : Parent {
+    virtual int foo();
+  };
+
+  struct Grandchild : public A {};
+
+  struct Unrelated {};
+
+  void testDowncast(Parent *b) {
+    A *a = (A *)(void *)b;
+    clang_analyzer_eval(a->foo() == 42); // expected-warning{{UNKNOWN}}
+
+    a->x = 42;
+    clang_analyzer_eval(a->x == 42); // expected-warning{{TRUE}}
   }
+
+  void testRelated(B *b) {
+    A *a = (A *)(void *)b;
+    clang_analyzer_eval(a->foo() == 42); // expected-warning{{UNKNOWN}}
+
+    a->x = 42;
+    clang_analyzer_eval(a->x == 42); // expected-warning{{TRUE}}
+  }
+
+  void testUnrelated(Unrelated *b) {
+    A *a = (A *)(void *)b;
+    clang_analyzer_eval(a->foo() == 42); // expected-warning{{UNKNOWN}}
+
+    a->x = 42;
+    clang_analyzer_eval(a->x == 42); // expected-warning{{TRUE}}
+  }
+
+  void testCastViaNew(B *b) {
+    Grandchild *g = new (b) Grandchild();
+    // FIXME: We actually now have perfect type info because of 'new'.
+    // This should be TRUE.
+    clang_analyzer_eval(g->foo() == 42); // expected-warning{{UNKNOWN}}
+
+    g->x = 42;
+    clang_analyzer_eval(g->x == 42); // expected-warning{{TRUE}}
+  }
+}
+
+
+namespace QualifiedCalls {
+  void test(One *object) {
+    // This uses the One class from the top of the file.
+    clang_analyzer_eval(object->getNum() == 1); // expected-warning{{UNKNOWN}}
+    clang_analyzer_eval(object->One::getNum() == 1); // expected-warning{{TRUE}}
+    clang_analyzer_eval(object->A::getNum() == 0); // expected-warning{{TRUE}}
+
+    // getZero is non-virtual.
+    clang_analyzer_eval(object->getZero() == 0); // expected-warning{{TRUE}}
+    clang_analyzer_eval(object->One::getZero() == 0); // expected-warning{{TRUE}}
+    clang_analyzer_eval(object->A::getZero() == 0); // expected-warning{{TRUE}}
+}
 }

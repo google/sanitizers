@@ -34,9 +34,10 @@ void ExprEngine::CreateCXXTemporaryObject(const MaterializeTemporaryExpr *ME,
   // the expression to the location of the object.
   SVal V = state->getSVal(tempExpr, LCtx);
 
-  // If the object is a record, the constructor will have already created
-  // a temporary object region. If it is not, we need to copy the value over.
-  if (!ME->getType()->isRecordType()) {
+  // If the value is already a CXXTempObjectRegion, it is fine as it is.
+  // Otherwise, create a new CXXTempObjectRegion, and copy the value into it.
+  const MemRegion *MR = V.getAsRegion();
+  if (!MR || !isa<CXXTempObjectRegion>(MR)) {
     const MemRegion *R =
       svalBuilder.getRegionManager().getCXXTempObjectRegion(ME, LCtx);
 
@@ -162,6 +163,7 @@ void ExprEngine::VisitCXXConstructExpr(const CXXConstructExpr *CE,
 void ExprEngine::VisitCXXDestructor(QualType ObjectType,
                                     const MemRegion *Dest,
                                     const Stmt *S,
+                                    bool IsBaseDtor,
                                     ExplodedNode *Pred, 
                                     ExplodedNodeSet &Dst) {
   const LocationContext *LCtx = Pred->getLocationContext();
@@ -182,7 +184,7 @@ void ExprEngine::VisitCXXDestructor(QualType ObjectType,
 
   CallEventManager &CEMgr = getStateManager().getCallEventManager();
   CallEventRef<CXXDestructorCall> Call =
-    CEMgr.getCXXDestructorCall(DtorDecl, S, Dest, State, LCtx);
+    CEMgr.getCXXDestructorCall(DtorDecl, S, Dest, IsBaseDtor, State, LCtx);
 
   PrettyStackTraceLoc CrashInfo(getContext().getSourceManager(),
                                 Call->getSourceRange().getBegin(),
@@ -248,7 +250,9 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
   if (FD && FD->isReservedGlobalPlacementOperator()) {
     // Non-array placement new should always return the placement location.
     SVal PlacementLoc = State->getSVal(CNE->getPlacementArg(0), LCtx);
-    State = State->BindExpr(CNE, LCtx, PlacementLoc);
+    SVal Result = svalBuilder.evalCast(PlacementLoc, CNE->getType(),
+                                       CNE->getPlacementArg(0)->getType());
+    State = State->BindExpr(CNE, LCtx, Result);
   } else {
     State = State->BindExpr(CNE, LCtx, symVal);
   }

@@ -341,7 +341,7 @@ bool Preprocessor::HandleMacroExpandedIdentifier(Token &Identifier,
   }
 
   // Start expanding the macro.
-  EnterMacro(Identifier, ExpansionEnd, Args);
+  EnterMacro(Identifier, ExpansionEnd, MI, Args);
 
   // Now that the macro is at the top of the include stack, ask the
   // preprocessor to read the next token from it.
@@ -403,7 +403,11 @@ MacroArgs *Preprocessor::ReadFunctionLikeMacroArgs(Token &MacroName,
         }
       } else if (Tok.is(tok::l_paren)) {
         ++NumParens;
-      } else if (Tok.is(tok::comma) && NumParens == 0) {
+      // In Microsoft-compatibility mode, commas from nested macro expan-
+      // sions should not be considered as argument separators. We test
+      // for this with the IgnoredComma token flag.
+      } else if (Tok.is(tok::comma)
+          && !(Tok.getFlags() & Token::IgnoredComma) && NumParens == 0) {
         // Comma ends this argument if there are more fixed arguments expected.
         // However, if this is a variadic macro, and this is part of the
         // variadic part, then the comma is just an argument token.
@@ -719,22 +723,12 @@ static bool HasFeature(const Preprocessor &PP, const IdentifierInfo *II) {
             // "struct __is_empty" parsing hack hasn't been needed in this
             // translation unit. If it has, __is_empty reverts to a normal
             // identifier and __has_feature(is_empty) evaluates false.
-           .Case("is_empty", 
-                 LangOpts.CPlusPlus && 
-                 PP.getIdentifierInfo("__is_empty")->getTokenID()
-                                                            != tok::identifier)
+           .Case("is_empty", LangOpts.CPlusPlus)
            .Case("is_enum", LangOpts.CPlusPlus)
            .Case("is_final", LangOpts.CPlusPlus)
            .Case("is_literal", LangOpts.CPlusPlus)
            .Case("is_standard_layout", LangOpts.CPlusPlus)
-           // __is_pod is available only if the horrible
-           // "struct __is_pod" parsing hack hasn't been needed in this
-           // translation unit. If it has, __is_pod reverts to a normal
-           // identifier and __has_feature(is_pod) evaluates false.
-           .Case("is_pod", 
-                 LangOpts.CPlusPlus && 
-                 PP.getIdentifierInfo("__is_pod")->getTokenID()
-                                                            != tok::identifier)
+           .Case("is_pod", LangOpts.CPlusPlus)
            .Case("is_polymorphic", LangOpts.CPlusPlus)
            .Case("is_trivial", LangOpts.CPlusPlus)
            .Case("is_trivially_assignable", LangOpts.CPlusPlus)

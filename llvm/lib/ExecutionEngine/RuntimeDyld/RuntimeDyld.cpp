@@ -48,7 +48,7 @@ void RuntimeDyldImpl::resolveRelocations() {
   }
 }
 
-void RuntimeDyldImpl::mapSectionAddress(void *LocalAddress,
+void RuntimeDyldImpl::mapSectionAddress(const void *LocalAddress,
                                         uint64_t TargetAddress) {
   for (unsigned i = 0, e = Sections.size(); i != e; ++i) {
     if (Sections[i].Address == LocalAddress) {
@@ -479,6 +479,10 @@ void *RuntimeDyld::getSymbolAddress(StringRef Name) {
   return Dyld->getSymbolAddress(Name);
 }
 
+uint64_t RuntimeDyld::getSymbolLoadAddress(StringRef Name) {
+  return Dyld->getSymbolLoadAddress(Name);
+}
+
 void RuntimeDyld::resolveRelocations() {
   Dyld->resolveRelocations();
 }
@@ -488,7 +492,7 @@ void RuntimeDyld::reassignSectionAddress(unsigned SectionID,
   Dyld->reassignSectionAddress(SectionID, Addr);
 }
 
-void RuntimeDyld::mapSectionAddress(void *LocalAddress,
+void RuntimeDyld::mapSectionAddress(const void *LocalAddress,
                                     uint64_t TargetAddress) {
   Dyld->mapSectionAddress(LocalAddress, TargetAddress);
 }

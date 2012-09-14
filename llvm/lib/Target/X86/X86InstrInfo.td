@@ -397,7 +397,7 @@ def i64mem_TC : Operand<i64> {
 
 let OperandType = "OPERAND_PCREL",
     ParserMatchClass = X86AbsMemAsmOperand,
-    PrintMethod = "print_pcrel_imm" in {
+    PrintMethod = "printPCRelImm" in {
 def i32imm_pcrel : Operand<i32>;
 def i16imm_pcrel : Operand<i16>;
 
@@ -499,7 +499,7 @@ def i64i32imm  : Operand<i64> {
 // 64-bits but only 32 bits are significant, and those bits are treated as being
 // pc relative.
 def i64i32imm_pcrel : Operand<i64> {
-  let PrintMethod = "print_pcrel_imm";
+  let PrintMethod = "printPCRelImm";
   let ParserMatchClass = X86AbsMemAsmOperand;
   let OperandType = "OPERAND_PCREL";
 }
@@ -552,11 +552,17 @@ def HasMMX       : Predicate<"Subtarget->hasMMX()">;
 def Has3DNow     : Predicate<"Subtarget->has3DNow()">;
 def Has3DNowA    : Predicate<"Subtarget->has3DNowA()">;
 def HasSSE1      : Predicate<"Subtarget->hasSSE1()">;
+def UseSSE1      : Predicate<"Subtarget->hasSSE1() && Subtarget->hasNoAVX()">;
 def HasSSE2      : Predicate<"Subtarget->hasSSE2()">;
+def UseSSE2      : Predicate<"Subtarget->hasSSE2() && Subtarget->hasNoAVX()">;
 def HasSSE3      : Predicate<"Subtarget->hasSSE3()">;
+def UseSSE3      : Predicate<"Subtarget->hasSSE3() && Subtarget->hasNoAVX()">;
 def HasSSSE3     : Predicate<"Subtarget->hasSSSE3()">;
+def UseSSSE3     : Predicate<"Subtarget->hasSSSE3() && Subtarget->hasNoAVX()">;
 def HasSSE41     : Predicate<"Subtarget->hasSSE41()">;
+def UseSSE41     : Predicate<"Subtarget->hasSSE41() && Subtarget->hasNoAVX()">;
 def HasSSE42     : Predicate<"Subtarget->hasSSE42()">;
+def UseSSE42     : Predicate<"Subtarget->hasSSE42() && Subtarget->hasNoAVX()">;
 def HasSSE4A     : Predicate<"Subtarget->hasSSE4A()">;
 def HasAVX       : Predicate<"Subtarget->hasAVX()">;
 def HasAVX2      : Predicate<"Subtarget->hasAVX2()">;

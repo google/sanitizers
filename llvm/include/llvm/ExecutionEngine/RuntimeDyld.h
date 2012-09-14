@@ -73,6 +73,10 @@ public:
   /// and resolve relocatons based on where they put it).
   void *getSymbolAddress(StringRef Name);
 
+  /// Get the address of the target copy of the symbol. This is the address
+  /// used for relocation.
+  uint64_t getSymbolLoadAddress(StringRef Name);
+
   /// Resolve the relocations for all symbols we currently know about.
   void resolveRelocations();
 
@@ -80,7 +84,7 @@ public:
   /// Map the address of a JIT section as returned from the memory manager
   /// to the address in the target process as the running code will see it.
   /// This is the address which will be used for relocation resolution.
-  void mapSectionAddress(void *LocalAddress, uint64_t TargetAddress);
+  void mapSectionAddress(const void *LocalAddress, uint64_t TargetAddress);
 
   StringRef getErrorString();
 };

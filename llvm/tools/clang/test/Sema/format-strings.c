@@ -117,6 +117,7 @@ void check_writeback_specifier()
   printf("%qn", (int*)0); // expected-warning{{format specifies type 'long long *' but the argument has type 'int *'}}
 
   printf("%Ln", 0); // expected-warning{{length modifier 'L' results in undefined behavior or no effect with 'n' conversion specifier}}
+  // expected-note@-1{{did you mean to use 'll'?}}
 }
 
 void check_invalid_specifier(FILE* fp, char *buf)
@@ -529,17 +530,6 @@ void pr9751() {
   const char kFormat19[] = "%d";  // expected-note{{format string is defined here}}
   printf(kFormat19,
          0.0); // expected-warning{{format specifies}}
-}
-
-// PR 9466: clang: doesn't know about %Lu, %Ld, and %Lx 
-void printf_longlong(long long x, unsigned long long y) {
-  printf("%Ld", y); // no-warning
-  printf("%Lu", y); // no-warning
-  printf("%Lx", y); // no-warning
-  printf("%Ld", x); // no-warning
-  printf("%Lu", x); // no-warning
-  printf("%Lx", x); // no-warning
-  printf("%Ls", "hello"); // expected-warning {{length modifier 'L' results in undefined behavior or no effect with 's' conversion specifier}}
 }
 
 void __attribute__((format(strfmon,1,2))) monformat(const char *fmt, ...);

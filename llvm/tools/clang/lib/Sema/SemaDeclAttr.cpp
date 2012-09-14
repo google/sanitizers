@@ -415,14 +415,19 @@ static void checkAttrArgsAreLockableObjs(Sema &S, Decl *D,
     }
 
     if (StringLiteral *StrLit = dyn_cast<StringLiteral>(ArgExp)) {
-      // Ignore empty strings without warnings
-      if (StrLit->getLength() == 0)
+      if (StrLit->getLength() == 0 ||
+          StrLit->getString() == StringRef("*")) {
+        // Pass empty strings to the analyzer without warnings.
+        // Treat "*" as the universal lock.
+        Args.push_back(ArgExp);
         continue;
+      }
 
       // We allow constant strings to be used as a placeholder for expressions
       // that are not valid C++ syntax, but warn that they are ignored.
       S.Diag(Attr.getLoc(), diag::warn_thread_attribute_ignored) <<
         Attr.getName();
+      Args.push_back(ArgExp);
       continue;
     }
 
@@ -859,16 +864,12 @@ static void handleLockReturnedAttr(Sema &S, Decl *D,
 
   if (!checkAttributeNumArgs(S, Attr, 1))
     return;
-  Expr *Arg = Attr.getArg(0);
 
   if (!isa<FunctionDecl>(D) && !isa<FunctionTemplateDecl>(D)) {
     S.Diag(Attr.getLoc(), diag::warn_thread_attribute_wrong_decl_type)
       << Attr.getName() << ThreadExpectedFunctionOrMethod;
     return;
   }
-
-  if (Arg->isTypeDependent())
-    return;
 
   // check that the argument is lockable object
   SmallVector<Expr*, 1> Args;
@@ -3969,6 +3970,33 @@ static void handleObjCReturnsInnerPointerAttr(Sema &S, Decl *D,
     ::new (S.Context) ObjCReturnsInnerPointerAttr(attr.getRange(), S.Context));
 }
 
+static void handleObjCRequiresSuperAttr(Sema &S, Decl *D,
+                                        const AttributeList &attr) {
+  SourceLocation loc = attr.getLoc();
+  ObjCMethodDecl *method = dyn_cast<ObjCMethodDecl>(D);
+  
+  if (!method) {
+   S.Diag(D->getLocStart(), diag::err_attribute_wrong_decl_type)
+   << SourceRange(loc, loc) << attr.getName() << ExpectedMethod;
+    return;
+  }
+  DeclContext *DC = method->getDeclContext();
+  if (const ObjCProtocolDecl *PDecl = dyn_cast_or_null<ObjCProtocolDecl>(DC)) {
+    S.Diag(D->getLocStart(), diag::warn_objc_requires_super_protocol)
+    << attr.getName() << 0;
+    S.Diag(PDecl->getLocation(), diag::note_protocol_decl);
+    return;
+  }
+  if (method->getMethodFamily() == OMF_dealloc) {
+    S.Diag(D->getLocStart(), diag::warn_objc_requires_super_protocol)
+    << attr.getName() << 1;
+    return;
+  }
+  
+  method->addAttr(
+    ::new (S.Context) ObjCRequiresSuperAttr(attr.getRange(), S.Context));
+}
+
 /// Handle cf_audited_transfer and cf_unknown_transfer.
 static void handleCFTransferAttr(Sema &S, Decl *D, const AttributeList &A) {
   if (!isa<FunctionDecl>(D)) {
@@ -4276,6 +4304,9 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_ObjCReturnsInnerPointer:
     handleObjCReturnsInnerPointerAttr(S, D, Attr); break;
 
+  case AttributeList::AT_ObjCRequiresSuper:
+      handleObjCRequiresSuperAttr(S, D, Attr); break;
+      
   case AttributeList::AT_NSBridged:
     handleNSBridgedAttr(S, scope, D, Attr); break;
 

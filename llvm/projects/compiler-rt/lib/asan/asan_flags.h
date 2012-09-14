@@ -89,6 +89,12 @@ struct Flags {
   bool allow_reexec;
   // Strips this prefix from file paths in error reports.
   const char *strip_path_prefix;
+  // If set, prints not only thread creation stacks for threads in error report,
+  // but also thread creation stacks for threads that created those threads,
+  // etc. up to main thread.
+  bool print_full_thread_history;
+  // ASan will write logs to "log_path.pid" instead of stderr.
+  const char *log_path;
 };
 
 Flags *flags();

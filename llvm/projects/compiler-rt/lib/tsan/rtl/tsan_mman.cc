@@ -19,8 +19,8 @@
 
 namespace __tsan {
 
-extern char allocator_placeholder[];
-INLINE Allocator *allocator() {
+static char allocator_placeholder[sizeof(Allocator)] ALIGNED(64);
+Allocator *allocator() {
   return reinterpret_cast<Allocator*>(&allocator_placeholder);
 }
 
@@ -49,6 +49,8 @@ void *user_alloc(ThreadState *thr, uptr pc, uptr sz, uptr align) {
     return 0;
   MBlock *b = (MBlock*)allocator()->GetMetaData(p);
   b->size = sz;
+  b->alloc_tid = thr->unique_id;
+  b->alloc_stack_id = CurrentStackId(thr, pc);
   if (CTX() && CTX()->initialized) {
     MemoryRangeImitateWrite(thr, pc, (uptr)p, sz);
   }
@@ -102,7 +104,7 @@ void *user_realloc(ThreadState *thr, uptr pc, void *p, uptr sz) {
 }
 
 MBlock *user_mblock(ThreadState *thr, void *p) {
-  CHECK_GT(thr->in_rtl, 0);
+  // CHECK_GT(thr->in_rtl, 0);
   CHECK_NE(p, (void*)0);
   return (MBlock*)allocator()->GetMetaData(p);
 }

@@ -3,6 +3,7 @@ add_llvm_library(LLVMTransformUtils
   BasicBlockUtils.cpp
   BreakCriticalEdges.cpp
   BuildLibCalls.cpp
+  BypassSlowDivision.cpp
   CloneFunction.cpp
   CloneModule.cpp
   CmpInstAnalysis.cpp
@@ -19,6 +20,7 @@ add_llvm_library(LLVMTransformUtils
   LowerInvoke.cpp
   LowerSwitch.cpp
   Mem2Reg.cpp
+  MetaRenamer.cpp
   ModuleUtils.cpp
   PromoteMemoryToRegister.cpp
   SSAUpdater.cpp

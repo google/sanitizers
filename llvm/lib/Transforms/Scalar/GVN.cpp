@@ -271,16 +271,16 @@ void ValueTable::add(Value *V, uint32_t num) {
   valueNumbering.insert(std::make_pair(V, num));
 }
 
-uint32_t ValueTable::lookup_or_add_call(CallInst* C) {
+uint32_t ValueTable::lookup_or_add_call(CallInst *C) {
   if (AA->doesNotAccessMemory(C)) {
     Expression exp = create_expression(C);
-    uint32_t& e = expressionNumbering[exp];
+    uint32_t &e = expressionNumbering[exp];
     if (!e) e = nextValueNumber++;
     valueNumbering[C] = e;
     return e;
   } else if (AA->onlyReadsMemory(C)) {
     Expression exp = create_expression(C);
-    uint32_t& e = expressionNumbering[exp];
+    uint32_t &e = expressionNumbering[exp];
     if (!e) {
       e = nextValueNumber++;
       valueNumbering[C] = e;
@@ -413,7 +413,7 @@ uint32_t ValueTable::lookup_or_add(Value *V) {
     case Instruction::LShr:
     case Instruction::AShr:
     case Instruction::And:
-    case Instruction::Or :
+    case Instruction::Or:
     case Instruction::Xor:
     case Instruction::ICmp:
     case Instruction::FCmp:
@@ -632,6 +632,7 @@ INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfo)
 INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
 INITIALIZE_PASS_END(GVN, "gvn", "Global Value Numbering", false, false)
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void GVN::dump(DenseMap<uint32_t, Value*>& d) {
   errs() << "{\n";
   for (DenseMap<uint32_t, Value*>::iterator I = d.begin(),
@@ -641,6 +642,7 @@ void GVN::dump(DenseMap<uint32_t, Value*>& d) {
   }
   errs() << "}\n";
 }
+#endif
 
 /// IsValueFullyAvailableInBlock - Return true if we can prove that the value
 /// we're analyzing is fully available in the specified block.  As we go, keep

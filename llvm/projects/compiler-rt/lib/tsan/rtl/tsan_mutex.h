@@ -31,7 +31,7 @@ enum MutexType {
   MutexTypeAtExit,
 
   // This must be the last.
-  MutexTypeCount,
+  MutexTypeCount
 };
 
 class Mutex {
@@ -44,6 +44,8 @@ class Mutex {
 
   void ReadLock();
   void ReadUnlock();
+
+  void CheckLocked();
 
  private:
   atomic_uintptr_t state_;

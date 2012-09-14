@@ -34,7 +34,7 @@
 
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/Frontend/AnalyzerOptions.h"
+#include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Path.h"
@@ -78,7 +78,6 @@ public:
   ClangDiagPathDiagConsumer(DiagnosticsEngine &Diag) : Diag(Diag) {}
   virtual ~ClangDiagPathDiagConsumer() {}
   virtual StringRef getName() const { return "ClangDiags"; }
-  virtual bool useVerboseDescription() const { return false; }
   virtual PathGenerationScheme getGenerationScheme() const { return None; }
 
   void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
@@ -86,7 +85,7 @@ public:
     for (std::vector<const PathDiagnostic*>::iterator I = Diags.begin(),
          E = Diags.end(); I != E; ++I) {
       const PathDiagnostic *PD = *I;
-      StringRef desc = PD->getDescription();
+      StringRef desc = PD->getShortDescription();
       SmallString<512> TmpStr;
       llvm::raw_svector_ostream Out(TmpStr);
       for (StringRef::iterator I=desc.begin(), E=desc.end(); I!=E; ++I) {
@@ -136,7 +135,7 @@ public:
   ASTContext *Ctx;
   const Preprocessor &PP;
   const std::string OutDir;
-  AnalyzerOptions Opts;
+  AnalyzerOptionsRef Opts;
   ArrayRef<std::string> Plugins;
 
   /// \brief Stores the declarations from the local translation unit.
@@ -164,19 +163,19 @@ public:
 
   AnalysisConsumer(const Preprocessor& pp,
                    const std::string& outdir,
-                   const AnalyzerOptions& opts,
+                   AnalyzerOptionsRef opts,
                    ArrayRef<std::string> plugins)
     : RecVisitorMode(ANALYSIS_ALL), RecVisitorBR(0),
       Ctx(0), PP(pp), OutDir(outdir), Opts(opts), Plugins(plugins) {
     DigestAnalyzerOptions();
-    if (Opts.PrintStats) {
+    if (Opts->PrintStats) {
       llvm::EnableStatistics();
       TUTotalTimer = new llvm::Timer("Analyzer Total Time");
     }
   }
 
   ~AnalysisConsumer() {
-    if (Opts.PrintStats)
+    if (Opts->PrintStats)
       delete TUTotalTimer;
   }
 
@@ -185,38 +184,38 @@ public:
     PathConsumers.push_back(new ClangDiagPathDiagConsumer(PP.getDiagnostics()));
 
     if (!OutDir.empty()) {
-      switch (Opts.AnalysisDiagOpt) {
+      switch (Opts->AnalysisDiagOpt) {
       default:
 #define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATEFN, AUTOCREATE) \
         case PD_##NAME: CREATEFN(PathConsumers, OutDir, PP); break;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
       }
-    } else if (Opts.AnalysisDiagOpt == PD_TEXT) {
+    } else if (Opts->AnalysisDiagOpt == PD_TEXT) {
       // Create the text client even without a specified output file since
       // it just uses diagnostic notes.
       createTextPathDiagnosticConsumer(PathConsumers, "", PP);
     }
 
     // Create the analyzer component creators.
-    switch (Opts.AnalysisStoreOpt) {
+    switch (Opts->AnalysisStoreOpt) {
     default:
       llvm_unreachable("Unknown store manager.");
 #define ANALYSIS_STORE(NAME, CMDFLAG, DESC, CREATEFN)           \
       case NAME##Model: CreateStoreMgr = CREATEFN; break;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
     }
 
-    switch (Opts.AnalysisConstraintsOpt) {
+    switch (Opts->AnalysisConstraintsOpt) {
     default:
       llvm_unreachable("Unknown store manager.");
 #define ANALYSIS_CONSTRAINTS(NAME, CMDFLAG, DESC, CREATEFN)     \
       case NAME##Model: CreateConstraintMgr = CREATEFN; break;
-#include "clang/Frontend/Analyses.def"
+#include "clang/StaticAnalyzer/Core/Analyses.def"
     }
   }
 
   void DisplayFunction(const Decl *D, AnalysisMode Mode) {
-    if (!Opts.AnalyzerDisplayProgress)
+    if (!Opts->AnalyzerDisplayProgress)
       return;
 
     SourceManager &SM = Mgr->getASTContext().getSourceManager();
@@ -246,7 +245,7 @@ public:
 
   virtual void Initialize(ASTContext &Context) {
     Ctx = &Context;
-    checkerMgr.reset(createCheckerManager(Opts, PP.getLangOpts(), Plugins,
+    checkerMgr.reset(createCheckerManager(*Opts, PP.getLangOpts(), Plugins,
                                           PP.getDiagnostics()));
     Mgr.reset(new AnalysisManager(*Ctx,
                                   PP.getDiagnostics(),
@@ -255,22 +254,7 @@ public:
                                   CreateStoreMgr,
                                   CreateConstraintMgr,
                                   checkerMgr.get(),
-                                  Opts.Config,
-                                  Opts.MaxNodes,
-                                  Opts.MaxLoop,
-                                  Opts.VisualizeEGDot,
-                                  Opts.VisualizeEGUbi,
-                                  Opts.AnalysisPurgeOpt,
-                                  Opts.EagerlyAssume,
-                                  Opts.TrimGraph,
-                                  Opts.UnoptimizedCFG,
-                                  Opts.CFGAddImplicitDtors,
-                                  Opts.EagerlyTrimEGraph,
-                                  Opts.IPAMode,
-                                  Opts.InlineMaxStackDepth,
-                                  Opts.InlineMaxFunctionSize,
-                                  Opts.InliningMode,
-                                  Opts.NoRetryExhausted));
+                                  *Opts));
   }
 
   /// \brief Store the top level decls in the set to be processed later on.
@@ -363,6 +347,22 @@ void AnalysisConsumer::storeTopLevelDecls(DeclGroupRef DG) {
   }
 }
 
+static bool shouldSkipFunction(CallGraphNode *N,
+                               SmallPtrSet<CallGraphNode*,24> Visited) {
+  // We want to re-analyse the functions as top level in several cases:
+  // - The 'init' methods should be reanalyzed because
+  //   ObjCNonNilReturnValueChecker assumes that '[super init]' never returns
+  //   'nil' and unless we analyze the 'init' functions as top level, we will not
+  //   catch errors within defensive code.
+  // - We want to reanalyze all ObjC methods as top level to report Retain
+  //   Count naming convention errors more aggressively.
+  if (isa<ObjCMethodDecl>(N->getDecl()))
+    return false;
+
+  // Otherwise, if we visited the function before, do not reanalyze it.
+  return Visited.count(N);
+}
+
 void AnalysisConsumer::HandleDeclsGallGraph(const unsigned LocalTUDeclsSize) {
   // Otherwise, use the Callgraph to derive the order.
   // Build the Call Graph.
@@ -412,13 +412,13 @@ void AnalysisConsumer::HandleDeclsGallGraph(const unsigned LocalTUDeclsSize) {
     // Push the children into the queue.
     for (CallGraphNode::const_iterator CI = N->begin(),
          CE = N->end(); CI != CE; ++CI) {
-      if (!Visited.count(*CI))
+      if (!shouldSkipFunction(*CI, Visited))
         BFSQueue.push_back(*CI);
     }
 
     // Skip the functions which have been processed already or previously
     // inlined.
-    if (Visited.count(N))
+    if (shouldSkipFunction(N, Visited))
       continue;
 
     // Analyze the function.
@@ -426,7 +426,7 @@ void AnalysisConsumer::HandleDeclsGallGraph(const unsigned LocalTUDeclsSize) {
     Decl *D = N->getDecl();
     assert(D);
     HandleCode(D, ANALYSIS_PATH,
-               (Mgr->InliningMode == All ? 0 : &VisitedCallees));
+               (Mgr->options.InliningMode == All ? 0 : &VisitedCallees));
 
     // Add the visited callees to the global visited set.
     for (SetOfConstDecls::iterator I = VisitedCallees.begin(),
@@ -519,15 +519,15 @@ static std::string getFunctionName(const Decl *D) {
 }
 
 bool AnalysisConsumer::skipFunction(Decl *D) {
-  if (!Opts.AnalyzeSpecificFunction.empty() &&
-      getFunctionName(D) != Opts.AnalyzeSpecificFunction)
+  if (!Opts->AnalyzeSpecificFunction.empty() &&
+      getFunctionName(D) != Opts->AnalyzeSpecificFunction)
     return true;
 
   // Don't run the actions on declarations in header files unless
   // otherwise specified.
   SourceManager &SM = Ctx->getSourceManager();
   SourceLocation SL = SM.getExpansionLoc(D->getLocation());
-  if (!Opts.AnalyzeAll && !SM.isFromMainFile(SL))
+  if (!Opts->AnalyzeAll && !SM.isFromMainFile(SL))
     return true;
 
   return false;
@@ -553,7 +553,7 @@ void AnalysisConsumer::HandleCode(Decl *D, AnalysisMode Mode,
   SmallVector<Decl*, 10> WL;
   WL.push_back(D);
 
-  if (D->hasBody() && Opts.AnalyzeNestedBlocks)
+  if (D->hasBody() && Opts->AnalyzeNestedBlocks)
     FindBlocks(cast<DeclContext>(D), WL);
 
   BugReporter BR(*Mgr);
@@ -588,22 +588,22 @@ void AnalysisConsumer::ActionExprEngine(Decl *D, bool ObjCGCEnabled,
 
   // Set the graph auditor.
   OwningPtr<ExplodedNode::Auditor> Auditor;
-  if (Mgr->shouldVisualizeUbigraph()) {
+  if (Mgr->options.visualizeExplodedGraphWithUbiGraph) {
     Auditor.reset(CreateUbiViz());
     ExplodedNode::SetAuditor(Auditor.get());
   }
 
   // Execute the worklist algorithm.
   Eng.ExecuteWorkList(Mgr->getAnalysisDeclContextManager().getStackFrame(D),
-                      Mgr->getMaxNodes());
+                      Mgr->options.MaxNodes);
 
   // Release the auditor (if any) so that it doesn't monitor the graph
   // created BugReporter.
   ExplodedNode::SetAuditor(0);
 
   // Visualize the exploded graph.
-  if (Mgr->shouldVisualizeGraphviz())
-    Eng.ViewGraph(Mgr->shouldTrimGraph());
+  if (Mgr->options.visualizeExplodedGraphWithGraphViz)
+    Eng.ViewGraph(Mgr->options.TrimGraph);
 
   // Display warnings.
   Eng.getBugReporter().FlushReports();
@@ -634,7 +634,7 @@ void AnalysisConsumer::RunPathSensitiveChecks(Decl *D,
 
 ASTConsumer* ento::CreateAnalysisConsumer(const Preprocessor& pp,
                                           const std::string& outDir,
-                                          const AnalyzerOptions& opts,
+                                          AnalyzerOptionsRef opts,
                                           ArrayRef<std::string> plugins) {
   // Disable the effects of '-Werror' when using the AnalysisConsumer.
   pp.getDiagnostics().setWarningsAsErrors(false);

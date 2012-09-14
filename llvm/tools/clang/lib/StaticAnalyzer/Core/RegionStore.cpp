@@ -783,7 +783,7 @@ RegionBindings RegionStoreManager::invalidateGlobalRegion(MemRegion::Kind K,
   // Bind the globals memory space to a new symbol that we will use to derive
   // the bindings for all globals.
   const GlobalsSpaceRegion *GS = MRMgr.getGlobalsRegion(K);
-  SVal V = svalBuilder.conjureSymbolVal(/* SymbolTag = */ (void*) GS, Ex, LCtx,
+  SVal V = svalBuilder.conjureSymbolVal(/* SymbolTag = */ (const void*) GS, Ex, LCtx,
                                         /* type does not matter */ Ctx.IntTy,
                                         Count);
 
@@ -1575,12 +1575,8 @@ StoreRef RegionStoreManager::Bind(Store store, Loc L, SVal V) {
     // Binding directly to a symbolic region should be treated as binding
     // to element 0.
     QualType T = SR->getSymbol()->getType(Ctx);
-
-    // FIXME: Is this the right way to handle symbols that are references?
-    if (const PointerType *PT = T->getAs<PointerType>())
-      T = PT->getPointeeType();
-    else
-      T = T->getAs<ReferenceType>()->getPointeeType();
+    if (T->isAnyPointerType() || T->isReferenceType())
+      T = T->getPointeeType();
 
     R = GetElementZeroRegion(SR, T);
   }
@@ -1888,7 +1884,6 @@ public:
   void VisitAddedToCluster(const MemRegion *baseR, const ClusterBindings &C);
   void VisitCluster(const MemRegion *baseR, const ClusterBindings &C);
 
-  void VisitBindingKey(BindingKey K);
   bool UpdatePostponed();
   void VisitBinding(SVal V);
 };
@@ -1930,10 +1925,13 @@ void removeDeadBindingsWorker::VisitAddedToCluster(const MemRegion *baseR,
 
 void removeDeadBindingsWorker::VisitCluster(const MemRegion *baseR,
                                             const ClusterBindings &C) {
-  for (ClusterBindings::iterator I = C.begin(), E = C.end(); I != E; ++I) {
-    VisitBindingKey(I.getKey());
+  // Mark the symbol for any SymbolicRegion with live bindings as live itself.
+  // This means we should continue to track that symbol.
+  if (const SymbolicRegion *SymR = dyn_cast<SymbolicRegion>(baseR))
+    SymReaper.markLive(SymR->getSymbol());
+
+  for (ClusterBindings::iterator I = C.begin(), E = C.end(); I != E; ++I)
     VisitBinding(I.getData());
-  }
 }
 
 void removeDeadBindingsWorker::VisitBinding(SVal V) {
@@ -1970,8 +1968,8 @@ void removeDeadBindingsWorker::VisitBinding(SVal V) {
     if (const BlockDataRegion *BR = dyn_cast<BlockDataRegion>(R)) {
       BlockDataRegion::referenced_vars_iterator I = BR->referenced_vars_begin(),
                                                 E = BR->referenced_vars_end();
-        for ( ; I != E; ++I)
-          AddToWorkList(I.getCapturedRegion());
+      for ( ; I != E; ++I)
+        AddToWorkList(I.getCapturedRegion());
     }
   }
     
@@ -1982,20 +1980,6 @@ void removeDeadBindingsWorker::VisitBinding(SVal V) {
     SymReaper.markLive(*SI);
 }
 
-void removeDeadBindingsWorker::VisitBindingKey(BindingKey K) {
-  const MemRegion *R = K.getRegion();
-
-  // Mark this region "live" by adding it to the worklist.  This will cause
-  // use to visit all regions in the cluster (if we haven't visited them
-  // already).
-  if (AddToWorkList(R)) {
-    // Mark the symbol for any live SymbolicRegion as "live".  This means we
-    // should continue to track that symbol.
-    if (const SymbolicRegion *SymR = dyn_cast<SymbolicRegion>(R))
-      SymReaper.markLive(SymR->getSymbol());
-  }
-}
-
 bool removeDeadBindingsWorker::UpdatePostponed() {
   // See if any postponed SymbolicRegions are actually live now, after
   // having done a scan.
@@ -2003,7 +1987,7 @@ bool removeDeadBindingsWorker::UpdatePostponed() {
 
   for (SmallVectorImpl<const SymbolicRegion*>::iterator
         I = Postponed.begin(), E = Postponed.end() ; I != E ; ++I) {
-    if (const SymbolicRegion *SR = cast_or_null<SymbolicRegion>(*I)) {
+    if (const SymbolicRegion *SR = *I) {
       if (SymReaper.isLive(SR->getSymbol())) {
         changed |= AddToWorkList(SR);
         *I = NULL;

@@ -221,7 +221,8 @@ private:
   /// return the contents from the current token up to the end or comma.
   StringRef ParseStringToComma();
 
-  bool ParseAssignment(StringRef Name, bool allow_redef);
+  bool ParseAssignment(StringRef Name, bool allow_redef,
+                       bool NoDeadStrip = false);
 
   bool ParsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc);
   bool ParseBinOpRHS(unsigned Precedence, const MCExpr *&Res, SMLoc &EndLoc);
@@ -1697,7 +1698,8 @@ static bool IsUsedIn(const MCSymbol *Sym, const MCExpr *Value) {
   llvm_unreachable("Unknown expr kind!");
 }
 
-bool AsmParser::ParseAssignment(StringRef Name, bool allow_redef) {
+bool AsmParser::ParseAssignment(StringRef Name, bool allow_redef,
+                                bool NoDeadStrip) {
   // FIXME: Use better location, we should use proper tokens.
   SMLoc EqualLoc = Lexer.getLoc();
 
@@ -1752,6 +1754,9 @@ bool AsmParser::ParseAssignment(StringRef Name, bool allow_redef) {
 
   // Do the assignment.
   Out.EmitAssignment(Sym, Value);
+  if (NoDeadStrip)
+    Out.EmitSymbolAttribute(Sym, MCSA_NoDeadStrip);
+
 
   return false;
 }
@@ -1809,7 +1814,7 @@ bool AsmParser::ParseDirectiveSet(StringRef IDVal, bool allow_redef) {
     return TokError("unexpected token in '" + Twine(IDVal) + "'");
   Lex();
 
-  return ParseAssignment(Name, allow_redef);
+  return ParseAssignment(Name, allow_redef, true);
 }
 
 bool AsmParser::ParseEscapedString(std::string &Data) {
@@ -2280,8 +2285,13 @@ bool AsmParser::ParseDirectiveComm(bool IsLocal) {
     if (ParseAbsoluteExpression(Pow2Alignment))
       return true;
 
+    LCOMM::LCOMMType LCOMM = Lexer.getMAI().getLCOMMDirectiveAlignmentType();
+    if (IsLocal && LCOMM == LCOMM::NoAlignment)
+      return Error(Pow2AlignmentLoc, "alignment not supported on this target");
+
     // If this target takes alignments in bytes (not log) validate and convert.
-    if (Lexer.getMAI().getAlignmentIsInBytes()) {
+    if ((!IsLocal && Lexer.getMAI().getCOMMDirectiveAlignmentIsInBytes()) ||
+        (IsLocal && LCOMM == LCOMM::ByteAlignment)) {
       if (!isPowerOf2_64(Pow2Alignment))
         return Error(Pow2AlignmentLoc, "alignment must be a power of 2");
       Pow2Alignment = Log2_64(Pow2Alignment);
@@ -2309,13 +2319,9 @@ bool AsmParser::ParseDirectiveComm(bool IsLocal) {
   if (!Sym->isUndefined())
     return Error(IDLoc, "invalid symbol redefinition");
 
-  // '.lcomm' is equivalent to '.zerofill'.
   // Create the Symbol as a common or local common with Size and Pow2Alignment
   if (IsLocal) {
-    getStreamer().EmitZerofill(Ctx.getMachOSection(
-                                 "__DATA", "__bss", MCSectionMachO::S_ZEROFILL,
-                                 0, SectionKind::getBSS()),
-                               Sym, Size, 1 << Pow2Alignment);
+    getStreamer().EmitLocalCommonSymbol(Sym, Size, 1 << Pow2Alignment);
     return false;
   }
 

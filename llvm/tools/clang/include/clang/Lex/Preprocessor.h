@@ -506,8 +506,8 @@ public:
   }
 
   /// RemovePragmaHandler - Remove the specific pragma handler from
-  /// the preprocessor. If \arg Namespace is non-null, then it should
-  /// be the namespace that \arg Handler was added to. It is an error
+  /// the preprocessor. If \p Namespace is non-null, then it should
+  /// be the namespace that \p Handler was added to. It is an error
   /// to remove a handler that has not been registered.
   void RemovePragmaHandler(StringRef Namespace, PragmaHandler *Handler);
   void RemovePragmaHandler(PragmaHandler *Handler) {
@@ -569,7 +569,8 @@ public:
   ///
   /// ILEnd specifies the location of the ')' for a function-like macro or the
   /// identifier for an object-like macro.
-  void EnterMacro(Token &Identifier, SourceLocation ILEnd, MacroArgs *Args);
+  void EnterMacro(Token &Identifier, SourceLocation ILEnd, MacroInfo *Macro,
+                  MacroArgs *Args);
 
   /// EnterTokenStream - Add a "macro" context to the top of the include stack,
   /// which will cause the lexer to start returning the specified tokens.

@@ -558,6 +558,7 @@ ASTContext::ASTContext(LangOptions& LOpts, SourceManager &SM,
     Int128Decl(0), UInt128Decl(0),
     BuiltinVaListDecl(0),
     ObjCIdDecl(0), ObjCSelDecl(0), ObjCClassDecl(0), ObjCProtocolClassDecl(0),
+    BOOLDecl(0),
     CFConstantStringTypeDecl(0), ObjCInstanceTypeDecl(0),
     FILEDecl(0), 
     jmp_bufDecl(0), sigjmp_bufDecl(0), ucontext_tDecl(0),
@@ -572,6 +573,7 @@ ASTContext::ASTContext(LangOptions& LOpts, SourceManager &SM,
     DeclarationNames(*this),
     ExternalSource(0), Listener(0),
     Comments(SM), CommentsLoaded(false),
+    CommentCommandTraits(BumpAlloc),
     LastSDM(0, 0),
     UniqueBlockByRefTypeID(0) 
 {
@@ -760,12 +762,12 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target) {
   InitBuiltinType(Int128Ty,            BuiltinType::Int128);
   InitBuiltinType(UnsignedInt128Ty,    BuiltinType::UInt128);
 
-  if (LangOpts.CPlusPlus) { // C++ 3.9.1p5
+  if (LangOpts.CPlusPlus && LangOpts.WChar) { // C++ 3.9.1p5
     if (TargetInfo::isTypeSigned(Target.getWCharType()))
       InitBuiltinType(WCharTy,           BuiltinType::WChar_S);
     else  // -fshort-wchar makes wchar_t be unsigned.
       InitBuiltinType(WCharTy,           BuiltinType::WChar_U);
-  } else // C99
+  } else // C99 (or C++ using -fno-wchar)
     WCharTy = getFromTargetType(Target.getWCharType());
 
   WIntTy = getFromTargetType(Target.getWIntType());
@@ -801,6 +803,9 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target) {
 
   // Placeholder type for unbridged ARC casts.
   InitBuiltinType(ARCUnbridgedCastTy,  BuiltinType::ARCUnbridgedCast);
+
+  // Placeholder type for builtin functions.
+  InitBuiltinType(BuiltinFnTy,  BuiltinType::BuiltinFn);
 
   // C99 6.2.5p11.
   FloatComplexTy      = getComplexType(FloatTy);
@@ -6826,7 +6831,7 @@ unsigned ASTContext::getIntWidth(QualType T) const {
   return (unsigned)getTypeSize(T);
 }
 
-QualType ASTContext::getCorrespondingUnsignedType(QualType T) {
+QualType ASTContext::getCorrespondingUnsignedType(QualType T) const {
   assert(T->hasSignedIntegerRepresentation() && "Unexpected type");
   
   // Turn <4 x signed int> -> <4 x unsigned int>

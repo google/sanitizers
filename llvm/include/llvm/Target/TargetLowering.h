@@ -25,6 +25,7 @@
 #include "llvm/CallingConv.h"
 #include "llvm/InlineAsm.h"
 #include "llvm/Attributes.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/RuntimeLibcalls.h"
@@ -107,6 +108,14 @@ public:
     ZeroOrNegativeOneBooleanContent // All bits equal to bit 0.
   };
 
+  enum SelectSupportKind {
+    ScalarValSelect,      // The target supports scalar selects (ex: cmov).
+    ScalarCondVectorVal,  // The target supports selects with a scalar condition
+                          // and vector values (ex: cmov).
+    VectorMaskSelect      // The target supports vector selects with a vector
+                          // mask (ex: x86 blends).
+  };
+
   static ISD::NodeType getExtendForContent(BooleanContent Content) {
     switch (Content) {
     case UndefinedBooleanContent:
@@ -140,9 +149,21 @@ public:
   /// this target.
   bool isSelectExpensive() const { return SelectIsExpensive; }
 
+  virtual bool isSelectSupported(SelectSupportKind kind) const { return true; }
+
   /// isIntDivCheap() - Return true if integer divide is usually cheaper than
   /// a sequence of several shifts, adds, and multiplies for this target.
   bool isIntDivCheap() const { return IntDivIsCheap; }
+
+  /// isSlowDivBypassed - Returns true if target has indicated at least one
+  /// type should be bypassed.
+  bool isSlowDivBypassed() const { return !BypassSlowDivTypes.empty(); }
+
+  /// getBypassSlowDivTypes - Returns map of slow types for division or
+  /// remainder with corresponding fast types
+  const DenseMap<Type *, Type *> &getBypassSlowDivTypes() const {
+    return BypassSlowDivTypes;
+  }
 
   /// isPow2DivCheap() - Return true if pow2 div is cheaper than a chain of
   /// srl/add/sra.
@@ -476,7 +497,8 @@ public:
            (unsigned)VT.getSimpleVT().SimpleTy < sizeof(CondCodeActions[0])*4 &&
            "Table isn't big enough!");
     LegalizeAction Action = (LegalizeAction)
-      ((CondCodeActions[CC] >> (2*VT.getSimpleVT().SimpleTy)) & 3);
+      ((CondCodeActions[CC][VT.getSimpleVT().SimpleTy >> 5]
+        >> (2*(VT.getSimpleVT().SimpleTy & 0x1F))) & 3);
     assert(Action != Promote && "Can't promote condition code!");
     return Action;
   }
@@ -533,6 +555,7 @@ public:
     }
     return EVT::getEVT(Ty, AllowUnknown);
   }
+  
 
   /// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
   /// function arguments in the caller parameter area.  This is the actual
@@ -1045,6 +1068,11 @@ protected:
   /// of instructions not containing an integer divide.
   void setIntDivIsCheap(bool isCheap = true) { IntDivIsCheap = isCheap; }
 
+  /// addBypassSlowDivType - Tells the code generator which types to bypass.
+  void addBypassSlowDivType(Type *slow_type, Type *fast_type) {
+    BypassSlowDivTypes[slow_type] = fast_type;
+  }
+
   /// setPow2DivIsCheap - Tells the code generator that it shouldn't generate
   /// srl/add/sra for a signed divide by power of two, and let the target handle
   /// it.
@@ -1127,8 +1155,10 @@ protected:
     assert(VT < MVT::LAST_VALUETYPE &&
            (unsigned)CC < array_lengthof(CondCodeActions) &&
            "Table isn't big enough!");
-    CondCodeActions[(unsigned)CC] &= ~(uint64_t(3UL)  << VT.SimpleTy*2);
-    CondCodeActions[(unsigned)CC] |= (uint64_t)Action << VT.SimpleTy*2;
+    CondCodeActions[(unsigned)CC][VT.SimpleTy >> 5]
+      &= ~(uint64_t(3UL)  << (VT.SimpleTy & 0x1F)*2);
+    CondCodeActions[(unsigned)CC][VT.SimpleTy >> 5]
+      |= (uint64_t)Action << (VT.SimpleTy & 0x1F)*2;
   }
 
   /// AddPromotedToType - If Opc/OrigVT is specified as being promoted, the
@@ -1762,6 +1792,12 @@ private:
   /// set to true unconditionally.
   bool IntDivIsCheap;
 
+  /// BypassSlowDivTypes - Tells the code generator to bypass slow divide or
+  /// remainder instructions. For example, SlowDivBypass[i32,u8] tells the code
+  /// generator to bypass 32-bit signed integer div/rem with an 8-bit unsigned
+  /// integer div/rem when the operands are positive and less than 256.
+  DenseMap <Type *, Type *> BypassSlowDivTypes;
+
   /// Pow2DivIsCheap - Tells the code generator that it shouldn't generate
   /// srl/add/sra for a signed divide by power of two, and let the target handle
   /// it.
@@ -1901,7 +1937,7 @@ private:
   /// CondCodeActions - For each condition code (ISD::CondCode) keep a
   /// LegalizeAction that indicates how instruction selection should
   /// deal with the condition code.
-  uint64_t CondCodeActions[ISD::SETCC_INVALID];
+  uint64_t CondCodeActions[ISD::SETCC_INVALID][2];
 
   ValueTypeActionImpl ValueTypeActions;
 

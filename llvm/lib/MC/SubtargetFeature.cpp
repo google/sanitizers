@@ -337,9 +337,9 @@ uint64_t SubtargetFeatures::getFeatureBits(const StringRef CPU,
 }
 
 /// Get scheduling itinerary of a CPU.
-void *SubtargetFeatures::getItinerary(const StringRef CPU,
-                                      const SubtargetInfoKV *Table,
-                                      size_t TableSize) {
+const void *SubtargetFeatures::getItinerary(const StringRef CPU,
+                                            const SubtargetInfoKV *Table,
+                                            size_t TableSize) {
   assert(Table && "missing table");
 #ifndef NDEBUG
   for (size_t i = 1; i < TableSize; i++) {
@@ -368,11 +368,13 @@ void SubtargetFeatures::print(raw_ostream &OS) const {
   OS << "\n";
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 /// dump - Dump feature info.
 ///
 void SubtargetFeatures::dump() const {
   print(dbgs());
 }
+#endif
 
 /// getDefaultSubtargetFeatures - Return a string listing the features
 /// associated with the target triple.

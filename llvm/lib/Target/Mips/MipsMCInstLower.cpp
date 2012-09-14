@@ -11,7 +11,6 @@
 // MCInst records.
 //
 //===----------------------------------------------------------------------===//
-
 #include "MipsMCInstLower.h"
 #include "MipsAsmPrinter.h"
 #include "MipsInstrInfo.h"
@@ -161,66 +160,3 @@ void MipsMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   }
 }
 
-// If the D<shift> instruction has a shift amount that is greater
-// than 31 (checked in calling routine), lower it to a D<shift>32 instruction
-void MipsMCInstLower::LowerLargeShift(const MachineInstr *MI,
-                                      MCInst& Inst,
-                                      int64_t Shift) {
-  // rt
-  Inst.addOperand(LowerOperand(MI->getOperand(0)));
-  // rd
-  Inst.addOperand(LowerOperand(MI->getOperand(1)));
-  // saminus32
-  Inst.addOperand(MCOperand::CreateImm(Shift));
-
-  switch (MI->getOpcode()) {
-  default:
-    // Calling function is not synchronized
-    llvm_unreachable("Unexpected shift instruction");
-    break;
-  case Mips::DSLL:
-    Inst.setOpcode(Mips::DSLL32);
-    break;
-  case Mips::DSRL:
-    Inst.setOpcode(Mips::DSRL32);
-    break;
-  case Mips::DSRA:
-    Inst.setOpcode(Mips::DSRA32);
-    break;
-  }
-}
-
-// Pick a DEXT instruction variant based on the pos and size operands
-void MipsMCInstLower::LowerDEXT(const MachineInstr *MI,  MCInst& Inst) {
-
-  assert(MI->getNumOperands() == 4 && "Invalid no. of machine operands for DEXT!");
-  assert(MI->getOperand(2).isImm());
-  int64_t pos = MI->getOperand(2).getImm();
-  assert(MI->getOperand(3).isImm());
-  int64_t size = MI->getOperand(3).getImm();
-
-  // rt
-  Inst.addOperand(LowerOperand(MI->getOperand(0)));
-  // rs
-  Inst.addOperand(LowerOperand(MI->getOperand(1)));
-
-  // DEXT
-  if ((pos < 32) && (size <= 32)) {
-    Inst.addOperand(MCOperand::CreateImm(pos));
-    Inst.addOperand(MCOperand::CreateImm(size));
-    Inst.setOpcode(Mips::DEXT);
-  }
-  // DEXTU
-  else if ((pos < 64) && (size <= 32)) {
-    Inst.addOperand(MCOperand::CreateImm(pos - 32));
-    Inst.addOperand(MCOperand::CreateImm(size));
-    Inst.setOpcode(Mips::DEXTU);
-  }
-  // DEXTM
-  else {
-    Inst.addOperand(MCOperand::CreateImm(pos));
-    Inst.addOperand(MCOperand::CreateImm(size - 32));
-    Inst.setOpcode(Mips::DEXTM);
-  }
-  return;
-}

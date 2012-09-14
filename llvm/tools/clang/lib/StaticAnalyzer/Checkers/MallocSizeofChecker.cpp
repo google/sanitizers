@@ -146,14 +146,26 @@ static bool typesCompatible(ASTContext &C, QualType A, QualType B) {
     
     if (const PointerType *ptrA = A->getAs<PointerType>())
       if (const PointerType *ptrB = B->getAs<PointerType>()) {
-	A = ptrA->getPointeeType();
-	B = ptrB->getPointeeType();
-	continue;
+        A = ptrA->getPointeeType();
+        B = ptrB->getPointeeType();
+        continue;
       }
       
     break;
   }
   
+  return false;
+}
+
+static bool compatibleWithArrayType(ASTContext &C, QualType PT, QualType T) {
+  // Ex: 'int a[10][2]' is compatible with 'int', 'int[2]', 'int[10][2]'.
+  while (const ArrayType *AT = T->getAsArrayTypeUnsafe()) {
+    QualType ElemType = AT->getElementType();
+    if (typesCompatible(C, PT, AT->getElementType()))
+      return true;
+    T = ElemType;
+  }
+
   return false;
 }
 
@@ -184,38 +196,49 @@ public:
           continue;
 
         QualType SizeofType = SFinder.Sizeofs[0]->getTypeOfArgument();
-        if (!typesCompatible(BR.getContext(), PointeeType, SizeofType)) {
-          const TypeSourceInfo *TSI = 0;
-          if (i->CastedExprParent.is<const VarDecl *>()) {
-            TSI =
+
+        if (typesCompatible(BR.getContext(), PointeeType, SizeofType))
+          continue;
+
+        // If the argument to sizeof is an array, the result could be a
+        // pointer to any array element.
+        if (compatibleWithArrayType(BR.getContext(), PointeeType, SizeofType))
+          continue;
+
+        const TypeSourceInfo *TSI = 0;
+        if (i->CastedExprParent.is<const VarDecl *>()) {
+          TSI =
               i->CastedExprParent.get<const VarDecl *>()->getTypeSourceInfo();
-          } else {
-            TSI = i->ExplicitCastType;
-          }
-
-          SmallString<64> buf;
-          llvm::raw_svector_ostream OS(buf);
-
-          OS << "Result of '"
-             << i->AllocCall->getDirectCallee()->getIdentifier()->getName()
-             << "' is converted to a pointer of type '"
-             << PointeeType.getAsString() << "', which is incompatible with "
-             << "sizeof operand type '" << SizeofType.getAsString() << "'";
-          llvm::SmallVector<SourceRange, 4> Ranges;
-          Ranges.push_back(i->AllocCall->getCallee()->getSourceRange());
-          Ranges.push_back(SFinder.Sizeofs[0]->getSourceRange());
-          if (TSI)
-            Ranges.push_back(TSI->getTypeLoc().getSourceRange());
-
-          PathDiagnosticLocation L =
-            PathDiagnosticLocation::createBegin(i->AllocCall->getCallee(),
-                                                BR.getSourceManager(), ADC);
-
-          BR.EmitBasicReport(D, "Allocator sizeof operand mismatch",
-                             categories::UnixAPI,
-                             OS.str(),
-                             L, Ranges.data(), Ranges.size());
+        } else {
+          TSI = i->ExplicitCastType;
         }
+
+        SmallString<64> buf;
+        llvm::raw_svector_ostream OS(buf);
+
+        OS << "Result of ";
+        const FunctionDecl *Callee = i->AllocCall->getDirectCallee();
+        if (Callee && Callee->getIdentifier())
+          OS << '\'' << Callee->getIdentifier()->getName() << '\'';
+        else
+          OS << "call";
+        OS << " is converted to a pointer of type '"
+            << PointeeType.getAsString() << "', which is incompatible with "
+            << "sizeof operand type '" << SizeofType.getAsString() << "'";
+        llvm::SmallVector<SourceRange, 4> Ranges;
+        Ranges.push_back(i->AllocCall->getCallee()->getSourceRange());
+        Ranges.push_back(SFinder.Sizeofs[0]->getSourceRange());
+        if (TSI)
+          Ranges.push_back(TSI->getTypeLoc().getSourceRange());
+
+        PathDiagnosticLocation L =
+            PathDiagnosticLocation::createBegin(i->AllocCall->getCallee(),
+                BR.getSourceManager(), ADC);
+
+        BR.EmitBasicReport(D, "Allocator sizeof operand mismatch",
+            categories::UnixAPI,
+            OS.str(),
+            L, Ranges.data(), Ranges.size());
       }
     }
   }

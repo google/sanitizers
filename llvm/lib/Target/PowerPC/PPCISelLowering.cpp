@@ -1264,8 +1264,8 @@ SDValue PPCTargetLowering::LowerBlockAddress(SDValue Op,
 
   unsigned MOHiFlag, MOLoFlag;
   bool isPIC = GetLabelAccessInfo(DAG.getTarget(), MOHiFlag, MOLoFlag);
-  SDValue TgtBAHi = DAG.getBlockAddress(BA, PtrVT, /*isTarget=*/true, MOHiFlag);
-  SDValue TgtBALo = DAG.getBlockAddress(BA, PtrVT, /*isTarget=*/true, MOLoFlag);
+  SDValue TgtBAHi = DAG.getTargetBlockAddress(BA, PtrVT, 0, MOHiFlag);
+  SDValue TgtBALo = DAG.getTargetBlockAddress(BA, PtrVT, 0, MOLoFlag);
   return LowerLabelRef(TgtBAHi, TgtBALo, isPIC, DAG);
 }
 
@@ -1473,7 +1473,7 @@ SDValue PPCTargetLowering::LowerVAARG(SDValue Op, SelectionDAG &DAG,
                               MachinePointerInfo(),
                               MVT::i32, false, false, 0);
 
-  return DAG.getLoad(VT, dl, InChain, Result, MachinePointerInfo(), 
+  return DAG.getLoad(VT, dl, InChain, Result, MachinePointerInfo(),
                      false, false, false, 0);
 }
 
@@ -3164,8 +3164,12 @@ PPCTargetLowering::LowerCall_SVR4(SDValue Chain, SDValue Callee,
   // Set CR bit 6 to true if this is a vararg call with floating args passed in
   // registers.
   if (isVarArg) {
+    SDVTList VTs = DAG.getVTList(MVT::Other, MVT::Glue);
+    SDValue Ops[] = { Chain, InFlag };
+
     Chain = DAG.getNode(seenFloatArg ? PPCISD::CR6SET : PPCISD::CR6UNSET,
-                        dl, DAG.getVTList(MVT::Other, MVT::Glue), Chain);
+                        dl, VTs, Ops, InFlag.getNode() ? 2 : 1);
+
     InFlag = Chain.getValue(1);
   }
 

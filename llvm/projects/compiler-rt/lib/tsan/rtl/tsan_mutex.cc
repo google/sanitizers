@@ -48,7 +48,7 @@ void InitializeMutex() {
   bool leaf[N] = {};
   for (int i = 1; i < N; i++) {
     for (int j = 0; j < N; j++) {
-      int z = CanLockTab[i][j];
+      MutexType z = CanLockTab[i][j];
       if (z == MutexTypeInvalid)
         continue;
       if (z == MutexTypeLeaf) {
@@ -56,8 +56,8 @@ void InitializeMutex() {
         leaf[i] = true;
         continue;
       }
-      CHECK(!CanLockAdj[i][z]);
-      CanLockAdj[i][z] = true;
+      CHECK(!CanLockAdj[i][(int)z]);
+      CanLockAdj[i][(int)z] = true;
       cnt[i]++;
     }
   }
@@ -141,7 +141,7 @@ void DeadlockDetector::Lock(MutexType t) {
     TsanPrintf("ThreadSanitizer: internal deadlock detected\n");
     TsanPrintf("ThreadSanitizer: can't lock %d while under %zu\n",
                t, (uptr)max_idx);
-    Die();
+    CHECK(0);
   }
 }
 
@@ -254,6 +254,10 @@ void Mutex::ReadUnlock() {
 #if TSAN_DEBUG && !TSAN_GO
   cur_thread()->deadlock_detector.Unlock(type_);
 #endif
+}
+
+void Mutex::CheckLocked() {
+  CHECK_NE(atomic_load(&state_, memory_order_relaxed), 0);
 }
 
 }  // namespace __tsan

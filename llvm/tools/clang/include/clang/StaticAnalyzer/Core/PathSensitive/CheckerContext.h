@@ -64,8 +64,8 @@ public:
     return Eng.getStoreManager();
   }
 
-  const AnalysisManager::ConfigTable &getConfig() const {
-    return Eng.getAnalysisManager().Config;
+  const AnalyzerOptions::ConfigTable &getConfig() const {
+    return Eng.getAnalysisManager().options.Config;
   }
   
   /// \brief Returns the previous node in the exploded graph, which includes
@@ -98,6 +98,11 @@ public:
 
   const StackFrameContext *getStackFrame() const {
     return Pred->getStackFrame();
+  }
+
+  /// Returns true if the predecessor is within an inlined function/method.
+  bool isWithinInlined() {
+    return (getStackFrame()->getParent() != 0);
   }
 
   BugReporter &getBugReporter() {

@@ -30,6 +30,7 @@
 #ifndef __APPLE__
 #include <malloc.h>
 #else
+#include <malloc/malloc.h>
 #include <AvailabilityMacros.h>  // For MAC_OS_X_VERSION_*
 #include <CoreFoundation/CFString.h>
 #endif  // __APPLE__
@@ -66,7 +67,7 @@ NOINLINE void asan_write(T *a) {
 }
 
 NOINLINE void asan_write_sized_aligned(uint8_t *p, size_t size) {
-  EXPECT_EQ(0, ((uintptr_t)p % size));
+  EXPECT_EQ(0U, ((uintptr_t)p % size));
   if      (size == 1) asan_write((uint8_t*)p);
   else if (size == 2) asan_write((uint16_t*)p);
   else if (size == 4) asan_write((uint32_t*)p);
@@ -141,29 +142,24 @@ TEST(AddressSanitizer, SimpleDeathTest) {
 }
 
 TEST(AddressSanitizer, VariousMallocsTest) {
-  // fprintf(stderr, "malloc:\n");
   int *a = (int*)malloc(100 * sizeof(int));
   a[50] = 0;
   free(a);
 
-  // fprintf(stderr, "realloc:\n");
   int *r = (int*)malloc(10);
   r = (int*)realloc(r, 2000 * sizeof(int));
   r[1000] = 0;
   free(r);
 
-  // fprintf(stderr, "operator new []\n");
   int *b = new int[100];
   b[50] = 0;
   delete [] b;
 
-  // fprintf(stderr, "operator new\n");
   int *c = new int;
   *c = 0;
   delete c;
 
-#if !defined(__APPLE__) && !defined(ANDROID)
-  // fprintf(stderr, "posix_memalign\n");
+#if !defined(__APPLE__) && !defined(ANDROID) && !defined(__ANDROID__)
   int *pm;
   int pm_res = posix_memalign((void**)&pm, kPageSize, kPageSize);
   EXPECT_EQ(0, pm_res);
@@ -172,7 +168,7 @@ TEST(AddressSanitizer, VariousMallocsTest) {
 
 #if !defined(__APPLE__)
   int *ma = (int*)memalign(kPageSize, kPageSize);
-  EXPECT_EQ(0, (uintptr_t)ma % kPageSize);
+  EXPECT_EQ(0U, (uintptr_t)ma % kPageSize);
   ma[123] = 0;
   free(ma);
 #endif  // __APPLE__
@@ -186,19 +182,19 @@ TEST(AddressSanitizer, CallocTest) {
 
 TEST(AddressSanitizer, VallocTest) {
   void *a = valloc(100);
-  EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  EXPECT_EQ(0U, (uintptr_t)a % kPageSize);
   free(a);
 }
 
 #ifndef __APPLE__
 TEST(AddressSanitizer, PvallocTest) {
   char *a = (char*)pvalloc(kPageSize + 100);
-  EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  EXPECT_EQ(0U, (uintptr_t)a % kPageSize);
   a[kPageSize + 101] = 1;  // we should not report an error here.
   free(a);
 
   a = (char*)pvalloc(0);  // pvalloc(0) should allocate at least one page.
-  EXPECT_EQ(0, (uintptr_t)a % kPageSize);
+  EXPECT_EQ(0U, (uintptr_t)a % kPageSize);
   a[101] = 1;  // we should not report an error here.
   free(a);
 }
@@ -245,10 +241,10 @@ void OOBTest() {
       EXPECT_DEATH(oob_test<T>(size, i), expected_str);
     }
 
-    for (int i = 0; i < size - sizeof(T) + 1; i++)
+    for (int i = 0; i < (int)(size - sizeof(T) + 1); i++)
       oob_test<T>(size, i);
 
-    for (int i = size - sizeof(T) + 1; i <= size + 3 * sizeof(T); i++) {
+    for (int i = size - sizeof(T) + 1; i <= (int)(size + 3 * sizeof(T)); i++) {
       const char *str =
           "is located.*%d byte.*to the right";
       int off = i >= size ? (i - size) : 0;
@@ -335,7 +331,7 @@ TEST(AddressSanitizer, BitFieldPositiveTest) {
   EXPECT_DEATH(x->bf2 = 0, "use-after-free");
   EXPECT_DEATH(x->bf3 = 0, "use-after-free");
   EXPECT_DEATH(x->bf4 = 0, "use-after-free");
-};
+}
 
 struct StructWithBitFields_8_24 {
   int a:8;
@@ -481,7 +477,7 @@ TEST(AddressSanitizer, MallocUsableSizeTest) {
   const size_t kArraySize = 100;
   char *array = Ident((char*)malloc(kArraySize));
   int *int_ptr = Ident(new int);
-  EXPECT_EQ(0, malloc_usable_size(NULL));
+  EXPECT_EQ(0U, malloc_usable_size(NULL));
   EXPECT_EQ(kArraySize, malloc_usable_size(array));
   EXPECT_EQ(sizeof(int), malloc_usable_size(int_ptr));
   EXPECT_DEATH(malloc_usable_size((void*)0x123), kMallocUsableSizeErrorMsg);
@@ -902,8 +898,8 @@ void StrLenOOBTestTemplate(char *str, size_t length, bool is_global) {
   // Normal strlen calls
   EXPECT_EQ(strlen(str), length);
   if (length > 0) {
-    EXPECT_EQ(strlen(str + 1), length - 1);
-    EXPECT_EQ(strlen(str + length), 0);
+    EXPECT_EQ(length - 1, strlen(str + 1));
+    EXPECT_EQ(0U, strlen(str + length));
   }
   // Arg of strlen is not malloced, OOB access
   if (!is_global) {
@@ -925,7 +921,7 @@ TEST(AddressSanitizer, StrLenOOBTest) {
   size_t length = Ident(10);
   char *heap_string = Ident((char*)malloc(length + 1));
   char stack_string[10 + 1];
-  for (int i = 0; i < length; i++) {
+  for (size_t i = 0; i < length; i++) {
     heap_string[i] = 'a';
     stack_string[i] = 'b';
   }
@@ -2093,6 +2089,19 @@ TEST(AddressSanitizerMac, NSObjectOOB) {
 TEST(AddressSanitizerMac, NSURLDeallocation) {
   TestNSURLDeallocation();
 }
+
+// See http://code.google.com/p/address-sanitizer/issues/detail?id=109.
+TEST(AddressSanitizerMac, Mstats) {
+  malloc_statistics_t stats1, stats2;
+  malloc_zone_statistics(/*all zones*/NULL, &stats1);
+  const int kMallocSize = 100000;
+  void *alloc = Ident(malloc(kMallocSize));
+  malloc_zone_statistics(/*all zones*/NULL, &stats2);
+  EXPECT_GT(stats2.blocks_in_use, stats1.blocks_in_use);
+  EXPECT_GE(stats2.size_in_use - stats1.size_in_use, kMallocSize);
+  free(alloc);
+  // Even the default OSX allocator may not change the stats after free().
+}
 #endif  // __APPLE__
 
 // Test that instrumentation of stack allocations takes into account
@@ -2103,7 +2112,7 @@ TEST(AddressSanitizer, LongDoubleNegativeTest) {
   static long double c;
   memcpy(Ident(&a), Ident(&b), sizeof(long double));
   memcpy(Ident(&c), Ident(&b), sizeof(long double));
-};
+}
 
 int main(int argc, char **argv) {
   progname = argv[0];

@@ -23,7 +23,7 @@
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/FrontendPluginRegistry.h"
-#include "clang/Rewrite/FrontendActions.h"
+#include "clang/Rewrite/Frontend/FrontendActions.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/DynamicLibrary.h"
 using namespace clang;
@@ -175,7 +175,7 @@ bool clang::ExecuteCompilerInvocation(CompilerInstance *Clang) {
 
   // Honor -analyzer-checker-help.
   // This should happen AFTER plugins have been loaded!
-  if (Clang->getAnalyzerOpts().ShowCheckerHelp) {
+  if (Clang->getAnalyzerOpts()->ShowCheckerHelp) {
     ento::printCheckerHelp(llvm::outs(), Clang->getFrontendOpts().Plugins);
     return 0;
   }

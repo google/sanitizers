@@ -66,6 +66,15 @@ bool Sema::CanUseDecl(NamedDecl *D) {
   return true;
 }
 
+static void DiagnoseUnusedOfDecl(Sema &S, NamedDecl *D, SourceLocation Loc) {
+  // Warn if this is used but marked unused.
+  if (D->hasAttr<UnusedAttr>()) {
+    const Decl *DC = cast<Decl>(S.getCurObjCLexicalContext());
+    if (!DC->hasAttr<UnusedAttr>())
+      S.Diag(Loc, diag::warn_used_but_marked_unused) << D->getDeclName();
+  }
+}
+
 static AvailabilityResult DiagnoseAvailabilityOfDecl(Sema &S,
                               NamedDecl *D, SourceLocation Loc,
                               const ObjCInterfaceDecl *UnknownObjCClass) {
@@ -250,9 +259,7 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, SourceLocation Loc,
   }
   DiagnoseAvailabilityOfDecl(*this, D, Loc, UnknownObjCClass);
 
-  // Warn if this is used but marked unused.
-  if (D->hasAttr<UnusedAttr>())
-    Diag(Loc, diag::warn_used_but_marked_unused) << D->getDeclName();
+  DiagnoseUnusedOfDecl(*this, D, Loc);
 
   diagnoseUseOfInternalDeclInInlineFunction(*this, D, Loc);
 
@@ -2416,6 +2423,14 @@ Sema::BuildDeclarationNameExpr(const CXXScopeSpec &SS,
     }
         
     case Decl::Function: {
+      if (unsigned BID = cast<FunctionDecl>(VD)->getBuiltinID()) {
+        if (!Context.BuiltinInfo.isPredefinedLibFunction(BID)) {
+          type = Context.BuiltinFnTy;
+          valueKind = VK_RValue;
+          break;
+        }
+      }
+
       const FunctionType *fty = type->castAs<FunctionType>();
 
       // If we're referring to a function with an __unknown_anytype
@@ -3929,9 +3944,19 @@ Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
                             SourceLocation RParenLoc,
                             Expr *Config, bool IsExecConfig) {
   FunctionDecl *FDecl = dyn_cast_or_null<FunctionDecl>(NDecl);
+  unsigned BuiltinID = (FDecl ? FDecl->getBuiltinID() : 0);
 
   // Promote the function operand.
-  ExprResult Result = UsualUnaryConversions(Fn);
+  // We special-case function promotion here because we only allow promoting
+  // builtin functions to function pointers in the callee of a call.
+  ExprResult Result;
+  if (BuiltinID &&
+      Fn->getType()->isSpecificBuiltinType(BuiltinType::BuiltinFn)) {
+    Result = ImpCastExprToType(Fn, Context.getPointerType(FDecl->getType()),
+                               CK_BuiltinFnToFnPtr).take();
+  } else {
+    Result = UsualUnaryConversions(Fn);
+  }
   if (Result.isInvalid())
     return ExprError();
   Fn = Result.take();
@@ -3952,8 +3977,6 @@ Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
                                      Context.BoolTy,
                                      VK_RValue,
                                      RParenLoc);
-
-  unsigned BuiltinID = (FDecl ? FDecl->getBuiltinID() : 0);
 
   // Bail out early if calling a builtin with custom typechecking.
   if (BuiltinID && Context.BuiltinInfo.hasCustomTypechecking(BuiltinID))
@@ -7191,7 +7214,10 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
       (LHSType->isIntegerType() && RHSType->isAnyPointerType())) {
     unsigned DiagID = 0;
     bool isError = false;
-    if ((LHSIsNull && LHSType->isIntegerType()) ||
+    if (LangOpts.DebuggerSupport) {
+      // Under a debugger, allow the comparison of pointers to integers,
+      // since users tend to want to compare addresses.
+    } else if ((LHSIsNull && LHSType->isIntegerType()) ||
         (RHSIsNull && RHSType->isIntegerType())) {
       if (IsRelational && !getLangOpts().CPlusPlus)
         DiagID = diag::ext_typecheck_ordered_comparison_of_pointer_and_zero;
@@ -8635,6 +8661,7 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
     break;
   case UO_Deref: {
     Input = DefaultFunctionArrayLvalueConversion(Input.take());
+    if (Input.isInvalid()) return ExprError();
     resultType = CheckIndirectionOperand(*this, Input.get(), VK, OpLoc);
     break;
   }
@@ -11747,6 +11774,10 @@ ExprResult Sema::CheckPlaceholderExpr(Expr *E) {
   case BuiltinType::PseudoObject:
     return checkPseudoObjectRValue(E);
 
+  case BuiltinType::BuiltinFn:
+    Diag(E->getLocStart(), diag::err_builtin_fn_use);
+    return ExprError();
+
   // Everything else should be impossible.
 #define BUILTIN_TYPE(Id, SingletonId) \
   case BuiltinType::Id:
@@ -11771,6 +11802,18 @@ ExprResult
 Sema::ActOnObjCBoolLiteral(SourceLocation OpLoc, tok::TokenKind Kind) {
   assert((Kind == tok::kw___objc_yes || Kind == tok::kw___objc_no) &&
          "Unknown Objective-C Boolean value!");
+  QualType BoolT = Context.ObjCBuiltinBoolTy;
+  if (!Context.getBOOLDecl()) {
+    LookupResult Result(*this, &Context.Idents.get("BOOL"), SourceLocation(),
+                        Sema::LookupOrdinaryName);
+    if (LookupName(Result, getCurScope())) {
+      NamedDecl *ND = Result.getFoundDecl();
+      if (TypedefDecl *TD = dyn_cast<TypedefDecl>(ND)) 
+        Context.setBOOLDecl(TD);
+    }
+  }
+  if (Context.getBOOLDecl())
+    BoolT = Context.getBOOLType();
   return Owned(new (Context) ObjCBoolLiteralExpr(Kind == tok::kw___objc_yes,
-                                        Context.ObjCBuiltinBoolTy, OpLoc));
+                                        BoolT, OpLoc));
 }

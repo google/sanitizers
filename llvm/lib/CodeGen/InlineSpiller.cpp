@@ -613,7 +613,7 @@ MachineInstr *InlineSpiller::traceSiblingValue(unsigned UseReg, VNInfo *UseVNI,
     propagateSiblingValue(SVI);
   } while (!WorkList.empty());
 
-  // Look up the value we were looking for.  We already did this lokup at the
+  // Look up the value we were looking for.  We already did this lookup at the
   // top of the function, but SibValues may have been invalidated.
   SVI = SibValues.find(UseVNI);
   assert(SVI != SibValues.end() && "Didn't compute requested info");
@@ -863,7 +863,7 @@ bool InlineSpiller::reMaterializeFor(LiveInterval &VirtReg,
   // If the instruction also writes VirtReg.reg, it had better not require the
   // same register for uses and defs.
   SmallVector<std::pair<MachineInstr*, unsigned>, 8> Ops;
-  MIBundleOperands::RegInfo RI =
+  MIBundleOperands::VirtRegInfo RI =
     MIBundleOperands(MI).analyzeVirtReg(VirtReg.reg, &Ops);
   if (RI.Tied) {
     markValueUsed(&VirtReg, ParentVNI);
@@ -1142,7 +1142,7 @@ void InlineSpiller::spillAroundUses(unsigned Reg) {
 
     // Analyze instruction.
     SmallVector<std::pair<MachineInstr*, unsigned>, 8> Ops;
-    MIBundleOperands::RegInfo RI =
+    MIBundleOperands::VirtRegInfo RI =
       MIBundleOperands(MI).analyzeVirtReg(Reg, &Ops);
 
     // Find the slot index where this instruction reads and writes OldLI.

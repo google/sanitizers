@@ -160,6 +160,13 @@ void Sema::DiagnoseUnusedExprResult(const Stmt *S) {
       !E->isUnusedResultAWarning(WarnExpr, Loc, R1, R2, Context))
     return;
 
+  // If this is a GNU statement expression expanded from a macro, it is probably
+  // unused because it is a function-like macro that can be used as either an
+  // expression or statement.  Don't warn, because it is almost certainly a
+  // false positive.
+  if (isa<StmtExpr>(E) && Loc.isMacroID())
+    return;
+
   // Okay, we have an unused result.  Depending on what the base expression is,
   // we might want to make a more specific diagnostic.  Check for one of these
   // cases now.
@@ -1959,6 +1966,8 @@ Sema::BuildCXXForRangeStmt(SourceLocation ForLoc, SourceLocation ColonLoc,
     NotEqExpr = ActOnBooleanCondition(S, ColonLoc, NotEqExpr.get());
     NotEqExpr = ActOnFinishFullExpr(NotEqExpr.get());
     if (NotEqExpr.isInvalid()) {
+      Diag(RangeLoc, diag::note_for_range_invalid_iterator)
+        << RangeLoc << 0 << BeginRangeRef.get()->getType();
       NoteForRangeBeginEndFunction(*this, BeginExpr.get(), BEF_begin);
       if (!Context.hasSameType(BeginType, EndType))
         NoteForRangeBeginEndFunction(*this, EndExpr.get(), BEF_end);
@@ -1974,6 +1983,8 @@ Sema::BuildCXXForRangeStmt(SourceLocation ForLoc, SourceLocation ColonLoc,
     IncrExpr = ActOnUnaryOp(S, ColonLoc, tok::plusplus, BeginRef.get());
     IncrExpr = ActOnFinishFullExpr(IncrExpr.get());
     if (IncrExpr.isInvalid()) {
+      Diag(RangeLoc, diag::note_for_range_invalid_iterator)
+        << RangeLoc << 2 << BeginRangeRef.get()->getType() ;
       NoteForRangeBeginEndFunction(*this, BeginExpr.get(), BEF_begin);
       return StmtError();
     }
@@ -1986,6 +1997,8 @@ Sema::BuildCXXForRangeStmt(SourceLocation ForLoc, SourceLocation ColonLoc,
 
     ExprResult DerefExpr = ActOnUnaryOp(S, ColonLoc, tok::star, BeginRef.get());
     if (DerefExpr.isInvalid()) {
+      Diag(RangeLoc, diag::note_for_range_invalid_iterator)
+        << RangeLoc << 1 << BeginRangeRef.get()->getType();
       NoteForRangeBeginEndFunction(*this, BeginExpr.get(), BEF_begin);
       return StmtError();
     }

@@ -1580,15 +1580,19 @@ ARMBaseInstrInfo::commuteInstruction(MachineInstr *MI, bool NewMI) const {
 }
 
 /// Identify instructions that can be folded into a MOVCC instruction, and
-/// return the corresponding opcode for the predicated pseudo-instruction.
-static unsigned canFoldIntoMOVCC(unsigned Reg, MachineInstr *&MI,
-                                 const MachineRegisterInfo &MRI) {
+/// return the defining instruction.
+static MachineInstr *canFoldIntoMOVCC(unsigned Reg,
+                                      const MachineRegisterInfo &MRI,
+                                      const TargetInstrInfo *TII) {
   if (!TargetRegisterInfo::isVirtualRegister(Reg))
     return 0;
   if (!MRI.hasOneNonDBGUse(Reg))
     return 0;
-  MI = MRI.getVRegDef(Reg);
+  MachineInstr *MI = MRI.getVRegDef(Reg);
   if (!MI)
+    return 0;
+  // MI is folded into the MOVCC by predicating it.
+  if (!MI->isPredicable())
     return 0;
   // Check if MI has any non-dead defs or physreg uses. This also detects
   // predicated instructions which will be reading CPSR.
@@ -1599,55 +1603,18 @@ static unsigned canFoldIntoMOVCC(unsigned Reg, MachineInstr *&MI,
       return 0;
     if (!MO.isReg())
       continue;
+    // MI can't have any tied operands, that would conflict with predication.
+    if (MO.isTied())
+      return 0;
     if (TargetRegisterInfo::isPhysicalRegister(MO.getReg()))
       return 0;
     if (MO.isDef() && !MO.isDead())
       return 0;
   }
-  switch (MI->getOpcode()) {
-  default: return 0;
-  case ARM::ANDri:   return ARM::ANDCCri;
-  case ARM::ANDrr:   return ARM::ANDCCrr;
-  case ARM::ANDrsi:  return ARM::ANDCCrsi;
-  case ARM::ANDrsr:  return ARM::ANDCCrsr;
-  case ARM::t2ANDri: return ARM::t2ANDCCri;
-  case ARM::t2ANDrr: return ARM::t2ANDCCrr;
-  case ARM::t2ANDrs: return ARM::t2ANDCCrs;
-  case ARM::EORri:   return ARM::EORCCri;
-  case ARM::EORrr:   return ARM::EORCCrr;
-  case ARM::EORrsi:  return ARM::EORCCrsi;
-  case ARM::EORrsr:  return ARM::EORCCrsr;
-  case ARM::t2EORri: return ARM::t2EORCCri;
-  case ARM::t2EORrr: return ARM::t2EORCCrr;
-  case ARM::t2EORrs: return ARM::t2EORCCrs;
-  case ARM::ORRri:   return ARM::ORRCCri;
-  case ARM::ORRrr:   return ARM::ORRCCrr;
-  case ARM::ORRrsi:  return ARM::ORRCCrsi;
-  case ARM::ORRrsr:  return ARM::ORRCCrsr;
-  case ARM::t2ORRri: return ARM::t2ORRCCri;
-  case ARM::t2ORRrr: return ARM::t2ORRCCrr;
-  case ARM::t2ORRrs: return ARM::t2ORRCCrs;
-
-  // ARM ADD/SUB
-  case ARM::ADDri:   return ARM::ADDCCri;
-  case ARM::ADDrr:   return ARM::ADDCCrr;
-  case ARM::ADDrsi:  return ARM::ADDCCrsi;
-  case ARM::ADDrsr:  return ARM::ADDCCrsr;
-  case ARM::SUBri:   return ARM::SUBCCri;
-  case ARM::SUBrr:   return ARM::SUBCCrr;
-  case ARM::SUBrsi:  return ARM::SUBCCrsi;
-  case ARM::SUBrsr:  return ARM::SUBCCrsr;
-
-  // Thumb2 ADD/SUB
-  case ARM::t2ADDri:   return ARM::t2ADDCCri;
-  case ARM::t2ADDri12: return ARM::t2ADDCCri12;
-  case ARM::t2ADDrr:   return ARM::t2ADDCCrr;
-  case ARM::t2ADDrs:   return ARM::t2ADDCCrs;
-  case ARM::t2SUBri:   return ARM::t2SUBCCri;
-  case ARM::t2SUBri12: return ARM::t2SUBCCri12;
-  case ARM::t2SUBrr:   return ARM::t2SUBCCrr;
-  case ARM::t2SUBrs:   return ARM::t2SUBCCrs;
-  }
+  bool DontMoveAcrossStores = true;
+  if (!MI->isSafeToMove(TII, /* AliasAnalysis = */ 0, DontMoveAcrossStores))
+    return 0;
+  return MI;
 }
 
 bool ARMBaseInstrInfo::analyzeSelect(const MachineInstr *MI,
@@ -1676,19 +1643,18 @@ MachineInstr *ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
   assert((MI->getOpcode() == ARM::MOVCCr || MI->getOpcode() == ARM::t2MOVCCr) &&
          "Unknown select instruction");
   const MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
-  MachineInstr *DefMI = 0;
-  unsigned Opc = canFoldIntoMOVCC(MI->getOperand(2).getReg(), DefMI, MRI);
-  bool Invert = !Opc;
-  if (!Opc)
-    Opc = canFoldIntoMOVCC(MI->getOperand(1).getReg(), DefMI, MRI);
-  if (!Opc)
+  MachineInstr *DefMI = canFoldIntoMOVCC(MI->getOperand(2).getReg(), MRI, this);
+  bool Invert = !DefMI;
+  if (!DefMI)
+    DefMI = canFoldIntoMOVCC(MI->getOperand(1).getReg(), MRI, this);
+  if (!DefMI)
     return 0;
 
   // Create a new predicated version of DefMI.
   // Rfalse is the first use.
   MachineInstrBuilder NewMI = BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
-                                      get(Opc), MI->getOperand(0).getReg())
-    .addOperand(MI->getOperand(Invert ? 2 : 1));
+                                      DefMI->getDesc(),
+                                      MI->getOperand(0).getReg());
 
   // Copy all the DefMI operands, excluding its (null) predicate.
   const MCInstrDesc &DefDesc = DefMI->getDesc();
@@ -1706,6 +1672,15 @@ MachineInstr *ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
   // DefMI is not the -S version that sets CPSR, so add an optional %noreg.
   if (NewMI->hasOptionalDef())
     AddDefaultCC(NewMI);
+
+  // The output register value when the predicate is false is an implicit
+  // register operand tied to the first def.
+  // The tie makes the register allocator ensure the FalseReg is allocated the
+  // same register as operand 0.
+  MachineOperand FalseReg = MI->getOperand(Invert ? 2 : 1);
+  FalseReg.setImplicit();
+  NewMI->addOperand(FalseReg);
+  NewMI->tieOperands(0, NewMI->getNumOperands() - 1);
 
   // The caller will erase MI, but not DefMI.
   DefMI->eraseFromParent();
@@ -2053,13 +2028,14 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
 
   // Masked compares sometimes use the same register as the corresponding 'and'.
   if (CmpMask != ~0) {
-    if (!isSuitableForMask(MI, SrcReg, CmpMask, false)) {
+    if (!isSuitableForMask(MI, SrcReg, CmpMask, false) || isPredicated(MI)) {
       MI = 0;
       for (MachineRegisterInfo::use_iterator UI = MRI->use_begin(SrcReg),
            UE = MRI->use_end(); UI != UE; ++UI) {
         if (UI->getParent() != CmpInstr->getParent()) continue;
         MachineInstr *PotentialAND = &*UI;
-        if (!isSuitableForMask(PotentialAND, SrcReg, CmpMask, true))
+        if (!isSuitableForMask(PotentialAND, SrcReg, CmpMask, true) ||
+            isPredicated(PotentialAND))
           continue;
         MI = PotentialAND;
         break;
@@ -2124,6 +2100,10 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
 
   // The single candidate is called MI.
   if (!MI) MI = Sub;
+
+  // We can't use a predicated instruction - it doesn't always write the flags.
+  if (isPredicated(MI))
+    return false;
 
   switch (MI->getOpcode()) {
   default: break;
@@ -2231,6 +2211,7 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
     // Toggle the optional operand to CPSR.
     MI->getOperand(5).setReg(ARM::CPSR);
     MI->getOperand(5).setIsDef(true);
+    assert(!isPredicated(MI) && "Can't use flags from predicated instruction");
     CmpInstr->eraseFromParent();
 
     // Modify the condition code of operands in OperandsToUpdate.
@@ -2449,7 +2430,7 @@ ARMBaseInstrInfo::getNumMicroOps(const InstrItineraryData *ItinData,
       if (NumRegs % 2)
         ++A8UOps;
       return A8UOps;
-    } else if (Subtarget.isCortexA9()) {
+    } else if (Subtarget.isLikeA9()) {
       int A9UOps = (NumRegs / 2);
       // If there are odd number of registers or if it's not 64-bit aligned,
       // then it takes an extra AGU (Address Generation Unit) cycle.
@@ -2482,7 +2463,7 @@ ARMBaseInstrInfo::getVLDMDefCycle(const InstrItineraryData *ItinData,
     DefCycle = RegNo / 2 + 1;
     if (RegNo % 2)
       ++DefCycle;
-  } else if (Subtarget.isCortexA9()) {
+  } else if (Subtarget.isLikeA9()) {
     DefCycle = RegNo;
     bool isSLoad = false;
 
@@ -2526,7 +2507,7 @@ ARMBaseInstrInfo::getLDMDefCycle(const InstrItineraryData *ItinData,
       DefCycle = 1;
     // Result latency is issue cycle + 2: E2.
     DefCycle += 2;
-  } else if (Subtarget.isCortexA9()) {
+  } else if (Subtarget.isLikeA9()) {
     DefCycle = (RegNo / 2);
     // If there are odd number of registers or if it's not 64-bit aligned,
     // then it takes an extra AGU (Address Generation Unit) cycle.
@@ -2557,7 +2538,7 @@ ARMBaseInstrInfo::getVSTMUseCycle(const InstrItineraryData *ItinData,
     UseCycle = RegNo / 2 + 1;
     if (RegNo % 2)
       ++UseCycle;
-  } else if (Subtarget.isCortexA9()) {
+  } else if (Subtarget.isLikeA9()) {
     UseCycle = RegNo;
     bool isSStore = false;
 
@@ -2598,7 +2579,7 @@ ARMBaseInstrInfo::getSTMUseCycle(const InstrItineraryData *ItinData,
       UseCycle = 2;
     // Read in E3.
     UseCycle += 2;
-  } else if (Subtarget.isCortexA9()) {
+  } else if (Subtarget.isLikeA9()) {
     UseCycle = (RegNo / 2);
     // If there are odd number of registers or if it's not 64-bit aligned,
     // then it takes an extra AGU (Address Generation Unit) cycle.
@@ -2783,7 +2764,7 @@ static int adjustDefLatency(const ARMSubtarget &Subtarget,
                             const MachineInstr *DefMI,
                             const MCInstrDesc *DefMCID, unsigned DefAlign) {
   int Adjust = 0;
-  if (Subtarget.isCortexA8() || Subtarget.isCortexA9()) {
+  if (Subtarget.isCortexA8() || Subtarget.isLikeA9()) {
     // FIXME: Shifter op hack: no shift (i.e. [r +/- r]) or [r + r << 2]
     // variants are one cycle cheaper.
     switch (DefMCID->getOpcode()) {
@@ -2810,7 +2791,7 @@ static int adjustDefLatency(const ARMSubtarget &Subtarget,
     }
   }
 
-  if (DefAlign < 8 && Subtarget.isCortexA9()) {
+  if (DefAlign < 8 && Subtarget.isLikeA9()) {
     switch (DefMCID->getOpcode()) {
     default: break;
     case ARM::VLD1q8:
@@ -2968,7 +2949,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
   if (Reg == ARM::CPSR) {
     if (DefMI->getOpcode() == ARM::FMSTAT) {
       // fpscr -> cpsr stalls over 20 cycles on A8 (and earlier?)
-      return Subtarget.isCortexA9() ? 1 : 20;
+      return Subtarget.isLikeA9() ? 1 : 20;
     }
 
     // CPSR set and branch can be paired in the same cycle.
@@ -3034,7 +3015,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
 
   if (!UseNode->isMachineOpcode()) {
     int Latency = ItinData->getOperandCycle(DefMCID.getSchedClass(), DefIdx);
-    if (Subtarget.isCortexA9())
+    if (Subtarget.isLikeA9())
       return Latency <= 2 ? 1 : Latency - 1;
     else
       return Latency <= 3 ? 1 : Latency - 2;
@@ -3051,7 +3032,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
                                   UseMCID, UseIdx, UseAlign);
 
   if (Latency > 1 &&
-      (Subtarget.isCortexA8() || Subtarget.isCortexA9())) {
+      (Subtarget.isCortexA8() || Subtarget.isLikeA9())) {
     // FIXME: Shifter op hack: no shift (i.e. [r +/- r]) or [r + r << 2]
     // variants are one cycle cheaper.
     switch (DefMCID.getOpcode()) {
@@ -3080,7 +3061,7 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     }
   }
 
-  if (DefAlign < 8 && Subtarget.isCortexA9())
+  if (DefAlign < 8 && Subtarget.isLikeA9())
     switch (DefMCID.getOpcode()) {
     default: break;
     case ARM::VLD1q8:
@@ -3373,9 +3354,9 @@ ARMBaseInstrInfo::getExecutionDomain(const MachineInstr *MI) const {
   if (MI->getOpcode() == ARM::VMOVD && !isPredicated(MI))
     return std::make_pair(ExeVFP, (1<<ExeVFP) | (1<<ExeNEON));
 
-  // Cortex-A9 is particularly picky about mixing the two and wants these
+  // A9-like cores are particularly picky about mixing the two and want these
   // converted.
-  if (Subtarget.isCortexA9() && !isPredicated(MI) &&
+  if (Subtarget.isLikeA9() && !isPredicated(MI) &&
       (MI->getOpcode() == ARM::VMOVRS ||
        MI->getOpcode() == ARM::VMOVSR ||
        MI->getOpcode() == ARM::VMOVS))
@@ -3479,20 +3460,29 @@ ARMBaseInstrInfo::setExecutionDomain(MachineInstr *MI, unsigned Domain) const {
       DstReg = MI->getOperand(0).getReg();
       SrcReg = MI->getOperand(1).getReg();
 
+      DReg = getCorrespondingDRegAndLane(TRI, DstReg, Lane);
+
+      // If we insert both a novel <def> and an <undef> on the DReg, we break
+      // any existing dependency chain on the unused lane. Either already being
+      // present means this instruction is in that chain anyway so we can make
+      // the transformation.
+      if (!MI->definesRegister(DReg, TRI) && !MI->readsRegister(DReg, TRI))
+          break;
+
       for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
         MI->RemoveOperand(i-1);
-
-      DReg = getCorrespondingDRegAndLane(TRI, DstReg, Lane);
 
       // Convert to %DDst = VSETLNi32 %DDst, %RSrc, Lane, 14, %noreg (; imps)
       // Again DDst may be undefined at the beginning of this instruction.
       MI->setDesc(get(ARM::VSETLNi32));
-      AddDefaultPred(MIB.addReg(DReg, RegState::Define)
-                        .addReg(DReg, RegState::Undef)
-                        .addReg(SrcReg)
-                        .addImm(Lane));
+      MIB.addReg(DReg, RegState::Define)
+         .addReg(DReg, getUndefRegState(!MI->readsRegister(DReg, TRI)))
+         .addReg(SrcReg)
+         .addImm(Lane);
+      AddDefaultPred(MIB);
 
-      // The destination must be marked as set.
+      // The narrower destination must be marked as set to keep previous chains
+      // in place.
       MIB.addReg(DstReg, RegState::Define | RegState::Implicit);
       break;
     case ARM::VMOVS: {
@@ -3503,20 +3493,28 @@ ARMBaseInstrInfo::setExecutionDomain(MachineInstr *MI, unsigned Domain) const {
       DstReg = MI->getOperand(0).getReg();
       SrcReg = MI->getOperand(1).getReg();
 
-      for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
-        MI->RemoveOperand(i-1);
-
       unsigned DstLane = 0, SrcLane = 0, DDst, DSrc;
       DDst = getCorrespondingDRegAndLane(TRI, DstReg, DstLane);
       DSrc = getCorrespondingDRegAndLane(TRI, SrcReg, SrcLane);
+
+      // If we insert both a novel <def> and an <undef> on the DReg, we break
+      // any existing dependency chain on the unused lane. Either already being
+      // present means this instruction is in that chain anyway so we can make
+      // the transformation.
+      if (!MI->definesRegister(DDst, TRI) && !MI->readsRegister(DDst, TRI))
+          break;
+
+      for (unsigned i = MI->getDesc().getNumOperands(); i; --i)
+        MI->RemoveOperand(i-1);
 
       if (DSrc == DDst) {
         // Destination can be:
         //     %DDst = VDUPLN32d %DDst, Lane, 14, %noreg (; implicits)
         MI->setDesc(get(ARM::VDUPLN32d));
-        AddDefaultPred(MIB.addReg(DDst, RegState::Define)
-                          .addReg(DDst, RegState::Undef)
-                          .addImm(SrcLane));
+        MIB.addReg(DDst, RegState::Define)
+           .addReg(DDst, getUndefRegState(!MI->readsRegister(DDst, TRI)))
+           .addImm(SrcLane);
+        AddDefaultPred(MIB);
 
         // Neither the source or the destination are naturally represented any
         // more, so add them in manually.
@@ -3540,8 +3538,18 @@ ARMBaseInstrInfo::setExecutionDomain(MachineInstr *MI, unsigned Domain) const {
       MachineInstrBuilder NewMIB;
       NewMIB = BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
                        get(ARM::VEXTd32), DDst);
-      NewMIB.addReg(SrcLane == 1 && DstLane == 1 ? DSrc : DDst, RegState::Undef);
-      NewMIB.addReg(SrcLane == 0 && DstLane == 0 ? DSrc : DDst, RegState::Undef);
+
+      // On the first instruction, both DSrc and DDst may be <undef> if present.
+      // Specifically when the original instruction didn't have them as an
+      // <imp-use>.
+      unsigned CurReg = SrcLane == 1 && DstLane == 1 ? DSrc : DDst;
+      bool CurUndef = !MI->readsRegister(CurReg, TRI);
+      NewMIB.addReg(CurReg, getUndefRegState(CurUndef));
+
+      CurReg = SrcLane == 0 && DstLane == 0 ? DSrc : DDst;
+      CurUndef = !MI->readsRegister(CurReg, TRI);
+      NewMIB.addReg(CurReg, getUndefRegState(CurUndef));
+
       NewMIB.addImm(1);
       AddDefaultPred(NewMIB);
 
@@ -3550,8 +3558,17 @@ ARMBaseInstrInfo::setExecutionDomain(MachineInstr *MI, unsigned Domain) const {
 
       MI->setDesc(get(ARM::VEXTd32));
       MIB.addReg(DDst, RegState::Define);
-      MIB.addReg(SrcLane == 1 && DstLane == 0 ? DSrc : DDst, RegState::Undef);
-      MIB.addReg(SrcLane == 0 && DstLane == 1 ? DSrc : DDst, RegState::Undef);
+
+      // On the second instruction, DDst has definitely been defined above, so
+      // it is not <undef>. DSrc, if present, can be <undef> as above.
+      CurReg = SrcLane == 1 && DstLane == 0 ? DSrc : DDst;
+      CurUndef = CurReg == DSrc && !MI->readsRegister(CurReg, TRI);
+      MIB.addReg(CurReg, getUndefRegState(CurUndef));
+
+      CurReg = SrcLane == 0 && DstLane == 1 ? DSrc : DDst;
+      CurUndef = CurReg == DSrc && !MI->readsRegister(CurReg, TRI);
+      MIB.addReg(CurReg, getUndefRegState(CurUndef));
+
       MIB.addImm(1);
       AddDefaultPred(MIB);
 

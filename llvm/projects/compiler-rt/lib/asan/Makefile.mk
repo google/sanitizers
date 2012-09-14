@@ -8,7 +8,7 @@
 #===------------------------------------------------------------------------===#
 
 ModuleName := asan
-SubDirs :=
+SubDirs := dynamic
 
 Sources := $(foreach file,$(wildcard $(Dir)/*.cc),$(notdir $(file)))
 ObjNames := $(Sources:%.cc=%.o)

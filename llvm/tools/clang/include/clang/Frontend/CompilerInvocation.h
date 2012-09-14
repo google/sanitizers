@@ -13,7 +13,7 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/FileSystemOptions.h"
-#include "clang/Frontend/AnalyzerOptions.h"
+#include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
 #include "clang/Frontend/MigratorOptions.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/DependencyOutputOptions.h"
@@ -68,7 +68,7 @@ public:
 /// options, the warning flags, and so on.
 class CompilerInvocation : public CompilerInvocationBase {
   /// Options controlling the static analyzer.
-  AnalyzerOptions AnalyzerOpts;
+  AnalyzerOptionsRef AnalyzerOpts;
 
   MigratorOptions MigratorOpts;
   
@@ -100,7 +100,7 @@ class CompilerInvocation : public CompilerInvocationBase {
   TargetOptions TargetOpts;
 
 public:
-  CompilerInvocation() {}
+  CompilerInvocation() : AnalyzerOpts(new AnalyzerOptions()) {}
 
   /// @name Utility Methods
   /// @{
@@ -148,8 +148,7 @@ public:
   /// @name Option Subgroups
   /// @{
 
-  AnalyzerOptions &getAnalyzerOpts() { return AnalyzerOpts; }
-  const AnalyzerOptions &getAnalyzerOpts() const {
+  AnalyzerOptionsRef getAnalyzerOpts() const {
     return AnalyzerOpts;
   }
 

@@ -111,7 +111,6 @@ static const UTF8 firstByteMark[7] = { 0x00, 0x00, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC 
  * into an inline function.
  */
 
-#ifdef CLANG_NEEDS_THESE_ONE_DAY
 
 /* --------------------------------------------------------------------- */
 
@@ -285,7 +284,6 @@ ConversionResult ConvertUTF16toUTF8 (
     *targetStart = target;
     return result;
 }
-#endif
 
 /* --------------------------------------------------------------------- */
 
@@ -395,15 +393,25 @@ Boolean isLegalUTF8Sequence(const UTF8 *source, const UTF8 *sourceEnd) {
 /* --------------------------------------------------------------------- */
 
 /*
+ * Exported function to return the total number of bytes in a codepoint
+ * represented in UTF-8, given the value of the first byte.
+ */
+unsigned getNumBytesForUTF8(UTF8 first) {
+  return trailingBytesForUTF8[first] + 1;
+}
+
+/* --------------------------------------------------------------------- */
+
+/*
  * Exported function to return whether a UTF-8 string is legal or not.
  * This is not used here; it's just exported.
  */
-Boolean isLegalUTF8String(const UTF8 *source, const UTF8 *sourceEnd) {
-    while (source != sourceEnd) {
-        int length = trailingBytesForUTF8[*source] + 1;
-        if (length > sourceEnd - source || !isLegalUTF8(source, length))
+Boolean isLegalUTF8String(const UTF8 **source, const UTF8 *sourceEnd) {
+    while (*source != sourceEnd) {
+        int length = trailingBytesForUTF8[**source] + 1;
+        if (length > sourceEnd - *source || !isLegalUTF8(*source, length))
             return false;
-        source += length;
+        *source += length;
     }
     return true;
 }

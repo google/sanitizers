@@ -31,6 +31,13 @@ using namespace ento;
 // Utility functions.
 //===----------------------------------------------------------------------===//
 
+bool bugreporter::isDeclRefExprToReference(const Expr *E) {
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
+    return DRE->getDecl()->getType()->isReferenceType();
+  }
+  return false;
+}
+
 const Stmt *bugreporter::GetDerefExpr(const ExplodedNode *N) {
   // Pattern match for a few useful cases (do something smarter later):
   //   a[0], p->f, *p
@@ -54,7 +61,9 @@ const Stmt *bugreporter::GetDerefExpr(const ExplodedNode *N) {
         return U->getSubExpr()->IgnoreParenCasts();
     }
     else if (const MemberExpr *ME = dyn_cast<MemberExpr>(S)) {
-      return ME->getBase()->IgnoreParenCasts();
+      if (ME->isArrow() || isDeclRefExprToReference(ME->getBase())) {
+        return ME->getBase()->IgnoreParenCasts();
+      }
     }
     else if (const ArraySubscriptExpr *AE = dyn_cast<ArraySubscriptExpr>(S)) {
       return AE->getBase();
@@ -504,13 +513,17 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
 
   // Is it a symbolic value?
   if (loc::MemRegionVal *L = dyn_cast<loc::MemRegionVal>(&V)) {
-    const MemRegion *Base = L->getRegion()->getBaseRegion();
-    report.addVisitor(new UndefOrNullArgVisitor(Base));
-    
-    if (isa<SymbolicRegion>(Base)) {
-      report.markInteresting(Base);
-      report.addVisitor(new TrackConstraintBRVisitor(loc::MemRegionVal(Base),
-                                                      false));
+    // At this point we are dealing with the region's LValue.
+    // However, if the rvalue is a symbolic region, we should track it as well.
+    SVal RVal = state->getSVal(L->getRegion());
+    const MemRegion *RegionRVal = RVal.getAsRegion();
+    report.addVisitor(new UndefOrNullArgVisitor(L->getRegion()));
+
+
+    if (RegionRVal && isa<SymbolicRegion>(RegionRVal)) {
+      report.markInteresting(RegionRVal);
+      report.addVisitor(new TrackConstraintBRVisitor(
+        loc::MemRegionVal(RegionRVal), false));
     }
   } else {
     // Otherwise, if the value came from an inlined function call,
@@ -620,8 +633,7 @@ PathDiagnosticPiece *ConditionBRVisitor::VisitNodeImpl(const ExplodedNode *N,
                                                        BugReporterContext &BRC,
                                                        BugReport &BR) {
   
-  const ProgramPoint &progPoint = N->getLocation();
-
+  ProgramPoint progPoint = N->getLocation();
   ProgramStateRef CurrentState = N->getState();
   ProgramStateRef PrevState = Prev->getState();
   
@@ -646,7 +658,7 @@ PathDiagnosticPiece *ConditionBRVisitor::VisitNodeImpl(const ExplodedNode *N,
     // violation.
     const std::pair<const ProgramPointTag *, const ProgramPointTag *> &tags =      
       cast<GRBugReporter>(BRC.getBugReporter()).
-        getEngine().getEagerlyAssumeTags();
+        getEngine().geteagerlyAssumeBinOpBifurcationTags();
 
     const ProgramPointTag *tag = PS->getTag();
     if (tag == tags.first)
@@ -685,8 +697,7 @@ ConditionBRVisitor::VisitTerminator(const Stmt *Term,
   assert(Cond);
   assert(srcBlk->succ_size() == 2);
   const bool tookTrue = *(srcBlk->succ_begin()) == dstBlk;
-  return VisitTrueTest(Cond->IgnoreParenNoopCasts(BRC.getASTContext()),
-                       tookTrue, BRC, R, N);
+  return VisitTrueTest(Cond, tookTrue, BRC, R, N);
 }
 
 PathDiagnosticPiece *
@@ -699,7 +710,7 @@ ConditionBRVisitor::VisitTrueTest(const Expr *Cond,
   const Expr *Ex = Cond;
   
   while (true) {
-    Ex = Ex->IgnoreParens();
+    Ex = Ex->IgnoreParenCasts();
     switch (Ex->getStmtClass()) {
       default:
         return 0;
@@ -713,7 +724,7 @@ ConditionBRVisitor::VisitTrueTest(const Expr *Cond,
         const UnaryOperator *UO = cast<UnaryOperator>(Ex);
         if (UO->getOpcode() == UO_LNot) {
           tookTrue = !tookTrue;
-          Ex = UO->getSubExpr()->IgnoreParenNoopCasts(BRC.getASTContext());
+          Ex = UO->getSubExpr();
           continue;
         }
         return 0;
@@ -976,8 +987,8 @@ UndefOrNullArgVisitor::VisitNode(const ExplodedNode *N,
                                  E = Call->param_end(); I != E; ++I, ++Idx) {
     const MemRegion *ArgReg = Call->getArgSVal(Idx).getAsRegion();
 
-    // Are we tracking the argument?
-    if ( !ArgReg || ArgReg != R)
+    // Are we tracking the argument or its subregion?
+    if ( !ArgReg || (ArgReg != R && !R->isSubRegionOf(ArgReg->StripCasts())))
       continue;
 
     // Check the function parameter type.
@@ -997,7 +1008,7 @@ UndefOrNullArgVisitor::VisitNode(const ExplodedNode *N,
 
     // Mark the call site (LocationContext) as interesting if the value of the 
     // argument is undefined or '0'/'NULL'.
-    SVal BoundVal = State->getSVal(ArgReg);
+    SVal BoundVal = State->getSVal(R);
     if (BoundVal.isUndef() || BoundVal.isZeroConstant()) {
       BR.markInteresting(CEnter->getCalleeContext());
       return 0;

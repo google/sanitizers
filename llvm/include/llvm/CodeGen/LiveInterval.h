@@ -29,6 +29,7 @@
 #include <climits>
 
 namespace llvm {
+  class CoalescerPair;
   class LiveIntervals;
   class MachineInstr;
   class MachineRegisterInfo;
@@ -275,11 +276,6 @@ namespace llvm {
     void MergeValueInAsValue(const LiveInterval &RHS,
                              const VNInfo *RHSValNo, VNInfo *LHSValNo);
 
-    /// Copy - Copy the specified live interval. This copies all the fields
-    /// except for the register of the interval.
-    void Copy(const LiveInterval &RHS, MachineRegisterInfo *MRI,
-              VNInfo::Allocator &VNInfoAllocator);
-
     bool empty() const { return ranges.empty(); }
 
     /// beginIndex - Return the lowest numbered slot covered by interval.
@@ -311,12 +307,6 @@ namespace llvm {
       const_iterator r = find(index.getRegSlot(true));
       return r != end() && r->end == index;
     }
-
-    /// killedInRange - Return true if the interval has kills in [Start,End).
-    /// Note that the kill point is considered the end of a live range, so it is
-    /// not contained in the live range. If a live range ends at End, it won't
-    /// be counted as a kill by this method.
-    bool killedInRange(SlotIndex Start, SlotIndex End) const;
 
     /// getLiveRangeContaining - Return the live range that contains the
     /// specified index, or null if there is none.
@@ -365,6 +355,14 @@ namespace llvm {
         return false;
       return overlapsFrom(other, other.begin());
     }
+
+    /// overlaps - Return true if the two intervals have overlapping segments
+    /// that are not coalescable according to CP.
+    ///
+    /// Overlapping segments where one interval is defined by a coalescable
+    /// copy are allowed.
+    bool overlaps(const LiveInterval &Other, const CoalescerPair &CP,
+                  const SlotIndexes&) const;
 
     /// overlaps - Return true if the live interval overlaps a range specified
     /// by [Start, End).

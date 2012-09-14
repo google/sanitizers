@@ -194,6 +194,7 @@ namespace {
     SDValue visitOR(SDNode *N);
     SDValue visitXOR(SDNode *N);
     SDValue SimplifyVBinOp(SDNode *N);
+    SDValue SimplifyVUnaryOp(SDNode *N);
     SDValue visitSHL(SDNode *N);
     SDValue visitSRA(SDNode *N);
     SDValue visitSRL(SDNode *N);
@@ -413,7 +414,7 @@ static char isNegatibleForFree(SDValue Op, bool LegalOperations,
         !TLI.isOperationLegalOrCustom(ISD::FSUB,  Op.getValueType()))
       return 0;
 
-    // fold (fsub (fadd A, B)) -> (fsub (fneg A), B)
+    // fold (fneg (fadd A, B)) -> (fsub (fneg A), B)
     if (char V = isNegatibleForFree(Op.getOperand(0), LegalOperations, TLI,
                                     Options, Depth + 1))
       return V;
@@ -2496,8 +2497,18 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
         // lanes of the constant together.
         EVT VT = Vector->getValueType(0);
         unsigned BitWidth = VT.getVectorElementType().getSizeInBits();
+
+        // If the splat value has been compressed to a bitlength lower
+        // than the size of the vector lane, we need to re-expand it to
+        // the lane size.
+        if (BitWidth > SplatBitSize)
+          for (SplatValue = SplatValue.zextOrTrunc(BitWidth);
+               SplatBitSize < BitWidth;
+               SplatBitSize = SplatBitSize * 2)
+            SplatValue |= SplatValue.shl(SplatBitSize);
+
         Constant = APInt::getAllOnesValue(BitWidth);
-        for (unsigned i = 0, n = VT.getVectorNumElements(); i < n; ++i)
+        for (unsigned i = 0, n = SplatBitSize/BitWidth; i < n; ++i)
           Constant &= SplatValue.lshr(i*BitWidth).zextOrTrunc(BitWidth);
       }
     }
@@ -5430,7 +5441,8 @@ SDValue DAGCombiner::visitBITCAST(SDNode *N) {
   // This often reduces constant pool loads.
   if (((N0.getOpcode() == ISD::FNEG && !TLI.isFNegFree(VT)) ||
        (N0.getOpcode() == ISD::FABS && !TLI.isFAbsFree(VT))) &&
-      N0.getNode()->hasOneUse() && VT.isInteger() && !VT.isVector()) {
+      N0.getNode()->hasOneUse() && VT.isInteger() &&
+      !VT.isVector() && !N0.getValueType().isVector()) {
     SDValue NewConv = DAG.getNode(ISD::BITCAST, N0.getDebugLoc(), VT,
                                   N0.getOperand(0));
     AddToWorkList(NewConv.getNode());
@@ -5681,6 +5693,127 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
                        DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
                                    N0.getOperand(1), N1));
 
+  // In unsafe math mode, we can fold chains of FADD's of the same value
+  // into multiplications.  This transform is not safe in general because
+  // we are reducing the number of rounding steps.
+  if (DAG.getTarget().Options.UnsafeFPMath &&
+      TLI.isOperationLegalOrCustom(ISD::FMUL, VT) &&
+      !N0CFP && !N1CFP) {
+    if (N0.getOpcode() == ISD::FMUL) {
+      ConstantFPSDNode *CFP00 = dyn_cast<ConstantFPSDNode>(N0.getOperand(0));
+      ConstantFPSDNode *CFP01 = dyn_cast<ConstantFPSDNode>(N0.getOperand(1));
+
+      // (fadd (fmul c, x), x) -> (fmul c+1, x)
+      if (CFP00 && !CFP01 && N0.getOperand(1) == N1) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP00, 0),
+                                     DAG.getConstantFP(1.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N1, NewCFP);
+      }
+
+      // (fadd (fmul x, c), x) -> (fmul c+1, x)
+      if (CFP01 && !CFP00 && N0.getOperand(0) == N1) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP01, 0),
+                                     DAG.getConstantFP(1.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N1, NewCFP);
+      }
+
+      // (fadd (fadd x, x), x) -> (fmul 3.0, x)
+      if (!CFP00 && !CFP01 && N0.getOperand(0) == N0.getOperand(1) &&
+          N0.getOperand(0) == N1) {
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N1, DAG.getConstantFP(3.0, VT));
+      }
+
+      // (fadd (fmul c, x), (fadd x, x)) -> (fmul c+2, x)
+      if (CFP00 && !CFP01 && N1.getOpcode() == ISD::FADD &&
+          N1.getOperand(0) == N1.getOperand(1) &&
+          N0.getOperand(1) == N1.getOperand(0)) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP00, 0),
+                                     DAG.getConstantFP(2.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0.getOperand(1), NewCFP);
+      }
+
+      // (fadd (fmul x, c), (fadd x, x)) -> (fmul c+2, x)
+      if (CFP01 && !CFP00 && N1.getOpcode() == ISD::FADD &&
+          N1.getOperand(0) == N1.getOperand(1) &&
+          N0.getOperand(0) == N1.getOperand(0)) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP01, 0),
+                                     DAG.getConstantFP(2.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0.getOperand(0), NewCFP);
+      }
+    }
+
+    if (N1.getOpcode() == ISD::FMUL) {
+      ConstantFPSDNode *CFP10 = dyn_cast<ConstantFPSDNode>(N1.getOperand(0));
+      ConstantFPSDNode *CFP11 = dyn_cast<ConstantFPSDNode>(N1.getOperand(1));
+
+      // (fadd x, (fmul c, x)) -> (fmul c+1, x)
+      if (CFP10 && !CFP11 && N1.getOperand(1) == N0) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP10, 0),
+                                     DAG.getConstantFP(1.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0, NewCFP);
+      }
+
+      // (fadd x, (fmul x, c)) -> (fmul c+1, x)
+      if (CFP11 && !CFP10 && N1.getOperand(0) == N0) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP11, 0),
+                                     DAG.getConstantFP(1.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0, NewCFP);
+      }
+
+      // (fadd x, (fadd x, x)) -> (fmul 3.0, x)
+      if (!CFP10 && !CFP11 && N1.getOperand(0) == N1.getOperand(1) &&
+          N1.getOperand(0) == N0) {
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0, DAG.getConstantFP(3.0, VT));
+      }
+
+      // (fadd (fadd x, x), (fmul c, x)) -> (fmul c+2, x)
+      if (CFP10 && !CFP11 && N1.getOpcode() == ISD::FADD &&
+          N1.getOperand(0) == N1.getOperand(1) &&
+          N0.getOperand(1) == N1.getOperand(0)) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP10, 0),
+                                     DAG.getConstantFP(2.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0.getOperand(1), NewCFP);
+      }
+
+      // (fadd (fadd x, x), (fmul x, c)) -> (fmul c+2, x)
+      if (CFP11 && !CFP10 && N1.getOpcode() == ISD::FADD &&
+          N1.getOperand(0) == N1.getOperand(1) &&
+          N0.getOperand(0) == N1.getOperand(0)) {
+        SDValue NewCFP = DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
+                                     SDValue(CFP11, 0),
+                                     DAG.getConstantFP(2.0, VT));
+        return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                           N0.getOperand(0), NewCFP);
+      }
+    }
+
+    // (fadd (fadd x, x), (fadd x, x)) -> (fmul 4.0, x)
+    if (N0.getOpcode() == ISD::FADD && N1.getOpcode() == ISD::FADD &&
+        N0.getOperand(0) == N0.getOperand(1) &&
+        N1.getOperand(0) == N1.getOperand(1) &&
+        N0.getOperand(0) == N1.getOperand(0)) {
+      return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                         N0.getOperand(0),
+                         DAG.getConstantFP(4.0, VT));
+    }
+  }
+
   // FADD -> FMA combines:
   if ((DAG.getTarget().Options.AllowFPOpFusion == FPOpFusion::Fast ||
        DAG.getTarget().Options.UnsafeFPMath) &&
@@ -5692,8 +5825,8 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
       return DAG.getNode(ISD::FMA, N->getDebugLoc(), VT,
                          N0.getOperand(0), N0.getOperand(1), N1);
     }
-  
-    // fold (fadd x, (fmul y, z)) -> (fma x, y, z)
+
+    // fold (fadd x, (fmul y, z)) -> (fma y, z, x)
     // Note: Commutes FADD operands.
     if (N1.getOpcode() == ISD::FMUL && N1->hasOneUse()) {
       return DAG.getNode(ISD::FMA, N->getDebugLoc(), VT,
@@ -5867,6 +6000,7 @@ SDValue DAGCombiner::visitFMA(SDNode *N) {
   ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   ConstantFPSDNode *N1CFP = dyn_cast<ConstantFPSDNode>(N1);
   EVT VT = N->getValueType(0);
+  DebugLoc dl = N->getDebugLoc();
 
   if (N0CFP && N0CFP->isExactlyValue(1.0))
     return DAG.getNode(ISD::FADD, N->getDebugLoc(), VT, N1, N2);
@@ -5876,6 +6010,58 @@ SDValue DAGCombiner::visitFMA(SDNode *N) {
   // Canonicalize (fma c, x, y) -> (fma x, c, y)
   if (N0CFP && !N1CFP)
     return DAG.getNode(ISD::FMA, N->getDebugLoc(), VT, N1, N0, N2);
+
+  // (fma x, c1, (fmul x, c2)) -> (fmul x, c1+c2)
+  if (DAG.getTarget().Options.UnsafeFPMath && N1CFP &&
+      N2.getOpcode() == ISD::FMUL &&
+      N0 == N2.getOperand(0) &&
+      N2.getOperand(1).getOpcode() == ISD::ConstantFP) {
+    return DAG.getNode(ISD::FMUL, dl, VT, N0,
+                       DAG.getNode(ISD::FADD, dl, VT, N1, N2.getOperand(1)));
+  }
+
+
+  // (fma (fmul x, c1), c2, y) -> (fma x, c1*c2, y)
+  if (DAG.getTarget().Options.UnsafeFPMath &&
+      N0.getOpcode() == ISD::FMUL && N1CFP &&
+      N0.getOperand(1).getOpcode() == ISD::ConstantFP) {
+    return DAG.getNode(ISD::FMA, dl, VT,
+                       N0.getOperand(0),
+                       DAG.getNode(ISD::FMUL, dl, VT, N1, N0.getOperand(1)),
+                       N2);
+  }
+
+  // (fma x, 1, y) -> (fadd x, y)
+  // (fma x, -1, y) -> (fadd (fneg x), y)
+  if (N1CFP) {
+    if (N1CFP->isExactlyValue(1.0))
+      return DAG.getNode(ISD::FADD, dl, VT, N0, N2);
+
+    if (N1CFP->isExactlyValue(-1.0) &&
+        (!LegalOperations || TLI.isOperationLegal(ISD::FNEG, VT))) {
+      SDValue RHSNeg = DAG.getNode(ISD::FNEG, dl, VT, N0);
+      AddToWorkList(RHSNeg.getNode());
+      return DAG.getNode(ISD::FADD, dl, VT, N2, RHSNeg);
+    }
+  }
+
+  // (fma x, c, x) -> (fmul x, (c+1))
+  if (DAG.getTarget().Options.UnsafeFPMath && N1CFP && N0 == N2) {
+    return DAG.getNode(ISD::FMUL, dl, VT,
+                       N0,
+                       DAG.getNode(ISD::FADD, dl, VT,
+                                   N1, DAG.getConstantFP(1.0, VT)));
+  }
+
+  // (fma x, c, (fneg x)) -> (fmul x, (c-1))
+  if (DAG.getTarget().Options.UnsafeFPMath && N1CFP &&
+      N2.getOpcode() == ISD::FNEG && N2.getOperand(0) == N0) {
+    return DAG.getNode(ISD::FMUL, dl, VT,
+                       N0,
+                       DAG.getNode(ISD::FADD, dl, VT,
+                                   N1, DAG.getConstantFP(-1.0, VT)));
+  }
+
 
   return SDValue();
 }
@@ -6225,6 +6411,11 @@ SDValue DAGCombiner::visitFNEG(SDNode *N) {
   SDValue N0 = N->getOperand(0);
   EVT VT = N->getValueType(0);
 
+  if (VT.isVector()) {
+    SDValue FoldedVOp = SimplifyVUnaryOp(N);
+    if (FoldedVOp.getNode()) return FoldedVOp;
+  }
+
   if (isNegatibleForFree(N0, LegalOperations, DAG.getTargetLoweringInfo(),
                          &DAG.getTarget().Options))
     return GetNegatedExpression(N0, DAG, LegalOperations);
@@ -6243,6 +6434,17 @@ SDValue DAGCombiner::visitFNEG(SDNode *N) {
       AddToWorkList(Int.getNode());
       return DAG.getNode(ISD::BITCAST, N->getDebugLoc(),
                          VT, Int);
+    }
+  }
+
+  // (fneg (fmul c, x)) -> (fmul -c, x)
+  if (N0.getOpcode() == ISD::FMUL) {
+    ConstantFPSDNode *CFP1 = dyn_cast<ConstantFPSDNode>(N0.getOperand(1));
+    if (CFP1) {
+      return DAG.getNode(ISD::FMUL, N->getDebugLoc(), VT,
+                         N0.getOperand(0),
+                         DAG.getNode(ISD::FNEG, N->getDebugLoc(), VT,
+                                     N0.getOperand(1)));
     }
   }
 
@@ -6289,6 +6491,11 @@ SDValue DAGCombiner::visitFABS(SDNode *N) {
   SDValue N0 = N->getOperand(0);
   ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   EVT VT = N->getValueType(0);
+
+  if (VT.isVector()) {
+    SDValue FoldedVOp = SimplifyVUnaryOp(N);
+    if (FoldedVOp.getNode()) return FoldedVOp;
+  }
 
   // fold (fabs c1) -> fabs(c1)
   if (N0CFP && VT != MVT::ppcf128)
@@ -7876,6 +8083,12 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
       if (VecIn1.getValueType().getSizeInBits()*2 != VT.getSizeInBits())
         return SDValue();
 
+      // If the input vector type has a different base type to the output
+      // vector type, bail out.
+      if (VecIn1.getValueType().getVectorElementType() !=
+          VT.getVectorElementType())
+        return SDValue();
+
       // Widen the input vector by adding undef values.
       VecIn1 = DAG.getNode(ISD::CONCAT_VECTORS, N->getDebugLoc(), VT,
                            VecIn1, DAG.getUNDEF(VecIn1.getValueType()));
@@ -8264,6 +8477,44 @@ SDValue DAGCombiner::SimplifyVBinOp(SDNode *N) {
   }
 
   return SDValue();
+}
+
+/// SimplifyVUnaryOp - Visit a binary vector operation, like FABS/FNEG.
+SDValue DAGCombiner::SimplifyVUnaryOp(SDNode *N) {
+  // After legalize, the target may be depending on adds and other
+  // binary ops to provide legal ways to construct constants or other
+  // things. Simplifying them may result in a loss of legality.
+  if (LegalOperations) return SDValue();
+
+  assert(N->getValueType(0).isVector() &&
+         "SimplifyVUnaryOp only works on vectors!");
+
+  SDValue N0 = N->getOperand(0);
+
+  if (N0.getOpcode() != ISD::BUILD_VECTOR)
+    return SDValue();
+
+  // Operand is a BUILD_VECTOR node, see if we can constant fold it.
+  SmallVector<SDValue, 8> Ops;
+  for (unsigned i = 0, e = N0.getNumOperands(); i != e; ++i) {
+    SDValue Op = N0.getOperand(i);
+    if (Op.getOpcode() != ISD::UNDEF &&
+        Op.getOpcode() != ISD::ConstantFP)
+      break;
+    EVT EltVT = Op.getValueType();
+    SDValue FoldOp = DAG.getNode(N->getOpcode(), N0.getDebugLoc(), EltVT, Op);
+    if (FoldOp.getOpcode() != ISD::UNDEF &&
+        FoldOp.getOpcode() != ISD::ConstantFP)
+      break;
+    Ops.push_back(FoldOp);
+    AddToWorkList(FoldOp.getNode());
+  }
+
+  if (Ops.size() != N0.getNumOperands())
+    return SDValue();
+
+  return DAG.getNode(ISD::BUILD_VECTOR, N->getDebugLoc(),
+                     N0.getValueType(), &Ops[0], Ops.size());
 }
 
 SDValue DAGCombiner::SimplifySelect(DebugLoc DL, SDValue N0,
@@ -8729,7 +8980,7 @@ SDValue DAGCombiner::BuildUDIV(SDNode *N) {
 // to alias with anything but itself.  Provides base object and offset as
 // results.
 static bool FindBaseOffset(SDValue Ptr, SDValue &Base, int64_t &Offset,
-                           const GlobalValue *&GV, void *&CV) {
+                           const GlobalValue *&GV, const void *&CV) {
   // Assume it is a primitive operation.
   Base = Ptr; Offset = 0; GV = 0; CV = 0;
 
@@ -8754,8 +9005,8 @@ static bool FindBaseOffset(SDValue Ptr, SDValue &Base, int64_t &Offset,
   // for ConstantSDNodes since the same constant pool entry may be represented
   // by multiple nodes with different offsets.
   if (ConstantPoolSDNode *C = dyn_cast<ConstantPoolSDNode>(Base)) {
-    CV = C->isMachineConstantPoolEntry() ? (void *)C->getMachineCPVal()
-                                         : (void *)C->getConstVal();
+    CV = C->isMachineConstantPoolEntry() ? (const void *)C->getMachineCPVal()
+                                         : (const void *)C->getConstVal();
     Offset += C->getOffset();
     return false;
   }
@@ -8780,7 +9031,7 @@ bool DAGCombiner::isAlias(SDValue Ptr1, int64_t Size1,
   SDValue Base1, Base2;
   int64_t Offset1, Offset2;
   const GlobalValue *GV1, *GV2;
-  void *CV1, *CV2;
+  const void *CV1, *CV2;
   bool isFrameIndex1 = FindBaseOffset(Ptr1, Base1, Offset1, GV1, CV1);
   bool isFrameIndex2 = FindBaseOffset(Ptr2, Base2, Offset2, GV2, CV2);
 

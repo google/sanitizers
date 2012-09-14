@@ -387,11 +387,36 @@ struct Elf_Rel_Impl<target_endianness, false, isRela>
   }
 };
 
+template<support::endianness target_endianness, bool is64Bits>
+struct Elf_Ehdr_Impl {
+  LLVM_ELF_IMPORT_TYPES(target_endianness, is64Bits)
+  unsigned char e_ident[ELF::EI_NIDENT]; // ELF Identification bytes
+  Elf_Half e_type;     // Type of file (see ET_*)
+  Elf_Half e_machine;  // Required architecture for this file (see EM_*)
+  Elf_Word e_version;  // Must be equal to 1
+  Elf_Addr e_entry;    // Address to jump to in order to start program
+  Elf_Off  e_phoff;    // Program header table's file offset, in bytes
+  Elf_Off  e_shoff;    // Section header table's file offset, in bytes
+  Elf_Word e_flags;    // Processor-specific flags
+  Elf_Half e_ehsize;   // Size of ELF header, in bytes
+  Elf_Half e_phentsize;// Size of an entry in the program header table
+  Elf_Half e_phnum;    // Number of entries in the program header table
+  Elf_Half e_shentsize;// Size of an entry in the section header table
+  Elf_Half e_shnum;    // Number of entries in the section header table
+  Elf_Half e_shstrndx; // Section header table index of section name
+                                 // string table
+  bool checkMagic() const {
+    return (memcmp(e_ident, ELF::ElfMagic, strlen(ELF::ElfMagic))) == 0;
+  }
+   unsigned char getFileClass() const { return e_ident[ELF::EI_CLASS]; }
+   unsigned char getDataEncoding() const { return e_ident[ELF::EI_DATA]; }
+};
 
 template<support::endianness target_endianness, bool is64Bits>
 class ELFObjectFile : public ObjectFile {
   LLVM_ELF_IMPORT_TYPES(target_endianness, is64Bits)
 
+  typedef Elf_Ehdr_Impl<target_endianness, is64Bits> Elf_Ehdr;
   typedef Elf_Shdr_Impl<target_endianness, is64Bits> Elf_Shdr;
   typedef Elf_Sym_Impl<target_endianness, is64Bits> Elf_Sym;
   typedef Elf_Dyn_Impl<target_endianness, is64Bits> Elf_Dyn;
@@ -406,28 +431,6 @@ class ELFObjectFile : public ObjectFile {
   typedef content_iterator<DynRef> dyn_iterator;
 
 protected:
-  struct Elf_Ehdr {
-    unsigned char e_ident[ELF::EI_NIDENT]; // ELF Identification bytes
-    Elf_Half e_type;     // Type of file (see ET_*)
-    Elf_Half e_machine;  // Required architecture for this file (see EM_*)
-    Elf_Word e_version;  // Must be equal to 1
-    Elf_Addr e_entry;    // Address to jump to in order to start program
-    Elf_Off  e_phoff;    // Program header table's file offset, in bytes
-    Elf_Off  e_shoff;    // Section header table's file offset, in bytes
-    Elf_Word e_flags;    // Processor-specific flags
-    Elf_Half e_ehsize;   // Size of ELF header, in bytes
-    Elf_Half e_phentsize;// Size of an entry in the program header table
-    Elf_Half e_phnum;    // Number of entries in the program header table
-    Elf_Half e_shentsize;// Size of an entry in the section header table
-    Elf_Half e_shnum;    // Number of entries in the section header table
-    Elf_Half e_shstrndx; // Section header table index of section name
-                                  // string table
-    bool checkMagic() const {
-      return (memcmp(e_ident, ELF::ElfMagic, strlen(ELF::ElfMagic))) == 0;
-    }
-    unsigned char getFileClass() const { return e_ident[ELF::EI_CLASS]; }
-    unsigned char getDataEncoding() const { return e_ident[ELF::EI_DATA]; }
-  };
   // This flag is used for classof, to distinguish ELFObjectFile from
   // its subclass. If more subclasses will be created, this flag will
   // have to become an enum.
@@ -1444,6 +1447,143 @@ error_code ELFObjectFile<target_endianness, is64Bits>
       res = "Unknown";
     }
     break;
+  case ELF::EM_ARM:
+    switch (type) {
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_NONE);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PC24);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ABS32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_REL32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_PC_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ABS16);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ABS12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_ABS5);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ABS8);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_SBREL32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_CALL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_PC8);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_BREL_ADJ);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_DESC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_SWI8);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_XPC25);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_XPC22);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_DTPMOD32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_DTPOFF32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_TPOFF32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_COPY);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GLOB_DAT);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_JUMP_SLOT);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_RELATIVE);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOTOFF32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_BASE_PREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOT_BREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PLT32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_CALL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_JUMP24);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_JUMP24);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_BASE_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PCREL_7_0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PCREL_15_8);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PCREL_23_15);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_SBREL_11_0_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SBREL_19_12_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SBREL_27_20_CK);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TARGET1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_SBREL31);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_V4BX);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TARGET2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PREL31);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVW_ABS_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVT_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVW_PREL_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVT_PREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVW_ABS_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVT_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVW_PREL_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVT_PREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_JUMP19);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_JUMP6);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_ALU_PREL_11_0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_PC12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ABS32_NOI);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_REL32_NOI);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PC_G0_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PC_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PC_G1_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PC_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_PC_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_PC_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_PC_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDRS_PC_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDRS_PC_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDRS_PC_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDC_PC_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDC_PC_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDC_PC_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SB_G0_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SB_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SB_G1_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SB_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ALU_SB_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_SB_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_SB_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDR_SB_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDRS_SB_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDRS_SB_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDRS_SB_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDC_SB_G0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDC_SB_G1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_LDC_SB_G2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVW_BREL_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVT_BREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_MOVW_BREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVW_BREL_NC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVT_BREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_MOVW_BREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_GOTDESC);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_CALL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_DESCSEQ);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_TLS_CALL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PLT32_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOT_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOT_PREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOT_BREL12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOTOFF12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GOTRELAX);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GNU_VTENTRY);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_GNU_VTINHERIT);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_JUMP11);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_JUMP8);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_GD32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_LDM32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_LDO32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_IE32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_LE32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_LDO12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_LE12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_TLS_IE12GP);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_0);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_1);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_2);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_3);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_4);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_5);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_6);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_7);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_8);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_9);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_10);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_11);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_12);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_13);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_14);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_PRIVATE_15);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_ME_TOO);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_TLS_DESCSEQ16);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_ARM_THM_TLS_DESCSEQ32);
+    default:
+      res = "Unknown";
+    }
+    break;
   case ELF::EM_HEXAGON:
     switch (type) {
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_HEX_NONE);
@@ -1574,15 +1714,15 @@ error_code ELFObjectFile<target_endianness, is64Bits>
   int64_t addend = 0;
   uint16_t symbol_index = 0;
   switch (sec->sh_type) {
-    default :
+    default:
       return object_error::parse_failed;
-    case ELF::SHT_REL : {
+    case ELF::SHT_REL: {
       type = getRel(Rel)->getType();
       symbol_index = getRel(Rel)->getSymbol();
       // TODO: Read implicit addend from section data.
       break;
     }
-    case ELF::SHT_RELA : {
+    case ELF::SHT_RELA: {
       type = getRela(Rel)->getType();
       symbol_index = getRela(Rel)->getSymbol();
       addend = getRela(Rel)->r_addend;
@@ -1596,9 +1736,8 @@ error_code ELFObjectFile<target_endianness, is64Bits>
   switch (Header->e_machine) {
   case ELF::EM_X86_64:
     switch (type) {
-    case ELF::R_X86_64_32S:
-      res = symname;
-      break;
+    case ELF::R_X86_64_PC8:
+    case ELF::R_X86_64_PC16:
     case ELF::R_X86_64_PC32: {
         std::string fmtbuf;
         raw_string_ostream fmt(fmtbuf);
@@ -1607,10 +1746,23 @@ error_code ELFObjectFile<target_endianness, is64Bits>
         Result.append(fmtbuf.begin(), fmtbuf.end());
       }
       break;
+    case ELF::R_X86_64_8:
+    case ELF::R_X86_64_16:
+    case ELF::R_X86_64_32:
+    case ELF::R_X86_64_32S:
+    case ELF::R_X86_64_64: {
+        std::string fmtbuf;
+        raw_string_ostream fmt(fmtbuf);
+        fmt << symname << (addend < 0 ? "" : "+") << addend;
+        fmt.flush();
+        Result.append(fmtbuf.begin(), fmtbuf.end());
+      }
+      break;
     default:
       res = "Unknown";
     }
     break;
+  case ELF::EM_ARM:
   case ELF::EM_HEXAGON:
     res = symname;
     break;

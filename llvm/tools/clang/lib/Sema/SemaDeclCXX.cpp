@@ -675,6 +675,20 @@ static bool CheckConstexprParameterTypes(Sema &SemaRef,
   return true;
 }
 
+/// \brief Get diagnostic %select index for tag kind for
+/// record diagnostic message.
+/// WARNING: Indexes apply to particular diagnostics only!
+///
+/// \returns diagnostic %select index.
+static unsigned getRecordDiagFromTagKind(TagTypeKind Tag) {
+  switch (Tag) {
+  case TTK_Struct: return 0;
+  case TTK_Interface: return 1;
+  case TTK_Class:  return 2;
+  default: llvm_unreachable("Invalid tag kind for record diagnostic!");
+  }
+}
+
 // CheckConstexprFunctionDecl - Check whether a function declaration satisfies
 // the requirements of a constexpr function definition or a constexpr
 // constructor definition. If so, return true. If not, produce appropriate
@@ -691,8 +705,8 @@ bool Sema::CheckConstexprFunctionDecl(const FunctionDecl *NewFD) {
     const CXXRecordDecl *RD = MD->getParent();
     if (RD->getNumVBases()) {
       Diag(NewFD->getLocation(), diag::err_constexpr_virtual_base)
-        << isa<CXXConstructorDecl>(NewFD) << RD->isStruct()
-        << RD->getNumVBases();
+        << isa<CXXConstructorDecl>(NewFD)
+        << getRecordDiagFromTagKind(RD->getTagKind()) << RD->getNumVBases();
       for (CXXRecordDecl::base_class_const_iterator I = RD->vbases_begin(),
              E = RD->vbases_end(); I != E; ++I)
         Diag(I->getLocStart(),
@@ -1406,6 +1420,9 @@ bool Sema::ActOnAccessSpecifier(AccessSpecifier Access,
 
 /// CheckOverrideControl - Check C++11 override control semantics.
 void Sema::CheckOverrideControl(Decl *D) {
+  if (D->isInvalidDecl())
+    return;
+
   const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D);
 
   // Do we know which functions this declaration might be overriding?
@@ -1685,7 +1702,11 @@ Sema::ActOnCXXInClassMemberInitializer(Decl *D, SourceLocation InitLoc,
   }
 
   ExprResult Init = InitExpr;
-  if (!FD->getType()->isDependentType() && !InitExpr->isTypeDependent()) {
+  if (!FD->getType()->isDependentType() && !InitExpr->isTypeDependent() &&
+      !FD->getDeclContext()->isDependentContext()) {
+    // Note: We don't type-check when we're in a dependent context, because
+    // the initialization-substitution code does not properly handle direct
+    // list initialization. We have the same hackaround for ctor-initializers.
     if (isa<InitListExpr>(InitExpr) && isStdInitializerList(FD->getType(), 0)) {
       Diag(FD->getLocation(), diag::warn_dangling_std_initializer_list)
         << /*at end of ctor*/1 << InitExpr->getSourceRange();
@@ -4305,7 +4326,7 @@ bool SpecialMemberDeletionInfo::isAccessible(Subobject Subobj,
   /// If we're operating on a base class, the object type is the
   /// type of this special member.
   QualType objectTy;
-  AccessSpecifier access = target->getAccess();;
+  AccessSpecifier access = target->getAccess();
   if (CXXBaseSpecifier *base = Subobj.dyn_cast<CXXBaseSpecifier*>()) {
     objectTy = S.Context.getTypeDeclType(MD->getParent());
     access = CXXRecordDecl::MergeAccess(base->getAccessSpecifier(), access);
@@ -7847,8 +7868,8 @@ void Sema::DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
           }
         
           CollectableMemCpyRef = BuildDeclRefExpr(CollectableMemCpy, 
-                                                  CollectableMemCpy->getType(),
-                                                  VK_LValue, Loc, 0).take();
+                                                  Context.BuiltinFnTy,
+                                                  VK_RValue, Loc, 0).take();
           assert(CollectableMemCpyRef && "Builtin reference cannot fail");
         }
       }
@@ -7867,8 +7888,8 @@ void Sema::DefineImplicitCopyAssignment(SourceLocation CurrentLocation,
         }
 
         BuiltinMemCpyRef = BuildDeclRefExpr(BuiltinMemCpy, 
-                                            BuiltinMemCpy->getType(),
-                                            VK_LValue, Loc, 0).take();
+                                            Context.BuiltinFnTy,
+                                            VK_RValue, Loc, 0).take();
         assert(BuiltinMemCpyRef && "Builtin reference cannot fail");
       }
           
@@ -8396,8 +8417,8 @@ void Sema::DefineImplicitMoveAssignment(SourceLocation CurrentLocation,
           }
         
           CollectableMemCpyRef = BuildDeclRefExpr(CollectableMemCpy, 
-                                                  CollectableMemCpy->getType(),
-                                                  VK_LValue, Loc, 0).take();
+                                                  Context.BuiltinFnTy,
+                                                  VK_RValue, Loc, 0).take();
           assert(CollectableMemCpyRef && "Builtin reference cannot fail");
         }
       }
@@ -8416,8 +8437,8 @@ void Sema::DefineImplicitMoveAssignment(SourceLocation CurrentLocation,
         }
 
         BuiltinMemCpyRef = BuildDeclRefExpr(BuiltinMemCpy, 
-                                            BuiltinMemCpy->getType(),
-                                            VK_LValue, Loc, 0).take();
+                                            Context.BuiltinFnTy,
+                                            VK_RValue, Loc, 0).take();
         assert(BuiltinMemCpyRef && "Builtin reference cannot fail");
       }
           

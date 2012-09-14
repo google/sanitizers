@@ -316,7 +316,7 @@ protected:
     DefineStd(Builder, "linux", Opts);
     Builder.defineMacro("__gnu_linux__");
     Builder.defineMacro("__ELF__");
-    if (Triple.getEnvironment() == llvm::Triple::ANDROIDEABI)
+    if (Triple.getEnvironment() == llvm::Triple::Android)
       Builder.defineMacro("__ANDROID__", "1");
     if (Opts.POSIXThreads)
       Builder.defineMacro("_REENTRANT");
@@ -2936,7 +2936,7 @@ public:
   void getDefaultFeatures(llvm::StringMap<bool> &Features) const {
     if (CPU == "arm1136jf-s" || CPU == "arm1176jzf-s" || CPU == "mpcore")
       Features["vfp2"] = true;
-    else if (CPU == "cortex-a8" || CPU == "cortex-a9")
+    else if (CPU == "cortex-a8" || CPU == "cortex-a9" || CPU == "cortex-a15")
       Features["neon"] = true;
   }
 
@@ -2988,6 +2988,7 @@ public:
               StringRef(getCPUDefineSuffix(CPU)).startswith("7"))    
         .Default(false);
   }
+  // FIXME: Should we actually have some table instead of these switches?
   static const char *getCPUDefineSuffix(StringRef Name) {
     return llvm::StringSwitch<const char*>(Name)
       .Cases("arm8", "arm810", "4")
@@ -3004,11 +3005,16 @@ public:
       .Cases("arm1176jz-s", "arm1176jzf-s", "6ZK")
       .Cases("arm1136jf-s", "mpcorenovfp", "mpcore", "6K")
       .Cases("arm1156t2-s", "arm1156t2f-s", "6T2")
-      .Cases("cortex-a8", "cortex-a9", "7A")
-      .Case("cortex-m3", "7M")
-      .Case("cortex-m4", "7M")
+      .Cases("cortex-a8", "cortex-a9", "cortex-a15", "7A")
+      .Cases("cortex-m3", "cortex-m4", "7M")
       .Case("cortex-m0", "6M")
       .Default(0);
+  }
+  static const char *getCPUProfile(StringRef Name) {
+    return llvm::StringSwitch<const char*>(Name)
+      .Cases("cortex-a8", "cortex-a9", "A")
+      .Cases("cortex-m3", "cortex-m4", "cortex-m0", "M")
+      .Default("");
   }
   virtual bool setCPU(const std::string &Name) {
     if (!getCPUDefineSuffix(Name))
@@ -3030,7 +3036,11 @@ public:
 
     StringRef CPUArch = getCPUDefineSuffix(CPU);
     Builder.defineMacro("__ARM_ARCH_" + CPUArch + "__");
-
+    Builder.defineMacro("__ARM_ARCH", CPUArch.substr(0, 1));
+    StringRef CPUProfile = getCPUProfile(CPU);
+    if (!CPUProfile.empty())
+      Builder.defineMacro("__ARM_ARCH_PROFILE", CPUProfile);
+    
     // Subtarget options.
 
     // FIXME: It's more complicated than this and we don't really support
@@ -3038,8 +3048,13 @@ public:
     if ('5' <= CPUArch[0] && CPUArch[0] <= '7')
       Builder.defineMacro("__THUMB_INTERWORK__");
 
-    if (ABI == "aapcs" || ABI == "aapcs-linux")
+    if (ABI == "aapcs" || ABI == "aapcs-linux") {
       Builder.defineMacro("__ARM_EABI__");
+      Builder.defineMacro("__ARM_PCS", "1");
+
+      if (!SoftFloat && !SoftFloatABI)
+        Builder.defineMacro("__ARM_PCS_VFP", "1");
+    }
 
     if (SoftFloat)
       Builder.defineMacro("__SOFTFP__");

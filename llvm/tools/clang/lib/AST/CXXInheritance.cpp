@@ -14,6 +14,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/DeclCXX.h"
+#include "llvm/ADT/SetVector.h"
 #include <algorithm>
 #include <set>
 
@@ -25,11 +26,9 @@ void CXXBasePaths::ComputeDeclsFound() {
   assert(NumDeclsFound == 0 && !DeclsFound &&
          "Already computed the set of declarations");
 
-  llvm::SmallPtrSet<NamedDecl *, 8> KnownDecls;
-  SmallVector<NamedDecl *, 8> Decls;
+  llvm::SetVector<NamedDecl *, SmallVector<NamedDecl *, 8> > Decls;
   for (paths_iterator Path = begin(), PathEnd = end(); Path != PathEnd; ++Path)
-    if (KnownDecls.insert(*Path->Decls.first))
-      Decls.push_back(*Path->Decls.first);
+    Decls.insert(*Path->Decls.first);
 
   NumDeclsFound = Decls.size();
   DeclsFound = new NamedDecl * [NumDeclsFound];
@@ -256,7 +255,7 @@ bool CXXBasePaths::lookupInBases(ASTContext &Context,
       }
     } else if (VisitBase) {
       CXXRecordDecl *BaseRecord
-        = cast<CXXRecordDecl>(BaseSpec->getType()->getAs<RecordType>()
+        = cast<CXXRecordDecl>(BaseSpec->getType()->castAs<RecordType>()
                                 ->getDecl());
       if (lookupInBases(Context, BaseRecord, BaseMatches, UserData)) {
         // C++ [class.member.lookup]p2:
@@ -718,7 +717,7 @@ CXXRecordDecl::getIndirectPrimaryBases(CXXIndirectPrimaryBaseSet& Bases) const {
            "Cannot get indirect primary bases for class with dependent bases.");
 
     const CXXRecordDecl *BaseDecl =
-      cast<CXXRecordDecl>(I->getType()->getAs<RecordType>()->getDecl());
+      cast<CXXRecordDecl>(I->getType()->castAs<RecordType>()->getDecl());
 
     // Only bases with virtual bases participate in computing the
     // indirect primary virtual base classes.

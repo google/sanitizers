@@ -66,6 +66,24 @@ static const Module *getModuleFromVal(const Value *V) {
   return 0;
 }
 
+static void PrintCallingConv(unsigned cc, raw_ostream &Out)
+{
+  switch (cc) {
+    case CallingConv::Fast:         Out << "fastcc"; break;
+    case CallingConv::Cold:         Out << "coldcc"; break;
+    case CallingConv::X86_StdCall:  Out << "x86_stdcallcc"; break;
+    case CallingConv::X86_FastCall: Out << "x86_fastcallcc"; break;
+    case CallingConv::X86_ThisCall: Out << "x86_thiscallcc"; break;
+    case CallingConv::ARM_APCS:     Out << "arm_apcscc"; break;
+    case CallingConv::ARM_AAPCS:    Out << "arm_aapcscc"; break;
+    case CallingConv::ARM_AAPCS_VFP:Out << "arm_aapcs_vfpcc"; break;
+    case CallingConv::MSP430_INTR:  Out << "msp430_intrcc"; break;
+    case CallingConv::PTX_Kernel:   Out << "ptx_kernel"; break;
+    case CallingConv::PTX_Device:   Out << "ptx_device"; break;
+    default:                        Out << "cc" << cc; break;
+  }
+}
+ 
 // PrintEscapedString - Print each character of the specified string, escaping
 // it if it is not printable or if it is an escape char.
 static void PrintEscapedString(StringRef Name, raw_ostream &Out) {
@@ -1029,6 +1047,9 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Value *V,
       Out << "sideeffect ";
     if (IA->isAlignStack())
       Out << "alignstack ";
+    // We don't emit the AD_ATT dialect as it's the assumed default.
+    if (IA->getDialect() == InlineAsm::AD_Intel)
+      Out << "inteldialect ";
     Out << '"';
     PrintEscapedString(IA->getAsmString(), Out);
     Out << "\", \"";
@@ -1285,8 +1306,9 @@ void AssemblyWriter::printModule(const Module *M) {
   // Output all globals.
   if (!M->global_empty()) Out << '\n';
   for (Module::const_global_iterator I = M->global_begin(), E = M->global_end();
-       I != E; ++I)
-    printGlobal(I);
+       I != E; ++I) {
+    printGlobal(I); Out << '\n';
+  }
 
   // Output all aliases.
   if (!M->alias_empty()) Out << "\n";
@@ -1436,7 +1458,6 @@ void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
     Out << ", align " << GV->getAlignment();
 
   printInfoComment(*GV);
-  Out << '\n';
 }
 
 void AssemblyWriter::printAlias(const GlobalAlias *GA) {
@@ -1527,20 +1548,9 @@ void AssemblyWriter::printFunction(const Function *F) {
   PrintVisibility(F->getVisibility(), Out);
 
   // Print the calling convention.
-  switch (F->getCallingConv()) {
-  case CallingConv::C: break;   // default
-  case CallingConv::Fast:         Out << "fastcc "; break;
-  case CallingConv::Cold:         Out << "coldcc "; break;
-  case CallingConv::X86_StdCall:  Out << "x86_stdcallcc "; break;
-  case CallingConv::X86_FastCall: Out << "x86_fastcallcc "; break;
-  case CallingConv::X86_ThisCall: Out << "x86_thiscallcc "; break;
-  case CallingConv::ARM_APCS:     Out << "arm_apcscc "; break;
-  case CallingConv::ARM_AAPCS:    Out << "arm_aapcscc "; break;
-  case CallingConv::ARM_AAPCS_VFP:Out << "arm_aapcs_vfpcc "; break;
-  case CallingConv::MSP430_INTR:  Out << "msp430_intrcc "; break;
-  case CallingConv::PTX_Kernel:   Out << "ptx_kernel "; break;
-  case CallingConv::PTX_Device:   Out << "ptx_device "; break;
-  default: Out << "cc" << F->getCallingConv() << " "; break;
+  if (F->getCallingConv() != CallingConv::C) {
+    PrintCallingConv(F->getCallingConv(), Out);
+    Out << " ";
   }
 
   FunctionType *FT = F->getFunctionType();
@@ -1828,20 +1838,9 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     Out << " void";
   } else if (const CallInst *CI = dyn_cast<CallInst>(&I)) {
     // Print the calling convention being used.
-    switch (CI->getCallingConv()) {
-    case CallingConv::C: break;   // default
-    case CallingConv::Fast:  Out << " fastcc"; break;
-    case CallingConv::Cold:  Out << " coldcc"; break;
-    case CallingConv::X86_StdCall:  Out << " x86_stdcallcc"; break;
-    case CallingConv::X86_FastCall: Out << " x86_fastcallcc"; break;
-    case CallingConv::X86_ThisCall: Out << " x86_thiscallcc"; break;
-    case CallingConv::ARM_APCS:     Out << " arm_apcscc "; break;
-    case CallingConv::ARM_AAPCS:    Out << " arm_aapcscc "; break;
-    case CallingConv::ARM_AAPCS_VFP:Out << " arm_aapcs_vfpcc "; break;
-    case CallingConv::MSP430_INTR:  Out << " msp430_intrcc "; break;
-    case CallingConv::PTX_Kernel:   Out << " ptx_kernel"; break;
-    case CallingConv::PTX_Device:   Out << " ptx_device"; break;
-    default: Out << " cc" << CI->getCallingConv(); break;
+    if (CI->getCallingConv() != CallingConv::C) {
+      Out << " ";
+      PrintCallingConv(CI->getCallingConv(), Out);
     }
 
     Operand = CI->getCalledValue();
@@ -1884,20 +1883,9 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     const AttrListPtr &PAL = II->getAttributes();
 
     // Print the calling convention being used.
-    switch (II->getCallingConv()) {
-    case CallingConv::C: break;   // default
-    case CallingConv::Fast:  Out << " fastcc"; break;
-    case CallingConv::Cold:  Out << " coldcc"; break;
-    case CallingConv::X86_StdCall:  Out << " x86_stdcallcc"; break;
-    case CallingConv::X86_FastCall: Out << " x86_fastcallcc"; break;
-    case CallingConv::X86_ThisCall: Out << " x86_thiscallcc"; break;
-    case CallingConv::ARM_APCS:     Out << " arm_apcscc "; break;
-    case CallingConv::ARM_AAPCS:    Out << " arm_aapcscc "; break;
-    case CallingConv::ARM_AAPCS_VFP:Out << " arm_aapcs_vfpcc "; break;
-    case CallingConv::MSP430_INTR:  Out << " msp430_intrcc "; break;
-    case CallingConv::PTX_Kernel:   Out << " ptx_kernel"; break;
-    case CallingConv::PTX_Device:   Out << " ptx_device"; break;
-    default: Out << " cc" << II->getCallingConv(); break;
+    if (II->getCallingConv() != CallingConv::C) {
+      Out << " ";
+      PrintCallingConv(II->getCallingConv(), Out);
     }
 
     if (PAL.getRetAttributes() != Attribute::None)
