@@ -6,6 +6,7 @@
 #include "sanitizer_common/sanitizer_flags.h"
 #include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
+#include "sanitizer_common/sanitizer_symbolizer.h"
 
 #include <interception/interception.h>
 
@@ -83,7 +84,7 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
 static void PrintCurrentStackTrace(uptr pc, uptr bp) {
   StackTrace stack;
   GetStackTrace(&stack, kStackTraceMax, pc, bp);
-  StackTrace::PrintStack(stack.trace, stack.size, false, "", 0);
+  StackTrace::PrintStack(stack.trace, stack.size, true, "", 0);
 }
 
 void PrintWarning(uptr pc, uptr bp) {
@@ -155,6 +156,11 @@ void __msan_init() {
 
   __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
+
+  const char *external_symbolizer = GetEnv("MSAN_SYMBOLIZER_PATH");
+  if (external_symbolizer && external_symbolizer[0]) {
+    InitializeExternalSymbolizer(external_symbolizer);
+  }
 
   GetThreadStackTopAndBottom(true,
                              &__msan_stack_bounds.stack_top,
