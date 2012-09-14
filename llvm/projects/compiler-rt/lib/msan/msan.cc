@@ -110,7 +110,7 @@ void PrintWarning(uptr pc, uptr bp) {
       uptr size = 0;
       const uptr *trace = StackDepotGet(__msan_origin_tls, &size);
       Printf("  ORIGIN: heap allocation:\n");
-      StackTrace::PrintStack(trace, size, false, "", 0);
+      StackTrace::PrintStack(trace, size, true, "", 0);
     }
   }
   if (__msan::flags.exit_code >= 0) {
