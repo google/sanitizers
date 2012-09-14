@@ -110,7 +110,7 @@ void PrintWarning(uptr pc, uptr bp) {
       uptr size = 0;
       const uptr *trace = StackDepotGet(__msan_origin_tls, &size);
       Printf("  ORIGIN: heap allocation:\n");
-      StackTrace::PrintStack(trace, size, false, "", 0);
+      StackTrace::PrintStack(trace, size, true, "", 0);
     }
   }
   if (__msan::flags.exit_code >= 0) {
@@ -131,8 +131,10 @@ void __msan_warning() {
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
+  msan_init_is_running = 1;
 
   SetDieCallback(MsanDie);
+  __msan::InitializeInterceptors();
 
   ReplaceOperatorsNewAndDelete();
   if (StackIsUnlimited()) {
@@ -141,7 +143,6 @@ void __msan_init() {
     ReExec();
   }
   ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
-  msan_init_is_running = 1;
   msan_running_under_dr = IsRunningUnderDr();
   __msan_clear_on_return();
   if (__msan_track_origins)
@@ -154,7 +155,6 @@ void __msan_init() {
     Die();
   }
 
-  __msan::InitializeInterceptors();
   __msan::InstallTrapHandler();
 
   const char *external_symbolizer = GetEnv("MSAN_SYMBOLIZER_PATH");

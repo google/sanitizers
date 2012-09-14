@@ -14,6 +14,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/resource.h>
 
 #if defined(__i386__) || defined(__x86_64__)
 # include <emmintrin.h>
@@ -1027,6 +1028,15 @@ TEST(MemorySanitizer, LongStruct) {
   EXPECT_POISONED(v_u8 = s2.a8);
 }
 
+TEST(MemorySanitizer, getrlimit) {
+  struct rlimit limit;
+  __msan_poison(&limit, sizeof(limit));
+  int result = getrlimit(RLIMIT_DATA, &limit);
+  assert(result == 0);
+  volatile rlim_t t;
+  t = limit.rlim_cur;
+  t = limit.rlim_max;
+}
 
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {

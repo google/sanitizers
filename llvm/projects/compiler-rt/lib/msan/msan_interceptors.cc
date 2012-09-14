@@ -322,6 +322,26 @@ INTERCEPTOR(char*, realpath, char* path, char* abspath) {
   return res;
 }
 
+INTERCEPTOR(int, getrlimit, int resource, void* rlim) {
+  if (msan_init_is_running)
+    return REAL(getrlimit)(resource, rlim);
+  ENSURE_MSAN_INITED();
+  int res = REAL(getrlimit)(resource, rlim);
+  if (!res)
+    __msan_unpoison(rlim, sizeof(size_t) * 2);
+  return res;
+}
+
+INTERCEPTOR(int, getrlimit64, int resource, void* rlim) {
+  if (msan_init_is_running)
+    return REAL(getrlimit64)(resource, rlim);
+  ENSURE_MSAN_INITED();
+  int res = REAL(getrlimit64)(resource, rlim);
+  if (!res)
+    __msan_unpoison(rlim, 16);
+  return res;
+}
+
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
   GET_MALLOC_STACK_TRACE;
   if (!msan_inited) {
@@ -492,5 +512,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(fgets));
   CHECK(INTERCEPT_FUNCTION(getcwd));
   CHECK(INTERCEPT_FUNCTION(realpath));
+  CHECK(INTERCEPT_FUNCTION(getrlimit));
+  CHECK(INTERCEPT_FUNCTION(getrlimit64));
 }
 }  // namespace __msan
