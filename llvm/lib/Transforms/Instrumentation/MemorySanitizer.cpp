@@ -61,6 +61,7 @@
 #include "llvm/MDBuilder.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/raw_ostream.h"
@@ -311,6 +312,33 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
              << F.getName() << "\n";
   }
 
+  LLVM_ATTRIBUTE_NOINLINE
+  void materializeChecks() {
+    for (size_t i = 0, n = InstrumentationSet.size(); i < n; i++) {
+      Instruction *Shadow = InstrumentationSet[i].Shadow;
+      Instruction *OrigIns = InstrumentationSet[i].OrigIns;
+      IRBuilder<> IRB(OrigIns);
+      DEBUG(dbgs() << "  SHAD0 : " << *Shadow << "\n");
+      Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
+      DEBUG(dbgs() << "  SHAD1 : " << *ConvertedShadow << "\n");
+      Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
+                                    getCleanShadow(ConvertedShadow), "_mscmp");
+      Instruction *CheckTerm =
+          splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
+
+      IRB.SetInsertPoint(CheckTerm);
+      if (ClTrackOrigins) {
+        Instruction *Origin = InstrumentationSet[i].Origin;
+        IRB.CreateStore(Origin ? (Value*)Origin : (Value*)IRB.getInt32(0),
+                        MS.OriginTLS);
+      }
+      CallInst *Call = IRB.CreateCall(MS.WarningFn);
+      Call->setDebugLoc(OrigIns->getDebugLoc());
+      DEBUG(dbgs() << "  CHECK: " << *Cmp << "\n");
+    }
+    DEBUG(dbgs() << "DONE:\n" << F);
+  }
+
   bool runOnFunction() {
     if (!MS.TD) return false;
     // Iterate all BBs in depth-first order and create shadows instructions
@@ -376,57 +404,47 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRB.CreateMemCpy(OverflowArgAreaShadowPtr, SrcPtr, VAArgOverflowSize, 16);
     }
 
-    // Materialize checks.
-    for (size_t i = 0, n = InstrumentationSet.size(); i < n; i++) {
-      Instruction *Shadow = InstrumentationSet[i].Shadow;
-      Instruction *OrigIns = InstrumentationSet[i].OrigIns;
-      IRBuilder<> IRB(OrigIns);
-      Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
-      Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
-                                    getCleanShadow(ConvertedShadow), "_mscmp");
-      Instruction *CheckTerm =
-          splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
+    materializeChecks();
 
-      IRB.SetInsertPoint(CheckTerm);
-      if (ClTrackOrigins) {
-        Instruction *Origin = InstrumentationSet[i].Origin;
-        IRB.CreateStore(Origin ? (Value*)Origin : (Value*)IRB.getInt32(0),
-                        MS.OriginTLS);
-      }
-      CallInst *Call = IRB.CreateCall(MS.WarningFn);
-      Call->setDebugLoc(OrigIns->getDebugLoc());
-      DEBUG(dbgs() << "  SHAD : " << *ConvertedShadow << "\n");
-      DEBUG(dbgs() << "  CHECK: " << *Cmp << "\n");
-    }
-    DEBUG(dbgs() << "DONE:\n" << F);
     return true;
   }
 
   // Compute the shadow type that corresponds to a given Value.
   Type *getShadowTy(Value *V) {
-    Type *OrigTy = V->getType();
+    return getShadowTy(V->getType());
+  }
+
+  Type *getShadowTy(Type *OrigTy) {
     if (!OrigTy->isSized()) {
       // dbgs() << " notSized() " << *V << "\n";
       return NULL;
     }
     // For integer type, shadow is the same as the original type.
     // This may return weird-sized types like i1.
-    if (IntegerType *it = dyn_cast<IntegerType>(OrigTy))
-      return it;
-    if (VectorType *vt = dyn_cast<VectorType>(OrigTy))
-      return VectorType::getInteger(vt);
+    if (IntegerType *IT = dyn_cast<IntegerType>(OrigTy))
+      return IT;
+    if (VectorType *VT = dyn_cast<VectorType>(OrigTy))
+      return VectorType::getInteger(VT);
+    if (StructType *ST = dyn_cast<StructType>(OrigTy)) {
+      SmallVector<Type*, 4> Elements;
+      for (unsigned i = 0, n = ST->getNumElements(); i < n; i++)
+        Elements.push_back(getShadowTy(ST->getElementType(i)));
+      StructType *Res = StructType::get(*MS.C, Elements, ST->isPacked());
+      DEBUG(dbgs() << "getShadowTy: " << *ST << " ===> " << *Res << "\n");
+      return Res;
+    }
     uint32_t TypeSize = MS.TD->getTypeStoreSizeInBits(OrigTy);
     return IntegerType::get(*MS.C, TypeSize);
   }
 
-  // 'ty' is either integer or vector of integers.
-  // Return an integer type of this size.
+  LLVM_ATTRIBUTE_NOINLINE
   Type *getShadowTyNoVec(Type *ty) {
-    if (isa<IntegerType>(ty)) return ty;
-    VectorType *vt = cast<VectorType>(ty);
-    return IntegerType::get(*MS.C, vt->getBitWidth());
+    if (VectorType *vt = dyn_cast<VectorType>(ty))
+      return IntegerType::get(*MS.C, vt->getBitWidth());
+    return ty;
   }
 
+  LLVM_ATTRIBUTE_NOINLINE
   Value *convertToShadowTyNoVec(Value *V, IRBuilder<> &IRB) {
     Type *Ty = V->getType();
     Type *NoVecTy = getShadowTyNoVec(Ty);
@@ -605,22 +623,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!InsertChecks) return;
     Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
     if (!Shadow) return;
+    Type *ShadowTy = Shadow->getType();
+    assert(isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy));
     Instruction *Origin = dyn_cast_or_null<Instruction>(getOrigin(Val));
     InstrumentationSet.push_back(
         ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
   }
 
   //------------------- Visitors.
+  LLVM_ATTRIBUTE_NOINLINE
   void visitLoadInst(LoadInst &I) {
     Type *LoadTy = I.getType();
     assert(LoadTy->isSized());
-    uint32_t TypeSize = MS.TD->getTypeStoreSizeInBits(LoadTy);
-    if (TypeSize != 8  && TypeSize != 16 &&
-        TypeSize != 32 && TypeSize != 64 && TypeSize != 128) {
-      // Ignore all unusual sizes.
-      setShadow(&I, getCleanShadow(&I));
-      return ;
-    }
     IRBuilder<> IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
     Value *Addr = I.getPointerOperand();
@@ -634,6 +648,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
   }
 
+  LLVM_ATTRIBUTE_NOINLINE
   void visitStoreInst(StoreInst &I) {
     IRBuilder<> IRB(&I);
     Value *Val = I.getValueOperand();
@@ -743,6 +758,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  LLVM_ATTRIBUTE_NOINLINE
   void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
@@ -787,6 +803,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitXor(BinaryOperator &I) { handleShadowOrBinary(I); }
   void visitMul(BinaryOperator &I) { handleShadowOrBinary(I); }
 
+  LLVM_ATTRIBUTE_NOINLINE
   void handleDiv(Instruction &I) {
     IRBuilder<> IRB(&I);
     // Strict on the second argument.
@@ -1096,7 +1113,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     if (Value *RetVal = I.getReturnValue()) {
       // Set the shadow for the RetVal.
-      IRB.CreateStore(getShadow(RetVal), getShadowPtrForRetval(RetVal, IRB));
+      Value *Shadow = getShadow(RetVal);
+      Value *ShadowPtr = getShadowPtrForRetval(RetVal, IRB);
+      DEBUG(dbgs() << "Return: " << *Shadow << "\n" << *ShadowPtr << "\n");
+      IRB.CreateStore(Shadow, ShadowPtr);
       if (ClTrackOrigins)
         IRB.CreateStore(getOrigin(RetVal), getOriginPtrForRetval(IRB));
     }
@@ -1168,6 +1188,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     handleShadowOr(I);
   }
 
+  void visitExtractValueInst(ExtractValueInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Agg = I.getAggregateOperand();
+    DEBUG(dbgs() << "ExtractValue:  " << I << "\n");
+    Value *AggShadow = getShadow(Agg);
+    DEBUG(dbgs() << "   AggShadow:  " << *AggShadow << "\n");
+    Value *ResShadow = IRB.CreateExtractValue(AggShadow, I.getIndices());
+    DEBUG(dbgs() << "   ResShadow:  " << *ResShadow << "\n");
+    setShadow(&I, ResShadow);
+    setOrigin(&I, getCleanOrigin());
+  }
+
   void dumpInst(Instruction &I) {
     if (CallInst* CI = dyn_cast<CallInst>(&I)) {
       errs() << "ZZZ call " << CI->getCalledFunction()->getName() << "\n";
@@ -1177,6 +1209,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     errs() << "QQQ " << I << "\n";
   }
 
+  LLVM_ATTRIBUTE_NOINLINE
+  void visitResumeInst(ResumeInst &I) {
+    DEBUG(dbgs() << "Resume: " << I << "\n");
+    // Nothing to do here.
+  }
+
+  LLVM_ATTRIBUTE_NOINLINE
   void visitInstruction(Instruction &I) {
     // Everything else: stop propagating and check for poisoned shadow.
     if (ClDumpStrictInstructions)

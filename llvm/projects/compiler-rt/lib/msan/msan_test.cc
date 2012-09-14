@@ -922,6 +922,104 @@ TEST(MemorySanitizer, m128) {
 // FIXME: add more tests for __m128i.
 #endif  // MSAN_HAS_M128
 
+// We should not complain when copying this poisoned hole.
+struct StructWithHole {
+  U4  a;
+  // 4-byte hole.
+  U8  b;
+};
+
+NOINLINE StructWithHole ReturnStructWithHole() {
+  StructWithHole res;
+  __msan_poison(&res, sizeof(res));
+  res.a = 1;
+  res.b = 2;
+  return res;
+}
+
+struct IntStruct3 {
+  int a, b;
+};
+
+NOINLINE IntStruct3 ReturnIntStruct3a() {
+  IntStruct3 res;
+  __msan_poison(&res, sizeof(res));
+  res.a = 1;
+  return res;
+}
+
+NOINLINE IntStruct3 ReturnIntStruct3b() {
+  IntStruct3 res;
+  __msan_poison(&res, sizeof(res));
+  res.b = 1;
+  return res;
+}
+
+// FIXME
+TEST(MemorySanitizer, DISABLED_IntStruct3) {
+  IntStruct3 s1 = ReturnIntStruct3a();
+  v_s4 = s1.a;
+  EXPECT_POISONED(v_s4 = s1.b);
+  IntStruct3 s2 = ReturnIntStruct3b();
+  v_s4 = s1.b;
+  EXPECT_POISONED(v_s4 = s1.a);
+}
+
+TEST(MemorySanitizer, StructWithHole) {
+  StructWithHole a = ReturnStructWithHole();
+  __msan_break_optimization(&a);
+}
+
+struct LongStruct {
+  U1 a1, b1;
+  U2 a2, b2;
+  U4 a4, b4;
+  U8 a8, b8;
+};
+
+NOINLINE LongStruct ReturnLongStruct1() {
+  LongStruct res;
+  __msan_poison(&res, sizeof(res));
+  res.a1 = res.a2 = res.a4 = res.a8 = 111;
+  // leaves b1, .., b8 poisoned.
+  return res;
+}
+
+NOINLINE LongStruct ReturnLongStruct2() {
+  LongStruct res;
+  __msan_poison(&res, sizeof(res));
+  res.b1 = res.b2 = res.b4 = res.b8 = 111;
+  // leaves a1, .., a8 poisoned.
+  return res;
+}
+
+TEST(MemorySanitizer, LongStruct) {
+  LongStruct s1 = ReturnLongStruct1();
+  __msan_print_shadow(&s1, sizeof(s1));
+  v_u1 = s1.a1;
+  v_u2 = s1.a2;
+  v_u4 = s1.a4;
+  v_u8 = s1.a8;
+
+  EXPECT_POISONED(v_u1 = s1.b1);
+  EXPECT_POISONED(v_u2 = s1.b2);
+  EXPECT_POISONED(v_u4 = s1.b4);
+  EXPECT_POISONED(v_u8 = s1.b8);
+
+  LongStruct s2 = ReturnLongStruct2();
+  __msan_print_shadow(&s2, sizeof(s2));
+  v_u1 = s2.b1;
+  v_u2 = s2.b2;
+  v_u4 = s2.b4;
+  v_u8 = s2.b8;
+
+  EXPECT_POISONED(v_u1 = s2.a1);
+  EXPECT_POISONED(v_u2 = s2.a2);
+  EXPECT_POISONED(v_u4 = s2.a4);
+  EXPECT_POISONED(v_u8 = s2.a8);
+}
+
+
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);
