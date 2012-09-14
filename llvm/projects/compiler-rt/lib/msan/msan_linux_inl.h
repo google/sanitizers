@@ -157,16 +157,8 @@ void ReExec() {
   execv(argv[0], argv);
 }
 
+void MsanDie() {
+  _exit(flags.exit_code);
 }
 
-namespace __sanitizer {
-void Die() {
-  _exit(__msan::flags.exit_code);
 }
-
-void CheckFailed(const char *file, int line, const char *cond, u64 v1, u64 v2) {
-  Printf("MemorySanitizer CHECK failed: %s:%d \"%s\" (%zx, %zx)\n",
-             file, line, cond, (uptr)v1, (uptr)v2);
-  Die();
-}
-}  // namespace

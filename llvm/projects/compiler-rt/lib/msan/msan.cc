@@ -107,7 +107,7 @@ void PrintWarning(uptr pc, uptr bp) {
       Printf("  ORIGIN: stack allocation: %s\n", so);
     } else if (__msan_origin_tls != 0) {
       uptr size = 0;
-      uptr *trace = StackDepotGet(__msan_origin_tls, &size);
+      const uptr *trace = StackDepotGet(__msan_origin_tls, &size);
       Printf("  ORIGIN: heap allocation:\n");
       StackTrace::PrintStack(trace, size, false, "", 0);
     }
@@ -130,6 +130,9 @@ void __msan_warning() {
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
+
+  SetDieCallback(MsanDie);
+
   ReplaceOperatorsNewAndDelete();
   if (StackIsUnlimited()) {
     // Printf("Unlimited stack, doing reexec\n");
