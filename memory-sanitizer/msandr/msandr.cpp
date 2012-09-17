@@ -391,11 +391,7 @@ ModuleData *LookupModuleByPC(app_pc pc) {
 }
 
 bool ShouldInstrumentNonModuleCode() {
-  // TODO(rnk): Turning this on hits CHECK(t->chunk_state == CHUNK_AVAILABLE) in
-  // asan_allocator.cc.  Perhaps there's a bug in our instru that we hit in
-  // JITed code, or like the libc issue, the ASan RTL calls some non-module code
-  // and instrumenting it is bad.
-  return false;  // TODO(rnk): Should be a flag.
+  return true;
 }
 
 bool ShouldInstrumentModule(ModuleData *mod_data) {
