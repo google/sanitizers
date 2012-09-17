@@ -22,7 +22,7 @@ using namespace __msan;
 #define CHECK_UNPOISONED(x, n) \
   do { \
   sptr offset = __msan_test_shadow(x, n); \
-  if (offset >= 0) { \
+  if (offset >= 0 && flags.report_umrs) { \
   Printf("UMR in %s at offset %d\n", __FUNCTION__, offset); \
   __msan_warning(); \
   } \
@@ -52,6 +52,14 @@ INTERCEPTOR(ssize_t, pread, int fd, void *ptr, size_t count, off_t offset) {
   ssize_t res = REAL(pread)(fd, ptr, count, offset);
   if (res > 0)
     __msan_unpoison(ptr, res);
+  return res;
+}
+
+INTERCEPTOR(ssize_t, readlink, const char *path, char *buf, size_t bufsiz) {
+  ENSURE_MSAN_INITED();
+  ssize_t res = REAL(readlink)(path, buf, bufsiz);
+  if (res > 0)
+    __msan_unpoison(buf, res);
   return res;
 }
 
@@ -482,6 +490,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(fread));
   CHECK(INTERCEPT_FUNCTION(read));
   CHECK(INTERCEPT_FUNCTION(pread));
+  CHECK(INTERCEPT_FUNCTION(readlink));
   CHECK(INTERCEPT_FUNCTION(memcpy));
   CHECK(INTERCEPT_FUNCTION(memset));
   CHECK(INTERCEPT_FUNCTION(memmove));

@@ -492,6 +492,13 @@ TEST(MemorySanitizer, pread) {
   delete x;
 }
 
+TEST(MemorySanitizer, readlink) {
+  char *x = new char[1000];
+  readlink("/proc/self/exe", x, 1000);
+  v_s1 = x[0];
+  delete [] x;
+}
+
 
 TEST(MemorySanitizer, stat) {
   struct stat* st = new struct stat;
