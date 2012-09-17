@@ -48,7 +48,7 @@ uptr ReadFromFile(const char *path, char *buff, uptr size) {
 }
 
 bool InitShadow(bool prot1, bool prot2, bool map_shadow, bool init_origins) {
-  if (0) {
+  if (flags.verbosity) {
     Printf("__msan_init %p\n", &__msan_init);
     Printf("Memory   : %p %p\n", kMemBeg, kMemEnd);
     Printf("Bad2     : %p %p\n", kBad2Beg, kBad2End);

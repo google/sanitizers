@@ -43,6 +43,7 @@ Flags flags = {
   true,   // fast_unwinder
   20,     // num_callers
   true,   // report_umrs
+  false,  // verbosity
 };
 int msan_inited = 0;
 bool msan_init_is_running;
@@ -62,6 +63,7 @@ void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->fast_unwinder, "fast_unwinder");
   ParseFlag(str, &f->num_callers, "num_callers");
   ParseFlag(str, &f->report_umrs, "report_umrs");
+  ParseFlag(str, &f->verbosity, "verbosity");
 }
 
 static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
@@ -145,7 +147,10 @@ void __msan_init() {
     SetSaneStackLimit();
     ReExec();
   }
-  ParseFlagsFromString(&flags, GetEnv("MSAN_OPTIONS"));
+  const char *msan_options = GetEnv("MSAN_OPTIONS");
+  ParseFlagsFromString(&flags, msan_options);
+  if (flags.verbosity)
+    Printf("MSAN_OPTIONS: %s\n", msan_options ? msan_options : "<empty>");
   msan_running_under_dr = IsRunningUnderDr();
   __msan_clear_on_return();
   if (__msan_track_origins)

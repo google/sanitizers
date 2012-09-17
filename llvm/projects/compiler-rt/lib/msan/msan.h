@@ -44,6 +44,7 @@ struct Flags {
   bool fast_unwinder;
   int  num_callers;
   bool report_umrs;
+  bool verbosity;
 };
 
 extern Flags flags;
