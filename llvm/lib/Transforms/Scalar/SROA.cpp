@@ -47,6 +47,7 @@
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/CallSite.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
@@ -67,6 +68,11 @@ STATISTIC(NumLoadsSpeculated, "Number of loads speculated to allow promotion");
 STATISTIC(NumDeleted,         "Number of instructions deleted");
 STATISTIC(NumVectorized,      "Number of vectorized aggregates");
 
+/// Hidden option to force the pass to not use DomTree and mem2reg, instead
+/// forming SSA values through the SSAUpdater infrastructure.
+static cl::opt<bool>
+ForceSSAUpdater("force-ssa-updater", cl::init(false), cl::Hidden);
+
 namespace {
 /// \brief Alloca partitioning representation.
 ///
@@ -74,7 +80,7 @@ namespace {
 /// information about the nature of uses of each slice of the alloca. The goal
 /// is that this information is sufficient to decide if and how to split the
 /// alloca apart and replace slices with scalars. It is also intended that this
-/// structure can capture the relevant information needed both due decide about
+/// structure can capture the relevant information needed both to decide about
 /// and to enact these transformations.
 class AllocaPartitioning {
 public:
@@ -94,7 +100,7 @@ public:
     ///
     /// This provides an ordering over ranges such that start offsets are
     /// always increasing, and within equal start offsets, the end offsets are
-    /// decreasing. Thus the spanning range comes first in in cluster with the
+    /// decreasing. Thus the spanning range comes first in a cluster with the
     /// same start position.
     bool operator<(const ByteRange &RHS) const {
       if (BeginOffset < RHS.BeginOffset) return true;
@@ -124,7 +130,7 @@ public:
     /// \brief Whether this partition is splittable into smaller partitions.
     ///
     /// We flag partitions as splittable when they are formed entirely due to
-    /// accesses by trivially split operations such as memset and memcpy.
+    /// accesses by trivially splittable operations such as memset and memcpy.
     ///
     /// FIXME: At some point we should consider loads and stores of FCAs to be
     /// splittable and eagerly split them into scalar values.
@@ -142,7 +148,7 @@ public:
   /// and includes a handle to the user itself and the pointer value in use.
   /// The bounds of these uses are determined by intersecting the bounds of the
   /// memory use itself with a particular partition. As a consequence there is
-  /// intentionally overlap between various usues of the same partition.
+  /// intentionally overlap between various uses of the same partition.
   struct PartitionUse : public ByteRange {
     /// \brief The user of this range of the alloca.
     AssertingVH<Instruction> User;
@@ -224,7 +230,7 @@ public:
   dead_user_iterator dead_user_end() const { return DeadUsers.end(); }
   /// @}
 
-  /// \brief Allow iterating the dead operands referring to this alloca.
+  /// \brief Allow iterating the dead expressions referring to this alloca.
   ///
   /// These are operands which have cannot actually be used to refer to the
   /// alloca as they are outside its range and the user doesn't correct for
@@ -287,12 +293,14 @@ public:
   /// memcpy are ignored.
   Type *getCommonType(iterator I) const;
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   void print(raw_ostream &OS, const_iterator I, StringRef Indent = "  ") const;
   void printUsers(raw_ostream &OS, const_iterator I,
                   StringRef Indent = "  ") const;
   void print(raw_ostream &OS) const;
-  void dump(const_iterator I) const LLVM_ATTRIBUTE_NOINLINE LLVM_ATTRIBUTE_USED;
-  void dump() const LLVM_ATTRIBUTE_NOINLINE LLVM_ATTRIBUTE_USED;
+  void LLVM_ATTRIBUTE_NOINLINE LLVM_ATTRIBUTE_USED dump(const_iterator I) const;
+  void LLVM_ATTRIBUTE_NOINLINE LLVM_ATTRIBUTE_USED dump() const;
+#endif
 
 private:
   template <typename DerivedT, typename RetT = void> class BuilderBase;
@@ -301,8 +309,10 @@ private:
   class UseBuilder;
   friend class AllocaPartitioning::UseBuilder;
 
+#ifndef NDEBUG
   /// \brief Handle to alloca instruction to simplify method interfaces.
   AllocaInst &AI;
+#endif
 
   /// \brief The instruction responsible for this alloca having no partitioning.
   ///
@@ -315,8 +325,10 @@ private:
   ///
   /// We store a vector of the partitions over the alloca here. This vector is
   /// sorted by increasing begin offset, and then by decreasing end offset. See
-  /// the Partition inner class for more details. Initially there are overlaps,
-  /// be during construction we form a disjoint sequence toward the end.
+  /// the Partition inner class for more details. Initially (during
+  /// construction) there are overlaps, but we form a disjoint sequence of
+  /// partitions while finishing construction and a fully constructed object is
+  /// expected to always have this as a disjoint space.
   SmallVector<Partition, 8> Partitions;
 
   /// \brief The uses of the partitions.
@@ -478,7 +490,8 @@ private:
     return false;
   }
 
-  void insertUse(Instruction &I, uint64_t Size, bool IsSplittable = false) {
+  void insertUse(Instruction &I, uint64_t Offset, uint64_t Size,
+                 bool IsSplittable = false) {
     uint64_t BeginOffset = Offset, EndOffset = Offset + Size;
 
     // Completely skip uses which start outside of the allocation.
@@ -512,7 +525,7 @@ private:
     P.Partitions.push_back(New);
   }
 
-  bool handleLoadOrStore(Type *Ty, Instruction &I) {
+  bool handleLoadOrStore(Type *Ty, Instruction &I, uint64_t Offset) {
     uint64_t Size = TD.getTypeStoreSize(Ty);
 
     // If this memory access can be shown to *statically* extend outside the
@@ -532,7 +545,7 @@ private:
       return true;
     }
 
-    insertUse(I, Size);
+    insertUse(I, Offset, Size);
     return true;
   }
 
@@ -542,8 +555,6 @@ private:
   }
 
   bool visitGetElementPtrInst(GetElementPtrInst &GEPI) {
-    //unsigned IntPtrWidth = TD->getPointerSizeInBits();
-    //assert(IntPtrWidth == Offset.getBitWidth());
     uint64_t GEPOffset;
     if (!computeConstantGEPOffset(GEPI, GEPOffset))
       return markAsEscaping(GEPI);
@@ -553,20 +564,22 @@ private:
   }
 
   bool visitLoadInst(LoadInst &LI) {
-    return handleLoadOrStore(LI.getType(), LI);
+    return handleLoadOrStore(LI.getType(), LI, Offset);
   }
 
   bool visitStoreInst(StoreInst &SI) {
     if (SI.getOperand(0) == *U)
       return markAsEscaping(SI);
 
-    return handleLoadOrStore(SI.getOperand(0)->getType(), SI);
+    return handleLoadOrStore(SI.getOperand(0)->getType(), SI, Offset);
   }
 
 
   bool visitMemSetInst(MemSetInst &II) {
+    assert(II.getRawDest() == *U && "Pointer use is not the destination?");
     ConstantInt *Length = dyn_cast<ConstantInt>(II.getLength());
-    insertUse(II, Length ? Length->getZExtValue() : AllocSize - Offset, Length);
+    uint64_t Size = Length ? Length->getZExtValue() : AllocSize - Offset;
+    insertUse(II, Offset, Size, Length);
     return true;
   }
 
@@ -591,7 +604,7 @@ private:
       Offsets.DestEnd = Offset + Size;
     }
 
-    insertUse(II, Size, Offsets.IsSplittable);
+    insertUse(II, Offset, Size, Offsets.IsSplittable);
     unsigned NewIdx = P.Partitions.size() - 1;
 
     SmallDenseMap<Instruction *, unsigned>::const_iterator PMI;
@@ -612,12 +625,14 @@ private:
   }
 
   // Disable SRoA for any intrinsics except for lifetime invariants.
+  // FIXME: What about debug instrinsics? This matches old behavior, but
+  // doesn't make sense.
   bool visitIntrinsicInst(IntrinsicInst &II) {
     if (II.getIntrinsicID() == Intrinsic::lifetime_start ||
         II.getIntrinsicID() == Intrinsic::lifetime_end) {
       ConstantInt *Length = cast<ConstantInt>(II.getArgOperand(0));
       uint64_t Size = std::min(AllocSize - Offset, Length->getLimitedValue());
-      insertUse(II, Size, true);
+      insertUse(II, Offset, Size, true);
       return true;
     }
 
@@ -671,7 +686,7 @@ private:
     std::pair<uint64_t, bool> &PHIInfo = P.PHIOrSelectSizes[&PN];
     if (PHIInfo.first) {
       PHIInfo.second = true;
-      insertUse(PN, PHIInfo.first);
+      insertUse(PN, Offset, PHIInfo.first);
       return true;
     }
 
@@ -679,7 +694,7 @@ private:
     if (Instruction *EscapingI = hasUnsafePHIOrSelectUse(&PN, PHIInfo.first))
       return markAsEscaping(*EscapingI);
 
-    insertUse(PN, PHIInfo.first);
+    insertUse(PN, Offset, PHIInfo.first);
     return true;
   }
 
@@ -697,7 +712,7 @@ private:
     std::pair<uint64_t, bool> &SelectInfo = P.PHIOrSelectSizes[&SI];
     if (SelectInfo.first) {
       SelectInfo.second = true;
-      insertUse(SI, SelectInfo.first);
+      insertUse(SI, Offset, SelectInfo.first);
       return true;
     }
 
@@ -705,7 +720,7 @@ private:
     if (Instruction *EscapingI = hasUnsafePHIOrSelectUse(&SI, SelectInfo.first))
       return markAsEscaping(*EscapingI);
 
-    insertUse(SI, SelectInfo.first);
+    insertUse(SI, Offset, SelectInfo.first);
     return true;
   }
 
@@ -716,8 +731,8 @@ private:
 
 /// \brief Use adder for the alloca partitioning.
 ///
-/// This class adds the uses of an alloca to all of the partitions which it
-/// uses. For splittable partitions, this can end up doing essentially a linear
+/// This class adds the uses of an alloca to all of the partitions which they
+/// use. For splittable partitions, this can end up doing essentially a linear
 /// walk of the partitions, but the number of steps remains bounded by the
 /// total result instruction size:
 /// - The number of partitions is a result of the number unsplittable
@@ -759,7 +774,7 @@ private:
       P.DeadUsers.push_back(&I);
   }
 
-  void insertUse(uint64_t Size, Instruction &User) {
+  void insertUse(Instruction &User, uint64_t Offset, uint64_t Size) {
     uint64_t BeginOffset = Offset, EndOffset = Offset + Size;
 
     // If the use extends outside of the allocation, record it as a dead use
@@ -787,7 +802,7 @@ private:
     }
   }
 
-  void handleLoadOrStore(Type *Ty, Instruction &I) {
+  void handleLoadOrStore(Type *Ty, Instruction &I, uint64_t Offset) {
     uint64_t Size = TD.getTypeStoreSize(Ty);
 
     // If this memory access can be shown to *statically* extend outside the
@@ -797,7 +812,7 @@ private:
     if (Offset >= AllocSize || Size > AllocSize || Offset + Size > AllocSize)
       return markAsDead(I);
 
-    insertUse(Size, I);
+    insertUse(I, Offset, Size);
   }
 
   void visitBitCastInst(BitCastInst &BC) {
@@ -811,8 +826,6 @@ private:
     if (GEPI.use_empty())
       return markAsDead(GEPI);
 
-    //unsigned IntPtrWidth = TD->getPointerSizeInBits();
-    //assert(IntPtrWidth == Offset.getBitWidth());
     uint64_t GEPOffset;
     if (!computeConstantGEPOffset(GEPI, GEPOffset))
       llvm_unreachable("Unable to compute constant offset for use");
@@ -821,21 +834,23 @@ private:
   }
 
   void visitLoadInst(LoadInst &LI) {
-    handleLoadOrStore(LI.getType(), LI);
+    handleLoadOrStore(LI.getType(), LI, Offset);
   }
 
   void visitStoreInst(StoreInst &SI) {
-    handleLoadOrStore(SI.getOperand(0)->getType(), SI);
+    handleLoadOrStore(SI.getOperand(0)->getType(), SI, Offset);
   }
 
   void visitMemSetInst(MemSetInst &II) {
     ConstantInt *Length = dyn_cast<ConstantInt>(II.getLength());
-    insertUse(Length ? Length->getZExtValue() : AllocSize - Offset, II);
+    uint64_t Size = Length ? Length->getZExtValue() : AllocSize - Offset;
+    insertUse(II, Offset, Size);
   }
 
   void visitMemTransferInst(MemTransferInst &II) {
     ConstantInt *Length = dyn_cast<ConstantInt>(II.getLength());
-    insertUse(Length ? Length->getZExtValue() : AllocSize - Offset, II);
+    uint64_t Size = Length ? Length->getZExtValue() : AllocSize - Offset;
+    insertUse(II, Offset, Size);
   }
 
   void visitIntrinsicInst(IntrinsicInst &II) {
@@ -843,10 +858,11 @@ private:
            II.getIntrinsicID() == Intrinsic::lifetime_end);
 
     ConstantInt *Length = cast<ConstantInt>(II.getArgOperand(0));
-    insertUse(std::min(AllocSize - Offset, Length->getLimitedValue()), II);
+    insertUse(II, Offset,
+              std::min(AllocSize - Offset, Length->getLimitedValue()));
   }
 
-  void insertPHIOrSelect(Instruction &User) {
+  void insertPHIOrSelect(Instruction &User, uint64_t Offset) {
     uint64_t Size = P.PHIOrSelectSizes.lookup(&User).first;
 
     // For PHI and select operands outside the alloca, we can't nuke the entire
@@ -858,13 +874,13 @@ private:
       return;
     }
 
-    insertUse(Size, User);
+    insertUse(User, Offset, Size);
   }
   void visitPHINode(PHINode &PN) {
     if (PN.use_empty())
       return markAsDead(PN);
 
-    insertPHIOrSelect(PN);
+    insertPHIOrSelect(PN, Offset);
   }
   void visitSelectInst(SelectInst &SI) {
     if (SI.use_empty())
@@ -879,7 +895,7 @@ private:
       return;
     }
 
-    insertPHIOrSelect(SI);
+    insertPHIOrSelect(SI, Offset);
   }
 
   /// \brief Unreachable, we've already visited the alloca once.
@@ -985,7 +1001,11 @@ void AllocaPartitioning::splitAndMergePartitions() {
 }
 
 AllocaPartitioning::AllocaPartitioning(const TargetData &TD, AllocaInst &AI)
-    : AI(AI), PointerEscapingInstr(0) {
+    :
+#ifndef NDEBUG
+      AI(AI),
+#endif
+      PointerEscapingInstr(0) {
   PartitionBuilder PB(TD, AI, *this);
   if (!PB())
     return;
@@ -1052,6 +1072,8 @@ Type *AllocaPartitioning::getCommonType(iterator I) const {
   return Ty;
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+
 void AllocaPartitioning::print(raw_ostream &OS, const_iterator I,
                                StringRef Indent) const {
   OS << Indent << "partition #" << (I - begin())
@@ -1100,6 +1122,92 @@ void AllocaPartitioning::print(raw_ostream &OS) const {
 void AllocaPartitioning::dump(const_iterator I) const { print(dbgs(), I); }
 void AllocaPartitioning::dump() const { print(dbgs()); }
 
+#endif // !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+
+
+namespace {
+/// \brief Implementation of LoadAndStorePromoter for promoting allocas.
+///
+/// This subclass of LoadAndStorePromoter adds overrides to handle promoting
+/// the loads and stores of an alloca instruction, as well as updating its
+/// debug information. This is used when a domtree is unavailable and thus
+/// mem2reg in its full form can't be used to handle promotion of allocas to
+/// scalar values.
+class AllocaPromoter : public LoadAndStorePromoter {
+  AllocaInst &AI;
+  DIBuilder &DIB;
+
+  SmallVector<DbgDeclareInst *, 4> DDIs;
+  SmallVector<DbgValueInst *, 4> DVIs;
+
+public:
+  AllocaPromoter(const SmallVectorImpl<Instruction*> &Insts, SSAUpdater &S,
+                 AllocaInst &AI, DIBuilder &DIB)
+    : LoadAndStorePromoter(Insts, S), AI(AI), DIB(DIB) {}
+
+  void run(const SmallVectorImpl<Instruction*> &Insts) {
+    // Remember which alloca we're promoting (for isInstInList).
+    if (MDNode *DebugNode = MDNode::getIfExists(AI.getContext(), &AI)) {
+      for (Value::use_iterator UI = DebugNode->use_begin(),
+                               UE = DebugNode->use_end();
+           UI != UE; ++UI)
+        if (DbgDeclareInst *DDI = dyn_cast<DbgDeclareInst>(*UI))
+          DDIs.push_back(DDI);
+        else if (DbgValueInst *DVI = dyn_cast<DbgValueInst>(*UI))
+          DVIs.push_back(DVI);
+    }
+
+    LoadAndStorePromoter::run(Insts);
+    AI.eraseFromParent();
+    while (!DDIs.empty())
+      DDIs.pop_back_val()->eraseFromParent();
+    while (!DVIs.empty())
+      DVIs.pop_back_val()->eraseFromParent();
+  }
+
+  virtual bool isInstInList(Instruction *I,
+                            const SmallVectorImpl<Instruction*> &Insts) const {
+    if (LoadInst *LI = dyn_cast<LoadInst>(I))
+      return LI->getOperand(0) == &AI;
+    return cast<StoreInst>(I)->getPointerOperand() == &AI;
+  }
+
+  virtual void updateDebugInfo(Instruction *Inst) const {
+    for (SmallVector<DbgDeclareInst *, 4>::const_iterator I = DDIs.begin(),
+           E = DDIs.end(); I != E; ++I) {
+      DbgDeclareInst *DDI = *I;
+      if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
+        ConvertDebugDeclareToDebugValue(DDI, SI, DIB);
+      else if (LoadInst *LI = dyn_cast<LoadInst>(Inst))
+        ConvertDebugDeclareToDebugValue(DDI, LI, DIB);
+    }
+    for (SmallVector<DbgValueInst *, 4>::const_iterator I = DVIs.begin(),
+           E = DVIs.end(); I != E; ++I) {
+      DbgValueInst *DVI = *I;
+      Value *Arg = NULL;
+      if (StoreInst *SI = dyn_cast<StoreInst>(Inst)) {
+        // If an argument is zero extended then use argument directly. The ZExt
+        // may be zapped by an optimization pass in future.
+        if (ZExtInst *ZExt = dyn_cast<ZExtInst>(SI->getOperand(0)))
+          Arg = dyn_cast<Argument>(ZExt->getOperand(0));
+        if (SExtInst *SExt = dyn_cast<SExtInst>(SI->getOperand(0)))
+          Arg = dyn_cast<Argument>(SExt->getOperand(0));
+        if (!Arg)
+          Arg = SI->getOperand(0);
+      } else if (LoadInst *LI = dyn_cast<LoadInst>(Inst)) {
+        Arg = LI->getOperand(0);
+      } else {
+        continue;
+      }
+      Instruction *DbgVal =
+        DIB.insertDbgValueIntrinsic(Arg, 0, DIVariable(DVI->getVariable()),
+                                     Inst);
+      DbgVal->setDebugLoc(DVI->getDebugLoc());
+    }
+  }
+};
+} // end anon namespace
+
 
 namespace {
 /// \brief An optimization pass providing Scalar Replacement of Aggregates.
@@ -1121,6 +1229,8 @@ namespace {
 ///    this form. By doing so, it will enable promotion of vector aggregates to
 ///    SSA vector values.
 class SROA : public FunctionPass {
+  const bool RequiresDomTree;
+
   LLVMContext *C;
   const TargetData *TD;
   DominatorTree *DT;
@@ -1143,17 +1253,13 @@ class SROA : public FunctionPass {
   /// uses as dead. Only used to guard insertion into DeadInsts.
   SmallPtrSet<Instruction *, 4> DeadSplitInsts;
 
-  /// \brief A set of deleted alloca instructions.
-  ///
-  /// These pointers are *no longer valid* as they have been deleted. They are
-  /// used to remove deleted allocas from the list of promotable allocas.
-  SmallPtrSet<AllocaInst *, 4> DeletedAllocas;
-
   /// \brief A collection of alloca instructions we can directly promote.
   std::vector<AllocaInst *> PromotableAllocas;
 
 public:
-  SROA() : FunctionPass(ID), C(0), TD(0), DT(0) {
+  SROA(bool RequiresDomTree = true)
+      : FunctionPass(ID), RequiresDomTree(RequiresDomTree),
+        C(0), TD(0), DT(0) {
     initializeSROAPass(*PassRegistry::getPassRegistry());
   }
   bool runOnFunction(Function &F);
@@ -1171,14 +1277,15 @@ private:
                               AllocaPartitioning::iterator PI);
   bool splitAlloca(AllocaInst &AI, AllocaPartitioning &P);
   bool runOnAlloca(AllocaInst &AI);
-  void deleteDeadInstructions();
+  void deleteDeadInstructions(SmallPtrSet<AllocaInst *, 4> &DeletedAllocas);
+  bool promoteAllocas(Function &F);
 };
 }
 
 char SROA::ID = 0;
 
-FunctionPass *llvm::createSROAPass() {
-  return new SROA();
+FunctionPass *llvm::createSROAPass(bool RequiresDomTree) {
+  return new SROA(RequiresDomTree);
 }
 
 INITIALIZE_PASS_BEGIN(SROA, "sroa", "Scalar Replacement Of Aggregates",
@@ -1299,10 +1406,13 @@ static Value *getNaturalGEPRecursively(IRBuilder<> &IRB, const TargetData &TD,
   if (Ty->isPointerTy())
     return 0;
 
+  // We try to analyze GEPs over vectors here, but note that these GEPs are
+  // extremely poorly defined currently. The long-term goal is to remove GEPing
+  // over a vector from the IR completely.
   if (VectorType *VecTy = dyn_cast<VectorType>(Ty)) {
     unsigned ElementSizeInBits = VecTy->getScalarSizeInBits();
     if (ElementSizeInBits % 8)
-      return 0; // GEPs over multiple of 8 size vector elements are invalid.
+      return 0; // GEPs over non-multiple of 8 size vector elements are invalid.
     APInt ElementSize(Offset.getBitWidth(), ElementSizeInBits / 8);
     APInt NumSkippedElements = Offset.udiv(ElementSize);
     if (NumSkippedElements.ugt(VecTy->getNumElements()))
@@ -1332,7 +1442,7 @@ static Value *getNaturalGEPRecursively(IRBuilder<> &IRB, const TargetData &TD,
 
   const StructLayout *SL = TD.getStructLayout(STy);
   uint64_t StructOffset = Offset.getZExtValue();
-  if (StructOffset > SL->getSizeInBytes())
+  if (StructOffset >= SL->getSizeInBytes())
     return 0;
   unsigned Index = SL->getElementContainingOffset(StructOffset);
   Offset -= APInt(Offset.getBitWidth(), SL->getElementOffset(Index));
@@ -1354,7 +1464,7 @@ static Value *getNaturalGEPRecursively(IRBuilder<> &IRB, const TargetData &TD,
 /// possible. We recurse by decreasing Offset, adding the appropriate index to
 /// Indices, and setting Ty to the result subtype.
 ///
-/// If no natural GEP can be constructed, this function returns a null Value*.
+/// If no natural GEP can be constructed, this function returns null.
 static Value *getNaturalGEPWithOffset(IRBuilder<> &IRB, const TargetData &TD,
                                       Value *Ptr, APInt Offset, Type *TargetTy,
                                       SmallVectorImpl<Value *> &Indices,
@@ -1902,6 +2012,7 @@ private:
       uint64_t OrigEnd = IsDest ? MTO.DestEnd : MTO.SourceEnd;
       // Ensure the start lines up.
       assert(BeginOffset == OrigBegin);
+      (void)OrigBegin;
 
       // Rewrite the size as needed.
       if (EndOffset != OrigEnd)
@@ -2298,7 +2409,14 @@ private:
 ///
 /// This recurses through the aggregate type and tries to compute a subtype
 /// based on the offset and size. When the offset and size span a sub-section
-/// of an array, it will even compute a new array type for that sub-section.
+/// of an array, it will even compute a new array type for that sub-section,
+/// and the same for structs.
+///
+/// Note that this routine is very strict and tries to find a partition of the
+/// type which produces the *exact* right offset and size. It is not forgiving
+/// when the size or offset cause either end of type-based partition to be off.
+/// Also, this is a best-effort routine. It is reasonable to give up and not
+/// return a type if necessary.
 static Type *getTypePartition(const TargetData &TD, Type *Ty,
                               uint64_t Offset, uint64_t Size) {
   if (Offset == 0 && TD.getTypeAllocSize(Ty) == Size)
@@ -2344,15 +2462,13 @@ static Type *getTypePartition(const TargetData &TD, Type *Ty,
     return 0;
 
   const StructLayout *SL = TD.getStructLayout(STy);
-  if (Offset > SL->getSizeInBytes())
+  if (Offset >= SL->getSizeInBytes())
     return 0;
   uint64_t EndOffset = Offset + Size;
   if (EndOffset > SL->getSizeInBytes())
     return 0;
 
   unsigned Index = SL->getElementContainingOffset(Offset);
-  if (SL->getElementOffset(Index) != Offset)
-    return 0; // Inside of padding.
   Offset -= SL->getElementOffset(Index);
 
   Type *ElementTy = STy->getElementType(Index);
@@ -2363,9 +2479,6 @@ static Type *getTypePartition(const TargetData &TD, Type *Ty,
   // See if any partition must be contained by the element.
   if (Offset > 0 || Size < ElementSize) {
     if ((Offset + Size) > ElementSize)
-      return 0;
-    // Bail if this is a poniter element, we can't recurse through them.
-    if (ElementTy->isPointerTy())
       return 0;
     return getTypePartition(TD, ElementTy, Offset, Size);
   }
@@ -2380,8 +2493,15 @@ static Type *getTypePartition(const TargetData &TD, Type *Ty,
     unsigned EndIndex = SL->getElementContainingOffset(EndOffset);
     if (Index == EndIndex)
       return 0; // Within a single element and its padding.
+
+    // Don't try to form "natural" types if the elements don't line up with the
+    // expected size.
+    // FIXME: We could potentially recurse down through the last element in the
+    // sub-struct to find a natural end point.
+    if (SL->getElementOffset(EndIndex) != EndOffset)
+      return 0;
+
     assert(Index < EndIndex);
-    assert(Index + EndIndex <= STy->getNumElements());
     EE = STy->element_begin() + EndIndex;
   }
 
@@ -2393,12 +2513,10 @@ static Type *getTypePartition(const TargetData &TD, Type *Ty,
   StructType *SubTy = StructType::get(STy->getContext(), ElementTys,
                                       STy->isPacked());
   const StructLayout *SubSL = TD.getStructLayout(SubTy);
-  if (Size == SubSL->getSizeInBytes())
-    return SubTy;
+  if (Size != SubSL->getSizeInBytes())
+    return 0; // The sub-struct doesn't have quite the size needed.
 
-  // FIXME: We could potentially recurse down through the last element in the
-  // sub-struct to find a natural end point.
-  return 0;
+  return SubTy;
 }
 
 /// \brief Rewrite an alloca partition's users.
@@ -2436,6 +2554,7 @@ bool SROA::rewriteAllocaPartition(AllocaInst &AI,
     AllocaTy = Type::getIntNTy(*C, AllocaSize * 8);
   if (!AllocaTy)
     AllocaTy = ArrayType::get(Type::getInt8Ty(*C), AllocaSize);
+  assert(TD->getTypeAllocSize(AllocaTy) >= AllocaSize);
 
   // Check for the case where we're going to rewrite to a new alloca of the
   // exact same type as the original, and with the same access offsets. In that
@@ -2548,7 +2667,16 @@ bool SROA::runOnAlloca(AllocaInst &AI) {
   return splitAlloca(AI, P) || Changed;
 }
 
-void SROA::deleteDeadInstructions() {
+/// \brief Delete the dead instructions accumulated in this run.
+///
+/// Recursively deletes the dead instructions we've accumulated. This is done
+/// at the very end to maximize locality of the recursive delete and to
+/// minimize the problems of invalidated instruction pointers as such pointers
+/// are used heavily in the intermediate stages of the algorithm.
+///
+/// We also record the alloca instructions deleted here so that they aren't
+/// subsequently handed to mem2reg to promote.
+void SROA::deleteDeadInstructions(SmallPtrSet<AllocaInst*, 4> &DeletedAllocas) {
   DeadSplitInsts.clear();
   while (!DeadInsts.empty()) {
     Instruction *I = DeadInsts.pop_back_val();
@@ -2568,6 +2696,66 @@ void SROA::deleteDeadInstructions() {
     ++NumDeleted;
     I->eraseFromParent();
   }
+}
+
+/// \brief Promote the allocas, using the best available technique.
+///
+/// This attempts to promote whatever allocas have been identified as viable in
+/// the PromotableAllocas list. If that list is empty, there is nothing to do.
+/// If there is a domtree available, we attempt to promote using the full power
+/// of mem2reg. Otherwise, we build and use the AllocaPromoter above which is
+/// based on the SSAUpdater utilities. This function returns whether any
+/// promotion occured.
+bool SROA::promoteAllocas(Function &F) {
+  if (PromotableAllocas.empty())
+    return false;
+
+  NumPromoted += PromotableAllocas.size();
+
+  if (DT && !ForceSSAUpdater) {
+    DEBUG(dbgs() << "Promoting allocas with mem2reg...\n");
+    PromoteMemToReg(PromotableAllocas, *DT);
+    PromotableAllocas.clear();
+    return true;
+  }
+
+  DEBUG(dbgs() << "Promoting allocas with SSAUpdater...\n");
+  SSAUpdater SSA;
+  DIBuilder DIB(*F.getParent());
+  SmallVector<Instruction*, 64> Insts;
+
+  for (unsigned Idx = 0, Size = PromotableAllocas.size(); Idx != Size; ++Idx) {
+    AllocaInst *AI = PromotableAllocas[Idx];
+    for (Value::use_iterator UI = AI->use_begin(), UE = AI->use_end();
+         UI != UE;) {
+      Instruction *I = cast<Instruction>(*UI++);
+      // FIXME: Currently the SSAUpdater infrastructure doesn't reason about
+      // lifetime intrinsics and so we strip them (and the bitcasts+GEPs
+      // leading to them) here. Eventually it should use them to optimize the
+      // scalar values produced.
+      if (isa<BitCastInst>(I) || isa<GetElementPtrInst>(I)) {
+        assert(onlyUsedByLifetimeMarkers(I) &&
+               "Found a bitcast used outside of a lifetime marker.");
+        while (!I->use_empty())
+          cast<Instruction>(*I->use_begin())->eraseFromParent();
+        I->eraseFromParent();
+        continue;
+      }
+      if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
+        assert(II->getIntrinsicID() == Intrinsic::lifetime_start ||
+               II->getIntrinsicID() == Intrinsic::lifetime_end);
+        II->eraseFromParent();
+        continue;
+      }
+
+      Insts.push_back(I);
+    }
+    AllocaPromoter(Insts, SSA, *AI, DIB).run(Insts);
+    Insts.clear();
+  }
+
+  PromotableAllocas.clear();
+  return true;
 }
 
 namespace {
@@ -2590,7 +2778,7 @@ bool SROA::runOnFunction(Function &F) {
     DEBUG(dbgs() << "  Skipping SROA -- no target data!\n");
     return false;
   }
-  DT = &getAnalysis<DominatorTree>();
+  DT = getAnalysisIfAvailable<DominatorTree>();
 
   BasicBlock &EntryBB = F.getEntryBlock();
   for (BasicBlock::iterator I = EntryBB.begin(), E = llvm::prior(EntryBB.end());
@@ -2599,9 +2787,13 @@ bool SROA::runOnFunction(Function &F) {
       Worklist.insert(AI);
 
   bool Changed = false;
+  // A set of deleted alloca instruction pointers which should be removed from
+  // the list of promotable allocas.
+  SmallPtrSet<AllocaInst *, 4> DeletedAllocas;
+
   while (!Worklist.empty()) {
     Changed |= runOnAlloca(*Worklist.pop_back_val());
-    deleteDeadInstructions();
+    deleteDeadInstructions(DeletedAllocas);
     if (!DeletedAllocas.empty()) {
       PromotableAllocas.erase(std::remove_if(PromotableAllocas.begin(),
                                              PromotableAllocas.end(),
@@ -2611,18 +2803,13 @@ bool SROA::runOnFunction(Function &F) {
     }
   }
 
-  if (!PromotableAllocas.empty()) {
-    DEBUG(dbgs() << "Promoting allocas with mem2reg...\n");
-    PromoteMemToReg(PromotableAllocas, *DT);
-    Changed = true;
-    NumPromoted += PromotableAllocas.size();
-    PromotableAllocas.clear();
-  }
+  Changed |= promoteAllocas(F);
 
   return Changed;
 }
 
 void SROA::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<DominatorTree>();
+  if (RequiresDomTree)
+    AU.addRequired<DominatorTree>();
   AU.setPreservesCFG();
 }

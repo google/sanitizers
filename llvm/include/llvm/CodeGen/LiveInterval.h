@@ -114,9 +114,6 @@ namespace llvm {
 
     void dump() const;
     void print(raw_ostream &os) const;
-
-  private:
-    LiveRange(); // DO NOT IMPLEMENT
   };
 
   template <> struct isPodLike<LiveRange> { static const bool value = true; };
@@ -467,7 +464,7 @@ namespace llvm {
                              VNInfo *LHSValNo = 0,
                              const VNInfo *RHSValNo = 0);
 
-    LiveInterval& operator=(const LiveInterval& rhs); // DO NOT IMPLEMENT
+    LiveInterval& operator=(const LiveInterval& rhs) LLVM_DELETED_FUNCTION;
 
   };
 
@@ -499,7 +496,9 @@ namespace llvm {
       if (I == E)
         return;
       // Is this an instruction live-in segment?
-      if (SlotIndex::isEarlierInstr(I->start, Idx)) {
+      // If Idx is the start index of a basic block, include live-in segments
+      // that start at Idx.getBaseIndex().
+      if (I->start <= Idx.getBaseIndex()) {
         EarlyVal = I->valno;
         EndPoint = I->end;
         // Move to the potentially live-out segment.
@@ -508,6 +507,12 @@ namespace llvm {
           if (++I == E)
             return;
         }
+        // Special case: A PHIDef value can have its def in the middle of a
+        // segment if the value happens to be live out of the layout
+        // predecessor.
+        // Such a value is not live-in.
+        if (EarlyVal->def == Idx.getBaseIndex())
+          EarlyVal = 0;
       }
       // I now points to the segment that may be live-through, or defined by
       // this instr. Ignore segments starting after the current instr.

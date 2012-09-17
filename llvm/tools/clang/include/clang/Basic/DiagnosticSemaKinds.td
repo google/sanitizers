@@ -3607,11 +3607,6 @@ def err_typecheck_arc_assign_self_class_method : Error<
 def err_typecheck_arr_assign_enumeration : Error<
   "fast enumeration variables can't be modified in ARC by default; "
   "declare the variable __strong to allow this">;
-def warn_arc_non_pod_class_with_object_member : Warning<
-  "%0 cannot be shared between ARC and non-ARC "
-  "code; add a copy constructor, a copy assignment operator, and a destructor "
-  "to make it ABI-compatible">, InGroup<AutomaticReferenceCountingABI>,
-  DefaultIgnore;
 def warn_arc_retained_assign : Warning<
   "assigning retained object to %select{weak|unsafe_unretained}0 "
   "%select{property|variable}1"
@@ -3621,17 +3616,8 @@ def warn_arc_retained_property_assign : Warning<
   "assigning retained object to unsafe property"
   "; object will be released after assignment">,
   InGroup<ARCUnsafeRetainedAssign>;
-def warn_arc_trivial_member_function_with_object_member : Warning<
-  "%0 cannot be shared between ARC and non-ARC "
-  "code; add a non-trivial %select{copy constructor|copy assignment operator|"
-  "destructor}1 to make it ABI-compatible">, 
-  InGroup<AutomaticReferenceCountingABI>, DefaultIgnore;
 def err_arc_new_array_without_ownership : Error<
   "'new' cannot allocate an array of %0 with no explicit ownership">;
-def warn_err_new_delete_object_array : Warning<
-  "%select{allocating|destroying}0 an array of %1; this array must not "
-  "%select{be deleted in|have been allocated from}0 non-ARC code">,
-  InGroup<AutomaticReferenceCountingABI>, DefaultIgnore;
 def err_arc_autoreleasing_var : Error<
   "%select{__block variables|global variables|fields|ivars}0 cannot have "
   "__autoreleasing ownership">;
@@ -4959,6 +4945,9 @@ def err_atomic_builtin_pointer_size : Error<
   "type (%0 invalid)">;
 def err_atomic_op_needs_atomic : Error<
   "first argument to atomic operation must be a pointer to _Atomic "
+  "type (%0 invalid)">;
+def err_atomic_op_needs_non_const_atomic : Error<
+  "first argument to atomic operation must be a pointer to non-const _Atomic "
   "type (%0 invalid)">;
 def err_atomic_op_needs_trivial_copy : Error<
   "first argument to atomic operation must be a pointer to a trivially-copyable"

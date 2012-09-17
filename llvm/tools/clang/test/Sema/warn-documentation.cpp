@@ -297,6 +297,12 @@ typedef int (* const test_param25)(int aaa, int ccc);
 /// \returns aaa.
 typedef int (C::*test_param26)(int aaa, int ccc);
 
+typedef int (*test_param27)(int aaa);
+
+// expected-warning@+1 {{'\param' command used in a comment that is not attached to a function declaration}}
+/// \param aaa Meow.
+typedef test_param27 test_param28;
+
 
 // expected-warning@+1 {{'\tparam' command used in a comment that is not attached to a template declaration}}
 /// \tparam T Aaa
@@ -382,6 +388,14 @@ void test_deprecated_1(int a);
 /// Aaa
 /// \deprecated
 void test_deprecated_2(int a);
+
+
+/// \invariant aaa
+void test_invariant_1(int a);
+
+// expected-warning@+1 {{empty paragraph passed to '\invariant' command}}
+/// \invariant
+void test_invariant_2(int a);
 
 
 // no-warning

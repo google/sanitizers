@@ -45,6 +45,7 @@ add_llvm_library(LLVMCodeGen
   MachineCopyPropagation.cpp
   MachineCSE.cpp
   MachineDominators.cpp
+  MachinePostDominators.cpp
   MachineFunction.cpp
   MachineFunctionAnalysis.cpp
   MachineFunctionPass.cpp
@@ -102,6 +103,7 @@ add_llvm_library(LLVMCodeGen
   TargetInstrInfoImpl.cpp
   TargetLoweringObjectFileImpl.cpp
   TargetOptionsImpl.cpp
+  TargetSchedule.cpp
   TwoAddressInstructionPass.cpp
   UnreachableBlockElim.cpp
   VirtRegMap.cpp

@@ -22,7 +22,6 @@
 #include <cassert>
 #include <functional>
 #include <vector>
-#include <stdio.h>
 
 namespace llvm {
 
@@ -84,12 +83,12 @@ public:
     }
     return NULL;
   }
-  
+
   /// getMaxElement - Find the subtree associated with the highest ranged
   ///  key value.
   ImutAVLTree* getMaxElement() {
     ImutAVLTree *T = this;
-    ImutAVLTree *Right = T->getRight();    
+    ImutAVLTree *Right = T->getRight();
     while (Right) { T = right; right = T->getRight(); }
     return T;
   }
@@ -258,7 +257,7 @@ private:
   ///  method returns false for an instance of ImutAVLTree, all subtrees
   ///  will also have this method return false.  The converse is not true.
   bool isMutable() const { return IsMutable; }
-  
+
   /// hasCachedDigest - Returns true if the digest for this tree is cached.
   ///  This can only be true if the tree is immutable.
   bool hasCachedDigest() const { return IsDigestCached; }
@@ -280,7 +279,7 @@ private:
     assert(isMutable() && "Mutable flag already removed.");
     IsMutable = false;
   }
-  
+
   /// markedCachedDigest - Clears the NoCachedDigest flag for a tree.
   void markedCachedDigest() {
     assert(!hasCachedDigest() && "NoCachedDigest flag already removed.");
@@ -349,7 +348,7 @@ public:
       else
         factory->Cache[factory->maskCacheIndex(computeDigest())] = next;
     }
-    
+
     // We need to clear the mutability bit in case we are
     // destroying the node as part of a sweep in ImutAVLFactory::recoverNodes().
     IsMutable = false;
@@ -415,7 +414,7 @@ public:
   TreeTy* getEmptyTree() const { return NULL; }
 
 protected:
-  
+
   //===--------------------------------------------------===//
   // A bunch of quick helper functions used for reasoning
   // about the properties of trees and their children.
@@ -461,7 +460,7 @@ protected:
   // returned to the caller.
   //===--------------------------------------------------===//
 
-  TreeTy* createNode(TreeTy* L, value_type_ref V, TreeTy* R) {   
+  TreeTy* createNode(TreeTy* L, value_type_ref V, TreeTy* R) {
     BumpPtrAllocator& A = getAllocator();
     TreeTy* T;
     if (!freeNodes.empty()) {
@@ -469,8 +468,7 @@ protected:
       freeNodes.pop_back();
       assert(T != L);
       assert(T != R);
-    }
-    else {
+    } else {
       T = (TreeTy*) A.Allocate<TreeTy>();
     }
     new (T) TreeTy(this, L, R, V, incrementHeight(L,R));
@@ -513,7 +511,8 @@ protected:
 
       return createNode(createNode(LL,L,LRL), LR, createNode(LRR,V,R));
     }
-    else if (hr > hl + 2) {
+
+    if (hr > hl + 2) {
       assert(!isEmpty(R) && "Right tree cannot be empty to have a height >= 2");
 
       TreeTy *RL = getLeft(R);
@@ -529,8 +528,8 @@ protected:
 
       return createNode(createNode(L,V,RLL), RL, createNode(RLR,R,RR));
     }
-    else
-      return createNode(L,V,R);
+
+    return createNode(L,V,R);
   }
 
   /// add_internal - Creates a new tree that includes the specified
@@ -604,7 +603,7 @@ protected:
     markImmutable(getLeft(T));
     markImmutable(getRight(T));
   }
-  
+
 public:
   TreeTy *getCanonicalTree(TreeTy *TNew) {
     if (!TNew)
@@ -937,7 +936,7 @@ public:
 
 private:
   TreeTy *Root;
-  
+
 public:
   /// Constructs a set from a pointer to a tree root.  In general one
   /// should use a Factory object to create sets instead of directly
@@ -1006,10 +1005,10 @@ public:
     typename TreeTy::Factory *getTreeFactory() const {
       return const_cast<typename TreeTy::Factory *>(&F);
     }
-    
+
   private:
-    Factory(const Factory& RHS); // DO NOT IMPLEMENT
-    void operator=(const Factory& RHS); // DO NOT IMPLEMENT
+    Factory(const Factory& RHS) LLVM_DELETED_FUNCTION;
+    void operator=(const Factory& RHS) LLVM_DELETED_FUNCTION;
   };
 
   friend class Factory;
@@ -1027,11 +1026,11 @@ public:
     return Root && RHS.Root ? Root->isNotEqual(*RHS.Root) : Root != RHS.Root;
   }
 
-  TreeTy *getRoot() { 
+  TreeTy *getRoot() {
     if (Root) { Root->retain(); }
     return Root;
   }
-  
+
   TreeTy *getRootWithoutRetain() const {
     return Root;
   }
@@ -1092,7 +1091,7 @@ public:
 
   void validateTree() const { if (Root) Root->validateTree(); }
 };
-  
+
 // NOTE: This may some day replace the current ImmutableSet.
 template <typename ValT, typename ValInfo = ImutContainerInfo<ValT> >
 class ImmutableSetRef {
@@ -1101,11 +1100,11 @@ public:
   typedef typename ValInfo::value_type_ref  value_type_ref;
   typedef ImutAVLTree<ValInfo> TreeTy;
   typedef typename TreeTy::Factory          FactoryTy;
-  
+
 private:
   TreeTy *Root;
   FactoryTy *Factory;
-  
+
 public:
   /// Constructs a set from a pointer to a tree root.  In general one
   /// should use a Factory object to create sets instead of directly
@@ -1133,44 +1132,44 @@ public:
   ~ImmutableSetRef() {
     if (Root) { Root->release(); }
   }
-  
+
   static inline ImmutableSetRef getEmptySet(FactoryTy *F) {
     return ImmutableSetRef(0, F);
   }
-  
+
   ImmutableSetRef add(value_type_ref V) {
     return ImmutableSetRef(Factory->add(Root, V), Factory);
   }
-  
+
   ImmutableSetRef remove(value_type_ref V) {
     return ImmutableSetRef(Factory->remove(Root, V), Factory);
   }
-    
+
   /// Returns true if the set contains the specified value.
   bool contains(value_type_ref V) const {
     return Root ? Root->contains(V) : false;
   }
-  
+
   ImmutableSet<ValT> asImmutableSet(bool canonicalize = true) const {
     return ImmutableSet<ValT>(canonicalize ?
                               Factory->getCanonicalTree(Root) : Root);
   }
-  
+
   TreeTy *getRootWithoutRetain() const {
     return Root;
   }
-  
+
   bool operator==(const ImmutableSetRef &RHS) const {
     return Root && RHS.Root ? Root->isEqual(*RHS.Root) : Root == RHS.Root;
   }
-  
+
   bool operator!=(const ImmutableSetRef &RHS) const {
     return Root && RHS.Root ? Root->isNotEqual(*RHS.Root) : Root != RHS.Root;
   }
 
   /// isEmpty - Return true if the set contains no elements.
   bool isEmpty() const { return !Root; }
-  
+
   /// isSingleton - Return true if the set contains exactly one element.
   ///   This method runs in constant time.
   bool isSingleton() const { return getHeight() == 1; }
@@ -1178,7 +1177,7 @@ public:
   //===--------------------------------------------------===//
   // Iterators.
   //===--------------------------------------------------===//
-  
+
   class iterator {
     typename TreeTy::iterator itr;
     iterator(TreeTy* t) : itr(t) {}
@@ -1194,28 +1193,28 @@ public:
     inline bool operator!=(const iterator& RHS) const { return RHS.itr != itr; }
     inline value_type *operator->() const { return &(operator*()); }
   };
-  
+
   iterator begin() const { return iterator(Root); }
   iterator end() const { return iterator(); }
-  
+
   //===--------------------------------------------------===//
   // Utility methods.
   //===--------------------------------------------------===//
-  
+
   unsigned getHeight() const { return Root ? Root->getHeight() : 0; }
-  
+
   static inline void Profile(FoldingSetNodeID& ID, const ImmutableSetRef& S) {
     ID.AddPointer(S.Root);
   }
-  
+
   inline void Profile(FoldingSetNodeID& ID) const {
     return Profile(ID,*this);
   }
-  
+
   //===--------------------------------------------------===//
   // For testing.
   //===--------------------------------------------------===//
-  
+
   void validateTree() const { if (Root) Root->validateTree(); }
 };
 
