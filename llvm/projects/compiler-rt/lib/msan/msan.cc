@@ -42,6 +42,7 @@ Flags flags = {
   67,     // exit_code
   true,   // fast_unwinder
   20,     // num_callers
+  true,   // report_umrs
 };
 int msan_inited = 0;
 bool msan_init_is_running;
@@ -60,6 +61,7 @@ void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->exit_code, "exit_code");
   ParseFlag(str, &f->fast_unwinder, "fast_unwinder");
   ParseFlag(str, &f->num_callers, "num_callers");
+  ParseFlag(str, &f->report_umrs, "report_umrs");
 }
 
 static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
@@ -88,6 +90,7 @@ static void PrintCurrentStackTrace(uptr pc, uptr bp) {
 }
 
 void PrintWarning(uptr pc, uptr bp) {
+  if (!__msan::flags.report_umrs) return;
   if (msan_expect_umr) {
     // Printf("Expected UMR\n");
     msan_expected_umr_found = 1;

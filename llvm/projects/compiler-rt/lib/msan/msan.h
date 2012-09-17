@@ -43,6 +43,7 @@ struct Flags {
   int  exit_code;
   bool fast_unwinder;
   int  num_callers;
+  bool report_umrs;
 };
 
 extern Flags flags;

@@ -109,7 +109,7 @@ static void MsanTrap(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
   uptr pc = ucontext->uc_mcontext.gregs[REG_RIP];
   uptr bp = ucontext->uc_mcontext.gregs[REG_RBP];
-  PrintWarning(pc + 1 /*1 will be subtracted back in StackTrace::Print */, bp);
+  PrintWarning(pc + 1 /*1 will be subtracted in StackTrace::Print */, bp);
   ucontext->uc_mcontext.gregs[REG_RIP] += 2;
 }
 
