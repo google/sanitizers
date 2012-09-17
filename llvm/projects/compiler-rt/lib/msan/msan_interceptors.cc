@@ -263,6 +263,14 @@ INTERCEPTOR(int, __fxstat, int magic, int fd, void* buf) {
   return res;
 }
 
+INTERCEPTOR(int, __fxstat64, int magic, int fd, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(__fxstat64)(magic, fd, buf);
+  if (!res)
+    __msan_unpoison(buf, 144); // seems like a reasonable size ;)
+  return res;
+}
+
 INTERCEPTOR(int, __xstat, int magic, char* path, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__xstat)(magic, path, buf);
@@ -271,9 +279,25 @@ INTERCEPTOR(int, __xstat, int magic, char* path, void* buf) {
   return res;
 }
 
+INTERCEPTOR(int, __xstat64, int magic, char* path, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(__xstat64)(magic, path, buf);
+  if (!res)
+    __msan_unpoison(buf, 144);
+  return res;
+}
+
 INTERCEPTOR(int, __lxstat, int magic, char* path, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__lxstat)(magic, path, buf);
+  if (!res)
+    __msan_unpoison(buf, 144);
+  return res;
+}
+
+INTERCEPTOR(int, __lxstat64, int magic, char* path, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(__lxstat64)(magic, path, buf);
   if (!res)
     __msan_unpoison(buf, 144);
   return res;
@@ -515,6 +539,9 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(__fxstat));
   CHECK(INTERCEPT_FUNCTION(__xstat));
   CHECK(INTERCEPT_FUNCTION(__lxstat));
+  CHECK(INTERCEPT_FUNCTION(__fxstat64));
+  CHECK(INTERCEPT_FUNCTION(__xstat64));
+  CHECK(INTERCEPT_FUNCTION(__lxstat64));
   CHECK(INTERCEPT_FUNCTION(pipe));
   CHECK(INTERCEPT_FUNCTION(wait));
   CHECK(INTERCEPT_FUNCTION(waitpid));
