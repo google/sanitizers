@@ -109,7 +109,6 @@ class AliasSet : public ilist_node<AliasSet> {
 
   PointerRec *PtrList, **PtrListEnd;  // Doubly linked list of nodes.
   AliasSet *Forward;             // Forwarding pointer.
-  AliasSet *Next, *Prev;         // Doubly linked list of AliasSets.
 
   // All instructions without a specific address in this alias set.
   std::vector<AssertingVH<Instruction> > UnknownInsts;
@@ -226,8 +225,8 @@ private:
                AccessTy(NoModRef), AliasTy(MustAlias), Volatile(false) {
   }
 
-  AliasSet(const AliasSet &AS);        // do not implement
-  void operator=(const AliasSet &AS);  // do not implement
+  AliasSet(const AliasSet &AS) LLVM_DELETED_FUNCTION;
+  void operator=(const AliasSet &AS) LLVM_DELETED_FUNCTION;
 
   PointerRec *getSomePointer() const {
     return PtrList;

@@ -59,7 +59,7 @@ namespace llvm {
     unsigned getDirIndex() const { return DirIndex; }
 
 
-    /// print - Print the value to the stream \arg OS.
+    /// print - Print the value to the stream \p OS.
     void print(raw_ostream &OS) const;
 
     /// dump - Print the value to stderr.
@@ -178,8 +178,8 @@ namespace llvm {
   class MCLineSection {
 
   private:
-    MCLineSection(const MCLineSection&);  // DO NOT IMPLEMENT
-    void operator=(const MCLineSection&); // DO NOT IMPLEMENT
+    MCLineSection(const MCLineSection&) LLVM_DELETED_FUNCTION;
+    void operator=(const MCLineSection&) LLVM_DELETED_FUNCTION;
 
   public:
     // Constructor to create an MCLineSection with an empty MCLineEntries

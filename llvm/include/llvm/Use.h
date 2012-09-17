@@ -26,6 +26,7 @@
 #define LLVM_USE_H
 
 #include "llvm/ADT/PointerIntPair.h"
+#include "llvm/Support/Compiler.h"
 #include <cstddef>
 #include <iterator>
 
@@ -66,7 +67,7 @@ public:
 
 private:
   /// Copy ctor - do not implement
-  Use(const Use &U);
+  Use(const Use &U) LLVM_DELETED_FUNCTION;
 
   /// Destructor - Only for zap()
   ~Use() {
