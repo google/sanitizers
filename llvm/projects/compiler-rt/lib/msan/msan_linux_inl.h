@@ -135,28 +135,6 @@ void SetSaneStackLimit() {
   CHECK(!StackIsUnlimited());
 }
 
-void ReExec() {
-  static char *buff;
-  uptr buff_size = 0;
-  static const int kMaxArgv = 100;
-  char *argv[kMaxArgv + 1];
-  ReadFileToBuffer("/proc/self/cmdline", &buff, &buff_size, 1024 * 1024);
-  argv[0] = buff;
-  // Printf("argv[0]: %s\n", argv[0]);
-  int argc, i;
-  for (argc = 1, i = 1; ; i++) {
-    if (buff[i] == 0) {
-      if (buff[i+1] == 0) break;
-      argv[argc] = &buff[i+1];
-      // Printf("argv[%d]: %s\n", i, argv[argc]);
-      CHECK_LE(argc, kMaxArgv);  // FIXME: make this more flexible.
-      argc++;
-    }
-  }
-  argv[argc] = 0;
-  execv(argv[0], argv);
-}
-
 void MsanDie() {
   _exit(flags.exit_code);
 }
