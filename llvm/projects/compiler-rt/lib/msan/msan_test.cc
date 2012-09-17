@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/resource.h>
+#include <sys/ioctl.h>
 
 #if defined(__i386__) || defined(__x86_64__)
 # include <emmintrin.h>
@@ -490,6 +491,13 @@ TEST(MemorySanitizer, pread) {
   v_s1 = x[31];
   close(fd);
   delete x;
+}
+
+// FIXME: fails now.
+TEST(MemorySanitizer, DISABLED_ioctl) {
+  struct winsize ws;
+  EXPECT_EQ(ioctl(2, TIOCGWINSZ, &ws), 0);
+  v_s4 = ws.ws_col;
 }
 
 TEST(MemorySanitizer, readlink) {
