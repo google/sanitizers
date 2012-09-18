@@ -1065,7 +1065,9 @@ TEST(MemorySanitizer, SimpleThread) {
   assert(!res);
   res = pthread_join(t, &p);
   assert(!res);
-  delete p;
+  if (!__msan_has_dynamic_component()) // FIXME: intercept pthread_join (?).
+    __msan_unpoison(&p, sizeof(p));
+  delete (int*)p;
 }
 
 TEST(MemorySanitizer, uname) {
