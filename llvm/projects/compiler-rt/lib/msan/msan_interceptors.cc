@@ -23,8 +23,9 @@ using namespace __msan;
   do { \
   sptr offset = __msan_test_shadow(x, n); \
   if (offset >= 0 && flags.report_umrs) { \
-  Printf("UMR in %s at offset %d\n", __FUNCTION__, offset); \
-  __msan_warning(); \
+    GET_CALLER_PC_BP_SP; \
+    Printf("UMR in %s at offset %d\n", __FUNCTION__, offset); \
+    __msan::PrintWarning(pc, bp); \
   } \
   } while (0)
 

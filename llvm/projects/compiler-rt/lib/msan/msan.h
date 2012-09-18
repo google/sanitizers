@@ -33,6 +33,7 @@ void ReplaceOperatorsNewAndDelete();
 bool StackIsUnlimited();
 void SetSaneStackLimit();
 void MsanDie();
+void PrintWarning(uptr pc, uptr bp);
 
 // Flags.
 struct Flags {
