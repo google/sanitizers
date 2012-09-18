@@ -11,6 +11,12 @@ RTL_HDR=$(wildcard *.h) \
 	$(wildcard $(INTERCEPTION)/*.h) \
 	$(wildcard $(COMMON)/*.h)
 
+#LIBCXX=$(HOME)/llvm/projects/libcxx
+#LIBCXX_CXXFLAGS=-std=c++0x  -stdlib=libc++ -I $(LIBCXX)/include \
+#		-DGTEST_USE_OWN_TR1_TUPLE=1
+#LIBCXX_LDFLAGS=-stdlib=libc++ -L $(LIBCXX)/lib -Wl,-R$(LIBCXX)/lib \
+#	       /home/kcc/tmp/sup/*.o
+
 LIBMSAN_SRC= msan.cc \
 	     msan_allocator.cc \
 	     msan_new_delete.cc \
@@ -50,8 +56,10 @@ libmsandr_test.so: msandr_test_so.cc $(GTEST_LIB)
 	$(CXX) -shared -fPIC -g -O1 $< -o $@
 
 msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBMSAN_A)
-	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) $(INCLUDES) $(MSAN_OPT) \
-		$< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) -Wl,-rpath=$(ROOT)
+	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) \
+	  $(INCLUDES) $(MSAN_OPT) $(LIBCXX_CXXFLAGS) $(LIBCXX_LDFLAGS) \
+	  $< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) \
+	  -Wl,-rpath=$(ROOT)
 
 msan.a: $(LIBMSAN_OBJ)
 	ar ru $@ $^
@@ -90,8 +98,10 @@ gtest: $(GTEST_LIB)
 $(GTEST_LIB):
 	mkdir -p $(GTEST_BUILD_DIR) && \
 	cd $(GTEST_BUILD_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS) $(MSAN_DEBUG) $(MSAN_OPT)" \
-		CFLAGS="$(CFLAGS) $(MSAN_DEBUG) $(MSAN_OPT)" CC=$(CC) CXX=$(CXX) gtest-all.o
+	$(MAKE) -f ../make/Makefile \
+	  CXXFLAGS="$(CXXFLAGS) $(MSAN_DEBUG) $(MSAN_OPT) $(LIBCXX_CXXFLAGS)" \
+	  CFLAGS="$(CFLAGS) $(MSAN_DEBUG) $(MSAN_OPT)" \
+	  CC=$(CC) CXX=$(CXX) gtest-all.o
 
 clean: 
 	rm -f *.o msan_test msan.a $(LIBMSAN_A)

@@ -1069,6 +1069,7 @@ TEST(MemorySanitizer, ZZZTest) {
 }
 
 TEST(MemorySanitizerDr, StoreInDSOTest) {
+  if (!__msan_has_dynamic_component()) return;
   char* s = new char[10];
   dso_memfill(s, 9);
   v_s1 = s[5];
@@ -1080,6 +1081,7 @@ int return_poisoned_int() {
 }
 
 TEST(MemorySanitizerDr, ReturnFromDSOTest) {
+  if (!__msan_has_dynamic_component()) return;
   v_u8 = dso_callfn(return_poisoned_int);
 }
 
@@ -1098,6 +1100,7 @@ static int CheckParamTLS(long long x, long long y, long long z) {
 }
 
 TEST(MemorySanitizerDr, CallFromDSOTest) {
+  if (!__msan_has_dynamic_component()) return;
   S8* x = GetPoisoned<S8>();
   S8* y = GetPoisoned<S8>();
   S8* z = GetPoisoned<S8>();
@@ -1111,6 +1114,7 @@ static void StackStoreInDSOFn(int* x, int* y) {
 }
 
 TEST(MemorySanitizerDr, StackStoreInDSOTest) {
+  if (!__msan_has_dynamic_component()) return;
   dso_stack_store(StackStoreInDSOFn, 1);
 }
 
