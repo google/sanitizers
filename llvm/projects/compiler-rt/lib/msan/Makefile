@@ -11,11 +11,11 @@ RTL_HDR=$(wildcard *.h) \
 	$(wildcard $(INTERCEPTION)/*.h) \
 	$(wildcard $(COMMON)/*.h)
 
-#LIBCXX=$(HOME)/llvm/projects/libcxx
-#LIBCXX_CXXFLAGS=-std=c++0x  -stdlib=libc++ -I $(LIBCXX)/include \
-#		-DGTEST_USE_OWN_TR1_TUPLE=1
-#LIBCXX_LDFLAGS=-stdlib=libc++ -L $(LIBCXX)/lib -Wl,-R$(LIBCXX)/lib \
-#	       /home/kcc/tmp/sup/*.o
+LIBCXX=$(ROOT)/libcxx
+LIBCXX_CXXFLAGS=-std=c++0x -stdlib=libc++ -I $(LIBCXX)/include \
+		-DGTEST_USE_OWN_TR1_TUPLE=1
+LIBCXX_LDFLAGS=-stdlib=libc++ -L$(LIBCXX)/lib -Wl,-R$(LIBCXX)/lib \
+	       $(LIBCXX)/lib/*.o
 
 LIBMSAN_SRC= msan.cc \
 	     msan_allocator.cc \
@@ -55,7 +55,7 @@ all: msan_test
 libmsandr_test.so: msandr_test_so.cc $(GTEST_LIB)
 	$(CXX) -shared -fPIC -g -O1 $< -o $@
 
-msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBMSAN_A)
+msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBCXX) $(LIBMSAN_A)
 	$(CXX) $(CXXFLAGS) $(MSAN_DEBUG) $(GTEST_INCLUDE) \
 	  $(INCLUDES) $(MSAN_OPT) $(LIBCXX_CXXFLAGS) $(LIBCXX_LDFLAGS) \
 	  $< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) \
@@ -79,9 +79,13 @@ $(LIBMSAN_A): msan.a
 	$(CXX) $(RTL_CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 t:
-	(make clean && make gtest_clean && make -j 10 2> log && ./msandr.sh ./msan_test )
+	(make clean && make clean_deps && make -j 10 2> log && ./msan_test )
 to:
-	(make clean && make gtest_clean && make -j 10 ORIGINS=1 2> log && ./msandr.sh ./msan_test )
+	(make clean && make clean_deps && make -j 10 ORIGINS=1 2> log && ./msan_test )
+tdr:
+	(make clean && make clean_deps && make -j 10 2> log && ./msandr.sh ./msan_test )
+todr:
+	(make clean && make clean_deps && make -j 10 ORIGINS=1 2> log && ./msandr.sh ./msan_test )
 
 
 # Do once: cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON  ~/llvm_msan/
@@ -95,7 +99,7 @@ install_deps:
 
 gtest: $(GTEST_LIB)
 
-$(GTEST_LIB):
+$(GTEST_LIB): $(LIBCXX)
 	mkdir -p $(GTEST_BUILD_DIR) && \
 	cd $(GTEST_BUILD_DIR) && \
 	$(MAKE) -f ../make/Makefile \
@@ -103,7 +107,11 @@ $(GTEST_LIB):
 	  CFLAGS="$(CFLAGS) $(MSAN_DEBUG) $(MSAN_OPT)" \
 	  CC=$(CC) CXX=$(CXX) gtest-all.o
 
+$(LIBCXX):
+	./build_libcxx.sh
+
 clean: 
 	rm -f *.o msan_test msan.a $(LIBMSAN_A)
-gtest_clean:
+clean_deps:
 	rm -rf $(GTEST_BUILD_DIR)
+	rm -rf $(LIBCXX)
