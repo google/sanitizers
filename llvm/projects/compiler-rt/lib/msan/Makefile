@@ -33,7 +33,9 @@ LDFLAGS=-pie
 ORIGINS=0
 MSAN_ORIGINS=-mllvm -msan-track-origins=$(ORIGINS)
 MSAN_EXTRA_OPT=
-MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT) $(MSAN_ORIGINS)
+MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT) $(MSAN_ORIGINS) \
+         -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer
+
 # MSAN_DEBUG=-mllvm -debug-only=msan
 CLANG_VERSION=3.2
 ARCH=x86_64

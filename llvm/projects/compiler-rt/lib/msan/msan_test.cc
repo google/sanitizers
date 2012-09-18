@@ -1333,6 +1333,27 @@ TEST(MemorySanitizerOrigins, Invoke) {
   EXPECT_POISONED_O(v_s4 = RetvalOriginTest(__LINE__), __LINE__);
 }
 
+NOINLINE void RecursiveMalloc(int depth) {
+  static int count;
+  count++;
+  if ((count % (1024 * 1024)) == 0)
+    printf("RecursiveMalloc: %d\n", count);
+  int *x1 = new int;
+  int *x2 = new int;
+  __msan_break_optimization(x1);
+  __msan_break_optimization(x2);
+  if (depth > 0) {
+    RecursiveMalloc(depth-1);
+    RecursiveMalloc(depth-1);
+  }
+  delete x1;
+  delete x2;
+}
+
+TEST(MemorySanitizerStress, DISABLED_MallocStackTrace) {
+  RecursiveMalloc(22);
+}
+
 int main(int argc, char **argv) {
   __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);
