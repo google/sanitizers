@@ -261,7 +261,7 @@ INTERCEPTOR(int, __fxstat, int magic, int fd, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__fxstat)(magic, fd, buf);
   if (!res)
-    __msan_unpoison(buf, __msan::struct_stat_sz); // seems like a reasonable size ;)
+    __msan_unpoison(buf, __msan::struct_stat_sz);
   return res;
 }
 
