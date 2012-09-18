@@ -47,8 +47,7 @@ static void *MsanAllocate(StackTrace *stack, uptr size,
     u32 stack_id = StackDepotPut(stack->trace, stack->size);
     CHECK(stack_id);
     CHECK_EQ((stack_id >> 31), 0);  // Higher bit is occupied by stack origins.
-    // if ((stack_id % 1024) == 0 || stack_id < 100)
-    //  Printf("ALLOC: stack.size = %zd id=%d\n", stack->size, stack_id);
+    // Printf("ALLOC: stack.size = %zd id=%d\n", stack->size, stack_id);
     __msan_set_origin(res, size, stack_id);;
   }
   return res;
