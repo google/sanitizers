@@ -20,7 +20,8 @@ RTL_HDR=$(wildcard *.h) \
 LIBMSAN_SRC= msan.cc \
 	     msan_allocator.cc \
 	     msan_new_delete.cc \
-	     msan_interceptors.cc
+	     msan_interceptors.cc \
+	     msan_platform_limits.cc
 
 INTERCEPTION_SRC=$(wildcard $(INTERCEPTION)/*.cc)
 COMMON_SRC=$(wildcard $(COMMON)/*.cc)

@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <sys/resource.h>
 #include <sys/ioctl.h>
+#include <sys/utsname.h>
 
 #if defined(__i386__) || defined(__x86_64__)
 # include <emmintrin.h>
@@ -1065,6 +1066,17 @@ TEST(MemorySanitizer, SimpleThread) {
   res = pthread_join(t, &p);
   assert(!res);
   delete p;
+}
+
+TEST(MemorySanitizer, uname) {
+  struct utsname u;
+  int res = uname(&u);
+  assert(!res);
+  v_u8 = strlen(u.sysname);
+  v_u8 = strlen(u.nodename);
+  v_u8 = strlen(u.release);
+  v_u8 = strlen(u.version);
+  v_u8 = strlen(u.machine);
 }
 
 extern "C" {
