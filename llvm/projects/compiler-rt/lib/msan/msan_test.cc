@@ -1053,6 +1053,20 @@ TEST(MemorySanitizer, getrlimit) {
   t = limit.rlim_max;
 }
 
+static void* SimpleThread_threadfn(void* data) {
+  return new int;
+}
+
+TEST(MemorySanitizer, SimpleThread) {
+  pthread_t t;
+  void* p;
+  int res = pthread_create(&t, NULL, SimpleThread_threadfn, NULL);
+  assert(!res);
+  res = pthread_join(t, &p);
+  assert(!res);
+  delete p;
+}
+
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);
