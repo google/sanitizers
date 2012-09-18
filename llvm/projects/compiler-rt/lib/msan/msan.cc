@@ -68,6 +68,9 @@ void ParseFlagsFromString(Flags *f, const char *str) {
 
 static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
   if (__msan_stack_bounds.stack_top == 0) {
+    // Break recursion (GetStackTrace -> GetThreadStackTopAndBottom ->
+    // realloc -> GetStackTrace).
+    __msan_stack_bounds.stack_top = __msan_stack_bounds.stack_bottom = 1;
     GetThreadStackTopAndBottom(false,
                                &__msan_stack_bounds.stack_top,
                                &__msan_stack_bounds.stack_bottom);

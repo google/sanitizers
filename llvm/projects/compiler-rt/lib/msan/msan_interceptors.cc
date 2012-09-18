@@ -1,5 +1,6 @@
 #include "msan_interface.h"
 #include "msan.h"
+#include "msan_platform_limits.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include <interception/interception.h>
 
@@ -260,7 +261,7 @@ INTERCEPTOR(int, __fxstat, int magic, int fd, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__fxstat)(magic, fd, buf);
   if (!res)
-    __msan_unpoison(buf, 144); // seems like a reasonable size ;)
+    __msan_unpoison(buf, __msan::struct_stat_sz);
   return res;
 }
 
@@ -268,7 +269,7 @@ INTERCEPTOR(int, __fxstat64, int magic, int fd, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__fxstat64)(magic, fd, buf);
   if (!res)
-    __msan_unpoison(buf, 144); // seems like a reasonable size ;)
+    __msan_unpoison(buf, __msan::struct_stat64_sz);
   return res;
 }
 
@@ -276,7 +277,7 @@ INTERCEPTOR(int, __xstat, int magic, char* path, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__xstat)(magic, path, buf);
   if (!res)
-    __msan_unpoison(buf, 144);
+    __msan_unpoison(buf, __msan::struct_stat_sz);
   return res;
 }
 
@@ -284,7 +285,7 @@ INTERCEPTOR(int, __xstat64, int magic, char* path, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__xstat64)(magic, path, buf);
   if (!res)
-    __msan_unpoison(buf, 144);
+    __msan_unpoison(buf, __msan::struct_stat64_sz);
   return res;
 }
 
@@ -292,7 +293,7 @@ INTERCEPTOR(int, __lxstat, int magic, char* path, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__lxstat)(magic, path, buf);
   if (!res)
-    __msan_unpoison(buf, 144);
+    __msan_unpoison(buf, __msan::struct_stat_sz);
   return res;
 }
 
@@ -300,7 +301,7 @@ INTERCEPTOR(int, __lxstat64, int magic, char* path, void* buf) {
   ENSURE_MSAN_INITED();
   int res = REAL(__lxstat64)(magic, path, buf);
   if (!res)
-    __msan_unpoison(buf, 144);
+    __msan_unpoison(buf, __msan::struct_stat64_sz);
   return res;
 }
 
@@ -361,7 +362,7 @@ INTERCEPTOR(int, getrlimit, int resource, void* rlim) {
   ENSURE_MSAN_INITED();
   int res = REAL(getrlimit)(resource, rlim);
   if (!res)
-    __msan_unpoison(rlim, sizeof(size_t) * 2);
+    __msan_unpoison(rlim, __msan::struct_rlimit_sz);
   return res;
 }
 
@@ -371,7 +372,16 @@ INTERCEPTOR(int, getrlimit64, int resource, void* rlim) {
   ENSURE_MSAN_INITED();
   int res = REAL(getrlimit64)(resource, rlim);
   if (!res)
-    __msan_unpoison(rlim, 16);
+    __msan_unpoison(rlim, __msan::struct_rlimit64_sz);
+  return res;
+}
+
+INTERCEPTOR(int, uname, void* utsname) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(uname)(utsname);
+  if (!res) {
+    __msan_unpoison(utsname, __msan::struct_utsname_sz);
+  }
   return res;
 }
 
@@ -551,5 +561,6 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(realpath));
   CHECK(INTERCEPT_FUNCTION(getrlimit));
   CHECK(INTERCEPT_FUNCTION(getrlimit64));
+  CHECK(INTERCEPT_FUNCTION(uname));
 }
 }  // namespace __msan
