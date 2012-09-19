@@ -638,6 +638,16 @@ TEST(MemorySanitizer, swprintf) {
   EXPECT_POISONED(v_s4 = buff[8]);
 }
 
+TEST(MemorySanitizer, wcstombs) {
+  wchar_t *x = L"abc";
+  char buff[10];
+  int res = wcstombs(buff, x, 4);
+  EXPECT_EQ(res, 3);
+  EXPECT_EQ(buff[0], 'a');
+  EXPECT_EQ(buff[1], 'b');
+  EXPECT_EQ(buff[2], 'c');
+}
+
 TEST(MemorySanitizer, gettimeofday) {
   struct timeval tv;
   struct timezone tz;

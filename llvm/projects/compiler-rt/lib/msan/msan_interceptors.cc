@@ -229,6 +229,12 @@ INTERCEPTOR(int, swprintf, void *str, uptr size, void *format, ...) {
   return res;
 }
 
+INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
+  size_t res = REAL(wcstombs)(dest, src, size);
+  if (res)  __msan_unpoison(dest, res);
+  return res;
+}
+
 INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
   int res = REAL(gettimeofday)(tv, tz);
   if (tv)
@@ -544,6 +550,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(sprintf));
   CHECK(INTERCEPT_FUNCTION(snprintf));
   CHECK(INTERCEPT_FUNCTION(swprintf));
+  CHECK(INTERCEPT_FUNCTION(wcstombs));
   CHECK(INTERCEPT_FUNCTION(getenv));
   CHECK(INTERCEPT_FUNCTION(gettimeofday));
   CHECK(INTERCEPT_FUNCTION(fcvt));
