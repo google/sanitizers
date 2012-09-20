@@ -639,7 +639,7 @@ TEST(MemorySanitizer, swprintf) {
 }
 
 TEST(MemorySanitizer, wcstombs) {
-  wchar_t *x = L"abc";
+  const wchar_t *x = L"abc";
   char buff[10];
   int res = wcstombs(buff, x, 4);
   EXPECT_EQ(res, 3);

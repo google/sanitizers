@@ -229,11 +229,86 @@ INTERCEPTOR(int, swprintf, void *str, uptr size, void *format, ...) {
   return res;
 }
 
-INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
-  size_t res = REAL(wcstombs)(dest, src, size);
-  if (res)  __msan_unpoison(dest, res);
+// size_t strftime(char *s, size_t max, const char *format,const struct tm *tm);
+INTERCEPTOR(size_t, strftime, char *s, size_t max, const char *format,
+            void *tm) {
+  size_t res = REAL(strftime)(s, max, format, tm);
+  if (res) __msan_unpoison(s, res + 1);
   return res;
 }
+
+INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
+  size_t res = REAL(wcstombs)(dest, src, size);
+  if (res != -1)  __msan_unpoison(dest, res + 1);
+  return res;
+}
+
+// size_t mbstowcs(wchar_t *dest, const char *src, size_t n);
+INTERCEPTOR(size_t, mbstowcs, wchar_t *dest, const char *src, size_t n) {
+  size_t res = REAL(mbstowcs)(dest, src, n);
+  if (res != -1) __msan_unpoison(dest, (res + 1) * sizeof(wchar_t));
+  return res;
+}
+
+INTERCEPTOR(size_t, wcslen, const wchar_t *s) {
+  size_t res = REAL(wcslen)(s);
+  return res;
+}
+
+// wchar_t *wcschr(const wchar_t *wcs, wchar_t wc);
+INTERCEPTOR(wchar_t *, wcschr, void *s, wchar_t wc, void *ps) {
+  wchar_t *res = REAL(wcschr)(s, wc, ps);
+  return res;
+}
+
+// wchar_t *wcscpy(wchar_t *dest, const wchar_t *src);
+INTERCEPTOR(wchar_t *, wcscpy, wchar_t *dest, const wchar_t *src) {
+  wchar_t *res = REAL(wcscpy)(dest, src);
+  __msan_copy_poison(dest, src, sizeof(wchar_t) * (REAL(wcslen)(src) + 1));
+  return res;
+}
+
+// wchar_t *wmemcpy(wchar_t *dest, const wchar_t *src, size_t n);
+INTERCEPTOR(wchar_t *, wmemcpy, wchar_t *dest, const wchar_t *src, size_t n) {
+  wchar_t *res = REAL(wmemcpy)(dest, src, n);
+  __msan_copy_poison(dest, src, n * sizeof(wchar_t));
+  return res;
+}
+
+// int wcscmp(const wchar_t *s1, const wchar_t *s2);
+INTERCEPTOR(int, wcscmp, const wchar_t *s1, const wchar_t *s2) {
+  // Printf("ZZZ %s\n", __FUNCTION__);
+  int res = REAL(wcscmp)(s1, s2);
+  return res;
+}
+
+// double wcstod(const wchar_t *nptr, wchar_t **endptr);
+INTERCEPTOR(double, wcstod, const wchar_t *nptr, wchar_t **endptr) {
+  double res = REAL(wcstod)(nptr, endptr);
+  __msan_unpoison(endptr, sizeof(*endptr));
+  return res;
+}
+
+#define UNSUPPORTED(name) \
+    INTERCEPTOR(void, name) { \
+      Printf("MSAN: Unsupported %s\n", __FUNCTION__);\
+      Die(); \
+    }
+
+UNSUPPORTED(wcscoll_l);
+UNSUPPORTED(wcsnrtombs);
+UNSUPPORTED(wcstol);
+UNSUPPORTED(wcstoll);
+UNSUPPORTED(wcstold);
+UNSUPPORTED(wcstoul);
+UNSUPPORTED(wcstoull);
+UNSUPPORTED(wcsxfrm_l);
+UNSUPPORTED(wctob);
+UNSUPPORTED(wcsdup);
+// UNSUPPORTED(wcsftime);  // FIXME
+// UNSUPPORTED(wcsstr);
+// UNSUPPORTED(wcsrchr);
+
 
 INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
   int res = REAL(gettimeofday)(tv, tz);
@@ -550,7 +625,15 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(sprintf));
   CHECK(INTERCEPT_FUNCTION(snprintf));
   CHECK(INTERCEPT_FUNCTION(swprintf));
+  CHECK(INTERCEPT_FUNCTION(strftime));
   CHECK(INTERCEPT_FUNCTION(wcstombs));
+  CHECK(INTERCEPT_FUNCTION(mbstowcs));
+  CHECK(INTERCEPT_FUNCTION(wcslen));
+  CHECK(INTERCEPT_FUNCTION(wcschr));
+  CHECK(INTERCEPT_FUNCTION(wcscpy));
+  CHECK(INTERCEPT_FUNCTION(wmemcpy));
+  CHECK(INTERCEPT_FUNCTION(wcscmp));
+  CHECK(INTERCEPT_FUNCTION(wcstod));
   CHECK(INTERCEPT_FUNCTION(getenv));
   CHECK(INTERCEPT_FUNCTION(gettimeofday));
   CHECK(INTERCEPT_FUNCTION(fcvt));
