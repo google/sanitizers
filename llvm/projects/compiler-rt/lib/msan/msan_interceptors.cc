@@ -65,6 +65,12 @@ INTERCEPTOR(ssize_t, readlink, const char *path, char *buf, size_t bufsiz) {
   return res;
 }
 
+INTERCEPTOR(void *, readdir, void *a) {
+  void *res = REAL(readdir)(a);
+  __msan_unpoison(res, __msan::struct_dirent_sz);
+  return res;
+}
+
 INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
   ENSURE_MSAN_INITED();
   void* res = fast_memcpy(dest, src, n);
@@ -607,6 +613,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(read));
   CHECK(INTERCEPT_FUNCTION(pread));
   CHECK(INTERCEPT_FUNCTION(readlink));
+  CHECK(INTERCEPT_FUNCTION(readdir));
   CHECK(INTERCEPT_FUNCTION(memcpy));
   CHECK(INTERCEPT_FUNCTION(memset));
   CHECK(INTERCEPT_FUNCTION(memmove));

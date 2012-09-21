@@ -7,6 +7,7 @@ namespace __msan {
   extern unsigned struct_stat64_sz;
   extern unsigned struct_rlimit_sz;
   extern unsigned struct_rlimit64_sz;
+  extern unsigned struct_dirent_sz;
 };
 
 #endif
