@@ -563,6 +563,25 @@ TEST(MemorySanitizer, memmove) {
   EXPECT_POISONED(v_s4 = y[1]);
 }
 
+template<class T, int size>
+void TestOverlapMemmove() {
+  T *x = new T[size];
+  assert(size >= 3);
+  x[2] = 0;
+  memmove(x, x + 1, (size - 1) * sizeof(T));
+  v_s8 = x[1];
+  EXPECT_POISONED(v_s8 = x[0]);
+  EXPECT_POISONED(v_s8 = x[2]);
+  delete [] x;
+}
+
+TEST(MemorySanitizer, DISABLED_overlap_memmove) {
+  TestOverlapMemmove<U1, 10>();
+  TestOverlapMemmove<U1, 1000>();
+  TestOverlapMemmove<U8, 4>();
+  TestOverlapMemmove<U8, 1000>();
+}
+
 TEST(MemorySanitizer, strcpy) {
   char* x = new char[3];
   char* y = new char[3];
