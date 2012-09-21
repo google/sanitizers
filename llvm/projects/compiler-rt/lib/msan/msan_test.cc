@@ -570,12 +570,17 @@ void TestOverlapMemmove() {
   x[2] = 0;
   memmove(x, x + 1, (size - 1) * sizeof(T));
   v_s8 = x[1];
-  EXPECT_POISONED(v_s8 = x[0]);
-  EXPECT_POISONED(v_s8 = x[2]);
+  if (!__msan_has_dynamic_component()) {
+    // FIXME: under DR we will lose this information
+    // because accesses in memmove will unpoisin the shadow.
+    // We need to use our own memove implementation instead of libc's.
+    EXPECT_POISONED(v_s8 = x[0]);
+    EXPECT_POISONED(v_s8 = x[2]);
+  }
   delete [] x;
 }
 
-TEST(MemorySanitizer, DISABLED_overlap_memmove) {
+TEST(MemorySanitizer, overlap_memmove) {
   TestOverlapMemmove<U1, 10>();
   TestOverlapMemmove<U1, 1000>();
   TestOverlapMemmove<U8, 4>();

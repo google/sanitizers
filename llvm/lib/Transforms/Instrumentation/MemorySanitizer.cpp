@@ -140,6 +140,7 @@ struct MemorySanitizer : public FunctionPass {
   Value *MsanCopyOriginFn;
   Value *MsanSetAllocaOriginFn;
   Value *MsanPoisonStackFn;
+  Value *MemmoveFn;
   // ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
   uint64_t ShadowMask;
   // OriginAddr is computed as (ShadowAddr+Offset) & ~3ULL
@@ -249,6 +250,8 @@ bool MemorySanitizer::doInitialization(Module &M) {
     IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), NULL);
   MsanPoisonStackFn = M.getOrInsertFunction("__msan_poison_stack",
     IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
+  MemmoveFn = M.getOrInsertFunction("memmove",
+    IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
     false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
@@ -932,20 +935,22 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRB.CreateCall3(MS.MsanCopyOriginFn, Dst, Src, Size);
   }
 
+  // At this point we don't know if llvm.memmove will be inlined or not.
+  // If we don't instrument it and it gets inlined,
+  // our interceptor will not kick in and we will lose the memmove.
+  // If we instrument the call here, but it does not get inlined,
+  // we will memove the shadow twice: which is bad in case 
+  // of overlapping regions. So, we simply lower the intrinsic to a call.
+  //
+  // Similar situation exists for memcpy and memset, but for those functions
+  // calling instrumentation twice does not lead to incorrect results.
   void handleMemMove(MemMoveInst &I) {
     IRBuilder<> IRB(&I);
-    Value *Dst = I.getArgOperand(0);
-    Value *Src = I.getArgOperand(1);
-    Type *ElementType = dyn_cast<PointerType>(Dst->getType())->getElementType();
-    Value *ShadowDst = getShadowPtr(Dst, ElementType, IRB);
-    Value *ShadowSrc = getShadowPtr(Src, ElementType, IRB);
-    Value *Size = I.getArgOperand(2);
-    unsigned Align = I.getAlignment();
-    bool isVolatile = I.isVolatile();
-
-    IRB.CreateMemMove(ShadowDst, ShadowSrc, Size, Align, isVolatile);
-    if (ClTrackOrigins)
-      IRB.CreateCall3(MS.MsanCopyOriginFn, Dst, Src, Size);
+    IRB.CreateCall3(MS.MemmoveFn,
+        IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
+        IRB.CreatePointerCast(I.getArgOperand(1), IRB.getInt8PtrTy()),
+        IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
+    I.eraseFromParent();
   }
 
   void handleVAStart(IntrinsicInst &I) {
