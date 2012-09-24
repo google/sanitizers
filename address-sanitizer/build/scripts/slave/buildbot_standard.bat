@@ -22,9 +22,10 @@ call svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang %REV_ARG
 call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler_rt %REV_ARG% || goto :DIE
 call svn co http://address-sanitizer.googlecode.com/svn/trunk/win/tests win_tests || goto :DIE
 
-mkdir llvm-build
+set ROOT=%cd%
 
 echo @@@BUILD_STEP cmake llvm@@@
+mkdir llvm-build
 :: TODO(timurrrr): Is this enough to force a full re-configure?
 del llvm-build\CMakeCache.txt
 cd llvm-build
@@ -32,7 +33,7 @@ cmake ..\llvm || goto :DIE
 echo @@@BUILD_STEP build llvm@@@
 devenv LLVM.sln /Build Debug /Project clang || goto :DIE
 devenv LLVM.sln /Build Debug /Project FileCheck || goto :DIE
-cd ..
+cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP test llvm@@@
 
@@ -47,12 +48,12 @@ del *.pdb *.obj *.lib || goto :DIE
 :: /Zi <- generate debug info
 cl /nologo /MP /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
-cd ..\..\..
+cd %ROOT%
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-faddress-sanitizer -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../%ASAN_PATH%/asan_rtl.lib || goto :DIE
-cd ..
+cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
 
