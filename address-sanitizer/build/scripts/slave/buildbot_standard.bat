@@ -19,7 +19,7 @@ if NOT "%BUILDBOT_REVISION%" == "" set REV_ARG="-r%BUILDBOT_REVISION%"
 :: call -> because "svn" might be a batch script, ouch
 call svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm %REV_ARG% || goto :DIE
 call svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang %REV_ARG% || goto :DIE
-call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk compiler_rt %REV_ARG% || goto :DIE
+call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler_rt %REV_ARG% || goto :DIE
 call svn co http://address-sanitizer.googlecode.com/svn/trunk/win/tests win_tests || goto :DIE
 
 mkdir llvm-build
@@ -37,7 +37,8 @@ cd ..
 :: TODO(timurrrr) echo @@@BUILD_STEP test llvm@@@
 
 echo @@@BUILD_STEP build asan RTL@@@
-cd compiler_rt\lib\asan || goto :DIE
+set ASAN_PATH=llvm\projects\compiler_rt\lib\asan
+cd %ASAN_PATH% || goto :DIE
 :: This only compiles, not links.
 del *.pdb *.obj *.lib || goto :DIE
 
@@ -50,7 +51,7 @@ cd ..\..\..
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-faddress-sanitizer -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../compiler_rt/lib/asan/asan_rtl.lib || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-faddress-sanitizer -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../%ASAN_PATH%/asan_rtl.lib || goto :DIE
 cd ..
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
