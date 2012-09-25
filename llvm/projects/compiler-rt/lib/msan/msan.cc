@@ -170,7 +170,7 @@ void __msan_init() {
 
   const char *external_symbolizer = GetEnv("MSAN_SYMBOLIZER_PATH");
   if (external_symbolizer && external_symbolizer[0]) {
-    InitializeExternalSymbolizer(external_symbolizer);
+    CHECK(InitializeExternalSymbolizer(external_symbolizer));
   }
 
   GetThreadStackTopAndBottom(true,
