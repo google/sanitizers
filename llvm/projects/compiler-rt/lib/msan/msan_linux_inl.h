@@ -121,20 +121,6 @@ void InstallTrapHandler() {
   CHECK(0 == sigaction(SIGILL, &sigact, 0));
 }
 
-bool StackIsUnlimited() {
-  struct rlimit rlim;
-  CHECK_EQ(0, getrlimit(RLIMIT_STACK, &rlim));
-  return (rlim.rlim_cur == (uptr)-1);
-}
-
-void SetSaneStackLimit() {
-  struct rlimit rlim;
-  rlim.rlim_max = 32 * 1024 * 1024;
-  rlim.rlim_cur = 32 * 1024 * 1024;
-  CHECK_EQ(0, setrlimit(RLIMIT_STACK, &rlim));
-  CHECK(!StackIsUnlimited());
-}
-
 void MsanDie() {
   _exit(flags.exit_code);
 }
