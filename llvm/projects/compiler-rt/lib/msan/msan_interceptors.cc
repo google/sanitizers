@@ -186,6 +186,23 @@ INTERCEPTOR(long long , strtoll, const char *nptr, char **endptr, int base) {
   return res;
 }
 
+INTERCEPTOR(unsigned long, strtoul, const char *nptr, char **endptr, int base) {
+  unsigned long res = REAL(strtoul)(nptr, endptr, base);
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(endptr, sizeof(*endptr));
+  }
+  return res;
+}
+
+INTERCEPTOR(unsigned long long , strtoull, const char *nptr, char **endptr,
+            int base) {
+  unsigned long res = REAL(strtoull)(nptr, endptr, base);
+  if (!__msan_has_dynamic_component()) {
+    __msan_unpoison(endptr, sizeof(*endptr));
+  }
+  return res;
+}
+
 INTERCEPTOR(int, vsnprintf, char *str, uptr size,
             const char *format, va_list ap) {
   int res = REAL(vsnprintf)(str, size, format, ap);
@@ -626,6 +643,8 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(strncat));
   CHECK(INTERCEPT_FUNCTION(strtol));
   CHECK(INTERCEPT_FUNCTION(strtoll));
+  CHECK(INTERCEPT_FUNCTION(strtoul));
+  CHECK(INTERCEPT_FUNCTION(strtoull));
   CHECK(INTERCEPT_FUNCTION(vsprintf));
   CHECK(INTERCEPT_FUNCTION(vsnprintf));
   CHECK(INTERCEPT_FUNCTION(vswprintf));

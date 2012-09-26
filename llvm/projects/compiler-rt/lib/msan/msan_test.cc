@@ -619,6 +619,18 @@ TEST(MemorySanitizer, strtoll) {
   v_s8 = (S8) e;
 }
 
+TEST(MemorySanitizer, strtoul) {
+  char *e;
+  assert(1 == strtoul("1", &e, 10));
+  v_s8 = (S8) e;
+}
+
+TEST(MemorySanitizer, strtoull) {
+  char *e;
+  assert(1 == strtoull("1", &e, 10));
+  v_s8 = (S8) e;
+}
+
 TEST(MemorySanitizer, sprintf) {
   char buff[10];
   __msan_break_optimization(buff);
