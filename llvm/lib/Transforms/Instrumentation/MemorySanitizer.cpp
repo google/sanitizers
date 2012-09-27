@@ -87,7 +87,7 @@ static cl::opt<bool> ClPoisonStack("msan-poison-stack",
        cl::Hidden, cl::init(true));
 static cl::opt<bool> ClPoisonStackWithCall("msan-poison-stack-with-call",
        cl::desc("poison uninitialized stack variables with a call"),
-       cl::Hidden, cl::init(true));
+       cl::Hidden, cl::init(false));
 static cl::opt<int> ClPoisonStackPattern("msan-poison-stack-pattern",
        cl::desc("poison uninitialized stack variables with the given patter"),
        cl::Hidden, cl::init(0xff));
