@@ -145,9 +145,9 @@ void __msan_init() {
   __msan::InitializeInterceptors();
 
   ReplaceOperatorsNewAndDelete();
-  if (StackIsUnlimited()) {
+  if (StackSizeIsUnlimited()) {
     // Printf("Unlimited stack, doing reexec\n");
-    SetSaneStackLimit();
+    SetStackSizeLimitInBytes(32 * 1024 * 1024);
     ReExec();
   }
   const char *msan_options = GetEnv("MSAN_OPTIONS");
@@ -170,7 +170,7 @@ void __msan_init() {
 
   const char *external_symbolizer = GetEnv("MSAN_SYMBOLIZER_PATH");
   if (external_symbolizer && external_symbolizer[0]) {
-    InitializeExternalSymbolizer(external_symbolizer);
+    CHECK(InitializeExternalSymbolizer(external_symbolizer));
   }
 
   GetThreadStackTopAndBottom(true,

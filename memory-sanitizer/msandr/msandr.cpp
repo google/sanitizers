@@ -66,6 +66,7 @@ class ModuleData {
   app_pc end_;
   // Full path to the module.
   string path_;
+  module_handle_t handle_;
   bool should_instrument_;
   bool executed_;
 };
@@ -84,6 +85,7 @@ ModuleData::ModuleData()
   : start_(NULL),
     end_(NULL),
     path_(""),
+    handle_(NULL),
     should_instrument_(false),
     executed_(false)
 {}
@@ -92,6 +94,7 @@ ModuleData::ModuleData(const module_data_t *info)
   : start_(info->start),
     end_(info->end),
     path_(info->full_path),
+    handle_(info->handle),
     // We'll check the black/white lists later and adjust this.
     should_instrument_(true),
     executed_(false)
@@ -396,11 +399,8 @@ bool ShouldInstrumentNonModuleCode() {
 
 bool ShouldInstrumentModule(ModuleData *mod_data) {
   // TODO(rnk): Flags for blacklist would get wired in here.
-  const string &path = mod_data->path_;
-  if (path == g_app_path) {
-    return false;
-  }
-  return true;
+  generic_func_t p = dr_get_proc_address(mod_data->handle_, "__msan_track_origins");
+  return !p;
 }
 
 // TODO(rnk): Make sure we instrument after __asan_init.

@@ -326,11 +326,11 @@ UNSUPPORTED(wcstold);
 UNSUPPORTED(wcstoul);
 UNSUPPORTED(wcstoull);
 UNSUPPORTED(wcsxfrm_l);
-UNSUPPORTED(wctob);
 UNSUPPORTED(wcsdup);
 // UNSUPPORTED(wcsftime);  // FIXME
 // UNSUPPORTED(wcsstr);
 // UNSUPPORTED(wcsrchr);
+// UNSUPPORTED(wctob);
 
 
 INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
