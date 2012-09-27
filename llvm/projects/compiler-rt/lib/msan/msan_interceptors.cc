@@ -516,6 +516,14 @@ INTERCEPTOR(void *, malloc, size_t size) {
   return MsanReallocate(&stack, 0, size, sizeof(u64), false);
 }
 
+INTERCEPTOR(void *, mmap, void *addr, size_t length, int prot, int flags,
+                   int fd, off_t offset) {
+  void *res = REAL(mmap)(addr, length, prot, flags, fd, offset);
+  if (res != (void*)-1)
+    __msan_unpoison(res, RoundUpTo(length, kPageSize));
+  return res;
+}
+
 // static
 void *fast_memset(void *ptr, int c, size_t n) {
 #if 1
@@ -621,6 +629,7 @@ void InitializeInterceptors() {
   static int inited = 0;
   CHECK_EQ(inited, 0);
   inited = 1;
+  CHECK(INTERCEPT_FUNCTION(mmap));
   CHECK(INTERCEPT_FUNCTION(posix_memalign));
   CHECK(INTERCEPT_FUNCTION(malloc));
   CHECK(INTERCEPT_FUNCTION(calloc));

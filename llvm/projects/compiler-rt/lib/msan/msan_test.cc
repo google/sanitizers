@@ -17,6 +17,7 @@
 #include <sys/resource.h>
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
+#include <sys/mman.h>
 
 #if defined(__i386__) || defined(__x86_64__)
 # include <emmintrin.h>
@@ -700,6 +701,25 @@ TEST(MemorySanitizer, gettimeofday) {
   v_s8 = tv.tv_usec;
   v_s4 = tz.tz_minuteswest;
   v_s4 = tz.tz_dsttime;
+}
+
+TEST(MemorySanitizer, mmap) {
+  const int size = 4096;
+  void *p1, *p2;
+  p1 = mmap(0, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
+  __msan_poison(p1, size);
+  munmap(p1, size);
+  for (int i = 0; i < 1000; i++) {
+    p2 = mmap(0, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
+    if (p2 == p1)
+      break;
+    else
+      munmap(p2, size);
+  }
+  if (p1 == p2) {
+    v_s1 = *(char*)p2;
+    munmap(p2, size);
+  }
 }
 
 // FIXME: enable and add ecvt.
