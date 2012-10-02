@@ -274,7 +274,9 @@ INTERCEPTOR(size_t, mbstowcs, wchar_t *dest, const char *src, size_t n) {
 }
 
 INTERCEPTOR(size_t, wcslen, const wchar_t *s) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(wcslen)(s);
+  CHECK_UNPOISONED(s, sizeof(wchar_t) * (res + 1));
   return res;
 }
 
