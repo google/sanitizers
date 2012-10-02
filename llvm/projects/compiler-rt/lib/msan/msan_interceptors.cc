@@ -298,6 +298,21 @@ INTERCEPTOR(wchar_t *, wmemcpy, wchar_t *dest, const wchar_t *src, size_t n) {
   return res;
 }
 
+INTERCEPTOR(wchar_t*, wmemset, wchar_t *s, wchar_t c, size_t n) {
+  ENSURE_MSAN_INITED();
+  wchar_t* res = (wchar_t*)fast_memset(s, c, n * sizeof(wchar_t));
+  if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
+    __msan_unpoison(s, n * sizeof(wchar_t));
+  return res;
+}
+
+INTERCEPTOR(wchar_t*, wmemmove, wchar_t* dest, const wchar_t* src, size_t n) {
+  ENSURE_MSAN_INITED();
+  wchar_t* res = REAL(wmemmove)(dest, src, n);
+  __msan_move_poison(dest, src, n * sizeof(wchar_t));
+  return res;
+}
+
 // int wcscmp(const wchar_t *s1, const wchar_t *s2);
 INTERCEPTOR(int, wcscmp, const wchar_t *s1, const wchar_t *s2) {
   // Printf("ZZZ %s\n", __FUNCTION__);
@@ -643,6 +658,9 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(memcpy));
   CHECK(INTERCEPT_FUNCTION(memset));
   CHECK(INTERCEPT_FUNCTION(memmove));
+  CHECK(INTERCEPT_FUNCTION(wmemset));
+  CHECK(INTERCEPT_FUNCTION(wmemcpy));
+  CHECK(INTERCEPT_FUNCTION(wmemmove));
   CHECK(INTERCEPT_FUNCTION(strcpy));
   CHECK(INTERCEPT_FUNCTION(strncpy));
   CHECK(INTERCEPT_FUNCTION(strlen));
@@ -666,7 +684,6 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(wcslen));
   CHECK(INTERCEPT_FUNCTION(wcschr));
   CHECK(INTERCEPT_FUNCTION(wcscpy));
-  CHECK(INTERCEPT_FUNCTION(wmemcpy));
   CHECK(INTERCEPT_FUNCTION(wcscmp));
   CHECK(INTERCEPT_FUNCTION(wcstod));
   CHECK(INTERCEPT_FUNCTION(getenv));
