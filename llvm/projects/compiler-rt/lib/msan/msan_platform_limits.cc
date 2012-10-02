@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
+#include <sys/vfs.h>
 #include <dirent.h>
 
 
@@ -14,4 +15,6 @@ namespace __msan {
   unsigned struct_rlimit_sz = sizeof(struct rlimit);
   unsigned struct_rlimit64_sz = sizeof(struct rlimit64);
   unsigned struct_dirent_sz = sizeof(struct dirent);
+  unsigned struct_statfs_sz = sizeof(struct statfs);
+  unsigned struct_statfs64_sz = sizeof(struct statfs64);
 };
