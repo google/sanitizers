@@ -7,8 +7,6 @@ CC=$CLANG_BUILD/bin/clang
 #echo $LIBCXX
 #echo $CLANG_BUILD
 
-rm -rf libcxx && mkdir -p libcxx/lib
-cd libcxx
 
 make_include() {
   cp -rf $LIBCXX/include .
@@ -20,8 +18,9 @@ make_include() {
 }
 
 make_lib() {
+  TO=$1
   cd lib
-  CXXFLAGS="-fmemory-sanitizer -I$LIBCXX/include -fPIE -fPIC -w -c -g -Os  -std=c++0x -fstrict-aliasing -nostdinc++ -fno-omit-frame-pointer   -mno-omit-leaf-frame-pointer "
+  CXXFLAGS="-fmemory-sanitizer -mllvm -msan-track-origins=$TO -I$LIBCXX/include -fPIE -fPIC -w -c -g -Os  -std=c++0x -fstrict-aliasing -nostdinc++ -fno-omit-frame-pointer   -mno-omit-leaf-frame-pointer "
 
   for f in $LIBCXX/src/*.cpp; do $CXX $CXXFLAGS $f & done; wait
 
@@ -39,5 +38,13 @@ make_lib() {
   ar ru msansup.a *.o
 }
 
-(make_lib)
-(make_include)
+build() {
+  rm -rf $1 && mkdir -p $1/lib
+  cd $1
+  (make_lib $2)
+  (make_include)
+}
+
+build libcxx 0 &
+build libcxx-to 1 &
+wait
