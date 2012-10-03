@@ -499,6 +499,38 @@ INTERCEPTOR(int, getrlimit64, int resource, void* rlim) {
   return res;
 }
 
+INTERCEPTOR(int, statfs, const char* s, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(statfs)(s, buf);
+  if (!res)
+    __msan_unpoison(buf, __msan::struct_statfs_sz);
+  return res;
+}
+
+INTERCEPTOR(int, fstatfs, int fd, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(fstatfs)(fd, buf);
+  if (!res)
+    __msan_unpoison(buf, __msan::struct_statfs_sz);
+  return res;
+}
+
+INTERCEPTOR(int, statfs64, const char* s, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(statfs64)(s, buf);
+  if (!res)
+    __msan_unpoison(buf, __msan::struct_statfs64_sz);
+  return res;
+}
+
+INTERCEPTOR(int, fstatfs64, int fd, void* buf) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(fstatfs64)(fd, buf);
+  if (!res)
+    __msan_unpoison(buf, __msan::struct_statfs64_sz);
+  return res;
+}
+
 INTERCEPTOR(int, uname, void* utsname) {
   ENSURE_MSAN_INITED();
   int res = REAL(uname)(utsname);
@@ -707,6 +739,10 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(realpath));
   CHECK(INTERCEPT_FUNCTION(getrlimit));
   CHECK(INTERCEPT_FUNCTION(getrlimit64));
+  CHECK(INTERCEPT_FUNCTION(statfs));
+  CHECK(INTERCEPT_FUNCTION(fstatfs));
+  CHECK(INTERCEPT_FUNCTION(statfs64));
+  CHECK(INTERCEPT_FUNCTION(fstatfs64));
   CHECK(INTERCEPT_FUNCTION(uname));
 }
 }  // namespace __msan

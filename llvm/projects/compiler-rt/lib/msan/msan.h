@@ -36,6 +36,7 @@ bool StackIsUnlimited();
 void SetSaneStackLimit();
 void MsanDie();
 void PrintWarning(uptr pc, uptr bp);
+void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin);
 
 // Flags.
 struct Flags {

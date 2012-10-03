@@ -18,6 +18,7 @@
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
 #include <sys/mman.h>
+#include <sys/vfs.h>
 
 #if defined(__i386__) || defined(__x86_64__)
 # include <emmintrin.h>
@@ -518,6 +519,15 @@ TEST(MemorySanitizer, stat) {
   v_u8 = st->st_dev;
   v_u8 = st->st_mode;
   v_u8 = st->st_size;
+}
+
+TEST(MemorySanitizer, statfs) {
+  struct statfs* st = new struct statfs;
+  int res = statfs("/", st);
+  assert(!res);
+  v_u8 = st->f_type;
+  v_u8 = st->f_bfree;
+  v_u8 = st->f_namelen;
 }
 
 TEST(MemorySanitizer, pipe) {

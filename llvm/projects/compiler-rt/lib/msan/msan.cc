@@ -95,6 +95,10 @@ static void PrintCurrentStackTrace(uptr pc, uptr bp) {
 }
 
 void PrintWarning(uptr pc, uptr bp) {
+  PrintWarningWithOrigin(pc, bp, __msan_origin_tls);
+}
+
+void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
   if (!__msan::flags.report_umrs) return;
   if (msan_expect_umr) {
     // Printf("Expected UMR\n");
@@ -107,16 +111,16 @@ void PrintWarning(uptr pc, uptr bp) {
   else
     BacktraceStackTrace();
   if (__msan_track_origins) {
-    Printf("  raw origin id: %d\n", __msan_origin_tls);
-    if (__msan_origin_tls == 0 || __msan_origin_tls == -1) {
+    Printf("  raw origin id: %d\n", origin);
+    if (origin == 0 || origin == -1) {
       Printf("  ORIGIN: invalid (%x). Might be a bug in MemorySanitizer, "
              "please report to MemorySanitizer developers.\n",
-             __msan_origin_tls);
-    } else if (const char *so = __msan_get_origin_descr_if_stack(__msan_origin_tls)) {
+             origin);
+    } else if (const char *so = __msan_get_origin_descr_if_stack(origin)) {
       Printf("  ORIGIN: stack allocation: %s\n", so);
-    } else if (__msan_origin_tls != 0) {
+    } else if (origin != 0) {
       uptr size = 0;
-      const uptr *trace = StackDepotGet(__msan_origin_tls, &size);
+      const uptr *trace = StackDepotGet(origin, &size);
       Printf("  ORIGIN: heap allocation:\n");
       StackTrace::PrintStack(trace, size, true, "", 0);
     }
@@ -126,6 +130,7 @@ void PrintWarning(uptr pc, uptr bp) {
     Die();
   }
 }
+
 
 }  // namespace __msan
 
