@@ -592,7 +592,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           if (AI->hasByValAttr()) {
             // ByVal pointer itself has clean shadow. We copy the actual
             // argument shadow to the underlying memory.
-            Value *Cpy = EntryIRB.CreateMemCpy(
+            EntryIRB.CreateMemCpy(
                 getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
                 Base, Size, AI->getParamAlignment());
             DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
