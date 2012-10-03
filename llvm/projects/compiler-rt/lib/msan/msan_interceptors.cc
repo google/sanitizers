@@ -22,13 +22,12 @@ using namespace __msan;
 
 #define CHECK_UNPOISONED(x, n) \
   do { \
-  sptr offset = __msan_test_shadow(x, n); \
-  if (offset >= 0 && flags.report_umrs) { \
-    GET_CALLER_PC_BP_SP; \
+  sptr offset = __msan_test_shadow(x, n);           \
+  if (offset >= 0 && flags.report_umrs) {           \
+    GET_CALLER_PC_BP_SP;                            \
     Printf("UMR in %s at offset %d\n", __FUNCTION__, offset); \
-    if (__msan_track_origins) \
-      __msan_origin_tls = *(u32*)(MEM_TO_ORIGIN((char*)x + offset) & ~3ULL); \
-    __msan::PrintWarning(pc, bp); \
+    __msan::PrintWarningWithOrigin(pc, bp,          \
+             __msan_get_origin((char*)x + offset)); \
   } \
   } while (0)
 

@@ -102,6 +102,7 @@ void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
   if (!__msan::flags.report_umrs) return;
   if (msan_expect_umr) {
     // Printf("Expected UMR\n");
+    __msan_origin_tls = origin;
     msan_expected_umr_found = 1;
     return;
   }
