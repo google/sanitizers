@@ -19,6 +19,7 @@
 
 #include "dr_api.h"
 #include "drutil.h"
+#include "drmgr.h"
 
 #include <sys/mman.h>
 
@@ -160,7 +161,8 @@ void InitializeMSanCallbacks() {
 // zero base anyway.
 bool OperandIsInteresting(opnd_t opnd) {
   return (opnd_is_base_disp(opnd) &&
-      opnd_get_segment(opnd) == DR_REG_NULL);
+      opnd_get_segment(opnd) != DR_SEG_FS &&
+      opnd_get_segment(opnd) != DR_SEG_GS);
 }
 
 bool WantToInstrument(instr_t *instr) {
@@ -171,6 +173,10 @@ bool WantToInstrument(instr_t *instr) {
     // f3 a6    rep cmps %ds:(%rsi) %es:(%rdi) %rsi %rdi %rcx -> %rsi %rdi %rcx
     return false;
   }
+
+  // Labels appear due to drutil_expand_rep_string()
+  if (instr_is_label(instr))
+    return false;
 
   CHECK(instr_ok_to_mangle(instr) == true);
 
@@ -403,21 +409,38 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   return !p;
 }
 
+bool ShouldInstrumentPc(app_pc pc, ModuleData** pmod_data) {
+  ModuleData *mod_data = LookupModuleByPC(pc);
+  if (pmod_data) *pmod_data = mod_data;
+  if (mod_data != NULL) {
+    // This module is on a blacklist.
+    if (!mod_data->should_instrument_) {
+      return false;
+    }
+  } else if (!ShouldInstrumentNonModuleCode()) {
+    return false;
+  }
+  return true;
+}
+
 // TODO(rnk): Make sure we instrument after __asan_init.
+dr_emit_flags_t event_basic_block_app2app(void *drcontext, void *tag, instrlist_t *bb,
+                                  bool for_trace, bool translating) {
+  app_pc pc = dr_fragment_app_pc(tag);
+
+  if (ShouldInstrumentPc(pc, NULL))
+    CHECK(drutil_expand_rep_string(drcontext, bb));
+
+  return DR_EMIT_DEFAULT;
+}
 
 dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
                                   bool for_trace, bool translating) {
   app_pc pc = dr_fragment_app_pc(tag);
+  ModuleData* mod_data;
 
-  ModuleData *mod_data = LookupModuleByPC(pc);
-  if (mod_data != NULL) {
-    // This module is on a blacklist.
-    if (!mod_data->should_instrument_) {
-      return DR_EMIT_DEFAULT;
-    }
-  } else if (!ShouldInstrumentNonModuleCode()) {
+  if (!ShouldInstrumentPc(pc, &mod_data))
     return DR_EMIT_DEFAULT;
-  }
 
 #if defined(VERBOSE)
 # if defined(VERBOSE_VERBOSE)
@@ -541,6 +564,9 @@ void event_exit() {
 }  // namespace
 
 DR_EXPORT void dr_init(client_id_t id) {
+  drmgr_init();
+  drutil_init();
+
   string app_name = dr_get_application_name();
   // This blacklist will still run these apps through DR's code cache.  On the
   // other hand, we are able to follow children of these apps.
@@ -572,7 +598,16 @@ DR_EXPORT void dr_init(client_id_t id) {
 
   // Standard DR events.
   dr_register_exit_event(event_exit);
-  dr_register_bb_event(event_basic_block);
+
+  drmgr_priority_t priority = {
+    sizeof(priority), /* size of struct */
+    "msandr",         /* name of our operation */
+    NULL,             /* optional name of operation we should precede */
+    NULL,             /* optional name of operation we should follow */
+    0};               /* numeric priority */
+
+  drmgr_register_bb_app2app_event(event_basic_block_app2app, &priority);
+  drmgr_register_bb_instru2instru_event(event_basic_block, &priority);
   dr_register_module_load_event(event_module_load);
   dr_register_module_unload_event(event_module_unload);
 #if defined(VERBOSE)
