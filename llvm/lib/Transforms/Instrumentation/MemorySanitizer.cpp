@@ -1129,8 +1129,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       setOrigin(&I, IRBAfter.CreateLoad(getOriginPtrForRetval(IRBAfter)));
   }
 
-  void visitBrInst(BranchInst &I) { }
-
   void visitReturnInst(ReturnInst &I) {
     IRBuilder<> IRB(&I);
     if (Value *RetVal = I.getReturnValue()) {
