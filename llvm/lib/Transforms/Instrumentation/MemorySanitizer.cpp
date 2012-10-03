@@ -939,7 +939,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // If we don't instrument it and it gets inlined,
   // our interceptor will not kick in and we will lose the memmove.
   // If we instrument the call here, but it does not get inlined,
-  // we will memove the shadow twice: which is bad in case 
+  // we will memove the shadow twice: which is bad in case
   // of overlapping regions. So, we simply lower the intrinsic to a call.
   //
   // Similar situation exists for memcpy and memset, but for those functions
