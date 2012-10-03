@@ -26,6 +26,8 @@ using namespace __msan;
   if (offset >= 0 && flags.report_umrs) { \
     GET_CALLER_PC_BP_SP; \
     Printf("UMR in %s at offset %d\n", __FUNCTION__, offset); \
+    if (__msan_track_origins) \
+      __msan_origin_tls = *(u32*)(MEM_TO_ORIGIN((char*)x + offset) & ~3ULL); \
     __msan::PrintWarning(pc, bp); \
   } \
   } while (0)

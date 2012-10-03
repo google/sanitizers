@@ -50,7 +50,8 @@ typedef   signed long long S8;
       __msan_set_expect_umr(1);                     \
       action;                                       \
       __msan_set_expect_umr(0);                     \
-      EXPECT_EQ(origin, __msan_get_origin_tls());   \
+      if (TrackingOrigins())                        \
+        EXPECT_EQ(origin, __msan_get_origin_tls()); \
     } while (0)
 
 #define EXPECT_POISONED_S(action, stack_origin) \
@@ -1429,6 +1430,24 @@ TEST(MemorySanitizerOrigins, Invoke) {
   if (!TrackingOrigins()) return;
   StructWithDtor s; // Will cause the calls to become invokes.
   EXPECT_POISONED_O(v_s4 = RetvalOriginTest(__LINE__), __LINE__);
+}
+
+TEST(MemorySanitizerOrigins, strlen) {
+  long alignment;
+  __msan_break_optimization(&alignment);
+    char x[4] = {'a', 'b', 0, 0};
+    __msan_poison(&x[2], 1);
+    u32 origin = __LINE__;
+    __msan_set_origin(x, sizeof(x), origin);
+    EXPECT_POISONED_O(v_s4 = strlen(x), origin);
+}
+
+TEST(MemorySanitizerOrigins, wcslen) {
+  wchar_t w[3] = {'a', 'b', 0};
+  u32 origin = __LINE__;
+  __msan_set_origin(w, sizeof(w), origin);
+  __msan_poison(&w[2], sizeof(wchar_t));
+  EXPECT_POISONED_O(v_s4 = wcslen(w), origin);
 }
 
 NOINLINE void RecursiveMalloc(int depth) {
