@@ -40,8 +40,6 @@ void AppendToErrorMessageBuffer(const char *buffer) {
   }
 }
 
-static void (*on_error_callback)(void);
-
 // ---------------------- Helper functions ----------------------- {{{1
 
 static void PrintBytes(const char *before, uptr *a) {
@@ -188,6 +186,54 @@ bool DescribeAddressIfStack(uptr addr, uptr access_size) {
   return true;
 }
 
+static void DescribeAccessToHeapChunk(AsanChunkView chunk, uptr addr,
+                                      uptr access_size) {
+  uptr offset;
+  Printf("%p is located ", (void*)addr);
+  if (chunk.AddrIsInside(addr, access_size, &offset)) {
+    Printf("%zu bytes inside of", offset);
+  } else if (chunk.AddrIsAtLeft(addr, access_size, &offset)) {
+    Printf("%zu bytes to the left of", offset);
+  } else if (chunk.AddrIsAtRight(addr, access_size, &offset)) {
+    Printf("%zu bytes to the right of", offset);
+  } else {
+    Printf(" somewhere around (this is AddressSanitizer bug!)");
+  }
+  Printf(" %zu-byte region [%p,%p)\n", chunk.UsedSize(),
+         (void*)(chunk.Beg()), (void*)(chunk.End()));
+}
+
+void DescribeHeapAddress(uptr addr, uptr access_size) {
+  AsanChunkView chunk = FindHeapChunkByAddress(addr);
+  if (!chunk.IsValid()) return;
+  DescribeAccessToHeapChunk(chunk, addr, access_size);
+  CHECK(chunk.AllocTid() != kInvalidTid);
+  AsanThreadSummary *alloc_thread =
+      asanThreadRegistry().FindByTid(chunk.AllocTid());
+  StackTrace alloc_stack;
+  chunk.GetAllocStack(&alloc_stack);
+  AsanThread *t = asanThreadRegistry().GetCurrent();
+  CHECK(t);
+  if (chunk.FreeTid() != kInvalidTid) {
+    AsanThreadSummary *free_thread =
+        asanThreadRegistry().FindByTid(chunk.FreeTid());
+    Printf("freed by thread T%d here:\n", free_thread->tid());
+    StackTrace free_stack;
+    chunk.GetFreeStack(&free_stack);
+    PrintStack(&free_stack);
+    Printf("previously allocated by thread T%d here:\n", alloc_thread->tid());
+    PrintStack(&alloc_stack);
+    DescribeThread(t->summary());
+    DescribeThread(free_thread);
+    DescribeThread(alloc_thread);
+  } else {
+    Printf("allocated by thread T%d here:\n", alloc_thread->tid());
+    PrintStack(&alloc_stack);
+    DescribeThread(t->summary());
+    DescribeThread(alloc_thread);
+  }
+}
+
 void DescribeAddress(uptr addr, uptr access_size) {
   // Check if this is shadow or shadow gap.
   if (DescribeAddressIfShadow(addr))
@@ -245,9 +291,7 @@ class ScopedInErrorReport {
       }
       Die();
     }
-    if (on_error_callback) {
-      on_error_callback();
-    }
+    __asan_on_error();
     reporting_thread_tid = asanThreadRegistry().GetCurrentTidOrInvalid();
     Printf("===================================================="
            "=============\n");
@@ -444,6 +488,7 @@ void NOINLINE __asan_set_error_report_callback(void (*callback)(const char*)) {
   }
 }
 
-void NOINLINE __asan_set_on_error_callback(void (*callback)(void)) {
-  on_error_callback = callback;
-}
+// Provide default implementation of __asan_on_error that does nothing
+// and may be overriden by user.
+SANITIZER_WEAK_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE NOINLINE
+void __asan_on_error() {}

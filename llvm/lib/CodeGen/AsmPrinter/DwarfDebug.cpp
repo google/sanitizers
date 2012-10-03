@@ -331,8 +331,8 @@ DIE *DwarfDebug::updateSubprogramScopeDIE(CompileUnit *SPCU,
           if (ATy.isArtificial())
             SPCU->addFlag(Arg, dwarf::DW_AT_artificial);
           if (ATy.isObjectPointer())
-            SPCU->addDIEEntry(SPDie, dwarf::DW_AT_object_pointer, dwarf::DW_FORM_ref4,
-                              Arg);
+            SPCU->addDIEEntry(SPDie, dwarf::DW_AT_object_pointer,
+                              dwarf::DW_FORM_ref4, Arg);
           SPDie->addChild(Arg);
         }
       DIE *SPDeclDie = SPDie;
@@ -515,8 +515,10 @@ DIE *DwarfDebug::constructScopeDIE(CompileUnit *TheCU, LexicalScope *Scope) {
   const SmallVector<DbgVariable *, 8> &Variables = ScopeVariables.lookup(Scope);
   for (unsigned i = 0, N = Variables.size(); i < N; ++i)
     if (DIE *Variable = 
-        TheCU->constructVariableDIE(Variables[i], Scope->isAbstractScope()))
+        TheCU->constructVariableDIE(Variables[i], Scope->isAbstractScope())) {
       Children.push_back(Variable);
+      if (Variables[i]->isObjectPointer()) ObjectPointer = Variable;
+    }
   const SmallVector<LexicalScope *, 4> &Scopes = Scope->getChildren();
   for (unsigned j = 0, M = Scopes.size(); j < M; ++j)
     if (DIE *Nested = constructScopeDIE(TheCU, Scopes[j]))

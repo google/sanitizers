@@ -58,11 +58,6 @@ class MipsAsmParser : public MCTargetAsmParser {
   MipsAsmParser::OperandMatchResultTy
   parseMemOperand(SmallVectorImpl<MCParsedAsmOperand*>&);
 
-  unsigned
-  getMCInstOperandNum(unsigned Kind, MCInst &Inst,
-                      const SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                      unsigned OperandNum, unsigned &NumMCOperands);
-
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &,
                     StringRef Mnemonic);
 
@@ -261,26 +256,17 @@ public:
 };
 }
 
-unsigned MipsAsmParser::
-getMCInstOperandNum(unsigned Kind, MCInst &Inst,
-                    const SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                    unsigned OperandNum, unsigned &NumMCOperands) {
-  assert (0 && "getMCInstOperandNum() not supported by the Mips target.");
-  // The Mips backend doesn't currently include the matcher implementation, so
-  // the getMCInstOperandNumImpl() is undefined.  This is a temporary
-  // work around.
-  NumMCOperands = 0;
-  return 0;
-}
-
 bool MipsAsmParser::
 MatchAndEmitInstruction(SMLoc IDLoc,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                         MCStreamer &Out) {
   MCInst Inst;
-  unsigned ErrorInfo;
   unsigned Kind;
-  unsigned MatchResult = MatchInstructionImpl(Operands, Kind, Inst, ErrorInfo);
+  unsigned ErrorInfo;
+  SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
+  unsigned MatchResult = MatchInstructionImpl(Operands, Kind, Inst,
+                                              MapAndConstraints, ErrorInfo,
+                                              /*matchingInlineAsm*/ false);
 
   switch (MatchResult) {
   default: break;

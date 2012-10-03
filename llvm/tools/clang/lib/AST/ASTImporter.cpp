@@ -288,7 +288,7 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
       
   case TemplateArgument::Type:
     return Context.IsStructurallyEquivalent(Arg1.getAsType(), Arg2.getAsType());
-      
+
   case TemplateArgument::Integral:
     if (!Context.IsStructurallyEquivalent(Arg1.getIntegralType(), 
                                           Arg2.getIntegralType()))
@@ -297,10 +297,11 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     return llvm::APSInt::isSameValue(Arg1.getAsIntegral(), Arg2.getAsIntegral());
       
   case TemplateArgument::Declaration:
-    if (!Arg1.getAsDecl() || !Arg2.getAsDecl())
-      return !Arg1.getAsDecl() && !Arg2.getAsDecl();
     return Context.IsStructurallyEquivalent(Arg1.getAsDecl(), Arg2.getAsDecl());
-      
+
+  case TemplateArgument::NullPtr:
+    return true; // FIXME: Is this correct?
+
   case TemplateArgument::Template:
     return IsStructurallyEquivalent(Context, 
                                     Arg1.getAsTemplate(), 
@@ -1509,11 +1510,26 @@ QualType ASTNodeImporter::VisitFunctionProtoType(const FunctionProtoType *T) {
     ExceptionTypes.push_back(ExceptionType);
   }
 
-  FunctionProtoType::ExtProtoInfo EPI = T->getExtProtoInfo();
-  EPI.Exceptions = ExceptionTypes.data();
-       
+  FunctionProtoType::ExtProtoInfo FromEPI = T->getExtProtoInfo();
+  FunctionProtoType::ExtProtoInfo ToEPI;
+
+  ToEPI.ExtInfo = FromEPI.ExtInfo;
+  ToEPI.Variadic = FromEPI.Variadic;
+  ToEPI.HasTrailingReturn = FromEPI.HasTrailingReturn;
+  ToEPI.TypeQuals = FromEPI.TypeQuals;
+  ToEPI.RefQualifier = FromEPI.RefQualifier;
+  ToEPI.NumExceptions = ExceptionTypes.size();
+  ToEPI.Exceptions = ExceptionTypes.data();
+  ToEPI.ConsumedArguments = FromEPI.ConsumedArguments;
+  ToEPI.ExceptionSpecType = FromEPI.ExceptionSpecType;
+  ToEPI.NoexceptExpr = Importer.Import(FromEPI.NoexceptExpr);
+  ToEPI.ExceptionSpecDecl = cast_or_null<FunctionDecl>(
+                                Importer.Import(FromEPI.ExceptionSpecDecl));
+  ToEPI.ExceptionSpecTemplate = cast_or_null<FunctionDecl>(
+                                Importer.Import(FromEPI.ExceptionSpecTemplate));
+
   return Importer.getToContext().getFunctionType(ToResultType, ArgTypes.data(),
-                                                 ArgTypes.size(), EPI);
+                                                 ArgTypes.size(), ToEPI);
 }
 
 QualType ASTNodeImporter::VisitParenType(const ParenType *T) {
@@ -1961,11 +1977,20 @@ ASTNodeImporter::ImportTemplateArgument(const TemplateArgument &From) {
     return TemplateArgument(From, ToType);
   }
 
-  case TemplateArgument::Declaration:
-    if (Decl *To = Importer.Import(From.getAsDecl()))
-      return TemplateArgument(To);
+  case TemplateArgument::Declaration: {
+    ValueDecl *FromD = From.getAsDecl();
+    if (ValueDecl *To = cast_or_null<ValueDecl>(Importer.Import(FromD)))
+      return TemplateArgument(To, From.isDeclForReferenceParam());
     return TemplateArgument();
-      
+  }
+
+  case TemplateArgument::NullPtr: {
+    QualType ToType = Importer.Import(From.getNullPtrType());
+    if (ToType.isNull())
+      return TemplateArgument();
+    return TemplateArgument(ToType, /*isNullPtr*/true);
+  }
+
   case TemplateArgument::Template: {
     TemplateName ToTemplate = Importer.Import(From.getAsTemplate());
     if (ToTemplate.isNull())
@@ -2491,8 +2516,30 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
   // Import additional name location/type info.
   ImportDeclarationNameLoc(D->getNameInfo(), NameInfo);
 
+  QualType FromTy = D->getType();
+  bool usedDifferentExceptionSpec = false;
+
+  if (const FunctionProtoType *
+        FromFPT = D->getType()->getAs<FunctionProtoType>()) {
+    FunctionProtoType::ExtProtoInfo FromEPI = FromFPT->getExtProtoInfo();
+    // FunctionProtoType::ExtProtoInfo's ExceptionSpecDecl can point to the
+    // FunctionDecl that we are importing the FunctionProtoType for.
+    // To avoid an infinite recursion when importing, create the FunctionDecl
+    // with a simplified function type and update it afterwards.
+    if (FromEPI.ExceptionSpecDecl || FromEPI.ExceptionSpecTemplate ||
+        FromEPI.NoexceptExpr) {
+      FunctionProtoType::ExtProtoInfo DefaultEPI;
+      FromTy = Importer.getFromContext().getFunctionType(
+                            FromFPT->getResultType(),
+                            FromFPT->arg_type_begin(),
+                            FromFPT->arg_type_end() - FromFPT->arg_type_begin(),
+                            DefaultEPI);
+      usedDifferentExceptionSpec = true;
+    }
+  }
+
   // Import the type.
-  QualType T = Importer.Import(D->getType());
+  QualType T = Importer.Import(FromTy);
   if (T.isNull())
     return 0;
   
@@ -2571,6 +2618,14 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     ToFunction->addDeclInternal(Parameters[I]);
   }
   ToFunction->setParams(Parameters);
+
+  if (usedDifferentExceptionSpec) {
+    // Update FunctionProtoType::ExtProtoInfo.
+    QualType T = Importer.Import(D->getType());
+    if (T.isNull())
+      return 0;
+    ToFunction->setType(T);
+  }
 
   // FIXME: Other bits to merge?
 
@@ -4027,7 +4082,8 @@ Expr *ASTNodeImporter::VisitBinaryOperator(BinaryOperator *E) {
   return new (Importer.getToContext()) BinaryOperator(LHS, RHS, E->getOpcode(),
                                                       T, E->getValueKind(),
                                                       E->getObjectKind(),
-                                          Importer.Import(E->getOperatorLoc()));
+                                           Importer.Import(E->getOperatorLoc()),
+                                                      E->isFPContractable());
 }
 
 Expr *ASTNodeImporter::VisitCompoundAssignOperator(CompoundAssignOperator *E) {
@@ -4056,7 +4112,8 @@ Expr *ASTNodeImporter::VisitCompoundAssignOperator(CompoundAssignOperator *E) {
                                                T, E->getValueKind(),
                                                E->getObjectKind(),
                                                CompLHSType, CompResultType,
-                                          Importer.Import(E->getOperatorLoc()));
+                                           Importer.Import(E->getOperatorLoc()),
+                                               E->isFPContractable());
 }
 
 static bool ImportCastPath(CastExpr *E, CXXCastPath &Path) {

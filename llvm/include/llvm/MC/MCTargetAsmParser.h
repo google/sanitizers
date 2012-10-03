@@ -78,6 +78,10 @@ public:
   /// \param DirectiveID - the identifier token of the directive.
   virtual bool ParseDirective(AsmToken DirectiveID) = 0;
 
+  /// mnemonicIsValid - This returns true if this is a valid mnemonic and false
+  /// otherwise.
+  virtual bool mnemonicIsValid(StringRef Mnemonic) = 0;
+
   /// MatchInstruction - Recognize a series of operands of a parsed instruction
   /// as an actual MCInst.  This returns false on success and returns true on
   /// failure to match.
@@ -85,11 +89,11 @@ public:
   /// On failure, the target parser is responsible for emitting a diagnostic
   /// explaining the match failure.
   virtual bool
-  MatchInstruction(SMLoc IDLoc, unsigned &Kind,
+  MatchInstruction(SMLoc IDLoc, 
                    SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                   SmallVectorImpl<MCInst> &MCInsts,
-                   unsigned &OrigErrorInfo,
-                   bool matchingInlineAsm = false) {
+                   MCStreamer &Out, unsigned &Kind, unsigned &Opcode,
+        SmallVectorImpl<std::pair< unsigned, std::string > > &MapAndConstraints,
+                   unsigned &OrigErrorInfo, bool matchingInlineAsm = false) {
     OrigErrorInfo = ~0x0;
     return true;
   }
@@ -111,10 +115,9 @@ public:
     return Match_Success;
   }
 
-  virtual unsigned getMCInstOperandNum(unsigned Kind, MCInst &Inst,
+  virtual void convertToMapAndConstraints(unsigned Kind,
                            const SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                                       unsigned OperandNum,
-                                       unsigned &NumMCOperands) = 0;
+   SmallVectorImpl<std::pair< unsigned, std::string > > &MapAndConstraints) = 0;
 };
 
 } // End llvm namespace

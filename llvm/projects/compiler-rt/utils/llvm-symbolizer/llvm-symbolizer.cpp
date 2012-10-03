@@ -34,7 +34,6 @@
 
 using namespace llvm;
 using namespace object;
-using std::string;
 
 static cl::opt<bool>
 UseSymbolTable("use-symbol-table", cl::init(true),
@@ -71,9 +70,9 @@ static uint32_t getDILineInfoSpecifierFlags() {
   return Flags;
 }
 
-static void patchFunctionNameInDILineInfo(const string &NewFunctionName,
+static void patchFunctionNameInDILineInfo(const std::string &NewFunctionName,
                                           DILineInfo &LineInfo) {
-  string FileName = LineInfo.getFileName();
+  std::string FileName = LineInfo.getFileName();
   LineInfo = DILineInfo(StringRef(FileName), StringRef(NewFunctionName),
                         LineInfo.getLine(), LineInfo.getColumn());
 }
@@ -93,7 +92,7 @@ class ModuleInfo {
     }
     // Override function name from symbol table if necessary.
     if (PrintFunctions && UseSymbolTable) {
-      string Function;
+      std::string Function;
       if (getFunctionNameFromSymbolTable(ModuleOffset, Function)) {
         patchFunctionNameInDILineInfo(Function, LineInfo);
       }
@@ -117,7 +116,7 @@ class ModuleInfo {
            i != n; i++) {
         DILineInfo LineInfo = InlinedContext.getFrame(i);
         if (i == n - 1) {
-          string Function;
+          std::string Function;
           if (getFunctionNameFromSymbolTable(ModuleOffset, Function)) {
             patchFunctionNameInDILineInfo(Function, LineInfo);
           }
@@ -130,7 +129,7 @@ class ModuleInfo {
   }
  private:
   bool getFunctionNameFromSymbolTable(size_t Address,
-                                      string &FunctionName) const {
+                                      std::string &FunctionName) const {
     assert(Module);
     error_code ec;
     for (symbol_iterator si = Module->begin_symbols(),
@@ -154,7 +153,7 @@ class ModuleInfo {
   }
 };
 
-typedef std::map<string, ModuleInfo*> ModuleMapTy;
+typedef std::map<std::string, ModuleInfo*> ModuleMapTy;
 typedef ModuleMapTy::iterator ModuleMapIter;
 typedef ModuleMapTy::const_iterator ModuleMapConstIter;
 }  // namespace
@@ -181,7 +180,7 @@ static bool getObjectEndianness(const ObjectFile *Obj,
   return true;
 }
 
-static ModuleInfo *getOrCreateModuleInfo(const string &ModuleName) {
+static ModuleInfo *getOrCreateModuleInfo(const std::string &ModuleName) {
   ModuleMapIter I = Modules.find(ModuleName);
   if (I != Modules.end())
     return I->second;
@@ -248,10 +247,10 @@ extern "C" char *__cxa_demangle(const char *mangled_name, char *output_buffer,
 static void printDILineInfo(DILineInfo LineInfo) {
   // By default, DILineInfo contains "<invalid>" for function/filename it
   // cannot fetch. We replace it to "??" to make our output closer to addr2line.
-  static const string kDILineInfoBadString = "<invalid>";
-  static const string kSymbolizerBadString = "??";
+  static const std::string kDILineInfoBadString = "<invalid>";
+  static const std::string kSymbolizerBadString = "??";
   if (PrintFunctions) {
-    string FunctionName = LineInfo.getFunctionName();
+    std::string FunctionName = LineInfo.getFunctionName();
     if (FunctionName == kDILineInfoBadString)
       FunctionName = kSymbolizerBadString;
     if (Demangle) {
@@ -265,7 +264,7 @@ static void printDILineInfo(DILineInfo LineInfo) {
     }
     outs() << FunctionName << "\n";
   }
-  string Filename = LineInfo.getFileName();
+  std::string Filename = LineInfo.getFileName();
   if (Filename == kDILineInfoBadString)
     Filename = kSymbolizerBadString;
   outs() << Filename <<
@@ -274,7 +273,7 @@ static void printDILineInfo(DILineInfo LineInfo) {
          "\n";
 }
 
-static void symbolize(string ModuleName, string ModuleOffsetStr) {
+static void symbolize(std::string ModuleName, std::string ModuleOffsetStr) {
   ModuleInfo *Info = getOrCreateModuleInfo(ModuleName);
   uint64_t Offset = 0;
   if (Info == 0 ||
@@ -297,8 +296,8 @@ static void symbolize(string ModuleName, string ModuleOffsetStr) {
   outs().flush();
 }
 
-static bool parseModuleNameAndOffset(string &ModuleName,
-                                     string &ModuleOffsetStr) {
+static bool parseModuleNameAndOffset(std::string &ModuleName,
+                                     std::string &ModuleOffsetStr) {
   static const int kMaxInputStringLength = 1024;
   static const char kDelimiters[] = " \n";
   char InputString[kMaxInputStringLength];
@@ -324,8 +323,8 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "llvm symbolizer for compiler-rt\n");
   ToolInvocationPath = argv[0];
 
-  string ModuleName;
-  string ModuleOffsetStr;
+  std::string ModuleName;
+  std::string ModuleOffsetStr;
   while (parseModuleNameAndOffset(ModuleName, ModuleOffsetStr)) {
     symbolize(ModuleName, ModuleOffsetStr);
   }

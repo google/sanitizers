@@ -1,6 +1,6 @@
 // Test without PCH
-// RUN: c-index-test -test-annotate-tokens=%S/annotate-macro-args.h:9:1:10:1 %s -include annotate-macro-args.h | FileCheck -check-prefix=CHECK1 %s
-// RUN: c-index-test -test-annotate-tokens=%S/annotate-macro-args.h:15:1:16:1 %s -include annotate-macro-args.h | FileCheck -check-prefix=CHECK2 %s
+// RUN: c-index-test -test-annotate-tokens=%S/annotate-macro-args.h:9:1:10:1 %s -include %S/annotate-macro-args.h | FileCheck -check-prefix=CHECK1 %s
+// RUN: c-index-test -test-annotate-tokens=%S/annotate-macro-args.h:15:1:16:1 %s -include %S/annotate-macro-args.h | FileCheck -check-prefix=CHECK2 %s
 
 // Test with PCH
 // RUN: c-index-test -write-pch %t.pch -x objective-c-header %S/annotate-macro-args.h -Xclang -detailed-preprocessing-record

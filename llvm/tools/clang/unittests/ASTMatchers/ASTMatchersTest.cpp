@@ -294,6 +294,16 @@ TEST(DeclarationMatcher, ClassIsDerived) {
       recordDecl(isDerivedFrom(recordDecl(hasName("X")).bind("test")))));
 }
 
+TEST(DeclarationMatcher, ClassDerivedFromDependentTemplateSpecialization) {
+  EXPECT_TRUE(matches(
+     "template <typename T> struct A {"
+     "  template <typename T2> struct F {};"
+     "};"
+     "template <typename T> struct B : A<T>::template F<T> {};"
+     "B<int> b;",
+     recordDecl(hasName("B"), isDerivedFrom(recordDecl()))));
+}
+
 TEST(ClassTemplate, DoesNotMatchClass) {
   DeclarationMatcher ClassX = classTemplateDecl(hasName("X"));
   EXPECT_TRUE(notMatches("class X;", ClassX));
@@ -795,6 +805,36 @@ TEST(Matcher, Call) {
                  MethodOnYPointer));
 }
 
+TEST(Matcher, Lambda) {
+  EXPECT_TRUE(matches("auto f = [&] (int i) { return i; };",
+                      lambdaExpr()));
+}
+
+TEST(Matcher, ForRange) {
+  EXPECT_TRUE(matches("int as[] = { 1, 2, 3 };"
+                      "void f() { for (auto &a : as); }",
+                      forRangeStmt()));
+  EXPECT_TRUE(notMatches("void f() { for (int i; i<5; ++i); }",
+                         forRangeStmt()));
+}
+
+TEST(Matcher, UserDefinedLiteral) {
+  EXPECT_TRUE(matches("constexpr char operator \"\" _inc (const char i) {"
+                      "  return i + 1;"
+                      "}"
+                      "char c = 'a'_inc;",
+                      userDefinedLiteral()));
+}
+
+TEST(Matcher, FlowControl) {
+  EXPECT_TRUE(matches("void f() { while(true) { break; } }", breakStmt()));
+  EXPECT_TRUE(matches("void f() { while(true) { continue; } }",
+                      continueStmt()));
+  EXPECT_TRUE(matches("void f() { goto FOO; FOO: ;}", gotoStmt()));
+  EXPECT_TRUE(matches("void f() { goto FOO; FOO: ;}", labelStmt()));
+  EXPECT_TRUE(matches("void f() { return; }", returnStmt()));
+}
+
 TEST(HasType, MatchesAsString) {
   EXPECT_TRUE(
       matches("class Y { public: void x(); }; void z() {Y* y; y->x(); }",
@@ -910,8 +950,8 @@ TEST(Matcher, FindsVarDeclInFuncitonParameter) {
 }
 
 TEST(Matcher, CalledVariable) {
-  StatementMatcher CallOnVariableY = expr(
-      memberCallExpr(on(declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher CallOnVariableY =
+      memberCallExpr(on(declRefExpr(to(varDecl(hasName("y"))))));
 
   EXPECT_TRUE(matches(
       "class Y { public: void x() { Y y; y.x(); } };", CallOnVariableY));
@@ -1083,29 +1123,29 @@ TEST(FunctionTemplate, DoesNotMatchFunctionTemplateSpecializations) {
 }
 
 TEST(Matcher, Argument) {
-  StatementMatcher CallArgumentY = expr(callExpr(
-      hasArgument(0, declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher CallArgumentY = callExpr(
+      hasArgument(0, declRefExpr(to(varDecl(hasName("y"))))));
 
   EXPECT_TRUE(matches("void x(int) { int y; x(y); }", CallArgumentY));
   EXPECT_TRUE(
       matches("class X { void x(int) { int y; x(y); } };", CallArgumentY));
   EXPECT_TRUE(notMatches("void x(int) { int z; x(z); }", CallArgumentY));
 
-  StatementMatcher WrongIndex = expr(callExpr(
-      hasArgument(42, declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher WrongIndex = callExpr(
+      hasArgument(42, declRefExpr(to(varDecl(hasName("y"))))));
   EXPECT_TRUE(notMatches("void x(int) { int y; x(y); }", WrongIndex));
 }
 
 TEST(Matcher, AnyArgument) {
-  StatementMatcher CallArgumentY = expr(callExpr(
-      hasAnyArgument(declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher CallArgumentY = callExpr(
+      hasAnyArgument(declRefExpr(to(varDecl(hasName("y"))))));
   EXPECT_TRUE(matches("void x(int, int) { int y; x(1, y); }", CallArgumentY));
   EXPECT_TRUE(matches("void x(int, int) { int y; x(y, 42); }", CallArgumentY));
   EXPECT_TRUE(notMatches("void x(int, int) { x(1, 2); }", CallArgumentY));
 }
 
 TEST(Matcher, ArgumentCount) {
-  StatementMatcher Call1Arg = expr(callExpr(argumentCountIs(1)));
+  StatementMatcher Call1Arg = callExpr(argumentCountIs(1));
 
   EXPECT_TRUE(matches("void x(int) { x(0); }", Call1Arg));
   EXPECT_TRUE(matches("class X { void x(int) { x(0); } };", Call1Arg));
@@ -1217,6 +1257,12 @@ TEST(Matcher, MatchesDeclarationReferenceTemplateArgument) {
       "A<&B::next> a;",
       classTemplateSpecializationDecl(hasAnyTemplateArgument(
           refersToDeclaration(fieldDecl(hasName("next")))))));
+
+  EXPECT_TRUE(notMatches(
+      "template <typename T> struct A {};"
+      "A<int> a;",
+      classTemplateSpecializationDecl(hasAnyTemplateArgument(
+          refersToDeclaration(decl())))));
 }
 
 TEST(Matcher, MatchesSpecificArgument) {
@@ -1233,7 +1279,7 @@ TEST(Matcher, MatchesSpecificArgument) {
 }
 
 TEST(Matcher, ConstructorCall) {
-  StatementMatcher Constructor = expr(constructExpr());
+  StatementMatcher Constructor = constructExpr();
 
   EXPECT_TRUE(
       matches("class X { public: X(); }; void x() { X x; }", Constructor));
@@ -1247,8 +1293,8 @@ TEST(Matcher, ConstructorCall) {
 }
 
 TEST(Matcher, ConstructorArgument) {
-  StatementMatcher Constructor = expr(constructExpr(
-      hasArgument(0, declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher Constructor = constructExpr(
+      hasArgument(0, declRefExpr(to(varDecl(hasName("y"))))));
 
   EXPECT_TRUE(
       matches("class X { public: X(int); }; void x() { int y; X x(y); }",
@@ -1263,16 +1309,15 @@ TEST(Matcher, ConstructorArgument) {
       notMatches("class X { public: X(int); }; void x() { int z; X x(z); }",
                  Constructor));
 
-  StatementMatcher WrongIndex = expr(constructExpr(
-      hasArgument(42, declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher WrongIndex = constructExpr(
+      hasArgument(42, declRefExpr(to(varDecl(hasName("y"))))));
   EXPECT_TRUE(
       notMatches("class X { public: X(int); }; void x() { int y; X x(y); }",
                  WrongIndex));
 }
 
 TEST(Matcher, ConstructorArgumentCount) {
-  StatementMatcher Constructor1Arg =
-      expr(constructExpr(argumentCountIs(1)));
+  StatementMatcher Constructor1Arg = constructExpr(argumentCountIs(1));
 
   EXPECT_TRUE(
       matches("class X { public: X(int); }; void x() { X x(0); }",
@@ -1289,7 +1334,7 @@ TEST(Matcher, ConstructorArgumentCount) {
 }
 
 TEST(Matcher, BindTemporaryExpression) {
-  StatementMatcher TempExpression = expr(bindTemporaryExpr());
+  StatementMatcher TempExpression = bindTemporaryExpr();
 
   std::string ClassString = "class string { public: string(); ~string(); }; ";
 
@@ -1440,7 +1485,7 @@ TEST(HasAnyConstructorInitializer, IsWritten) {
 }
 
 TEST(Matcher, NewExpression) {
-  StatementMatcher New = expr(newExpr());
+  StatementMatcher New = newExpr();
 
   EXPECT_TRUE(matches("class X { public: X(); }; void x() { new X; }", New));
   EXPECT_TRUE(
@@ -1451,8 +1496,8 @@ TEST(Matcher, NewExpression) {
 }
 
 TEST(Matcher, NewExpressionArgument) {
-  StatementMatcher New = expr(constructExpr(
-      hasArgument(0, declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher New = constructExpr(
+      hasArgument(0, declRefExpr(to(varDecl(hasName("y"))))));
 
   EXPECT_TRUE(
       matches("class X { public: X(int); }; void x() { int y; new X(y); }",
@@ -1464,8 +1509,8 @@ TEST(Matcher, NewExpressionArgument) {
       notMatches("class X { public: X(int); }; void x() { int z; new X(z); }",
                  New));
 
-  StatementMatcher WrongIndex = expr(constructExpr(
-      hasArgument(42, declRefExpr(to(varDecl(hasName("y")))))));
+  StatementMatcher WrongIndex = constructExpr(
+      hasArgument(42, declRefExpr(to(varDecl(hasName("y"))))));
   EXPECT_TRUE(
       notMatches("class X { public: X(int); }; void x() { int y; new X(y); }",
                  WrongIndex));
@@ -1496,7 +1541,7 @@ TEST(Matcher, DefaultArgument) {
 }
 
 TEST(Matcher, StringLiterals) {
-  StatementMatcher Literal = expr(stringLiteral());
+  StatementMatcher Literal = stringLiteral();
   EXPECT_TRUE(matches("const char *s = \"string\";", Literal));
   // wide string
   EXPECT_TRUE(matches("const wchar_t *s = L\"string\";", Literal));
@@ -1507,7 +1552,7 @@ TEST(Matcher, StringLiterals) {
 }
 
 TEST(Matcher, CharacterLiterals) {
-  StatementMatcher CharLiteral = expr(characterLiteral());
+  StatementMatcher CharLiteral = characterLiteral();
   EXPECT_TRUE(matches("const char c = 'c';", CharLiteral));
   // wide character
   EXPECT_TRUE(matches("const char c = L'c';", CharLiteral));
@@ -1517,7 +1562,7 @@ TEST(Matcher, CharacterLiterals) {
 }
 
 TEST(Matcher, IntegerLiterals) {
-  StatementMatcher HasIntLiteral = expr(integerLiteral());
+  StatementMatcher HasIntLiteral = integerLiteral();
   EXPECT_TRUE(matches("int i = 10;", HasIntLiteral));
   EXPECT_TRUE(matches("int i = 0x1AB;", HasIntLiteral));
   EXPECT_TRUE(matches("int i = 10L;", HasIntLiteral));
@@ -1530,6 +1575,14 @@ TEST(Matcher, IntegerLiterals) {
   EXPECT_TRUE(notMatches("int i = 'a';", HasIntLiteral));
   EXPECT_TRUE(notMatches("int i = 1e10;", HasIntLiteral));
   EXPECT_TRUE(notMatches("int i = 10.0;", HasIntLiteral));
+}
+
+TEST(Matcher, NullPtrLiteral) {
+  EXPECT_TRUE(matches("int* i = nullptr;", nullPtrLiteralExpr()));
+}
+
+TEST(Matcher, AsmStatement) {
+  EXPECT_TRUE(matches("void foo() { __asm(\"mov al, 2\"); }", asmStmt()));
 }
 
 TEST(Matcher, Conditions) {
@@ -1953,6 +2006,9 @@ TEST(AstPolymorphicMatcherPMacro, Works) {
 TEST(For, FindsForLoops) {
   EXPECT_TRUE(matches("void f() { for(;;); }", forStmt()));
   EXPECT_TRUE(matches("void f() { if(true) for(;;); }", forStmt()));
+  EXPECT_TRUE(notMatches("int as[] = { 1, 2, 3 };"
+                         "void f() { for (auto &a : as); }",
+                         forStmt()));
 }
 
 TEST(For, ForLoopInternals) {
@@ -2077,17 +2133,20 @@ TEST(Member, MatchesInMemberFunctionCall) {
 }
 
 TEST(Member, MatchesMemberAllocationFunction) {
-  EXPECT_TRUE(matches("namespace std { typedef typeof(sizeof(int)) size_t; }"
-                      "class X { void *operator new(std::size_t); };",
-                      methodDecl(ofClass(hasName("X")))));
+  // Fails in C++11 mode
+  EXPECT_TRUE(matchesConditionally(
+      "namespace std { typedef typeof(sizeof(int)) size_t; }"
+      "class X { void *operator new(std::size_t); };",
+      methodDecl(ofClass(hasName("X"))), true, "-std=gnu++98"));
 
   EXPECT_TRUE(matches("class X { void operator delete(void*); };",
                       methodDecl(ofClass(hasName("X")))));
 
-  EXPECT_TRUE(matches(
+  // Fails in C++11 mode
+  EXPECT_TRUE(matchesConditionally(
       "namespace std { typedef typeof(sizeof(int)) size_t; }"
       "class X { void operator delete[](void*, std::size_t); };",
-      methodDecl(ofClass(hasName("X")))));
+      methodDecl(ofClass(hasName("X"))), true, "-std=gnu++98"));
 }
 
 TEST(HasObjectExpression, DoesNotMatchMember) {
@@ -2154,112 +2213,122 @@ TEST(IsConstQualified, DoesNotMatchInappropriately) {
 }
 
 TEST(CastExpression, MatchesExplicitCasts) {
-  EXPECT_TRUE(matches("char *p = reinterpret_cast<char *>(&p);",
-                      expr(castExpr())));
-  EXPECT_TRUE(matches("void *p = (void *)(&p);", expr(castExpr())));
-  EXPECT_TRUE(matches("char q, *p = const_cast<char *>(&q);",
-                      expr(castExpr())));
-  EXPECT_TRUE(matches("char c = char(0);", expr(castExpr())));
+  EXPECT_TRUE(matches("char *p = reinterpret_cast<char *>(&p);",castExpr()));
+  EXPECT_TRUE(matches("void *p = (void *)(&p);", castExpr()));
+  EXPECT_TRUE(matches("char q, *p = const_cast<char *>(&q);", castExpr()));
+  EXPECT_TRUE(matches("char c = char(0);", castExpr()));
 }
 TEST(CastExpression, MatchesImplicitCasts) {
   // This test creates an implicit cast from int to char.
-  EXPECT_TRUE(matches("char c = 0;", expr(castExpr())));
+  EXPECT_TRUE(matches("char c = 0;", castExpr()));
   // This test creates an implicit cast from lvalue to rvalue.
-  EXPECT_TRUE(matches("char c = 0, d = c;", expr(castExpr())));
+  EXPECT_TRUE(matches("char c = 0, d = c;", castExpr()));
 }
 
 TEST(CastExpression, DoesNotMatchNonCasts) {
-  EXPECT_TRUE(notMatches("char c = '0';", expr(castExpr())));
-  EXPECT_TRUE(notMatches("char c, &q = c;", expr(castExpr())));
-  EXPECT_TRUE(notMatches("int i = (0);", expr(castExpr())));
-  EXPECT_TRUE(notMatches("int i = 0;", expr(castExpr())));
+  EXPECT_TRUE(notMatches("char c = '0';", castExpr()));
+  EXPECT_TRUE(notMatches("char c, &q = c;", castExpr()));
+  EXPECT_TRUE(notMatches("int i = (0);", castExpr()));
+  EXPECT_TRUE(notMatches("int i = 0;", castExpr()));
 }
 
 TEST(ReinterpretCast, MatchesSimpleCase) {
   EXPECT_TRUE(matches("char* p = reinterpret_cast<char*>(&p);",
-                      expr(reinterpretCastExpr())));
+                      reinterpretCastExpr()));
 }
 
 TEST(ReinterpretCast, DoesNotMatchOtherCasts) {
-  EXPECT_TRUE(notMatches("char* p = (char*)(&p);",
-                         expr(reinterpretCastExpr())));
+  EXPECT_TRUE(notMatches("char* p = (char*)(&p);", reinterpretCastExpr()));
   EXPECT_TRUE(notMatches("char q, *p = const_cast<char*>(&q);",
-                         expr(reinterpretCastExpr())));
+                         reinterpretCastExpr()));
   EXPECT_TRUE(notMatches("void* p = static_cast<void*>(&p);",
-                         expr(reinterpretCastExpr())));
+                         reinterpretCastExpr()));
   EXPECT_TRUE(notMatches("struct B { virtual ~B() {} }; struct D : B {};"
                          "B b;"
                          "D* p = dynamic_cast<D*>(&b);",
-                         expr(reinterpretCastExpr())));
+                         reinterpretCastExpr()));
 }
 
 TEST(FunctionalCast, MatchesSimpleCase) {
   std::string foo_class = "class Foo { public: Foo(char*); };";
   EXPECT_TRUE(matches(foo_class + "void r() { Foo f = Foo(\"hello world\"); }",
-                      expr(functionalCastExpr())));
+                      functionalCastExpr()));
 }
 
 TEST(FunctionalCast, DoesNotMatchOtherCasts) {
   std::string FooClass = "class Foo { public: Foo(char*); };";
   EXPECT_TRUE(
       notMatches(FooClass + "void r() { Foo f = (Foo) \"hello world\"; }",
-                 expr(functionalCastExpr())));
+                 functionalCastExpr()));
   EXPECT_TRUE(
       notMatches(FooClass + "void r() { Foo f = \"hello world\"; }",
-                 expr(functionalCastExpr())));
+                 functionalCastExpr()));
 }
 
 TEST(DynamicCast, MatchesSimpleCase) {
   EXPECT_TRUE(matches("struct B { virtual ~B() {} }; struct D : B {};"
                       "B b;"
                       "D* p = dynamic_cast<D*>(&b);",
-                      expr(dynamicCastExpr())));
+                      dynamicCastExpr()));
 }
 
 TEST(StaticCast, MatchesSimpleCase) {
   EXPECT_TRUE(matches("void* p(static_cast<void*>(&p));",
-                      expr(staticCastExpr())));
+                      staticCastExpr()));
 }
 
 TEST(StaticCast, DoesNotMatchOtherCasts) {
-  EXPECT_TRUE(notMatches("char* p = (char*)(&p);",
-                         expr(staticCastExpr())));
+  EXPECT_TRUE(notMatches("char* p = (char*)(&p);", staticCastExpr()));
   EXPECT_TRUE(notMatches("char q, *p = const_cast<char*>(&q);",
-                         expr(staticCastExpr())));
+                         staticCastExpr()));
   EXPECT_TRUE(notMatches("void* p = reinterpret_cast<char*>(&p);",
-                         expr(staticCastExpr())));
+                         staticCastExpr()));
   EXPECT_TRUE(notMatches("struct B { virtual ~B() {} }; struct D : B {};"
                          "B b;"
                          "D* p = dynamic_cast<D*>(&b);",
-                         expr(staticCastExpr())));
+                         staticCastExpr()));
+}
+
+TEST(CStyleCast, MatchesSimpleCase) {
+  EXPECT_TRUE(matches("int i = (int) 2.2f;", cStyleCastExpr()));
+}
+
+TEST(CStyleCast, DoesNotMatchOtherCasts) {
+  EXPECT_TRUE(notMatches("char* p = static_cast<char*>(0);"
+                         "char q, *r = const_cast<char*>(&q);"
+                         "void* s = reinterpret_cast<char*>(&s);"
+                         "struct B { virtual ~B() {} }; struct D : B {};"
+                         "B b;"
+                         "D* t = dynamic_cast<D*>(&b);",
+                         cStyleCastExpr()));
 }
 
 TEST(HasDestinationType, MatchesSimpleCase) {
   EXPECT_TRUE(matches("char* p = static_cast<char*>(0);",
-                      expr(staticCastExpr(hasDestinationType(
-                               pointsTo(TypeMatcher(anything())))))));
+                      staticCastExpr(hasDestinationType(
+                          pointsTo(TypeMatcher(anything()))))));
 }
 
 TEST(HasImplicitDestinationType, MatchesSimpleCase) {
   // This test creates an implicit const cast.
   EXPECT_TRUE(matches("int x; const int i = x;",
-                      expr(implicitCastExpr(
-                          hasImplicitDestinationType(isInteger())))));
+                      implicitCastExpr(
+                          hasImplicitDestinationType(isInteger()))));
   // This test creates an implicit array-to-pointer cast.
   EXPECT_TRUE(matches("int arr[3]; int *p = arr;",
-                      expr(implicitCastExpr(hasImplicitDestinationType(
-                          pointsTo(TypeMatcher(anything())))))));
+                      implicitCastExpr(hasImplicitDestinationType(
+                          pointsTo(TypeMatcher(anything()))))));
 }
 
 TEST(HasImplicitDestinationType, DoesNotMatchIncorrectly) {
   // This test creates an implicit cast from int to char.
   EXPECT_TRUE(notMatches("char c = 0;",
-                      expr(implicitCastExpr(hasImplicitDestinationType(
-                          unless(anything()))))));
+                      implicitCastExpr(hasImplicitDestinationType(
+                          unless(anything())))));
   // This test creates an implicit array-to-pointer cast.
   EXPECT_TRUE(notMatches("int arr[3]; int *p = arr;",
-                      expr(implicitCastExpr(hasImplicitDestinationType(
-                          unless(anything()))))));
+                      implicitCastExpr(hasImplicitDestinationType(
+                          unless(anything())))));
 }
 
 TEST(ImplicitCast, MatchesSimpleCase) {
@@ -2438,15 +2507,15 @@ TEST(IgnoringParenAndImpCasts, DoesNotMatchIncorrectly) {
 TEST(HasSourceExpression, MatchesImplicitCasts) {
   EXPECT_TRUE(matches("class string {}; class URL { public: URL(string s); };"
                       "void r() {string a_string; URL url = a_string; }",
-                      expr(implicitCastExpr(
-                          hasSourceExpression(constructExpr())))));
+                      implicitCastExpr(
+                          hasSourceExpression(constructExpr()))));
 }
 
 TEST(HasSourceExpression, MatchesExplicitCasts) {
   EXPECT_TRUE(matches("float x = static_cast<float>(42);",
-                      expr(explicitCastExpr(
+                      explicitCastExpr(
                           hasSourceExpression(hasDescendant(
-                              expr(integerLiteral())))))));
+                              expr(integerLiteral()))))));
 }
 
 TEST(Statement, DoesNotMatchDeclarations) {
@@ -2552,6 +2621,23 @@ TEST(SwitchCase, MatchesCase) {
   EXPECT_TRUE(matches("void x() { switch(42) { default:; } }", switchCase()));
   EXPECT_TRUE(matches("void x() { switch(42) default:; }", switchCase()));
   EXPECT_TRUE(notMatches("void x() { switch(42) {} }", switchCase()));
+}
+
+TEST(SwitchCase, MatchesSwitch) {
+  EXPECT_TRUE(matches("void x() { switch(42) { case 42:; } }", switchStmt()));
+  EXPECT_TRUE(matches("void x() { switch(42) { default:; } }", switchStmt()));
+  EXPECT_TRUE(matches("void x() { switch(42) default:; }", switchStmt()));
+  EXPECT_TRUE(notMatches("void x() {}", switchStmt()));
+}
+
+TEST(ExceptionHandling, SimpleCases) {
+  EXPECT_TRUE(matches("void foo() try { } catch(int X) { }", catchStmt()));
+  EXPECT_TRUE(matches("void foo() try { } catch(int X) { }", tryStmt()));
+  EXPECT_TRUE(notMatches("void foo() try { } catch(int X) { }", throwExpr()));
+  EXPECT_TRUE(matches("void foo() try { throw; } catch(int X) { }",
+                      throwExpr()));
+  EXPECT_TRUE(matches("void foo() try { throw 5;} catch(int X) { }",
+                      throwExpr()));
 }
 
 TEST(HasConditionVariableStatement, DoesNotMatchCondition) {
@@ -2754,14 +2840,13 @@ TEST(HasAncestor, MatchesDeclarationsThatGetVisitedLater) {
 TEST(HasAncenstor, MatchesStatementAncestors) {
   EXPECT_TRUE(matches(
       "void f() { if (true) { while (false) { 42; } } }",
-      expr(integerLiteral(equals(42), hasAncestor(ifStmt())))));
+      integerLiteral(equals(42), hasAncestor(ifStmt()))));
 }
 
 TEST(HasAncestor, DrillsThroughDifferentHierarchies) {
   EXPECT_TRUE(matches(
       "void f() { if (true) { int x = 42; } }",
-      expr(integerLiteral(
-          equals(42), hasAncestor(functionDecl(hasName("f")))))));
+      integerLiteral(equals(42), hasAncestor(functionDecl(hasName("f"))))));
 }
 
 TEST(HasAncestor, BindsRecursiveCombinations) {
@@ -2813,6 +2898,11 @@ TEST(NNS, MatchesNestedNameSpecifiers) {
   EXPECT_TRUE(notMatches(
     "struct A { static void f() {} }; void g(A* a) { a->f(); }",
     nestedNameSpecifier()));
+}
+
+TEST(NullStatement, SimpleCases) {
+  EXPECT_TRUE(matches("void f() {int i;;}", nullStmt()));
+  EXPECT_TRUE(notMatches("void f() {int i;}", nullStmt()));
 }
 
 TEST(NNS, MatchesTypes) {

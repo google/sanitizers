@@ -392,7 +392,7 @@ bool AddressSanitizer::HasDynamicInitializer(GlobalVariable *G) {
 }
 
 void AddressSanitizer::instrumentMop(AsanFunctionContext &AFC, Instruction *I) {
-  bool IsWrite;
+  bool IsWrite = false;
   Value *Addr = isInterestingMemoryAccess(I, &IsWrite);
   assert(Addr);
   if (ClOpt && ClOptGlobals) {
@@ -854,7 +854,7 @@ bool AddressSanitizer::handleFunction(Module &M, Function &F) {
   // If needed, insert __asan_init before checking for AddressSafety attr.
   maybeInsertAsanInitAtFunctionEntry(F);
 
-  if (!F.hasFnAttr(Attribute::AddressSafety)) return false;
+  if (!F.getFnAttributes().hasAddressSafetyAttr()) return false;
 
   if (!ClDebugFunc.empty() && ClDebugFunc != F.getName())
     return false;

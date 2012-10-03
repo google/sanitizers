@@ -56,13 +56,6 @@ class MBlazeAsmParser : public MCTargetAsmParser {
 
   /// }
 
-  unsigned getMCInstOperandNum(unsigned Kind, MCInst &Inst,
-                    const SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               unsigned OperandNum, unsigned &NumMCOperands) {
-    return getMCInstOperandNumImpl(Kind, Inst, Operands, OperandNum,
-                                   NumMCOperands);
-  }
-
 public:
   MBlazeAsmParser(MCSubtargetInfo &_STI, MCAsmParser &_Parser)
     : MCTargetAsmParser(), Parser(_Parser) {}
@@ -325,8 +318,9 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   MCInst Inst;
   unsigned Kind;
   unsigned ErrorInfo;
-
-  switch (MatchInstructionImpl(Operands, Kind, Inst, ErrorInfo)) {
+  SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
+  switch (MatchInstructionImpl(Operands, Kind, Inst, MapAndConstraints,
+                               ErrorInfo, /*matchingInlineAsm*/ false)) {
   default: break;
   case Match_Success:
     Out.EmitInstruction(Inst);

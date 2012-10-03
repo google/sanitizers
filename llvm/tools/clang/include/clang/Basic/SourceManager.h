@@ -62,7 +62,6 @@ class LangOptions;
 class ASTWriter;
 class ASTReader;
 
-/// \namespace
 /// \brief Public enums and private classes that are part of the
 /// SourceManager implementation.
 ///
@@ -221,7 +220,7 @@ namespace SrcMgr {
 
   private:
     // Disable assignments.
-    ContentCache &operator=(const ContentCache& RHS);
+    ContentCache &operator=(const ContentCache& RHS) LLVM_DELETED_FUNCTION;
   };
 
   /// \brief Information about a FileID, basically just the logical file
@@ -647,8 +646,8 @@ class SourceManager : public RefCountedBase<SourceManager> {
   mutable llvm::DenseMap<FileID, MacroArgsMap *> MacroArgsCacheMap;
 
   // SourceManager doesn't support copy construction.
-  explicit SourceManager(const SourceManager&);
-  void operator=(const SourceManager&);
+  explicit SourceManager(const SourceManager&) LLVM_DELETED_FUNCTION;
+  void operator=(const SourceManager&) LLVM_DELETED_FUNCTION;
 public:
   SourceManager(DiagnosticsEngine &Diag, FileManager &FileMgr,
                 bool UserFilesAreVolatile = false);

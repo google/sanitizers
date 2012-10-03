@@ -607,6 +607,22 @@ public:
     return CachedCompletionResults.size(); 
   }
 
+  /// \brief Returns an iterator range for the local preprocessing entities
+  /// of the local Preprocessor, if this is a parsed source file, or the loaded
+  /// preprocessing entities of the primary module if this is an AST file.
+  std::pair<PreprocessingRecord::iterator, PreprocessingRecord::iterator>
+    getLocalPreprocessingEntities() const;
+
+  /// \brief Type for a function iterating over a number of declarations.
+  /// \returns true to continue iteration and false to abort.
+  typedef bool (*DeclVisitorFn)(void *context, const Decl *D);
+
+  /// \brief Iterate over local declarations (locally parsed if this is a parsed
+  /// source file or the loaded declarations of the primary module if this is an
+  /// AST file).
+  /// \returns true if the iteration was complete or false if it was aborted.
+  bool visitLocalTopLevelDecls(void *context, DeclVisitorFn Fn);
+
   llvm::MemoryBuffer *getBufferForFile(StringRef Filename,
                                        std::string *ErrorStr = 0);
 
@@ -792,8 +808,9 @@ public:
 
   /// \brief Save this translation unit to a file with the given name.
   ///
-  /// \returns An indication of whether the save was successful or not.
-  CXSaveError Save(StringRef File);
+  /// \returns true if there was a file error or false if the save was
+  /// successful.
+  bool Save(StringRef File);
 
   /// \brief Serialize this translation unit with the given output stream.
   ///

@@ -24,6 +24,7 @@ add_clang_library(clangStaticAnalyzerCheckers
   ChrootChecker.cpp
   ClangCheckers.cpp
   CommonBugCategories.cpp
+  DirectIvarAssignment.cpp
   DeadStoresChecker.cpp
   DebugCheckers.cpp
   DereferenceChecker.cpp
@@ -33,6 +34,7 @@ add_clang_library(clangStaticAnalyzerCheckers
   FixedAddressChecker.cpp
   GenericTaintChecker.cpp
   IdempotentOperationChecker.cpp
+  IvarInvalidationChecker.cpp
   LLVMConventionsChecker.cpp
   MacOSKeychainAPIChecker.cpp
   MacOSXAPIChecker.cpp

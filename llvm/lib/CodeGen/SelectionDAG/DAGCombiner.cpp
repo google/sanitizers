@@ -1644,7 +1644,8 @@ SDValue DAGCombiner::visitSUB(SDNode *N) {
     return N0.getOperand(0);
   // fold C2-(A+C1) -> (C2-C1)-A
   if (N1.getOpcode() == ISD::ADD && N0C && N1C1) {
-    SDValue NewC = DAG.getConstant((N0C->getAPIntValue() - N1C1->getAPIntValue()), VT);
+    SDValue NewC = DAG.getConstant(N0C->getAPIntValue() - N1C1->getAPIntValue(),
+                                   VT);
     return DAG.getNode(ISD::SUB, N->getDebugLoc(), VT, NewC,
                        N1.getOperand(0));
   }
@@ -2346,16 +2347,19 @@ SDValue DAGCombiner::SimplifyBinOpWithSameOpcodeHands(SDNode *N) {
   // we don't want to undo this promotion.
   // We also handle SCALAR_TO_VECTOR because xor/or/and operations are cheaper
   // on scalars.
-  if ((N0.getOpcode() == ISD::BITCAST || N0.getOpcode() == ISD::SCALAR_TO_VECTOR)
-      && Level == AfterLegalizeTypes) {
+  if ((N0.getOpcode() == ISD::BITCAST ||
+       N0.getOpcode() == ISD::SCALAR_TO_VECTOR) &&
+      Level == AfterLegalizeTypes) {
     SDValue In0 = N0.getOperand(0);
     SDValue In1 = N1.getOperand(0);
     EVT In0Ty = In0.getValueType();
     EVT In1Ty = In1.getValueType();
-    // If both incoming values are integers, and the original types are the same.
+    DebugLoc DL = N->getDebugLoc();
+    // If both incoming values are integers, and the original types are the
+    // same.
     if (In0Ty.isInteger() && In1Ty.isInteger() && In0Ty == In1Ty) {
-      SDValue Op = DAG.getNode(N->getOpcode(), N->getDebugLoc(), In0Ty, In0, In1);
-      SDValue BC = DAG.getNode(N0.getOpcode(), N->getDebugLoc(), VT, Op);
+      SDValue Op = DAG.getNode(N->getOpcode(), DL, In0Ty, In0, In1);
+      SDValue BC = DAG.getNode(N0.getOpcode(), DL, VT, Op);
       AddToWorkList(Op.getNode());
       return BC;
     }
@@ -2995,7 +2999,7 @@ SDValue DAGCombiner::MatchBSwapHWord(SDNode *N, SDValue N0, SDValue N1) {
   SDValue ShAmt = DAG.getConstant(16, getShiftAmountTy(VT));
   if (TLI.isOperationLegalOrCustom(ISD::ROTL, VT))
     return DAG.getNode(ISD::ROTL, N->getDebugLoc(), VT, BSwap, ShAmt);
-  else if (TLI.isOperationLegalOrCustom(ISD::ROTR, VT))
+  if (TLI.isOperationLegalOrCustom(ISD::ROTR, VT))
     return DAG.getNode(ISD::ROTR, N->getDebugLoc(), VT, BSwap, ShAmt);
   return DAG.getNode(ISD::OR, N->getDebugLoc(), VT,
                      DAG.getNode(ISD::SHL, N->getDebugLoc(), VT, BSwap, ShAmt),
@@ -3213,11 +3217,8 @@ SDNode *DAGCombiner::MatchRotate(SDValue LHS, SDValue RHS, DebugLoc DL) {
     if ((LShVal + RShVal) != OpSizeInBits)
       return 0;
 
-    SDValue Rot;
-    if (HasROTL)
-      Rot = DAG.getNode(ISD::ROTL, DL, VT, LHSShiftArg, LHSShiftAmt);
-    else
-      Rot = DAG.getNode(ISD::ROTR, DL, VT, LHSShiftArg, RHSShiftAmt);
+    SDValue Rot = DAG.getNode(HasROTL ? ISD::ROTL : ISD::ROTR, DL, VT,
+                              LHSShiftArg, HasROTL ? LHSShiftAmt : RHSShiftAmt);
 
     // If there is an AND of either shifted operand, apply it to the result.
     if (LHSMask.getNode() || RHSMask.getNode()) {
@@ -3250,12 +3251,8 @@ SDNode *DAGCombiner::MatchRotate(SDValue LHS, SDValue RHS, DebugLoc DL) {
     if (ConstantSDNode *SUBC =
           dyn_cast<ConstantSDNode>(RHSShiftAmt.getOperand(0))) {
       if (SUBC->getAPIntValue() == OpSizeInBits) {
-        if (HasROTL)
-          return DAG.getNode(ISD::ROTL, DL, VT,
-                             LHSShiftArg, LHSShiftAmt).getNode();
-        else
-          return DAG.getNode(ISD::ROTR, DL, VT,
-                             LHSShiftArg, RHSShiftAmt).getNode();
+        return DAG.getNode(HasROTL ? ISD::ROTL : ISD::ROTR, DL, VT, LHSShiftArg,
+                           HasROTL ? LHSShiftAmt : RHSShiftAmt).getNode();
       }
     }
   }
@@ -3267,25 +3264,21 @@ SDNode *DAGCombiner::MatchRotate(SDValue LHS, SDValue RHS, DebugLoc DL) {
     if (ConstantSDNode *SUBC =
           dyn_cast<ConstantSDNode>(LHSShiftAmt.getOperand(0))) {
       if (SUBC->getAPIntValue() == OpSizeInBits) {
-        if (HasROTR)
-          return DAG.getNode(ISD::ROTR, DL, VT,
-                             LHSShiftArg, RHSShiftAmt).getNode();
-        else
-          return DAG.getNode(ISD::ROTL, DL, VT,
-                             LHSShiftArg, LHSShiftAmt).getNode();
+        return DAG.getNode(HasROTR ? ISD::ROTR : ISD::ROTL, DL, VT, LHSShiftArg,
+                           HasROTR ? RHSShiftAmt : LHSShiftAmt).getNode();
       }
     }
   }
 
   // Look for sign/zext/any-extended or truncate cases:
-  if ((LHSShiftAmt.getOpcode() == ISD::SIGN_EXTEND
-       || LHSShiftAmt.getOpcode() == ISD::ZERO_EXTEND
-       || LHSShiftAmt.getOpcode() == ISD::ANY_EXTEND
-       || LHSShiftAmt.getOpcode() == ISD::TRUNCATE) &&
-      (RHSShiftAmt.getOpcode() == ISD::SIGN_EXTEND
-       || RHSShiftAmt.getOpcode() == ISD::ZERO_EXTEND
-       || RHSShiftAmt.getOpcode() == ISD::ANY_EXTEND
-       || RHSShiftAmt.getOpcode() == ISD::TRUNCATE)) {
+  if ((LHSShiftAmt.getOpcode() == ISD::SIGN_EXTEND ||
+       LHSShiftAmt.getOpcode() == ISD::ZERO_EXTEND ||
+       LHSShiftAmt.getOpcode() == ISD::ANY_EXTEND ||
+       LHSShiftAmt.getOpcode() == ISD::TRUNCATE) &&
+      (RHSShiftAmt.getOpcode() == ISD::SIGN_EXTEND ||
+       RHSShiftAmt.getOpcode() == ISD::ZERO_EXTEND ||
+       RHSShiftAmt.getOpcode() == ISD::ANY_EXTEND ||
+       RHSShiftAmt.getOpcode() == ISD::TRUNCATE)) {
     SDValue LExtOp0 = LHSShiftAmt.getOperand(0);
     SDValue RExtOp0 = RHSShiftAmt.getOperand(0);
     if (RExtOp0.getOpcode() == ISD::SUB &&
@@ -4057,7 +4050,8 @@ SDValue DAGCombiner::visitSELECT(SDNode *N) {
   if (VT.isInteger() &&
       (VT0 == MVT::i1 ||
        (VT0.isInteger() &&
-        TLI.getBooleanContents(false) == TargetLowering::ZeroOrOneBooleanContent)) &&
+        TLI.getBooleanContents(false) ==
+        TargetLowering::ZeroOrOneBooleanContent)) &&
       N1C && N2C && N1C->isNullValue() && N2C->getAPIntValue() == 1) {
     SDValue XORNode;
     if (VT == VT0)
@@ -4423,20 +4417,18 @@ SDValue DAGCombiner::visitSIGN_EXTEND(SDNode *N) {
       // If the desired elements are smaller or larger than the source
       // elements we can use a matching integer vector type and then
       // truncate/sign extend
-      else {
-        EVT MatchingElementType =
-          EVT::getIntegerVT(*DAG.getContext(),
-                            N0VT.getScalarType().getSizeInBits());
-        EVT MatchingVectorType =
-          EVT::getVectorVT(*DAG.getContext(), MatchingElementType,
-                           N0VT.getVectorNumElements());
+      EVT MatchingElementType =
+        EVT::getIntegerVT(*DAG.getContext(),
+                          N0VT.getScalarType().getSizeInBits());
+      EVT MatchingVectorType =
+        EVT::getVectorVT(*DAG.getContext(), MatchingElementType,
+                         N0VT.getVectorNumElements());
 
-        if (SVT == MatchingVectorType) {
-          SDValue VsetCC = DAG.getSetCC(N->getDebugLoc(), MatchingVectorType,
-                                 N0.getOperand(0), N0.getOperand(1),
-                                 cast<CondCodeSDNode>(N0.getOperand(2))->get());
-          return DAG.getSExtOrTrunc(VsetCC, N->getDebugLoc(), VT);
-        }
+      if (SVT == MatchingVectorType) {
+        SDValue VsetCC = DAG.getSetCC(N->getDebugLoc(), MatchingVectorType,
+                               N0.getOperand(0), N0.getOperand(1),
+                               cast<CondCodeSDNode>(N0.getOperand(2))->get());
+        return DAG.getSExtOrTrunc(VsetCC, N->getDebugLoc(), VT);
       }
     }
 
@@ -5246,13 +5238,12 @@ SDValue DAGCombiner::visitTRUNCATE(SDNode *N) {
       // if the source is smaller than the dest, we still need an extend
       return DAG.getNode(N0.getOpcode(), N->getDebugLoc(), VT,
                          N0.getOperand(0));
-    else if (N0.getOperand(0).getValueType().bitsGT(VT))
+    if (N0.getOperand(0).getValueType().bitsGT(VT))
       // if the source is larger than the dest, than we just need the truncate
       return DAG.getNode(ISD::TRUNCATE, N->getDebugLoc(), VT, N0.getOperand(0));
-    else
-      // if the source and dest are the same type, we can drop both the extend
-      // and the truncate.
-      return N0.getOperand(0);
+    // if the source and dest are the same type, we can drop both the extend
+    // and the truncate.
+    return N0.getOperand(0);
   }
 
   // Fold extract-and-trunc into a narrow extract. For example:
@@ -5676,12 +5667,12 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
     return N0;
   // fold (fadd A, (fneg B)) -> (fsub A, B)
   if ((!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FSUB, VT)) &&
-      isNegatibleForFree(N1, LegalOperations, TLI, &DAG.getTarget().Options) == 2)
+    isNegatibleForFree(N1, LegalOperations, TLI, &DAG.getTarget().Options) == 2)
     return DAG.getNode(ISD::FSUB, N->getDebugLoc(), VT, N0,
                        GetNegatedExpression(N1, DAG, LegalOperations));
   // fold (fadd (fneg A), B) -> (fsub B, A)
   if ((!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FSUB, VT)) &&
-      isNegatibleForFree(N0, LegalOperations, TLI, &DAG.getTarget().Options) == 2)
+    isNegatibleForFree(N0, LegalOperations, TLI, &DAG.getTarget().Options) == 2)
     return DAG.getNode(ISD::FSUB, N->getDebugLoc(), VT, N1,
                        GetNegatedExpression(N0, DAG, LegalOperations));
 
@@ -7711,9 +7702,9 @@ SDValue DAGCombiner::visitEXTRACT_VECTOR_ELT(SDNode *N) {
 
   // Transform: (EXTRACT_VECTOR_ELT( VECTOR_SHUFFLE )) -> EXTRACT_VECTOR_ELT.
   // We only perform this optimization before the op legalization phase because
-  // we may introduce new vector instructions which are not backed by TD patterns.
-  // For example on AVX, extracting elements from a wide vector without using
-  // extract_subvector.
+  // we may introduce new vector instructions which are not backed by TD
+  // patterns. For example on AVX, extracting elements from a wide vector
+  // without using extract_subvector.
   if (InVec.getOpcode() == ISD::VECTOR_SHUFFLE
       && ConstEltNo && !LegalOperations) {
     int Elt = cast<ConstantSDNode>(EltNo)->getZExtValue();
@@ -8097,7 +8088,8 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
     // If VecIn2 is unused then change it to undef.
     VecIn2 = VecIn2.getNode() ? VecIn2 : DAG.getUNDEF(VT);
 
-    // Check that we were able to transform all incoming values to the same type.
+    // Check that we were able to transform all incoming values to the same
+    // type.
     if (VecIn2.getValueType() != VecIn1.getValueType() ||
         VecIn1.getValueType() != VT)
           return SDValue();

@@ -288,18 +288,17 @@ QualType QualType::IgnoreParens(QualType T) {
   return T;
 }
 
-/// \brief This will check for a TypedefType by removing any existing sugar
-/// until it reaches a TypedefType or a non-sugared type.
-template <> const TypedefType *Type::getAs() const {
-  const Type *Cur = this;
-
+/// \brief This will check for a T (which should be a Type which can act as
+/// sugar, such as a TypedefType) by removing any existing sugar until it
+/// reaches a T or a non-sugared type.
+template<typename T> static const T *getAsSugar(const Type *Cur) {
   while (true) {
-    if (const TypedefType *TDT = dyn_cast<TypedefType>(Cur))
-      return TDT;
+    if (const T *Sugar = dyn_cast<T>(Cur))
+      return Sugar;
     switch (Cur->getTypeClass()) {
 #define ABSTRACT_TYPE(Class, Parent)
 #define TYPE(Class, Parent) \
-    case Class: { \
+    case Type::Class: { \
       const Class##Type *Ty = cast<Class##Type>(Cur); \
       if (!Ty->isSugared()) return 0; \
       Cur = Ty->desugar().getTypePtr(); \
@@ -308,6 +307,14 @@ template <> const TypedefType *Type::getAs() const {
 #include "clang/AST/TypeNodes.def"
     }
   }
+}
+
+template <> const TypedefType *Type::getAs() const {
+  return getAsSugar<TypedefType>(this);
+}
+
+template <> const TemplateSpecializationType *Type::getAs() const {
+  return getAsSugar<TemplateSpecializationType>(this);
 }
 
 /// getUnqualifiedDesugaredType - Pull any qualifiers and syntactic
@@ -505,10 +512,18 @@ const ObjCObjectPointerType *Type::getAsObjCInterfacePointerType() const {
   return 0;
 }
 
-const CXXRecordDecl *Type::getCXXRecordDeclForPointerType() const {
+const CXXRecordDecl *Type::getPointeeCXXRecordDecl() const {
+  QualType PointeeType;
   if (const PointerType *PT = getAs<PointerType>())
-    if (const RecordType *RT = PT->getPointeeType()->getAs<RecordType>())
-      return dyn_cast<CXXRecordDecl>(RT->getDecl());
+    PointeeType = PT->getPointeeType();
+  else if (const ReferenceType *RT = getAs<ReferenceType>())
+    PointeeType = RT->getPointeeType();
+  else
+    return 0;
+
+  if (const RecordType *RT = PointeeType->getAs<RecordType>())
+    return dyn_cast<CXXRecordDecl>(RT->getDecl());
+
   return 0;
 }
 

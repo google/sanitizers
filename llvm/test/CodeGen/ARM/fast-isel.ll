@@ -1,5 +1,7 @@
 ; RUN: llc < %s -O0 -fast-isel-abort -relocation-model=dynamic-no-pic -mtriple=armv7-apple-ios | FileCheck %s --check-prefix=ARM
 ; RUN: llc < %s -O0 -fast-isel-abort -relocation-model=dynamic-no-pic -mtriple=thumbv7-apple-ios | FileCheck %s --check-prefix=THUMB
+; RUN: llc < %s -O0 -arm-strict-align -relocation-model=dynamic-no-pic -mtriple=armv7-apple-ios | FileCheck %s --check-prefix=ARM-STRICT-ALIGN
+; RUN: llc < %s -O0 -arm-strict-align -relocation-model=dynamic-no-pic -mtriple=thumbv7-apple-ios | FileCheck %s --check-prefix=THUMB-STRICT-ALIGN
 
 ; Very basic fast-isel functionality.
 define i32 @add(i32 %a, i32 %b) nounwind {
@@ -238,3 +240,67 @@ entry:
 }
 
 declare void @llvm.trap() nounwind
+
+define void @unaligned_i16_store(i16 %x, i16* %y) nounwind {
+entry:
+; ARM-STRICT-ALIGN: @unaligned_i16_store
+; ARM-STRICT-ALIGN: strb
+; ARM-STRICT-ALIGN: strb
+
+; THUMB-STRICT-ALIGN: @unaligned_i16_store
+; THUMB-STRICT-ALIGN: strb
+; THUMB-STRICT-ALIGN: strb
+
+  store i16 %x, i16* %y, align 1
+  ret void
+}
+
+define i16 @unaligned_i16_load(i16* %x) nounwind {
+entry:
+; ARM-STRICT-ALIGN: @unaligned_i16_load
+; ARM-STRICT-ALIGN: ldrb
+; ARM-STRICT-ALIGN: ldrb
+
+; THUMB-STRICT-ALIGN: @unaligned_i16_load
+; THUMB-STRICT-ALIGN: ldrb
+; THUMB-STRICT-ALIGN: ldrb
+
+  %0 = load i16* %x, align 1
+  ret i16 %0
+}
+
+define void @unaligned_i32_store(i32 %x, i32* %y) nounwind {
+entry:
+; ARM-STRICT-ALIGN: @unaligned_i32_store
+; ARM-STRICT-ALIGN: strb
+; ARM-STRICT-ALIGN: strb
+; ARM-STRICT-ALIGN: strb
+; ARM-STRICT-ALIGN: strb
+
+; THUMB-STRICT-ALIGN: @unaligned_i32_store
+; THUMB-STRICT-ALIGN: strb
+; THUMB-STRICT-ALIGN: strb
+; THUMB-STRICT-ALIGN: strb
+; THUMB-STRICT-ALIGN: strb
+
+  store i32 %x, i32* %y, align 1
+  ret void
+}
+
+define i32 @unaligned_i32_load(i32* %x) nounwind {
+entry:
+; ARM-STRICT-ALIGN: @unaligned_i32_load
+; ARM-STRICT-ALIGN: ldrb
+; ARM-STRICT-ALIGN: ldrb
+; ARM-STRICT-ALIGN: ldrb
+; ARM-STRICT-ALIGN: ldrb
+
+; THUMB-STRICT-ALIGN: @unaligned_i32_load
+; THUMB-STRICT-ALIGN: ldrb
+; THUMB-STRICT-ALIGN: ldrb
+; THUMB-STRICT-ALIGN: ldrb
+; THUMB-STRICT-ALIGN: ldrb
+
+  %0 = load i32* %x, align 1
+  ret i32 %0
+}

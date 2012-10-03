@@ -72,7 +72,7 @@ public:
   virtual ~SValBuilder() {}
 
   bool haveSameType(const SymExpr *Sym1, const SymExpr *Sym2) {
-    return haveSameType(Sym1->getType(Context), Sym2->getType(Context));
+    return haveSameType(Sym1->getType(), Sym2->getType());
   }
 
   bool haveSameType(QualType Ty1, QualType Ty2) {
@@ -227,7 +227,7 @@ public:
         BasicVals.getValue(integer->getValue(),
                      integer->getType()->isUnsignedIntegerOrEnumerationType()));
   }
-  
+
   nonloc::ConcreteInt makeBoolVal(const ObjCBoolLiteralExpr *boolean) {
     return makeTruthVal(boolean->getValue(), boolean->getType());
   }

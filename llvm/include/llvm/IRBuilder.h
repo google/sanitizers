@@ -285,12 +285,15 @@ public:
   /// If the pointers aren't i8*, they will be converted.  If a TBAA tag is
   /// specified, it will be added to the instruction.
   CallInst *CreateMemCpy(Value *Dst, Value *Src, uint64_t Size, unsigned Align,
-                         bool isVolatile = false, MDNode *TBAATag = 0) {
-    return CreateMemCpy(Dst, Src, getInt64(Size), Align, isVolatile, TBAATag);
+                         bool isVolatile = false, MDNode *TBAATag = 0,
+                         MDNode *TBAAStructTag = 0) {
+    return CreateMemCpy(Dst, Src, getInt64(Size), Align, isVolatile, TBAATag,
+                        TBAAStructTag);
   }
 
   CallInst *CreateMemCpy(Value *Dst, Value *Src, Value *Size, unsigned Align,
-                         bool isVolatile = false, MDNode *TBAATag = 0);
+                         bool isVolatile = false, MDNode *TBAATag = 0,
+                         MDNode *TBAAStructTag = 0);
 
   /// CreateMemMove - Create and insert a memmove between the specified
   /// pointers.  If the pointers aren't i8*, they will be converted.  If a TBAA
@@ -810,6 +813,31 @@ public:
   StoreInst *CreateStore(Value *Val, Value *Ptr, bool isVolatile = false) {
     return Insert(new StoreInst(Val, Ptr, isVolatile));
   }
+  // Provided to resolve 'CreateAlignedLoad(Ptr, Align, "...")' correctly,
+  // instead of converting the string to 'bool' for the isVolatile parameter.
+  LoadInst *CreateAlignedLoad(Value *Ptr, unsigned Align, const char *Name) {
+    LoadInst *LI = CreateLoad(Ptr, Name);
+    LI->setAlignment(Align);
+    return LI;
+  }
+  LoadInst *CreateAlignedLoad(Value *Ptr, unsigned Align,
+                              const Twine &Name = "") {
+    LoadInst *LI = CreateLoad(Ptr, Name);
+    LI->setAlignment(Align);
+    return LI;
+  }
+  LoadInst *CreateAlignedLoad(Value *Ptr, unsigned Align, bool isVolatile,
+                              const Twine &Name = "") {
+    LoadInst *LI = CreateLoad(Ptr, isVolatile, Name);
+    LI->setAlignment(Align);
+    return LI;
+  }
+  StoreInst *CreateAlignedStore(Value *Val, Value *Ptr, unsigned Align,
+                                bool isVolatile = false) {
+    StoreInst *SI = CreateStore(Val, Ptr, isVolatile);
+    SI->setAlignment(Align);
+    return SI;
+  }
   FenceInst *CreateFence(AtomicOrdering Ordering,
                          SynchronizationScope SynchScope = CrossThread) {
     return Insert(new FenceInst(Context, Ordering, SynchScope));
@@ -970,6 +998,30 @@ public:
   Value *CreateSExt(Value *V, Type *DestTy, const Twine &Name = "") {
     return CreateCast(Instruction::SExt, V, DestTy, Name);
   }
+  /// CreateZExtOrTrunc - Create a ZExt or Trunc from the integer value V to
+  /// DestTy. Return the value untouched if the type of V is already DestTy.
+  Value *CreateZExtOrTrunc(Value *V, IntegerType *DestTy,
+                           const Twine &Name = "") {
+    assert(isa<IntegerType>(V->getType()) && "Can only zero extend integers!");
+    IntegerType *IntTy = cast<IntegerType>(V->getType());
+    if (IntTy->getBitWidth() < DestTy->getBitWidth())
+      return CreateZExt(V, DestTy, Name);
+    if (IntTy->getBitWidth() > DestTy->getBitWidth())
+      return CreateTrunc(V, DestTy, Name);
+    return V;
+  }
+  /// CreateSExtOrTrunc - Create a SExt or Trunc from the integer value V to
+  /// DestTy. Return the value untouched if the type of V is already DestTy.
+  Value *CreateSExtOrTrunc(Value *V, IntegerType *DestTy,
+                           const Twine &Name = "") {
+    assert(isa<IntegerType>(V->getType()) && "Can only sign extend integers!");
+    IntegerType *IntTy = cast<IntegerType>(V->getType());
+    if (IntTy->getBitWidth() < DestTy->getBitWidth())
+      return CreateSExt(V, DestTy, Name);
+    if (IntTy->getBitWidth() > DestTy->getBitWidth())
+      return CreateTrunc(V, DestTy, Name);
+    return V;
+  }
   Value *CreateFPToUI(Value *V, Type *DestTy, const Twine &Name = ""){
     return CreateCast(Instruction::FPToUI, V, DestTy, Name);
   }
@@ -1052,7 +1104,7 @@ public:
 private:
   // Provided to resolve 'CreateIntCast(Ptr, Ptr, "...")', giving a compile time
   // error, instead of converting the string to bool for the isSigned parameter.
-  Value *CreateIntCast(Value *, Type *, const char *); // DO NOT IMPLEMENT
+  Value *CreateIntCast(Value *, Type *, const char *) LLVM_DELETED_FUNCTION;
 public:
   Value *CreateFPCast(Value *V, Type *DestTy, const Twine &Name = "") {
     if (V->getType() == DestTy)

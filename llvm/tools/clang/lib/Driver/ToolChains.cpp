@@ -111,6 +111,9 @@ static const char *GetArmArchForMArch(StringRef Value) {
     .Cases("armv7a", "armv7-a", "armv7")
     .Cases("armv7r", "armv7-r", "armv7")
     .Cases("armv7m", "armv7-m", "armv7")
+    .Cases("armv7f", "armv7-f", "armv7f")
+    .Cases("armv7k", "armv7-k", "armv7k")
+    .Cases("armv7s", "armv7-s", "armv7s")
     .Default(0);
 }
 
@@ -124,6 +127,8 @@ static const char *GetArmArchForMCpu(StringRef Value) {
            "arm1176jzf-s", "cortex-m0", "armv6")
     .Cases("cortex-a8", "cortex-r4", "cortex-m3", "cortex-a9", "cortex-a15",
            "armv7")
+    .Case("cortex-a9-mp", "armv7f")
+    .Case("swift", "armv7s")
     .Default(0);
 }
 
@@ -327,7 +332,9 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
 
   // Darwin doesn't support real static executables, don't link any runtime
   // libraries with -static.
-  if (Args.hasArg(options::OPT_static))
+  if (Args.hasArg(options::OPT_static) ||
+      Args.hasArg(options::OPT_fapple_kext) ||
+      Args.hasArg(options::OPT_mkernel))
     return;
 
   // Reject -static-libgcc for now, we can deal with this when and if someone
@@ -525,7 +532,8 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
     // If no OSX or iOS target has been specified and we're compiling for armv7,
     // go ahead as assume we're targeting iOS.
     if (OSXTarget.empty() && iOSTarget.empty() &&
-        getDarwinArchName(Args) == "armv7")
+        (getDarwinArchName(Args) == "armv7" ||
+         getDarwinArchName(Args) == "armv7s"))
         iOSTarget = iOSVersionMin;
 
     // Handle conflicting deployment targets
@@ -670,7 +678,14 @@ void DarwinClang::AddCCKextLibArgs(const ArgList &Args,
   llvm::sys::Path P(getDriver().ResourceDir);
   P.appendComponent("lib");
   P.appendComponent("darwin");
-  P.appendComponent("libclang_rt.cc_kext.a");
+
+  // Use the newer cc_kext for iOS ARM after 6.0.
+  if (!isTargetIPhoneOS() || isTargetIOSSimulator() ||
+      !isIPhoneOSVersionLT(6, 0)) {
+    P.appendComponent("libclang_rt.cc_kext.a");
+  } else {
+    P.appendComponent("libclang_rt.cc_kext_ios5.a");
+  }
 
   // For now, allow missing resource libraries to support developers who may
   // not have compiler-rt checked out or integrated into their build.
@@ -879,6 +894,12 @@ DerivedArgList *Darwin::TranslateArgs(const DerivedArgList &Args,
       DAL->AddJoinedArg(0, MArch, "armv6k");
     else if (Name == "armv7")
       DAL->AddJoinedArg(0, MArch, "armv7a");
+    else if (Name == "armv7f")
+      DAL->AddJoinedArg(0, MArch, "armv7f");
+    else if (Name == "armv7k")
+      DAL->AddJoinedArg(0, MArch, "armv7k");
+    else if (Name == "armv7s")
+      DAL->AddJoinedArg(0, MArch, "armv7s");
 
     else
       llvm_unreachable("invalid Darwin arch");
@@ -889,6 +910,25 @@ DerivedArgList *Darwin::TranslateArgs(const DerivedArgList &Args,
   // argument.
   if (BoundArch)
     AddDeploymentTarget(*DAL);
+
+  // For iOS 6, undo the translation to add -static for -mkernel/-fapple-kext.
+  // FIXME: It would be far better to avoid inserting those -static arguments,
+  // but we can't check the deployment target in the translation code until
+  // it is set here.
+  if (isTargetIPhoneOS() && !isIPhoneOSVersionLT(6, 0)) {
+    for (ArgList::iterator it = DAL->begin(), ie = DAL->end(); it != ie; ) {
+      Arg *A = *it;
+      ++it;
+      if (A->getOption().getID() != options::OPT_mkernel &&
+          A->getOption().getID() != options::OPT_fapple_kext)
+        continue;
+      assert(it != ie && "unexpected argument translation");
+      A = *it;
+      assert(A->getOption().getID() == options::OPT_static &&
+             "missing expected -static argument");
+      it = DAL->getArgs().erase(it);
+    }
+  }
 
   // Validate the C++ standard library choice.
   CXXStdlibType Type = GetCXXStdlibType(*DAL);
@@ -1291,6 +1331,10 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
     "/gcc/" + CandidateTriple.str(),
     "/" + CandidateTriple.str() + "/gcc/" + CandidateTriple.str(),
 
+    // The Freescale PPC SDK has the gcc libraries in
+    // <sysroot>/usr/lib/<triple>/x.y.z so have a look there as well.
+    "/" + CandidateTriple.str(),
+
     // Ubuntu has a strange mis-matched pair of triples that this happens to
     // match.
     // FIXME: It may be worthwhile to generalize this and look for a second
@@ -1300,6 +1344,7 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
   const std::string InstallSuffixes[] = {
     "/../../..",
     "/../../../..",
+    "/../..",
     "/../../../.."
   };
   // Only look at the final, weird Ubuntu suffix for i386-linux-gnu.
@@ -1411,7 +1456,7 @@ Tool &Generic_GCC::SelectTool(const Compilation &C,
 bool Generic_GCC::IsUnwindTablesDefault() const {
   // FIXME: Gross; we should probably have some separate target
   // definition, possibly even reusing the one in clang.
-  return getArchName() == "x86_64";
+  return getArch() == llvm::Triple::x86_64;
 }
 
 const char *Generic_GCC::GetDefaultRelocationModel() const {
@@ -1474,12 +1519,6 @@ Tool &Hexagon_TC::SelectTool(const Compilation &C,
   return *T;
 }
 
-bool Hexagon_TC::IsUnwindTablesDefault() const {
-  // FIXME: Gross; we should probably have some separate target
-  // definition, possibly even reusing the one in clang.
-  return getArchName() == "x86_64";
-}
-
 const char *Hexagon_TC::GetDefaultRelocationModel() const {
   return "static";
 }
@@ -1510,10 +1549,6 @@ TCEToolChain::~TCEToolChain() {
 
 bool TCEToolChain::IsMathErrnoDefault() const {
   return true;
-}
-
-bool TCEToolChain::IsUnwindTablesDefault() const {
-  return false;
 }
 
 const char *TCEToolChain::GetDefaultRelocationModel() const {
@@ -2374,6 +2409,9 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
     InstallDir.str() + "/include/g++-v4",
     // Android standalone toolchain has C++ headers in yet another place.
     LibDir.str() + "/../" + TripleStr.str() + "/include/c++/" + Version.str(),
+    // Freescale SDK C++ headers are directly in <sysroot>/usr/include/c++,
+    // without a subdirectory corresponding to the gcc version.
+    LibDir.str() + "/../include/c++",
   };
 
   for (unsigned i = 0; i < llvm::array_lengthof(IncludePathCandidates); ++i) {

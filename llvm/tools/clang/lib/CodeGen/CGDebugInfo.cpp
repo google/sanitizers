@@ -793,8 +793,6 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
     for (CXXRecordDecl::capture_const_iterator I = CXXDecl->captures_begin(),
            E = CXXDecl->captures_end(); I != E; ++I, ++Field, ++fieldno) {
       const LambdaExpr::Capture C = *I;
-      // TODO: Need to handle 'this' in some way by probably renaming the
-      // this of the lambda class and having a field member of 'this'.
       if (C.capturesVariable()) {
         VarDecl *V = C.getCapturedVar();
         llvm::DIFile VUnit = getOrCreateFile(C.getLocation());
@@ -808,6 +806,20 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
           = createFieldType(VName, Field->getType(), SizeInBitsOverride, C.getLocation(),
                             Field->getAccess(), layout.getFieldOffset(fieldno),
                             VUnit, RecordTy);
+        elements.push_back(fieldType);
+      } else {
+        // TODO: Need to handle 'this' in some way by probably renaming the
+        // this of the lambda class and having a field member of 'this' or
+        // by using AT_object_pointer for the function and having that be
+        // used as 'this' for semantic references.
+        assert(C.capturesThis() && "Field that isn't captured and isn't this?");
+        FieldDecl *f = *Field;
+        llvm::DIFile VUnit = getOrCreateFile(f->getLocation());
+        QualType type = f->getType();
+        llvm::DIType fieldType
+          = createFieldType("this", type, 0, f->getLocation(), f->getAccess(),
+                            layout.getFieldOffset(fieldNo), VUnit, RecordTy);
+
         elements.push_back(fieldType);
       }
     }
@@ -2271,7 +2283,7 @@ void CGDebugInfo::EmitDeclare(const VarDecl *VD, unsigned Tag,
   else 
     Ty = getOrCreateType(VD->getType(), Unit);
 
-  // If there is not any debug info for type then do not emit debug info
+  // If there is no debug info for this type then do not emit debug info
   // for this variable.
   if (!Ty)
     return;
@@ -2406,9 +2418,10 @@ void CGDebugInfo::EmitDeclareOfAutoVariable(const VarDecl *VD,
   EmitDeclare(VD, llvm::dwarf::DW_TAG_auto_variable, Storage, 0, Builder);
 }
 
-void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(
-  const VarDecl *VD, llvm::Value *Storage, CGBuilderTy &Builder,
-  const CGBlockInfo &blockInfo) {
+void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(const VarDecl *VD,
+                                                    llvm::Value *Storage,
+                                                    CGBuilderTy &Builder,
+                                                 const CGBlockInfo &blockInfo) {
   assert(CGM.getCodeGenOpts().DebugInfo >= CodeGenOptions::LimitedDebugInfo);
   assert(!LexicalBlockStack.empty() && "Region stack mismatch, stack empty!");
   
@@ -2424,6 +2437,11 @@ void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(
     Ty = EmitTypeForVarWithBlocksAttr(VD, &XOffset);
   else 
     Ty = getOrCreateType(VD->getType(), Unit);
+
+  // Self is passed along as an implicit non-arg variable in a
+  // block. Mark it as the object pointer.
+  if (isa<ImplicitParamDecl>(VD) && VD->getName() == "self")
+    Ty = DBuilder.createObjectPointerType(Ty);
 
   // Get location information.
   unsigned Line = getLineNumber(VD->getLocation());

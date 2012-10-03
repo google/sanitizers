@@ -379,8 +379,8 @@ def VORR : Inst<"vorr", "ddd", "csilUcUsUiUlQcQsQiQlQUcQUsQUiQUl", OP_OR>;
 def VEOR : Inst<"veor", "ddd", "csilUcUsUiUlQcQsQiQlQUcQUsQUiQUl", OP_XOR>;
 def VBIC : Inst<"vbic", "ddd", "csilUcUsUiUlQcQsQiQlQUcQUsQUiQUl", OP_ANDN>;
 def VORN : Inst<"vorn", "ddd", "csilUcUsUiUlQcQsQiQlQUcQUsQUiQUl", OP_ORN>;
-def VBSL : Inst<"vbsl", "dudd",
-                "csilUcUsUiUlfPcPsQcQsQiQlQUcQUsQUiQUlQfQPcQPs", OP_SEL>;
+def VBSL : SInst<"vbsl", "dudd",
+                "csilUcUsUiUlfPcPsQcQsQiQlQUcQUsQUiQUlQfQPcQPs">;
 
 ////////////////////////////////////////////////////////////////////////////////
 // E.3.30 Transposition operations
@@ -394,3 +394,7 @@ def VREINTERPRET
   : Inst<"vreinterpret", "dd",
          "csilUcUsUiUlhfPcPsQcQsQiQlQUcQUsQUiQUlQhQfQPcQPs", OP_REINT>;
 
+////////////////////////////////////////////////////////////////////////////////
+// Vector fused multiply-add operations
+
+def VFMA : SInst<"vfma", "dddd", "fQf">;

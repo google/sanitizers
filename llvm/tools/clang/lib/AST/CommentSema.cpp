@@ -13,7 +13,9 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/ADT/SmallString.h"
 
 namespace clang {
 namespace comments {
@@ -23,9 +25,10 @@ namespace {
 } // unnamed namespace
 
 Sema::Sema(llvm::BumpPtrAllocator &Allocator, const SourceManager &SourceMgr,
-           DiagnosticsEngine &Diags, CommandTraits &Traits) :
+           DiagnosticsEngine &Diags, CommandTraits &Traits,
+           const Preprocessor *PP) :
     Allocator(Allocator), SourceMgr(SourceMgr), Diags(Diags), Traits(Traits),
-    ThisDeclInfo(NULL), BriefCommand(NULL), ReturnsCommand(NULL) {
+    PP(PP), ThisDeclInfo(NULL), BriefCommand(NULL), ReturnsCommand(NULL) {
 }
 
 void Sema::setDecl(const Decl *D) {
@@ -59,6 +62,7 @@ void Sema::actOnBlockCommandFinish(BlockCommandComment *Command,
   checkBlockCommandEmptyParagraph(Command);
   checkBlockCommandDuplicate(Command);
   checkReturnsCommand(Command);
+  checkDeprecatedCommand(Command);
 }
 
 ParamCommandComment *Sema::actOnParamCommandStart(SourceLocation LocBegin,
@@ -498,6 +502,54 @@ void Sema::checkBlockCommandDuplicate(const BlockCommandComment *Command) {
          diag::note_doc_block_command_previous_alias)
         << PrevCommandName
         << CommandName;
+}
+
+void Sema::checkDeprecatedCommand(const BlockCommandComment *Command) {
+  if (!Traits.getCommandInfo(Command->getCommandID())->IsDeprecatedCommand)
+    return;
+
+  const Decl *D = ThisDeclInfo->ThisDecl;
+  if (!D)
+    return;
+
+  if (D->hasAttr<DeprecatedAttr>() ||
+      D->hasAttr<AvailabilityAttr>() ||
+      D->hasAttr<UnavailableAttr>())
+    return;
+
+  Diag(Command->getLocation(),
+       diag::warn_doc_deprecated_not_sync)
+    << Command->getSourceRange();
+
+  // Try to emit a fixit with a deprecation attribute.
+  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
+    // Don't emit a Fix-It for non-member function definitions.  GCC does not
+    // accept attributes on them.
+    const DeclContext *Ctx = FD->getDeclContext();
+    if ((!Ctx || !Ctx->isRecord()) &&
+        FD->doesThisDeclarationHaveABody())
+      return;
+
+    StringRef AttributeSpelling = "__attribute__((deprecated))";
+    if (PP) {
+      TokenValue Tokens[] = {
+        tok::kw___attribute, tok::l_paren, tok::l_paren,
+        PP->getIdentifierInfo("deprecated"),
+        tok::r_paren, tok::r_paren
+      };
+      StringRef MacroName = PP->getLastMacroWithSpelling(FD->getLocation(),
+                                                         Tokens);
+      if (!MacroName.empty())
+        AttributeSpelling = MacroName;
+    }
+
+    SmallString<64> TextToInsert(" ");
+    TextToInsert += AttributeSpelling;
+    Diag(FD->getLocEnd(),
+         diag::note_add_deprecation_attr)
+      << FixItHint::CreateInsertion(FD->getLocEnd().getLocWithOffset(1),
+                                    TextToInsert);
+  }
 }
 
 void Sema::resolveParamCommandIndexes(const FullComment *FC) {

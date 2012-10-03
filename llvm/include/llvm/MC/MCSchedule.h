@@ -172,10 +172,8 @@ private:
   unsigned ProcID;
   const MCProcResourceDesc *ProcResourceTable;
   const MCSchedClassDesc *SchedClassTable;
-#ifndef NDEBUG
   unsigned NumProcResourceKinds;
   unsigned NumSchedClasses;
-#endif
   // Instruction itinerary tables used by InstrItineraryData.
   friend class InstrItineraryData;
   const InstrItinerary *InstrItineraries;
@@ -190,26 +188,27 @@ public:
                   LoadLatency(DefaultLoadLatency),
                   HighLatency(DefaultHighLatency),
                   MispredictPenalty(DefaultMispredictPenalty),
-                  ProcID(0), InstrItineraries(0) {}
+                  ProcID(0), ProcResourceTable(0), SchedClassTable(0),
+                  NumProcResourceKinds(0), NumSchedClasses(0),
+                  InstrItineraries(0) {
+    (void)NumProcResourceKinds;
+    (void)NumSchedClasses;
+  }
 
   // Table-gen driven ctor.
   MCSchedModel(unsigned iw, int ml, unsigned ll, unsigned hl, unsigned mp,
+               unsigned pi, const MCProcResourceDesc *pr,
+               const MCSchedClassDesc *sc, unsigned npr, unsigned nsc,
                const InstrItinerary *ii):
     IssueWidth(iw), MinLatency(ml), LoadLatency(ll), HighLatency(hl),
-    MispredictPenalty(mp), ProcID(0), ProcResourceTable(0),
-    SchedClassTable(0), InstrItineraries(ii) {}
+    MispredictPenalty(mp), ProcID(pi), ProcResourceTable(pr),
+    SchedClassTable(sc), NumProcResourceKinds(npr), NumSchedClasses(nsc),
+    InstrItineraries(ii) {}
 
   unsigned getProcessorID() const { return ProcID; }
 
   /// Does this machine model include instruction-level scheduling.
-  bool hasInstrSchedModel() const {
-    return SchedClassTable;
-  }
-
-  /// Does this machine model include cycle-to-cycle itineraries.
-  bool hasInstrItineraries() const {
-    return InstrItineraries;
-  }
+  bool hasInstrSchedModel() const { return SchedClassTable; }
 
   const MCProcResourceDesc *getProcResource(unsigned ProcResourceIdx) const {
     assert(hasInstrSchedModel() && "No scheduling machine model");

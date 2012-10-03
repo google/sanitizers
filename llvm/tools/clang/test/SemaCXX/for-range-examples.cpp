@@ -115,7 +115,7 @@ namespace map_range {
   }
 }
 
-#define assert(b) if (!b) { return 1; }
+#define assert(b) if (!(b)) { return 1; }
 int main() {
   int total = 0;
 

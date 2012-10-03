@@ -16,6 +16,7 @@
 #define LLVM_CLANG_LEX_PPCALLBACKS_H
 
 #include "clang/Lex/DirectoryLookup.h"
+#include "clang/Lex/ModuleLoader.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/DiagnosticIDs.h"
 #include "llvm/ADT/StringRef.h"
@@ -93,10 +94,10 @@ public:
   /// \param IsAngled Whether the file name was enclosed in angle brackets;
   /// otherwise, it was enclosed in quotes.
   ///
-  /// \param File The actual file that may be included by this inclusion 
-  /// directive.
+  /// \param FilenameRange The character range of the quotes or angle brackets
+  /// for the written file name.
   ///
-  /// \param EndLoc The location of the last token within the inclusion
+  /// \param File The actual file that may be included by this inclusion 
   /// directive.
   ///
   /// \param SearchPath Contains the search path which was used to find the file
@@ -110,14 +111,34 @@ public:
   ///
   /// \param RelativePath The path relative to SearchPath, at which the include
   /// file was found. This is equal to FileName except for framework includes.
+  ///
+  /// \param Imported The module, whenever an inclusion directive was
+  /// automatically turned into a module import or null otherwise.
+  ///
   virtual void InclusionDirective(SourceLocation HashLoc,
                                   const Token &IncludeTok,
                                   StringRef FileName,
                                   bool IsAngled,
+                                  CharSourceRange FilenameRange,
                                   const FileEntry *File,
-                                  SourceLocation EndLoc,
                                   StringRef SearchPath,
-                                  StringRef RelativePath) {
+                                  StringRef RelativePath,
+                                  const Module *Imported) {
+  }
+
+  /// \brief Callback invoked whenever there was an explicit module-import
+  /// syntax.
+  ///
+  /// \param ImportLoc The location of import directive token.
+  ///
+  /// \param Path The identifiers (and their locations) of the module
+  /// "path", e.g., "std.vector" would be split into "std" and "vector".
+  ///
+  /// \param Imported The imported module; can be null if importing failed.
+  ///
+  virtual void moduleImport(SourceLocation ImportLoc,
+                            ModuleIdPath Path,
+                            const Module *Imported) {
   }
 
   /// \brief Callback invoked when the end of the main file is reached.
@@ -266,14 +287,24 @@ public:
                                   const Token &IncludeTok,
                                   StringRef FileName,
                                   bool IsAngled,
+                                  CharSourceRange FilenameRange,
                                   const FileEntry *File,
-                                  SourceLocation EndLoc,
                                   StringRef SearchPath,
-                                  StringRef RelativePath) {
-    First->InclusionDirective(HashLoc, IncludeTok, FileName, IsAngled, File,
-                              EndLoc, SearchPath, RelativePath);
-    Second->InclusionDirective(HashLoc, IncludeTok, FileName, IsAngled, File,
-                               EndLoc, SearchPath, RelativePath);
+                                  StringRef RelativePath,
+                                  const Module *Imported) {
+    First->InclusionDirective(HashLoc, IncludeTok, FileName, IsAngled,
+                              FilenameRange, File, SearchPath, RelativePath,
+                              Imported);
+    Second->InclusionDirective(HashLoc, IncludeTok, FileName, IsAngled,
+                               FilenameRange, File, SearchPath, RelativePath,
+                               Imported);
+  }
+
+  virtual void moduleImport(SourceLocation ImportLoc,
+                            ModuleIdPath Path,
+                            const Module *Imported) {
+    First->moduleImport(ImportLoc, Path, Imported);
+    Second->moduleImport(ImportLoc, Path, Imported);
   }
 
   virtual void EndOfMainFile() {

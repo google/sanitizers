@@ -1625,7 +1625,7 @@ bool Sema::FindAllocationFunctions(SourceLocation StartLoc, SourceRange Range,
             = dyn_cast<FunctionTemplateDecl>((*D)->getUnderlyingDecl())) {
         // Perform template argument deduction to try to match the
         // expected function type.
-        TemplateDeductionInfo Info(Context, StartLoc);
+        TemplateDeductionInfo Info(StartLoc);
         if (DeduceTemplateArguments(FnTmpl, 0, ExpectedFunctionType, Fn, Info))
           continue;
       } else
@@ -2927,6 +2927,7 @@ static bool CheckUnaryTypeTraitTypeCompleteness(Sema &S,
   case UTT_IsEmpty:
   case UTT_IsPolymorphic:
   case UTT_IsAbstract:
+  case UTT_IsInterfaceClass:
     // Fall-through
 
   // These traits require a complete type.
@@ -3056,6 +3057,10 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, UnaryTypeTrait UTT,
   case UTT_IsAbstract:
     if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
       return RD->isAbstract();
+    return false;
+  case UTT_IsInterfaceClass:
+    if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
+      return RD->isInterface();
     return false;
   case UTT_IsFinal:
     if (const CXXRecordDecl *RD = T->getAsCXXRecordDecl())
@@ -4828,7 +4833,8 @@ ExprResult Sema::ActOnDecltypeExpression(Expr *E) {
                                                 BO_Comma, BO->getType(),
                                                 BO->getValueKind(),
                                                 BO->getObjectKind(),
-                                                BO->getOperatorLoc()));
+                                                BO->getOperatorLoc(),
+                                                BO->isFPContractable()));
     }
   }
 

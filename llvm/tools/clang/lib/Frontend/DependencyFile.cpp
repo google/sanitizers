@@ -59,10 +59,11 @@ public:
                                   const Token &IncludeTok,
                                   StringRef FileName,
                                   bool IsAngled,
+                                  CharSourceRange FilenameRange,
                                   const FileEntry *File,
-                                  SourceLocation EndLoc,
                                   StringRef SearchPath,
-                                  StringRef RelativePath);
+                                  StringRef RelativePath,
+                                  const Module *Imported);
 
   virtual void EndOfMainFile() {
     OutputDependencyFile();
@@ -132,10 +133,11 @@ void DependencyFileCallback::InclusionDirective(SourceLocation HashLoc,
                                                 const Token &IncludeTok,
                                                 StringRef FileName,
                                                 bool IsAngled,
+                                                CharSourceRange FilenameRange,
                                                 const FileEntry *File,
-                                                SourceLocation EndLoc,
                                                 StringRef SearchPath,
-                                                StringRef RelativePath) {
+                                                StringRef RelativePath,
+                                                const Module *Imported) {
   if (!File) {
     if (AddMissingHeaderDeps)
       AddFilename(FileName);

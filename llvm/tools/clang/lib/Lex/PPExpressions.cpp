@@ -178,7 +178,9 @@ static bool EvaluateValue(PPValue &Result, Token &PeekTok, DefinedTracker &DT,
     // preprocessor keywords and it wasn't macro expanded, it turns
     // into a simple 0, unless it is the C++ keyword "true", in which case it
     // turns into "1".
-    if (ValueLive)
+    if (ValueLive &&
+        II->getTokenID() != tok::kw_true &&
+        II->getTokenID() != tok::kw_false)
       PP.Diag(PeekTok, diag::warn_pp_undef_identifier) << II;
     Result.Val = II->getTokenID() == tok::kw_true;
     Result.Val.setIsUnsigned(false);  // "0" is signed intmax_t 0.
@@ -204,8 +206,7 @@ static bool EvaluateValue(PPValue &Result, Token &PeekTok, DefinedTracker &DT,
     if (NumberInvalid)
       return true; // a diagnostic was already reported
 
-    NumericLiteralParser Literal(Spelling.begin(), Spelling.end(),
-                                 PeekTok.getLocation(), PP);
+    NumericLiteralParser Literal(Spelling, PeekTok.getLocation(), PP);
     if (Literal.hadError)
       return true; // a diagnostic was already reported.
 
@@ -219,10 +220,15 @@ static bool EvaluateValue(PPValue &Result, Token &PeekTok, DefinedTracker &DT,
     if (Literal.hasUDSuffix())
       PP.Diag(PeekTok, diag::err_pp_invalid_udl) << /*integer*/1;
 
-    // long long is a C99 feature.
-    if (!PP.getLangOpts().C99 && Literal.isLongLong)
-      PP.Diag(PeekTok, PP.getLangOpts().CPlusPlus0x ?
-              diag::warn_cxx98_compat_longlong : diag::ext_longlong);
+    // 'long long' is a C99 or C++11 feature.
+    if (!PP.getLangOpts().C99 && Literal.isLongLong) {
+      if (PP.getLangOpts().CPlusPlus)
+        PP.Diag(PeekTok,
+             PP.getLangOpts().CPlusPlus0x ?
+             diag::warn_cxx98_compat_longlong : diag::ext_cxx11_longlong);
+      else
+        PP.Diag(PeekTok, diag::ext_c99_longlong);
+    }
 
     // Parse the integer literal into Result.
     if (Literal.GetIntegerValue(Result.Val)) {

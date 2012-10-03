@@ -13,8 +13,9 @@
 
 #include "ARMSubtarget.h"
 #include "ARMBaseRegisterInfo.h"
+#include "ARMBaseInstrInfo.h"
 #include "llvm/GlobalValue.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Support/CommandLine.h"
 
 #define GET_SUBTARGETINFO_TARGET_DESC
@@ -29,6 +30,10 @@ ReserveR9("arm-reserve-r9", cl::Hidden,
 
 static cl::opt<bool>
 DarwinUseMOVT("arm-darwin-use-movt", cl::init(true), cl::Hidden);
+
+static cl::opt<bool>
+UseFusedMulOps("arm-use-mulops",
+               cl::init(true), cl::Hidden);
 
 static cl::opt<bool>
 StrictAlign("arm-strict-align", cl::Hidden,
@@ -49,6 +54,7 @@ ARMSubtarget::ARMSubtarget(const std::string &TT, const std::string &CPU,
   , HasVFPv4(false)
   , HasNEON(false)
   , UseNEONForSinglePrecisionFP(false)
+  , UseMulOps(UseFusedMulOps)
   , SlowFPVMLx(false)
   , HasVMLxForwarding(false)
   , SlowFPBrcc(false)
@@ -63,6 +69,7 @@ ARMSubtarget::ARMSubtarget(const std::string &TT, const std::string &CPU,
   , HasFP16(false)
   , HasD16(false)
   , HasHardwareDivide(false)
+  , HasHardwareDivideInARM(false)
   , HasT2ExtractPack(false)
   , HasDataBarrier(false)
   , Pref32BitThumb(false)

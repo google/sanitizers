@@ -71,8 +71,8 @@ ProgramStateManager::ProgramStateManager(ASTContext &Ctx,
                                          StoreManagerCreator CreateSMgr,
                                          ConstraintManagerCreator CreateCMgr,
                                          llvm::BumpPtrAllocator &alloc,
-                                         SubEngine &SubEng)
-  : Eng(&SubEng), EnvMgr(alloc), GDMFactory(alloc),
+                                         SubEngine *SubEng)
+  : Eng(SubEng), EnvMgr(alloc), GDMFactory(alloc),
     svalBuilder(createSimpleSValBuilder(alloc, Ctx, *this)),
     CallEventMgr(new CallEventManager(alloc)), Alloc(alloc) {
   StoreMgr.reset((*CreateSMgr)(*this));
@@ -737,7 +737,7 @@ DynamicTypeInfo ProgramState::getDynamicTypeInfo(const MemRegion *Reg) const {
 
   if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(Reg)) {
     SymbolRef Sym = SR->getSymbol();
-    return DynamicTypeInfo(Sym->getType(getStateManager().getContext()));
+    return DynamicTypeInfo(Sym->getType());
   }
 
   return DynamicTypeInfo();

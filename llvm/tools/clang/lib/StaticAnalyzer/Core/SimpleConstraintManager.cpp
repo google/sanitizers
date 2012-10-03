@@ -67,8 +67,8 @@ ProgramStateRef SimpleConstraintManager::assume(ProgramStateRef state,
 ProgramStateRef SimpleConstraintManager::assume(ProgramStateRef state, Loc cond,
                                                bool assumption) {
   state = assumeAux(state, cond, assumption);
-  if (NotifyAssumeClients)
-    return SU.processAssume(state, cond, assumption);
+  if (NotifyAssumeClients && SU)
+    return SU->processAssume(state, cond, assumption);
   return state;
 }
 
@@ -115,7 +115,9 @@ ProgramStateRef SimpleConstraintManager::assume(ProgramStateRef state,
                                                NonLoc cond,
                                                bool assumption) {
   state = assumeAux(state, cond, assumption);
-  return SU.processAssume(state, cond, assumption);
+  if (NotifyAssumeClients && SU)
+    return SU->processAssume(state, cond, assumption);
+  return state;
 }
 
 static BinaryOperator::Opcode NegateComparison(BinaryOperator::Opcode op) {
@@ -138,7 +140,7 @@ ProgramStateRef
 SimpleConstraintManager::assumeAuxForSymbol(ProgramStateRef State,
                                             SymbolRef Sym, bool Assumption) {
   BasicValueFactory &BVF = getBasicVals();
-  QualType T = Sym->getType(BVF.getContext());
+  QualType T = Sym->getType();
 
   // None of the constraint solvers currently support non-integer types.
   if (!T->isIntegerType())
@@ -188,7 +190,7 @@ ProgramStateRef SimpleConstraintManager::assumeAux(ProgramStateRef state,
       BinaryOperator::Opcode op = SE->getOpcode();
       // Implicitly compare non-comparison expressions to 0.
       if (!BinaryOperator::isComparisonOp(op)) {
-        QualType T = SE->getType(BasicVals.getContext());
+        QualType T = SE->getType();
         const llvm::APSInt &zero = BasicVals.getValue(0, T);
         op = (Assumption ? BO_NE : BO_EQ);
         return assumeSymRel(state, SE, op, zero);
@@ -237,11 +239,9 @@ ProgramStateRef SimpleConstraintManager::assumeSymRel(ProgramStateRef state,
   assert(BinaryOperator::isComparisonOp(op) &&
          "Non-comparison ops should be rewritten as comparisons to zero.");
 
-  BasicValueFactory &BVF = getBasicVals();
-  ASTContext &Ctx = BVF.getContext();
-
   // Get the type used for calculating wraparound.
-  APSIntType WraparoundType = BVF.getAPSIntType(LHS->getType(Ctx));
+  BasicValueFactory &BVF = getBasicVals();
+  APSIntType WraparoundType = BVF.getAPSIntType(LHS->getType());
 
   // We only handle simple comparisons of the form "$sym == constant"
   // or "($sym+constant1) == constant2".

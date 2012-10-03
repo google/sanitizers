@@ -81,6 +81,47 @@ namespace llvm {
       Ext,
       Ins,
 
+      // EXTR.W instrinsic nodes.
+      EXTP,
+      EXTPDP,
+      EXTR_S_H,
+      EXTR_W,
+      EXTR_R_W,
+      EXTR_RS_W,
+      SHILO,
+      MTHLIP,
+
+      // DPA.W intrinsic nodes.
+      MULSAQ_S_W_PH,
+      MAQ_S_W_PHL,
+      MAQ_S_W_PHR,
+      MAQ_SA_W_PHL,
+      MAQ_SA_W_PHR,
+      DPAU_H_QBL,
+      DPAU_H_QBR,
+      DPSU_H_QBL,
+      DPSU_H_QBR,
+      DPAQ_S_W_PH,
+      DPSQ_S_W_PH,
+      DPAQ_SA_L_W,
+      DPSQ_SA_L_W,
+      DPA_W_PH,
+      DPS_W_PH,
+      DPAQX_S_W_PH,
+      DPAQX_SA_W_PH,
+      DPAX_W_PH,
+      DPSX_W_PH,
+      DPSQX_S_W_PH,
+      DPSQX_SA_W_PH,
+      MULSA_W_PH,
+
+      MULT,
+      MULTU,
+      MADD_DSP,
+      MADDU_DSP,
+      MSUB_DSP,
+      MSUBU_DSP,
+
       // Load/Store Left/Right nodes.
       LWL = ISD::FIRST_TARGET_MEMORY_OPCODE,
       LWR,
@@ -105,8 +146,18 @@ namespace llvm {
 
     virtual bool allowsUnalignedMemoryAccesses (EVT VT) const;
 
+    virtual void LowerOperationWrapper(SDNode *N,
+                                       SmallVectorImpl<SDValue> &Results,
+                                       SelectionDAG &DAG) const;
+
     /// LowerOperation - Provide custom lowering hooks for some operations.
     virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
+
+    /// ReplaceNodeResults - Replace the results of node with an illegal result
+    /// type with new values built out of custom code.
+    ///
+    virtual void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue>&Results,
+                                    SelectionDAG &DAG) const;
 
     /// getTargetNodeName - This method returns the name of a target specific
     //  DAG node.
@@ -151,6 +202,8 @@ namespace llvm {
                                  bool IsSRA) const;
     SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerINTRINSIC_W_CHAIN(SDValue Op, SelectionDAG &DAG) const;
 
     virtual SDValue
       LowerFormalArguments(SDValue Chain,
@@ -209,6 +262,8 @@ namespace llvm {
 
     virtual unsigned getJumpTableEncoding() const;
 
+    MachineBasicBlock *EmitBPOSGE32(MachineInstr *MI,
+                                    MachineBasicBlock *BB) const;
     MachineBasicBlock *EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
                     unsigned Size, unsigned BinOpcode, bool Nand = false) const;
     MachineBasicBlock *EmitAtomicBinaryPartword(MachineInstr *MI,

@@ -80,7 +80,7 @@
 // LINK_OLDER_NODEMANGLE-NOT: "-demangle"
 // LINK_OLDER_NODEMANGLE: "-lSystem"
 
-// RUN: %clang -target x86_64-apple-darwin10 -### %t.o \
+// RUN: %clang -target x86_64-apple-darwin10 -### %s \
 // RUN:   -mlinker-version=117 -flto 2> %t.log
 // RUN: cat %t.log
 // RUN: FileCheck -check-prefix=LINK_OBJECT_LTO_PATH %s < %t.log
@@ -121,6 +121,10 @@
 // RUN: %clang -target x86_64-apple-darwin12 -### %t.o 2> %t.log
 // RUN: FileCheck -check-prefix=LINK_NO_CRT1 %s < %t.log
 // LINK_NO_CRT1-NOT: crt
+
+// RUN: %clang -target armv7-apple-ios6.0 -miphoneos-version-min=6.0 -### %t.o 2> %t.log
+// RUN: FileCheck -check-prefix=LINK_NO_IOS_CRT1 %s < %t.log
+// LINK_NO_IOS_CRT1-NOT: crt
 
 // RUN: %clang -target i386-apple-darwin12 -pg -### %t.o 2> %t.log
 // RUN: FileCheck -check-prefix=LINK_PG %s < %t.log

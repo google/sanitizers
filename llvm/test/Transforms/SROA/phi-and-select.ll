@@ -59,15 +59,24 @@ entry:
 	%a = alloca [2 x i32]
 ; CHECK-NOT: alloca
 
+  ; Note that we build redundant GEPs here to ensure that having different GEPs
+  ; into the same alloca partation continues to work with PHI speculation. This
+  ; was the underlying cause of PR13926.
   %a0 = getelementptr [2 x i32]* %a, i64 0, i32 0
+  %a0b = getelementptr [2 x i32]* %a, i64 0, i32 0
   %a1 = getelementptr [2 x i32]* %a, i64 0, i32 1
+  %a1b = getelementptr [2 x i32]* %a, i64 0, i32 1
 	store i32 0, i32* %a0
 	store i32 1, i32* %a1
 ; CHECK-NOT: store
 
   switch i32 %x, label %bb0 [ i32 1, label %bb1
                               i32 2, label %bb2
-                              i32 3, label %bb3 ]
+                              i32 3, label %bb3
+                              i32 4, label %bb4
+                              i32 5, label %bb5
+                              i32 6, label %bb6
+                              i32 7, label %bb7 ]
 
 bb0:
 	br label %exit
@@ -77,10 +86,19 @@ bb2:
 	br label %exit
 bb3:
 	br label %exit
+bb4:
+	br label %exit
+bb5:
+	br label %exit
+bb6:
+	br label %exit
+bb7:
+	br label %exit
 
 exit:
-	%phi = phi i32* [ %a1, %bb0 ], [ %a0, %bb1 ], [ %a0, %bb2 ], [ %a1, %bb3 ]
-; CHECK: phi i32 [ 1, %{{.*}} ], [ 0, %{{.*}} ], [ 0, %{{.*}} ], [ 1, %{{.*}} ]
+	%phi = phi i32* [ %a1, %bb0 ], [ %a0, %bb1 ], [ %a0, %bb2 ], [ %a1, %bb3 ],
+                  [ %a1b, %bb4 ], [ %a0b, %bb5 ], [ %a0b, %bb6 ], [ %a1b, %bb7 ]
+; CHECK: phi i32 [ 1, %{{.*}} ], [ 0, %{{.*}} ], [ 0, %{{.*}} ], [ 1, %{{.*}} ], [ 1, %{{.*}} ], [ 0, %{{.*}} ], [ 0, %{{.*}} ], [ 1, %{{.*}} ]
 
 	%result = load i32* %phi
 	ret i32 %result
@@ -130,30 +148,34 @@ entry:
 ; CHECK: ret i32 1
 }
 
-declare void @f(i32*)
+declare void @f(i32*, i32*)
 
 define i32 @test6(i32* %b) {
 ; CHECK: @test6
 entry:
 	%a = alloca [2 x i32]
-; The alloca remains because it is used in a dead select.
-; CHECK: alloca
+  %c = alloca i32
+; CHECK-NOT: alloca
 
   %a1 = getelementptr [2 x i32]* %a, i64 0, i32 1
 	store i32 1, i32* %a1
 
 	%select = select i1 true, i32* %a1, i32* %b
 	%select2 = select i1 false, i32* %a1, i32* %b
-; CHECK-NOT: select i1 true
-; We don't aggressively DCE this select.
-; CHECK: select i1 false
+  %select3 = select i1 false, i32* %c, i32* %b
+; CHECK: %[[select2:.*]] = select i1 false, i32* undef, i32* %b
+; CHECK: %[[select3:.*]] = select i1 false, i32* undef, i32* %b
 
   ; Note, this would potentially escape the alloca pointer except for the
   ; constant folding of the select.
-  call void @f(i32* %select2)
+  call void @f(i32* %select2, i32* %select3)
+; CHECK: call void @f(i32* %[[select2]], i32* %[[select3]])
+
 
 	%result = load i32* %select
 ; CHECK-NOT: load
+
+  %dead = load i32* %c
 
 	ret i32 %result
 ; CHECK: ret i32 1
@@ -322,4 +344,49 @@ loop:
 exit:
   %load = load i32* %a
   ret i32 %load
+}
+
+define i32 @PR13905() {
+; Check a pattern where we have a chain of dead phi nodes to ensure they are
+; deleted and promotion can proceed.
+; CHECK: @PR13905
+; CHECK-NOT: alloca i32
+; CHECK: ret i32 undef
+
+entry:
+  %h = alloca i32
+  store i32 0, i32* %h
+  br i1 undef, label %loop1, label %exit
+
+loop1:
+  %phi1 = phi i32* [ null, %entry ], [ %h, %loop1 ], [ %h, %loop2 ]
+  br i1 undef, label %loop1, label %loop2
+
+loop2:
+  br i1 undef, label %loop1, label %exit
+
+exit:
+  %phi2 = phi i32* [ %phi1, %loop2 ], [ null, %entry ]
+  ret i32 undef
+}
+
+define i32 @PR13906() {
+; Another pattern which can lead to crashes due to failing to clear out dead
+; PHI nodes or select nodes. This triggers subtly differently from the above
+; cases because the PHI node is (recursively) alive, but the select is dead.
+; CHECK: @PR13906
+; CHECK-NOT: alloca
+
+entry:
+  %c = alloca i32
+  store i32 0, i32* %c
+  br label %for.cond
+
+for.cond:
+  %d.0 = phi i32* [ undef, %entry ], [ %c, %if.then ], [ %d.0, %for.cond ]
+  br i1 undef, label %if.then, label %for.cond
+
+if.then:
+  %tmpcast.d.0 = select i1 undef, i32* %c, i32* %d.0
+  br label %for.cond
 }

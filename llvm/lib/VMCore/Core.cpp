@@ -568,6 +568,19 @@ const char *LLVMGetMDString(LLVMValueRef V, unsigned* Len) {
   return 0;
 }
 
+unsigned LLVMGetMDNodeNumOperands(LLVMValueRef V)
+{
+  return cast<MDNode>(unwrap(V))->getNumOperands();
+}
+
+void LLVMGetMDNodeOperands(LLVMValueRef V, LLVMValueRef *Dest)
+{
+  const MDNode *N = cast<MDNode>(unwrap(V));
+  const unsigned numOperands = N->getNumOperands();
+  for (unsigned i = 0; i < numOperands; i++)
+    Dest[i] = wrap(N->getOperand(i));
+}
+
 unsigned LLVMGetNamedMetadataNumOperands(LLVMModuleRef M, const char* name)
 {
   if (NamedMDNode *N = unwrap(M)->getNamedMetadata(name)) {
@@ -1462,7 +1475,7 @@ LLVMAttribute LLVMGetAttribute(LLVMValueRef Arg) {
 
 void LLVMSetParamAlignment(LLVMValueRef Arg, unsigned align) {
   unwrap<Argument>(Arg)->addAttr(
-          Attribute::constructAlignmentFromInt(align));
+          Attributes::constructAlignmentFromInt(align));
 }
 
 /*--.. Operations on basic blocks ..........................................--*/
@@ -1667,7 +1680,7 @@ void LLVMSetInstrParamAlignment(LLVMValueRef Instr, unsigned index,
   CallSite Call = CallSite(unwrap<Instruction>(Instr));
   Call.setAttributes(
     Call.getAttributes().addAttr(index, 
-        Attribute::constructAlignmentFromInt(align)));
+        Attributes::constructAlignmentFromInt(align)));
 }
 
 /*--.. Operations on call instructions (only) ..............................--*/
