@@ -679,6 +679,11 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
   PrettyStackTraceLoc CrashInfo(PP.getSourceManager(),
                                 Tok.getLocation(),
                                 "in compound statement ('{}')");
+
+  // Record the state of the FP_CONTRACT pragma, restore on leaving the
+  // compound statement.
+  Sema::FPContractStateRAII SaveFPContractState(Actions);
+
   InMessageExpressionRAIIObject InMessage(*this, false);
   BalancedDelimiterTracker T(*this, tok::l_brace);
   if (T.consumeOpen())
@@ -1441,7 +1446,8 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
     ForRangeStmt = Actions.ActOnCXXForRangeStmt(ForLoc, FirstPart.take(),
                                                 ForRangeInit.ColonLoc,
                                                 ForRangeInit.RangeExpr.get(),
-                                                T.getCloseLocation(), true);
+                                                T.getCloseLocation(),
+                                                Sema::BFRK_Build);
 
 
   // Similarly, we need to do the semantic analysis for a for-range

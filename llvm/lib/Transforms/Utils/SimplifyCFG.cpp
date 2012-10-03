@@ -54,8 +54,14 @@ static cl::opt<bool>
 DupRet("simplifycfg-dup-ret", cl::Hidden, cl::init(false),
        cl::desc("Duplicate return instructions into unconditional branches"));
 
-STATISTIC(NumSpeculations, "Number of speculative executed instructions");
+static cl::opt<bool>
+SinkCommon("simplifycfg-sink-common", cl::Hidden, cl::init(true),
+       cl::desc("Sink common instructions down to the end block"));
+
+STATISTIC(NumBitMaps, "Number of switch instructions turned into bitmaps");
 STATISTIC(NumLookupTables, "Number of switch instructions turned into lookup tables");
+STATISTIC(NumSinkCommons, "Number of common instructions sunk down to the end block");
+STATISTIC(NumSpeculations, "Number of speculative executed instructions");
 
 namespace {
   /// ValueEqualityComparisonCase - Represents a case of a switch.
@@ -1156,6 +1162,175 @@ HoistTerminator:
   return true;
 }
 
+/// SinkThenElseCodeToEnd - Given an unconditional branch that goes to BBEnd,
+/// check whether BBEnd has only two predecessors and the other predecessor
+/// ends with an unconditional branch. If it is true, sink any common code
+/// in the two predecessors to BBEnd.
+static bool SinkThenElseCodeToEnd(BranchInst *BI1) {
+  assert(BI1->isUnconditional());
+  BasicBlock *BB1 = BI1->getParent();
+  BasicBlock *BBEnd = BI1->getSuccessor(0);
+
+  // Check that BBEnd has two predecessors and the other predecessor ends with
+  // an unconditional branch.
+  pred_iterator PI = pred_begin(BBEnd), PE = pred_end(BBEnd);
+  BasicBlock *Pred0 = *PI++;
+  if (PI == PE) // Only one predecessor.
+    return false;
+  BasicBlock *Pred1 = *PI++;
+  if (PI != PE) // More than two predecessors.
+    return false;
+  BasicBlock *BB2 = (Pred0 == BB1) ? Pred1 : Pred0;
+  BranchInst *BI2 = dyn_cast<BranchInst>(BB2->getTerminator());
+  if (!BI2 || !BI2->isUnconditional())
+    return false;
+
+  // Gather the PHI nodes in BBEnd.
+  std::map<Value*, std::pair<Value*, PHINode*> > MapValueFromBB1ToBB2;
+  Instruction *FirstNonPhiInBBEnd = 0;
+  for (BasicBlock::iterator I = BBEnd->begin(), E = BBEnd->end();
+       I != E; ++I) {
+    if (PHINode *PN = dyn_cast<PHINode>(I)) {
+      Value *BB1V = PN->getIncomingValueForBlock(BB1);
+      Value *BB2V = PN->getIncomingValueForBlock(BB2); 
+      MapValueFromBB1ToBB2[BB1V] = std::make_pair(BB2V, PN);
+    } else {
+      FirstNonPhiInBBEnd = &*I;
+      break;
+    }
+  }
+  if (!FirstNonPhiInBBEnd)
+    return false;
+  
+
+  // This does very trivial matching, with limited scanning, to find identical
+  // instructions in the two blocks.  We scan backward for obviously identical
+  // instructions in an identical order.
+  BasicBlock::InstListType::reverse_iterator RI1 = BB1->getInstList().rbegin(),
+      RE1 = BB1->getInstList().rend(), RI2 = BB2->getInstList().rbegin(),
+      RE2 = BB2->getInstList().rend();
+  // Skip debug info.
+  while (RI1 != RE1 && isa<DbgInfoIntrinsic>(&*RI1)) ++RI1;
+  if (RI1 == RE1)
+    return false;
+  while (RI2 != RE2 && isa<DbgInfoIntrinsic>(&*RI2)) ++RI2;
+  if (RI2 == RE2)
+    return false;
+  // Skip the unconditional branches.
+  ++RI1;
+  ++RI2;
+
+  bool Changed = false;
+  while (RI1 != RE1 && RI2 != RE2) {
+    // Skip debug info.
+    while (RI1 != RE1 && isa<DbgInfoIntrinsic>(&*RI1)) ++RI1;
+    if (RI1 == RE1)
+      return Changed;
+    while (RI2 != RE2 && isa<DbgInfoIntrinsic>(&*RI2)) ++RI2;
+    if (RI2 == RE2)
+      return Changed;
+
+    Instruction *I1 = &*RI1, *I2 = &*RI2;
+    // I1 and I2 should have a single use in the same PHI node, and they
+    // perform the same operation.
+    // Cannot move control-flow-involving, volatile loads, vaarg, etc.
+    if (isa<PHINode>(I1) || isa<PHINode>(I2) ||
+        isa<TerminatorInst>(I1) || isa<TerminatorInst>(I2) ||
+        isa<LandingPadInst>(I1) || isa<LandingPadInst>(I2) ||
+        isa<AllocaInst>(I1) || isa<AllocaInst>(I2) ||
+        I1->mayHaveSideEffects() || I2->mayHaveSideEffects() ||
+        I1->mayReadOrWriteMemory() || I2->mayReadOrWriteMemory() ||
+        !I1->hasOneUse() || !I2->hasOneUse() ||
+        MapValueFromBB1ToBB2.find(I1) == MapValueFromBB1ToBB2.end() ||
+        MapValueFromBB1ToBB2[I1].first != I2)
+      return Changed;
+
+    // Check whether we should swap the operands of ICmpInst.
+    ICmpInst *ICmp1 = dyn_cast<ICmpInst>(I1), *ICmp2 = dyn_cast<ICmpInst>(I2);
+    bool SwapOpnds = false;
+    if (ICmp1 && ICmp2 &&
+        ICmp1->getOperand(0) != ICmp2->getOperand(0) &&
+        ICmp1->getOperand(1) != ICmp2->getOperand(1) &&
+        (ICmp1->getOperand(0) == ICmp2->getOperand(1) ||
+         ICmp1->getOperand(1) == ICmp2->getOperand(0))) {
+      ICmp2->swapOperands();
+      SwapOpnds = true;
+    }
+    if (!I1->isSameOperationAs(I2)) {
+      if (SwapOpnds)
+        ICmp2->swapOperands();
+      return Changed;
+    }
+
+    // The operands should be either the same or they need to be generated
+    // with a PHI node after sinking. We only handle the case where there is
+    // a single pair of different operands.
+    Value *DifferentOp1 = 0, *DifferentOp2 = 0;
+    unsigned Op1Idx = 0;
+    for (unsigned I = 0, E = I1->getNumOperands(); I != E; ++I) {
+      if (I1->getOperand(I) == I2->getOperand(I))
+        continue;
+      // Early exit if we have more-than one pair of different operands or
+      // the different operand is already in MapValueFromBB1ToBB2.
+      // Early exit if we need a PHI node to replace a constant.
+      if (DifferentOp1 ||
+          MapValueFromBB1ToBB2.find(I1->getOperand(I)) !=
+          MapValueFromBB1ToBB2.end() ||
+          isa<Constant>(I1->getOperand(I)) ||
+          isa<Constant>(I2->getOperand(I))) {
+        // If we can't sink the instructions, undo the swapping.
+        if (SwapOpnds)
+          ICmp2->swapOperands();
+        return Changed;
+      }
+      DifferentOp1 = I1->getOperand(I);
+      Op1Idx = I;
+      DifferentOp2 = I2->getOperand(I);
+    }
+
+    // We insert the pair of different operands to MapValueFromBB1ToBB2 and
+    // remove (I1, I2) from MapValueFromBB1ToBB2.
+    if (DifferentOp1) {
+      PHINode *NewPN = PHINode::Create(DifferentOp1->getType(), 2,
+                                       DifferentOp1->getName() + ".sink",
+                                       BBEnd->begin());
+      MapValueFromBB1ToBB2[DifferentOp1] = std::make_pair(DifferentOp2, NewPN);
+      // I1 should use NewPN instead of DifferentOp1.
+      I1->setOperand(Op1Idx, NewPN);
+      NewPN->addIncoming(DifferentOp1, BB1);
+      NewPN->addIncoming(DifferentOp2, BB2);
+      DEBUG(dbgs() << "Create PHI node " << *NewPN << "\n";);
+    }
+    PHINode *OldPN = MapValueFromBB1ToBB2[I1].second;
+    MapValueFromBB1ToBB2.erase(I1);
+
+    DEBUG(dbgs() << "SINK common instructions " << *I1 << "\n";);
+    DEBUG(dbgs() << "                         " << *I2 << "\n";);
+    // We need to update RE1 and RE2 if we are going to sink the first
+    // instruction in the basic block down.
+    bool UpdateRE1 = (I1 == BB1->begin()), UpdateRE2 = (I2 == BB2->begin());
+    // Sink the instruction.
+    BBEnd->getInstList().splice(FirstNonPhiInBBEnd, BB1->getInstList(), I1);
+    if (!OldPN->use_empty())
+      OldPN->replaceAllUsesWith(I1);
+    OldPN->eraseFromParent();
+
+    if (!I2->use_empty())
+      I2->replaceAllUsesWith(I1);
+    I1->intersectOptionalDataWith(I2);
+    I2->eraseFromParent();
+
+    if (UpdateRE1)
+      RE1 = BB1->getInstList().rend();
+    if (UpdateRE2)
+      RE2 = BB2->getInstList().rend();
+    FirstNonPhiInBBEnd = I1;
+    NumSinkCommons++;
+    Changed = true;
+  }
+  return Changed;
+}
+
 /// SpeculativelyExecuteBB - Given a conditional branch that goes to BB1
 /// and an BB2 and the only successor of BB1 is BB2, hoist simple code
 /// (for now, restricted to a single instruction that's side effect free) from
@@ -1796,7 +1971,7 @@ bool llvm::FoldBranchToCommonDest(BranchInst *BI) {
       continue;
 
     // Determine if the two branches share a common destination.
-    Instruction::BinaryOps Opc;
+    Instruction::BinaryOps Opc = Instruction::BinaryOpsEnd;
     bool InvertPredCond = false;
 
     if (BI->isConditional()) {
@@ -2150,6 +2325,33 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI) {
   PBI->setSuccessor(0, CommonDest);
   PBI->setSuccessor(1, OtherDest);
 
+  // Update branch weight for PBI.
+  uint64_t PredTrueWeight, PredFalseWeight, SuccTrueWeight, SuccFalseWeight;
+  bool PredHasWeights = ExtractBranchMetadata(PBI, PredTrueWeight,
+                                              PredFalseWeight);
+  bool SuccHasWeights = ExtractBranchMetadata(BI, SuccTrueWeight,
+                                              SuccFalseWeight);
+  if (PredHasWeights && SuccHasWeights) {
+    uint64_t PredCommon = PBIOp ? PredFalseWeight : PredTrueWeight;
+    uint64_t PredOther = PBIOp ?PredTrueWeight : PredFalseWeight;
+    uint64_t SuccCommon = BIOp ? SuccFalseWeight : SuccTrueWeight;
+    uint64_t SuccOther = BIOp ? SuccTrueWeight : SuccFalseWeight;
+    // The weight to CommonDest should be PredCommon * SuccTotal +
+    //                                    PredOther * SuccCommon.
+    // The weight to OtherDest should be PredOther * SuccOther.
+    SmallVector<uint64_t, 2> NewWeights;
+    NewWeights.push_back(PredCommon * (SuccCommon + SuccOther) +
+                         PredOther * SuccCommon);
+    NewWeights.push_back(PredOther * SuccOther);
+    // Halve the weights if any of them cannot fit in an uint32_t
+    FitWeights(NewWeights);
+
+    SmallVector<uint32_t, 2> MDWeights(NewWeights.begin(),NewWeights.end());
+    PBI->setMetadata(LLVMContext::MD_prof,
+                     MDBuilder(BI->getContext()).
+                     createBranchWeights(MDWeights));
+  }
+
   // OtherDest may have phi nodes.  If so, add an entry from PBI's
   // block that are identical to the entries for BI's block.
   AddPredecessorToBlock(OtherDest, PBI->getParent(), BB);
@@ -2186,7 +2388,9 @@ static bool SimplifyCondBranchToCondBranch(BranchInst *PBI, BranchInst *BI) {
 // Also makes sure not to introduce new successors by assuming that edges to
 // non-successor TrueBBs and FalseBBs aren't reachable.
 static bool SimplifyTerminatorOnSelect(TerminatorInst *OldTerm, Value *Cond,
-                                       BasicBlock *TrueBB, BasicBlock *FalseBB){
+                                       BasicBlock *TrueBB, BasicBlock *FalseBB,
+                                       uint32_t TrueWeight,
+                                       uint32_t FalseWeight){
   // Remove any superfluous successor edges from the CFG.
   // First, figure out which successors to preserve.
   // If TrueBB and FalseBB are equal, only try to preserve one copy of that
@@ -2215,10 +2419,15 @@ static bool SimplifyTerminatorOnSelect(TerminatorInst *OldTerm, Value *Cond,
       // We were only looking for one successor, and it was present.
       // Create an unconditional branch to it.
       Builder.CreateBr(TrueBB);
-    else
+    else {
       // We found both of the successors we were looking for.
       // Create a conditional branch sharing the condition of the select.
-      Builder.CreateCondBr(Cond, TrueBB, FalseBB);
+      BranchInst *NewBI = Builder.CreateCondBr(Cond, TrueBB, FalseBB);
+      if (TrueWeight != FalseWeight)
+        NewBI->setMetadata(LLVMContext::MD_prof,
+                           MDBuilder(OldTerm->getContext()).
+                           createBranchWeights(TrueWeight, FalseWeight));
+    }
   } else if (KeepEdge1 && (KeepEdge2 || TrueBB == FalseBB)) {
     // Neither of the selected blocks were successors, so this
     // terminator must be unreachable.
@@ -2255,8 +2464,23 @@ static bool SimplifySwitchOnSelect(SwitchInst *SI, SelectInst *Select) {
   BasicBlock *TrueBB = SI->findCaseValue(TrueVal).getCaseSuccessor();
   BasicBlock *FalseBB = SI->findCaseValue(FalseVal).getCaseSuccessor();
 
+  // Get weight for TrueBB and FalseBB.
+  uint32_t TrueWeight = 0, FalseWeight = 0;
+  SmallVector<uint64_t, 8> Weights;
+  bool HasWeights = HasBranchWeights(SI);
+  if (HasWeights) {
+    GetBranchWeights(SI, Weights);
+    if (Weights.size() == 1 + SI->getNumCases()) {
+      TrueWeight = (uint32_t)Weights[SI->findCaseValue(TrueVal).
+                                     getSuccessorIndex()];
+      FalseWeight = (uint32_t)Weights[SI->findCaseValue(FalseVal).
+                                      getSuccessorIndex()];
+    }
+  }
+
   // Perform the actual simplification.
-  return SimplifyTerminatorOnSelect(SI, Condition, TrueBB, FalseBB);
+  return SimplifyTerminatorOnSelect(SI, Condition, TrueBB, FalseBB,
+                                    TrueWeight, FalseWeight);
 }
 
 // SimplifyIndirectBrOnSelect - Replaces
@@ -2276,7 +2500,8 @@ static bool SimplifyIndirectBrOnSelect(IndirectBrInst *IBI, SelectInst *SI) {
   BasicBlock *FalseBB = FBA->getBasicBlock();
 
   // Perform the actual simplification.
-  return SimplifyTerminatorOnSelect(IBI, SI->getCondition(), TrueBB, FalseBB);
+  return SimplifyTerminatorOnSelect(IBI, SI->getCondition(), TrueBB, FalseBB,
+                                    0, 0);
 }
 
 /// TryToSimplifyUncondBranchWithICmpInIt - This is called when we find an icmp
@@ -2375,6 +2600,21 @@ static bool TryToSimplifyUncondBranchWithICmpInIt(ICmpInst *ICI,
   // the switch to the merge point on the compared value.
   BasicBlock *NewBB = BasicBlock::Create(BB->getContext(), "switch.edge",
                                          BB->getParent(), BB);
+  SmallVector<uint64_t, 8> Weights;
+  bool HasWeights = HasBranchWeights(SI);
+  if (HasWeights) {
+    GetBranchWeights(SI, Weights);
+    if (Weights.size() == 1 + SI->getNumCases()) {
+      // Split weight for default case to case for "Cst".
+      Weights[0] = (Weights[0]+1) >> 1;
+      Weights.push_back(Weights[0]);
+
+      SmallVector<uint32_t, 8> MDWeights(Weights.begin(), Weights.end());
+      SI->setMetadata(LLVMContext::MD_prof,
+                      MDBuilder(SI->getContext()).
+                      createBranchWeights(MDWeights));
+    }
+  }
   SI->addCase(Cst, NewBB);
 
   // NewBB branches to the phi block, add the uncond branch and the phi entry.
@@ -2788,8 +3028,27 @@ static bool TurnSwitchRangeIntoICmp(SwitchInst *SI, IRBuilder<> &Builder) {
   if (!Offset->isNullValue())
     Sub = Builder.CreateAdd(Sub, Offset, Sub->getName()+".off");
   Value *Cmp = Builder.CreateICmpULT(Sub, NumCases, "switch");
-  Builder.CreateCondBr(
+  BranchInst *NewBI = Builder.CreateCondBr(
       Cmp, SI->case_begin().getCaseSuccessor(), SI->getDefaultDest());
+
+  // Update weight for the newly-created conditional branch.
+  SmallVector<uint64_t, 8> Weights;
+  bool HasWeights = HasBranchWeights(SI);
+  if (HasWeights) {
+    GetBranchWeights(SI, Weights);
+    if (Weights.size() == 1 + SI->getNumCases()) {
+      // Combine all weights for the cases to be the true weight of NewBI.
+      // We assume that the sum of all weights for a Terminator can fit into 32
+      // bits.
+      uint32_t NewTrueWeight = 0;
+      for (unsigned I = 1, E = Weights.size(); I != E; ++I)
+        NewTrueWeight += (uint32_t)Weights[I];
+      NewBI->setMetadata(LLVMContext::MD_prof,
+                         MDBuilder(SI->getContext()).
+                         createBranchWeights(NewTrueWeight,
+                                             (uint32_t)Weights[0]));
+    }
+  }
 
   // Prune obsolete incoming values off the successor's PHI nodes.
   for (BasicBlock::iterator BBI = SI->case_begin().getCaseSuccessor()->begin();
@@ -2821,14 +3080,32 @@ static bool EliminateDeadSwitchCases(SwitchInst *SI) {
     }
   }
 
+  SmallVector<uint64_t, 8> Weights;
+  bool HasWeight = HasBranchWeights(SI);
+  if (HasWeight) {
+    GetBranchWeights(SI, Weights);
+    HasWeight = (Weights.size() == 1 + SI->getNumCases());
+  }
+
   // Remove dead cases from the switch.
   for (unsigned I = 0, E = DeadCases.size(); I != E; ++I) {
     SwitchInst::CaseIt Case = SI->findCaseValue(DeadCases[I]);
     assert(Case != SI->case_default() &&
            "Case was not found. Probably mistake in DeadCases forming.");
+    if (HasWeight) {
+      std::swap(Weights[Case.getCaseIndex()+1], Weights.back());
+      Weights.pop_back();
+    }
+
     // Prune unused values from PHI nodes.
     Case.getCaseSuccessor()->removePredecessor(SI->getParent());
     SI->removeCase(Case);
+  }
+  if (HasWeight) {
+    SmallVector<uint32_t, 8> MDWeights(Weights.begin(), Weights.end());
+    SI->setMetadata(LLVMContext::MD_prof,
+                    MDBuilder(SI->getParent()->getContext()).
+                    createBranchWeights(MDWeights));
   }
 
   return !DeadCases.empty();
@@ -2968,83 +3245,230 @@ static bool GetCaseResults(SwitchInst *SI,
   return true;
 }
 
-/// BuildLookupTable - Build a lookup table with the contents of Results, using
-/// DefaultResult to fill the holes in the table. If the table ends up
-/// containing the same result in each element, set *SingleResult to that value
-/// and return NULL.
-static GlobalVariable *BuildLookupTable(Module &M,
-                                        uint64_t TableSize,
-                                        ConstantInt *Offset,
-              const SmallVector<std::pair<ConstantInt*, Constant*>, 4>& Results,
-                                        Constant *DefaultResult,
-                                        Constant **SingleResult) {
-  assert(Results.size() && "Need values to build lookup table");
-  assert(TableSize >= Results.size() && "Table needs to hold all values");
+namespace {
+  /// SwitchLookupTable - This class represents a lookup table that can be used
+  /// to replace a switch.
+  class SwitchLookupTable {
+  public:
+    /// SwitchLookupTable - Create a lookup table to use as a switch replacement
+    /// with the contents of Values, using DefaultValue to fill any holes in the
+    /// table.
+    SwitchLookupTable(Module &M,
+                      uint64_t TableSize,
+                      ConstantInt *Offset,
+               const SmallVector<std::pair<ConstantInt*, Constant*>, 4>& Values,
+                      Constant *DefaultValue,
+                      const TargetData *TD);
+
+    /// BuildLookup - Build instructions with Builder to retrieve the value at
+    /// the position given by Index in the lookup table.
+    Value *BuildLookup(Value *Index, IRBuilder<> &Builder);
+
+    /// WouldFitInRegister - Return true if a table with TableSize elements of
+    /// type ElementType would fit in a target-legal register.
+    static bool WouldFitInRegister(const TargetData *TD,
+                                   uint64_t TableSize,
+                                   const Type *ElementType);
+
+  private:
+    // Depending on the contents of the table, it can be represented in
+    // different ways.
+    enum {
+      // For tables where each element contains the same value, we just have to
+      // store that single value and return it for each lookup.
+      SingleValueKind,
+
+      // For small tables with integer elements, we can pack them into a bitmap
+      // that fits into a target-legal register. Values are retrieved by
+      // shift and mask operations.
+      BitMapKind,
+
+      // The table is stored as an array of values. Values are retrieved by load
+      // instructions from the table.
+      ArrayKind
+    } Kind;
+
+    // For SingleValueKind, this is the single value.
+    Constant *SingleValue;
+
+    // For BitMapKind, this is the bitmap.
+    ConstantInt *BitMap;
+    IntegerType *BitMapElementTy;
+
+    // For ArrayKind, this is the array.
+    GlobalVariable *Array;
+  };
+}
+
+SwitchLookupTable::SwitchLookupTable(Module &M,
+                                     uint64_t TableSize,
+                                     ConstantInt *Offset,
+               const SmallVector<std::pair<ConstantInt*, Constant*>, 4>& Values,
+                                     Constant *DefaultValue,
+                                     const TargetData *TD) {
+  assert(Values.size() && "Can't build lookup table without values!");
+  assert(TableSize >= Values.size() && "Can't fit values in table!");
 
   // If all values in the table are equal, this is that value.
-  Constant *SameResult = Results.begin()->second;
+  SingleValue = Values.begin()->second;
 
   // Build up the table contents.
-  std::vector<Constant*> TableContents(TableSize);
-  for (size_t I = 0, E = Results.size(); I != E; ++I) {
-    ConstantInt *CaseVal = Results[I].first;
-    Constant *CaseRes = Results[I].second;
+  SmallVector<Constant*, 64> TableContents(TableSize);
+  for (size_t I = 0, E = Values.size(); I != E; ++I) {
+    ConstantInt *CaseVal = Values[I].first;
+    Constant *CaseRes = Values[I].second;
+    assert(CaseRes->getType() == DefaultValue->getType());
 
-    uint64_t Idx = (CaseVal->getValue() - Offset->getValue()).getLimitedValue();
+    uint64_t Idx = (CaseVal->getValue() - Offset->getValue())
+                   .getLimitedValue();
     TableContents[Idx] = CaseRes;
 
-    if (CaseRes != SameResult)
-      SameResult = NULL;
+    if (CaseRes != SingleValue)
+      SingleValue = NULL;
   }
 
   // Fill in any holes in the table with the default result.
-  if (Results.size() < TableSize) {
-    for (unsigned i = 0; i < TableSize; ++i) {
-      if (!TableContents[i])
-        TableContents[i] = DefaultResult;
+  if (Values.size() < TableSize) {
+    for (uint64_t I = 0; I < TableSize; ++I) {
+      if (!TableContents[I])
+        TableContents[I] = DefaultValue;
     }
 
-    if (DefaultResult != SameResult)
-      SameResult = NULL;
+    if (DefaultValue != SingleValue)
+      SingleValue = NULL;
   }
 
-  // Same result was used in the entire table; just return that.
-  if (SameResult) {
-    *SingleResult = SameResult;
-    return NULL;
+  // If each element in the table contains the same value, we only need to store
+  // that single value.
+  if (SingleValue) {
+    Kind = SingleValueKind;
+    return;
   }
 
-  ArrayType *ArrayTy = ArrayType::get(DefaultResult->getType(), TableSize);
+  // If the type is integer and the table fits in a register, build a bitmap.
+  if (WouldFitInRegister(TD, TableSize, DefaultValue->getType())) {
+    IntegerType *IT = cast<IntegerType>(DefaultValue->getType());
+    APInt TableInt(TableSize * IT->getBitWidth(), 0);
+    for (uint64_t I = TableSize; I > 0; --I) {
+      TableInt <<= IT->getBitWidth();
+      // Insert values into the bitmap. Undef values are set to zero.
+      if (!isa<UndefValue>(TableContents[I - 1])) {
+        ConstantInt *Val = cast<ConstantInt>(TableContents[I - 1]);
+        TableInt |= Val->getValue().zext(TableInt.getBitWidth());
+      }
+    }
+    BitMap = ConstantInt::get(M.getContext(), TableInt);
+    BitMapElementTy = IT;
+    Kind = BitMapKind;
+    ++NumBitMaps;
+    return;
+  }
+
+  // Store the table in an array.
+  ArrayType *ArrayTy = ArrayType::get(DefaultValue->getType(), TableSize);
   Constant *Initializer = ConstantArray::get(ArrayTy, TableContents);
 
-  GlobalVariable *GV = new GlobalVariable(M, ArrayTy, /*constant=*/ true,
-                                          GlobalVariable::PrivateLinkage,
-                                          Initializer,
-                                          "switch.table");
-  GV->setUnnamedAddr(true);
-  return GV;
+  Array = new GlobalVariable(M, ArrayTy, /*constant=*/ true,
+                             GlobalVariable::PrivateLinkage,
+                             Initializer,
+                             "switch.table");
+  Array->setUnnamedAddr(true);
+  Kind = ArrayKind;
+}
+
+Value *SwitchLookupTable::BuildLookup(Value *Index, IRBuilder<> &Builder) {
+  switch (Kind) {
+    case SingleValueKind:
+      return SingleValue;
+    case BitMapKind: {
+      // Type of the bitmap (e.g. i59).
+      IntegerType *MapTy = BitMap->getType();
+
+      // Cast Index to the same type as the bitmap.
+      // Note: The Index is <= the number of elements in the table, so
+      // truncating it to the width of the bitmask is safe.
+      Value *ShiftAmt = Builder.CreateZExtOrTrunc(Index, MapTy, "switch.cast");
+
+      // Multiply the shift amount by the element width.
+      ShiftAmt = Builder.CreateMul(ShiftAmt,
+                      ConstantInt::get(MapTy, BitMapElementTy->getBitWidth()),
+                                   "switch.shiftamt");
+
+      // Shift down.
+      Value *DownShifted = Builder.CreateLShr(BitMap, ShiftAmt,
+                                              "switch.downshift");
+      // Mask off.
+      return Builder.CreateTrunc(DownShifted, BitMapElementTy,
+                                 "switch.masked");
+    }
+    case ArrayKind: {
+      Value *GEPIndices[] = { Builder.getInt32(0), Index };
+      Value *GEP = Builder.CreateInBoundsGEP(Array, GEPIndices,
+                                             "switch.gep");
+      return Builder.CreateLoad(GEP, "switch.load");
+    }
+  }
+  llvm_unreachable("Unknown lookup table kind!");
+}
+
+bool SwitchLookupTable::WouldFitInRegister(const TargetData *TD,
+                                           uint64_t TableSize,
+                                           const Type *ElementType) {
+  if (!TD)
+    return false;
+  const IntegerType *IT = dyn_cast<IntegerType>(ElementType);
+  if (!IT)
+    return false;
+  // FIXME: If the type is wider than it needs to be, e.g. i8 but all values
+  // are <= 15, we could try to narrow the type.
+
+  // Avoid overflow, fitsInLegalInteger uses unsigned int for the width.
+  if (TableSize >= UINT_MAX/IT->getBitWidth())
+    return false;
+  return TD->fitsInLegalInteger(TableSize * IT->getBitWidth());
+}
+
+/// ShouldBuildLookupTable - Determine whether a lookup table should be built
+/// for this switch, based on the number of caes, size of the table and the
+/// types of the results.
+static bool ShouldBuildLookupTable(SwitchInst *SI,
+                                   uint64_t TableSize,
+                                   const TargetData *TD,
+                            const SmallDenseMap<PHINode*, Type*>& ResultTypes) {
+  // The table density should be at least 40%. This is the same criterion as for
+  // jump tables, see SelectionDAGBuilder::handleJTSwitchCase.
+  // FIXME: Find the best cut-off.
+  if (SI->getNumCases() > TableSize || TableSize >= UINT64_MAX / 10)
+    return false; // TableSize overflowed, or mul below might overflow.
+  if (SI->getNumCases() * 10 >= TableSize * 4)
+    return true;
+
+  // If each table would fit in a register, we should build it anyway.
+  for (SmallDenseMap<PHINode*, Type*>::const_iterator I = ResultTypes.begin(),
+       E = ResultTypes.end(); I != E; ++I) {
+    if (!SwitchLookupTable::WouldFitInRegister(TD, TableSize, I->second))
+      return false;
+  }
+  return true;
 }
 
 /// SwitchToLookupTable - If the switch is only used to initialize one or more
 /// phi nodes in a common successor block with different constant values,
 /// replace the switch with lookup tables.
 static bool SwitchToLookupTable(SwitchInst *SI,
-                                IRBuilder<> &Builder) {
+                                IRBuilder<> &Builder,
+                                const TargetData* TD) {
   assert(SI->getNumCases() > 1 && "Degenerate switch?");
   // FIXME: Handle unreachable cases.
 
   // FIXME: If the switch is too sparse for a lookup table, perhaps we could
   // split off a dense part and build a lookup table for that.
 
-  // FIXME: If the results are all integers and the lookup table would fit in a
-  // target-legal register, we should store them as a bitmap and use shift/mask
-  // to look up the result.
-
   // FIXME: This creates arrays of GEPs to constant strings, which means each
   // GEP needs a runtime relocation in PIC code. We should just build one big
   // string and lookup indices into that.
 
-  // Ignore the switch if the number of cases are too small.
+  // Ignore the switch if the number of cases is too small.
   // This is similar to the check when building jump tables in
   // SelectionDAGBuilder::handleJTSwitchCase.
   // FIXME: Determine the best cut-off.
@@ -3098,33 +3522,12 @@ static bool SwitchToLookupTable(SwitchInst *SI,
   }
 
   APInt RangeSpread = MaxCaseVal->getValue() - MinCaseVal->getValue();
-  // The table density should be at lest 40%. This is the same criterion as for
-  // jump tables, see SelectionDAGBuilder::handleJTSwitchCase.
-  // FIXME: Find the best cut-off.
-  // Be careful to avoid overlow in the density computation.
-  if (RangeSpread.zextOrSelf(64).ugt(UINT64_MAX / 4 - 1))
-    return false;
   uint64_t TableSize = RangeSpread.getLimitedValue() + 1;
-  if (SI->getNumCases() * 10 < TableSize * 4)
+  if (!ShouldBuildLookupTable(SI, TableSize, TD, ResultTypes))
     return false;
-
-  // Build the lookup tables.
-  SmallDenseMap<PHINode*, GlobalVariable*> LookupTables;
-  SmallDenseMap<PHINode*, Constant*> SingleResults;
-
-  Module &Mod = *CommonDest->getParent()->getParent();
-  for (SmallVector<PHINode*, 4>::iterator I = PHIs.begin(), E = PHIs.end();
-       I != E; ++I) {
-    PHINode *PHI = *I;
-
-    Constant *SingleResult = NULL;
-    LookupTables[PHI] = BuildLookupTable(Mod, TableSize, MinCaseVal,
-                                         ResultLists[PHI], DefaultResults[PHI],
-                                         &SingleResult);
-    SingleResults[PHI] = SingleResult;
-  }
 
   // Create the BB that does the lookups.
+  Module &Mod = *CommonDest->getParent()->getParent();
   BasicBlock *LookupBB = BasicBlock::Create(Mod.getContext(),
                                             "switch.lookup",
                                             CommonDest->getParent(),
@@ -3142,31 +3545,24 @@ static bool SwitchToLookupTable(SwitchInst *SI,
   // Populate the BB that does the lookups.
   Builder.SetInsertPoint(LookupBB);
   bool ReturnedEarly = false;
-  for (SmallVector<PHINode*, 4>::iterator I = PHIs.begin(), E = PHIs.end();
-       I != E; ++I) {
-    PHINode *PHI = *I;
-    // There was a single result for this phi; just use that.
-    if (Constant *SingleResult = SingleResults[PHI]) {
-      PHI->addIncoming(SingleResult, LookupBB);
-      continue;
+  for (size_t I = 0, E = PHIs.size(); I != E; ++I) {
+    PHINode *PHI = PHIs[I];
+
+    SwitchLookupTable Table(Mod, TableSize, MinCaseVal, ResultLists[PHI],
+                            DefaultResults[PHI], TD);
+
+    Value *Result = Table.BuildLookup(TableIndex, Builder);
+
+    // If the result is used to return immediately from the function, we want to
+    // do that right here.
+    if (PHI->hasOneUse() && isa<ReturnInst>(*PHI->use_begin()) &&
+        *PHI->use_begin() == CommonDest->getFirstNonPHIOrDbg()) {
+      Builder.CreateRet(Result);
+      ReturnedEarly = true;
+      break;
     }
 
-    Value *GEPIndices[] = { Builder.getInt32(0), TableIndex };
-    Value *GEP = Builder.CreateInBoundsGEP(LookupTables[PHI], GEPIndices,
-                                           "switch.gep");
-    Value *Result = Builder.CreateLoad(GEP, "switch.load");
-
-    // If the result is only going to be used to return from the function,
-    // we want to do that right here.
-    if (PHI->hasOneUse() && isa<ReturnInst>(*PHI->use_begin())) {
-      if (CommonDest->getFirstNonPHIOrDbg() == CommonDest->getTerminator()) {
-        Builder.CreateRet(Result);
-        ReturnedEarly = true;
-      }
-    }
-
-    if (!ReturnedEarly)
-      PHI->addIncoming(Result, LookupBB);
+    PHI->addIncoming(Result, LookupBB);
   }
 
   if (!ReturnedEarly)
@@ -3223,7 +3619,7 @@ bool SimplifyCFGOpt::SimplifySwitch(SwitchInst *SI, IRBuilder<> &Builder) {
   if (ForwardSwitchConditionToPHI(SI))
     return SimplifyCFG(BB) | true;
 
-  if (SwitchToLookupTable(SI, Builder))
+  if (SwitchToLookupTable(SI, Builder, TD))
     return SimplifyCFG(BB) | true;
 
   return false;
@@ -3268,6 +3664,9 @@ bool SimplifyCFGOpt::SimplifyIndirectBr(IndirectBrInst *IBI) {
 
 bool SimplifyCFGOpt::SimplifyUncondBranch(BranchInst *BI, IRBuilder<> &Builder){
   BasicBlock *BB = BI->getParent();
+
+  if (SinkCommon && SinkThenElseCodeToEnd(BI))
+    return true;
 
   // If the Terminator is the only non-phi instruction, simplify the block.
   BasicBlock::iterator I = BB->getFirstNonPHIOrDbgOrLifetime();

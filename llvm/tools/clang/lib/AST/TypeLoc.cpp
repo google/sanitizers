@@ -301,7 +301,9 @@ void TemplateSpecializationTypeLoc::initializeArgLocs(ASTContext &Context,
     case TemplateArgument::Null: 
     case TemplateArgument::Declaration:
     case TemplateArgument::Integral:
-    case TemplateArgument::Pack:
+    case TemplateArgument::NullPtr:
+      llvm_unreachable("Impossible TemplateArgument");
+
     case TemplateArgument::Expression:
       ArgInfos[i] = TemplateArgumentLocInfo(Args[i].getAsExpr());
       break;
@@ -311,7 +313,7 @@ void TemplateSpecializationTypeLoc::initializeArgLocs(ASTContext &Context,
                           Context.getTrivialTypeSourceInfo(Args[i].getAsType(), 
                                                            Loc));
       break;
-        
+
     case TemplateArgument::Template:
     case TemplateArgument::TemplateExpansion: {
       NestedNameSpecifierLocBuilder Builder;
@@ -328,7 +330,11 @@ void TemplateSpecializationTypeLoc::initializeArgLocs(ASTContext &Context,
                                             ? SourceLocation()
                                             : Loc);
       break;
-    }        
+    }
+
+    case TemplateArgument::Pack:
+      ArgInfos[i] = TemplateArgumentLocInfo();
+      break;
     }
   }
 }

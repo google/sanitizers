@@ -368,9 +368,14 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     else if (MO.isJTI())
       MOSymbol = GetJTISymbol(MO.getIndex());
     MCSymbol *&TOCEntry = TOC[MOSymbol];
-    if (TOCEntry == 0)
-      TOCEntry = GetTempSymbol("C", TOCLabelID++);
-    
+    // To avoid name clash check if the name already exists.
+    while (TOCEntry == 0) {
+      if (OutContext.LookupSymbol(Twine(MAI->getPrivateGlobalPrefix()) +
+                                  "C" + Twine(TOCLabelID++)) == 0) {
+        TOCEntry = GetTempSymbol("C", TOCLabelID);
+      }
+    }
+
     const MCExpr *Exp =
       MCSymbolRefExpr::Create(TOCEntry, MCSymbolRefExpr::VK_PPC_TOC_ENTRY,
                               OutContext);
@@ -420,6 +425,8 @@ void PPCLinuxAsmPrinter::EmitFunctionEntryLabel() {
                         8/*size*/, 0/*addrspace*/);
   OutStreamer.EmitValue(MCSymbolRefExpr::Create(Symbol2, OutContext),
                         8/*size*/, 0/*addrspace*/);
+  // Emit a null environment pointer.
+  OutStreamer.EmitIntValue(0, 8 /* size */, 0 /* addrspace */);
   OutStreamer.SwitchSection(Current);
 
   MCSymbol *RealFnSym = OutContext.GetOrCreateSymbol(

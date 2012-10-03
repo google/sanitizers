@@ -285,6 +285,39 @@ Preprocessor::macro_end(bool IncludeExternalMacros) const {
   return Macros.end();
 }
 
+/// \brief Compares macro tokens with a specified token value sequence.
+static bool MacroDefinitionEquals(const MacroInfo *MI,
+                                  llvm::ArrayRef<TokenValue> Tokens) {
+  return Tokens.size() == MI->getNumTokens() &&
+      std::equal(Tokens.begin(), Tokens.end(), MI->tokens_begin());
+}
+
+StringRef Preprocessor::getLastMacroWithSpelling(
+                                    SourceLocation Loc,
+                                    ArrayRef<TokenValue> Tokens) const {
+  SourceLocation BestLocation;
+  StringRef BestSpelling;
+  for (Preprocessor::macro_iterator I = macro_begin(), E = macro_end();
+       I != E; ++I) {
+    if (!I->second->isObjectLike())
+      continue;
+    const MacroInfo *MI = I->second->findDefinitionAtLoc(Loc, SourceMgr);
+    if (!MI)
+      continue;
+    if (!MacroDefinitionEquals(MI, Tokens))
+      continue;
+    SourceLocation Location = I->second->getDefinitionLoc();
+    // Choose the macro defined latest.
+    if (BestLocation.isInvalid() ||
+        (Location.isValid() &&
+         SourceMgr.isBeforeInTranslationUnit(BestLocation, Location))) {
+      BestLocation = Location;
+      BestSpelling = I->first->getName();
+    }
+  }
+  return BestSpelling;
+}
+
 void Preprocessor::recomputeCurLexerKind() {
   if (CurLexer)
     CurLexerKind = CLK_Lexer;
@@ -378,17 +411,17 @@ StringRef Preprocessor::getSpelling(const Token &Tok,
 /// CreateString - Plop the specified string into a scratch buffer and return a
 /// location for it.  If specified, the source location provides a source
 /// location for the token.
-void Preprocessor::CreateString(const char *Buf, unsigned Len, Token &Tok,
+void Preprocessor::CreateString(StringRef Str, Token &Tok,
                                 SourceLocation ExpansionLocStart,
                                 SourceLocation ExpansionLocEnd) {
-  Tok.setLength(Len);
+  Tok.setLength(Str.size());
 
   const char *DestPtr;
-  SourceLocation Loc = ScratchBuf->getToken(Buf, Len, DestPtr);
+  SourceLocation Loc = ScratchBuf->getToken(Str.data(), Str.size(), DestPtr);
 
   if (ExpansionLocStart.isValid())
     Loc = SourceMgr.createExpansionLoc(Loc, ExpansionLocStart,
-                                       ExpansionLocEnd, Len);
+                                       ExpansionLocEnd, Str.size());
   Tok.setLocation(Loc);
 
   // If this is a raw identifier or a literal token, set the pointer data.
@@ -641,10 +674,14 @@ void Preprocessor::LexAfterModuleImport(Token &Result) {
   }
 
   // If we have a non-empty module path, load the named module.
-  if (!ModuleImportPath.empty())
-    (void)TheModuleLoader.loadModule(ModuleImportLoc, ModuleImportPath,
-                                     Module::MacrosVisible,
-                                     /*IsIncludeDirective=*/false);
+  if (!ModuleImportPath.empty()) {
+    Module *Imported = TheModuleLoader.loadModule(ModuleImportLoc,
+                                                  ModuleImportPath,
+                                                  Module::MacrosVisible,
+                                                  /*IsIncludeDirective=*/false);
+    if (Callbacks)
+      Callbacks->moduleImport(ModuleImportLoc, ModuleImportPath, Imported);
+  }
 }
 
 void Preprocessor::addCommentHandler(CommentHandler *Handler) {

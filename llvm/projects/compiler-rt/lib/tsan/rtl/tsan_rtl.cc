@@ -74,6 +74,7 @@ ThreadState::ThreadState(Context *ctx, int tid, int unique_id, u64 epoch,
 ThreadContext::ThreadContext(int tid)
   : tid(tid)
   , unique_id()
+  , os_id()
   , user_id()
   , thr()
   , status(ThreadStatusInvalid)
@@ -183,13 +184,15 @@ void Initialize(ThreadState *thr) {
   ctx->dead_list_tail = 0;
   InitializeFlags(&ctx->flags, env);
   InitializeSuppressions();
-  InitializeMemoryProfile();
-  InitializeMemoryFlush();
-
+#ifndef TSAN_GO
+  // Initialize external symbolizer before internal threads are started.
   const char *external_symbolizer = flags()->external_symbolizer_path;
   if (external_symbolizer != 0 && external_symbolizer[0] != '\0') {
     InitializeExternalSymbolizer(external_symbolizer);
   }
+#endif
+  InitializeMemoryProfile();
+  InitializeMemoryFlush();
 
   if (ctx->flags.verbosity)
     TsanPrintf("***** Running under ThreadSanitizer v2 (pid %d) *****\n",
@@ -199,7 +202,7 @@ void Initialize(ThreadState *thr) {
   ctx->thread_seq = 0;
   int tid = ThreadCreate(thr, 0, 0, true);
   CHECK_EQ(tid, 0);
-  ThreadStart(thr, tid);
+  ThreadStart(thr, tid, GetPid());
   CHECK_EQ(thr->in_rtl, 1);
   ctx->initialized = true;
 
@@ -215,6 +218,10 @@ int Finalize(ThreadState *thr) {
   ScopedInRtl in_rtl;
   Context *ctx = __tsan::ctx;
   bool failed = false;
+
+  // Wait for pending reports.
+  ctx->report_mtx.Lock();
+  ctx->report_mtx.Unlock();
 
   ThreadFinalize(thr);
 

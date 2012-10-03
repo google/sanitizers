@@ -36,10 +36,12 @@
 #include "clang/Analysis/Analyses/ThreadSafety.h"
 #include "clang/Analysis/CFGStmtMap.h"
 #include "clang/Analysis/Analyses/UninitializedValues.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/ImmutableMap.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
@@ -852,8 +854,21 @@ static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC,
       if (S.getLangOpts().CPlusPlus0x) {
         const Stmt *Term = B.getTerminator();
         if (!(B.empty() && Term && isa<BreakStmt>(Term))) {
+          Preprocessor &PP = S.getPreprocessor();
+          TokenValue Tokens[] = {
+            tok::l_square, tok::l_square, PP.getIdentifierInfo("clang"),
+            tok::coloncolon, PP.getIdentifierInfo("fallthrough"),
+            tok::r_square, tok::r_square
+          };
+          StringRef AnnotationSpelling = "[[clang::fallthrough]]";
+          StringRef MacroName = PP.getLastMacroWithSpelling(L, Tokens);
+          if (!MacroName.empty())
+            AnnotationSpelling = MacroName;
+          SmallString<64> TextToInsert(AnnotationSpelling);
+          TextToInsert += "; ";
           S.Diag(L, diag::note_insert_fallthrough_fixit) <<
-            FixItHint::CreateInsertion(L, "[[clang::fallthrough]]; ");
+              AnnotationSpelling <<
+              FixItHint::CreateInsertion(L, TextToInsert);
         }
       }
       S.Diag(L, diag::note_insert_break_fixit) <<
@@ -869,6 +884,143 @@ static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC,
   }
 
 }
+
+namespace {
+typedef std::pair<const Stmt *,
+                  sema::FunctionScopeInfo::WeakObjectUseMap::const_iterator>
+        StmtUsesPair;
+
+class StmtUseSorter {
+  const SourceManager &SM;
+
+public:
+  explicit StmtUseSorter(const SourceManager &SM) : SM(SM) { }
+
+  bool operator()(const StmtUsesPair &LHS, const StmtUsesPair &RHS) {
+    return SM.isBeforeInTranslationUnit(LHS.first->getLocStart(),
+                                        RHS.first->getLocStart());
+  }
+};
+}
+
+
+static void diagnoseRepeatedUseOfWeak(Sema &S,
+                                      const sema::FunctionScopeInfo *CurFn,
+                                      const Decl *D) {
+  typedef sema::FunctionScopeInfo::WeakObjectProfileTy WeakObjectProfileTy;
+  typedef sema::FunctionScopeInfo::WeakObjectUseMap WeakObjectUseMap;
+  typedef sema::FunctionScopeInfo::WeakUseVector WeakUseVector;
+
+  const WeakObjectUseMap &WeakMap = CurFn->getWeakObjectUses();
+
+  // Extract all weak objects that are referenced more than once.
+  SmallVector<StmtUsesPair, 8> UsesByStmt;
+  for (WeakObjectUseMap::const_iterator I = WeakMap.begin(), E = WeakMap.end();
+       I != E; ++I) {
+    const WeakUseVector &Uses = I->second;
+    if (Uses.size() <= 1)
+      continue;
+
+    // Find the first read of the weak object.
+    WeakUseVector::const_iterator UI = Uses.begin(), UE = Uses.end();
+    for ( ; UI != UE; ++UI) {
+      if (UI->isUnsafe())
+        break;
+    }
+
+    // If there were only writes to this object, don't warn.
+    if (UI == UE)
+      continue;
+
+    UsesByStmt.push_back(StmtUsesPair(UI->getUseExpr(), I));
+  }
+
+  if (UsesByStmt.empty())
+    return;
+
+  // Sort by first use so that we emit the warnings in a deterministic order.
+  std::sort(UsesByStmt.begin(), UsesByStmt.end(),
+            StmtUseSorter(S.getSourceManager()));
+
+  // Classify the current code body for better warning text.
+  // This enum should stay in sync with the cases in
+  // warn_arc_repeated_use_of_weak and warn_arc_possible_repeated_use_of_weak.
+  // FIXME: Should we use a common classification enum and the same set of
+  // possibilities all throughout Sema?
+  enum {
+    Function,
+    Method,
+    Block,
+    Lambda
+  } FunctionKind;
+
+  if (isa<sema::BlockScopeInfo>(CurFn))
+    FunctionKind = Block;
+  else if (isa<sema::LambdaScopeInfo>(CurFn))
+    FunctionKind = Lambda;
+  else if (isa<ObjCMethodDecl>(D))
+    FunctionKind = Method;
+  else
+    FunctionKind = Function;
+
+  // Iterate through the sorted problems and emit warnings for each.
+  for (SmallVectorImpl<StmtUsesPair>::const_iterator I = UsesByStmt.begin(),
+                                                     E = UsesByStmt.end();
+       I != E; ++I) {
+    const Stmt *FirstRead = I->first;
+    const WeakObjectProfileTy &Key = I->second->first;
+    const WeakUseVector &Uses = I->second->second;
+
+    // For complicated expressions like 'a.b.c' and 'x.b.c', WeakObjectProfileTy
+    // may not contain enough information to determine that these are different
+    // properties. We can only be 100% sure of a repeated use in certain cases,
+    // and we adjust the diagnostic kind accordingly so that the less certain
+    // case can be turned off if it is too noisy.
+    unsigned DiagKind;
+    if (Key.isExactProfile())
+      DiagKind = diag::warn_arc_repeated_use_of_weak;
+    else
+      DiagKind = diag::warn_arc_possible_repeated_use_of_weak;
+
+    // Classify the weak object being accessed for better warning text.
+    // This enum should stay in sync with the cases in
+    // warn_arc_repeated_use_of_weak and warn_arc_possible_repeated_use_of_weak.
+    enum {
+      Variable,
+      Property,
+      ImplicitProperty,
+      Ivar
+    } ObjectKind;
+
+    const NamedDecl *D = Key.getProperty();
+    if (isa<VarDecl>(D))
+      ObjectKind = Variable;
+    else if (isa<ObjCPropertyDecl>(D))
+      ObjectKind = Property;
+    else if (isa<ObjCMethodDecl>(D))
+      ObjectKind = ImplicitProperty;
+    else if (isa<ObjCIvarDecl>(D))
+      ObjectKind = Ivar;
+    else
+      llvm_unreachable("Unexpected weak object kind!");
+
+    // Show the first time the object was read.
+    S.Diag(FirstRead->getLocStart(), DiagKind)
+      << ObjectKind << D << FunctionKind
+      << FirstRead->getSourceRange();
+
+    // Print all the other accesses as notes.
+    for (WeakUseVector::const_iterator UI = Uses.begin(), UE = Uses.end();
+         UI != UE; ++UI) {
+      if (UI->getUseExpr() == FirstRead)
+        continue;
+      S.Diag(UI->getUseExpr()->getLocStart(),
+             diag::note_arc_weak_also_accessed_here)
+        << UI->getUseExpr()->getSourceRange();
+    }
+  }
+}
+
 
 namespace {
 struct SLocSort {
@@ -1084,7 +1236,7 @@ class ThreadSafetyReporter : public clang::thread_safety::ThreadSafetyHandler {
                         diag::warn_variable_requires_any_lock:
                         diag::warn_var_deref_requires_any_lock;
     PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
-      << D->getName() << getLockKindFromAccessKind(AK));
+      << D->getNameAsString() << getLockKindFromAccessKind(AK));
     Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
   }
 
@@ -1105,7 +1257,7 @@ class ThreadSafetyReporter : public clang::thread_safety::ThreadSafetyHandler {
           break;
       }
       PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
-        << D->getName() << LockName << LK);
+        << D->getNameAsString() << LockName << LK);
       PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_found_mutex_near_match)
                                << *PossibleMatch);
       Warnings.push_back(DelayedDiag(Warning, OptionalNotes(1, Note)));
@@ -1122,7 +1274,7 @@ class ThreadSafetyReporter : public clang::thread_safety::ThreadSafetyHandler {
           break;
       }
       PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID)
-        << D->getName() << LockName << LK);
+        << D->getNameAsString() << LockName << LK);
       Warnings.push_back(DelayedDiag(Warning, OptionalNotes()));
     }
   }
@@ -1363,6 +1515,11 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   if (FallThroughDiagFull || FallThroughDiagPerFunction) {
     DiagnoseSwitchLabelsFallthrough(S, AC, !FallThroughDiagFull);
   }
+
+  if (S.getLangOpts().ObjCARCWeak &&
+      Diags.getDiagnosticLevel(diag::warn_arc_repeated_use_of_weak,
+                               D->getLocStart()) != DiagnosticsEngine::Ignored)
+    diagnoseRepeatedUseOfWeak(S, fscope, D);
 
   // Collect statistics about the CFG if it was built.
   if (S.CollectStats && AC.isCFGBuilt()) {

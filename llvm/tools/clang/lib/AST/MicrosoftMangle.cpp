@@ -96,6 +96,7 @@ private:
   void mangleFunctionClass(const FunctionDecl *FD);
   void mangleCallingConvention(const FunctionType *T, bool IsInstMethod = false);
   void mangleIntegerLiteral(QualType T, const llvm::APSInt &Number);
+  void mangleExpression(const Expr *E);
   void mangleThrowSpecification(const FunctionProtoType *T);
 
   void mangleTemplateArgs(
@@ -785,6 +786,23 @@ MicrosoftCXXNameMangler::mangleIntegerLiteral(QualType T,
 }
 
 void
+MicrosoftCXXNameMangler::mangleExpression(const Expr *E) {
+  // See if this is a constant expression.
+  llvm::APSInt Value;
+  if (E->isIntegerConstantExpr(Value, Context.getASTContext())) {
+    mangleIntegerLiteral(E->getType(), Value);
+    return;
+  }
+
+  // As bad as this diagnostic is, it's better than crashing.
+  DiagnosticsEngine &Diags = Context.getDiags();
+  unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
+                                   "cannot yet mangle expression type %0");
+  Diags.Report(E->getExprLoc(), DiagID)
+    << E->getStmtClassName() << E->getSourceRange();
+}
+
+void
 MicrosoftCXXNameMangler::mangleTemplateArgs(
                      const SmallVectorImpl<TemplateArgumentLoc> &TemplateArgs) {
   // <template-args> ::= {<type> | <integer-literal>}+ @
@@ -801,21 +819,19 @@ MicrosoftCXXNameMangler::mangleTemplateArgs(
     case TemplateArgument::Integral:
       mangleIntegerLiteral(TA.getIntegralType(), TA.getAsIntegral());
       break;
-    case TemplateArgument::Expression: {
-      // See if this is a constant expression.
-      Expr *TAE = TA.getAsExpr();
-      llvm::APSInt Value;
-      if (TAE->isIntegerConstantExpr(Value, Context.getASTContext())) {
-        mangleIntegerLiteral(TAE->getType(), Value);
-        break;
-      }
-      /* fallthrough */
-    } default: {
+    case TemplateArgument::Expression:
+      mangleExpression(TA.getAsExpr());
+      break;
+    case TemplateArgument::Template:
+    case TemplateArgument::TemplateExpansion:
+    case TemplateArgument::Declaration:
+    case TemplateArgument::NullPtr:
+    case TemplateArgument::Pack: {
       // Issue a diagnostic.
       DiagnosticsEngine &Diags = Context.getDiags();
       unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
-        "cannot mangle this %select{ERROR|ERROR|pointer/reference|ERROR|"
-        "template|template pack expansion|expression|parameter pack}0 "
+        "cannot mangle this %select{ERROR|ERROR|pointer/reference|nullptr|"
+        "integral|template|template pack expansion|ERROR|parameter pack}0 "
         "template argument yet");
       Diags.Report(TAL.getLocation(), DiagID)
         << TA.getKind()

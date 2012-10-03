@@ -1,4 +1,4 @@
-//===-- asan_test.cc ----------------------===//
+//===-- asan_test.cc ------------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -24,7 +24,6 @@
 #include <emmintrin.h>
 #endif
 
-#include "asan_test_config.h"
 #include "asan_test_utils.h"
 
 #ifndef __APPLE__
@@ -356,10 +355,43 @@ TEST(AddressSanitizer, OutOfMemoryTest) {
 }
 
 #if ASAN_NEEDS_SEGV
+namespace {
+
+const char kUnknownCrash[] = "AddressSanitizer crashed on unknown address";
+const char kOverriddenHandler[] = "ASan signal handler has been overridden\n";
+
 TEST(AddressSanitizer, WildAddressTest) {
   char *c = (char*)0x123;
-  EXPECT_DEATH(*c = 0, "AddressSanitizer crashed on unknown address");
+  EXPECT_DEATH(*c = 0, kUnknownCrash);
 }
+
+void my_sigaction_sighandler(int, siginfo_t*, void*) {
+  fprintf(stderr, kOverriddenHandler);
+  exit(1);
+}
+
+void my_signal_sighandler(int signum) {
+  fprintf(stderr, kOverriddenHandler);
+  exit(1);
+}
+
+TEST(AddressSanitizer, SignalTest) {
+  struct sigaction sigact;
+  memset(&sigact, 0, sizeof(sigact));
+  sigact.sa_sigaction = my_sigaction_sighandler;
+  sigact.sa_flags = SA_SIGINFO;
+  // ASan should silently ignore sigaction()...
+  EXPECT_EQ(0, sigaction(SIGSEGV, &sigact, 0));
+#ifdef __APPLE__
+  EXPECT_EQ(0, sigaction(SIGBUS, &sigact, 0));
+#endif
+  char *c = (char*)0x123;
+  EXPECT_DEATH(*c = 0, kUnknownCrash);
+  // ... and signal().
+  EXPECT_EQ(0, signal(SIGSEGV, my_signal_sighandler));
+  EXPECT_DEATH(*c = 0, kUnknownCrash);
+}
+}  // namespace
 #endif
 
 static void MallocStress(size_t n) {

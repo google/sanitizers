@@ -130,3 +130,11 @@ struct S makeS();
 }
 
 @end
+
+
+int testNull(Root *obj) {
+  if (obj) return 0;
+
+  int *x = &obj->uniqueID;
+  return *x; // expected-warning{{Dereference of null pointer (loaded from variable 'x')}}
+}

@@ -194,6 +194,7 @@ class ARMFastISel : public FastISel {
     unsigned ARMMoveToFPReg(EVT VT, unsigned SrcReg);
     unsigned ARMMoveToIntReg(EVT VT, unsigned SrcReg);
     unsigned ARMSelectCallOp(bool UseReg);
+    unsigned ARMLowerPICELF(const GlobalValue *GV, unsigned Align, EVT VT);
 
     // Call handling routines.
   private:
@@ -648,6 +649,9 @@ unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, EVT VT) {
       Align = TD.getTypeAllocSize(GV->getType());
     }
 
+    if (Subtarget->isTargetELF() && RelocM == Reloc::PIC_)
+      return ARMLowerPICELF(GV, Align, VT);
+
     // Grab index.
     unsigned PCAdj = (RelocM != Reloc::PIC_) ? 0 :
       (Subtarget->isThumb() ? 4 : 8);
@@ -1021,6 +1025,9 @@ bool ARMFastISel::ARMEmitLoad(EVT VT, unsigned &ResultReg, Address &Addr,
       RC = &ARM::GPRRegClass;
       break;
     case MVT::i16:
+      if (Alignment && Alignment < 2 && !Subtarget->allowsUnalignedMem())
+        return false;
+
       if (isThumb2) {
         if (Addr.Offset < 0 && Addr.Offset > -256 && Subtarget->hasV6T2Ops())
           Opc = isZExt ? ARM::t2LDRHi8 : ARM::t2LDRSHi8;
@@ -1033,6 +1040,9 @@ bool ARMFastISel::ARMEmitLoad(EVT VT, unsigned &ResultReg, Address &Addr,
       RC = &ARM::GPRRegClass;
       break;
     case MVT::i32:
+      if (Alignment && Alignment < 4 && !Subtarget->allowsUnalignedMem())
+        return false;
+
       if (isThumb2) {
         if (Addr.Offset < 0 && Addr.Offset > -256 && Subtarget->hasV6T2Ops())
           Opc = ARM::t2LDRi8;
@@ -1139,6 +1149,9 @@ bool ARMFastISel::ARMEmitStore(EVT VT, unsigned SrcReg, Address &Addr,
       }
       break;
     case MVT::i16:
+      if (Alignment && Alignment < 2 && !Subtarget->allowsUnalignedMem())
+        return false;
+
       if (isThumb2) {
         if (Addr.Offset < 0 && Addr.Offset > -256 && Subtarget->hasV6T2Ops())
           StrOpc = ARM::t2STRHi8;
@@ -1150,6 +1163,9 @@ bool ARMFastISel::ARMEmitStore(EVT VT, unsigned SrcReg, Address &Addr,
       }
       break;
     case MVT::i32:
+      if (Alignment && Alignment < 4 && !Subtarget->allowsUnalignedMem())
+        return false;
+
       if (isThumb2) {
         if (Addr.Offset < 0 && Addr.Offset > -256 && Subtarget->hasV6T2Ops())
           StrOpc = ARM::t2STRi8;
@@ -2782,6 +2798,47 @@ bool ARMFastISel::TryToFoldLoad(MachineInstr *MI, unsigned OpNo,
     return false;
   MI->eraseFromParent();
   return true;
+}
+
+unsigned ARMFastISel::ARMLowerPICELF(const GlobalValue *GV,
+                                     unsigned Align, EVT VT) {
+  bool UseGOTOFF = GV->hasLocalLinkage() || GV->hasHiddenVisibility();
+  ARMConstantPoolConstant *CPV =
+    ARMConstantPoolConstant::Create(GV, UseGOTOFF ? ARMCP::GOTOFF : ARMCP::GOT);
+  unsigned Idx = MCP.getConstantPoolIndex(CPV, Align);
+
+  unsigned Opc;
+  unsigned DestReg1 = createResultReg(TLI.getRegClassFor(VT));
+  // Load value.
+  if (isThumb2) {
+    AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL,
+                            TII.get(ARM::t2LDRpci), DestReg1)
+                    .addConstantPoolIndex(Idx));
+    Opc = UseGOTOFF ? ARM::t2ADDrr : ARM::t2LDRs;
+  } else {
+    // The extra immediate is for addrmode2.
+    AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt,
+                            DL, TII.get(ARM::LDRcp), DestReg1)
+                    .addConstantPoolIndex(Idx).addImm(0));
+    Opc = UseGOTOFF ? ARM::ADDrr : ARM::LDRrs;
+  }
+
+  unsigned GlobalBaseReg = AFI->getGlobalBaseReg();
+  if (GlobalBaseReg == 0) {
+    GlobalBaseReg = MRI.createVirtualRegister(TLI.getRegClassFor(VT));
+    AFI->setGlobalBaseReg(GlobalBaseReg);
+  }
+
+  unsigned DestReg2 = createResultReg(TLI.getRegClassFor(VT));
+  MachineInstrBuilder MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt,
+                                    DL, TII.get(Opc), DestReg2)
+                            .addReg(DestReg1)
+                            .addReg(GlobalBaseReg);
+  if (!UseGOTOFF)
+    MIB.addImm(0);
+  AddOptionalDefs(MIB);
+
+  return DestReg2;
 }
 
 namespace llvm {

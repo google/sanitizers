@@ -342,8 +342,8 @@ AST_MATCHER_P(TemplateArgument, refersToType,
 ///     \c B::next
 AST_MATCHER_P(TemplateArgument, refersToDeclaration,
               internal::Matcher<Decl>, InnerMatcher) {
-  if (const Decl *Declaration = Node.getAsDecl())
-    return InnerMatcher.matches(*Declaration, Finder, Builder);
+  if (Node.getKind() == TemplateArgument::Declaration)
+    return InnerMatcher.matches(*Node.getAsDecl(), Finder, Builder);
   return false;
 }
 
@@ -488,6 +488,14 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, MemberExpr> memberExpr;
 ///   y();
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<Stmt, CallExpr> callExpr;
+
+/// \brief Matches lambda expressions.
+///
+/// Example matches [&](){return 5;}
+/// \code
+///   [&](){return 5;}
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<Stmt, LambdaExpr> lambdaExpr;
 
 /// \brief Matches member call expressions.
 ///
@@ -664,8 +672,18 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, IfStmt> ifStmt;
 /// Example matches 'for (;;) {}'
 /// \code
 ///   for (;;) {}
+///   int i[] =  {1, 2, 3}; for (auto a : i);
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<Stmt, ForStmt> forStmt;
+
+/// \brief Matches range-based for statements.
+///
+/// forRangeStmt() matches 'for (auto a : i)'
+/// \code
+///   int i[] =  {1, 2, 3}; for (auto a : i);
+///   for(int j = 0; j < 5; ++j);
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<Stmt, CXXForRangeStmt> forRangeStmt;
 
 /// \brief Matches the increment statement of a for loop.
 ///
@@ -716,6 +734,68 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, WhileStmt> whileStmt;
 ///   matches 'do {} while(true)'
 const internal::VariadicDynCastAllOfMatcher<Stmt, DoStmt> doStmt;
 
+/// \brief Matches break statements.
+///
+/// Given
+/// \code
+///   while (true) { break; }
+/// \endcode
+/// breakStmt()
+///   matches 'break'
+const internal::VariadicDynCastAllOfMatcher<Stmt, BreakStmt> breakStmt;
+
+/// \brief Matches continue statements.
+///
+/// Given
+/// \code
+///   while (true) { continue; }
+/// \endcode
+/// continueStmt()
+///   matches 'continue'
+const internal::VariadicDynCastAllOfMatcher<Stmt, ContinueStmt> continueStmt;
+
+/// \brief Matches return statements.
+///
+/// Given
+/// \code
+///   return 1;
+/// \endcode
+/// returnStmt()
+///   matches 'return 1'
+const internal::VariadicDynCastAllOfMatcher<Stmt, ReturnStmt> returnStmt;
+
+/// \brief Matches goto statements.
+///
+/// Given
+/// \code
+///   goto FOO;
+///   FOO: bar();
+/// \endcode
+/// gotoStmt()
+///   matches 'goto FOO'
+const internal::VariadicDynCastAllOfMatcher<Stmt, GotoStmt> gotoStmt;
+
+/// \brief Matches label statements.
+///
+/// Given
+/// \code
+///   goto FOO;
+///   FOO: bar();
+/// \endcode
+/// labelStmt()
+///   matches 'FOO:'
+const internal::VariadicDynCastAllOfMatcher<Stmt, LabelStmt> labelStmt;
+
+/// \brief Matches switch statements.
+///
+/// Given
+/// \code
+///   switch(a) { case 42: break; default: break; }
+/// \endcode
+/// switchStmt()
+///   matches 'switch(a)'.
+const internal::VariadicDynCastAllOfMatcher<Stmt, SwitchStmt> switchStmt;
+
 /// \brief Matches case and default statements inside switch statements.
 ///
 /// Given
@@ -734,6 +814,52 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, SwitchCase> switchCase;
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<Stmt, CompoundStmt> compoundStmt;
 
+/// \brief Matches catch statements.
+///
+/// \code
+///   try {} catch(int i) {}
+/// \endcode
+/// catchStmt()
+///   matches 'catch(int i)'
+const internal::VariadicDynCastAllOfMatcher<Stmt, CXXCatchStmt> catchStmt;
+
+/// \brief Matches try statements.
+///
+/// \code
+///   try {} catch(int i) {}
+/// \endcode
+/// tryStmt()
+///   matches 'try {}'
+const internal::VariadicDynCastAllOfMatcher<Stmt, CXXTryStmt> tryStmt;
+
+/// \brief Matches throw expressions.
+///
+/// \code
+///   try { throw 5; } catch(int i) {}
+/// \endcode
+/// throwExpr()
+///   matches 'throw 5'
+const internal::VariadicDynCastAllOfMatcher<Stmt, CXXThrowExpr> throwExpr;
+
+/// \brief Matches null statements.
+///
+/// \code
+///   foo();;
+/// \endcode
+/// nullStmt()
+///   matches the second ';'
+const internal::VariadicDynCastAllOfMatcher<Stmt, NullStmt> nullStmt;
+
+/// \brief Matches asm statements.
+///
+/// \code
+///  int i = 100;
+///   __asm("mov al, 2");
+/// \endcode
+/// asmStmt()
+///   matches '__asm("mov al, 2")'
+const internal::VariadicDynCastAllOfMatcher<Stmt, AsmStmt> asmStmt;
+
 /// \brief Matches bool literals.
 ///
 /// Example matches true
@@ -741,7 +867,7 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, CompoundStmt> compoundStmt;
 ///   true
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CXXBoolLiteralExpr> boolLiteral;
 
 /// \brief Matches string literals (also matches wide string literals).
@@ -751,7 +877,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   char *s = "abcd"; wchar_t *ws = L"abcd"
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   StringLiteral> stringLiteral;
 
 /// \brief Matches character literals (also matches wchar_t).
@@ -764,7 +890,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   char ch = 'a'; wchar_t chw = L'a';
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CharacterLiteral> characterLiteral;
 
 /// \brief Matches integer literals of all sizes / encodings.
@@ -773,8 +899,20 @@ const internal::VariadicDynCastAllOfMatcher<
 ///
 /// Example matches 1, 1L, 0x1, 1U
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   IntegerLiteral> integerLiteral;
+
+/// \brief Matches user defined literal operator call.
+///
+/// Example match: "foo"_suffix
+const internal::VariadicDynCastAllOfMatcher<
+  Stmt,
+  UserDefinedLiteral> userDefinedLiteral;
+
+/// \brief Matches nullptr literal.
+const internal::VariadicDynCastAllOfMatcher<
+  Stmt,
+  CXXNullPtrLiteralExpr> nullPtrLiteralExpr;
 
 /// \brief Matches binary operator expressions.
 ///
@@ -817,7 +955,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   void* p = reinterpret_cast<char*>(&p);
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CXXReinterpretCastExpr> reinterpretCastExpr;
 
 /// \brief Matches a C++ static_cast expression.
@@ -834,7 +972,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   long eight(static_cast<long>(8));
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CXXStaticCastExpr> staticCastExpr;
 
 /// \brief Matches a dynamic_cast expression.
@@ -850,7 +988,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   D* p = dynamic_cast<D*>(&b);
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CXXDynamicCastExpr> dynamicCastExpr;
 
 /// \brief Matches a const_cast expression.
@@ -862,8 +1000,18 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   int* p = const_cast<int*>(&r);
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CXXConstCastExpr> constCastExpr;
+
+/// \brief Matches a C-style cast expression.
+///
+/// Example: Matches (int*) 2.2f in
+/// \code
+///   int i = (int) 2.2f;
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<
+  Stmt,
+  CStyleCastExpr> cStyleCastExpr;
 
 /// \brief Matches explicit cast expressions.
 ///
@@ -887,7 +1035,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   long ell = 42;
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   ExplicitCastExpr> explicitCastExpr;
 
 /// \brief Matches the implicit cast nodes of Clang's AST.
@@ -895,7 +1043,7 @@ const internal::VariadicDynCastAllOfMatcher<
 /// This matches many different places, including function call return value
 /// eliding, as well as any type conversions.
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   ImplicitCastExpr> implicitCastExpr;
 
 /// \brief Matches any cast nodes of Clang's AST.
@@ -911,7 +1059,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   int i = (0);
 ///   int k = 0;
 /// \endcode
-const internal::VariadicDynCastAllOfMatcher<Expr, CastExpr> castExpr;
+const internal::VariadicDynCastAllOfMatcher<Stmt, CastExpr> castExpr;
 
 /// \brief Matches functional cast expressions
 ///
@@ -922,7 +1070,7 @@ const internal::VariadicDynCastAllOfMatcher<Expr, CastExpr> castExpr;
 ///   Foo h = Foo(bar);
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<
-  Expr,
+  Stmt,
   CXXFunctionalCastExpr> functionalCastExpr;
 
 /// \brief Various overloads for the anyOf matcher.
@@ -2006,7 +2154,7 @@ inline internal::Matcher<BinaryOperator> hasEitherOperand(
 
 /// \brief Matches if the operand of a unary operator matches.
 ///
-/// Example matches true (matcher = hasOperand(boolLiteral(equals(true))))
+/// Example matches true (matcher = hasUnaryOperand(boolLiteral(equals(true))))
 /// \code
 ///   !true
 /// \endcode

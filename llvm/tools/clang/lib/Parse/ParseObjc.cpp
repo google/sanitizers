@@ -18,6 +18,7 @@
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Scope.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 using namespace clang;
 
 
@@ -1031,7 +1032,6 @@ Decl *Parser::ParseObjCMethodDecl(SourceLocation mLoc,
                             Scope::FunctionPrototypeScope|Scope::DeclScope);
 
   AttributePool allParamAttrs(AttrFactory);
-  
   while (1) {
     ParsedAttributes paramAttrs(AttrFactory);
     Sema::ObjCArgInfo ArgInfo;
@@ -1102,6 +1102,14 @@ Decl *Parser::ParseObjCMethodDecl(SourceLocation mLoc,
     SelIdent = ParseObjCSelectorPiece(selLoc);
     if (!SelIdent && Tok.isNot(tok::colon))
       break;
+    if (!SelIdent) {
+      SourceLocation ColonLoc = Tok.getLocation();
+      if (PP.getLocForEndOfToken(ArgInfo.NameLoc) == ColonLoc) {
+        Diag(ArgInfo.NameLoc, diag::warn_missing_selector_name) << ArgInfo.Name;
+        Diag(ArgInfo.NameLoc, diag::note_missing_selector_name) << ArgInfo.Name;
+        Diag(ColonLoc, diag::note_force_empty_selector_name) << ArgInfo.Name;
+      }
+    }
     // We have a selector or a colon, continue parsing.
   }
 

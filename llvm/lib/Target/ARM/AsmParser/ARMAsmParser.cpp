@@ -262,12 +262,6 @@ public:
   bool MatchAndEmitInstruction(SMLoc IDLoc,
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                                MCStreamer &Out);
-
-  unsigned getMCInstOperandNum(unsigned Kind, MCInst &Inst,
-                           const SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               unsigned OperandNum, unsigned &NumMCOperands) {
-    return getMCInstOperandNumImpl(Kind, Inst, Operands, OperandNum, NumMCOperands);
-  }
 };
 } // end anonymous namespace
 
@@ -487,7 +481,8 @@ public:
   SMLoc getStartLoc() const { return StartLoc; }
   /// getEndLoc - Get the location of the last token of this operand.
   SMLoc getEndLoc() const { return EndLoc; }
-
+  /// getLocRange - Get the range between the first and last token of this
+  /// operand.
   SMRange getLocRange() const { return SMRange(StartLoc, EndLoc); }
 
   ARMCC::CondCodes getCondCode() const {
@@ -4439,6 +4434,12 @@ bool ARMAsmParser::parseMemRegOffsetShift(ARM_AM::ShiftOpc &St,
         ((St == ARM_AM::lsl || St == ARM_AM::ror) && Imm > 31) ||
         ((St == ARM_AM::lsr || St == ARM_AM::asr) && Imm > 32))
       return Error(Loc, "immediate shift value out of range");
+    // If <ShiftTy> #0, turn it into a no_shift.
+    if (Imm == 0)
+      St = ARM_AM::lsl;
+    // For consistency, treat lsr #32 and asr #32 as having immediate value 0.
+    if (Imm == 32)
+      Imm = 0;
     Amount = Imm;
   }
 
@@ -4616,7 +4617,7 @@ bool ARMAsmParser::parseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
       return true;
 
     const MCExpr *ExprVal = ARMMCExpr::Create(RefKind, SubExprVal,
-                                                   getContext());
+                                              getContext());
     E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
     Operands.push_back(ARMOperand::CreateImm(ExprVal, S, E));
     return false;
@@ -5665,6 +5666,20 @@ bool ARMAsmParser::
 processInstruction(MCInst &Inst,
                    const SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   switch (Inst.getOpcode()) {
+  // Alias for alternate form of 'ADR Rd, #imm' instruction.
+  case ARM::ADDri: {
+    if (Inst.getOperand(1).getReg() != ARM::PC ||
+        Inst.getOperand(5).getReg() != 0)
+      return false;
+    MCInst TmpInst;
+    TmpInst.setOpcode(ARM::ADR);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(2));
+    TmpInst.addOperand(Inst.getOperand(3));
+    TmpInst.addOperand(Inst.getOperand(4));
+    Inst = TmpInst;
+    return true;
+  }
   // Aliases for alternate PC+imm syntax of LDR instructions.
   case ARM::t2LDRpcrel:
     Inst.setOpcode(ARM::t2LDRpci);
@@ -7465,8 +7480,10 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   unsigned Kind;
   unsigned ErrorInfo;
   unsigned MatchResult;
-
-  MatchResult = MatchInstructionImpl(Operands, Kind, Inst, ErrorInfo);
+  SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
+  MatchResult = MatchInstructionImpl(Operands, Kind, Inst,
+                                     MapAndConstraints, ErrorInfo,
+                                     /*matchingInlineAsm*/ false);
   switch (MatchResult) {
   default: break;
   case Match_Success:

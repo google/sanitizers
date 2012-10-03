@@ -561,6 +561,16 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::VSQRTPSYr_Int,   X86::VSQRTPSYm_Int,       TB_ALIGN_32 },
     { X86::VBROADCASTSSYrr, X86::VBROADCASTSSYrm,     TB_NO_REVERSE },
     { X86::VBROADCASTSDYrr, X86::VBROADCASTSDYrm,     TB_NO_REVERSE },
+
+    // BMI/BMI2 foldable instructions
+    { X86::RORX32ri,        X86::RORX32mi,            0 },
+    { X86::RORX64ri,        X86::RORX64mi,            0 },
+    { X86::SARX32rr,        X86::SARX32rm,            0 },
+    { X86::SARX64rr,        X86::SARX64rm,            0 },
+    { X86::SHRX32rr,        X86::SHRX32rm,            0 },
+    { X86::SHRX64rr,        X86::SHRX64rm,            0 },
+    { X86::SHLX32rr,        X86::SHLX32rm,            0 },
+    { X86::SHLX64rr,        X86::SHLX64rm,            0 },
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl1); i != e; ++i) {
@@ -1140,6 +1150,10 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::VFMSUBADDPD4rr,    X86::VFMSUBADDPD4mr,     TB_ALIGN_16 },
     { X86::VFMSUBADDPS4rrY,   X86::VFMSUBADDPS4mrY,    TB_ALIGN_32 },
     { X86::VFMSUBADDPD4rrY,   X86::VFMSUBADDPD4mrY,    TB_ALIGN_32 },
+
+    // BMI/BMI2 foldable instructions
+    { X86::MULX32rr,          X86::MULX32rm,            0 },
+    { X86::MULX64rr,          X86::MULX64rm,            0 },
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl2); i != e; ++i) {
@@ -2266,7 +2280,7 @@ static X86::CondCode getCondFromSETOpc(unsigned Opc) {
 }
 
 /// getCondFromCmovOpc - return condition code of a CMov opcode.
-static X86::CondCode getCondFromCMovOpc(unsigned Opc) {
+X86::CondCode X86::getCondFromCMovOpc(unsigned Opc) {
   switch (Opc) {
   default: return X86::COND_INVALID;
   case X86::CMOVA16rm:  case X86::CMOVA16rr:  case X86::CMOVA32rm:
@@ -3127,11 +3141,19 @@ inline static bool isDefConvertible(MachineInstr *MI) {
   case X86::SUB8ri:    case X86::SUB64rr:  case X86::SUB32rr:
   case X86::SUB16rr:   case X86::SUB8rr:   case X86::SUB64rm:
   case X86::SUB32rm:   case X86::SUB16rm:  case X86::SUB8rm:
+  case X86::DEC64r:  case X86::DEC32r:  case X86::DEC16r: case X86::DEC8r:
+  case X86::DEC64m:  case X86::DEC32m:  case X86::DEC16m: case X86::DEC8m:
+  case X86::DEC64_32r: case X86::DEC64_16r:
+  case X86::DEC64_32m: case X86::DEC64_16m:
   case X86::ADD64ri32: case X86::ADD64ri8: case X86::ADD32ri:
   case X86::ADD32ri8:  case X86::ADD16ri:  case X86::ADD16ri8:
   case X86::ADD8ri:    case X86::ADD64rr:  case X86::ADD32rr:
   case X86::ADD16rr:   case X86::ADD8rr:   case X86::ADD64rm:
   case X86::ADD32rm:   case X86::ADD16rm:  case X86::ADD8rm:
+  case X86::INC64r:  case X86::INC32r:  case X86::INC16r: case X86::INC8r:
+  case X86::INC64m:  case X86::INC32m:  case X86::INC16m: case X86::INC8m:
+  case X86::INC64_32r: case X86::INC64_16r:
+  case X86::INC64_32m: case X86::INC64_16m:
   case X86::AND64ri32: case X86::AND64ri8: case X86::AND32ri:
   case X86::AND32ri8:  case X86::AND16ri:  case X86::AND16ri8:
   case X86::AND8ri:    case X86::AND64rr:  case X86::AND32rr:
@@ -3306,7 +3328,7 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
         if (OldCC != X86::COND_INVALID)
           OpcIsSET = true;
         else
-          OldCC = getCondFromCMovOpc(Instr.getOpcode());
+          OldCC = X86::getCondFromCMovOpc(Instr.getOpcode());
       }
       if (OldCC == X86::COND_INVALID) return false;
     }
@@ -3371,12 +3393,14 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
     Sub->getParent()->insert(MachineBasicBlock::iterator(Sub), Movr0Inst);
   }
 
-  // Make sure Sub instruction defines EFLAGS.
+  // Make sure Sub instruction defines EFLAGS and mark the def live.
+  unsigned LastOperand = Sub->getNumOperands() - 1;
   assert(Sub->getNumOperands() >= 2 &&
-         Sub->getOperand(Sub->getNumOperands()-1).isReg() &&
-         Sub->getOperand(Sub->getNumOperands()-1).getReg() == X86::EFLAGS &&
+         Sub->getOperand(LastOperand).isReg() &&
+         Sub->getOperand(LastOperand).getReg() == X86::EFLAGS &&
          "EFLAGS should be the last operand of SUB, ADD, OR, XOR, AND");
-  Sub->getOperand(Sub->getNumOperands()-1).setIsDef(true);
+  Sub->getOperand(LastOperand).setIsDef(true);
+  Sub->getOperand(LastOperand).setIsDead(false);
   CmpInstr->eraseFromParent();
 
   // Modify the condition code of instructions in OpsToUpdate.
@@ -3796,7 +3820,7 @@ MachineInstr* X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
 
   // Unless optimizing for size, don't fold to avoid partial
   // register update stalls
-  if (!MF.getFunction()->hasFnAttr(Attribute::OptimizeForSize) &&
+  if (!MF.getFunction()->getFnAttributes().hasOptimizeForSizeAttr() &&
       hasPartialRegUpdate(MI->getOpcode()))
     return 0;
 
@@ -3837,7 +3861,7 @@ MachineInstr* X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
 
   // Unless optimizing for size, don't fold to avoid partial
   // register update stalls
-  if (!MF.getFunction()->hasFnAttr(Attribute::OptimizeForSize) &&
+  if (!MF.getFunction()->getFnAttributes().hasOptimizeForSizeAttr() &&
       hasPartialRegUpdate(MI->getOpcode()))
     return 0;
 

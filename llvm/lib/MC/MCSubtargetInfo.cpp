@@ -19,11 +19,28 @@ using namespace llvm;
 
 MCSchedModel MCSchedModel::DefaultSchedModel; // For unknown processors.
 
+/// InitMCProcessorInfo - Set or change the CPU (optionally supplemented
+/// with feature string). Recompute feature bits and scheduling model.
+void
+MCSubtargetInfo::InitMCProcessorInfo(StringRef CPU, StringRef FS) {
+  SubtargetFeatures Features(FS);
+  FeatureBits = Features.getFeatureBits(CPU, ProcDesc, NumProcs,
+                                        ProcFeatures, NumFeatures);
+
+  if (!CPU.empty())
+    CPUSchedModel = getSchedModelForCPU(CPU);
+  else
+    CPUSchedModel = &MCSchedModel::DefaultSchedModel;
+}
+
 void
 MCSubtargetInfo::InitMCSubtargetInfo(StringRef TT, StringRef CPU, StringRef FS,
                                      const SubtargetFeatureKV *PF,
                                      const SubtargetFeatureKV *PD,
                                      const SubtargetInfoKV *ProcSched,
+                                     const MCWriteProcResEntry *WPR,
+                                     const MCWriteLatencyEntry *WL,
+                                     const MCReadAdvanceEntry *RA,
                                      const InstrStage *IS,
                                      const unsigned *OC,
                                      const unsigned *FP,
@@ -32,25 +49,17 @@ MCSubtargetInfo::InitMCSubtargetInfo(StringRef TT, StringRef CPU, StringRef FS,
   ProcFeatures = PF;
   ProcDesc = PD;
   ProcSchedModels = ProcSched;
+  WriteProcResTable = WPR;
+  WriteLatencyTable = WL;
+  ReadAdvanceTable = RA;
+
   Stages = IS;
   OperandCycles = OC;
   ForwardingPaths = FP;
   NumFeatures = NF;
   NumProcs = NP;
 
-  SubtargetFeatures Features(FS);
-  FeatureBits = Features.getFeatureBits(CPU, ProcDesc, NumProcs,
-                                        ProcFeatures, NumFeatures);
-}
-
-
-/// ReInitMCSubtargetInfo - Change CPU (and optionally supplemented with
-/// feature string) and recompute feature bits.
-uint64_t MCSubtargetInfo::ReInitMCSubtargetInfo(StringRef CPU, StringRef FS) {
-  SubtargetFeatures Features(FS);
-  FeatureBits = Features.getFeatureBits(CPU, ProcDesc, NumProcs,
-                                        ProcFeatures, NumFeatures);
-  return FeatureBits;
+  InitMCProcessorInfo(CPU, FS);
 }
 
 /// ToggleFeature - Toggle a feature and returns the re-computed feature
@@ -105,5 +114,5 @@ MCSubtargetInfo::getInstrItineraryForCPU(StringRef CPU) const {
 /// Initialize an InstrItineraryData instance.
 void MCSubtargetInfo::initInstrItins(InstrItineraryData &InstrItins) const {
   InstrItins =
-    InstrItineraryData(0, Stages, OperandCycles, ForwardingPaths);
+    InstrItineraryData(CPUSchedModel, Stages, OperandCycles, ForwardingPaths);
 }

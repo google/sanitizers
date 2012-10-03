@@ -64,6 +64,7 @@ void beginNoWarnOnWrites() EXCLUSIVE_LOCK_FUNCTION("*");
 void endNoWarnOnWrites()   UNLOCK_FUNCTION("*");
 
 
+// For testing handling of smart pointers.
 template<class T>
 class SmartPtr {
 public:
@@ -78,6 +79,15 @@ public:
 private:
   T* ptr_;
 };
+
+
+// For testing destructor calls and cleanup.
+class MyString {
+public:
+  MyString(const char* s);
+  ~MyString();
+};
+
 
 
 Mutex sls_mu;
@@ -1655,6 +1665,8 @@ void bar() {
 };  // end namespace FunctionAttrTest
 
 
+namespace TryLockTest {
+
 struct TestTryLock {
   Mutex mu;
   int a GUARDED_BY(mu);
@@ -1751,7 +1763,35 @@ struct TestTryLock {
       b = !b;
     }
   }
+
+  // Test merge of exclusive trylock
+  void foo11() {
+   if (cond) {
+     if (!mu.TryLock())
+       return;
+   }
+   else {
+     mu.Lock();
+   }
+   a = 10;
+   mu.Unlock();
+  }
+
+  // Test merge of shared trylock
+  void foo12() {
+   if (cond) {
+     if (!mu.ReaderTryLock())
+       return;
+   }
+   else {
+     mu.ReaderLock();
+   }
+   int i = a;
+   mu.Unlock();
+  }
 };  // end TestTrylock
+
+} // end namespace TrylockTest
 
 
 namespace TestTemplateAttributeInstantiation {
@@ -3220,12 +3260,6 @@ void Base::bar(Inner* i) {
 
 namespace TrylockWithCleanups {
 
-class MyString {
-public:
-  MyString(const char* s);
-  ~MyString();
-};
-
 struct Foo {
   Mutex mu_;
   int a GUARDED_BY(mu_);
@@ -3380,4 +3414,192 @@ void Bar::test() {
 }; // end namespace ExprMatchingBugfix
 
 
+namespace ComplexNameTest {
+
+class Foo {
+public:
+  static Mutex mu_;
+
+  Foo() EXCLUSIVE_LOCKS_REQUIRED(mu_)  { }
+  ~Foo() EXCLUSIVE_LOCKS_REQUIRED(mu_) { }
+
+  int operator[](int i) EXCLUSIVE_LOCKS_REQUIRED(mu_) { return 0; }
+};
+
+class Bar {
+public:
+  static Mutex mu_;
+
+  Bar()  LOCKS_EXCLUDED(mu_) { }
+  ~Bar() LOCKS_EXCLUDED(mu_) { }
+
+  int operator[](int i) LOCKS_EXCLUDED(mu_) { return 0; }
+};
+
+
+void test1() {
+  Foo f;           // expected-warning {{calling function 'Foo' requires exclusive lock on 'mu_'}}
+  int a = f[0];    // expected-warning {{calling function 'operator[]' requires exclusive lock on 'mu_'}}
+}                  // expected-warning {{calling function '~Foo' requires exclusive lock on 'mu_'}}
+
+
+void test2() {
+  Bar::mu_.Lock();
+  {
+    Bar b;         // expected-warning {{cannot call function 'Bar' while mutex 'mu_' is locked}}
+    int a = b[0];  // expected-warning {{cannot call function 'operator[]' while mutex 'mu_' is locked}}
+  }                // expected-warning {{cannot call function '~Bar' while mutex 'mu_' is locked}}
+  Bar::mu_.Unlock();
+}
+
+};  // end namespace ComplexNameTest
+
+
+namespace UnreachableExitTest {
+
+class FemmeFatale {
+public:
+  FemmeFatale();
+  ~FemmeFatale() __attribute__((noreturn));
+};
+
+void exitNow() __attribute__((noreturn));
+void exitDestruct(const MyString& ms) __attribute__((noreturn));
+
+Mutex fatalmu_;
+
+void test1() EXCLUSIVE_LOCKS_REQUIRED(fatalmu_) {
+  exitNow();
+}
+
+void test2() EXCLUSIVE_LOCKS_REQUIRED(fatalmu_) {
+  FemmeFatale femme;
+}
+
+bool c;
+
+void test3() EXCLUSIVE_LOCKS_REQUIRED(fatalmu_) {
+  if (c) {
+    exitNow();
+  }
+  else {
+    FemmeFatale femme;
+  }
+}
+
+void test4() EXCLUSIVE_LOCKS_REQUIRED(fatalmu_) {
+  exitDestruct("foo");
+}
+
+}   // end namespace UnreachableExitTest
+
+
+namespace VirtualMethodCanonicalizationTest {
+
+class Base {
+public:
+  virtual Mutex* getMutex() = 0;
+};
+
+class Base2 : public Base {
+public:
+  Mutex* getMutex();
+};
+
+class Base3 : public Base2 {
+public:
+  Mutex* getMutex();
+};
+
+class Derived : public Base3 {
+public:
+  Mutex* getMutex();  // overrides Base::getMutex()
+};
+
+void baseFun(Base *b) EXCLUSIVE_LOCKS_REQUIRED(b->getMutex()) { }
+
+void derivedFun(Derived *d) EXCLUSIVE_LOCKS_REQUIRED(d->getMutex()) {
+  baseFun(d);
+}
+
+}  // end namespace VirtualMethodCanonicalizationTest
+
+
+namespace TemplateFunctionParamRemapTest {
+
+template <class T>
+struct Cell {
+  T dummy_;
+  Mutex* mu_;
+};
+
+class Foo {
+public:
+  template <class T>
+  void elr(Cell<T>* c) __attribute__((exclusive_locks_required(c->mu_)));
+
+  void test();
+};
+
+template<class T>
+void Foo::elr(Cell<T>* c1) { }
+
+void Foo::test() {
+  Cell<int> cell;
+  elr(&cell); // \
+    // expected-warning {{calling function 'elr' requires exclusive lock on 'cell.mu_'}}
+}
+
+
+template<class T>
+void globalELR(Cell<T>* c) __attribute__((exclusive_locks_required(c->mu_)));
+
+template<class T>
+void globalELR(Cell<T>* c1) { }
+
+void globalTest() {
+  Cell<int> cell;
+  globalELR(&cell); // \
+    // expected-warning {{calling function 'globalELR' requires exclusive lock on 'cell.mu_'}}
+}
+
+
+template<class T>
+void globalELR2(Cell<T>* c) __attribute__((exclusive_locks_required(c->mu_)));
+
+// second declaration
+template<class T>
+void globalELR2(Cell<T>* c2);
+
+template<class T>
+void globalELR2(Cell<T>* c3) { }
+
+// re-declaration after definition
+template<class T>
+void globalELR2(Cell<T>* c4);
+
+void globalTest2() {
+  Cell<int> cell;
+  globalELR2(&cell); // \
+    // expected-warning {{calling function 'globalELR2' requires exclusive lock on 'cell.mu_'}}
+}
+
+
+template<class T>
+class FooT {
+public:
+  void elr(Cell<T>* c) __attribute__((exclusive_locks_required(c->mu_)));
+};
+
+template<class T>
+void FooT<T>::elr(Cell<T>* c1) { }
+
+void testFooT() {
+  Cell<int> cell;
+  FooT<int> foo;
+  foo.elr(&cell); // \
+    // expected-warning {{calling function 'elr' requires exclusive lock on 'cell.mu_'}}
+}
+
+}  // end namespace TemplateFunctionParamRemapTest
 

@@ -17,6 +17,7 @@
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
+#include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ParentMap.h"
 #include "llvm/ADT/SmallSet.h"
@@ -118,6 +119,44 @@ static std::pair<const Stmt*,
   return std::pair<const Stmt*, const CFGBlock*>(S, Blk);
 }
 
+/// Adjusts a return value when the called function's return type does not
+/// match the caller's expression type. This can happen when a dynamic call
+/// is devirtualized, and the overridding method has a covariant (more specific)
+/// return type than the parent's method. For C++ objects, this means we need
+/// to add base casts.
+static SVal adjustReturnValue(SVal V, QualType ExpectedTy, QualType ActualTy,
+                              StoreManager &StoreMgr) {
+  // For now, the only adjustments we handle apply only to locations.
+  if (!isa<Loc>(V))
+    return V;
+
+  // If the types already match, don't do any unnecessary work.
+  if (ExpectedTy == ActualTy)
+    return V;
+
+  // No adjustment is needed between Objective-C pointer types.
+  if (ExpectedTy->isObjCObjectPointerType() &&
+      ActualTy->isObjCObjectPointerType())
+    return V;
+
+  // C++ object pointers may need "derived-to-base" casts.
+  const CXXRecordDecl *ExpectedClass = ExpectedTy->getPointeeCXXRecordDecl();
+  const CXXRecordDecl *ActualClass = ActualTy->getPointeeCXXRecordDecl();
+  if (ExpectedClass && ActualClass) {
+    CXXBasePaths Paths(/*FindAmbiguities=*/true, /*RecordPaths=*/true,
+                       /*DetectVirtual=*/false);
+    if (ActualClass->isDerivedFrom(ExpectedClass, Paths) &&
+        !Paths.isAmbiguous(ActualTy->getCanonicalTypeUnqualified())) {
+      return StoreMgr.evalDerivedToBase(V, Paths.front());
+    }
+  }
+
+  // Unfortunately, Objective-C does not enforce that overridden methods have
+  // covariant return types, so we can't assert that that never happens.
+  // Be safe and return UnknownVal().
+  return UnknownVal();
+}
+
 /// The call exit is simulated with a sequence of nodes, which occur between 
 /// CallExitBegin and CallExitEnd. The following operations occur between the 
 /// two program points:
@@ -144,6 +183,11 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
   const CFGBlock *Blk = 0;
   llvm::tie(LastSt, Blk) = getLastStmt(CEBNode);
 
+  // Generate a CallEvent /before/ cleaning the state, so that we can get the
+  // correct value for 'this' (if necessary).
+  CallEventManager &CEMgr = getStateManager().getCallEventManager();
+  CallEventRef<> Call = CEMgr.getCaller(calleeCtx, state);
+
   // Step 2: generate node with bound return value: CEBNode -> BindedRetNode.
 
   // If the callee returns an expression, bind its value to CallExpr.
@@ -151,6 +195,18 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
     if (const ReturnStmt *RS = dyn_cast_or_null<ReturnStmt>(LastSt)) {
       const LocationContext *LCtx = CEBNode->getLocationContext();
       SVal V = state->getSVal(RS, LCtx);
+
+      const Decl *Callee = calleeCtx->getDecl();
+      if (Callee != Call->getDecl()) {
+        QualType ReturnedTy = CallEvent::getDeclaredResultType(Callee);
+        if (!ReturnedTy.isNull()) {
+          if (const Expr *Ex = dyn_cast<Expr>(CE)) {
+            V = adjustReturnValue(V, Ex->getType(), ReturnedTy,
+                                  getStoreManager());
+          }
+        }
+      }
+
       state = state->BindExpr(CE, callerCtx, V);
     }
 
@@ -160,15 +216,17 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
         svalBuilder.getCXXThis(CCE->getConstructor()->getParent(), calleeCtx);
       SVal ThisV = state->getSVal(This);
 
-      // Always bind the region to the CXXConstructExpr.
+      // If the constructed object is a prvalue, get its bindings.
+      // Note that we have to be careful here because constructors embedded
+      // in DeclStmts are not marked as lvalues.
+      if (!CCE->isGLValue())
+        if (const MemRegion *MR = ThisV.getAsRegion())
+          if (isa<CXXTempObjectRegion>(MR))
+            ThisV = state->getSVal(cast<Loc>(ThisV));
+
       state = state->BindExpr(CCE, callerCtx, ThisV);
     }
   }
-
-  // Generate a CallEvent /before/ cleaning the state, so that we can get the
-  // correct value for 'this' (if necessary).
-  CallEventManager &CEMgr = getStateManager().getCallEventManager();
-  CallEventRef<> Call = CEMgr.getCaller(calleeCtx, state);
 
   // Step 3: BindedRetNode -> CleanedNodes
   // If we can find a statement and a block in the inlined function, run remove
@@ -378,7 +436,7 @@ bool ExprEngine::inlineCall(const CallEvent &Call, const Decl *D,
   const StackFrameContext *CallerSFC = CurLC->getCurrentStackFrame();
   const LocationContext *ParentOfCallee = 0;
 
-  const AnalyzerOptions &Opts = getAnalysisManager().options;
+  AnalyzerOptions &Opts = getAnalysisManager().options;
 
   // FIXME: Refactor this check into a hypothetical CallEvent::canInline.
   switch (Call.getKind()) {

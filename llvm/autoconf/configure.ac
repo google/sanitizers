@@ -678,6 +678,21 @@ esac
 AC_DEFINE_UNQUOTED([ENABLE_TIMESTAMPS],$ENABLE_TIMESTAMPS,
                    [Define if timestamp information (e.g., __DATE__) is allowed])
 
+dnl Enable embedding timestamp information into build.
+
+AC_ARG_ENABLE(backtraces,
+  AS_HELP_STRING([--enable-backtraces],
+                 [Enable embedding backtraces on crash (default is YES)]),,
+                 enableval=default)
+case "$enableval" in
+  yes) AC_SUBST(ENABLE_TIMESTAMPS,[1]) ;;
+  no)  AC_SUBST(ENABLE_TIMESTAMPS,[0]) ;;
+  default) AC_SUBST(ENABLE_TIMESTAMPS,[1]) ;;
+  *) AC_MSG_ERROR([Invalid setting for --enable-backtraces. Use "yes" or "no"]) ;;
+esac
+AC_DEFINE_UNQUOTED([ENABLE_BACKTRACES],$ENABLE_BACKTRACES,
+                   [Define if you want backtraces on crash])
+
 dnl Allow specific targets to be specified for building (or not)
 TARGETS_TO_BUILD=""
 AC_ARG_ENABLE([targets],AS_HELP_STRING([--enable-targets],
@@ -1275,46 +1290,23 @@ AC_DEFINE_UNQUOTED([LLVM_USE_OPROFILE],$USE_OPROFILE,
 
 dnl Enable support for Intel JIT Events API.
 AC_ARG_WITH(intel-jitevents,
-  AS_HELP_STRING([--with-intel-jitevents=<vtune-amplifier-dir>],
-    [Specify location of run-time support library for Intel JIT API (default=/opt/intel/vtune_amplifier_xe_2011)]),
+  AS_HELP_STRING([--with-intel-jitevents  Notify Intel JIT profiling API of generated code]),
     [
+       case "$withval" in
+          yes) AC_SUBST(USE_INTEL_JITEVENTS,[1]);;
+          no)  AC_SUBST(USE_INTEL_JITEVENTS,[0]);;
+          *) AC_MSG_ERROR([Invalid setting for --with-intel-jitevents. Use "yes" or "no"]);;
+       esac
+
       case $llvm_cv_os_type in
         Linux|Win32|Cygwin|MingW) ;;
-        *)
-          AC_MSG_ERROR([
-            Intel JIT API support is available on Linux and Windows only."]) ;;
+        *) AC_MSG_ERROR([Intel JIT API support is available on Linux and Windows only.]);;
       esac
 
-      AC_SUBST(USE_INTEL_JITEVENTS, [1])
       case "$llvm_cv_target_arch" in
-        x86)    llvm_intel_jitevents_archdir="lib32";;
-        x86_64) llvm_intel_jitevents_archdir="lib64";;
-        *)      echo "Target architecture $llvm_cv_target_arch does not support Intel JIT Events API"
-                exit -1;;
+        x86|x86_64) ;;
+        *) AC_MSG_ERROR([Target architecture $llvm_cv_target_arch does not support Intel JIT Events API.]);;
       esac
-      INTEL_JITEVENTS_INCDIR="/opt/intel/vtune_amplifier_xe_2011/include"
-      INTEL_JITEVENTS_LIBDIR="/opt/intel/vtune_amplifier_xe_2011/$llvm_intel_jitevents_archdir"
-      case "$withval" in
-        /* | [[A-Za-z]]:[[\\/]]*) INTEL_JITEVENTS_INCDIR=$withval/include
-                                  INTEL_JITEVENTS_LIBDIR=$withval/$llvm_intel_jitevents_archdir ;;
-        *) ;;
-      esac
-
-      AC_SUBST(INTEL_JITEVENTS_INCDIR)
-      AC_SUBST(INTEL_JITEVENTS_LIBDIR)
-
-      LIBS="$LIBS -L${INTEL_JITEVENTS_LIBDIR}"
-      CPPFLAGS="$CPPFLAGS -I$INTEL_JITEVENTS_INCDIR"
-
-      AC_SEARCH_LIBS(iJIT_IsProfilingActive, jitprofiling, [], [
-        echo "Error! Cannot find libjitprofiling.a. Please check path specified in flag --with-intel-jitevents"
-        exit -1
-      ])
-      AC_CHECK_HEADER([jitprofiling.h], [], [
-        echo "Error! Cannot find jitprofiling.h. Please check path specified in flag --with-intel-jitevents"
-        exit -1
-      ])
-
     ],
     [
       AC_SUBST(USE_INTEL_JITEVENTS, [0])
@@ -1716,6 +1708,11 @@ fi
 
 dnl OCaml findlib META file
 AC_CONFIG_FILES([bindings/ocaml/llvm/META.llvm])
+
+dnl Add --program-prefix value to Makefile.rules. Already an ARG variable.
+test "x$program_prefix" = "xNONE" && program_prefix=""
+AC_SUBST([program_prefix])
+
 
 dnl Do special configuration of Makefiles
 AC_CONFIG_COMMANDS([setup],,[llvm_src="${srcdir}"])

@@ -76,8 +76,7 @@ public:
     DisableExpand = 0x04,  // This identifier may never be macro expanded.
     NeedsCleaning = 0x08,   // Contained an escaped newline or trigraph.
     LeadingEmptyMacro = 0x10, // Empty macro exists before this token.
-    HasUDSuffix = 0x20, // This string or character literal has a ud-suffix.
-    IgnoredComma = 0x40 // Flags ignored commas from nested macro expansions.
+    HasUDSuffix = 0x20     // This string or character literal has a ud-suffix.
   };
 
   tok::TokenKind getKind() const { return (tok::TokenKind)Kind; }
@@ -91,26 +90,18 @@ public:
   /// \brief Return true if this is a raw identifier (when lexing
   /// in raw mode) or a non-keyword identifier (when lexing in non-raw mode).
   bool isAnyIdentifier() const {
-    return is(tok::identifier) || is(tok::raw_identifier);
+    return tok::isAnyIdentifier(getKind());
   }
 
-  /// isLiteral - Return true if this is a "literal", like a numeric
+  /// \brief Return true if this is a "literal", like a numeric
   /// constant, string, etc.
   bool isLiteral() const {
-    return is(tok::numeric_constant) || is(tok::char_constant) ||
-           is(tok::wide_char_constant) || is(tok::utf16_char_constant) ||
-           is(tok::utf32_char_constant) || is(tok::string_literal) ||
-           is(tok::wide_string_literal) || is(tok::utf8_string_literal) ||
-           is(tok::utf16_string_literal) || is(tok::utf32_string_literal) ||
-           is(tok::angle_string_literal);
+    return tok::isLiteral(getKind());
   }
 
+  /// \brief Return true if this is any of tok::annot_* kind tokens.
   bool isAnnotation() const {
-#define ANNOTATION(NAME) \
-    if (is(tok::annot_##NAME)) \
-      return true;
-#include "clang/Basic/TokenKinds.def"
-    return false;
+    return tok::isAnnotation(getKind());
   }
 
   /// \brief Return a source location identifier for the specified

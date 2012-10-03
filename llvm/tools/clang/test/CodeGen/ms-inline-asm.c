@@ -1,3 +1,4 @@
+// REQUIRES: x86-64-registered-target
 // RUN: %clang_cc1 %s -triple x86_64-apple-darwin10 -O0 -fms-extensions -fenable-experimental-ms-inline-asm -w -emit-llvm -o - | FileCheck %s
 
 void t1() {
@@ -56,6 +57,7 @@ void t7() {
 // CHECK: call void asm sideeffect inteldialect "int $$0x2c", "~{dirflag},~{fpsr},~{flags}"() nounwind
 // CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
 }
+
 int t8() {
   __asm int 3 ; } comments for single-line asm
   __asm {}
@@ -67,6 +69,7 @@ int t8() {
 // CHECK: call void asm sideeffect inteldialect "int $$4", "~{dirflag},~{fpsr},~{flags}"() nounwind
 // CHECK: ret i32 10
 }
+
 void t9() {
   __asm {
     push ebx
@@ -134,10 +137,10 @@ void t15(void) {
 // CHECK: call void asm sideeffect inteldialect "mov eax, DWORD PTR [eax]", "~{eax},~{dirflag},~{fpsr},~{flags}"() nounwind
 }
 
-void t16(unsigned long long V) {
+void t16(unsigned V) {
   __asm mov eax, DWORD PTR [V]
 // CHECK: t16
-// CHECK: call void asm sideeffect inteldialect "mov eax, DWORD PTR [$0]", "r,~{eax},~{dirflag},~{fpsr},~{flags}"(i64 %{{.*}}) nounwind
+// CHECK: call void asm sideeffect inteldialect "mov eax, DWORD PTR [$0]", "r,~{eax},~{dirflag},~{fpsr},~{flags}"(i32 %{{.*}}) nounwind
 }
 
 void t17(void) {

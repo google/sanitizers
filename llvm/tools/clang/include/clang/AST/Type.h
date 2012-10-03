@@ -20,6 +20,7 @@
 #include "clang/Basic/Linkage.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/Visibility.h"
+#include "clang/Basic/Specifiers.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/TemplateName.h"
 #include "llvm/Support/type_traits.h"
@@ -488,18 +489,6 @@ private:
   static const uint32_t LifetimeShift = 5;
   static const uint32_t AddressSpaceMask = ~(CVRMask|GCAttrMask|LifetimeMask);
   static const uint32_t AddressSpaceShift = 8;
-};
-
-/// CallingConv - Specifies the calling convention that a function uses.
-enum CallingConv {
-  CC_Default,
-  CC_C,           // __attribute__((cdecl))
-  CC_X86StdCall,  // __attribute__((stdcall))
-  CC_X86FastCall, // __attribute__((fastcall))
-  CC_X86ThisCall, // __attribute__((thiscall))
-  CC_X86Pascal,   // __attribute__((pascal))
-  CC_AAPCS,       // __attribute__((pcs("aapcs")))
-  CC_AAPCS_VFP    // __attribute__((pcs("aapcs-vfp")))
 };
 
 /// A std::pair-like structure for storing a qualified type split
@@ -1686,12 +1675,18 @@ public:
   const ObjCObjectPointerType *getAsObjCQualifiedIdType() const;
   const ObjCObjectPointerType *getAsObjCQualifiedClassType() const;
   const ObjCObjectType *getAsObjCQualifiedInterfaceType() const;
-  const CXXRecordDecl *getCXXRecordDeclForPointerType() const;
 
   /// \brief Retrieves the CXXRecordDecl that this type refers to, either
   /// because the type is a RecordType or because it is the injected-class-name
   /// type of a class template or class template partial specialization.
   CXXRecordDecl *getAsCXXRecordDecl() const;
+
+  /// If this is a pointer or reference to a RecordType, return the
+  /// CXXRecordDecl that that type refers to.
+  ///
+  /// If this is not a pointer or reference, or the type being pointed to does
+  /// not refer to a CXXRecordDecl, returns NULL.
+  const CXXRecordDecl *getPointeeCXXRecordDecl() const;
 
   /// \brief Get the AutoType whose type will be deduced for a variable with
   /// an initializer of this type. This looks through declarators like pointer
@@ -1803,6 +1798,11 @@ public:
 /// \brief This will check for a TypedefType by removing any existing sugar
 /// until it reaches a TypedefType or a non-sugared type.
 template <> const TypedefType *Type::getAs() const;
+
+/// \brief This will check for a TemplateSpecializationType by removing any
+/// existing sugar until it reaches a TemplateSpecializationType or a
+/// non-sugared type.
+template <> const TemplateSpecializationType *Type::getAs() const;
 
 // We can do canonical leaf types faster, because we don't have to
 // worry about preserving child type decoration.
@@ -3028,9 +3028,9 @@ public:
 
   // FIXME: Remove the string version.
   void printExceptionSpecification(std::string &S, 
-                                   PrintingPolicy Policy) const;
+                                   const PrintingPolicy &Policy) const;
   void printExceptionSpecification(raw_ostream &OS, 
-                                   PrintingPolicy Policy) const;
+                                   const PrintingPolicy &Policy) const;
 
   static bool classof(const Type *T) {
     return T->getTypeClass() == FunctionProto;

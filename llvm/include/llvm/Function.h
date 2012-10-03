@@ -168,10 +168,10 @@ public:
   ///
   void setAttributes(const AttrListPtr &attrs) { AttributeList = attrs; }
 
-  /// hasFnAttr - Return true if this function has the given attribute.
-  bool hasFnAttr(Attributes N) const {
-    // Function Attributes are stored at ~0 index 
-    return AttributeList.paramHasAttr(~0U, N);
+  /// getFnAttributes - Return the function attributes for querying.
+  ///
+  Attributes getFnAttributes() const {
+    return AttributeList.getFnAttributes();
   }
 
   /// addFnAttr - Add function attributes to this function.
@@ -195,6 +195,11 @@ public:
   void setGC(const char *Str);
   void clearGC();
 
+  /// getParamAttributes - Return the parameter attributes for querying.
+  Attributes getParamAttributes(unsigned Idx) const {
+    return AttributeList.getParamAttributes(Idx);
+  }
+
   /// @brief Determine whether the function has the given attribute.
   bool paramHasAttr(unsigned i, Attributes attr) const {
     return AttributeList.paramHasAttr(i, attr);
@@ -213,7 +218,7 @@ public:
 
   /// @brief Determine if the function does not access memory.
   bool doesNotAccessMemory() const {
-    return hasFnAttr(Attribute::ReadNone);
+    return getFnAttributes().hasReadNoneAttr();
   }
   void setDoesNotAccessMemory(bool DoesNotAccessMemory = true) {
     if (DoesNotAccessMemory) addFnAttr(Attribute::ReadNone);
@@ -222,7 +227,7 @@ public:
 
   /// @brief Determine if the function does not access or only reads memory.
   bool onlyReadsMemory() const {
-    return doesNotAccessMemory() || hasFnAttr(Attribute::ReadOnly);
+    return doesNotAccessMemory() || getFnAttributes().hasReadOnlyAttr();
   }
   void setOnlyReadsMemory(bool OnlyReadsMemory = true) {
     if (OnlyReadsMemory) addFnAttr(Attribute::ReadOnly);
@@ -231,7 +236,7 @@ public:
 
   /// @brief Determine if the function cannot return.
   bool doesNotReturn() const {
-    return hasFnAttr(Attribute::NoReturn);
+    return getFnAttributes().hasNoReturnAttr();
   }
   void setDoesNotReturn(bool DoesNotReturn = true) {
     if (DoesNotReturn) addFnAttr(Attribute::NoReturn);
@@ -240,7 +245,7 @@ public:
 
   /// @brief Determine if the function cannot unwind.
   bool doesNotThrow() const {
-    return hasFnAttr(Attribute::NoUnwind);
+    return getFnAttributes().hasNoUnwindAttr();
   }
   void setDoesNotThrow(bool DoesNotThrow = true) {
     if (DoesNotThrow) addFnAttr(Attribute::NoUnwind);
@@ -250,7 +255,7 @@ public:
   /// @brief True if the ABI mandates (or the user requested) that this
   /// function be in a unwind table.
   bool hasUWTable() const {
-    return hasFnAttr(Attribute::UWTable);
+    return getFnAttributes().hasUWTableAttr();
   }
   void setHasUWTable(bool HasUWTable = true) {
     if (HasUWTable)
@@ -267,13 +272,14 @@ public:
   /// @brief Determine if the function returns a structure through first 
   /// pointer argument.
   bool hasStructRetAttr() const {
-    return paramHasAttr(1, Attribute::StructRet);
+    return getParamAttributes(1).hasStructRetAttr();
   }
 
   /// @brief Determine if the parameter does not alias other parameters.
   /// @param n The parameter to check. 1 is the first parameter, 0 is the return
   bool doesNotAlias(unsigned n) const {
-    return paramHasAttr(n, Attribute::NoAlias);
+    return n != 0 ? getParamAttributes(n).hasNoAliasAttr() :
+      AttributeList.getRetAttributes().hasNoAliasAttr();
   }
   void setDoesNotAlias(unsigned n, bool DoesNotAlias = true) {
     if (DoesNotAlias) addAttribute(n, Attribute::NoAlias);
@@ -283,7 +289,7 @@ public:
   /// @brief Determine if the parameter can be captured.
   /// @param n The parameter to check. 1 is the first parameter, 0 is the return
   bool doesNotCapture(unsigned n) const {
-    return paramHasAttr(n, Attribute::NoCapture);
+    return getParamAttributes(n).hasNoCaptureAttr();
   }
   void setDoesNotCapture(unsigned n, bool DoesNotCapture = true) {
     if (DoesNotCapture) addAttribute(n, Attribute::NoCapture);

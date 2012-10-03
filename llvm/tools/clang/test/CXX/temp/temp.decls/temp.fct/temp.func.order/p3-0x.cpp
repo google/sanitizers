@@ -15,3 +15,30 @@ namespace PR8130 {
     int &ir = b * a;
   }
 }
+
+namespace OperatorWithRefQualifier {
+  struct A { };
+  template<class T> struct B {
+    template<class R> int &operator*(R&) &&;
+  };
+
+  template<class T, class R> float &operator*(T&&, R&);
+  void test() {
+    A a;
+    B<A> b;
+    float &ir = b * a;
+    int &ir2 = B<A>() * a;
+  }
+}
+
+namespace OrderWithStaticMember {
+  struct A {
+    template<class T> int g(T**, int=0) { return 0; }
+    template<class T> static int g(T*) { return 1; }
+  };
+  void f() {
+    A a;
+    int **p;
+    a.g(p);
+  }
+}

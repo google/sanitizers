@@ -89,7 +89,7 @@ static const unsigned MaxParallelChains = 64;
 
 static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
                                       const SDValue *Parts, unsigned NumParts,
-                                      EVT PartVT, EVT ValueVT);
+                                      EVT PartVT, EVT ValueVT, const Value *V);
 
 /// getCopyFromParts - Create a value that contains the specified legal parts
 /// combined into the value they represent.  If the parts combine to a type
@@ -99,9 +99,11 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
 static SDValue getCopyFromParts(SelectionDAG &DAG, DebugLoc DL,
                                 const SDValue *Parts,
                                 unsigned NumParts, EVT PartVT, EVT ValueVT,
+                                const Value *V,
                                 ISD::NodeType AssertOp = ISD::DELETED_NODE) {
   if (ValueVT.isVector())
-    return getCopyFromPartsVector(DAG, DL, Parts, NumParts, PartVT, ValueVT);
+    return getCopyFromPartsVector(DAG, DL, Parts, NumParts,
+                                  PartVT, ValueVT, V);
 
   assert(NumParts > 0 && "No parts to assemble!");
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
@@ -125,9 +127,9 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, DebugLoc DL,
 
       if (RoundParts > 2) {
         Lo = getCopyFromParts(DAG, DL, Parts, RoundParts / 2,
-                              PartVT, HalfVT);
+                              PartVT, HalfVT, V);
         Hi = getCopyFromParts(DAG, DL, Parts + RoundParts / 2,
-                              RoundParts / 2, PartVT, HalfVT);
+                              RoundParts / 2, PartVT, HalfVT, V);
       } else {
         Lo = DAG.getNode(ISD::BITCAST, DL, HalfVT, Parts[0]);
         Hi = DAG.getNode(ISD::BITCAST, DL, HalfVT, Parts[1]);
@@ -143,7 +145,7 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, DebugLoc DL,
         unsigned OddParts = NumParts - RoundParts;
         EVT OddVT = EVT::getIntegerVT(*DAG.getContext(), OddParts * PartBits);
         Hi = getCopyFromParts(DAG, DL,
-                              Parts + RoundParts, OddParts, PartVT, OddVT);
+                              Parts + RoundParts, OddParts, PartVT, OddVT, V);
 
         // Combine the round and odd parts.
         Lo = Val;
@@ -172,7 +174,7 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, DebugLoc DL,
       assert(ValueVT.isFloatingPoint() && PartVT.isInteger() &&
              !PartVT.isVector() && "Unexpected split");
       EVT IntVT = EVT::getIntegerVT(*DAG.getContext(), ValueVT.getSizeInBits());
-      Val = getCopyFromParts(DAG, DL, Parts, NumParts, PartVT, IntVT);
+      Val = getCopyFromParts(DAG, DL, Parts, NumParts, PartVT, IntVT, V);
     }
   }
 
@@ -210,14 +212,14 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, DebugLoc DL,
   llvm_unreachable("Unknown mismatch!");
 }
 
-/// getCopyFromParts - Create a value that contains the specified legal parts
-/// combined into the value they represent.  If the parts combine to a type
-/// larger then ValueVT then AssertOp can be used to specify whether the extra
-/// bits are known to be zero (ISD::AssertZext) or sign extended from ValueVT
-/// (ISD::AssertSext).
+/// getCopyFromPartsVector - Create a value that contains the specified legal
+/// parts combined into the value they represent.  If the parts combine to a
+/// type larger then ValueVT then AssertOp can be used to specify whether the
+/// extra bits are known to be zero (ISD::AssertZext) or sign extended from
+/// ValueVT (ISD::AssertSext).
 static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
                                       const SDValue *Parts, unsigned NumParts,
-                                      EVT PartVT, EVT ValueVT) {
+                                      EVT PartVT, EVT ValueVT, const Value *V) {
   assert(ValueVT.isVector() && "Not a vector value");
   assert(NumParts > 0 && "No parts to assemble!");
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
@@ -243,7 +245,7 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
       // as appropriate.
       for (unsigned i = 0; i != NumParts; ++i)
         Ops[i] = getCopyFromParts(DAG, DL, &Parts[i], 1,
-                                  PartVT, IntermediateVT);
+                                  PartVT, IntermediateVT, V);
     } else if (NumParts > 0) {
       // If the intermediate type was expanded, build the intermediate
       // operands from the parts.
@@ -252,7 +254,7 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
       unsigned Factor = NumParts / NumIntermediates;
       for (unsigned i = 0; i != NumIntermediates; ++i)
         Ops[i] = getCopyFromParts(DAG, DL, &Parts[i * Factor], Factor,
-                                  PartVT, IntermediateVT);
+                                  PartVT, IntermediateVT, V);
     }
 
     // Build a vector with BUILD_VECTOR or CONCAT_VECTORS from the
@@ -300,8 +302,19 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
     return DAG.getNode(ISD::BITCAST, DL, ValueVT, Val);
 
   // Handle cases such as i8 -> <1 x i1>
-  assert(ValueVT.getVectorNumElements() == 1 &&
-         "Only trivial scalar-to-vector conversions should get here!");
+  if (ValueVT.getVectorNumElements() != 1) {
+    LLVMContext &Ctx = *DAG.getContext();
+    Twine ErrMsg("non-trivial scalar-to-vector conversion");
+    if (const Instruction *I = dyn_cast_or_null<Instruction>(V)) {
+      if (const CallInst *CI = dyn_cast<CallInst>(I))
+        if (isa<InlineAsm>(CI->getCalledValue()))
+          ErrMsg = ErrMsg + ", possible invalid constraint for vector type";
+      Ctx.emitError(I, ErrMsg);
+    } else {
+      Ctx.emitError(ErrMsg);
+    }
+    report_fatal_error("Cannot handle scalar-to-vector conversion!");
+  }
 
   if (ValueVT.getVectorNumElements() == 1 &&
       ValueVT.getVectorElementType() != PartVT) {
@@ -313,25 +326,22 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, DebugLoc DL,
   return DAG.getNode(ISD::BUILD_VECTOR, DL, ValueVT, Val);
 }
 
-
-
-
 static void getCopyToPartsVector(SelectionDAG &DAG, DebugLoc dl,
                                  SDValue Val, SDValue *Parts, unsigned NumParts,
-                                 EVT PartVT);
+                                 EVT PartVT, const Value *V);
 
 /// getCopyToParts - Create a series of nodes that contain the specified value
 /// split into legal parts.  If the parts contain more bits than Val, then, for
 /// integers, ExtendKind can be used to specify how to generate the extra bits.
 static void getCopyToParts(SelectionDAG &DAG, DebugLoc DL,
                            SDValue Val, SDValue *Parts, unsigned NumParts,
-                           EVT PartVT,
+                           EVT PartVT, const Value *V,
                            ISD::NodeType ExtendKind = ISD::ANY_EXTEND) {
   EVT ValueVT = Val.getValueType();
 
   // Handle the vector case separately.
   if (ValueVT.isVector())
-    return getCopyToPartsVector(DAG, DL, Val, Parts, NumParts, PartVT);
+    return getCopyToPartsVector(DAG, DL, Val, Parts, NumParts, PartVT, V);
 
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   unsigned PartBits = PartVT.getSizeInBits();
@@ -383,7 +393,19 @@ static void getCopyToParts(SelectionDAG &DAG, DebugLoc DL,
          "Failed to tile the value with PartVT!");
 
   if (NumParts == 1) {
-    assert(PartVT == ValueVT && "Type conversion failed!");
+    if (PartVT != ValueVT) {
+      LLVMContext &Ctx = *DAG.getContext();
+      Twine ErrMsg("scalar-to-vector conversion failed");
+      if (const Instruction *I = dyn_cast_or_null<Instruction>(V)) {
+        if (const CallInst *CI = dyn_cast<CallInst>(I))
+          if (isa<InlineAsm>(CI->getCalledValue()))
+            ErrMsg = ErrMsg + ", possible invalid constraint for vector type";
+        Ctx.emitError(I, ErrMsg);
+      } else {
+        Ctx.emitError(ErrMsg);
+      }
+    }
+
     Parts[0] = Val;
     return;
   }
@@ -398,7 +420,7 @@ static void getCopyToParts(SelectionDAG &DAG, DebugLoc DL,
     unsigned OddParts = NumParts - RoundParts;
     SDValue OddVal = DAG.getNode(ISD::SRL, DL, ValueVT, Val,
                                  DAG.getIntPtrConstant(RoundBits));
-    getCopyToParts(DAG, DL, OddVal, Parts + RoundParts, OddParts, PartVT);
+    getCopyToParts(DAG, DL, OddVal, Parts + RoundParts, OddParts, PartVT, V);
 
     if (TLI.isBigEndian())
       // The odd parts were reversed by getCopyToParts - unreverse them.
@@ -444,7 +466,7 @@ static void getCopyToParts(SelectionDAG &DAG, DebugLoc DL,
 /// value split into legal parts.
 static void getCopyToPartsVector(SelectionDAG &DAG, DebugLoc DL,
                                  SDValue Val, SDValue *Parts, unsigned NumParts,
-                                 EVT PartVT) {
+                                 EVT PartVT, const Value *V) {
   EVT ValueVT = Val.getValueType();
   assert(ValueVT.isVector() && "Not a vector");
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
@@ -530,7 +552,7 @@ static void getCopyToPartsVector(SelectionDAG &DAG, DebugLoc DL,
     // If the register was not expanded, promote or copy the value,
     // as appropriate.
     for (unsigned i = 0; i != NumParts; ++i)
-      getCopyToParts(DAG, DL, Ops[i], &Parts[i], 1, PartVT);
+      getCopyToParts(DAG, DL, Ops[i], &Parts[i], 1, PartVT, V);
   } else if (NumParts > 0) {
     // If the intermediate type was expanded, split each the value into
     // legal parts.
@@ -538,12 +560,9 @@ static void getCopyToPartsVector(SelectionDAG &DAG, DebugLoc DL,
            "Must expand into a divisible number of parts!");
     unsigned Factor = NumParts / NumIntermediates;
     for (unsigned i = 0; i != NumIntermediates; ++i)
-      getCopyToParts(DAG, DL, Ops[i], &Parts[i*Factor], Factor, PartVT);
+      getCopyToParts(DAG, DL, Ops[i], &Parts[i*Factor], Factor, PartVT, V);
   }
 }
-
-
-
 
 namespace {
   /// RegsForValue - This struct represents the registers (physical or virtual)
@@ -622,14 +641,15 @@ namespace {
     /// If the Flag pointer is NULL, no flag is used.
     SDValue getCopyFromRegs(SelectionDAG &DAG, FunctionLoweringInfo &FuncInfo,
                             DebugLoc dl,
-                            SDValue &Chain, SDValue *Flag) const;
+                            SDValue &Chain, SDValue *Flag,
+                            const Value *V = 0) const;
 
     /// getCopyToRegs - Emit a series of CopyToReg nodes that copies the
     /// specified value into the registers specified by this object.  This uses
     /// Chain/Flag as the input and updates them for the output Chain/Flag.
     /// If the Flag pointer is NULL, no flag is used.
     void getCopyToRegs(SDValue Val, SelectionDAG &DAG, DebugLoc dl,
-                       SDValue &Chain, SDValue *Flag) const;
+                       SDValue &Chain, SDValue *Flag, const Value *V) const;
 
     /// AddInlineAsmOperands - Add this value to the specified inlineasm node
     /// operand list.  This adds the code marker, matching input operand index
@@ -648,7 +668,8 @@ namespace {
 SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
                                       FunctionLoweringInfo &FuncInfo,
                                       DebugLoc dl,
-                                      SDValue &Chain, SDValue *Flag) const {
+                                      SDValue &Chain, SDValue *Flag,
+                                      const Value *V) const {
   // A Value with type {} or [0 x %t] needs no registers.
   if (ValueVTs.empty())
     return SDValue();
@@ -722,7 +743,7 @@ SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
     }
 
     Values[Value] = getCopyFromParts(DAG, dl, Parts.begin(),
-                                     NumRegs, RegisterVT, ValueVT);
+                                     NumRegs, RegisterVT, ValueVT, V);
     Part += NumRegs;
     Parts.clear();
   }
@@ -737,7 +758,8 @@ SDValue RegsForValue::getCopyFromRegs(SelectionDAG &DAG,
 /// Chain/Flag as the input and updates them for the output Chain/Flag.
 /// If the Flag pointer is NULL, no flag is used.
 void RegsForValue::getCopyToRegs(SDValue Val, SelectionDAG &DAG, DebugLoc dl,
-                                 SDValue &Chain, SDValue *Flag) const {
+                                 SDValue &Chain, SDValue *Flag,
+                                 const Value *V) const {
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
 
   // Get the list of the values's legal parts.
@@ -749,7 +771,7 @@ void RegsForValue::getCopyToRegs(SDValue Val, SelectionDAG &DAG, DebugLoc dl,
     EVT RegisterVT = RegVTs[Value];
 
     getCopyToParts(DAG, dl, Val.getValue(Val.getResNo() + Value),
-                   &Parts[Part], NumParts, RegisterVT);
+                   &Parts[Part], NumParts, RegisterVT, V);
     Part += NumParts;
   }
 
@@ -994,7 +1016,7 @@ SDValue SelectionDAGBuilder::getValue(const Value *V) {
     unsigned InReg = It->second;
     RegsForValue RFV(*DAG.getContext(), TLI, InReg, V->getType());
     SDValue Chain = DAG.getEntryNode();
-    N = RFV.getCopyFromRegs(DAG, FuncInfo, getCurDebugLoc(), Chain, NULL);
+    N = RFV.getCopyFromRegs(DAG, FuncInfo, getCurDebugLoc(), Chain, NULL, V);
     resolveDanglingDebugInfo(V, N);
     return N;
   }
@@ -1149,7 +1171,7 @@ SDValue SelectionDAGBuilder::getValueImpl(const Value *V) {
     unsigned InReg = FuncInfo.InitializeRegForValue(Inst);
     RegsForValue RFV(*DAG.getContext(), TLI, InReg, Inst->getType());
     SDValue Chain = DAG.getEntryNode();
-    return RFV.getCopyFromRegs(DAG, FuncInfo, getCurDebugLoc(), Chain, NULL);
+    return RFV.getCopyFromRegs(DAG, FuncInfo, getCurDebugLoc(), Chain, NULL, V);
   }
 
   llvm_unreachable("Can't get register for value!");
@@ -1218,7 +1240,7 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
         SmallVector<SDValue, 4> Parts(NumParts);
         getCopyToParts(DAG, getCurDebugLoc(),
                        SDValue(RetOp.getNode(), RetOp.getResNo() + j),
-                       &Parts[0], NumParts, PartVT, ExtendKind);
+                       &Parts[0], NumParts, PartVT, &I, ExtendKind);
 
         // 'inreg' on function refers to return value
         ISD::ArgFlagsTy Flags = ISD::ArgFlagsTy();
@@ -2093,7 +2115,7 @@ bool SelectionDAGBuilder::handleJTSwitchCase(CaseRec &CR,
   for (CaseItr I = CR.Range.first, E = CR.Range.second; I != E; ++I)
     TSize += I->size();
 
-  if (!areJTsAllowed(TLI) || TSize.ult(4))
+  if (!areJTsAllowed(TLI) || TSize.ult(TLI.getMinimumJumpTableEntries()))
     return false;
 
   APInt Range = ComputeRange(First, Last);
@@ -2565,9 +2587,10 @@ void SelectionDAGBuilder::visitSwitch(const SwitchInst &SI) {
     if (handleSmallSwitchRange(CR, WorkList, SV, Default, SwitchMBB))
       continue;
 
-    // If the switch has more than 5 blocks, and at least 40% dense, and the
+    // If the switch has more than N blocks, and is at least 40% dense, and the
     // target supports indirect branches, then emit a jump table rather than
     // lowering the switch to a binary tree of conditional branches.
+    // N defaults to 4 and is controlled via TLS.getMinimumJumpTableEntries().
     if (handleJTSwitchCase(CR, WorkList, SV, Default, SwitchMBB))
       continue;
 
@@ -4377,7 +4400,7 @@ static SDValue ExpandPowI(DebugLoc DL, SDValue LHS, SDValue RHS,
       return DAG.getConstantFP(1.0, LHS.getValueType());
 
     const Function *F = DAG.getMachineFunction().getFunction();
-    if (!F->hasFnAttr(Attribute::OptimizeForSize) ||
+    if (!F->getFnAttributes().hasOptimizeForSizeAttr() ||
         // If optimizing for size, don't insert too many multiplies.  This
         // inserts up to 5 multiplies.
         CountPopulation_32(Val)+Log2_32(Val) < 7) {
@@ -6222,7 +6245,7 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
 
           // Use the produced MatchedRegs object to
           MatchedRegs.getCopyToRegs(InOperandVal, DAG, getCurDebugLoc(),
-                                    Chain, &Flag);
+                                    Chain, &Flag, CS.getInstruction());
           MatchedRegs.AddInlineAsmOperands(InlineAsm::Kind_RegUse,
                                            true, OpInfo.getMatchedOperand(),
                                            DAG, AsmNodeOperands);
@@ -6304,7 +6327,7 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
       }
 
       OpInfo.AssignedRegs.getCopyToRegs(InOperandVal, DAG, getCurDebugLoc(),
-                                        Chain, &Flag);
+                                        Chain, &Flag, CS.getInstruction());
 
       OpInfo.AssignedRegs.AddInlineAsmOperands(InlineAsm::Kind_RegUse, false, 0,
                                                DAG, AsmNodeOperands);
@@ -6335,7 +6358,7 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
   // and set it as the value of the call.
   if (!RetValRegs.Regs.empty()) {
     SDValue Val = RetValRegs.getCopyFromRegs(DAG, FuncInfo, getCurDebugLoc(),
-                                             Chain, &Flag);
+                                             Chain, &Flag, CS.getInstruction());
 
     // FIXME: Why don't we do this for inline asms with MRVs?
     if (CS.getType()->isSingleValueType() && CS.getType()->isSized()) {
@@ -6375,7 +6398,7 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
     RegsForValue &OutRegs = IndirectStoresToEmit[i].first;
     const Value *Ptr = IndirectStoresToEmit[i].second;
     SDValue OutVal = OutRegs.getCopyFromRegs(DAG, FuncInfo, getCurDebugLoc(),
-                                             Chain, &Flag);
+                                             Chain, &Flag, IA);
     StoresToEmit.push_back(std::make_pair(OutVal, Ptr));
   }
 
@@ -6490,7 +6513,7 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
         ExtendKind = ISD::ZERO_EXTEND;
 
       getCopyToParts(CLI.DAG, CLI.DL, Op, &Parts[0], NumParts,
-                     PartVT, ExtendKind);
+                     PartVT, CLI.CS ? CLI.CS->getInstruction() : 0, ExtendKind);
 
       for (unsigned j = 0; j != NumParts; ++j) {
         // if it isn't first piece, alignment must be 1
@@ -6571,7 +6594,7 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
     unsigned NumRegs = getNumRegisters(CLI.RetTy->getContext(), VT);
 
     ReturnValues.push_back(getCopyFromParts(CLI.DAG, CLI.DL, &InVals[CurReg],
-                                            NumRegs, RegisterVT, VT,
+                                            NumRegs, RegisterVT, VT, NULL,
                                             AssertOp));
     CurReg += NumRegs;
   }
@@ -6610,7 +6633,7 @@ SelectionDAGBuilder::CopyValueToVirtualRegister(const Value *V, unsigned Reg) {
 
   RegsForValue RFV(V->getContext(), TLI, Reg, V->getType());
   SDValue Chain = DAG.getEntryNode();
-  RFV.getCopyToRegs(Op, DAG, getCurDebugLoc(), Chain, 0);
+  RFV.getCopyToRegs(Op, DAG, getCurDebugLoc(), Chain, 0, V);
   PendingExports.push_back(Chain);
 }
 
@@ -6752,7 +6775,7 @@ void SelectionDAGISel::LowerArguments(const BasicBlock *LLVMBB) {
     EVT RegVT = TLI.getRegisterType(*CurDAG->getContext(), VT);
     ISD::NodeType AssertOp = ISD::DELETED_NODE;
     SDValue ArgValue = getCopyFromParts(DAG, dl, &InVals[0], 1,
-                                        RegVT, VT, AssertOp);
+                                        RegVT, VT, NULL, AssertOp);
 
     MachineFunction& MF = SDB->DAG.getMachineFunction();
     MachineRegisterInfo& RegInfo = MF.getRegInfo();
@@ -6793,7 +6816,7 @@ void SelectionDAGISel::LowerArguments(const BasicBlock *LLVMBB) {
 
         ArgValues.push_back(getCopyFromParts(DAG, dl, &InVals[i],
                                              NumParts, PartVT, VT,
-                                             AssertOp));
+                                             NULL, AssertOp));
       }
 
       i += NumParts;

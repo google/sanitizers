@@ -655,21 +655,21 @@ public:
 
   virtual Elf_Rela_Iter beginELFRela(const Elf_Shdr *sec) const {
     return Elf_Rela_Iter(sec, (const char *)(base() + sec->sh_offset));
-  };
+  }
 
   virtual Elf_Rela_Iter endELFRela(const Elf_Shdr *sec) const {
     return Elf_Rela_Iter(sec, (const char *)
                          (base() + sec->sh_offset + sec->sh_size));
-  };
+  }
 
   virtual Elf_Rel_Iter beginELFRel(const Elf_Shdr *sec) const {
     return Elf_Rel_Iter(sec, (const char *)(base() + sec->sh_offset));
-  };
+  }
 
   virtual Elf_Rel_Iter endELFRel(const Elf_Shdr *sec) const {
     return Elf_Rel_Iter(sec, (const char *)
                         (base() + sec->sh_offset + sec->sh_size));
-  };
+  }
 
   virtual uint8_t getBytesInAddress() const;
   virtual StringRef getFileFormatName() const;
@@ -951,7 +951,18 @@ error_code ELFObjectFile<target_endianness, is64Bits>
   case ELF::STT_FUNC:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
-    Result = symb->st_value + (Section ? Section->sh_addr : 0);
+    bool IsRelocatable;
+    switch(Header->e_type) {
+    case ELF::ET_EXEC:
+    case ELF::ET_DYN:
+      IsRelocatable = false;
+      break;
+    default:
+      IsRelocatable = true;
+    }
+    Result = symb->st_value;
+    if (IsRelocatable && Section != 0)
+      Result += Section->sh_addr;
     return object_error::success;
   default:
     Result = UnknownAddressOrSize;

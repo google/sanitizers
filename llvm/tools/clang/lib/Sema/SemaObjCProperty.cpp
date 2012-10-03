@@ -22,6 +22,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
+#include "clang/Lex/Preprocessor.h"
 
 using namespace clang;
 
@@ -349,6 +350,7 @@ Sema::HandlePropertyInClassExtension(Scope *S,
       Diag(AtLoc, 
           diag::err_type_mismatch_continuation_class) << PDecl->getType();
       Diag(PIDecl->getLocation(), diag::note_property_declare);
+      return 0;
     }
   }
     
@@ -409,6 +411,7 @@ Sema::HandlePropertyInClassExtension(Scope *S,
     Diag(AtLoc, diag)
       << CCPrimary->getDeclName();
     Diag(PIDecl->getLocation(), diag::note_property_declare);
+    return 0;
   }
   *isOverridingProperty = true;
   // Make sure setter decl is synthesized, and added to primary class's list.
@@ -417,7 +420,7 @@ Sema::HandlePropertyInClassExtension(Scope *S,
   PDecl->setSetterMethodDecl(PIDecl->getSetterMethodDecl());
   if (ASTMutationListener *L = Context.getASTMutationListener())
     L->AddedObjCPropertyInClassExtension(PDecl, PIDecl, CDecl);
-  return 0;
+  return PDecl;
 }
 
 ObjCPropertyDecl *Sema::CreatePropertyDecl(Scope *S,
@@ -928,7 +931,6 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
         Ivar->setInvalidDecl();
       ClassImpDecl->addDecl(Ivar);
       IDecl->makeDeclVisibleInContext(Ivar);
-      property->setPropertyIvarDecl(Ivar);
 
       if (getLangOpts().ObjCRuntime.isFragile())
         Diag(PropertyDiagLoc, diag::error_missing_property_ivar_decl)
@@ -944,6 +946,8 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
       << Ivar << Ivar->getName();
       // Note! I deliberately want it to fall thru so more errors are caught.
     }
+    property->setPropertyIvarDecl(Ivar);
+
     QualType IvarType = Context.getCanonicalType(Ivar->getType());
 
     // Check that type of property and its ivar are type compatible.
@@ -1558,17 +1562,59 @@ ObjCPropertyDecl *Sema::LookupPropertyDecl(const ObjCContainerDecl *CDecl,
         return Prop;
     }
   }
+  else if (const ObjCCategoryDecl *CatDecl =
+            dyn_cast<ObjCCategoryDecl>(CDecl)) {
+    for (ObjCContainerDecl::prop_iterator P = CatDecl->prop_begin(),
+         E = CatDecl->prop_end(); P != E; ++P) {
+      ObjCPropertyDecl *Prop = *P;
+      if (Prop->getIdentifier() == II)
+        return Prop;
+    }
+  }
   return 0;
 }
 
-static IdentifierInfo * getDefaultSynthIvarName(ObjCPropertyDecl *Prop,
-                                                ASTContext &Ctx) {
-  SmallString<128> ivarName;
-  {
-    llvm::raw_svector_ostream os(ivarName);
-    os << '_' << Prop->getIdentifier()->getName();
+/// PropertyIfSetterOrGetter - Looks up the property if named declaration
+/// is a setter or getter method backing a property.
+ObjCPropertyDecl *Sema::PropertyIfSetterOrGetter(NamedDecl *D) {
+  if (const ObjCMethodDecl *Method = dyn_cast<ObjCMethodDecl>(D)) {
+    Selector Sel = Method->getSelector();
+    IdentifierInfo *Id = 0;
+    if (Sel.getNumArgs() == 0)
+      Id = Sel.getIdentifierInfoForSlot(0);
+    else if (Sel.getNumArgs() == 1) {
+      StringRef str = Sel.getNameForSlot(0);
+      if (str.startswith("set")) {
+        str = str.substr(3);
+        char front = str.front();
+        front = islower(front) ? toupper(front) : tolower(front);
+        SmallString<100> PropertyName = str;
+        PropertyName[0] = front;
+        Id = &PP.getIdentifierTable().get(PropertyName);
+      }
+    }
+    if (Id) {
+      if (isa<ObjCInterfaceDecl>(Method->getDeclContext())) {
+        const ObjCInterfaceDecl *IDecl = Method->getClassInterface();
+        while (IDecl) {
+          ObjCPropertyDecl  *PDecl =
+            LookupPropertyDecl(cast<ObjCContainerDecl>(IDecl), Id);
+          if (PDecl)
+            return PDecl;
+          for (ObjCCategoryDecl *Category = IDecl->getCategoryList();
+             Category; Category = Category->getNextClassCategory())
+            if ((PDecl =
+                 LookupPropertyDecl(cast<ObjCContainerDecl>(Category), Id)))
+              return PDecl;
+          IDecl = IDecl->getSuperClass();
+        }
+      } else if (ObjCPropertyDecl  *PDecl =
+                  LookupPropertyDecl(
+                    cast<ObjCContainerDecl>(Method->getDeclContext()), Id))
+               return PDecl;
+    }
   }
-  return &Ctx.Idents.get(ivarName.str());
+  return 0;
 }
 
 /// \brief Default synthesizes all properties which must be synthesized
@@ -1619,7 +1665,7 @@ void Sema::DefaultSynthesizeProperties(Scope *S, ObjCImplDecl* IMPDecl,
       ActOnPropertyImplDecl(S, SourceLocation(), SourceLocation(),
                             true,
                             /* property = */ Prop->getIdentifier(),
-                            /* ivar = */ getDefaultSynthIvarName(Prop, Context),
+                            /* ivar = */ Prop->getDefaultSynthIvarName(Context),
                             Prop->getLocation()));
     if (PIDecl) {
       Diag(Prop->getLocation(), diag::warn_missing_explicit_synthesis);
@@ -2157,7 +2203,9 @@ void Sema::CheckObjCPropertyAttributes(Decl *PDecl,
         // issue any warning.
         if (isAnyClassTy && getLangOpts().getGC() == LangOptions::NonGC)
           ;
-        else {
+        else if (propertyInPrimaryClass) {
+          // Don't issue warning on property with no life time in class 
+          // extension as it is inherited from property in primary class.
           // Skip this warning in gc-only mode.
           if (getLangOpts().getGC() != LangOptions::GCOnly)
             Diag(Loc, diag::warn_objc_property_no_assignment_attribute);

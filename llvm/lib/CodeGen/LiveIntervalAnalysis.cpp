@@ -731,6 +731,70 @@ bool LiveIntervals::shrinkToUses(LiveInterval *li,
   return CanSeparate;
 }
 
+void LiveIntervals::extendToIndices(LiveInterval *LI,
+                                    ArrayRef<SlotIndex> Indices) {
+  assert(LRCalc && "LRCalc not initialized.");
+  LRCalc->reset(MF, getSlotIndexes(), DomTree, &getVNInfoAllocator());
+  for (unsigned i = 0, e = Indices.size(); i != e; ++i)
+    LRCalc->extend(LI, Indices[i]);
+}
+
+void LiveIntervals::pruneValue(LiveInterval *LI, SlotIndex Kill,
+                               SmallVectorImpl<SlotIndex> *EndPoints) {
+  LiveRangeQuery LRQ(*LI, Kill);
+  VNInfo *VNI = LRQ.valueOut();
+  if (!VNI)
+    return;
+
+  MachineBasicBlock *KillMBB = Indexes->getMBBFromIndex(Kill);
+  SlotIndex MBBStart, MBBEnd;
+  tie(MBBStart, MBBEnd) = Indexes->getMBBRange(KillMBB);
+
+  // If VNI isn't live out from KillMBB, the value is trivially pruned.
+  if (LRQ.endPoint() < MBBEnd) {
+    LI->removeRange(Kill, LRQ.endPoint());
+    if (EndPoints) EndPoints->push_back(LRQ.endPoint());
+    return;
+  }
+
+  // VNI is live out of KillMBB.
+  LI->removeRange(Kill, MBBEnd);
+  if (EndPoints) EndPoints->push_back(MBBEnd);
+
+  // Find all blocks that are reachable from MBB without leaving VNI's live
+  // range.
+  for (df_iterator<MachineBasicBlock*>
+       I = df_begin(KillMBB), E = df_end(KillMBB); I != E;) {
+    MachineBasicBlock *MBB = *I;
+    // KillMBB itself was already handled.
+    if (MBB == KillMBB) {
+      ++I;
+      continue;
+    }
+
+    // Check if VNI is live in to MBB.
+    tie(MBBStart, MBBEnd) = Indexes->getMBBRange(MBB);
+    LiveRangeQuery LRQ(*LI, MBBStart);
+    if (LRQ.valueIn() != VNI) {
+      // This block isn't part of the VNI live range. Prune the search.
+      I.skipChildren();
+      continue;
+    }
+
+    // Prune the search if VNI is killed in MBB.
+    if (LRQ.endPoint() < MBBEnd) {
+      LI->removeRange(MBBStart, LRQ.endPoint());
+      if (EndPoints) EndPoints->push_back(LRQ.endPoint());
+      I.skipChildren();
+      continue;
+    }
+
+    // VNI is live through MBB.
+    LI->removeRange(MBBStart, MBBEnd);
+    if (EndPoints) EndPoints->push_back(MBBEnd);
+    ++I;
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // Register allocator hooks.
@@ -1100,18 +1164,17 @@ private:
 
       unsigned Reg = MO.getReg();
 
-      // TODO: Currently we're skipping uses that are reserved or have no
-      // interval, but we're not updating their kills. This should be
-      // fixed.
-      if (TargetRegisterInfo::isPhysicalRegister(Reg) && LIS.isReserved(Reg))
-        continue;
+      // Don't track uses of reserved registers - they're not accurate.
+      // Reserved register live ranges look like a set of dead defs.
+      bool Resv =
+        TargetRegisterInfo::isPhysicalRegister(Reg) && LIS.isReserved(Reg);
 
       // Collect ranges for register units. These live ranges are computed on
       // demand, so just skip any that haven't been computed yet.
       if (TargetRegisterInfo::isPhysicalRegister(Reg)) {
         for (MCRegUnitIterator Units(Reg, &TRI); Units.isValid(); ++Units)
           if (LiveInterval *LI = LIS.getCachedRegUnit(*Units))
-            collectRanges(MO, LI, Entering, Internal, Exiting, OldIdx);
+            collectRanges(MO, LI, Entering, Internal, Exiting, OldIdx, Resv);
       } else {
         // Collect ranges for individual virtual registers.
         collectRanges(MO, &LIS.getInterval(Reg),
@@ -1122,8 +1185,8 @@ private:
 
   void collectRanges(const MachineOperand &MO, LiveInterval *LI,
                      RangeSet &Entering, RangeSet &Internal, RangeSet &Exiting,
-                     SlotIndex OldIdx) {
-    if (MO.readsReg()) {
+                     SlotIndex OldIdx, bool IgnoreReads = false) {
+    if (!IgnoreReads && MO.readsReg()) {
       LiveRange* LR = LI->getLiveRangeContaining(OldIdx);
       if (LR != 0)
         Entering.insert(std::make_pair(LI, LR));

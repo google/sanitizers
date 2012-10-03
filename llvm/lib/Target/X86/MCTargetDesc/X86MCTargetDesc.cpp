@@ -243,9 +243,14 @@ unsigned X86_MC::getX86RegNum(unsigned RegNo) {
   case X86::R15: case X86::R15D: case X86::R15W: case X86::R15B:
     return N86::EDI;
 
-  case X86::ST0: case X86::ST1: case X86::ST2: case X86::ST3:
-  case X86::ST4: case X86::ST5: case X86::ST6: case X86::ST7:
-    return RegNo-X86::ST0;
+  case X86::ST0: return 0;
+  case X86::ST1: return 1;
+  case X86::ST2: return 2;
+  case X86::ST3: return 3;
+  case X86::ST4: return 4;
+  case X86::ST5: return 5;
+  case X86::ST6: return 6;
+  case X86::ST7: return 7;
 
   case X86::XMM0: case X86::XMM8:
   case X86::YMM0: case X86::YMM8: case X86::MM0:
@@ -379,11 +384,15 @@ static MCAsmInfo *createX86MCAsmInfo(const Target &T, StringRef TT) {
       MAI = new X86_64MCAsmInfoDarwin(TheTriple);
     else
       MAI = new X86MCAsmInfoDarwin(TheTriple);
+  } else if (TheTriple.getEnvironment() == Triple::ELF) {
+    // Force the use of an ELF container.
+    MAI = new X86ELFMCAsmInfo(TheTriple);
   } else if (TheTriple.getOS() == Triple::Win32) {
     MAI = new X86MCAsmInfoMicrosoft(TheTriple);
   } else if (TheTriple.getOS() == Triple::MinGW32 || TheTriple.getOS() == Triple::Cygwin) {
     MAI = new X86MCAsmInfoGNUCOFF(TheTriple);
   } else {
+    // The default is ELF.
     MAI = new X86ELFMCAsmInfo(TheTriple);
   }
 
@@ -465,7 +474,7 @@ static MCStreamer *createMCStreamer(const Target &T, StringRef TT,
   if (TheTriple.isOSDarwin() || TheTriple.getEnvironment() == Triple::MachO)
     return createMachOStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll);
 
-  if (TheTriple.isOSWindows())
+  if (TheTriple.isOSWindows() && TheTriple.getEnvironment() != Triple::ELF)
     return createWinCOFFStreamer(Ctx, MAB, *_Emitter, _OS, RelaxAll);
 
   return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);

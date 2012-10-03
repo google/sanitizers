@@ -74,9 +74,9 @@ RuntimeDirs :=
 ifeq ($(OS),Darwin)
 RuntimeDirs += darwin
 RuntimeLibrary.darwin.Configs := \
-	eprintf.a 10.4.a osx.a cc_kext.a \
+	eprintf.a 10.4.a osx.a ios.a cc_kext.a cc_kext_ios5.a \
 	asan_osx.a asan_osx_dynamic.dylib \
-	profile_osx.a
+	profile_osx.a profile_ios.a
 endif
 
 # On Linux, include a library which has all the runtime functions.
@@ -92,6 +92,10 @@ endif
 ifeq ($(ARCH),x86_64)
 RuntimeLibrary.linux.Configs += \
 	full-x86_64.a profile-x86_64.a asan-x86_64.a tsan-x86_64.a
+# We assume that 32-bit ASan library can be built by Clang on 64-bit platform,
+# and add it to the list of runtime libraries so that
+# "clang -faddress-sanitizer -m32" would work.
+RuntimeLibrary.linux.Configs += asan-i386.a
 endif
 
 endif
@@ -149,6 +153,8 @@ $(ResourceLibDir)/$1/libclang_rt.%.dylib: \
 		$(ResourceLibDir)/$1/.dir
 	$(Echo) Copying runtime library $1/$$* to build dir
 	$(Verb) cp $(PROJ_OBJ_DIR)/clang_$1/$$*/libcompiler_rt.dylib $$@
+	$(Echo) Fixing LC_ID_DYLIB of $$@
+	$(Verb) install_name_tool $$@ -id $$@
 RuntimeLibrary.$1: \
 		$(RuntimeLibrary.$1.Configs:%=$(ResourceLibDir)/$1/libclang_rt.%)
 .PHONY: RuntimeLibrary.$1

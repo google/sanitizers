@@ -19,9 +19,11 @@
 
 namespace llvm {
 
+class MachineInstr;
 class SDep;
 class SUnit;
 class TargetRegisterClass;
+class TargetSchedModel;
 template <typename T> class SmallVectorImpl;
 
 //===----------------------------------------------------------------------===//
@@ -42,6 +44,15 @@ public:
   typedef SmallVectorImpl<const TargetRegisterClass*> RegClassVector;
 
   virtual ~TargetSubtargetInfo();
+
+  /// Resolve a SchedClass at runtime, where SchedClass identifies an
+  /// MCSchedClassDesc with the isVariant property. This may return the ID of
+  /// another variant SchedClass, but repeated invocation must quickly terminate
+  /// in a nonvariant SchedClass.
+  virtual unsigned resolveSchedClass(unsigned SchedClass, const MachineInstr *MI,
+                                     const TargetSchedModel* SchedModel) const {
+    return 0;
+  }
 
   /// getSpecialAddressLatency - For targets where it is beneficial to
   /// backschedule instructions that compute addresses, return a value

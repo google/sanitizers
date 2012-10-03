@@ -23,6 +23,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
 using namespace ento;
@@ -64,6 +65,9 @@ const Stmt *bugreporter::GetDerefExpr(const ExplodedNode *N) {
       if (ME->isArrow() || isDeclRefExprToReference(ME->getBase())) {
         return ME->getBase()->IgnoreParenCasts();
       }
+    }
+    else if (const ObjCIvarRefExpr *IvarRef = dyn_cast<ObjCIvarRefExpr>(S)) {
+      return IvarRef->getBase()->IgnoreParenCasts();
     }
     else if (const ArraySubscriptExpr *AE = dyn_cast<ArraySubscriptExpr>(S)) {
       return AE->getBase();
@@ -136,9 +140,13 @@ public:
   ReturnVisitor(const StackFrameContext *Frame)
     : StackFrame(Frame), Satisfied(false) {}
 
-  virtual void Profile(llvm::FoldingSetNodeID &ID) const {
+  static void *getTag() {
     static int Tag = 0;
-    ID.AddPointer(&Tag);
+    return static_cast<void *>(&Tag);
+  }
+
+  virtual void Profile(llvm::FoldingSetNodeID &ID) const {
+    ID.AddPointer(ReturnVisitor::getTag());
     ID.AddPointer(StackFrame);
   }
 
@@ -171,11 +179,15 @@ public:
       Node = Node->getFirstPred();
 
     // Finally, see if we inlined the call.
-    if (Node)
-      if (const CallExitEnd *CEE = Node->getLocationAs<CallExitEnd>())
-        if (CEE->getCalleeContext()->getCallSite() == S)
-          BR.addVisitor(new ReturnVisitor(CEE->getCalleeContext()));
-
+    if (Node) {
+      if (const CallExitEnd *CEE = Node->getLocationAs<CallExitEnd>()) {
+        const StackFrameContext *CalleeContext = CEE->getCalleeContext();
+        if (CalleeContext->getCallSite() == S) {
+          BR.markInteresting(CalleeContext);
+          BR.addVisitor(new ReturnVisitor(CalleeContext));
+        }
+      }
+    }
   }
 
   PathDiagnosticPiece *VisitNode(const ExplodedNode *N,
@@ -207,33 +219,39 @@ public:
     // Don't print any more notes after this one.
     Satisfied = true;
 
-    // Build an appropriate message based on the return value.
-    SmallString<64> Msg;
-    llvm::raw_svector_ostream Out(Msg);
-
     const Expr *RetE = Ret->getRetValue();
     assert(RetE && "Tracking a return value for a void function");
     RetE = RetE->IgnoreParenCasts();
 
-    // See if we know that the return value is 0.
-    ProgramStateRef StNonZero, StZero;
-    llvm::tie(StNonZero, StZero) = State->assume(cast<DefinedSVal>(V));
-    if (StZero && !StNonZero) {
-      // If we're returning 0, we should track where that 0 came from.
-      bugreporter::trackNullOrUndefValue(N, RetE, BR);
-
-      if (isa<Loc>(V)) {
-        if (RetE->getType()->isObjCObjectPointerType())
-          Out << "Returning nil";
-        else
-          Out << "Returning null pointer";
-      } else {
-        Out << "Returning zero";
-      }
-    } else {
-      // FIXME: We can probably do better than this.
+    // If we can't prove the return value is 0, just mark it interesting, and
+    // make sure to track it into any further inner functions.
+    if (State->assume(cast<DefinedSVal>(V), true)) {
       BR.markInteresting(V);
-      Out << "Value returned here";
+      ReturnVisitor::addVisitorIfNecessary(N, RetE, BR);
+      return 0;
+    }
+      
+    // If we're returning 0, we should track where that 0 came from.
+    bugreporter::trackNullOrUndefValue(N, RetE, BR);
+
+    // Build an appropriate message based on the return value.
+    SmallString<64> Msg;
+    llvm::raw_svector_ostream Out(Msg);
+
+    if (isa<Loc>(V)) {
+      // If we are pruning null-return paths as unlikely error paths, mark the
+      // report invalid. We still want to emit a path note, however, in case
+      // the report is resurrected as valid later on.
+      ExprEngine &Eng = BRC.getBugReporter().getEngine();
+      if (Eng.getAnalysisManager().options.shouldPruneNullReturnPaths())
+        BR.markInvalid(ReturnVisitor::getTag(), StackFrame);
+
+      if (RetE->getType()->isObjCObjectPointerType())
+        Out << "Returning nil";
+      else
+        Out << "Returning null pointer";
+    } else {
+      Out << "Returning zero";
     }
 
     // FIXME: We should have a more generalized location printing mechanism.
@@ -294,18 +312,41 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
       if (const BinaryOperator *BO = P->getStmtAs<BinaryOperator>())
         if (BO->isAssignmentOp())
           InitE = BO->getRHS();
+
+    // If this is a call entry, the variable should be a parameter.
+    // FIXME: Handle CXXThisRegion as well. (This is not a priority because
+    // 'this' should never be NULL, but this visitor isn't just for NULL and
+    // UndefinedVal.)
+    if (const CallEnter *CE = Succ->getLocationAs<CallEnter>()) {
+      const VarRegion *VR = cast<VarRegion>(R);
+      const ParmVarDecl *Param = cast<ParmVarDecl>(VR->getDecl());
+      
+      ProgramStateManager &StateMgr = BRC.getStateManager();
+      CallEventManager &CallMgr = StateMgr.getCallEventManager();
+
+      CallEventRef<> Call = CallMgr.getCaller(CE->getCalleeContext(),
+                                              Succ->getState());
+      InitE = Call->getArgExpr(Param->getFunctionScopeIndex());
+    }
   }
 
   if (!StoreSite)
     return NULL;
   satisfied = true;
 
-  // If the value that was stored came from an inlined call, make sure we
-  // step into the call.
+  // If we have an expression that provided the value, try to track where it
+  // came from.
   if (InitE) {
     InitE = InitE->IgnoreParenCasts();
-    ReturnVisitor::addVisitorIfNecessary(StoreSite, InitE, BR);
+
+    if (V.isUndef() || isa<loc::ConcreteInt>(V))
+      bugreporter::trackNullOrUndefValue(StoreSite, InitE, BR);
+    else
+      ReturnVisitor::addVisitorIfNecessary(StoreSite, InitE, BR);
   }
+
+  if (!R->canPrintPretty())
+    return 0;
 
   // Okay, we've found the binding. Emit an appropriate message.
   SmallString<256> sbuf;
@@ -350,6 +391,30 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
         os << "initialized here";
       }
     }
+  } else if (isa<CallEnter>(StoreSite->getLocation())) {
+    const ParmVarDecl *Param = cast<ParmVarDecl>(cast<VarRegion>(R)->getDecl());
+
+    os << "Passing ";
+
+    if (isa<loc::ConcreteInt>(V)) {
+      if (Param->getType()->isObjCObjectPointerType())
+        os << "nil object reference";
+      else
+        os << "null pointer value";
+    } else if (V.isUndef()) {
+      os << "uninitialized value";
+    } else if (isa<nonloc::ConcreteInt>(V)) {
+      os << "the value " << cast<nonloc::ConcreteInt>(V).getValue();
+    } else {
+      os << "value";
+    }
+
+    // Printed parameter indexes are 1-based, not 0-based.
+    unsigned Idx = Param->getFunctionScopeIndex() + 1;
+    os << " via " << Idx << llvm::getOrdinalSuffix(Idx) << " parameter '";
+
+    R->printPretty(os);
+    os << '\'';
   }
 
   if (os.str().empty()) {
@@ -377,17 +442,19 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     else
       os << "Value assigned to ";
 
-    if (const VarRegion *VR = dyn_cast<VarRegion>(R)) {
-      os << '\'' << *VR->getDecl() << '\'';
-    }
-    else
-      return NULL;
+    os << '\'';
+    R->printPretty(os);
+    os << '\'';
   }
 
   // Construct a new PathDiagnosticPiece.
   ProgramPoint P = StoreSite->getLocation();
-  PathDiagnosticLocation L =
-    PathDiagnosticLocation::create(P, BRC.getSourceManager());
+  PathDiagnosticLocation L;
+  if (isa<CallEnter>(P))
+    L = PathDiagnosticLocation(InitE, BRC.getSourceManager(),
+                               P.getLocationContext());
+  else
+    L = PathDiagnosticLocation::create(P, BRC.getSourceManager());
   if (!L.isValid())
     return NULL;
   return new PathDiagnosticEventPiece(L, os.str());
@@ -450,6 +517,9 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
   if (!S || !N)
     return;
 
+  if (const OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(S))
+    S = OVE->getSourceExpr();
+
   ProgramStateManager &StateMgr = N->getState()->getStateManager();
 
   // Walk through nodes until we get one that matches the statement exactly.
@@ -493,7 +563,7 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
         // If the contents are symbolic, find out when they became null.
         if (V.getAsLocSymbol()) {
           BugReporterVisitor *ConstraintTracker
-            = new TrackConstraintBRVisitor(cast<loc::MemRegionVal>(V), false);
+            = new TrackConstraintBRVisitor(cast<DefinedSVal>(V), false);
           report.addVisitor(ConstraintTracker);
         }
 
@@ -528,6 +598,8 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
   } else {
     // Otherwise, if the value came from an inlined function call,
     // we should at least make sure that function isn't pruned in our output.
+    if (const Expr *E = dyn_cast<Expr>(S))
+      S = E->IgnoreParenCasts();
     ReturnVisitor::addVisitorIfNecessary(N, S, report);
   }
 }

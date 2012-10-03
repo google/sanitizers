@@ -510,7 +510,7 @@ Decl *TemplateDeclInstantiator::VisitFriendDecl(FriendDecl *D) {
     if (!InstTy)
       return 0;
 
-    FriendDecl *FD = SemaRef.CheckFriendTypeDecl(D->getLocation(),
+    FriendDecl *FD = SemaRef.CheckFriendTypeDecl(D->getLocStart(),
                                                  D->getFriendLoc(), InstTy);
     if (!FD)
       return 0;
@@ -2986,7 +2986,7 @@ Sema::InstantiateMemInitializers(CXXConstructorDecl *New,
                            const MultiLevelTemplateArgumentList &TemplateArgs) {
 
   SmallVector<CXXCtorInitializer*, 4> NewInits;
-  bool AnyErrors = false;
+  bool AnyErrors = Tmpl->isInvalidDecl();
 
   // Instantiate all the initializers.
   for (CXXConstructorDecl::init_const_iterator Inits = Tmpl->init_begin(),

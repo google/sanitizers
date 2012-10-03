@@ -26,6 +26,7 @@
 #include "llvm/ADT/ImmutableMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
 #include <climits>
 
 using namespace clang;
@@ -317,13 +318,14 @@ private:
         : StackHintGeneratorForSymbol(S, M) {}
 
       virtual std::string getMessageForArg(const Expr *ArgE, unsigned ArgIndex) {
+        // Printed parameters start at 1, not 0.
+        ++ArgIndex;
+
         SmallString<200> buf;
         llvm::raw_svector_ostream os(buf);
 
-        os << "Reallocation of ";
-        // Printed parameters start at 1, not 0.
-        printOrdinal(++ArgIndex, os);
-        os << " parameter failed";
+        os << "Reallocation of " << ArgIndex << llvm::getOrdinalSuffix(ArgIndex)
+           << " parameter failed";
 
         return os.str();
       }
@@ -442,6 +444,9 @@ bool MallocChecker::isFreeFunction(const FunctionDecl *FD, ASTContext &C) const 
 }
 
 void MallocChecker::checkPostStmt(const CallExpr *CE, CheckerContext &C) const {
+  if (C.wasInlined)
+    return;
+  
   const FunctionDecl *FD = C.getCalleeDecl(CE);
   if (!FD)
     return;
@@ -739,7 +744,7 @@ bool MallocChecker::SummarizeRegion(raw_ostream &os,
                                     const MemRegion *MR) {
   switch (MR->getKind()) {
   case MemRegion::FunctionTextRegionKind: {
-    const FunctionDecl *FD = cast<FunctionTextRegion>(MR)->getDecl();
+    const NamedDecl *FD = cast<FunctionTextRegion>(MR)->getDecl();
     if (FD)
       os << "the address of the function '" << *FD << '\'';
     else

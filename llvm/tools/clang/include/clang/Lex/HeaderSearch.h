@@ -132,7 +132,6 @@ class HeaderSearch {
   };
 
   FileManager &FileMgr;
-  DiagnosticsEngine &Diags;
   /// \#include search path information.  Requests for \#include "x" search the
   /// directory of the \#including file first, then each directory in SearchDirs
   /// consecutively. Requests for <x> search the current dir first, then each
@@ -207,10 +206,9 @@ class HeaderSearch {
   unsigned NumFrameworkLookups, NumSubFrameworkLookups;
 
   // HeaderSearch doesn't support default or copy construction.
-  explicit HeaderSearch();
-  explicit HeaderSearch(const HeaderSearch&);
-  void operator=(const HeaderSearch&);
-  
+  HeaderSearch(const HeaderSearch&) LLVM_DELETED_FUNCTION;
+  void operator=(const HeaderSearch&) LLVM_DELETED_FUNCTION;
+
   friend class DirectoryLookup;
   
 public:
@@ -283,6 +281,11 @@ public:
   
   /// \brief Retrieve the path to the module cache.
   StringRef getModuleCachePath() const { return ModuleCachePath; }
+
+  /// \brief Consider modules when including files from this directory.
+  void setDirectoryHasModuleMap(const DirectoryEntry* Dir) {
+    DirectoryHasModuleMap[Dir] = true;
+  }
   
   /// \brief Forget everything we know about headers so far.
   void ClearFileInfo() {

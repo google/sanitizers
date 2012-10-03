@@ -925,9 +925,9 @@ private:
   /// any member function declarations or definitions that need to be
   /// parsed after the corresponding top-level class is complete.
   struct ParsingClass {
-    ParsingClass(Decl *TagOrTemplate, bool TopLevelClass)
+    ParsingClass(Decl *TagOrTemplate, bool TopLevelClass, bool IsInterface)
       : TopLevelClass(TopLevelClass), TemplateScope(false),
-        TagOrTemplate(TagOrTemplate) { }
+        IsInterface(IsInterface), TagOrTemplate(TagOrTemplate) { }
 
     /// \brief Whether this is a "top-level" class, meaning that it is
     /// not nested within another class.
@@ -937,6 +937,9 @@ private:
     /// scope. When true, TagOrTemplate is a template declaration;
     /// othewise, it is a tag declaration.
     bool TemplateScope : 1;
+
+    /// \brief Whether this class is an __interface.
+    bool IsInterface : 1;
 
     /// \brief The class or class template whose definition we are parsing.
     Decl *TagOrTemplate;
@@ -964,9 +967,10 @@ private:
     Sema::ParsingClassState State;
 
   public:
-    ParsingClassDefinition(Parser &P, Decl *TagOrTemplate, bool TopLevelClass)
+    ParsingClassDefinition(Parser &P, Decl *TagOrTemplate, bool TopLevelClass,
+                           bool IsInterface)
       : P(P), Popped(false),
-        State(P.PushParsingClass(TagOrTemplate, TopLevelClass)) {
+        State(P.PushParsingClass(TagOrTemplate, TopLevelClass, IsInterface)) {
     }
 
     /// \brief Pop this class of the stack.
@@ -1054,7 +1058,7 @@ private:
   void LateTemplateParser(const FunctionDecl *FD);
 
   Sema::ParsingClassState
-  PushParsingClass(Decl *TagOrTemplate, bool TopLevelClass);
+  PushParsingClass(Decl *TagOrTemplate, bool TopLevelClass, bool IsInterface);
   void DeallocateParsedClasses(ParsingClass *Class);
   void PopParsingClass(Sema::ParsingClassState);
 
@@ -1220,6 +1224,9 @@ private:
   ExprResult ParseCastExpression(bool isUnaryExpression,
                                  bool isAddressOfOperand = false,
                                  TypeCastState isTypeCast = NotTypeCast);
+
+  /// Returns true if the next token cannot start an expression.
+  bool isNotExpressionStart();
 
   /// Returns true if the next token would start a postfix-expression
   /// suffix.
@@ -1633,6 +1640,15 @@ private:
   /// specifier or if we're not sure.
   bool isKnownToBeTypeSpecifier(const Token &Tok) const;
 
+  /// \brief Return true if we know that we are definitely looking at a
+  /// decl-specifier, and isn't part of an expression such as a function-style
+  /// cast. Return false if it's no a decl-specifier, or we're not sure.
+  bool isKnownToBeDeclarationSpecifier() {
+    if (getLangOpts().CPlusPlus)
+      return isCXXDeclarationSpecifier() == TPResult::True();
+    return isDeclarationSpecifier(true);
+  }
+
   /// isDeclarationStatement - Disambiguates between a declaration or an
   /// expression statement, when parsing function bodies.
   /// Returns true for declaration, false for expression.
@@ -1832,7 +1848,10 @@ private:
   void ParseGNUAttributeArgs(IdentifierInfo *AttrName,
                              SourceLocation AttrNameLoc,
                              ParsedAttributes &Attrs,
-                             SourceLocation *EndLoc);
+                             SourceLocation *EndLoc,
+                             IdentifierInfo *ScopeName,
+                             SourceLocation ScopeLoc,
+                             AttributeList::Syntax Syntax);
 
   void MaybeParseCXX0XAttributes(Declarator &D) {
     if (getLangOpts().CPlusPlus0x && isCXX11AttributeSpecifier()) {
@@ -1862,6 +1881,7 @@ private:
                                     SourceLocation *EndLoc = 0);
   void ParseCXX11Attributes(ParsedAttributesWithRange &attrs,
                             SourceLocation *EndLoc = 0);
+
   IdentifierInfo *TryParseCXX11AttributeIdentifier(SourceLocation &Loc);
 
   void MaybeParseMicrosoftAttributes(ParsedAttributes &attrs,
@@ -1919,7 +1939,7 @@ private:
   VirtSpecifiers::Specifier isCXX0XVirtSpecifier() const {
     return isCXX0XVirtSpecifier(Tok);
   }
-  void ParseOptionalCXX0XVirtSpecifierSeq(VirtSpecifiers &VS);
+  void ParseOptionalCXX0XVirtSpecifierSeq(VirtSpecifiers &VS, bool IsInterface);
 
   bool isCXX0XFinalKeyword() const;
 

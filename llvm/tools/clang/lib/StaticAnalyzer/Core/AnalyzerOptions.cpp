@@ -14,24 +14,27 @@
 
 #include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace llvm;
 
 bool
-AnalyzerOptions::mayInlineCXXMemberFunction(CXXInlineableMemberKind K) const {
+AnalyzerOptions::mayInlineCXXMemberFunction(CXXInlineableMemberKind K) {
   if (IPAMode < Inlining)
     return false;
 
   if (!CXXMemberInliningMode) {
     static const char *ModeKey = "c++-inlining";
-    std::string ModeStr = Config.lookup(ModeKey);
+    
+    StringRef ModeStr(Config.GetOrCreateValue(ModeKey,
+                                              "methods").getValue());
 
     CXXInlineableMemberKind &MutableMode =
       const_cast<CXXInlineableMemberKind &>(CXXMemberInliningMode);
 
     MutableMode = llvm::StringSwitch<CXXInlineableMemberKind>(ModeStr)
-      .Case("", CIMK_MemberFunctions)
       .Case("constructors", CIMK_Constructors)
       .Case("destructors", CIMK_Destructors)
       .Case("none", CIMK_None)
@@ -48,66 +51,76 @@ AnalyzerOptions::mayInlineCXXMemberFunction(CXXInlineableMemberKind K) const {
   return CXXMemberInliningMode >= K;
 }
 
-bool AnalyzerOptions::getBooleanOption(StringRef Name, bool DefaultVal) const {
+static StringRef toString(bool b) { return b ? "true" : "false"; }
+
+bool AnalyzerOptions::getBooleanOption(StringRef Name, bool DefaultVal) {
   // FIXME: We should emit a warning here if the value is something other than
   // "true", "false", or the empty string (meaning the default value),
   // but the AnalyzerOptions doesn't have access to a diagnostic engine.
-  return llvm::StringSwitch<bool>(Config.lookup(Name))
-    .Case("true", true)
-    .Case("false", false)
-    .Default(DefaultVal);
+  StringRef V(Config.GetOrCreateValue(Name, toString(DefaultVal)).getValue());
+  return llvm::StringSwitch<bool>(V)
+      .Case("true", true)
+      .Case("false", false)
+      .Default(DefaultVal);
 }
 
-bool AnalyzerOptions::includeTemporaryDtorsInCFG() const {
-  if (!IncludeTemporaryDtorsInCFG.hasValue())
-    const_cast<llvm::Optional<bool> &>(IncludeTemporaryDtorsInCFG) =
-      getBooleanOption("cfg-temporary-dtors", /*Default=*/false);
+bool AnalyzerOptions::getBooleanOption(llvm::Optional<bool> &V,
+                                       StringRef Name,
+                                       bool DefaultVal) {
+  if (!V.hasValue())
+    V = getBooleanOption(Name, DefaultVal);
+  return V.getValue();
+}
+
+bool AnalyzerOptions::includeTemporaryDtorsInCFG() {
+  return getBooleanOption(IncludeTemporaryDtorsInCFG,
+                          "cfg-temporary-dtors",
+                          /* Default = */ false);
+}
+
+bool AnalyzerOptions::mayInlineCXXStandardLibrary() {
+  return getBooleanOption(InlineCXXStandardLibrary,
+                          "c++-stdlib-inlining",
+                          /*Default=*/true);
+}
+
+bool AnalyzerOptions::mayInlineTemplateFunctions() {
+  return getBooleanOption(InlineTemplateFunctions,
+                          "c++-template-inlining",
+                          /*Default=*/true);
+}
+
+bool AnalyzerOptions::mayInlineObjCMethod() {
+  return getBooleanOption(ObjCInliningMode,
+                          "objc-inlining",
+                          /* Default = */ true);
+}
+
+bool AnalyzerOptions::shouldPruneNullReturnPaths() {
+  return getBooleanOption(PruneNullReturnPaths,
+                          "suppress-null-return-paths",
+                          /* Default = */ true);
+}
+
+int AnalyzerOptions::getOptionAsInteger(StringRef Name, int DefaultVal) {
+  llvm::SmallString<10> StrBuf;
+  llvm::raw_svector_ostream OS(StrBuf);
+  OS << DefaultVal;
   
-  return *IncludeTemporaryDtorsInCFG;
-}
-
-bool AnalyzerOptions::mayInlineCXXStandardLibrary() const {
-  if (!InlineCXXStandardLibrary.hasValue())
-    const_cast<llvm::Optional<bool> &>(InlineCXXStandardLibrary) =
-      getBooleanOption("c++-stdlib-inlining", /*Default=*/true);
-  
-  return *InlineCXXStandardLibrary;
-}
-
-bool AnalyzerOptions::mayInlineTemplateFunctions() const {
-  if (!InlineTemplateFunctions.hasValue())
-    const_cast<llvm::Optional<bool> &>(InlineTemplateFunctions) =
-      getBooleanOption("c++-template-inlining", /*Default=*/true);
-  
-  return *InlineTemplateFunctions;
-}
-
-bool AnalyzerOptions::mayInlineObjCMethod() const {
-  if (!ObjCInliningMode.hasValue())
-    const_cast<llvm::Optional<bool> &>(ObjCInliningMode) =
-      getBooleanOption("objc-inlining", /*Default=*/true);
-
-  return *ObjCInliningMode;
-}
-
-int AnalyzerOptions::getOptionAsInteger(StringRef Name, int DefaultVal) const {
-  std::string OptStr = Config.lookup(Name);
-  if (OptStr.empty())
-    return DefaultVal;
-
+  StringRef V(Config.GetOrCreateValue(Name, OS.str()).getValue());
   int Res = DefaultVal;
-  assert(StringRef(OptStr).getAsInteger(10, Res) == false &&
-         "analyzer-config option should be numeric.");
-
+  bool b = V.getAsInteger(10, Res);
+  assert(!b && "analyzer-config option should be numeric");
+  (void) b;
   return Res;
 }
 
-unsigned AnalyzerOptions::getAlwaysInlineSize() const {
-  if (!AlwaysInlineSize.hasValue()) {
-    unsigned DefaultSize = 3;
-    const_cast<Optional<unsigned> &>(AlwaysInlineSize) =
-      getOptionAsInteger("ipa-always-inline-size", DefaultSize);
-  }
-
+unsigned AnalyzerOptions::getAlwaysInlineSize() {
+  if (!AlwaysInlineSize.hasValue())
+    AlwaysInlineSize = getOptionAsInteger("ipa-always-inline-size", 3);
   return AlwaysInlineSize.getValue();
+}
+
+bool AnalyzerOptions::shouldSynthesizeBodies() {
+  return getBooleanOption("faux-bodies", true);
 }

@@ -2483,7 +2483,6 @@ CodeCompletionResult::CreateCodeCompletionString(ASTContext &Ctx,
     
     if (Declaration) {
       Result.addParentContext(Declaration->getDeclContext());
-      Pattern->ParentKind = Result.getParentKind();
       Pattern->ParentName = Result.getParentName();
     }
     
@@ -7169,7 +7168,9 @@ void Sema::CodeCompletePreprocessorMacroName(bool IsDefinition) {
          M != MEnd; ++M) {
       Builder.AddTypedTextChunk(Builder.getAllocator().CopyString(
                                            M->first->getName()));
-      Results.AddResult(Builder.TakeString());
+      Results.AddResult(CodeCompletionResult(Builder.TakeString(),
+                                             CCP_CodePattern,
+                                             CXCursor_MacroDefinition));
     }
     Results.ExitScope();
   } else if (IsDefinition) {

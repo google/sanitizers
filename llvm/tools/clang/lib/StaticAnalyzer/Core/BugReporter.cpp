@@ -121,7 +121,8 @@ GetCurrentOrNextStmt(const ExplodedNode *N) {
 /// Recursively scan through a path and prune out calls and macros pieces
 /// that aren't needed.  Return true if afterwards the path contains
 /// "interesting stuff" which means it should be pruned from the parent path.
-bool BugReporter::RemoveUneededCalls(PathPieces &pieces, BugReport *R) {
+bool BugReporter::RemoveUneededCalls(PathPieces &pieces, BugReport *R,
+                                     PathDiagnosticCallPiece *CallWithLoc) {
   bool containsSomethingInteresting = false;
   const unsigned N = pieces.size();
   
@@ -131,6 +132,11 @@ bool BugReporter::RemoveUneededCalls(PathPieces &pieces, BugReport *R) {
     IntrusiveRefCntPtr<PathDiagnosticPiece> piece(pieces.front());
     pieces.pop_front();
     
+    // Throw away pieces with invalid locations.
+    if (piece->getKind() != PathDiagnosticPiece::Call &&
+        piece->getLocation().asLocation().isInvalid())
+      continue;
+
     switch (piece->getKind()) {
       case PathDiagnosticPiece::Call: {
         PathDiagnosticCallPiece *call = cast<PathDiagnosticCallPiece>(piece);
@@ -142,8 +148,17 @@ bool BugReporter::RemoveUneededCalls(PathPieces &pieces, BugReport *R) {
         }
         // Recursively clean out the subclass.  Keep this call around if
         // it contains any informative diagnostics.
-        if (!RemoveUneededCalls(call->path, R))
+        PathDiagnosticCallPiece *NewCallWithLoc =
+          call->getLocation().asLocation().isValid()
+            ? call : CallWithLoc;
+        
+        if (!RemoveUneededCalls(call->path, R, NewCallWithLoc))
           continue;
+
+        if (NewCallWithLoc == CallWithLoc && CallWithLoc) {
+          call->callEnter = CallWithLoc->callEnter;
+        }
+        
         containsSomethingInteresting = true;
         break;
       }
@@ -156,6 +171,7 @@ bool BugReporter::RemoveUneededCalls(PathPieces &pieces, BugReport *R) {
       }
       case PathDiagnosticPiece::Event: {
         PathDiagnosticEventPiece *event = cast<PathDiagnosticEventPiece>(piece);
+        
         // We never throw away an event, but we do throw it away wholesale
         // as part of a path if we throw the entire path away.
         containsSomethingInteresting |= !event->isPrunable();
@@ -386,6 +402,35 @@ PathDiagnosticBuilder::getEnclosingStmtLocation(const Stmt *S) {
 }
 
 //===----------------------------------------------------------------------===//
+// "Visitors only" path diagnostic generation algorithm.
+//===----------------------------------------------------------------------===//
+static bool GenerateVisitorsOnlyPathDiagnostic(PathDiagnostic &PD,
+                                               PathDiagnosticBuilder &PDB,
+                                               const ExplodedNode *N,
+                                      ArrayRef<BugReporterVisitor *> visitors) {
+  // All path generation skips the very first node (the error node).
+  // This is because there is special handling for the end-of-path note.
+  N = N->getFirstPred();
+  if (!N)
+    return true;
+
+  BugReport *R = PDB.getBugReport();
+  while (const ExplodedNode *Pred = N->getFirstPred()) {
+    for (ArrayRef<BugReporterVisitor *>::iterator I = visitors.begin(),
+                                                  E = visitors.end();
+         I != E; ++I) {
+      // Visit all the node pairs, but throw the path pieces away.
+      PathDiagnosticPiece *Piece = (*I)->VisitNode(N, Pred, PDB, *R);
+      delete Piece;
+    }
+
+    N = Pred;
+  }
+
+  return R->isValid();
+}
+
+//===----------------------------------------------------------------------===//
 // "Minimal" path diagnostic generation algorithm.
 //===----------------------------------------------------------------------===//
 typedef std::pair<PathDiagnosticCallPiece*, const ExplodedNode*> StackDiagPair;
@@ -416,7 +461,7 @@ static void updateStackPiecesWithMessage(PathDiagnosticPiece *P,
 
 static void CompactPathDiagnostic(PathPieces &path, const SourceManager& SM);
 
-static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
+static bool GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
                                           PathDiagnosticBuilder &PDB,
                                           const ExplodedNode *N,
                                       ArrayRef<BugReporterVisitor *> visitors) {
@@ -740,9 +785,13 @@ static void GenerateMinimalPathDiagnostic(PathDiagnostic& PD,
     }
   }
 
+  if (!PDB.getBugReport()->isValid())
+    return false;
+
   // After constructing the full PathDiagnostic, do a pass over it to compact
   // PathDiagnosticPieces that occur within a macro.
   CompactPathDiagnostic(PD.getMutablePieces(), PDB.getSourceManager());
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -954,6 +1003,11 @@ void EdgeBuilder::rawAddEdge(PathDiagnosticLocation NewLoc) {
   const PathDiagnosticLocation &NewLocClean = cleanUpLocation(NewLoc);
   const PathDiagnosticLocation &PrevLocClean = cleanUpLocation(PrevLoc);
 
+  if (PrevLocClean.asLocation().isInvalid()) {
+    PrevLoc = NewLoc;
+    return;
+  }
+  
   if (NewLocClean.asLocation() == PrevLocClean.asLocation())
     return;
 
@@ -1143,7 +1197,7 @@ static void reversePropagateInterestingSymbols(BugReport &R,
   }
 }
                                                
-static void GenerateExtensivePathDiagnostic(PathDiagnostic& PD,
+static bool GenerateExtensivePathDiagnostic(PathDiagnostic& PD,
                                             PathDiagnosticBuilder &PDB,
                                             const ExplodedNode *N,
                                       ArrayRef<BugReporterVisitor *> visitors) {
@@ -1316,6 +1370,8 @@ static void GenerateExtensivePathDiagnostic(PathDiagnostic& PD,
       }
     }
   }
+
+  return PDB.getBugReport()->isValid();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1845,16 +1901,26 @@ static void CompactPathDiagnostic(PathPieces &path, const SourceManager& SM) {
     path.push_back(*I);
 }
 
-void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
+bool GRBugReporter::generatePathDiagnostic(PathDiagnostic& PD,
                                            PathDiagnosticConsumer &PC,
                                            ArrayRef<BugReport *> &bugReports) {
-
   assert(!bugReports.empty());
+
+  bool HasValid = false;
   SmallVector<const ExplodedNode *, 10> errorNodes;
   for (ArrayRef<BugReport*>::iterator I = bugReports.begin(),
                                       E = bugReports.end(); I != E; ++I) {
+    if ((*I)->isValid()) {
+      HasValid = true;
       errorNodes.push_back((*I)->getErrorNode());
+    } else {
+      errorNodes.push_back(0);
+    }
   }
+
+  // If all the reports have been marked invalid, we're done.
+  if (!HasValid)
+    return false;
 
   // Construct a new graph that contains only a single path from the error
   // node to a root.
@@ -1866,6 +1932,7 @@ void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
   assert(GPair.second.second < bugReports.size());
   BugReport *R = bugReports[GPair.second.second];
   assert(R && "No original report found for sliced graph.");
+  assert(R->isValid() && "Report selected from trimmed graph marked invalid.");
 
   OwningPtr<ExplodedGraph> ReportGraph(GPair.first.first);
   OwningPtr<NodeBackMap> BackMap(GPair.first.second);
@@ -1897,31 +1964,48 @@ void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
 
     // Generate the very last diagnostic piece - the piece is visible before 
     // the trace is expanded.
-    PathDiagnosticPiece *LastPiece = 0;
-    for (BugReport::visitor_iterator I = visitors.begin(), E = visitors.end();
-         I != E; ++I) {
-      if (PathDiagnosticPiece *Piece = (*I)->getEndPath(PDB, N, *R)) {
-        assert (!LastPiece &&
-                "There can only be one final piece in a diagnostic.");
-        LastPiece = Piece;
+    if (PDB.getGenerationScheme() != PathDiagnosticConsumer::None) {
+      PathDiagnosticPiece *LastPiece = 0;
+      for (BugReport::visitor_iterator I = visitors.begin(), E = visitors.end();
+           I != E; ++I) {
+        if (PathDiagnosticPiece *Piece = (*I)->getEndPath(PDB, N, *R)) {
+          assert (!LastPiece &&
+                  "There can only be one final piece in a diagnostic.");
+          LastPiece = Piece;
+        }
       }
+      if (!LastPiece)
+        LastPiece = BugReporterVisitor::getDefaultEndPath(PDB, N, *R);
+      if (LastPiece)
+        PD.setEndOfPath(LastPiece);
+      else
+        return false;
     }
-    if (!LastPiece)
-      LastPiece = BugReporterVisitor::getDefaultEndPath(PDB, N, *R);
-    if (LastPiece)
-      PD.setEndOfPath(LastPiece);
-    else
-      return;
 
     switch (PDB.getGenerationScheme()) {
     case PathDiagnosticConsumer::Extensive:
-      GenerateExtensivePathDiagnostic(PD, PDB, N, visitors);
+      if (!GenerateExtensivePathDiagnostic(PD, PDB, N, visitors)) {
+        assert(!R->isValid() && "Failed on valid report");
+        // Try again. We'll filter out the bad report when we trim the graph.
+        // FIXME: It would be more efficient to use the same intermediate
+        // trimmed graph, and just repeat the shortest-path search.
+        return generatePathDiagnostic(PD, PC, bugReports);
+      }
       break;
     case PathDiagnosticConsumer::Minimal:
-      GenerateMinimalPathDiagnostic(PD, PDB, N, visitors);
+      if (!GenerateMinimalPathDiagnostic(PD, PDB, N, visitors)) {
+        assert(!R->isValid() && "Failed on valid report");
+        // Try again. We'll filter out the bad report when we trim the graph.
+        return generatePathDiagnostic(PD, PC, bugReports);
+      }
       break;
     case PathDiagnosticConsumer::None:
-      llvm_unreachable("PathDiagnosticConsumer::None should never appear here");
+      if (!GenerateVisitorsOnlyPathDiagnostic(PD, PDB, N, visitors)) {
+        assert(!R->isValid() && "Failed on valid report");
+        // Try again. We'll filter out the bad report when we trim the graph.
+        return generatePathDiagnostic(PD, PC, bugReports);
+      }
+      break;
     }
 
     // Clean up the visitors we used.
@@ -1932,11 +2016,13 @@ void GRBugReporter::GeneratePathDiagnostic(PathDiagnostic& PD,
   } while(finalReportConfigToken != originalReportConfigToken);
 
   // Finally, prune the diagnostic path of uninteresting stuff.
-  if (R->shouldPrunePath()) {
+  if (!PD.path.empty() && R->shouldPrunePath()) {
     bool hasSomethingInteresting = RemoveUneededCalls(PD.getMutablePieces(), R);
     assert(hasSomethingInteresting);
     (void) hasSomethingInteresting;
   }
+
+  return true;
 }
 
 void BugReporter::Register(BugType *BT) {
@@ -2105,11 +2191,12 @@ void BugReporter::FlushReport(BugReport *exampleReport,
                          BT.getCategory()));
 
   // Generate the full path diagnostic, using the generation scheme
-  // specified by the PathDiagnosticConsumer.
-  if (PD.getGenerationScheme() != PathDiagnosticConsumer::None) {
-    if (!bugReports.empty())
-      GeneratePathDiagnostic(*D.get(), PD, bugReports);
-  }
+  // specified by the PathDiagnosticConsumer. Note that we have to generate
+  // path diagnostics even for consumers which do not support paths, because
+  // the BugReporterVisitors may mark this bug as a false positive.
+  if (!bugReports.empty())
+    if (!generatePathDiagnostic(*D.get(), PD, bugReports))
+      return;
 
   // If the path is empty, generate a single step path with the location
   // of the issue.

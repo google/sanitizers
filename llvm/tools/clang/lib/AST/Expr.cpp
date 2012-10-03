@@ -2019,6 +2019,7 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
     R1 = getSourceRange();
     return true;
   }
+  case CXXFunctionalCastExprClass:
   case CStyleCastExprClass: {
     // Ignore an explicit cast to void unless the operand is a non-trivial
     // volatile lvalue.
@@ -2999,6 +3000,24 @@ const ObjCPropertyRefExpr *Expr::getObjCProperty() const {
   }
 
   return cast<ObjCPropertyRefExpr>(E);
+}
+
+bool Expr::isObjCSelfExpr() const {
+  const Expr *E = IgnoreParenImpCasts();
+
+  const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E);
+  if (!DRE)
+    return false;
+
+  const ImplicitParamDecl *Param = dyn_cast<ImplicitParamDecl>(DRE->getDecl());
+  if (!Param)
+    return false;
+
+  const ObjCMethodDecl *M = dyn_cast<ObjCMethodDecl>(Param->getDeclContext());
+  if (!M)
+    return false;
+
+  return M->getSelfDecl() == Param;
 }
 
 FieldDecl *Expr::getBitField() {

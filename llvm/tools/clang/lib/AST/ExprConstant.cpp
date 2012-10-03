@@ -4296,6 +4296,15 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
     return Error(E);
   }
 
+  case Builtin::BI__builtin_bswap32:
+  case Builtin::BI__builtin_bswap64: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+
+    return Success(Val.byteSwap(), E);
+  }
+
   case Builtin::BI__builtin_classify_type:
     return Success(EvaluateBuiltinClassifyType(E), E);
 
@@ -6187,11 +6196,9 @@ static bool Evaluate(APValue &Result, EvalInfo &Info, const Expr *E) {
       return false;
     Result = Info.CurrentCall->Temporaries[E];
   } else if (E->getType()->isVoidType()) {
-    if (Info.getLangOpts().CPlusPlus0x)
+    if (!Info.getLangOpts().CPlusPlus0x)
       Info.CCEDiag(E, diag::note_constexpr_nonliteral)
         << E->getType();
-    else
-      Info.CCEDiag(E, diag::note_invalid_subexpr_in_const_expr);
     if (!EvaluateVoid(E, Info))
       return false;
   } else if (Info.getLangOpts().CPlusPlus0x) {

@@ -1001,7 +1001,8 @@ ExprResult Parser::ParseCXXTypeid() {
   // We enter the unevaluated context before trying to determine whether we
   // have a type-id, because the tentative parse logic will try to resolve
   // names, and must treat them as unevaluated.
-  EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated);
+  EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated,
+                                               Sema::ReuseLambdaContextDecl);
 
   if (isTypeIdInParens()) {
     TypeResult Ty = ParseTypeName();
@@ -2457,6 +2458,7 @@ static UnaryTypeTrait UnaryTypeTraitFromTokKind(tok::TokenKind kind) {
   case tok::kw___is_function:                return UTT_IsFunction;
   case tok::kw___is_fundamental:             return UTT_IsFundamental;
   case tok::kw___is_integral:                return UTT_IsIntegral;
+  case tok::kw___is_interface_class:         return UTT_IsInterfaceClass;
   case tok::kw___is_lvalue_reference:        return UTT_IsLvalueReference;
   case tok::kw___is_member_function_pointer: return UTT_IsMemberFunctionPointer;
   case tok::kw___is_member_object_pointer:   return UTT_IsMemberObjectPointer;

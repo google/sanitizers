@@ -68,10 +68,17 @@ public:
                                   const Token &IncludeTok,
                                   StringRef FileName,
                                   bool IsAngled,
+                                  CharSourceRange FilenameRange,
                                   const FileEntry *File,
-                                  SourceLocation EndLoc,
                                   StringRef SearchPath,
-                                  StringRef RelativePath) {
+                                  StringRef RelativePath,
+                                  const Module *Imported) {
+    if (Imported) {
+      IndexCtx.importedModule(HashLoc, FileName, /*isIncludeDirective=*/true,
+                              Imported);
+      return;
+    }
+
     bool isImport = (IncludeTok.is(tok::identifier) &&
             IncludeTok.getIdentifierInfo()->getPPKeywordID() == tok::pp_import);
     IndexCtx.ppIncludedFile(HashLoc, FileName, File, isImport, IsAngled);
@@ -185,10 +192,20 @@ public:
                          unsigned indexOptions,
                          CXTranslationUnit cxTU)
     : IndexCtx(clientData, indexCallbacks, indexOptions, cxTU),
-      CXTU(cxTU) { }
+      CXTU(cxTU), EnablePPDetailedRecordForModules(false) { }
+
+  bool EnablePPDetailedRecordForModules;
 
   virtual ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
                                          StringRef InFile) {
+    // We usually disable the preprocessing record for indexing even if the
+    // original preprocessing options had it enabled. Now that the indexing
+    // Preprocessor has been created (without a preprocessing record), re-enable
+    // the option in case modules are enabled, so that the detailed record
+    // option can be propagated when the module file is generated.
+    if (CI.getLangOpts().Modules && EnablePPDetailedRecordForModules)
+      CI.getPreprocessorOpts().DetailedRecord = true;
+
     IndexCtx.setASTContext(CI.getASTContext());
     Preprocessor &PP = CI.getPreprocessor();
     PP.addPPCallbacks(new IndexPPCallbacks(PP, IndexCtx));
@@ -346,9 +363,6 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   // precompiled headers are involved), we disable it.
   CInvok->getLangOpts()->SpellChecking = false;
 
-  if (!requestedToGetTU)
-    CInvok->getPreprocessorOpts().DetailedRecord = false;
-
   if (index_options & CXIndexOpt_SuppressWarnings)
     CInvok->getDiagnosticOpts().IgnoreWarnings = true;
 
@@ -374,7 +388,6 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   bool PrecompilePreamble = false;
   bool CacheCodeCompletionResults = false;
   PreprocessorOptions &PPOpts = CInvok->getPreprocessorOpts(); 
-  PPOpts.DetailedRecord = false;
   PPOpts.AllowPCHWithCompilerErrors = true;
 
   if (requestedToGetTU) {
@@ -387,6 +400,13 @@ static void clang_indexSourceFile_Impl(void *UserData) {
       PPOpts.DetailedRecord = true;
     }
   }
+
+  IndexAction->EnablePPDetailedRecordForModules
+    = PPOpts.DetailedRecord ||
+      (TU_options & CXTranslationUnit_DetailedPreprocessingRecord);
+
+  if (!requestedToGetTU)
+    PPOpts.DetailedRecord = false;
 
   DiagnosticErrorTrap DiagTrap(*Diags);
   bool Success = ASTUnit::LoadFromCompilerInvocationAction(CInvok.getPtr(), Diags,
@@ -435,57 +455,33 @@ static void indexPreprocessingRecord(ASTUnit &Unit, IndexingContext &IdxCtx) {
   if (!PP.getPreprocessingRecord())
     return;
 
-  PreprocessingRecord &PPRec = *PP.getPreprocessingRecord();
-
   // FIXME: Only deserialize inclusion directives.
-  // FIXME: Only deserialize stuff from the last chained PCH, not the PCH/Module
-  // that it depends on.
 
-  bool OnlyLocal = !Unit.isMainFileAST() && Unit.getOnlyLocalDecls();
   PreprocessingRecord::iterator I, E;
-  if (OnlyLocal) {
-    I = PPRec.local_begin();
-    E = PPRec.local_end();
-  } else {
-    I = PPRec.begin();
-    E = PPRec.end();
-  }
+  llvm::tie(I, E) = Unit.getLocalPreprocessingEntities();
 
   for (; I != E; ++I) {
     PreprocessedEntity *PPE = *I;
 
     if (InclusionDirective *ID = dyn_cast<InclusionDirective>(PPE)) {
-      IdxCtx.ppIncludedFile(ID->getSourceRange().getBegin(), ID->getFileName(),
+      if (!ID->importedModule())
+        IdxCtx.ppIncludedFile(ID->getSourceRange().getBegin(),ID->getFileName(),
                      ID->getFile(), ID->getKind() == InclusionDirective::Import,
                      !ID->wasInQuotes());
     }
   }
 }
 
+static bool topLevelDeclVisitor(void *context, const Decl *D) {
+  IndexingContext &IdxCtx = *static_cast<IndexingContext*>(context);
+  IdxCtx.indexTopLevelDecl(D);
+  if (IdxCtx.shouldAbort())
+    return false;
+  return true;
+}
+
 static void indexTranslationUnit(ASTUnit &Unit, IndexingContext &IdxCtx) {
-  // FIXME: Only deserialize stuff from the last chained PCH, not the PCH/Module
-  // that it depends on.
-
-  bool OnlyLocal = !Unit.isMainFileAST() && Unit.getOnlyLocalDecls();
-
-  if (OnlyLocal) {
-    for (ASTUnit::top_level_iterator TL = Unit.top_level_begin(),
-                                  TLEnd = Unit.top_level_end();
-           TL != TLEnd; ++TL) {
-      IdxCtx.indexTopLevelDecl(*TL);
-      if (IdxCtx.shouldAbort())
-        return;
-    }
-
-  } else {
-    TranslationUnitDecl *TUDecl = Unit.getASTContext().getTranslationUnitDecl();
-    for (TranslationUnitDecl::decl_iterator
-           I = TUDecl->decls_begin(), E = TUDecl->decls_end(); I != E; ++I) {
-      IdxCtx.indexTopLevelDecl(*I);
-      if (IdxCtx.shouldAbort())
-        return;
-    }
-  }
+  Unit.visitLocalTopLevelDecls(&IdxCtx, topLevelDeclVisitor);
 }
 
 static void indexDiagnostics(CXTranslationUnit TU, IndexingContext &IdxCtx) {
@@ -538,6 +534,8 @@ static void clang_indexTranslationUnit_Impl(void *UserData) {
   ASTUnit *Unit = static_cast<ASTUnit *>(TU->TUData);
   if (!Unit)
     return;
+
+  ASTUnit::ConcurrencyCheck Check(*Unit);
 
   FileManager &FileMgr = Unit->getFileManager();
 

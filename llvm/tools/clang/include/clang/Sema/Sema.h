@@ -234,6 +234,12 @@ public:
   /// VisContext - Manages the stack for \#pragma GCC visibility.
   void *VisContext; // Really a "PragmaVisStack*"
 
+  /// \brief Flag indicating if Sema is building a recovery call expression.
+  ///
+  /// This flag is used to avoid building recovery call expressions
+  /// if Sema is already doing so, which would cause infinite recursions.
+  bool IsBuildingRecoveryCallExpr;
+
   /// ExprNeedsCleanups - True if the current evaluation context
   /// requires cleanups to be run at its conclusion.
   bool ExprNeedsCleanups;
@@ -728,6 +734,20 @@ public:
   /// emitted. This is closely coupled to the SemaDiagnosticBuilder class and
   /// should not be used elsewhere.
   void EmitCurrentDiagnostic(unsigned DiagID);
+
+  /// Records and restores the FP_CONTRACT state on entry/exit of compound
+  /// statements.
+  class FPContractStateRAII {
+  public:
+    FPContractStateRAII(Sema& S)
+      : S(S), OldFPContractState(S.FPFeatures.fp_contract) {}
+    ~FPContractStateRAII() {
+      S.FPFeatures.fp_contract = OldFPContractState;
+    }
+  private:
+    Sema& S;
+    bool OldFPContractState : 1;
+  };
 
 public:
   Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
@@ -1273,6 +1293,7 @@ public:
                                      MultiTemplateParamsArg TemplateParamLists,
                                      bool &AddToScope);
   bool AddOverriddenMethods(CXXRecordDecl *DC, CXXMethodDecl *MD);
+  void checkVoidParamDecl(ParmVarDecl *Param);
 
   bool CheckConstexprFunctionDecl(const FunctionDecl *FD);
   bool CheckConstexprFunctionBody(const FunctionDecl *FD, Stmt *Body);
@@ -1301,7 +1322,6 @@ public:
   bool SetParamDefaultArgument(ParmVarDecl *Param, Expr *DefaultArg,
                                SourceLocation EqualLoc);
 
-  void CheckSelfReference(Decl *OrigDecl, Expr *E);
   void AddInitializerToDecl(Decl *dcl, Expr *init, bool DirectInit,
                             bool TypeMayContainAuto);
   void ActOnUninitializedDecl(Decl *dcl, bool TypeMayContainAuto);
@@ -2294,6 +2314,10 @@ public:
   /// its protocols.
   ObjCPropertyDecl *LookupPropertyDecl(const ObjCContainerDecl *CDecl,
                                        IdentifierInfo *II);
+  
+  /// PropertyIfSetterOrGetter - Looks up the property if named declaration
+  /// is a setter or getter method backing a property.
+  ObjCPropertyDecl *PropertyIfSetterOrGetter(NamedDecl *D);
 
   /// Called by ActOnProperty to handle \@property declarations in
   /// class extensions.
@@ -2541,17 +2565,28 @@ public:
                                         SourceLocation RParenLoc);
   StmtResult FinishObjCForCollectionStmt(Stmt *ForCollection, Stmt *Body);
 
+  enum BuildForRangeKind {
+    /// Initial building of a for-range statement.
+    BFRK_Build,
+    /// Instantiation or recovery rebuild of a for-range statement. Don't
+    /// attempt any typo-correction.
+    BFRK_Rebuild,
+    /// Determining whether a for-range statement could be built. Avoid any
+    /// unnecessary or irreversible actions.
+    BFRK_Check
+  };
+
   StmtResult ActOnCXXForRangeStmt(SourceLocation ForLoc, Stmt *LoopVar,
                                   SourceLocation ColonLoc, Expr *Collection,
                                   SourceLocation RParenLoc,
-                                  bool ShouldTryDeref);
+                                  BuildForRangeKind Kind);
   StmtResult BuildCXXForRangeStmt(SourceLocation ForLoc,
                                   SourceLocation ColonLoc,
                                   Stmt *RangeDecl, Stmt *BeginEndDecl,
                                   Expr *Cond, Expr *Inc,
                                   Stmt *LoopVarDecl,
                                   SourceLocation RParenLoc,
-                                  bool ShouldTryDeref);
+                                  BuildForRangeKind Kind);
   StmtResult FinishCXXForRangeStmt(Stmt *ForRange, Stmt *Body);
 
   StmtResult ActOnGotoStmt(SourceLocation GotoLoc,
@@ -2674,7 +2709,8 @@ public:
 
   void EmitDeprecationWarning(NamedDecl *D, StringRef Message,
                               SourceLocation Loc,
-                              const ObjCInterfaceDecl *UnknownObjCClass=0);
+                              const ObjCInterfaceDecl *UnknownObjCClass,
+                              const ObjCPropertyDecl  *ObjCProperty);
 
   void HandleDelayedDeprecationCheck(sema::DelayedDiagnostic &DD, Decl *Ctx);
 
@@ -2698,7 +2734,10 @@ public:
   void PushExpressionEvaluationContext(ExpressionEvaluationContext NewContext,
                                        Decl *LambdaContextDecl = 0,
                                        bool IsDecltype = false);
-
+  enum ReuseLambdaContextDecl_t { ReuseLambdaContextDecl };
+  void PushExpressionEvaluationContext(ExpressionEvaluationContext NewContext,
+                                       ReuseLambdaContextDecl_t,
+                                       bool IsDecltype = false);
   void PopExpressionEvaluationContext();
 
   void DiscardCleanupsInEvaluationContext();
@@ -4026,7 +4065,8 @@ public:
 
   /// \brief Create a new lambda closure type.
   CXXRecordDecl *createLambdaClosureType(SourceRange IntroducerRange,
-                                         bool KnownDependent = false);
+                                         TypeSourceInfo *Info,
+                                         bool KnownDependent);
 
   /// \brief Start the definition of a lambda expression.
   CXXMethodDecl *startLambdaDefinition(CXXRecordDecl *Class,
@@ -4335,7 +4375,7 @@ public:
                                      SourceLocation RParenLoc,
                                      bool Failed);
 
-  FriendDecl *CheckFriendTypeDecl(SourceLocation Loc,
+  FriendDecl *CheckFriendTypeDecl(SourceLocation LocStart,
                                   SourceLocation FriendLoc,
                                   TypeSourceInfo *TSInfo);
   Decl *ActOnFriendTypeDecl(Scope *S, const DeclSpec &DS,
@@ -5717,10 +5757,10 @@ public:
     bool CheckInstantiationDepth(SourceLocation PointOfInstantiation,
                                  SourceRange InstantiationRange);
 
-    InstantiatingTemplate(const InstantiatingTemplate&); // not implemented
+    InstantiatingTemplate(const InstantiatingTemplate&) LLVM_DELETED_FUNCTION;
 
     InstantiatingTemplate&
-    operator=(const InstantiatingTemplate&); // not implemented
+    operator=(const InstantiatingTemplate&) LLVM_DELETED_FUNCTION;
   };
 
   void PrintInstantiationStack();
@@ -7269,6 +7309,15 @@ public:
                                    bool IsDecltype = false)
     : Actions(Actions) {
     Actions.PushExpressionEvaluationContext(NewContext, LambdaContextDecl,
+                                            IsDecltype);
+  }
+  EnterExpressionEvaluationContext(Sema &Actions,
+                                   Sema::ExpressionEvaluationContext NewContext,
+                                   Sema::ReuseLambdaContextDecl_t,
+                                   bool IsDecltype = false)
+    : Actions(Actions) {
+    Actions.PushExpressionEvaluationContext(NewContext, 
+                                            Sema::ReuseLambdaContextDecl,
                                             IsDecltype);
   }
 

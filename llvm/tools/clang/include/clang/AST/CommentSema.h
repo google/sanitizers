@@ -25,6 +25,7 @@
 namespace clang {
 class Decl;
 class SourceMgr;
+class Preprocessor;
 
 namespace comments {
 class CommandTraits;
@@ -42,6 +43,8 @@ class Sema {
   DiagnosticsEngine &Diags;
 
   CommandTraits &Traits;
+
+  const Preprocessor *PP;
 
   /// Information about the declaration this comment is attached to.
   DeclInfo *ThisDeclInfo;
@@ -68,7 +71,8 @@ class Sema {
 
 public:
   Sema(llvm::BumpPtrAllocator &Allocator, const SourceManager &SourceMgr,
-       DiagnosticsEngine &Diags, CommandTraits &Traits);
+       DiagnosticsEngine &Diags, CommandTraits &Traits,
+       const Preprocessor *PP);
 
   void setDecl(const Decl *D);
 
@@ -186,6 +190,8 @@ public:
   /// Emit diagnostics about duplicate block commands that should be
   /// used only once per comment, e.g., \\brief and \\returns.
   void checkBlockCommandDuplicate(const BlockCommandComment *Command);
+
+  void checkDeprecatedCommand(const BlockCommandComment *Comment);
 
   /// Resolve parameter names to parameter indexes in function declaration.
   /// Emit diagnostics about unknown parametrs.

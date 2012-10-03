@@ -1327,7 +1327,12 @@ bool CursorVisitor::VisitTemplateArgumentLoc(const TemplateArgumentLoc &TAL) {
     if (Expr *E = TAL.getSourceDeclExpression())
       return Visit(MakeCXCursor(E, StmtParent, TU, RegionOfInterest));
     return false;
-      
+
+  case TemplateArgument::NullPtr:
+    if (Expr *E = TAL.getSourceNullPtrExpression())
+      return Visit(MakeCXCursor(E, StmtParent, TU, RegionOfInterest));
+    return false;
+
   case TemplateArgument::Expression:
     if (Expr *E = TAL.getSourceExpression())
       return Visit(MakeCXCursor(E, StmtParent, TU, RegionOfInterest));
@@ -2712,7 +2717,8 @@ static void clang_saveTranslationUnit_Impl(void *UserData) {
   if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForIndexing))
     setThreadBackgroundPriority();
 
-  STUI->result = static_cast<ASTUnit *>(STUI->TU->TUData)->Save(STUI->FileName);
+  bool hadError = static_cast<ASTUnit *>(STUI->TU->TUData)->Save(STUI->FileName);
+  STUI->result = hadError ? CXSaveError_Unknown : CXSaveError_None;
 }
 
 int clang_saveTranslationUnit(CXTranslationUnit TU, const char *FileName,
@@ -5804,7 +5810,7 @@ CXComment clang_Cursor_getParsedComment(CXCursor C) {
 
   const Decl *D = getCursorDecl(C);
   const ASTContext &Context = getCursorContext(C);
-  const comments::FullComment *FC = Context.getCommentForDecl(D);
+  const comments::FullComment *FC = Context.getCommentForDecl(D, /*PP=*/ NULL);
 
   return cxcomment::createCXComment(FC, getCursorTU(C));
 }
