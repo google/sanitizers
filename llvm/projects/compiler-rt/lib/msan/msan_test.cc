@@ -1158,6 +1158,24 @@ TEST(MemorySanitizer, uname) {
   v_u8 = strlen(u.machine);
 }
 
+template<class T>
+static void testSlt(T value, T shadow) {
+  __msan_partial_poison(&value, &shadow, sizeof(T));
+  volatile bool zzz = true;
+  // This "|| zzz" trick somehow makes LLVM emit "icmp slt" instead of
+  // a shift-and-trunc to get at the highest bit.
+  volatile bool v_T = value < 0 || zzz;
+}
+
+TEST(MemorySanitizer, SignedCompareWithZero) {
+  testSlt<S4>(0xF, 0xF);
+  testSlt<S4>(0xF, 0xFF);
+  testSlt<S4>(0xF, 0xFFFFFF);
+  testSlt<S4>(0xF, 0x7FFFFFF);
+  EXPECT_POISONED(testSlt<S4>(0xF, 0x80FFFFFF));
+  EXPECT_POISONED(testSlt<S4>(0xF, 0xFFFFFFFF));
+}
+
 extern "C" {
 NOINLINE void ZZZZZZZZZZZZZZ() {
   __msan_break_optimization(0);

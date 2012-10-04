@@ -877,9 +877,33 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  void handleSignedRelationalComparison(ICmpInst &I) {
+    // Handle (x<0) and (0>=x) comparisons by propagating the highest bit of the
+    // shadow.
+    Constant *constOp0 = dyn_cast<Constant>(I.getOperand(0));
+    Constant *constOp1 = dyn_cast<Constant>(I.getOperand(1));
+    Value* op = NULL;
+    if (constOp0 && constOp0->isNullValue() && I.getPredicate() == CmpInst::ICMP_SGE) {
+      op = I.getOperand(1);
+    } else if (constOp1 && constOp1->isNullValue() && I.getPredicate() == CmpInst::ICMP_SLT) {
+      op = I.getOperand(0);
+    }
+    if (op) {
+      IRBuilder<> IRB(&I);
+      Value* Shadow = IRB.CreateICmpSLT(getShadow(op),
+          Constant::getNullValue(op->getType()), "_msprop_icmpslt");
+      setShadow(&I, Shadow);
+      setOrigin(&I, getOrigin(op));
+    } else {
+      handleShadowOr(I);
+    }
+  }
+
   void visitICmpInst(ICmpInst &I) {
     if (ClHandleICmp && I.isEquality())
       handleEqualityComparison(I);
+    else if (ClHandleICmp && I.isSigned() && I.isRelational())
+      handleSignedRelationalComparison(I);
     else
       handleShadowOr(I);
   }
