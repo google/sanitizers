@@ -10,6 +10,7 @@ namespace __msan {
   extern unsigned struct_dirent_sz;
   extern unsigned struct_statfs_sz;
   extern unsigned struct_statfs64_sz;
+  extern unsigned struct_epoll_event_sz;
 };
 
 #endif

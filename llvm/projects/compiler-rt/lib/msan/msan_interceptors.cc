@@ -539,6 +539,26 @@ INTERCEPTOR(int, uname, void* utsname) {
   return res;
 }
 
+INTERCEPTOR(int, epoll_wait, int epfd, void* events, int maxevents,
+    int timeout) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(epoll_wait)(epfd, events, maxevents, timeout);
+  if (res > 0) {
+    __msan_unpoison(events, __msan::struct_epoll_event_sz * res);
+  }
+  return res;
+}
+
+INTERCEPTOR(int, epoll_pwait, int epfd, void* events, int maxevents,
+    int timeout, void* sigmask) {
+  ENSURE_MSAN_INITED();
+  int res = REAL(epoll_pwait)(epfd, events, maxevents, timeout, sigmask);
+  if (res > 0) {
+    __msan_unpoison(events, __msan::struct_epoll_event_sz * res);
+  }
+  return res;
+}
+
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
   GET_MALLOC_STACK_TRACE;
   if (!msan_inited) {
@@ -743,5 +763,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(statfs64));
   CHECK(INTERCEPT_FUNCTION(fstatfs64));
   CHECK(INTERCEPT_FUNCTION(uname));
+  CHECK(INTERCEPT_FUNCTION(epoll_wait));
+  CHECK(INTERCEPT_FUNCTION(epoll_pwait));
 }
 }  // namespace __msan

@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/resource.h>
 #include <sys/vfs.h>
+#include <sys/epoll.h>
 #include <dirent.h>
 
 
@@ -17,4 +18,5 @@ namespace __msan {
   unsigned struct_dirent_sz = sizeof(struct dirent);
   unsigned struct_statfs_sz = sizeof(struct statfs);
   unsigned struct_statfs64_sz = sizeof(struct statfs64);
+  unsigned struct_epoll_event_sz = sizeof(struct epoll_event);
 };
