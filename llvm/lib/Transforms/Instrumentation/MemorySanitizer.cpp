@@ -883,9 +883,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Constant *constOp0 = dyn_cast<Constant>(I.getOperand(0));
     Constant *constOp1 = dyn_cast<Constant>(I.getOperand(1));
     Value* op = NULL;
-    if (constOp0 && constOp0->isNullValue() && I.getPredicate() == CmpInst::ICMP_SGE) {
+    CmpInst::Predicate pre = I.getPredicate();
+    if (constOp0 && constOp0->isNullValue() &&
+        (pre == CmpInst::ICMP_SGT || pre == CmpInst::ICMP_SLE)) {
       op = I.getOperand(1);
-    } else if (constOp1 && constOp1->isNullValue() && I.getPredicate() == CmpInst::ICMP_SLT) {
+    } else if (constOp1 && constOp1->isNullValue() &&
+        (pre == CmpInst::ICMP_SLT || pre == CmpInst::ICMP_SGE)) {
       op = I.getOperand(0);
     }
     if (op) {

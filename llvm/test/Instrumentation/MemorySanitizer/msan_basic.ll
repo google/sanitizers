@@ -163,7 +163,7 @@ declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, 
 ; CHECK: }
 
 
-; memmove
+; memmove is lowered to a call
 define void @MemMove(i8* nocapture %x, i8* nocapture %y) nounwind uwtable {
 entry:
   call void @llvm.memmove.p0i8.p0i8.i64(i8* %x, i8* %y, i64 10, i32 1, i1 false)
@@ -173,8 +173,7 @@ entry:
 declare void @llvm.memmove.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemMove
-; CHECK: call void @llvm.memmove.p0i8.p0i8.i64
-; CHECK: call void @llvm.memmove.p0i8.p0i8.i64
+; CHECK: call i8* @memmove
 ; CHECK: }
 
 
@@ -233,4 +232,51 @@ entry:
 ; CHECK-NOT: icmp
 ; CHECK: udiv
 ; CHECK-NOT: icmp
+; CHECK: }
+
+
+; Check that we propagate shadow for x<0, x>=0, etc (i.e. sign bit tests)
+
+define zeroext i1 @ICmpSLT(i32 %x) nounwind uwtable readnone {
+  %1 = icmp slt i32 %x, 0
+  ret i1 %1
+}
+
+; CHECK: define zeroext i1 @ICmpSLT
+; CHECK: icmp slt
+; CHECK: icmp slt
+; CHECK-NOT: br
+; CHECK: }
+
+define zeroext i1 @ICmpSGE(i32 %x) nounwind uwtable readnone {
+  %1 = icmp sge i32 %x, 0
+  ret i1 %1
+}
+
+; CHECK: define zeroext i1 @ICmpSGE
+; CHECK: icmp slt
+; CHECK: icmp sge
+; CHECK-NOT: br
+; CHECK: }
+
+define zeroext i1 @ICmpSGT(i32 %x) nounwind uwtable readnone {
+  %1 = icmp sgt i32 0, %x
+  ret i1 %1
+}
+
+; CHECK: define zeroext i1 @ICmpSGT
+; CHECK: icmp slt
+; CHECK: icmp sgt
+; CHECK-NOT: br
+; CHECK: }
+
+define zeroext i1 @ICmpSLE(i32 %x) nounwind uwtable readnone {
+  %1 = icmp sle i32 0, %x
+  ret i1 %1
+}
+
+; CHECK: define zeroext i1 @ICmpSLE
+; CHECK: icmp slt
+; CHECK: icmp sle
+; CHECK-NOT: br
 ; CHECK: }
