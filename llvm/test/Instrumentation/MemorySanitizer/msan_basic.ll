@@ -280,3 +280,17 @@ define zeroext i1 @ICmpSLE(i32 %x) nounwind uwtable readnone {
 ; CHECK: icmp sle
 ; CHECK-NOT: br
 ; CHECK: }
+
+
+; Check that loads from shadow have the same aligment as the original loads.
+
+define i32 @ShadowLoadAlignment() nounwind uwtable {
+  %y = alloca i32, align 64
+  %1 = load volatile i32* %y, align 64
+  ret i32 %1
+}
+
+; CHECK: define i32 @ShadowLoadAlignment
+; CHECK: load i32* {{.*}} align 64
+; CHECK: load volatile i32* {{.*}} align 64
+; CHECK: }

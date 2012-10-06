@@ -333,7 +333,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       if (ClTrackOrigins) {
         Instruction *Origin = InstrumentationSet[i].Origin;
         IRB.CreateStore(Origin ? (Value*)Origin : (Value*)IRB.getInt32(0),
-                        MS.OriginTLS);
+            MS.OriginTLS);
       }
       CallInst *Call = IRB.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
@@ -659,13 +659,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Type *ShadowTy = getShadowTy(&I);
     Value *Addr = I.getPointerOperand();
     Value *ShadowPtr = getShadowPtr(Addr, ShadowTy, IRB);
-    setShadow(&I, IRB.CreateLoad(ShadowPtr, "_msld"));
+    setShadow(&I, IRB.CreateAlignedLoad(ShadowPtr, I.getAlignment(), "_msld"));
 
     if (ClTrapOnDirtyAccess)
       insertCheck(I.getPointerOperand(), &I);
 
     if (ClTrackOrigins)
-      setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
+      setOrigin(&I, IRB.CreateAlignedLoad(getOriginPtr(Addr, IRB), I.getAlignment()));
   }
 
   LLVM_ATTRIBUTE_NOINLINE
@@ -676,7 +676,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Shadow = getShadow(Val);
     Value *ShadowPtr = getShadowPtr(Addr, Shadow->getType(), IRB);
 
-    StoreInst *NewSI = IRB.CreateStore(Shadow, ShadowPtr);
+    StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
     DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
     // If the store is volatile, add a check.
     if (I.isVolatile())
@@ -685,7 +685,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       insertCheck(Addr, &I);
 
     if (ClTrackOrigins)
-      IRB.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRB));
+      IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
   }
 
   // Casts.
