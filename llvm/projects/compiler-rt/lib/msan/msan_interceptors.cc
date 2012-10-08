@@ -11,6 +11,7 @@
 typedef uptr size_t;
 typedef sptr ssize_t;
 typedef u64  off_t;
+typedef u64  off64_t;
 using namespace __msan;
 
 #define ENSURE_MSAN_INITED() do { \
@@ -53,6 +54,14 @@ INTERCEPTOR(ssize_t, read, int fd, void *ptr, size_t count) {
 INTERCEPTOR(ssize_t, pread, int fd, void *ptr, size_t count, off_t offset) {
   ENSURE_MSAN_INITED();
   ssize_t res = REAL(pread)(fd, ptr, count, offset);
+  if (res > 0)
+    __msan_unpoison(ptr, res);
+  return res;
+}
+
+INTERCEPTOR(ssize_t, pread64, int fd, void *ptr, size_t count, off64_t offset) {
+  ENSURE_MSAN_INITED();
+  ssize_t res = REAL(pread64)(fd, ptr, count, offset);
   if (res > 0)
     __msan_unpoison(ptr, res);
   return res;
@@ -708,6 +717,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(fread));
   CHECK(INTERCEPT_FUNCTION(read));
   CHECK(INTERCEPT_FUNCTION(pread));
+  CHECK(INTERCEPT_FUNCTION(pread64));
   CHECK(INTERCEPT_FUNCTION(readlink));
   CHECK(INTERCEPT_FUNCTION(readdir));
   CHECK(INTERCEPT_FUNCTION(memcpy));
