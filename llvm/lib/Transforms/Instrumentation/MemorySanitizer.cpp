@@ -1027,7 +1027,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       CallInst *Call = cast<CallInst>(&I);
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
-      // Handle intirnsics. FIXME: these should be separate visitX methods.
+      // Handle intrinsics. FIXME: these should be separate visitX methods.
       if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
         if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
           handleMemSet(*MemSet);
