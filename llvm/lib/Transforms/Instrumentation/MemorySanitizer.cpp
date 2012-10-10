@@ -894,7 +894,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (op) {
       IRBuilder<> IRB(&I);
       Value* Shadow = IRB.CreateICmpSLT(getShadow(op),
-          Constant::getNullValue(op->getType()), "_msprop_icmpslt");
+          getCleanShadow(op), "_msprop_icmpslt");
       setShadow(&I, Shadow);
       setOrigin(&I, getOrigin(op));
     } else {
