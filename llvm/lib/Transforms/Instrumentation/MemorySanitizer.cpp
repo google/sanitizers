@@ -805,19 +805,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
-  // Shadow = Shadow0 | ... | ShadowN with proper casting.
-  // FIXME: is the casting actually correct?
-  // FIXME: merge this with handleShadowOrBinary.
-  void handleShadowOr(Instruction &I) {
-    IRBuilder<> IRB(&I);
-    Value* Shadow = getShadow(&I, 0);
-    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
-      Shadow = IRB.CreateOr(Shadow,
-          IRB.CreateIntCast(getShadow(&I, Op), Shadow->getType(), false),
-          "_msprop");
-    Shadow = IRB.CreateIntCast(Shadow, getShadowTy(&I), false);
-    setShadow(&I, Shadow);
-    setOriginForNaryOp(I);
+  bool hasStructArgumentOrRetVal(CallInst &I) {
+    for (unsigned Op = 0, n = I.getNumArgOperands(); Op < n; ++Op)
+      if (I.getArgOperand(Op)->getType()->isStructTy())
+        return true;
+    if (I.getType()->isStructTy())
+      return true;
+    return false;
   }
 
   // Cast between two shadow types, extending or truncating as necessary.
@@ -840,6 +834,21 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // TODO: handle struct types.
   }
 
+  // Shadow = Shadow0 | ... | ShadowN with proper casting.
+  // FIXME: is the casting actually correct?
+  // FIXME: merge this with handleShadowOrBinary.
+  void handleShadowOr(Instruction &I) {
+    IRBuilder<> IRB(&I);
+    Value* Shadow = getShadow(&I, 0);
+    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
+      Shadow = IRB.CreateOr(Shadow,
+          CreateShadowCast(IRB, getShadow(&I, Op), Shadow->getType()),
+          "_msprop");
+    Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
+    setShadow(&I, Shadow);
+    setOriginForNaryOp(I);
+  }
+
   void handleShadowOrForCall(CallInst &I) {
     IRBuilder<> IRB(&I);
     if (I.getNumArgOperands() == 0) {
@@ -847,13 +856,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return;
     }
     // TODO: handle struct types in CreateShadowCast
-    for (unsigned Op = 0, n = I.getNumArgOperands(); Op < n; ++Op) {
-      if (getShadowTy(I.getArgOperand(Op))->isStructTy()) {
-        visitInstruction(I);
-        return;
-      }
-    }
-    if (getShadowTy(&I)->isStructTy()) {
+    if (hasStructArgumentOrRetVal(I)) {
       visitInstruction(I);
       return;
     }
