@@ -282,11 +282,20 @@ void __msan_load_unpoisoned(void *src, uptr size, void *dst) {
 
 void __msan_set_origin(void *a, uptr size, u32 origin) {
   if (!__msan_track_origins) return;
-  uptr x = (uptr)a;
-  uptr aligned = MEM_TO_ORIGIN(x & ~3ULL);
-  for (uptr addr = aligned; addr < aligned + size; addr += 4) {
-    *(u32*)addr = origin;
+  uptr x = MEM_TO_ORIGIN((uptr)a);
+  uptr beg = x & ~3UL;  // align down.
+  uptr end = (x + size + 3) & ~3UL; // align up.
+  u64 origin64 = ((u64)origin << 32) | origin;
+  // This is like memset, but the value is 32-bit. We unroll by 2 two write
+  // 64-bits at once. May want to unroll further to get 128-bit stores.
+  if (beg & 7ULL) {
+    *(u32*)beg = origin;
+    beg += 4;
   }
+  for (uptr addr = beg; addr < end; addr += 8)
+    *(u64*)addr = origin64;
+  if (end & 7ULL)
+    *(u32*)(end - 4) = origin;
 }
 
 // 'descr' is created at compile time and contains '----' in the beginning.
