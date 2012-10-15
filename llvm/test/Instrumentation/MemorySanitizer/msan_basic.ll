@@ -303,3 +303,38 @@ define i32 @ShadowLoadAlignmentSmall() nounwind uwtable {
 ; CHECK: load i32* {{.*}} align 2
 ; CHECK: load volatile i32* {{.*}} align 2
 ; CHECK: }
+
+
+; Store intrinsic.
+
+define void @StoreIntrinsic(i8* %p, <4 x float> %x) nounwind uwtable {
+  call void @llvm.x86.sse.storeu.ps(i8* %p, <4 x float> %x)
+  ret void
+}
+
+declare void @llvm.x86.sse.storeu.ps(i8*, <4 x float>) nounwind
+
+; CHECK: define void @StoreIntrinsic
+; CHECK-NOT: br
+; CHECK-NOT: = or
+; CHECK: store <4 x i32> {{.*}} align 1
+; CHECK: call void @llvm.x86.sse.storeu.ps
+; CHECK: }
+
+
+; Load intrinsic.
+
+define <16 x i8> @LoadIntrinsic(i8* %p) nounwind uwtable {
+  %call = call <16 x i8> @llvm.x86.sse3.ldu.dq(i8* %p)
+  ret <16 x i8> %call
+}
+
+declare <16 x i8> @llvm.x86.sse3.ldu.dq(i8* %p) nounwind
+
+; CHECK: define <16 x i8> @LoadIntrinsic
+; CHECK: load <16 x i8>* {{.*}} align 1
+; CHECK-NOT: br
+; CHECK-NOT: = or
+; CHECK: call <16 x i8> @llvm.x86.sse3.ldu.dq
+; CHECK: store <16 x i8> {{.*}} @__msan_retval_tls
+; CHECK: }

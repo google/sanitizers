@@ -1141,6 +1141,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Calculate OR'ed shadow of all scalar (or vector of scalars) arguments.
     Value* Shadow = NULL;
     for (unsigned i = 0, n = I.getNumArgOperands(); i < n; ++i) {
+      if (i == (unsigned)pointerOpIdx) continue;
       Value* Op = I.getArgOperand(i);
       Value* OpShadow = CreateShadowCast(IRB, getShadow(Op), MemAccessShadowTy);
       if (!Shadow)
@@ -1155,10 +1156,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
       // FIXME: do we know anything at all about this load alignment?
       // The same goes for the store below.
-      Shadow = IRB.CreateOr(Shadow,
-          IRB.CreateAlignedLoad(ShadowPtr, 1, "_msld"), "_msprop");
+      Value* OpShadow = IRB.CreateAlignedLoad(ShadowPtr, 1, "_msld");
+      if (!Shadow)
+        Shadow = OpShadow;
+      else
+        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
       // TODO: load origin
     }
+
+    assert(Shadow);
 
     // Store shadow by the pointer argument.
     if (writesMemory) {
