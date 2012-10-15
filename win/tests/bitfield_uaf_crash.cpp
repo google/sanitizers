@@ -32,7 +32,7 @@ int main(void) {
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
 
-// CHECK: AddressSanitizer heap-use-after-free on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: AddressSanitizer: heap-use-after-free on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: READ of size 4 at [[ADDR]]
 // CHECK:   #0 {{.*}} main
 // CHECK: [[ADDR]] is located 0 bytes inside of 4-byte region

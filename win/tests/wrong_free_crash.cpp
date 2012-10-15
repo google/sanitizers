@@ -25,7 +25,7 @@ int main(void) {
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
 
-// CHECK: AddressSanitizer attempting free on address which was not malloc()-ed
+// CHECK: AddressSanitizer: attempting free on address which was not malloc()-ed
 // CHECK:   #0 {{.*}} free
 // CHECK:   #{{[12]}} {{.*}} main
   return 0;

@@ -26,7 +26,7 @@ int main(void) {
 // CHECK-NOT: Boo
 // CHECK-NOT: This code should be unreachable
 
-// CHECK: AddressSanitizer global-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: AddressSanitizer: global-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: READ of size 1 at [[ADDR]] thread T0
 // CHECK:   #0 {{.*}} main
 // CHECK: [[ADDR]] is located 5 bytes to the right of global variable {{.*}} of size 11

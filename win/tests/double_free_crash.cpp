@@ -25,7 +25,7 @@ int main(void) {
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
 
-// CHECK: AddressSanitizer attempting double-free on [[ADDR:0x[0-9a-f]+]]
+// CHECK: AddressSanitizer: attempting double-free on [[ADDR:0x[0-9a-f]+]]
 // CHECK:   #0 {{.*}} free
 // CHECK:   #{{[12]}} {{.*}} main
 // CHECK: [[ADDR]] is located 0 bytes inside of 168-byte region

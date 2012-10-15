@@ -27,7 +27,7 @@ DWORD WINAPI thread_proc(void *context) {
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
 
-// CHECK: AddressSanitizer stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: AddressSanitizer: stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 1 at [[ADDR]] thread T1
 // CHECK:   #0 {{.*}} thread_proc
 // CHECK: Address [[ADDR]] is located at offset {{.*}} in frame <{{.*thread_proc.*}}>
