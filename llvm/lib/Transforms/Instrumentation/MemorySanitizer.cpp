@@ -120,7 +120,7 @@ namespace {
 /// MemorySanitizer: instrument the code in module to find
 /// uninitialized reads.
 struct MemorySanitizer : public FunctionPass {
-  MemorySanitizer() : FunctionPass(ID), TD(NULL) {  }
+  MemorySanitizer() : FunctionPass(ID), TD(NULL) { }
   const char *getPassName() const { return "MemorySanitizer"; }
   bool runOnFunction(Function &F);
   bool doInitialization(Module &M);
@@ -177,20 +177,19 @@ FunctionPass *llvm::createMemorySanitizerPass() {
 //
 // FIXME: AddressSanitizer has a similar function.
 // What is the best place to move it?
-static BranchInst *splitBlockAndInsertIfThen(Value *Cmp,
+static BranchInst *splitBlockAndInsertIfThen(Instruction *Cmp,
     MDNode *BranchWeights = 0) {
-  Instruction *SplitBefore = cast<Instruction>(Cmp)->getNextNode();
+  Instruction *SplitBefore = Cmp->getNextNode();
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
-  LLVMContext &C = Head->getParent()->getParent()->getContext();
+  LLVMContext &C = Head->getContext();
   BasicBlock *NewBasicBlock = BasicBlock::Create(C, "", Head->getParent());
   BranchInst *HeadNewTerm =
       BranchInst::Create(/*ifTrue*/NewBasicBlock, /*ifFalse*/Tail, Cmp);
   HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
   ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
-  BranchInst *CheckTerm = BranchInst::Create(Tail, NewBasicBlock);
-  return CheckTerm;
+  return BranchInst::Create(Tail, NewBasicBlock);
 }
 
 // Create a non-const global for Str so that we can pass it to the run-time lib.
@@ -326,9 +325,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
       DEBUG(dbgs() << "  SHAD1 : " << *ConvertedShadow << "\n");
       Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
-                                    getCleanShadow(ConvertedShadow), "_mscmp");
-      Instruction *CheckTerm =
-          splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
+          getCleanShadow(ConvertedShadow), "_mscmp");
+      Instruction *CheckTerm = splitBlockAndInsertIfThen(cast<Instruction>(Cmp),
+          MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);
       if (ClTrackOrigins) {
@@ -593,7 +592,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           if (AI->hasByValAttr()) {
             // ByVal pointer itself has clean shadow. We copy the actual
             // argument shadow to the underlying memory.
-            EntryIRB.CreateMemCpy(
+            Value* Cpy = EntryIRB.CreateMemCpy(
                 getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
                 Base, Size, AI->getParamAlignment());
             DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
