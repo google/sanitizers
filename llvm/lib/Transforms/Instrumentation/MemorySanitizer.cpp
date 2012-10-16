@@ -500,7 +500,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void setOrigin(Value *V, Value *Origin) {
     if (!ClTrackOrigins) return;
-    assert(OriginMap[V] == 0);
+    assert(!OriginMap.count(V) && "Values may only have one origin");
     DEBUG(dbgs() << "ORIGIN: " << *V << "  ==> " << *Origin << "\n");
     OriginMap[V] = Origin;
   }
@@ -585,7 +585,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         }
         ArgOffset += TargetData::RoundUpAlignment(Size, 8);
       }
-      assert(*ShadowPtr);
+      assert(*ShadowPtr && "Could not find shadow for an argument");
       return *ShadowPtr;
     }
     // For everything else the shadow is zero.
@@ -621,7 +621,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
     if (!Shadow) return;
     Type *ShadowTy = Shadow->getType();
-    assert(isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy));
+    assert((isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy)) &&
+           "Can only insert checks for integer and vector shadow types");
     Instruction *Origin = dyn_cast_or_null<Instruction>(getOrigin(Val));
     InstrumentationSet.push_back(
         ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
@@ -630,7 +631,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   //------------------- Visitors.
   void visitLoadInst(LoadInst &I) {
     Type *LoadTy = I.getType();
-    assert(LoadTy->isSized());
+    assert(LoadTy->isSized() && "Load type must have size");
     IRBuilder<> IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
     Value *Addr = I.getPointerOperand();
@@ -965,7 +966,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void visitCallSite(CallSite CS) {
     Instruction &I = *CS.getInstruction();
-    assert(CS.isCall() || CS.isInvoke());
+    assert((CS.isCall() || CS.isInvoke()) && "Unknown type of CallSite");
     if (CS.isCall()) {
       // Allow only tail calls with the same types, otherwise
       // we may have a false positive: shadow for a non-void RetVal
@@ -1012,7 +1013,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       DEBUG(dbgs() << "  Arg#" << i << ": " << *A <<
             " Shadow: " << *ArgShadow << "\n");
       if (CS.paramHasAttr(i + 1, Attribute::ByVal)) {
-        assert(A->getType()->isPointerTy());
+        assert(A->getType()->isPointerTy() &&
+            "ByVal argument is not a pointer!");
         Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
         unsigned Alignment = CS.getParamAlignment(i + 1);
         Store = IRB.CreateMemCpy(ArgShadowBase,
@@ -1093,7 +1095,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         return;
       }
       NextInsn = NormalDest->getFirstInsertionPt();
-      assert(NextInsn);
+      assert(NextInsn &&
+          "Could not find insertion point for retval shadow load");
     }
     IRBuilder<> IRBAfter(NextInsn);
     setShadow(&I, IRBAfter.CreateLoad(getShadowPtrForRetval(&I, IRBAfter),
