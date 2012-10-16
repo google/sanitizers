@@ -349,7 +349,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // va_arg_tls somewhere in the function entry block.
       IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
       VAArgOverflowSize = IRB.CreateLoad(MS.VAArgOverflowSizeTLS);
-      Value* CopySize =
+      Value *CopySize =
           IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
           VAArgOverflowSize);
       VAArgTLSCopy = IRB.CreateAlloca(Type::getInt8Ty(*MS.C), CopySize);
@@ -363,24 +363,24 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRBuilder<> IRB(OrigInst->getNextNode());
       Value *VAListTag = OrigInst->getArgOperand(0);
 
-      Value* RegSaveAreaPtrPtr = IRB.CreateIntToPtr(
+      Value *RegSaveAreaPtrPtr = IRB.CreateIntToPtr(
           IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
                         ConstantInt::get(MS.IntptrTy, 16)),
           Type::getInt64PtrTy(*MS.C));
-      Value* RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
-      Value* RegSaveAreaShadowPtr =
+      Value *RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
+      Value *RegSaveAreaShadowPtr =
           getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
       IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy,
                        AMD64FpEndOffset, 16);
 
-      Value* OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(
+      Value *OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(
           IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
                         ConstantInt::get(MS.IntptrTy, 8)),
           Type::getInt64PtrTy(*MS.C));
-      Value* OverflowArgAreaPtr = IRB.CreateLoad(OverflowArgAreaPtrPtr);
-      Value* OverflowArgAreaShadowPtr =
+      Value *OverflowArgAreaPtr = IRB.CreateLoad(OverflowArgAreaPtrPtr);
+      Value *OverflowArgAreaShadowPtr =
           getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
-      Value* SrcPtr =
+      Value *SrcPtr =
           getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
       IRB.CreateMemCpy(OverflowArgAreaShadowPtr, SrcPtr, VAArgOverflowSize, 16);
     }
@@ -569,7 +569,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           if (AI->hasByValAttr()) {
             // ByVal pointer itself has clean shadow. We copy the actual
             // argument shadow to the underlying memory.
-            Value* Cpy = EntryIRB.CreateMemCpy(
+            Value *Cpy = EntryIRB.CreateMemCpy(
                 getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
                 Base, Size, AI->getParamAlignment());
             DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
@@ -832,8 +832,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // * there is a defined 1 bit in C
     // * C is fully defined
     // Si = !(C & ~Sc) && Sc
-    Value* Zero = Constant::getNullValue(Sc->getType());
-    Value* MinusOne = Constant::getAllOnesValue(Sc->getType());
+    Value *Zero = Constant::getNullValue(Sc->getType());
+    Value *MinusOne = Constant::getAllOnesValue(Sc->getType());
 #if 0
     errs() << "Sc:  " << *Sc << "\n";
     errs() << "Sa:  " << *Sa << "\n";
@@ -843,7 +843,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     errs() << "A:   " << *A << "\n";
     errs() << "B:   " << *B << "\n";
 #endif
-    Value* Si = IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
+    Value *Si = IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
         IRB.CreateICmpEQ(IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
     Si->setName("_msprop_icmp");
     setShadow(&I, Si);
@@ -953,7 +953,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   ArgClass classifyArgument(Value* arg) {
     // A very rough approximation of X86_64 argument classification rules.
-    Type* T = arg->getType();
+    Type *T = arg->getType();
     if (T->isFPOrFPVectorTy() || T->isX86_MMXTy())
       return ARG_FP;
     if (T->isIntegerTy() && T->getPrimitiveSizeInBits() <= 64)
@@ -975,11 +975,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         Call->setTailCall(false);
       // Handle intirnsics. FIXME: these should be separate visitX methods.
       if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
-        if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
+        if (MemSetInst *MemSet = dyn_cast<MemSetInst>(&I))
           handleMemSet(*MemSet);
-        else if (MemCpyInst* MemCpy = dyn_cast<MemCpyInst>(&I))
+        else if (MemCpyInst *MemCpy = dyn_cast<MemCpyInst>(&I))
           handleMemCpy(*MemCpy);
-        else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
+        else if (MemMoveInst *MemMove = dyn_cast<MemMoveInst>(&I))
           handleMemMove(*MemMove);
         else if (II->getIntrinsicID() == llvm::Intrinsic::vastart)
           handleVAStart(*II);
@@ -1052,7 +1052,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           arg_class = ARG_MEMORY;
         if (arg_class == ARG_FP && FpOffset >= AMD64FpEndOffset)
           arg_class = ARG_MEMORY;
-        Value* Base;
+        Value *Base;
         switch (arg_class) {
         case ARG_GP:
           Base = getShadowPtrForVAArgument(A, IRB, GpOffset);
@@ -1207,7 +1207,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void dumpInst(Instruction &I) {
-    if (CallInst* CI = dyn_cast<CallInst>(&I)) {
+    if (CallInst *CI = dyn_cast<CallInst>(&I)) {
       errs() << "ZZZ call " << CI->getCalledFunction()->getName() << "\n";
     } else {
       errs() << "ZZZ " << I.getOpcodeName() << "\n";
