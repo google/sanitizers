@@ -53,6 +53,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Function.h"
 #include "llvm/InlineAsm.h"
 #include "llvm/IntrinsicInst.h"
@@ -804,6 +805,35 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  bool hasStructArgumentOrRetVal(CallInst &I) {
+    for (unsigned Op = 0, n = I.getNumArgOperands(); Op < n; ++Op)
+      if (I.getArgOperand(Op)->getType()->isStructTy())
+        return true;
+    if (I.getType()->isStructTy())
+      return true;
+    return false;
+  }
+
+  // Cast between two shadow types, extending or truncating as necessary.
+  Value* CreateShadowCast(IRBuilder<>& IRB, Value* V, Type* dstTy) {
+    Type* srcTy = V->getType();
+    if (dstTy->isIntegerTy() && srcTy->isIntegerTy())
+      return IRB.CreateIntCast(V, dstTy, false);
+    if (dstTy->isVectorTy() && srcTy->isVectorTy() &&
+        dstTy->getVectorNumElements() == srcTy->getVectorNumElements())
+      return IRB.CreateIntCast(V, dstTy, false);
+    size_t srcSizeInBits = srcTy->isVectorTy() ?
+      srcTy->getVectorNumElements() * srcTy->getScalarSizeInBits() :
+      srcTy->getPrimitiveSizeInBits();
+    size_t dstSizeInBits = dstTy->isVectorTy() ?
+      dstTy->getVectorNumElements() * dstTy->getScalarSizeInBits() :
+      dstTy->getPrimitiveSizeInBits();
+    Value* V1 = IRB.CreateBitCast(V, Type::getIntNTy(*MS.C, srcSizeInBits));
+    Value* V2 = IRB.CreateIntCast(V1, Type::getIntNTy(*MS.C, dstSizeInBits), false);
+    return IRB.CreateBitCast(V2, dstTy);
+    // TODO: handle struct types.
+  }
+
   // Shadow = Shadow0 | ... | ShadowN with proper casting.
   // FIXME: is the casting actually correct?
   // FIXME: merge this with handleShadowOrBinary.
@@ -812,9 +842,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value* Shadow = getShadow(&I, 0);
     for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
       Shadow = IRB.CreateOr(Shadow,
-          IRB.CreateIntCast(getShadow(&I, Op), Shadow->getType(), false),
+          CreateShadowCast(IRB, getShadow(&I, Op), Shadow->getType()),
           "_msprop");
-    Shadow = IRB.CreateIntCast(Shadow, getShadowTy(&I), false);
+    Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
     setShadow(&I, Shadow);
     setOriginForNaryOp(I);
   }
@@ -898,7 +928,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (op) {
       IRBuilder<> IRB(&I);
       Value* Shadow = IRB.CreateICmpSLT(getShadow(op),
-          Constant::getNullValue(op->getType()), "_msprop_icmpslt");
+          getCleanShadow(op), "_msprop_icmpslt");
       setShadow(&I, Shadow);
       setOrigin(&I, getOrigin(op));
     } else {
@@ -1012,6 +1042,149 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return ARG_MEMORY;
   }
 
+  // GET_INTRINSIC_MODREF_BEHAVIOR requires that ModRefBehaviour definition is
+  // in scope.
+  struct Dummy : public AliasAnalysis {
+    static ModRefBehavior getIntrinsicModRefBehaviour(Intrinsic::ID iid) {
+#define GET_INTRINSIC_MODREF_BEHAVIOR
+#include "llvm/Intrinsics.gen"
+#undef GET_INTRINSIC_MODREF_BEHAVIOR
+    }
+  };
+
+  void handleUnknownIntrinsic(IntrinsicInst &I) {
+    // TODO: handle struct types in CreateShadowCast
+    if (hasStructArgumentOrRetVal(I)) {
+      visitInstruction(I);
+      return;
+    }
+
+    if (I.getNumArgOperands() == 0) {
+      visitInstruction(I);
+      return;
+    }
+
+    Intrinsic::ID iid = I.getIntrinsicID();
+    AliasAnalysis::ModRefBehavior modref =
+      Dummy::getIntrinsicModRefBehaviour(iid);
+    bool readsMemory =
+      (modref == AliasAnalysis::OnlyReadsArgumentPointees ||
+          modref == AliasAnalysis::OnlyReadsMemory);
+    bool writesMemory =
+      (modref == AliasAnalysis::OnlyAccessesArgumentPointees ||
+          modref == AliasAnalysis::UnknownModRefBehavior);
+    assert(!(readsMemory && writesMemory));
+
+    // See if we need to propagate shadow at all.
+    if (!writesMemory && I.getType()->isVoidTy()) {
+      visitInstruction(I);
+      return;
+    }
+
+    int pointerOpIdx = -1;
+    Type* MemAccessType = NULL;
+    for (unsigned i = 0, n = I.getNumArgOperands(); i < n; ++i) {
+      Value* Op = I.getArgOperand(i);
+      if (Op->getType()->isPointerTy()) {
+        if (pointerOpIdx < 0) {
+          pointerOpIdx = i;
+        } else {
+          // Two pointer operands? Meh.
+          visitInstruction(I);
+          return;
+        }
+      } else if (!MemAccessType) {
+        MemAccessType = Op->getType();
+      }
+    }
+
+    if (pointerOpIdx < 0 && (readsMemory || writesMemory)) {
+      // No idea how to handle this.
+      visitInstruction(I);
+      return;
+    }
+
+    if (!MemAccessType)
+      MemAccessType = I.getType();
+
+    if (MemAccessType->isVoidTy()) {
+      // Can't figure out memory access size.
+      visitInstruction(I);
+      return;
+    }
+
+    Type* MemAccessShadowTy = getShadowTy(MemAccessType);
+
+    DEBUG(dbgs() << (readsMemory ? "read" : (writesMemory ? "write" :
+           "nomem")) << " intrinsic: " << I << "\n");
+    DEBUG(dbgs() << "pointer argument: " << pointerOpIdx << "\n");
+    DEBUG(dbgs() << "memory access type: " << *MemAccessType << "\n");
+    DEBUG(dbgs() << "shadow type: " << *MemAccessShadowTy << "\n");
+
+    IRBuilder<> IRB(&I);
+
+    // Calculate OR'ed shadow of all scalar (or vector of scalars) arguments.
+    Value* Shadow = NULL;
+    for (int i = 0, n = I.getNumArgOperands(); i < n; ++i) {
+      // For nomem intrinsics, we mix in the shadow of the pointer argument,
+      // as well.
+      if (i == pointerOpIdx && (readsMemory || writesMemory)) continue;
+      Value* Op = I.getArgOperand(i);
+      Value* OpShadow = CreateShadowCast(IRB, getShadow(Op), MemAccessShadowTy);
+      if (!Shadow)
+        Shadow = OpShadow;
+      else
+        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
+    }
+
+    // Read shadow by the pointer argument and mix it in.
+    if (pointerOpIdx >= 0 && readsMemory) {
+      Value *Op = I.getArgOperand(pointerOpIdx);
+      Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
+      // FIXME: do we know anything at all about this load alignment?
+      // The same goes for the store below.
+      Value* OpShadow = IRB.CreateAlignedLoad(ShadowPtr, 1, "_msld");
+      if (!Shadow)
+        Shadow = OpShadow;
+      else
+        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
+      // TODO: load origin
+    }
+
+    assert(Shadow);
+
+    // Store shadow by the pointer argument.
+    if (pointerOpIdx >= 0 && writesMemory) {
+      Value *Op = I.getArgOperand(pointerOpIdx);
+      Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
+      IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
+      // TODO: store origin
+    }
+
+    if (!I.getType()->isVoidTy()) {
+      Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
+      setShadow(&I, Shadow);
+      setOriginForNaryOp(I);
+    }
+  }
+
+  void handleIntrinsicInst(IntrinsicInst &I) {
+    switch (I.getIntrinsicID()) {
+    case llvm::Intrinsic::memset:
+      handleMemSet(*dyn_cast<MemSetInst>(&I)); break;
+    case llvm::Intrinsic::memcpy:
+      handleMemCpy(*dyn_cast<MemCpyInst>(&I)); break;
+    case llvm::Intrinsic::memmove:
+      handleMemMove(*dyn_cast<MemMoveInst>(&I)); break;
+    case llvm::Intrinsic::vastart:
+      handleVAStart(I); break;
+    case llvm::Intrinsic::vacopy:
+      handleVACopy(I); break;
+    default:
+      handleUnknownIntrinsic(I);
+    }
+  }
+
   void visitCallSite(CallSite CS) {
     Instruction &I = *CS.getInstruction();
     assert(CS.isCall() || CS.isInvoke());
@@ -1022,21 +1195,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       CallInst *Call = cast<CallInst>(&I);
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
-      // Handle intrinsics. FIXME: these should be separate visitX methods.
       if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
-        if (MemSetInst* MemSet = dyn_cast<MemSetInst>(&I))
-          handleMemSet(*MemSet);
-        else if (MemCpyInst* MemCpy = dyn_cast<MemCpyInst>(&I))
-          handleMemCpy(*MemCpy);
-        else if (MemMoveInst* MemMove = dyn_cast<MemMoveInst>(&I))
-          handleMemMove(*MemMove);
-        else if (II->getIntrinsicID() == llvm::Intrinsic::vastart)
-          handleVAStart(*II);
-        else if (II->getIntrinsicID() == llvm::Intrinsic::vacopy)
-          handleVACopy(*II);
-        else
-          // Unhandled intrinsic: mark retval as clean.
-          visitInstruction(I);
+        handleIntrinsicInst(*II);
         return;
       }
     }

@@ -2,6 +2,7 @@
 #include "msan.h"
 #include "msan_platform_limits.h"
 #include "sanitizer_common/sanitizer_common.h"
+#include "sanitizer_common/sanitizer_libc.h"
 #include <interception/interception.h>
 
 #include <stdarg.h>
@@ -627,8 +628,7 @@ void *fast_memset(void *ptr, int c, size_t n) {
     return ptr;
   }
 #endif
-  CHECK(REAL(memset));
-  return REAL(memset)(ptr, c, n);
+  return internal_memset(ptr, c, n);
 }
 
 // static
@@ -646,8 +646,7 @@ void *fast_memcpy(void *dst, const void *src, size_t n) {
     return dst;
   }
 #endif
-  CHECK(REAL(memcpy));
-  return REAL(memcpy)(dst, src, n);
+  return internal_memcpy(dst, src, n);
 }
 
 #define IS_IN_SHADOW(x) (MEM_TO_SHADOW(((uptr)x)) == (uptr)x)
@@ -699,8 +698,7 @@ void __msan_copy_poison(void *dst, const void *src, uptr size) {
 void __msan_move_poison(void *dst, const void *src, uptr size) {
   if (IS_IN_SHADOW(dst)) return;
   if (IS_IN_SHADOW(src)) return;
-  CHECK(REAL(memmove));
-  REAL(memmove)((void*)MEM_TO_SHADOW((uptr)dst),
+  internal_memmove((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
   __msan_copy_origin(dst, src, size);
 }

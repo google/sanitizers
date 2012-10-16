@@ -143,8 +143,7 @@ entry:
 declare void @llvm.memset.p0i8.i64(i8* nocapture, i8, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemSet
-; CHECK: call void @llvm.memset.p0i8.i64
-; CHECK: call void @llvm.memset.p0i8.i64
+; CHECK: call i8* @memset
 ; CHECK: }
 
 
@@ -158,8 +157,7 @@ entry:
 declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemCpy
-; CHECK: call void @llvm.memcpy.p0i8.p0i8.i64
-; CHECK: call void @llvm.memcpy.p0i8.p0i8.i64
+; CHECK: call i8* @memcpy
 ; CHECK: }
 
 
@@ -284,13 +282,59 @@ define zeroext i1 @ICmpSLE(i32 %x) nounwind uwtable readnone {
 
 ; Check that loads from shadow have the same aligment as the original loads.
 
-define i32 @ShadowLoadAlignment() nounwind uwtable {
+define i32 @ShadowLoadAlignmentLarge() nounwind uwtable {
   %y = alloca i32, align 64
   %1 = load volatile i32* %y, align 64
   ret i32 %1
 }
 
-; CHECK: define i32 @ShadowLoadAlignment
+; CHECK: define i32 @ShadowLoadAlignmentLarge
 ; CHECK: load i32* {{.*}} align 64
 ; CHECK: load volatile i32* {{.*}} align 64
+; CHECK: }
+
+define i32 @ShadowLoadAlignmentSmall() nounwind uwtable {
+  %y = alloca i32, align 2
+  %1 = load volatile i32* %y, align 2
+  ret i32 %1
+}
+
+; CHECK: define i32 @ShadowLoadAlignmentSmall
+; CHECK: load i32* {{.*}} align 2
+; CHECK: load volatile i32* {{.*}} align 2
+; CHECK: }
+
+
+; Store intrinsic.
+
+define void @StoreIntrinsic(i8* %p, <4 x float> %x) nounwind uwtable {
+  call void @llvm.x86.sse.storeu.ps(i8* %p, <4 x float> %x)
+  ret void
+}
+
+declare void @llvm.x86.sse.storeu.ps(i8*, <4 x float>) nounwind
+
+; CHECK: define void @StoreIntrinsic
+; CHECK-NOT: br
+; CHECK-NOT: = or
+; CHECK: store <4 x i32> {{.*}} align 1
+; CHECK: call void @llvm.x86.sse.storeu.ps
+; CHECK: }
+
+
+; Load intrinsic.
+
+define <16 x i8> @LoadIntrinsic(i8* %p) nounwind uwtable {
+  %call = call <16 x i8> @llvm.x86.sse3.ldu.dq(i8* %p)
+  ret <16 x i8> %call
+}
+
+declare <16 x i8> @llvm.x86.sse3.ldu.dq(i8* %p) nounwind
+
+; CHECK: define <16 x i8> @LoadIntrinsic
+; CHECK: load <16 x i8>* {{.*}} align 1
+; CHECK-NOT: br
+; CHECK-NOT: = or
+; CHECK: call <16 x i8> @llvm.x86.sse3.ldu.dq
+; CHECK: store <16 x i8> {{.*}} @__msan_retval_tls
 ; CHECK: }
