@@ -161,8 +161,11 @@ FunctionPass *llvm::createMemorySanitizerPass() {
   return new MemorySanitizer();
 }
 
-// Create a non-const global for Str so that we can pass it to the run-time lib.
-static GlobalVariable *createPrivateNonConstGlobalForString(Module &M, StringRef Str) {
+// Create a non-const global for Str so that we can pass it to the
+// run-time lib. Runtime uses first 4 bytes of the string to keep the
+// frame ID, so the string needs to be mutable.
+static GlobalVariable *createPrivateNonConstGlobalForString(Module &M,
+    StringRef Str) {
   Constant *StrConst = ConstantDataArray::getString(M.getContext(), Str);
   return new GlobalVariable(M, StrConst->getType(), /*isConstant=*/false,
                             GlobalValue::PrivateLinkage, StrConst, "");
@@ -1142,7 +1145,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       raw_svector_ostream StackDescription(StackDescriptionStorage);
       // We create a string with a description of the stack allocation and
       // pass it into __msan_set_alloca_origin.
-      // It will be printed by the run-time if stack-originated UMR us found.
+      // It will be printed by the run-time if stack-originated UMR is found.
       // The first 4 bytes of the string are set to '----' and will be replaced
       // by __msan_va_arg_overflow_size_tls at the first call.
       StackDescription << "----" << I.getName() << "@" << F.getName();
