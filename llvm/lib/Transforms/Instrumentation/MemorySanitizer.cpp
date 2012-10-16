@@ -849,28 +849,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
-  void handleShadowOrForCall(CallInst &I) {
-    IRBuilder<> IRB(&I);
-    if (I.getNumArgOperands() == 0) {
-      setShadow(&I, getCleanShadow(&I));
-      return;
-    }
-    // TODO: handle struct types in CreateShadowCast
-    if (hasStructArgumentOrRetVal(I)) {
-      visitInstruction(I);
-      return;
-    }
-    Value* Shadow = getShadow(I.getArgOperand(0));
-    for (unsigned Op = 1, n = I.getNumArgOperands(); Op < n; ++Op) {
-      Shadow = IRB.CreateOr(Shadow,
-          CreateShadowCast(IRB, getShadow(I.getArgOperand(Op)), Shadow->getType()),
-          "_msprop");
-    }
-    Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
-    setShadow(&I, Shadow);
-    setOriginForNaryOp(I);
-  }
-
   void visitFAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
   void visitFSub(BinaryOperator &I) { handleShadowOrBinary(I); }
   void visitFMul(BinaryOperator &I) { handleShadowOrBinary(I); }
@@ -1075,6 +1053,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   };
 
   void handleUnknownIntrinsic(IntrinsicInst &I) {
+    // TODO: handle struct types in CreateShadowCast
+    if (hasStructArgumentOrRetVal(I)) {
+      visitInstruction(I);
+      return;
+    }
+
+    if (I.getNumArgOperands() == 0) {
+      visitInstruction(I);
+      return;
+    }
+
     Intrinsic::ID iid = I.getIntrinsicID();
     AliasAnalysis::ModRefBehavior modref =
       Dummy::getIntrinsicModRefBehaviour(iid);
@@ -1086,13 +1075,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           modref == AliasAnalysis::UnknownModRefBehavior);
     assert(!(readsMemory && writesMemory));
 
-    if (!readsMemory && !writesMemory) {
-      DEBUG(dbgs() << "nomem intrinsic: " << I << "\n");
-      if (I.getType()->isVoidTy()) {
-        visitInstruction(I);
-        return;
-      }
-      handleShadowOrForCall(I);
+    // See if we need to propagate shadow at all.
+    if (!writesMemory && I.getType()->isVoidTy()) {
+      visitInstruction(I);
       return;
     }
 
@@ -1113,9 +1098,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       }
     }
 
-    if (pointerOpIdx < 0) {
-      // No pointer operands, but somehow accesses memory.
-      // Don't know how to deal with this.
+    if (pointerOpIdx < 0 && (readsMemory || writesMemory)) {
+      // No idea how to handle this.
       visitInstruction(I);
       return;
     }
@@ -1131,7 +1115,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     Type* MemAccessShadowTy = getShadowTy(MemAccessType);
 
-    DEBUG(dbgs() << (readsMemory ? "read" : "write") << " intrinsic: " << I << "\n");
+    DEBUG(dbgs() << (readsMemory ? "read" : (writesMemory ? "write" :
+           "nomem")) << " intrinsic: " << I << "\n");
     DEBUG(dbgs() << "pointer argument: " << pointerOpIdx << "\n");
     DEBUG(dbgs() << "memory access type: " << *MemAccessType << "\n");
     DEBUG(dbgs() << "shadow type: " << *MemAccessShadowTy << "\n");
@@ -1140,8 +1125,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     // Calculate OR'ed shadow of all scalar (or vector of scalars) arguments.
     Value* Shadow = NULL;
-    for (unsigned i = 0, n = I.getNumArgOperands(); i < n; ++i) {
-      if (i == (unsigned)pointerOpIdx) continue;
+    for (int i = 0, n = I.getNumArgOperands(); i < n; ++i) {
+      // For nomem intrinsics, we mix in the shadow of the pointer argument,
+      // as well.
+      if (i == pointerOpIdx && (readsMemory || writesMemory)) continue;
       Value* Op = I.getArgOperand(i);
       Value* OpShadow = CreateShadowCast(IRB, getShadow(Op), MemAccessShadowTy);
       if (!Shadow)
@@ -1151,7 +1138,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     // Read shadow by the pointer argument and mix it in.
-    if (readsMemory) {
+    if (pointerOpIdx >= 0 && readsMemory) {
       Value *Op = I.getArgOperand(pointerOpIdx);
       Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
       // FIXME: do we know anything at all about this load alignment?
@@ -1167,7 +1154,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     assert(Shadow);
 
     // Store shadow by the pointer argument.
-    if (writesMemory) {
+    if (pointerOpIdx >= 0 && writesMemory) {
       Value *Op = I.getArgOperand(pointerOpIdx);
       Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
       IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
