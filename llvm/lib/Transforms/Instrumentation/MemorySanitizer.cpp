@@ -161,37 +161,6 @@ FunctionPass *llvm::createMemorySanitizerPass() {
   return new MemorySanitizer();
 }
 
-// Split the basic block and insert an if-then code.
-// Before:
-//   Head
-//   SplitBefore
-//   Tail
-// After:
-//   Head
-//   if (Cmp)
-//     NewBasicBlock
-//   SplitBefore
-//   Tail
-//
-// Returns the NewBasicBlock's terminator.
-//
-// FIXME: AddressSanitizer has a similar function.
-// What is the best place to move it?
-static BranchInst *splitBlockAndInsertIfThen(Instruction *Cmp,
-    MDNode *BranchWeights = 0) {
-  Instruction *SplitBefore = Cmp->getNextNode();
-  BasicBlock *Head = SplitBefore->getParent();
-  BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
-  TerminatorInst *HeadOldTerm = Head->getTerminator();
-  LLVMContext &C = Head->getContext();
-  BasicBlock *NewBasicBlock = BasicBlock::Create(C, "", Head->getParent());
-  BranchInst *HeadNewTerm =
-      BranchInst::Create(/*ifTrue*/NewBasicBlock, /*ifFalse*/Tail, Cmp);
-  HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
-  ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
-  return BranchInst::Create(Tail, NewBasicBlock);
-}
-
 // Create a non-const global for Str so that we can pass it to the run-time lib.
 static GlobalVariable *createPrivateNonConstGlobalForString(Module &M, StringRef Str) {
   Constant *StrConst = ConstantDataArray::getString(M.getContext(), Str);
@@ -326,7 +295,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       DEBUG(dbgs() << "  SHAD1 : " << *ConvertedShadow << "\n");
       Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
           getCleanShadow(ConvertedShadow), "_mscmp");
-      Instruction *CheckTerm = splitBlockAndInsertIfThen(cast<Instruction>(Cmp),
+      Instruction *CheckTerm = SplitBlockAndInsertIfThen(cast<Instruction>(Cmp),
           MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);

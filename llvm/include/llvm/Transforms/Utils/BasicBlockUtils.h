@@ -24,7 +24,9 @@
 namespace llvm {
 
 class AliasAnalysis;
+class BranchInst;
 class Instruction;
+class MDNode;
 class Pass;
 class ReturnInst;
 class TargetLibraryInfo;
@@ -202,6 +204,26 @@ void SplitLandingPadPredecessors(BasicBlock *OrigBB,ArrayRef<BasicBlock*> Preds,
 /// predecessor.
 ReturnInst *FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
                                        BasicBlock *Pred);
+
+/// SplitBlockAndInsertIfThen - Split the containing block at the
+/// specified instruction - everything before and including Cmp stays
+/// in the old basic block, and everything after SplitPt moves to a
+/// new block. The two blocks are joined by an conditional branch
+/// (with value of Cmp being the condition).
+/// Before:
+///   Head
+///   Cmp
+///   Tail
+/// After:
+///   Head
+///   Cmp
+///   if (Cmp)
+///     NewBasicBlock
+///   Tail
+///
+/// Returns the NewBasicBlock's terminator.
+BranchInst *SplitBlockAndInsertIfThen(Instruction *Cmp,
+                                      MDNode *BranchWeights = 0);
 
 } // End llvm namespace
 

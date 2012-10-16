@@ -687,3 +687,34 @@ ReturnInst *llvm::FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
   return cast<ReturnInst>(NewRet);
 }
 
+/// SplitBlockAndInsertIfThen - Split the containing block at the
+/// specified instruction - everything before and including Cmp stays
+/// in the old basic block, and everything after SplitPt moves to a
+/// new block. The two blocks are joined by an conditional branch
+/// (with value of Cmp being the condition).
+/// Before:
+///   Head
+///   Cmp
+///   Tail
+/// After:
+///   Head
+///   Cmp
+///   if (Cmp)
+///     NewBasicBlock
+///   Tail
+///
+/// Returns the NewBasicBlock's terminator.
+BranchInst *llvm::SplitBlockAndInsertIfThen(Instruction *Cmp,
+    MDNode *BranchWeights) {
+  Instruction *SplitBefore = Cmp->getNextNode();
+  BasicBlock *Head = SplitBefore->getParent();
+  BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
+  TerminatorInst *HeadOldTerm = Head->getTerminator();
+  LLVMContext &C = Head->getContext();
+  BasicBlock *NewBasicBlock = BasicBlock::Create(C, "", Head->getParent());
+  BranchInst *HeadNewTerm =
+      BranchInst::Create(/*ifTrue*/NewBasicBlock, /*ifFalse*/Tail, Cmp);
+  HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
+  ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
+  return BranchInst::Create(Tail, NewBasicBlock);
+}
