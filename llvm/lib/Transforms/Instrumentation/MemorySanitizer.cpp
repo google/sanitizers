@@ -494,7 +494,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void setShadow(Value *V, Value *SV) {
-    assert(ShadowMap[V] == 0);
+    assert(!ShadowMap.count(V) && "Values may only have one shadow");
     ShadowMap[V] = SV;
   }
 
@@ -505,12 +505,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     OriginMap[V] = Origin;
   }
 
-  // Create a clean (zero) shadow value for a given value.
+  // Create a clean (zero) shadow value for a given value
+  // (i.e. consider all bits of this value defined).
   Value *getCleanShadow(Value *V) {
     Type *ShadowTy = getShadowTy(V);
     if (!ShadowTy)
       return NULL;
-    return  Constant::getNullValue(ShadowTy);
+    return Constant::getNullValue(ShadowTy);
   }
 
   // We don't have getAllOnesValue for struct types...
@@ -536,8 +537,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // For instructions the shadow is already stored in the map.
       Value *Shadow = ShadowMap[V];
       if (!Shadow) {
-        dbgs() << "No shadow: " << *V << "\n" << *(I->getParent());
-        assert(Shadow);
+        DEBUG(dbgs() << "No shadow: " << *V << "\n" << *(I->getParent()));
+        assert(Shadow && "No shadow for a value");
       }
       return Shadow;
     }
@@ -601,7 +602,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (isa<Instruction>(V) || isa<Argument>(V)) {
       Value *Origin = OriginMap[V];
       if (!Origin) {
-        errs() << "NO ORIGIN: " << *V << "\n";
+        DEBUG(dbgs() << "NO ORIGIN: " << *V << "\n");
         Origin = getCleanOrigin();
       }
       return Origin;
@@ -769,7 +770,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     Value *Shadow0 = getShadow(&I, 0);
     Value *Shadow1 = getShadow(&I, 1);
-    setShadow(&I,  IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
+    setShadow(&I, IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
     setOriginForNaryOp(I);
   }
 
@@ -778,7 +779,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // FIXME: merge this with handleShadowOrBinary.
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
-    Value* Shadow = getShadow(&I, 0);
+    Value *Shadow = getShadow(&I, 0);
     for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
       Shadow = IRB.CreateOr(Shadow,
           IRB.CreateIntCast(getShadow(&I, Op), Shadow->getType(), false),
