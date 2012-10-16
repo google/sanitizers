@@ -575,6 +575,12 @@ TEST(MemorySanitizer, memmove) {
   EXPECT_POISONED(v_s4 = y[1]);
 }
 
+TEST(MemorySanitizer, strdup) {
+  char *x = strdup("zzz");
+  v_s1 = *x;
+  free(x);
+}
+
 template<class T, int size>
 void TestOverlapMemmove() {
   T *x = new T[size];
