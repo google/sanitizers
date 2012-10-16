@@ -188,7 +188,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
       ShadowMask = 1ULL << 31;
       OriginOffset = 1ULL << 30;
       break;
-    default: llvm_unreachable("unsupported pointer size");
+    default: report_fatal_error("unsupported pointer size");
   }
   IntptrTy = Type::getIntNTy(*C, PtrSize);
   OriginTy = Type::getIntNTy(*C, 32);
@@ -253,7 +253,12 @@ bool MemorySanitizer::doInitialization(Module &M) {
 }
 
 namespace {
-// This class does all the work for a given function.
+// This class does all the work for a given function. Store and Load
+// instructions store and load corresponding shadow and origin
+// values. Most instructions propagate shadow from arguments to their
+// return values. Certain instructions (most importantly, BranchInst)
+// test their shadow and print reports (with a runtime call) if it's
+// non-zero.
 struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Function &F;
   MemorySanitizer &MS;
@@ -263,6 +268,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Value *VAArgOverflowSize;
   bool InsertChecks;
 
+  // An unfortunate workaround for asymmetric lowering of va_arg stuff.
+  // See a comment in visitCallSite for more details.
   static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
   static const unsigned AMD64FpEndOffset = 176;
 
