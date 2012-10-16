@@ -277,8 +277,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Instruction *Shadow;
     Instruction *Origin;
     Instruction *OrigIns;
-    ShadowOriginAndInsertPoint(Instruction *S, Instruction *O, Instruction *I) :
-      Shadow(S), Origin(O), OrigIns(I) { }
+    ShadowOriginAndInsertPoint(Instruction *S, Instruction *O, Instruction *I)
+      : Shadow(S), Origin(O), OrigIns(I) { }
     ShadowOriginAndInsertPoint() : Shadow(0), Origin(0), OrigIns(0) { }
   };
   SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationSet;
@@ -286,15 +286,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   SmallVector<CallInst*, 16> VAStartInstrumentationSet;
 
 
-  MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan) :
-    F(Func), MS(Msan), VAArgTLSCopy(0), VAArgOverflowSize(0) {
+  MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan)
+    : F(Func), MS(Msan), VAArgTLSCopy(0), VAArgOverflowSize(0) {
     InsertChecks = !MS.BL->isIn(F);
-    if (!InsertChecks)
-      dbgs() << "MemorySanitizer is not inserting checks into "
-             << F.getName() << "\n";
+    DEBUG(if (!InsertChecks)
+          dbgs() << "MemorySanitizer is not inserting checks into '"
+                 << F.getName() << "'\n");
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   void materializeChecks() {
     for (size_t i = 0, n = InstrumentationSet.size(); i < n; i++) {
       Instruction *Shadow = InstrumentationSet[i].Shadow;
@@ -323,7 +322,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   bool runOnFunction() {
     if (!MS.TD) return false;
-    // Iterate all BBs in depth-first order and create shadows instructions
+    // Iterate all BBs in depth-first order and create shadow instructions
     // for all instructions (where applicable).
     // For PHI nodes we create dummy shadow PHIs which will be finalized later.
     for (df_iterator<BasicBlock*> DI = df_begin(&F.getEntryBlock()),
@@ -419,14 +418,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IntegerType::get(*MS.C, TypeSize);
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   Type *getShadowTyNoVec(Type *ty) {
     if (VectorType *vt = dyn_cast<VectorType>(ty))
       return IntegerType::get(*MS.C, vt->getBitWidth());
     return ty;
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   Value *convertToShadowTyNoVec(Value *V, IRBuilder<> &IRB) {
     Type *Ty = V->getType();
     Type *NoVecTy = getShadowTyNoVec(Ty);
@@ -630,7 +627,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   //------------------- Visitors.
-  LLVM_ATTRIBUTE_NOINLINE
   void visitLoadInst(LoadInst &I) {
     Type *LoadTy = I.getType();
     assert(LoadTy->isSized());
@@ -647,7 +643,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   void visitStoreInst(StoreInst &I) {
     IRBuilder<> IRB(&I);
     Value *Val = I.getValueOperand();
@@ -757,7 +752,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
@@ -802,7 +796,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitXor(BinaryOperator &I) { handleShadowOrBinary(I); }
   void visitMul(BinaryOperator &I) { handleShadowOrBinary(I); }
 
-  LLVM_ATTRIBUTE_NOINLINE
   void handleDiv(Instruction &I) {
     IRBuilder<> IRB(&I);
     // Strict on the second argument.
@@ -1221,13 +1214,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     errs() << "QQQ " << I << "\n";
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   void visitResumeInst(ResumeInst &I) {
     DEBUG(dbgs() << "Resume: " << I << "\n");
     // Nothing to do here.
   }
 
-  LLVM_ATTRIBUTE_NOINLINE
   void visitInstruction(Instruction &I) {
     // Everything else: stop propagating and check for poisoned shadow.
     if (ClDumpStrictInstructions)
