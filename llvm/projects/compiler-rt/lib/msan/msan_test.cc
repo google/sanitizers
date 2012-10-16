@@ -1478,6 +1478,17 @@ TEST(MemorySanitizerOrigins, wcslen) {
   EXPECT_POISONED_O(v_s4 = wcslen(w), origin);
 }
 
+#if MSAN_HAS_M128
+TEST(MemorySanitizerOrigins, StoreIntrinsic) {
+  __m128 x, y;
+  u32 origin = __LINE__;
+  __msan_set_origin(&x, sizeof(x), origin);
+  __msan_poison(&x, sizeof(x));
+  __builtin_ia32_storeups((float*)&y, x);
+  EXPECT_POISONED_O(v_m128 = y, origin);
+}
+#endif
+
 NOINLINE void RecursiveMalloc(int depth) {
   static int count;
   count++;

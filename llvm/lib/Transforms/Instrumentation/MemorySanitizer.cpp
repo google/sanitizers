@@ -1125,6 +1125,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     // Calculate OR'ed shadow of all scalar (or vector of scalars) arguments.
     Value* Shadow = NULL;
+    Value* Origin = NULL;
     for (int i = 0, n = I.getNumArgOperands(); i < n; ++i) {
       // For nomem intrinsics, we mix in the shadow of the pointer argument,
       // as well.
@@ -1135,6 +1136,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         Shadow = OpShadow;
       else
         Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
+      if (ClTrackOrigins) {
+        Value* OpOrigin = getOrigin(Op);
+        if (!Origin) {
+          Origin = OpOrigin;
+        } else {
+          assert(!Shadow);
+          Value *S = convertToShadowTyNoVec(Shadow, IRB);
+          Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
+              Origin, OpOrigin);
+        }
+      }
     }
 
     // Read shadow by the pointer argument and mix it in.
@@ -1148,23 +1160,36 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         Shadow = OpShadow;
       else
         Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
-      // TODO: load origin
+      if (ClTrackOrigins) {
+        Value* MemOrigin = IRB.CreateAlignedLoad(getOriginPtr(Op, IRB), 1);
+        if (!Origin) {
+          Origin = MemOrigin;
+        } else {
+          assert(!Shadow);
+          Value *S = convertToShadowTyNoVec(Shadow, IRB);
+          Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
+              Origin, MemOrigin);
+        }
+      }
     }
 
     assert(Shadow);
+    if (ClTrackOrigins) assert(Origin);
 
     // Store shadow by the pointer argument.
     if (pointerOpIdx >= 0 && writesMemory) {
       Value *Op = I.getArgOperand(pointerOpIdx);
       Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
       IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
-      // TODO: store origin
+      if (ClTrackOrigins)
+        IRB.CreateAlignedStore(Origin, getOriginPtr(Op, IRB), 1);
     }
 
     if (!I.getType()->isVoidTy()) {
       Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
       setShadow(&I, Shadow);
-      setOriginForNaryOp(I);
+      if (ClTrackOrigins)
+        setOrigin(&I, Origin);
     }
   }
 
