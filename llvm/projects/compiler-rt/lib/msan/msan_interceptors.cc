@@ -150,6 +150,14 @@ INTERCEPTOR(char*, strncpy, char* dest, const char* src, size_t n) {
   return res;
 }
 
+INTERCEPTOR(char *, strdup, char *src) {
+  ENSURE_MSAN_INITED();
+  size_t n = REAL(strlen)(src);
+  char *res = REAL(strdup)(src);
+  __msan_copy_poison(res, src, n + 1);
+  return res;
+}
+
 INTERCEPTOR(char*, gcvt, double number, size_t ndigit, char* buf) {
   ENSURE_MSAN_INITED();
   char* res = REAL(gcvt)(number, ndigit, buf);
@@ -727,6 +735,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(wmemcpy));
   CHECK(INTERCEPT_FUNCTION(wmemmove));
   CHECK(INTERCEPT_FUNCTION(strcpy));
+  CHECK(INTERCEPT_FUNCTION(strdup));
   CHECK(INTERCEPT_FUNCTION(strncpy));
   CHECK(INTERCEPT_FUNCTION(strlen));
   CHECK(INTERCEPT_FUNCTION(strnlen));
