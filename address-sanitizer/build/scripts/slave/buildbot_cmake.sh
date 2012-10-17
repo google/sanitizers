@@ -123,9 +123,11 @@ if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
     ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
 
-    if [ ! -d llvm_build64/android ]; then
-        mkdir llvm_build64/android
-    fi
+    # Always clobber android build tree.
+    # It has a hidden dependency on clang (through CXX) which is not known to
+    # the build system.
+    rm -rf llvm_build64/android
+    mkdir llvm_build64/android
     (cd llvm_build64/android && \
         cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
         -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
