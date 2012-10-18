@@ -46,7 +46,8 @@ if [ "$PLATFORM" == "Darwin" ]; then
   if [ ! -d clang_build ]; then
     mkdir clang_build
   fi
-  (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release $LLVM_CHECKOUT)
+  (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release \
+      -DLLVM_ENABLE_ASSERTIONS=ON $LLVM_CHECKOUT)
   (cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
   CLANG=${ROOT}/clang_build/bin/clang
   export CC=${CLANG}
@@ -58,7 +59,8 @@ echo @@@BUILD_STEP build 64-bit llvm@@@
 if [ ! -d llvm_build64 ]; then
   mkdir llvm_build64
 fi
-(cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $LLVM_CHECKOUT)
+(cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+    -DLLVM_ENABLE_ASSERTIONS=ON $LLVM_CHECKOUT)
 (cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP build 32-bit llvm@@@
@@ -66,7 +68,9 @@ if [ ! -d llvm_build32 ]; then
   mkdir llvm_build32
 fi
 (cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-                          -DLLVM_BUILD_32_BITS=ON $LLVM_CHECKOUT)
+    -DLLVM_BUILD_32_BITS=ON \
+    -DLLVM_ENABLE_ASSERTIONS=ON \
+    $LLVM_CHECKOUT)
 (cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP lint@@@
@@ -130,6 +134,7 @@ if [ $BUILD_ANDROID == 1 ] ; then
     mkdir llvm_build64/android
     (cd llvm_build64/android && \
         cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+        -DLLVM_ENABLE_ASSERTIONS=ON \
         -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
         -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
         $LLVM_CHECKOUT)
