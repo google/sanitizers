@@ -1151,7 +1151,7 @@ static void checkNumAlignedDPRCS2Regs(MachineFunction &MF) {
     return;
 
   // Naked functions don't spill callee-saved registers.
-  if (MF.getFunction()->getFnAttributes().hasNakedAttr())
+  if (MF.getFunction()->getFnAttributes().hasAttribute(Attributes::Naked))
     return;
 
   // We are planning to use NEON instructions vst1 / vld1.
@@ -1176,7 +1176,7 @@ static void checkNumAlignedDPRCS2Regs(MachineFunction &MF) {
   MachineRegisterInfo &MRI = MF.getRegInfo();
   unsigned NumSpills = 0;
   for (; NumSpills < 8; ++NumSpills)
-    if (!MRI.isPhysRegOrOverlapUsed(ARM::D8 + NumSpills))
+    if (!MRI.isPhysRegUsed(ARM::D8 + NumSpills))
       break;
 
   // Don't do this for just one d-register. It's not worth it.
@@ -1249,7 +1249,7 @@ ARMFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
   for (unsigned i = 0; CSRegs[i]; ++i) {
     unsigned Reg = CSRegs[i];
     bool Spilled = false;
-    if (MF.getRegInfo().isPhysRegOrOverlapUsed(Reg)) {
+    if (MF.getRegInfo().isPhysRegUsed(Reg)) {
       Spilled = true;
       CanEliminateFrame = false;
     }

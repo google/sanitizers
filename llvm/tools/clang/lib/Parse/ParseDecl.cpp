@@ -155,7 +155,7 @@ void Parser::ParseGNUAttributes(ParsedAttributes &attrs,
           LA->Toks.push_back(Eof);
         } else {
           ParseGNUAttributeArgs(AttrName, AttrNameLoc, attrs, endLoc,
-                                0, AttrNameLoc, AttributeList::AS_GNU);
+                                0, SourceLocation(), AttributeList::AS_GNU);
         }
       } else {
         attrs.addNew(AttrName, AttrNameLoc, 0, AttrNameLoc,
@@ -282,8 +282,9 @@ void Parser::ParseGNUAttributeArgs(IdentifierInfo *AttrName,
 
   SourceLocation RParen = Tok.getLocation();
   if (!ExpectAndConsume(tok::r_paren, diag::err_expected_rparen)) {
+    SourceLocation AttrLoc = ScopeLoc.isValid() ? ScopeLoc : AttrNameLoc;
     AttributeList *attr =
-      Attrs.addNew(AttrName, SourceRange(AttrNameLoc, RParen),
+      Attrs.addNew(AttrName, SourceRange(AttrLoc, RParen),
                    ScopeName, ScopeLoc, ParmName, ParmLoc,
                    ArgExprs.data(), ArgExprs.size(), Syntax);
     if (BuiltinType && attr->getKind() == AttributeList::AT_IBOutletCollection)
@@ -929,7 +930,7 @@ void Parser::ParseLexedAttribute(LateParsedAttribute &LA,
         Actions.ActOnReenterFunctionContext(Actions.CurScope, D);
 
       ParseGNUAttributeArgs(&LA.AttrName, LA.AttrNameLoc, Attrs, &endLoc,
-                            0, LA.AttrNameLoc, AttributeList::AS_GNU);
+                            0, SourceLocation(), AttributeList::AS_GNU);
 
       if (HasFunScope) {
         Actions.ActOnExitFunctionContext();
@@ -942,7 +943,7 @@ void Parser::ParseLexedAttribute(LateParsedAttribute &LA,
       // If there are multiple decls, then the decl cannot be within the
       // function scope.
       ParseGNUAttributeArgs(&LA.AttrName, LA.AttrNameLoc, Attrs, &endLoc,
-                            0, LA.AttrNameLoc, AttributeList::AS_GNU);
+                            0, SourceLocation(), AttributeList::AS_GNU);
     }
   } else {
     Diag(Tok, diag::warn_attribute_no_decl) << LA.AttrName.getName();
@@ -1679,6 +1680,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(Declarator &D,
     }
 
     if (ParseExpressionList(Exprs, CommaLocs)) {
+      Actions.ActOnInitializerError(ThisDecl);
       SkipUntil(tok::r_paren);
 
       if (getLangOpts().CPlusPlus && D.getCXXScopeSpec().isSet()) {
@@ -2739,15 +2741,15 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     // cv-qualifier:
     case tok::kw_const:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_const, Loc, PrevSpec, DiagID,
-                                 getLangOpts(), /*IsTypeSpec*/true);
+                                 getLangOpts());
       break;
     case tok::kw_volatile:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_volatile, Loc, PrevSpec, DiagID,
-                                 getLangOpts(), /*IsTypeSpec*/true);
+                                 getLangOpts());
       break;
     case tok::kw_restrict:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_restrict, Loc, PrevSpec, DiagID,
-                                 getLangOpts(), /*IsTypeSpec*/true);
+                                 getLangOpts());
       break;
 
     // C++ typename-specifier:
@@ -3946,15 +3948,15 @@ void Parser::ParseTypeQualifierListOpt(DeclSpec &DS,
 
     case tok::kw_const:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_const   , Loc, PrevSpec, DiagID,
-                                 getLangOpts(), /*IsTypeSpec*/false);
+                                 getLangOpts());
       break;
     case tok::kw_volatile:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_volatile, Loc, PrevSpec, DiagID,
-                                 getLangOpts(), /*IsTypeSpec*/false);
+                                 getLangOpts());
       break;
     case tok::kw_restrict:
       isInvalid = DS.SetTypeQual(DeclSpec::TQ_restrict, Loc, PrevSpec, DiagID,
-                                 getLangOpts(), /*IsTypeSpec*/false);
+                                 getLangOpts());
       break;
 
     // OpenCL qualifiers:
@@ -4580,7 +4582,14 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 
   Actions.ActOnStartFunctionDeclarator();
 
-  SourceLocation EndLoc;
+  /* LocalEndLoc is the end location for the local FunctionTypeLoc.
+     EndLoc is the end location for the function declarator.
+     They differ for trailing return types. */
+  SourceLocation StartLoc, LocalEndLoc, EndLoc;
+  SourceLocation LParenLoc, RParenLoc;
+  LParenLoc = Tracker.getOpenLocation();
+  StartLoc = LParenLoc;
+
   if (isFunctionDeclaratorIdentifierList()) {
     if (RequiresArg)
       Diag(Tok, diag::err_argument_required_after_attribute);
@@ -4588,7 +4597,9 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
     ParseFunctionDeclaratorIdentifierList(D, ParamInfo);
 
     Tracker.consumeClose();
-    EndLoc = Tracker.getCloseLocation();
+    RParenLoc = Tracker.getCloseLocation();
+    LocalEndLoc = RParenLoc;
+    EndLoc = RParenLoc;
   } else {
     if (Tok.isNot(tok::r_paren))
       ParseParameterDeclarationClause(D, FirstArgAttrs, ParamInfo, EllipsisLoc);
@@ -4599,7 +4610,9 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 
     // If we have the closing ')', eat it.
     Tracker.consumeClose();
-    EndLoc = Tracker.getCloseLocation();
+    RParenLoc = Tracker.getCloseLocation();
+    LocalEndLoc = RParenLoc;
+    EndLoc = RParenLoc;
 
     if (getLangOpts().CPlusPlus) {
       // FIXME: Accept these components in any order, and produce fixits to
@@ -4655,21 +4668,25 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
       MaybeParseCXX0XAttributes(FnAttrs);
 
       // Parse trailing-return-type[opt].
+      LocalEndLoc = EndLoc;
       if (getLangOpts().CPlusPlus0x && Tok.is(tok::arrow)) {
         Diag(Tok, diag::warn_cxx98_compat_trailing_return_type);
+        if (D.getDeclSpec().getTypeSpecType() == TST_auto)
+          StartLoc = D.getDeclSpec().getTypeSpecTypeLoc();
+        LocalEndLoc = Tok.getLocation();
         SourceRange Range;
         TrailingReturnType = ParseTrailingReturnType(Range);
-        if (Range.getEnd().isValid())
-          EndLoc = Range.getEnd();
+        EndLoc = Range.getEnd();
       }
     }
   }
 
   // Remember that we parsed a function type, and remember the attributes.
   D.AddTypeInfo(DeclaratorChunk::getFunction(HasProto,
-                                             /*isVariadic=*/EllipsisLoc.isValid(),
-                                             IsAmbiguous, EllipsisLoc,
+                                             IsAmbiguous,
+                                             LParenLoc,
                                              ParamInfo.data(), ParamInfo.size(),
+                                             EllipsisLoc, RParenLoc,
                                              DS.getTypeQualifiers(),
                                              RefQualifierIsLValueRef,
                                              RefQualifierLoc, ConstQualifierLoc,
@@ -4681,8 +4698,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                              DynamicExceptions.size(),
                                              NoexceptExpr.isUsable() ?
                                                NoexceptExpr.get() : 0,
-                                             Tracker.getOpenLocation(),
-                                             EndLoc, D,
+                                             StartLoc, LocalEndLoc, D,
                                              TrailingReturnType),
                 FnAttrs, EndLoc);
 

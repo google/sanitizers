@@ -47,12 +47,15 @@ void *internal_memcpy(void *dest, const void *src, uptr n) {
 void *internal_memmove(void *dest, const void *src, uptr n) {
   char *d = (char*)dest;
   char *s = (char*)src;
-  if (d <= s) {
-    for (sptr i = 0; i < n; ++i)
+  uptr i;
+  if (d < s) {
+    for (i = 0; i < n; ++i)
       d[i] = s[i];
   } else {
-    for (sptr i = n - 1; i >= 0; --i)
-      d[i] = s[i];
+    if (d > s && n > 0)
+      for (i = n - 1; i > 0 ; --i) {
+        d[i] = s[i];
+      }
   }
   return dest;
 }

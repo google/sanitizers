@@ -993,7 +993,7 @@ AsmMatcherInfo::getOperandClass(const CGIOperandList::OperandInfo &OI,
                                 int SubOpIdx) {
   Record *Rec = OI.Rec;
   if (SubOpIdx != -1)
-    Rec = dynamic_cast<DefInit*>(OI.MIOperandInfo->getArg(SubOpIdx))->getDef();
+    Rec = cast<DefInit>(OI.MIOperandInfo->getArg(SubOpIdx))->getDef();
   return getOperandClass(Rec, SubOpIdx);
 }
 
@@ -1007,7 +1007,7 @@ AsmMatcherInfo::getOperandClass(Record *Rec, int SubOpIdx) {
       throw "Record `" + Rec->getName() +
         "' does not have a ParserMatchClass!\n";
 
-    if (DefInit *DI= dynamic_cast<DefInit*>(R->getValue())) {
+    if (DefInit *DI= dyn_cast<DefInit>(R->getValue())) {
       Record *MatchClass = DI->getDef();
       if (ClassInfo *CI = AsmOperandClasses[MatchClass])
         return CI;
@@ -1185,7 +1185,7 @@ void AsmMatcherInfo::buildOperandClasses() {
 
     ListInit *Supers = (*it)->getValueAsListInit("SuperClasses");
     for (unsigned i = 0, e = Supers->getSize(); i != e; ++i) {
-      DefInit *DI = dynamic_cast<DefInit*>(Supers->getElement(i));
+      DefInit *DI = dyn_cast<DefInit>(Supers->getElement(i));
       if (!DI) {
         PrintError((*it)->getLoc(), "Invalid super class reference!");
         continue;
@@ -1203,33 +1203,31 @@ void AsmMatcherInfo::buildOperandClasses() {
 
     // Get or construct the predicate method name.
     Init *PMName = (*it)->getValueInit("PredicateMethod");
-    if (StringInit *SI = dynamic_cast<StringInit*>(PMName)) {
+    if (StringInit *SI = dyn_cast<StringInit>(PMName)) {
       CI->PredicateMethod = SI->getValue();
     } else {
-      assert(dynamic_cast<UnsetInit*>(PMName) &&
-             "Unexpected PredicateMethod field!");
+      assert(isa<UnsetInit>(PMName) && "Unexpected PredicateMethod field!");
       CI->PredicateMethod = "is" + CI->ClassName;
     }
 
     // Get or construct the render method name.
     Init *RMName = (*it)->getValueInit("RenderMethod");
-    if (StringInit *SI = dynamic_cast<StringInit*>(RMName)) {
+    if (StringInit *SI = dyn_cast<StringInit>(RMName)) {
       CI->RenderMethod = SI->getValue();
     } else {
-      assert(dynamic_cast<UnsetInit*>(RMName) &&
-             "Unexpected RenderMethod field!");
+      assert(isa<UnsetInit>(RMName) && "Unexpected RenderMethod field!");
       CI->RenderMethod = "add" + CI->ClassName + "Operands";
     }
 
     // Get the parse method name or leave it as empty.
     Init *PRMName = (*it)->getValueInit("ParserMethod");
-    if (StringInit *SI = dynamic_cast<StringInit*>(PRMName))
+    if (StringInit *SI = dyn_cast<StringInit>(PRMName))
       CI->ParserMethod = SI->getValue();
 
     // Get the diagnostic type or leave it as empty.
     // Get the parse method name or leave it as empty.
     Init *DiagnosticType = (*it)->getValueInit("DiagnosticType");
-    if (StringInit *SI = dynamic_cast<StringInit*>(DiagnosticType))
+    if (StringInit *SI = dyn_cast<StringInit>(DiagnosticType))
       CI->DiagnosticType = SI->getValue();
 
     AsmOperandClasses[*it] = CI;
@@ -1716,9 +1714,7 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
   OpOS << "void " << Target.getName() << ClassName << "::\n"
        << "convertToMapAndConstraints(unsigned Kind,\n";
   OpOS.indent(27);
-  OpOS << "const SmallVectorImpl<MCParsedAsmOperand*> &Operands,\n"
-       << "      SmallVectorImpl<std::pair< unsigned, std::string > >"
-       << " &MapAndConstraints) {\n"
+  OpOS << "const SmallVectorImpl<MCParsedAsmOperand*> &Operands) {\n"
        << "  assert(Kind < CVT_NUM_SIGNATURES && \"Invalid signature!\");\n"
        << "  unsigned NumMCOperands = 0;\n"
        << "  const uint8_t *Converter = ConversionTable[Kind];\n"
@@ -1726,9 +1722,11 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
        << "    switch (*p) {\n"
        << "    default: llvm_unreachable(\"invalid conversion entry!\");\n"
        << "    case CVT_Reg:\n"
+       << "      Operands[*(p + 1)]->setMCOperandNum(NumMCOperands);\n"
+       << "      Operands[*(p + 1)]->setConstraint(\"m\");\n"
+       << "      ++NumMCOperands;\n"
+       << "      break;\n"
        << "    case CVT_Tied:\n"
-       << "      MapAndConstraints.push_back(std::make_pair(NumMCOperands,"
-       << "\"r\"));\n"
        << "      ++NumMCOperands;\n"
        << "      break;\n";
 
@@ -1825,8 +1823,8 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
 
         // Add a handler for the operand number lookup.
         OpOS << "    case " << Name << ":\n"
-             << "      MapAndConstraints.push_back(std::make_pair(NumMCOperands"
-             << ",\"r\"));\n"
+             << "      Operands[*(p + 1)]->setMCOperandNum(NumMCOperands);\n"
+             << "      Operands[*(p + 1)]->setConstraint(\"m\");\n"
              << "      NumMCOperands += " << OpInfo.MINumOperands << ";\n"
              << "      break;\n";
         break;
@@ -1864,8 +1862,8 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
               << "      break;\n";
 
         OpOS << "    case " << Name << ":\n"
-             << "      MapAndConstraints.push_back(std::make_pair(NumMCOperands"
-             << ",\"\"));\n"
+             << "      Operands[*(p + 1)]->setMCOperandNum(NumMCOperands);\n"
+             << "      Operands[*(p + 1)]->setConstraint(\"\");\n"
              << "      ++NumMCOperands;\n"
              << "      break;\n";
         break;
@@ -1895,8 +1893,8 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
               << "      break;\n";
 
         OpOS << "    case " << Name << ":\n"
-             << "      MapAndConstraints.push_back(std::make_pair(NumMCOperands"
-             << ",\"r\"));\n"
+             << "      Operands[*(p + 1)]->setMCOperandNum(NumMCOperands);\n"
+             << "      Operands[*(p + 1)]->setConstraint(\"m\");\n"
              << "      ++NumMCOperands;\n"
              << "      break;\n";
       }
@@ -2606,15 +2604,12 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
      << "                       const SmallVectorImpl<MCParsedAsmOperand*> "
      << "&Operands);\n";
   OS << "  void convertToMapAndConstraints(unsigned Kind,\n                ";
-  OS << "           const SmallVectorImpl<MCParsedAsmOperand*> &Operands,\n"
-     << "       SmallVectorImpl<std::pair< unsigned, std::string > >"
-     << " &MapAndConstraints);\n";
+  OS << "           const SmallVectorImpl<MCParsedAsmOperand*> &Operands);\n";
   OS << "  bool mnemonicIsValid(StringRef Mnemonic);\n";
-  OS << "  unsigned MatchInstructionImpl(\n"
-     << "        const SmallVectorImpl<MCParsedAsmOperand*> &Operands,\n"
-     << "                                unsigned &Kind, MCInst &Inst,\n"
-     << "        SmallVectorImpl<std::pair< unsigned, std::string > > "
-     << "&MapAndConstraints,\n"
+  OS << "  unsigned MatchInstructionImpl(\n";
+  OS.indent(27);
+  OS << "const SmallVectorImpl<MCParsedAsmOperand*> &Operands,\n"
+     << "                                MCInst &Inst,\n"
      << "                                unsigned &ErrorInfo,"
      << " bool matchingInlineAsm,\n"
      << "                                unsigned VariantID = 0);\n";
@@ -2807,8 +2802,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
      << Target.getName() << ClassName << "::\n"
      << "MatchInstructionImpl(const SmallVectorImpl<MCParsedAsmOperand*>"
      << " &Operands,\n";
-  OS << "                     unsigned &Kind, MCInst &Inst,\n"
-     << "SmallVectorImpl<std::pair< unsigned, std::string > > &MapAndConstraints,\n"
+  OS << "                     MCInst &Inst,\n"
      << "unsigned &ErrorInfo, bool matchingInlineAsm, unsigned VariantID) {\n";
 
   OS << "  // Eliminate obvious mismatches.\n";
@@ -2904,10 +2898,8 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "    }\n";
   OS << "\n";
   OS << "    if (matchingInlineAsm) {\n";
-  OS << "      Kind = it->ConvertFn;\n";
   OS << "      Inst.setOpcode(it->Opcode);\n";
-  OS << "      convertToMapAndConstraints(it->ConvertFn, Operands, "
-     << "MapAndConstraints);\n";
+  OS << "      convertToMapAndConstraints(it->ConvertFn, Operands);\n";
   OS << "      return Match_Success;\n";
   OS << "    }\n\n";
   OS << "    // We have selected a definite instruction, convert the parsed\n"

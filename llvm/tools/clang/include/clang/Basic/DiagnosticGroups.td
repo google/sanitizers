@@ -33,6 +33,7 @@ def StringConversion : DiagGroup<"string-conversion">;
 def SignConversion : DiagGroup<"sign-conversion">;
 def BoolConversion : DiagGroup<"bool-conversion">;
 def IntConversion : DiagGroup<"int-conversion">;
+def EnumConversion : DiagGroup<"enum-conversion">;
 def NonLiteralNullConversion : DiagGroup<"non-literal-null-conversion">;
 def NullConversion : DiagGroup<"null-conversion">;
 def ImplicitConversionFloatingPointToBool :
@@ -119,6 +120,7 @@ def GlobalConstructors : DiagGroup<"global-constructors">;
 def : DiagGroup<"idiomatic-parentheses">;
 def BitwiseOpParentheses: DiagGroup<"bitwise-op-parentheses">;
 def LogicalOpParentheses: DiagGroup<"logical-op-parentheses">;
+def ShiftOpParentheses: DiagGroup<"shift-op-parentheses">;
 def DanglingElse: DiagGroup<"dangling-else">;
 def IgnoredQualifiers : DiagGroup<"ignored-qualifiers">;
 def : DiagGroup<"import">;
@@ -193,7 +195,7 @@ def Sentinel : DiagGroup<"sentinel">;
 def MissingMethodReturnType : DiagGroup<"missing-method-return-type">;
 def : DiagGroup<"sequence-point">;
 def Shadow : DiagGroup<"shadow">;
-def : DiagGroup<"shorten-64-to-32">;
+def Shorten64To32 : DiagGroup<"shorten-64-to-32">;
 def : DiagGroup<"sign-promo">;
 def SignCompare : DiagGroup<"sign-compare">;
 def : DiagGroup<"stack-protector">;
@@ -207,9 +209,11 @@ def TautologicalCompare : DiagGroup<"tautological-compare",
                                     [TautologicalOutOfRangeCompare]>;
 def HeaderHygiene : DiagGroup<"header-hygiene">;
 def DuplicateDeclSpecifier : DiagGroup<"duplicate-decl-specifier">;
+def CompareDistinctPointerType : DiagGroup<"compare-distinct-pointer-type">;
 
 // Preprocessor warnings.
 def : DiagGroup<"builtin-macro-redefined">;
+def AmbiguousMacro : DiagGroup<"ambiguous-macro">;
 
 // Just silence warnings about -Wstrict-aliasing for now.
 def : DiagGroup<"strict-aliasing=0">;
@@ -315,6 +319,7 @@ def ParenthesesOnEquality : DiagGroup<"parentheses-equality">;
 def Parentheses : DiagGroup<"parentheses",
                             [LogicalOpParentheses,
                              BitwiseOpParentheses,
+                             ShiftOpParentheses,
                              ParenthesesOnEquality,
                              DanglingElse]>;
 
@@ -326,15 +331,16 @@ def Parentheses : DiagGroup<"parentheses",
 //   - bool-to-pointer conversion warnings are on by default
 //   - __null-to-integer conversion warnings are on by default
 def Conversion : DiagGroup<"conversion",
-                           [DiagGroup<"shorten-64-to-32">,
+                           [BoolConversion,
                             ConstantConversion,
+                            EnumConversion,
+                            Shorten64To32,
+                            IntConversion,
                             LiteralConversion,
-                            StringConversion,
-                            SignConversion,
-                            BoolConversion,
-                            NullConversion, // NULL->non-pointer
                             NonLiteralNullConversion, // (1-1)->pointer (etc)
-                            IntConversion]>,
+                            NullConversion, // NULL->non-pointer
+                            SignConversion,
+                            StringConversion]>,
                  DiagCategory<"Value Conversion Issue">;
 
 def Unused : DiagGroup<"unused",
@@ -360,6 +366,8 @@ def Format2 : DiagGroup<"format=2",
 
 def TypeSafety : DiagGroup<"type-safety">;
 
+def IntToPointerCast : DiagGroup<"int-to-pointer-cast">;
+
 def Extra : DiagGroup<"extra", [
     MissingFieldInitializers,
     IgnoredQualifiers,
@@ -376,6 +384,7 @@ def Most : DiagGroup<"most", [
     DeleteNonVirtualDtor,
     Format,
     Implicit,
+    IntToPointerCast,
     MismatchedTags,
     MissingBraces,
     MultiChar,

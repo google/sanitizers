@@ -122,6 +122,7 @@ void ARMTargetLowering::addTypeForNEON(MVT VT, MVT PromotedLdStVT,
   setOperationAction(ISD::EXTRACT_SUBVECTOR, VT, Legal);
   setOperationAction(ISD::SELECT,            VT, Expand);
   setOperationAction(ISD::SELECT_CC,         VT, Expand);
+  setOperationAction(ISD::VSELECT,           VT, Expand);
   setOperationAction(ISD::SIGN_EXTEND_INREG, VT, Expand);
   if (VT.isInteger()) {
     setOperationAction(ISD::SHL, VT, Custom);
@@ -1655,22 +1656,31 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 /// and then confiscate the rest of the parameter registers to insure
 /// this.
 void
-ARMTargetLowering::HandleByVal(CCState *State, unsigned &size) const {
+ARMTargetLowering::HandleByVal(
+    CCState *State, unsigned &size, unsigned Align) const {
   unsigned reg = State->AllocateReg(GPRArgRegs, 4);
   assert((State->getCallOrPrologue() == Prologue ||
           State->getCallOrPrologue() == Call) &&
          "unhandled ParmContext");
   if ((!State->isFirstByValRegValid()) &&
       (ARM::R0 <= reg) && (reg <= ARM::R3)) {
-    State->setFirstByValReg(reg);
-    // At a call site, a byval parameter that is split between
-    // registers and memory needs its size truncated here.  In a
-    // function prologue, such byval parameters are reassembled in
-    // memory, and are not truncated.
-    if (State->getCallOrPrologue() == Call) {
-      unsigned excess = 4 * (ARM::R4 - reg);
-      assert(size >= excess && "expected larger existing stack allocation");
-      size -= excess;
+    if (Subtarget->isAAPCS_ABI() && Align > 4) {
+      unsigned AlignInRegs = Align / 4;
+      unsigned Waste = (ARM::R4 - reg) % AlignInRegs;
+      for (unsigned i = 0; i < Waste; ++i)
+        reg = State->AllocateReg(GPRArgRegs, 4);
+    }
+    if (reg != 0) {
+      State->setFirstByValReg(reg);
+      // At a call site, a byval parameter that is split between
+      // registers and memory needs its size truncated here.  In a
+      // function prologue, such byval parameters are reassembled in
+      // memory, and are not truncated.
+      if (State->getCallOrPrologue() == Call) {
+        unsigned excess = 4 * (ARM::R4 - reg);
+        assert(size >= excess && "expected larger existing stack allocation");
+        size -= excess;
+      }
     }
   }
   // Confiscate any remaining parameter registers to preclude their
@@ -1802,6 +1812,14 @@ ARMTargetLowering::IsEligibleForTailCallOptimization(SDValue Callee,
       }
     }
   }
+
+  // If Caller's vararg or byval argument has been split between registers and
+  // stack, do not perform tail call, since part of the argument is in caller's
+  // local frame.
+  const ARMFunctionInfo *AFI_Caller = DAG.getMachineFunction().
+                                      getInfo<ARMFunctionInfo>();
+  if (AFI_Caller->getVarArgsRegSaveSize())
+    return false;
 
   // If the callee takes no arguments then go on to check the results of the
   // call.
@@ -2534,7 +2552,10 @@ ARMTargetLowering::computeRegArea(CCState &CCInfo, MachineFunction &MF,
 void
 ARMTargetLowering::VarArgStyleRegisters(CCState &CCInfo, SelectionDAG &DAG,
                                         DebugLoc dl, SDValue &Chain,
-                                        unsigned ArgOffset) const {
+                                        const Value *OrigArg,
+                                        unsigned OffsetFromOrigArg,
+                                        unsigned ArgOffset,
+                                        bool ForceMutable) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
@@ -2561,7 +2582,7 @@ ARMTargetLowering::VarArgStyleRegisters(CCState &CCInfo, SelectionDAG &DAG,
                                     getPointerTy());
 
     SmallVector<SDValue, 4> MemOps;
-    for (; firstRegToSaveIndex < 4; ++firstRegToSaveIndex) {
+    for (unsigned i = 0; firstRegToSaveIndex < 4; ++firstRegToSaveIndex, ++i) {
       const TargetRegisterClass *RC;
       if (AFI->isThumb1OnlyFunction())
         RC = &ARM::tGPRRegClass;
@@ -2572,7 +2593,7 @@ ARMTargetLowering::VarArgStyleRegisters(CCState &CCInfo, SelectionDAG &DAG,
       SDValue Val = DAG.getCopyFromReg(Chain, dl, VReg, MVT::i32);
       SDValue Store =
         DAG.getStore(Val.getValue(1), dl, Val, FIN,
-                 MachinePointerInfo::getFixedStack(AFI->getVarArgsFrameIndex()),
+                     MachinePointerInfo(OrigArg, OffsetFromOrigArg + 4*i),
                      false, false, 0);
       MemOps.push_back(Store);
       FIN = DAG.getNode(ISD::ADD, dl, getPointerTy(), FIN,
@@ -2583,7 +2604,8 @@ ARMTargetLowering::VarArgStyleRegisters(CCState &CCInfo, SelectionDAG &DAG,
                           &MemOps[0], MemOps.size());
   } else
     // This will point to the next argument passed via stack.
-    AFI->setVarArgsFrameIndex(MFI->CreateFixedObject(4, ArgOffset, true));
+    AFI->setVarArgsFrameIndex(
+        MFI->CreateFixedObject(4, ArgOffset, !ForceMutable));
 }
 
 SDValue
@@ -2606,14 +2628,16 @@ ARMTargetLowering::LowerFormalArguments(SDValue Chain,
   CCInfo.AnalyzeFormalArguments(Ins,
                                 CCAssignFnForNode(CallConv, /* Return*/ false,
                                                   isVarArg));
-
+  
   SmallVector<SDValue, 16> ArgValues;
   int lastInsIndex = -1;
-
   SDValue ArgValue;
+  Function::const_arg_iterator CurOrigArg = MF.getFunction()->arg_begin();
+  unsigned CurArgIdx = 0;
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign &VA = ArgLocs[i];
-
+    std::advance(CurOrigArg, Ins[VA.getValNo()].OrigArgIndex - CurArgIdx);
+    CurArgIdx = Ins[VA.getValNo()].OrigArgIndex;
     // Arguments stored in registers.
     if (VA.isRegLoc()) {
       EVT RegVT = VA.getLocVT();
@@ -2707,14 +2731,20 @@ ARMTargetLowering::LowerFormalArguments(SDValue Chain,
           // Since they could be overwritten by lowering of arguments in case of
           // a tail call.
           if (Flags.isByVal()) {
-            unsigned VARegSize, VARegSaveSize;
-            computeRegArea(CCInfo, MF, VARegSize, VARegSaveSize);
-            VarArgStyleRegisters(CCInfo, DAG, dl, Chain, 0);
-            unsigned Bytes = Flags.getByValSize() - VARegSize;
-            if (Bytes == 0) Bytes = 1; // Don't create zero-sized stack objects.
-            int FI = MFI->CreateFixedObject(Bytes,
-                                            VA.getLocMemOffset(), false);
-            InVals.push_back(DAG.getFrameIndex(FI, getPointerTy()));
+            ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
+            if (!AFI->getVarArgsFrameIndex()) {
+              VarArgStyleRegisters(CCInfo, DAG,
+                                   dl, Chain, CurOrigArg,
+                                   Ins[VA.getValNo()].PartOffset,
+                                   VA.getLocMemOffset(),
+                                   true /*force mutable frames*/);
+              int VAFrameIndex = AFI->getVarArgsFrameIndex();
+              InVals.push_back(DAG.getFrameIndex(VAFrameIndex, getPointerTy()));
+            } else {
+              int FI = MFI->CreateFixedObject(Flags.getByValSize(),
+                                              VA.getLocMemOffset(), false);
+              InVals.push_back(DAG.getFrameIndex(FI, getPointerTy()));              
+            }
           } else {
             int FI = MFI->CreateFixedObject(VA.getLocVT().getSizeInBits()/8,
                                             VA.getLocMemOffset(), true);
@@ -2732,7 +2762,8 @@ ARMTargetLowering::LowerFormalArguments(SDValue Chain,
 
   // varargs
   if (isVarArg)
-    VarArgStyleRegisters(CCInfo, DAG, dl, Chain, CCInfo.getNextStackOffset());
+    VarArgStyleRegisters(CCInfo, DAG, dl, Chain, 0, 0,
+                         CCInfo.getNextStackOffset());
 
   return Chain;
 }
@@ -4215,9 +4246,26 @@ SDValue ARMTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG,
       // If we are VDUPing a value that comes directly from a vector, that will
       // cause an unnecessary move to and from a GPR, where instead we could
       // just use VDUPLANE.
-      if (Value->getOpcode() == ISD::EXTRACT_VECTOR_ELT)
-        N = DAG.getNode(ARMISD::VDUPLANE, dl, VT,
+      if (Value->getOpcode() == ISD::EXTRACT_VECTOR_ELT) {
+        // We need to create a new undef vector to use for the VDUPLANE if the
+        // size of the vector from which we get the value is different than the
+        // size of the vector that we need to create. We will insert the element
+        // such that the register coalescer will remove unnecessary copies.
+        if (VT != Value->getOperand(0).getValueType()) {
+          ConstantSDNode *constIndex;
+          constIndex = dyn_cast<ConstantSDNode>(Value->getOperand(1));
+          assert(constIndex && "The index is not a constant!");
+          unsigned index = constIndex->getAPIntValue().getLimitedValue() %
+                             VT.getVectorNumElements();
+          N =  DAG.getNode(ARMISD::VDUPLANE, dl, VT,
+                 DAG.getNode(ISD::INSERT_VECTOR_ELT, dl, VT, DAG.getUNDEF(VT),
+                        Value, DAG.getConstant(index, MVT::i32)),
+                           DAG.getConstant(index, MVT::i32));
+        } else {
+          N = DAG.getNode(ARMISD::VDUPLANE, dl, VT,
                         Value->getOperand(0), Value->getOperand(1));
+        }
+      }
       else
         N = DAG.getNode(ARMISD::VDUP, dl, VT, Value);
 
@@ -6064,9 +6112,9 @@ EmitSjLjDispatchBlock(MachineInstr *MI, MachineBasicBlock *MBB) const {
       const Constant *C = ConstantInt::get(Int32Ty, NumLPads);
 
       // MachineConstantPool wants an explicit alignment.
-      unsigned Align = getTargetData()->getPrefTypeAlignment(Int32Ty);
+      unsigned Align = getDataLayout()->getPrefTypeAlignment(Int32Ty);
       if (Align == 0)
-        Align = getTargetData()->getTypeAllocSize(C->getType());
+        Align = getDataLayout()->getTypeAllocSize(C->getType());
       unsigned Idx = ConstantPool->getConstantPoolIndex(C, Align);
 
       unsigned VReg1 = MRI->createVirtualRegister(TRC);
@@ -6153,9 +6201,9 @@ EmitSjLjDispatchBlock(MachineInstr *MI, MachineBasicBlock *MBB) const {
       const Constant *C = ConstantInt::get(Int32Ty, NumLPads);
 
       // MachineConstantPool wants an explicit alignment.
-      unsigned Align = getTargetData()->getPrefTypeAlignment(Int32Ty);
+      unsigned Align = getDataLayout()->getPrefTypeAlignment(Int32Ty);
       if (Align == 0)
-        Align = getTargetData()->getTypeAllocSize(C->getType());
+        Align = getDataLayout()->getTypeAllocSize(C->getType());
       unsigned Idx = ConstantPool->getConstantPoolIndex(C, Align);
 
       unsigned VReg1 = MRI->createVirtualRegister(TRC);
@@ -6326,7 +6374,8 @@ EmitStructByval(MachineInstr *MI, MachineBasicBlock *BB) const {
     UnitSize = 2;
   } else {
     // Check whether we can use NEON instructions.
-    if (!MF->getFunction()->getFnAttributes().hasNoImplicitFloatAttr() &&
+    if (!MF->getFunction()->getFnAttributes().
+          hasAttribute(Attributes::NoImplicitFloat) &&
         Subtarget->hasNEON()) {
       if ((Align % 16 == 0) && SizeVal >= 16) {
         ldrOpc = ARM::VLD1q32wb_fixed;
@@ -6411,7 +6460,8 @@ EmitStructByval(MachineInstr *MI, MachineBasicBlock *BB) const {
       } else {
         AddDefaultPred(BuildMI(*BB, MI, dl,
           TII->get(ldrOpc),scratch)
-          .addReg(srcOut, RegState::Define).addReg(srcIn).addImm(1));
+          .addReg(srcOut, RegState::Define).addReg(srcIn)
+          .addReg(0).addImm(1));
 
         AddDefaultPred(BuildMI(*BB, MI, dl, TII->get(strOpc), destOut)
           .addReg(scratch).addReg(destIn)
@@ -6474,9 +6524,9 @@ EmitStructByval(MachineInstr *MI, MachineBasicBlock *BB) const {
     const Constant *C = ConstantInt::get(Int32Ty, LoopSize);
 
     // MachineConstantPool wants an explicit alignment.
-    unsigned Align = getTargetData()->getPrefTypeAlignment(Int32Ty);
+    unsigned Align = getDataLayout()->getPrefTypeAlignment(Int32Ty);
     if (Align == 0)
-      Align = getTargetData()->getTypeAllocSize(C->getType());
+      Align = getDataLayout()->getTypeAllocSize(C->getType());
     unsigned Idx = ConstantPool->getConstantPoolIndex(C, Align);
 
     AddDefaultPred(BuildMI(BB, dl, TII->get(ARM::LDRcp))
@@ -9060,7 +9110,7 @@ EVT ARMTargetLowering::getOptimalMemOpType(uint64_t Size,
 
   // See if we can use NEON instructions for this...
   if (IsZeroVal &&
-      !F->getFnAttributes().hasNoImplicitFloatAttr() &&
+      !F->getFnAttributes().hasAttribute(Attributes::NoImplicitFloat) &&
       Subtarget->hasNEON()) {
     if (memOpAlign(SrcAlign, DstAlign, 16) && Size >= 16) {
       return MVT::v4i32;
@@ -9854,7 +9904,7 @@ bool ARMTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
   case Intrinsic::arm_neon_vld4lane: {
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     // Conservatively set memVT to the entire set of vectors loaded.
-    uint64_t NumElts = getTargetData()->getTypeAllocSize(I.getType()) / 8;
+    uint64_t NumElts = getDataLayout()->getTypeAllocSize(I.getType()) / 8;
     Info.memVT = EVT::getVectorVT(I.getType()->getContext(), MVT::i64, NumElts);
     Info.ptrVal = I.getArgOperand(0);
     Info.offset = 0;
@@ -9879,7 +9929,7 @@ bool ARMTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
       Type *ArgTy = I.getArgOperand(ArgI)->getType();
       if (!ArgTy->isVectorTy())
         break;
-      NumElts += getTargetData()->getTypeAllocSize(ArgTy) / 8;
+      NumElts += getDataLayout()->getTypeAllocSize(ArgTy) / 8;
     }
     Info.memVT = EVT::getVectorVT(I.getType()->getContext(), MVT::i64, NumElts);
     Info.ptrVal = I.getArgOperand(0);

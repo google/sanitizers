@@ -416,7 +416,7 @@ void ASTDeclWriter::VisitObjCMethodDecl(ObjCMethodDecl *D) {
   }
   Record.push_back(D->isInstanceMethod());
   Record.push_back(D->isVariadic());
-  Record.push_back(D->isSynthesized());
+  Record.push_back(D->isPropertyAccessor());
   Record.push_back(D->isDefined());
   Record.push_back(D->IsOverriding);
 
@@ -606,6 +606,8 @@ void ASTDeclWriter::VisitObjCImplementationDecl(ObjCImplementationDecl *D) {
   Writer.AddDeclRef(D->getSuperClass(), Record);
   Writer.AddSourceLocation(D->getIvarLBraceLoc(), Record);
   Writer.AddSourceLocation(D->getIvarRBraceLoc(), Record);
+  Record.push_back(D->hasNonZeroConstructors());
+  Record.push_back(D->hasDestructors());
   Writer.AddCXXCtorInitializers(D->IvarInitializers, D->NumIvarInitializers,
                                 Record);
   Code = serialization::DECL_OBJC_IMPLEMENTATION;
@@ -948,11 +950,16 @@ void ASTDeclWriter::VisitCXXRecordDecl(CXXRecordDecl *D) {
 
 void ASTDeclWriter::VisitCXXMethodDecl(CXXMethodDecl *D) {
   VisitFunctionDecl(D);
-  Record.push_back(D->size_overridden_methods());
-  for (CXXMethodDecl::method_iterator
-         I = D->begin_overridden_methods(), E = D->end_overridden_methods();
-         I != E; ++I)
-    Writer.AddDeclRef(*I, Record);
+  if (D->isCanonicalDecl()) {
+    Record.push_back(D->size_overridden_methods());
+    for (CXXMethodDecl::method_iterator
+           I = D->begin_overridden_methods(), E = D->end_overridden_methods();
+           I != E; ++I)
+      Writer.AddDeclRef(*I, Record);
+  } else {
+    // We only need to record overridden methods once for the canonical decl.
+    Record.push_back(0);
+  }
   Code = serialization::DECL_CXX_METHOD;
 }
 

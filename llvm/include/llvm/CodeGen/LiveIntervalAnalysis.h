@@ -65,12 +65,6 @@ namespace llvm {
     /// Live interval pointers for all the virtual registers.
     IndexedMap<LiveInterval*, VirtReg2IndexFunctor> VirtRegIntervals;
 
-    /// AllocatableRegs - A bit vector of allocatable registers.
-    BitVector AllocatableRegs;
-
-    /// ReservedRegs - A bit vector of reserved registers.
-    BitVector ReservedRegs;
-
     /// RegMaskSlots - Sorted list of instructions with register mask operands.
     /// Always use the 'r' slot, RegMasks are normal clobbers, not early
     /// clobbers.
@@ -121,18 +115,6 @@ namespace llvm {
 
     bool hasInterval(unsigned Reg) const {
       return VirtRegIntervals.inBounds(Reg) && VirtRegIntervals[Reg];
-    }
-
-    /// isAllocatable - is the physical register reg allocatable in the current
-    /// function?
-    bool isAllocatable(unsigned reg) const {
-      return AllocatableRegs.test(reg);
-    }
-
-    /// isReserved - is the physical register reg reserved in the current
-    /// function
-    bool isReserved(unsigned reg) const {
-      return ReservedRegs.test(reg);
     }
 
     // Interval creation.
@@ -278,15 +260,20 @@ namespace llvm {
     /// instruction 'mi' has been moved within a basic block. This will update
     /// the live intervals for all operands of mi. Moves between basic blocks
     /// are not supported.
-    void handleMove(MachineInstr* MI);
+    ///
+    /// \param UpdateFlags Update live intervals for nonallocatable physregs.
+    void handleMove(MachineInstr* MI, bool UpdateFlags = false);
 
     /// moveIntoBundle - Update intervals for operands of MI so that they
     /// begin/end on the SlotIndex for BundleStart.
     ///
+    /// \param UpdateFlags Update live intervals for nonallocatable physregs.
+    ///
     /// Requires MI and BundleStart to have SlotIndexes, and assumes
     /// existing liveness is accurate. BundleStart should be the first
     /// instruction in the Bundle.
-    void handleMoveIntoBundle(MachineInstr* MI, MachineInstr* BundleStart);
+    void handleMoveIntoBundle(MachineInstr* MI, MachineInstr* BundleStart,
+                              bool UpdateFlags = false);
 
     // Register mask functions.
     //

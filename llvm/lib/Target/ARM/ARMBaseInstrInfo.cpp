@@ -3302,7 +3302,8 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     // instructions).
     if (Latency > 0 && Subtarget.isThumb2()) {
       const MachineFunction *MF = DefMI->getParent()->getParent();
-      if (MF->getFunction()->getFnAttributes().hasOptimizeForSizeAttr())
+      if (MF->getFunction()->getFnAttributes().
+            hasAttribute(Attributes::OptimizeForSize))
         --Latency;
     }
     return Latency;
@@ -3549,18 +3550,6 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
   return Latency;
 }
 
-unsigned
-ARMBaseInstrInfo::getOutputLatency(const InstrItineraryData *ItinData,
-                                   const MachineInstr *DefMI, unsigned DefIdx,
-                                   const MachineInstr *DepMI) const {
-  unsigned Reg = DefMI->getOperand(DefIdx).getReg();
-  if (DepMI->readsRegister(Reg, &getRegisterInfo()) || !isPredicated(DepMI))
-    return 1;
-
-  // If the second MI is predicated, then there is an implicit use dependency.
-  return getInstrLatency(ItinData, DefMI);
-}
-
 unsigned ARMBaseInstrInfo::getInstrLatency(const InstrItineraryData *ItinData,
                                            const MachineInstr *MI,
                                            unsigned *PredCost) const {
@@ -3758,7 +3747,7 @@ static unsigned getCorrespondingDRegAndLane(const TargetRegisterInfo *TRI,
   return DReg;
 }
 
-/// getImplicitSPRUseForDPRUse - Given a use of a DPR register and lane, 
+/// getImplicitSPRUseForDPRUse - Given a use of a DPR register and lane,
 /// set ImplicitSReg to a register number that must be marked as implicit-use or
 /// zero if no register needs to be defined as implicit-use.
 ///
@@ -3766,13 +3755,13 @@ static unsigned getCorrespondingDRegAndLane(const TargetRegisterInfo *TRI,
 /// not, it returns false.
 ///
 /// This function handles cases where an instruction is being modified from taking
-/// an SPR to a DPR[Lane]. A use of the DPR is being added, which may conflict 
+/// an SPR to a DPR[Lane]. A use of the DPR is being added, which may conflict
 /// with an earlier def of an SPR corresponding to DPR[Lane^1] (i.e. the other
 /// lane of the DPR).
 ///
 /// If the other SPR is defined, an implicit-use of it should be added. Else,
 /// (including the case where the DPR itself is defined), it should not.
-/// 
+///
 static bool getImplicitSPRUseForDPRUse(const TargetRegisterInfo *TRI,
                                        MachineInstr *MI,
                                        unsigned DReg, unsigned Lane,

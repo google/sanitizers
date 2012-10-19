@@ -537,6 +537,9 @@ public:
   /// preprocessor is not available.
   comments::FullComment *getCommentForDecl(const Decl *D,
                                            const Preprocessor *PP) const;
+  
+  comments::FullComment *cloneFullComment(comments::FullComment *FC,
+                                         const Decl *D) const;
 
 private:
   mutable comments::CommandTraits CommentCommandTraits;
@@ -625,6 +628,16 @@ public:
   /// Overridden method.
   void addOverriddenMethod(const CXXMethodDecl *Method, 
                            const CXXMethodDecl *Overridden);
+
+  /// \brief Return C++ or ObjC overridden methods for the given \p Method.
+  ///
+  /// An ObjC method is considered to override any method in the class's
+  /// base classes, its protocols, or its categories' protocols, that has
+  /// the same selector and is of the same kind (class or instance).
+  /// A method in an implementation is not considered as overriding the same
+  /// method in the interface or its categories.
+  void getOverriddenMethods(const NamedDecl *Method,
+                            SmallVectorImpl<const NamedDecl *> &Overridden);
   
   /// \brief Notify the AST context that a new import declaration has been
   /// parsed or implicitly created within this translation unit.

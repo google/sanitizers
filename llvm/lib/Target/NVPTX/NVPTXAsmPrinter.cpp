@@ -98,10 +98,10 @@ const MCExpr *nvptx::LowerConstant(const Constant *CV, AsmPrinter &AP) {
   switch (CE->getOpcode()) {
   default:
     // If the code isn't optimized, there may be outstanding folding
-    // opportunities. Attempt to fold the expression using TargetData as a
+    // opportunities. Attempt to fold the expression using DataLayout as a
     // last resort before giving up.
     if (Constant *C =
-        ConstantFoldConstantExpression(CE, AP.TM.getTargetData()))
+        ConstantFoldConstantExpression(CE, AP.TM.getDataLayout()))
       if (C != CE)
         return LowerConstant(C, AP);
 
@@ -115,7 +115,7 @@ const MCExpr *nvptx::LowerConstant(const Constant *CV, AsmPrinter &AP) {
         report_fatal_error(OS.str());
     }
   case Instruction::GetElementPtr: {
-    const TargetData &TD = *AP.TM.getTargetData();
+    const DataLayout &TD = *AP.TM.getDataLayout();
     // Generate a symbolic expression for the byte address
     const Constant *PtrVal = CE->getOperand(0);
     SmallVector<Value*, 8> IdxVec(CE->op_begin()+1, CE->op_end());
@@ -126,8 +126,10 @@ const MCExpr *nvptx::LowerConstant(const Constant *CV, AsmPrinter &AP) {
       return Base;
 
     // Truncate/sext the offset to the pointer size.
-    if (TD.getPointerSizeInBits() != 64) {
-      int SExtAmount = 64-TD.getPointerSizeInBits();
+    unsigned AS = PtrVal->getType()->isPointerTy() ?
+      cast<PointerType>(PtrVal->getType())->getAddressSpace() : 0;
+    if (TD.getPointerSizeInBits(AS) != 64) {
+      int SExtAmount = 64-TD.getPointerSizeInBits(AS);
       Offset = (Offset << SExtAmount) >> SExtAmount;
     }
 
@@ -145,7 +147,7 @@ const MCExpr *nvptx::LowerConstant(const Constant *CV, AsmPrinter &AP) {
     return LowerConstant(CE->getOperand(0), AP);
 
   case Instruction::IntToPtr: {
-    const TargetData &TD = *AP.TM.getTargetData();
+    const DataLayout &TD = *AP.TM.getDataLayout();
     // Handle casts to pointers by changing them into casts to the appropriate
     // integer type.  This promotes constant folding and simplifies this code.
     Constant *Op = CE->getOperand(0);
@@ -155,7 +157,7 @@ const MCExpr *nvptx::LowerConstant(const Constant *CV, AsmPrinter &AP) {
   }
 
   case Instruction::PtrToInt: {
-    const TargetData &TD = *AP.TM.getTargetData();
+    const DataLayout &TD = *AP.TM.getDataLayout();
     // Support only foldable casts to/from pointers that can be eliminated by
     // changing the pointer to the appropriately sized integer type.
     Constant *Op = CE->getOperand(0);
@@ -270,7 +272,7 @@ void NVPTXAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 void NVPTXAsmPrinter::printReturnValStr(const Function *F,
                                         raw_ostream &O)
 {
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
   const TargetLowering *TLI = TM.getTargetLowering();
 
   Type *Ty = F->getReturnType();
@@ -874,7 +876,7 @@ bool NVPTXAsmPrinter::doInitialization (Module &M) {
   const_cast<TargetLoweringObjectFile&>(getObjFileLowering())
           .Initialize(OutContext, TM);
 
-  Mang = new Mangler(OutContext, *TM.getTargetData());
+  Mang = new Mangler(OutContext, *TM.getDataLayout());
 
   // Emit header before any dwarf directives are emitted below.
   emitHeader(M, OS1);
@@ -1023,7 +1025,7 @@ void NVPTXAsmPrinter::printModuleLevelGV(GlobalVariable* GVar, raw_ostream &O,
       return;
   }
 
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
 
   // GlobalVariables are always constant pointers themselves.
   const PointerType *PTy = GVar->getType();
@@ -1296,7 +1298,7 @@ std::string NVPTXAsmPrinter::getPTXFundamentalTypeStr(const Type *Ty,
 void NVPTXAsmPrinter::emitPTXGlobalVariable(const GlobalVariable* GVar,
                                             raw_ostream &O) {
 
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
 
   // GlobalVariables are always constant pointers themselves.
   const PointerType *PTy = GVar->getType();
@@ -1342,7 +1344,7 @@ void NVPTXAsmPrinter::emitPTXGlobalVariable(const GlobalVariable* GVar,
 
 
 static unsigned int
-getOpenCLAlignment(const TargetData *TD,
+getOpenCLAlignment(const DataLayout *TD,
                    Type *Ty) {
   if (Ty->isPrimitiveType() || Ty->isIntegerTy() || isa<PointerType>(Ty))
     return TD->getPrefTypeAlignment(Ty);
@@ -1378,7 +1380,7 @@ getOpenCLAlignment(const TargetData *TD,
 
   const FunctionType *FTy = dyn_cast<FunctionType>(Ty);
   if (FTy)
-    return TD->getPointerPrefAlignment();
+    return TD->getPointerPrefAlignment(0);
   return TD->getPrefTypeAlignment(Ty);
 }
 
@@ -1421,7 +1423,7 @@ void NVPTXAsmPrinter::printParamName(int paramIndex, raw_ostream &O) {
 
 void NVPTXAsmPrinter::emitFunctionParamList(const Function *F,
                                             raw_ostream &O) {
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
   const AttrListPtr &PAL = F->getAttributes();
   const TargetLowering *TLI = TM.getTargetLowering();
   Function::const_arg_iterator I, E;
@@ -1456,7 +1458,8 @@ void NVPTXAsmPrinter::emitFunctionParamList(const Function *F,
       continue;
     }
 
-    if (PAL.paramHasAttr(paramIndex+1, Attribute::ByVal) == false) {
+    if (PAL.getParamAttributes(paramIndex+1).
+          hasAttribute(Attributes::ByVal) == false) {
       // Just a scalar
       const PointerType *PTy = dyn_cast<PointerType>(Ty);
       if (isKernelFunc) {
@@ -1714,7 +1717,7 @@ void NVPTXAsmPrinter::printScalarConstant(Constant *CPV, raw_ostream &O) {
 void NVPTXAsmPrinter::bufferLEByte(Constant *CPV, int Bytes,
                                    AggBuffer *aggBuffer) {
 
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
 
   if (isa<UndefValue>(CPV) || CPV->isNullValue()) {
     int s = TD->getTypeAllocSize(CPV->getType());
@@ -1843,7 +1846,7 @@ void NVPTXAsmPrinter::bufferLEByte(Constant *CPV, int Bytes,
 
 void NVPTXAsmPrinter::bufferAggregateConstant(Constant *CPV,
                                               AggBuffer *aggBuffer) {
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
   int Bytes;
 
   // Old constants

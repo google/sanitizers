@@ -87,13 +87,17 @@ static AvailabilityResult DiagnoseAvailabilityOfDecl(Sema &S,
       if (const EnumDecl *TheEnumDecl = dyn_cast<EnumDecl>(DC))
         Result = TheEnumDecl->getAvailability(&Message);
     }
+
   const ObjCPropertyDecl *ObjCPDecl = 0;
-  if (Result == AR_Deprecated || Result == AR_Unavailable)
-    if (ObjCPropertyDecl *ND = S.PropertyIfSetterOrGetter(D)) {
-      AvailabilityResult PDeclResult = ND->getAvailability(0);
-      if (PDeclResult == Result)
-        ObjCPDecl = ND;
+  if (Result == AR_Deprecated || Result == AR_Unavailable) {
+    if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
+      if (const ObjCPropertyDecl *PD = MD->findPropertyDecl()) {
+        AvailabilityResult PDeclResult = PD->getAvailability(0);
+        if (PDeclResult == Result)
+          ObjCPDecl = PD;
+      }
     }
+  }
   
   switch (Result) {
     case AR_Available:
@@ -1636,7 +1640,8 @@ bool Sema::DiagnoseEmptyLookup(Scope *S, CXXScopeSpec &SS, LookupResult &R,
           Diag(R.getNameLoc(), diag::err_no_member_suggest)
             << Name << computeDeclContext(SS, false) << CorrectedQuotedStr
             << SS.getRange()
-            << FixItHint::CreateReplacement(R.getNameLoc(), CorrectedStr);
+            << FixItHint::CreateReplacement(Corrected.getCorrectionRange(),
+                                            CorrectedStr);
         if (ND)
           Diag(ND->getLocation(), diag::note_previous_decl)
             << CorrectedQuotedStr;
@@ -2008,6 +2013,9 @@ Sema::LookupInObjCMethod(LookupResult &Lookup, Scope *S,
           if (Level != DiagnosticsEngine::Ignored)
             getCurFunction()->recordUseOfWeak(Result);
         }
+        if (CurContext->isClosure())
+          Diag(Loc, diag::warn_implicitly_retains_self)
+            << FixItHint::CreateInsertion(Loc, "self->");
       }
       
       return Owned(Result);
@@ -5301,7 +5309,7 @@ static void DiagnoseConditionalPrecedence(Sema &Self,
       << BinaryOperator::getOpcodeStr(CondOpcode);
 
   SuggestParentheses(Self, OpLoc,
-    Self.PDiag(diag::note_precedence_conditional_silence)
+    Self.PDiag(diag::note_precedence_silence)
       << BinaryOperator::getOpcodeStr(CondOpcode),
     SourceRange(Condition->getLocStart(), Condition->getLocEnd()));
 
@@ -8049,8 +8057,16 @@ static QualType CheckAddressOfOperand(Sema &S, ExprResult &OrigOp,
 
     // The method was named without a qualifier.
     } else if (!DRE->getQualifier()) {
-      S.Diag(OpLoc, diag::err_unqualified_pointer_member_function)
-        << op->getSourceRange();
+      if (MD->getParent()->getName().empty())
+        S.Diag(OpLoc, diag::err_unqualified_pointer_member_function)
+          << op->getSourceRange();
+      else {
+        SmallString<32> Str;
+        StringRef Qual = (MD->getParent()->getName() + "::").toStringRef(Str);
+        S.Diag(OpLoc, diag::err_unqualified_pointer_member_function)
+          << op->getSourceRange()
+          << FixItHint::CreateInsertion(op->getSourceRange().getBegin(), Qual);
+      }
     }
 
     return S.Context.getMemberPointerType(op->getType(),
@@ -8461,8 +8477,8 @@ static void DiagnoseBitwisePrecedence(Sema &Self, BinaryOperatorKind Opc,
   SourceRange DiagRange = isLeftComp ? SourceRange(LHSExpr->getLocStart(),
                                                    OpLoc)
                                      : SourceRange(OpLoc, RHSExpr->getLocEnd());
-  std::string OpStr = isLeftComp ? BinOp::getOpcodeStr(LHSopc)
-                                 : BinOp::getOpcodeStr(RHSopc);
+  StringRef OpStr = isLeftComp ? BinOp::getOpcodeStr(LHSopc)
+                               : BinOp::getOpcodeStr(RHSopc);
   SourceRange ParensRange = isLeftComp ?
       SourceRange(cast<BinOp>(LHSExpr)->getRHS()->getLocStart(),
                   RHSExpr->getLocEnd())
@@ -8472,7 +8488,7 @@ static void DiagnoseBitwisePrecedence(Sema &Self, BinaryOperatorKind Opc,
   Self.Diag(OpLoc, diag::warn_precedence_bitwise_rel)
     << DiagRange << BinOp::getOpcodeStr(Opc) << OpStr;
   SuggestParentheses(Self, OpLoc,
-    Self.PDiag(diag::note_precedence_bitwise_silence) << OpStr,
+    Self.PDiag(diag::note_precedence_silence) << OpStr,
     (isLeftComp ? LHSExpr : RHSExpr)->getSourceRange());
   SuggestParentheses(Self, OpLoc,
     Self.PDiag(diag::note_precedence_bitwise_first) << BinOp::getOpcodeStr(Opc),
@@ -8489,7 +8505,8 @@ EmitDiagnosticForBitwiseAndInBitwiseOr(Sema &Self, SourceLocation OpLoc,
   Self.Diag(Bop->getOperatorLoc(), diag::warn_bitwise_and_in_bitwise_or)
       << Bop->getSourceRange() << OpLoc;
   SuggestParentheses(Self, Bop->getOperatorLoc(),
-    Self.PDiag(diag::note_bitwise_and_in_bitwise_or_silence),
+    Self.PDiag(diag::note_precedence_silence)
+      << Bop->getOpcodeStr(),
     Bop->getSourceRange());
 }
 
@@ -8503,7 +8520,8 @@ EmitDiagnosticForLogicalAndInLogicalOr(Sema &Self, SourceLocation OpLoc,
   Self.Diag(Bop->getOperatorLoc(), diag::warn_logical_and_in_logical_or)
       << Bop->getSourceRange() << OpLoc;
   SuggestParentheses(Self, Bop->getOperatorLoc(),
-    Self.PDiag(diag::note_logical_and_in_logical_or_silence),
+    Self.PDiag(diag::note_precedence_silence)
+      << Bop->getOpcodeStr(),
     Bop->getSourceRange());
 }
 
@@ -8567,6 +8585,20 @@ static void DiagnoseBitwiseAndInBitwiseOr(Sema &S, SourceLocation OpLoc,
   }
 }
 
+static void DiagnoseAdditionInShift(Sema &S, SourceLocation OpLoc,
+                                    Expr *SubExpr, StringRef shift) {
+  if (BinaryOperator *Bop = dyn_cast<BinaryOperator>(SubExpr)) {
+    if (Bop->getOpcode() == BO_Add || Bop->getOpcode() == BO_Sub) {
+      StringRef Op = Bop->getOpcodeStr();
+      S.Diag(Bop->getOperatorLoc(), diag::warn_addition_in_bitshift)
+          << Bop->getSourceRange() << OpLoc << Op << shift;
+      SuggestParentheses(S, Bop->getOperatorLoc(),
+          S.PDiag(diag::note_precedence_silence) << Op,
+          Bop->getSourceRange());
+    }
+  }
+}
+
 /// DiagnoseBinOpPrecedence - Emit warnings for expressions with tricky
 /// precedence.
 static void DiagnoseBinOpPrecedence(Sema &Self, BinaryOperatorKind Opc,
@@ -8587,6 +8619,13 @@ static void DiagnoseBinOpPrecedence(Sema &Self, BinaryOperatorKind Opc,
   if (Opc == BO_LOr && !OpLoc.isMacroID()/* Don't warn in macros. */) {
     DiagnoseLogicalAndInLogicalOrLHS(Self, OpLoc, LHSExpr, RHSExpr);
     DiagnoseLogicalAndInLogicalOrRHS(Self, OpLoc, LHSExpr, RHSExpr);
+  }
+
+  if ((Opc == BO_Shl && LHSExpr->getType()->isIntegralType(Self.getASTContext()))
+      || Opc == BO_Shr) {
+    StringRef shift = BinaryOperator::getOpcodeStr(Opc);
+    DiagnoseAdditionInShift(Self, OpLoc, LHSExpr, shift);
+    DiagnoseAdditionInShift(Self, OpLoc, RHSExpr, shift);
   }
 }
 
@@ -11876,9 +11915,9 @@ Sema::ActOnObjCBoolLiteral(SourceLocation OpLoc, tok::TokenKind Kind) {
          "Unknown Objective-C Boolean value!");
   QualType BoolT = Context.ObjCBuiltinBoolTy;
   if (!Context.getBOOLDecl()) {
-    LookupResult Result(*this, &Context.Idents.get("BOOL"), SourceLocation(),
+    LookupResult Result(*this, &Context.Idents.get("BOOL"), OpLoc,
                         Sema::LookupOrdinaryName);
-    if (LookupName(Result, getCurScope())) {
+    if (LookupName(Result, getCurScope()) && Result.isSingleResult()) {
       NamedDecl *ND = Result.getFoundDecl();
       if (TypedefDecl *TD = dyn_cast<TypedefDecl>(ND)) 
         Context.setBOOLDecl(TD);

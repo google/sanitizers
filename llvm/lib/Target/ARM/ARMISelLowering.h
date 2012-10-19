@@ -466,7 +466,11 @@ namespace llvm {
                            SmallVectorImpl<SDValue> &InVals) const;
 
     void VarArgStyleRegisters(CCState &CCInfo, SelectionDAG &DAG,
-                              DebugLoc dl, SDValue &Chain, unsigned ArgOffset)
+                              DebugLoc dl, SDValue &Chain,
+                              const Value *OrigArg,
+                              unsigned OffsetFromOrigArg,
+                              unsigned ArgOffset,
+                              bool ForceMutable = false)
       const;
 
     void computeRegArea(CCState &CCInfo, MachineFunction &MF,
@@ -477,7 +481,7 @@ namespace llvm {
                 SmallVectorImpl<SDValue> &InVals) const;
 
     /// HandleByVal - Target-specific cleanup for ByVal support.
-    virtual void HandleByVal(CCState *, unsigned &) const;
+    virtual void HandleByVal(CCState *, unsigned &, unsigned) const;
 
     /// IsEligibleForTailCallOptimization - Check whether the call is eligible
     /// for tail call optimization. Targets which want to do tail call

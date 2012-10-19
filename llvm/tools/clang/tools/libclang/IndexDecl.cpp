@@ -10,7 +10,6 @@
 #include "IndexingContext.h"
 
 #include "clang/AST/DeclVisitor.h"
-#include "clang/Basic/Module.h"
 
 using namespace clang;
 using namespace cxindex;
@@ -195,7 +194,7 @@ public:
   bool VisitObjCMethodDecl(ObjCMethodDecl *D) {
     // Methods associated with a property, even user-declared ones, are
     // handled when we handle the property.
-    if (D->isSynthesized())
+    if (D->isPropertyAccessor())
       return true;
 
     handleObjCMethod(D);
@@ -229,12 +228,12 @@ public:
     }
 
     if (ObjCMethodDecl *MD = PD->getGetterMethodDecl()) {
-      if (MD->isSynthesized())
+      if (MD->isPropertyAccessor())
         IndexCtx.handleSynthesizedObjCMethod(MD, D->getLocation(),
                                              D->getLexicalDeclContext());
     }
     if (ObjCMethodDecl *MD = PD->getSetterMethodDecl()) {
-      if (MD->isSynthesized())
+      if (MD->isPropertyAccessor())
         IndexCtx.handleSynthesizedObjCMethod(MD, D->getLocation(),
                                              D->getLexicalDeclContext());
     }
@@ -308,10 +307,7 @@ public:
   }
 
   bool VisitImportDecl(ImportDecl *D) {
-    Module *Imported = D->getImportedModule();
-    if (Imported)
-      IndexCtx.importedModule(D->getLocation(), Imported->getFullModuleName(),
-                              /*isIncludeDirective=*/false, Imported);
+    IndexCtx.importedModule(D);
     return true;
   }
 };

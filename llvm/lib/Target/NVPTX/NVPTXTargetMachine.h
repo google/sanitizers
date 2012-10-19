@@ -21,10 +21,11 @@
 #include "NVPTXSubtarget.h"
 #include "NVPTXFrameLowering.h"
 #include "ManagedStringPool.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetSelectionDAGInfo.h"
+#include "llvm/Target/TargetTransformImpl.h"
 
 namespace llvm {
 
@@ -32,7 +33,7 @@ namespace llvm {
 ///
 class NVPTXTargetMachine : public LLVMTargetMachine {
   NVPTXSubtarget        Subtarget;
-  const TargetData      DataLayout;       // Calculates type size & alignment
+  const DataLayout      DL;       // Calculates type size & alignment
   NVPTXInstrInfo        InstrInfo;
   NVPTXTargetLowering   TLInfo;
   TargetSelectionDAGInfo   TSInfo;
@@ -43,6 +44,9 @@ class NVPTXTargetMachine : public LLVMTargetMachine {
 
   // Hold Strings that can be free'd all together with NVPTXTargetMachine
   ManagedStringPool     ManagedStrPool;
+
+  ScalarTargetTransformImpl STTI;
+  VectorTargetTransformImpl VTTI;
 
   //bool addCommonCodeGenPasses(PassManagerBase &, CodeGenOpt::Level,
   //                            bool DisableVerify, MCContext *&OutCtx);
@@ -58,7 +62,7 @@ public:
     return &FrameLowering;
   }
   virtual const NVPTXInstrInfo *getInstrInfo() const  { return &InstrInfo; }
-  virtual const TargetData *getTargetData() const     { return &DataLayout;}
+  virtual const DataLayout *getDataLayout() const     { return &DL;}
   virtual const NVPTXSubtarget *getSubtargetImpl() const { return &Subtarget;}
 
   virtual const NVPTXRegisterInfo *getRegisterInfo() const {
@@ -71,6 +75,12 @@ public:
 
   virtual const TargetSelectionDAGInfo *getSelectionDAGInfo() const {
     return &TSInfo;
+  }
+  virtual const ScalarTargetTransformInfo *getScalarTargetTransformInfo()const {
+    return &STTI;
+  }
+  virtual const VectorTargetTransformInfo *getVectorTargetTransformInfo()const {
+    return &VTTI;
   }
 
   //virtual bool addInstSelector(PassManagerBase &PM,

@@ -13,7 +13,7 @@
 
 #include "InstCombine.h"
 #include "llvm/Analysis/ConstantFolding.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Support/PatternMatch.h"
 using namespace llvm;
@@ -78,7 +78,7 @@ static Value *DecomposeSimpleLinearExpr(Value *Val, unsigned &Scale,
 /// try to eliminate the cast by moving the type information into the alloc.
 Instruction *InstCombiner::PromoteCastOfAllocation(BitCastInst &CI,
                                                    AllocaInst &AI) {
-  // This requires TargetData to get the alloca alignment and size information.
+  // This requires DataLayout to get the alloca alignment and size information.
   if (!TD) return 0;
 
   PointerType *PTy = cast<PointerType>(CI.getType());
@@ -229,7 +229,7 @@ isEliminableCastPair(
   const CastInst *CI, ///< The first cast instruction
   unsigned opcode,       ///< The opcode of the second cast instruction
   Type *DstTy,     ///< The target type for the second cast instruction
-  TargetData *TD         ///< The target data for pointer size
+  DataLayout *TD         ///< The target data for pointer size
 ) {
 
   Type *SrcTy = CI->getOperand(0)->getType();   // A from above
@@ -1293,15 +1293,16 @@ Instruction *InstCombiner::visitIntToPtr(IntToPtrInst &CI) {
   // If the source integer type is not the intptr_t type for this target, do a
   // trunc or zext to the intptr_t type, then inttoptr of it.  This allows the
   // cast to be exposed to other transforms.
+  unsigned AS = CI.getAddressSpace();
   if (TD) {
     if (CI.getOperand(0)->getType()->getScalarSizeInBits() >
-        TD->getPointerSizeInBits()) {
+        TD->getPointerSizeInBits(AS)) {
       Value *P = Builder->CreateTrunc(CI.getOperand(0),
                                       TD->getIntPtrType(CI.getContext()));
       return new IntToPtrInst(P, CI.getType());
     }
     if (CI.getOperand(0)->getType()->getScalarSizeInBits() <
-        TD->getPointerSizeInBits()) {
+        TD->getPointerSizeInBits(AS)) {
       Value *P = Builder->CreateZExt(CI.getOperand(0),
                                      TD->getIntPtrType(CI.getContext()));
       return new IntToPtrInst(P, CI.getType());
@@ -1368,13 +1369,14 @@ Instruction *InstCombiner::visitPtrToInt(PtrToIntInst &CI) {
   // If the destination integer type is not the intptr_t type for this target,
   // do a ptrtoint to intptr_t then do a trunc or zext.  This allows the cast
   // to be exposed to other transforms.
+  unsigned AS = CI.getPointerAddressSpace();
   if (TD) {
-    if (CI.getType()->getScalarSizeInBits() < TD->getPointerSizeInBits()) {
+    if (CI.getType()->getScalarSizeInBits() < TD->getPointerSizeInBits(AS)) {
       Value *P = Builder->CreatePtrToInt(CI.getOperand(0),
                                          TD->getIntPtrType(CI.getContext()));
       return new TruncInst(P, CI.getType());
     }
-    if (CI.getType()->getScalarSizeInBits() > TD->getPointerSizeInBits()) {
+    if (CI.getType()->getScalarSizeInBits() > TD->getPointerSizeInBits(AS)) {
       Value *P = Builder->CreatePtrToInt(CI.getOperand(0),
                                          TD->getIntPtrType(CI.getContext()));
       return new ZExtInst(P, CI.getType());

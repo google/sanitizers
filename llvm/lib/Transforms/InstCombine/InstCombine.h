@@ -18,10 +18,11 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/TargetFolder.h"
+#include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 
 namespace llvm {
   class CallSite;
-  class TargetData;
+  class DataLayout;
   class TargetLibraryInfo;
   class DbgDeclareInst;
   class MemIntrinsic;
@@ -71,9 +72,10 @@ public:
 class LLVM_LIBRARY_VISIBILITY InstCombiner
                              : public FunctionPass,
                                public InstVisitor<InstCombiner, Instruction*> {
-  TargetData *TD;
+  DataLayout *TD;
   TargetLibraryInfo *TLI;
   bool MadeIRChange;
+  LibCallSimplifier *Simplifier;
 public:
   /// Worklist - All of the instructions that need to be simplified.
   InstCombineWorklist Worklist;
@@ -95,7 +97,7 @@ public:
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
 
-  TargetData *getTargetData() const { return TD; }
+  DataLayout *getDataLayout() const { return TD; }
 
   TargetLibraryInfo *getTargetLibraryInfo() const { return TLI; }
 
@@ -218,7 +220,7 @@ private:
                           Type *Ty);
 
   Instruction *visitCallSite(CallSite CS);
-  Instruction *tryOptimizeCall(CallInst *CI, const TargetData *TD);
+  Instruction *tryOptimizeCall(CallInst *CI, const DataLayout *TD);
   bool transformConstExprCastCall(CallSite CS);
   Instruction *transformCallThroughTrampoline(CallSite CS,
                                               IntrinsicInst *Tramp);

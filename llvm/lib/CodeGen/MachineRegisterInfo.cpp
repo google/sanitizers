@@ -21,7 +21,7 @@ MachineRegisterInfo::MachineRegisterInfo(const TargetRegisterInfo &TRI)
   : TRI(&TRI), IsSSA(true), TracksLiveness(true) {
   VRegInfo.reserve(256);
   RegAllocHints.reserve(256);
-  UsedPhysRegs.resize(TRI.getNumRegs());
+  UsedRegUnits.resize(TRI.getNumRegUnits());
   UsedPhysRegMask.resize(TRI.getNumRegs());
 
   // Create the physreg use/def lists.
@@ -32,7 +32,7 @@ MachineRegisterInfo::MachineRegisterInfo(const TargetRegisterInfo &TRI)
 MachineRegisterInfo::~MachineRegisterInfo() {
 #ifndef NDEBUG
   clearVirtRegs();
-  for (unsigned i = 0, e = UsedPhysRegs.size(); i != e; ++i)
+  for (unsigned i = 0, e = TRI->getNumRegs(); i != e; ++i)
     assert(!PhysRegUseDefLists[i] &&
            "PhysRegUseDefLists has entries after all instructions are deleted");
 #endif
@@ -306,22 +306,18 @@ void MachineRegisterInfo::dumpUses(unsigned Reg) const {
 
 void MachineRegisterInfo::freezeReservedRegs(const MachineFunction &MF) {
   ReservedRegs = TRI->getReservedRegs(MF);
+  assert(ReservedRegs.size() == TRI->getNumRegs() &&
+         "Invalid ReservedRegs vector from target");
 }
 
 bool MachineRegisterInfo::isConstantPhysReg(unsigned PhysReg,
                                             const MachineFunction &MF) const {
   assert(TargetRegisterInfo::isPhysicalRegister(PhysReg));
 
-  // Check if any overlapping register is modified.
+  // Check if any overlapping register is modified, or allocatable so it may be
+  // used later.
   for (MCRegAliasIterator AI(PhysReg, TRI, true); AI.isValid(); ++AI)
-    if (!def_empty(*AI))
-      return false;
-
-  // Check if any overlapping register is allocatable so it may be used later.
-  if (AllocatableRegs.empty())
-    AllocatableRegs = TRI->getAllocatableSet(MF);
-  for (MCRegAliasIterator AI(PhysReg, TRI, true); AI.isValid(); ++AI)
-    if (AllocatableRegs.test(*AI))
+    if (!def_empty(*AI) || isAllocatable(*AI))
       return false;
   return true;
 }

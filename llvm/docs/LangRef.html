@@ -1107,9 +1107,9 @@ declare signext i8 @returns_signed_char()
   <dd>This indicates that the pointer parameter specifies the address of a
       structure that is the return value of the function in the source program.
       This pointer must be guaranteed by the caller to be valid: loads and
-      stores to the structure may be assumed by the callee to not to trap.  This
-      may only be applied to the first parameter. This is not a valid attribute
-      for return values. </dd>
+      stores to the structure may be assumed by the callee to not to trap and
+      to be properly aligned.  This may only be applied to the first parameter.
+      This is not a valid attribute for return values. </dd>
 
   <dt><tt><b><a name="noalias">noalias</a></b></tt></dt>
   <dd>This indicates that pointer values
@@ -1364,11 +1364,13 @@ target datalayout = "<i>layout specification</i>"
       8-bits. If omitted, the natural stack alignment defaults to "unspecified",
       which does not prevent any alignment promotions.</dd>
 
-  <dt><tt>p:<i>size</i>:<i>abi</i>:<i>pref</i></tt></dt>
+  <dt><tt>p[n]:<i>size</i>:<i>abi</i>:<i>pref</i></tt></dt>
   <dd>This specifies the <i>size</i> of a pointer and its <i>abi</i> and
-      <i>preferred</i> alignments. All sizes are in bits. Specifying
-      the <i>pref</i> alignment is optional. If omitted, the
-      preceding <tt>:</tt> should be omitted too.</dd>
+      <i>preferred</i> alignments for address space <i>n</i>. All sizes are in
+      bits. Specifying the <i>pref</i> alignment is optional. If omitted, the
+      preceding <tt>:</tt> should be omitted too. The address space,
+      <i>n</i> is optional, and if not specified, denotes the default address
+      space 0. The value of <i>n</i> must be in the range [1,2^23).</dd>
 
   <dt><tt>i<i>size</i>:<i>abi</i>:<i>pref</i></tt></dt>
   <dd>This specifies the alignment for an integer type of a given bit
@@ -1409,6 +1411,10 @@ target datalayout = "<i>layout specification</i>"
 <ul>
   <li><tt>E</tt> - big endian</li>
   <li><tt>p:64:64:64</tt> - 64-bit pointers with 64-bit alignment</li>
+  <li><tt>p1:32:32:32</tt> - 32-bit pointers with 32-bit alignment for
+  address space 1</li>
+  <li><tt>p2:16:32:32</tt> - 16-bit pointers with 32-bit alignment for
+  address space 2</li>
   <li><tt>i1:8:8</tt> - i1 is 8-bit (byte) aligned</li>
   <li><tt>i8:8:8</tt> - i8 is 8-bit (byte) aligned</li>
   <li><tt>i16:16:16</tt> - i16 is 16-bit aligned</li>
@@ -2104,7 +2110,7 @@ in signal handlers).</p>
 <p>Structures may optionally be "packed" structures, which indicate that the 
   alignment of the struct is one byte, and that there is no padding between
   the elements.  In non-packed structs, padding between field types is inserted
-  as defined by the TargetData string in the module, which is required to match
+  as defined by the DataLayout string in the module, which is required to match
   what the underlying code generator expects.</p>
 
 <p>Structures can either be "literal" or "identified".  A literal structure is
@@ -8763,7 +8769,7 @@ codegen.</p>
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-09-21 22:41:30 +0400 (Fri, 21 Sep 2012) $
+  Last modified: $Date: 2012-10-18 22:18:17 +0400 (Thu, 18 Oct 2012) $
 </address>
 
 </body>

@@ -571,7 +571,11 @@ endif
 #--------------------------------------------------------------------
 
 ifeq ($(HOST_OS),Darwin)
+ ifdef MACOSX_DEPLOYMENT_TARGET
+  DARWIN_VERSION := $(MACOSX_DEPLOYMENT_TARGET)
+ else
   DARWIN_VERSION := `sw_vers -productVersion`
+ endif
   # Strip a number like 10.4.7 to 10.4
   DARWIN_VERSION := $(shell echo $(DARWIN_VERSION)| sed -E 's/(10.[0-9]).*/\1/')
   # Get "4" out of 10.4 for later pieces in the makefile.
@@ -631,19 +635,23 @@ endif
 
 # Adjust linker flags for building an executable
 ifneq ($(HOST_OS), $(filter $(HOST_OS), Cygwin MingW))
-ifneq ($(HOST_OS), Darwin)
-ifdef TOOLNAME
-  LD.Flags += $(RPATH) -Wl,'$$ORIGIN/../lib'
-  ifdef EXAMPLE_TOOL
-    LD.Flags += $(RPATH) -Wl,$(ExmplDir) $(DynamicFlag)
-  else
-    LD.Flags += $(RPATH) -Wl,$(ToolDir) $(DynamicFlag)
+  ifneq ($(HOST_OS), Darwin)
+    ifdef TOOLNAME
+      LD.Flags += $(RPATH) -Wl,'$$ORIGIN/../lib'
+      ifdef EXAMPLE_TOOL
+        LD.Flags += $(RPATH) -Wl,$(ExmplDir) $(DynamicFlag)
+      else
+        LD.Flags += $(RPATH) -Wl,$(ToolDir) $(DynamicFlag)
+    endif
   endif
-endif
 else
-ifneq ($(DARWIN_MAJVERS),4)
-  LD.Flags += $(RPATH) -Wl,@executable_path/../lib
-endif
+  ifneq ($(DARWIN_MAJVERS),4)
+    LD.Flags += $(RPATH) -Wl,@executable_path/../lib
+  endif
+  ifeq ($(RC_BUILDIT),YES)
+    TempFile := $(shell mkdir -p ${OBJROOT}/dSYMs ; mktemp ${OBJROOT}/dSYMs/llvm-lto.XXXXXX)
+    LD.Flags += -Wl,-object_path_lto -Wl,$(TempFile)
+  endif
 endif
 endif
 
@@ -1524,7 +1532,7 @@ ifneq ($(strip $(ToolAliasBuildPath)),)
 $(ToolAliasBuildPath): $(ToolBuildPath)
 	$(Echo) Creating $(BuildMode) Alias $(TOOLALIAS) $(StripWarnMsg)
 	$(Verb) $(RM) -f $(ToolAliasBuildPath)
-	$(Verb) $(AliasTool) $(TOOLEXENAME) $(ToolAliasBuildPath)
+	$(Verb) $(AliasTool) $(notdir $(ToolBuildPath)) $(ToolAliasBuildPath)
 	$(Echo) ======= Finished Creating $(BuildMode) Alias $(TOOLALIAS) \
           $(StripWarnMsg)
 endif
@@ -1563,7 +1571,7 @@ install-local:: $(DestToolAlias)
 $(DestToolAlias): $(DestTool)
 	$(Echo) Installing $(BuildMode) $(DestToolAlias)
 	$(Verb) $(RM) -f $(DestToolAlias)
-	$(Verb) $(AliasTool) $(TOOLEXENAME) $(DestToolAlias)
+	$(Verb) $(AliasTool) $(notdir $(DestTool)) $(DestToolAlias)
 
 uninstall-local::
 	$(Echo) Uninstalling $(BuildMode) $(DestToolAlias)

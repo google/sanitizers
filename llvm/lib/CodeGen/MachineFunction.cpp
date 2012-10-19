@@ -28,7 +28,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetFrameLowering.h"
@@ -59,13 +59,13 @@ MachineFunction::MachineFunction(const Function *F, const TargetMachine &TM,
     RegInfo = 0;
   MFInfo = 0;
   FrameInfo = new (Allocator) MachineFrameInfo(*TM.getFrameLowering());
-  if (Fn->getFnAttributes().hasStackAlignmentAttr())
+  if (Fn->getFnAttributes().hasAttribute(Attributes::StackAlignment))
     FrameInfo->ensureMaxAlignment(Fn->getAttributes().
                                   getFnAttributes().getStackAlignment());
-  ConstantPool = new (Allocator) MachineConstantPool(TM.getTargetData());
+  ConstantPool = new (Allocator) MachineConstantPool(TM.getDataLayout());
   Alignment = TM.getTargetLowering()->getMinFunctionAlignment();
   // FIXME: Shouldn't use pref alignment if explicit alignment is set on Fn.
-  if (!Fn->getFnAttributes().hasOptimizeForSizeAttr())
+  if (!Fn->getFnAttributes().hasAttribute(Attributes::OptimizeForSize))
     Alignment = std::max(Alignment,
                          TM.getTargetLowering()->getPrefFunctionAlignment());
   FunctionNumber = FunctionNum;
@@ -545,12 +545,12 @@ void MachineFrameInfo::dump(const MachineFunction &MF) const {
 //===----------------------------------------------------------------------===//
 
 /// getEntrySize - Return the size of each entry in the jump table.
-unsigned MachineJumpTableInfo::getEntrySize(const TargetData &TD) const {
+unsigned MachineJumpTableInfo::getEntrySize(const DataLayout &TD) const {
   // The size of a jump table entry is 4 bytes unless the entry is just the
   // address of a block, in which case it is the pointer size.
   switch (getEntryKind()) {
   case MachineJumpTableInfo::EK_BlockAddress:
-    return TD.getPointerSize();
+    return TD.getPointerSize(0);
   case MachineJumpTableInfo::EK_GPRel64BlockAddress:
     return 8;
   case MachineJumpTableInfo::EK_GPRel32BlockAddress:
@@ -564,13 +564,13 @@ unsigned MachineJumpTableInfo::getEntrySize(const TargetData &TD) const {
 }
 
 /// getEntryAlignment - Return the alignment of each entry in the jump table.
-unsigned MachineJumpTableInfo::getEntryAlignment(const TargetData &TD) const {
+unsigned MachineJumpTableInfo::getEntryAlignment(const DataLayout &TD) const {
   // The alignment of a jump table entry is the alignment of int32 unless the
   // entry is just the address of a block, in which case it is the pointer
   // alignment.
   switch (getEntryKind()) {
   case MachineJumpTableInfo::EK_BlockAddress:
-    return TD.getPointerABIAlignment();
+    return TD.getPointerABIAlignment(0);
   case MachineJumpTableInfo::EK_GPRel64BlockAddress:
     return TD.getABIIntegerTypeAlignment(64);
   case MachineJumpTableInfo::EK_GPRel32BlockAddress:
@@ -670,7 +670,7 @@ MachineConstantPool::~MachineConstantPool() {
 /// CanShareConstantPoolEntry - Test whether the given two constants
 /// can be allocated the same constant pool entry.
 static bool CanShareConstantPoolEntry(const Constant *A, const Constant *B,
-                                      const TargetData *TD) {
+                                      const DataLayout *TD) {
   // Handle the trivial case quickly.
   if (A == B) return true;
 
@@ -694,7 +694,7 @@ static bool CanShareConstantPoolEntry(const Constant *A, const Constant *B,
   // Try constant folding a bitcast of both instructions to an integer.  If we
   // get two identical ConstantInt's, then we are good to share them.  We use
   // the constant folding APIs to do this so that we get the benefit of
-  // TargetData.
+  // DataLayout.
   if (isa<PointerType>(A->getType()))
     A = ConstantFoldInstOperands(Instruction::PtrToInt, IntTy,
                                  const_cast<Constant*>(A), TD);

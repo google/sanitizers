@@ -59,12 +59,12 @@ void t7() {
 }
 
 int t8() {
-  __asm int 3 ; } comments for single-line asm
+  __asm int 4 ; } comments for single-line asm
   __asm {}
   __asm int 4
   return 10;
 // CHECK: t8
-// CHECK: call void asm sideeffect inteldialect "int $$3", "~{dirflag},~{fpsr},~{flags}"() nounwind
+// CHECK: call void asm sideeffect inteldialect "int $$4", "~{dirflag},~{fpsr},~{flags}"() nounwind
 // CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
 // CHECK: call void asm sideeffect inteldialect "int $$4", "~{dirflag},~{fpsr},~{flags}"() nounwind
 // CHECK: ret i32 10
@@ -91,71 +91,18 @@ unsigned t10(void) {
 // CHECK: [[I:%[a-zA-Z0-9]+]] = alloca i32, align 4
 // CHECK: [[J:%[a-zA-Z0-9]+]] = alloca i32, align 4
 // CHECK: store i32 1, i32* [[I]], align 4
-// CHECK: call i32 asm sideeffect inteldialect "mov eax, $1\0A\09mov $0, eax", "=r,r,~{eax},~{dirflag},~{fpsr},~{flags}"(i32 %{{.*}}) nounwind
+// CHECK: call void asm sideeffect inteldialect "mov eax, $1\0A\09mov $0, eax", "=*m,*m,~{eax},~{dirflag},~{fpsr},~{flags}"(i32* %{{.*}}, i32* %{{.*}}) nounwind
 // CHECK: [[RET:%[a-zA-Z0-9]+]] = load i32* [[J]], align 4
 // CHECK: ret i32 [[RET]]
 }
 
 void t11(void) {
-  __asm EVEN
-  __asm ALIGN
-// CHECK: t11
-// CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
-// CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
-}
-
-void t12(void) {
-  __asm {
-    _emit 0x4A
-    _emit 0x43
-    _emit 0x4B
-  }
-// CHECK: t12
-// CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
-}
-
-void t13(void) {
-  unsigned arr[10];
-  __asm LENGTH arr ; sizeof(arr)/sizeof(arr[0])
-  __asm SIZE arr   ; sizeof(arr)
-  __asm TYPE arr   ; sizeof(arr[0])
-// CHECK: t13
-// CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
-// CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
-// CHECK: call void asm sideeffect inteldialect "", "~{dirflag},~{fpsr},~{flags}"() nounwind
-}
-
-void t14(void) {
   __asm mov eax, 1
-// CHECK: t14
+// CHECK: t11
 // CHECK: call void asm sideeffect inteldialect "mov eax, $$1", "~{eax},~{dirflag},~{fpsr},~{flags}"() nounwind
 }
 
-void t15(void) {
-  __asm mov eax, DWORD PTR [eax]
-// CHECK: t15
-// CHECK: call void asm sideeffect inteldialect "mov eax, DWORD PTR [eax]", "~{eax},~{dirflag},~{fpsr},~{flags}"() nounwind
-}
-
-void t16(unsigned V) {
-  __asm mov eax, DWORD PTR [V]
-// CHECK: t16
-// CHECK: call void asm sideeffect inteldialect "mov eax, DWORD PTR [$0]", "r,~{eax},~{dirflag},~{fpsr},~{flags}"(i32 %{{.*}}) nounwind
-}
-
-void t17(void) {
-  __asm mov eax, dword ptr [eax]
-// CHECK: t17
-// CHECK: call void asm sideeffect inteldialect "mov eax, dword ptr [eax]", "~{eax},~{dirflag},~{fpsr},~{flags}"() nounwind
-}
-
-void t18(void) {
-  __asm mov dword ptr [eax], eax
-// CHECK: t18
-// CHECK: call void asm sideeffect inteldialect "mov dword ptr [eax], eax", "~{dirflag},~{fpsr},~{flags}"() nounwind
-}
-
-unsigned t19(void) {
+unsigned t12(void) {
   unsigned i = 1, j, l = 1, m;
   __asm {
     mov eax, i
@@ -164,6 +111,6 @@ unsigned t19(void) {
     mov m, eax
   }
   return j + m;
-// CHECK: t19
-// CHECK: call { i32, i32 } asm sideeffect inteldialect "mov eax, $2\0A\09mov $0, eax\0A\09mov eax, $3\0A\09mov $1, eax", "=r,=r,r,r,~{eax},~{dirflag},~{fpsr},~{flags}"(i32 %{{.*}}, i32 %{{.*}}) nounwind
+// CHECK: t12
+// CHECK: call void asm sideeffect inteldialect "mov eax, $2\0A\09mov $0, eax\0A\09mov eax, $3\0A\09mov $1, eax", "=*m,=*m,*m,*m,~{eax},~{dirflag},~{fpsr},~{flags}"(i32* %{{.*}}, i32* %{{.*}}, i32* %{{.*}}, i32* %{{.*}}) nounwind
 }

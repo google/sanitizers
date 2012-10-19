@@ -526,40 +526,60 @@ void Verifier::visitMDNode(MDNode &MD, Function *F) {
 // value of the specified type.  The value V is printed in error messages.
 void Verifier::VerifyParameterAttrs(Attributes Attrs, Type *Ty,
                                     bool isReturnValue, const Value *V) {
-  if (Attrs == Attribute::None)
+  if (!Attrs.hasAttributes())
     return;
 
-  Attributes FnCheckAttr = Attrs & Attribute::FunctionOnly;
-  Assert1(!FnCheckAttr, "Attribute " + FnCheckAttr.getAsString() +
-          " only applies to the function!", V);
+  Assert1(!Attrs.hasFunctionOnlyAttrs(),
+          "Some attributes in '" + Attrs.getAsString() +
+          "' only apply to functions!", V);
 
-  if (isReturnValue) {
-    Attributes RetI = Attrs & Attribute::ParameterOnly;
-    Assert1(!RetI, "Attribute " + RetI.getAsString() +
-            " does not apply to return values!", V);
-  }
+  if (isReturnValue)
+    Assert1(!Attrs.hasParameterOnlyAttrs(),
+            "Attributes 'byval', 'nest', 'sret', and 'nocapture' "
+            "do not apply to return values!", V);
 
-  for (unsigned i = 0;
-       i < array_lengthof(Attribute::MutuallyIncompatible); ++i) {
-    Attributes MutI = Attrs & Attribute::MutuallyIncompatible[i];
-    Assert1(MutI.isEmptyOrSingleton(), "Attributes " +
-            MutI.getAsString() + " are incompatible!", V);
-  }
+  // Check for mutually incompatible attributes.
+  Assert1(!((Attrs.hasAttribute(Attributes::ByVal) &&
+             Attrs.hasAttribute(Attributes::Nest)) ||
+            (Attrs.hasAttribute(Attributes::ByVal) &&
+             Attrs.hasAttribute(Attributes::StructRet)) ||
+            (Attrs.hasAttribute(Attributes::Nest) &&
+             Attrs.hasAttribute(Attributes::StructRet))), "Attributes "
+          "'byval, nest, and sret' are incompatible!", V);
 
-  Attributes TypeI = Attrs & Attributes::typeIncompatible(Ty);
-  Assert1(!TypeI, "Wrong type for attribute " +
-          TypeI.getAsString(), V);
+  Assert1(!((Attrs.hasAttribute(Attributes::ByVal) &&
+             Attrs.hasAttribute(Attributes::Nest)) ||
+            (Attrs.hasAttribute(Attributes::ByVal) &&
+             Attrs.hasAttribute(Attributes::InReg)) ||
+            (Attrs.hasAttribute(Attributes::Nest) &&
+             Attrs.hasAttribute(Attributes::InReg))), "Attributes "
+          "'byval, nest, and inreg' are incompatible!", V);
 
-  Attributes ByValI = Attrs & Attribute::ByVal;
-  if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
-    Assert1(!ByValI || PTy->getElementType()->isSized(),
-            "Attribute " + ByValI.getAsString() +
-            " does not support unsized types!", V);
-  } else {
-    Assert1(!ByValI,
-            "Attribute " + ByValI.getAsString() +
-            " only applies to parameters with pointer type!", V);
-  }
+  Assert1(!(Attrs.hasAttribute(Attributes::ZExt) &&
+            Attrs.hasAttribute(Attributes::SExt)), "Attributes "
+          "'zeroext and signext' are incompatible!", V);
+
+  Assert1(!(Attrs.hasAttribute(Attributes::ReadNone) &&
+            Attrs.hasAttribute(Attributes::ReadOnly)), "Attributes "
+          "'readnone and readonly' are incompatible!", V);
+
+  Assert1(!(Attrs.hasAttribute(Attributes::NoInline) &&
+            Attrs.hasAttribute(Attributes::AlwaysInline)), "Attributes "
+          "'noinline and alwaysinline' are incompatible!", V);
+
+  Assert1(!AttrBuilder(Attrs).
+            hasAttributes(Attributes::typeIncompatible(Ty)),
+          "Wrong types for attribute: " +
+          Attributes::typeIncompatible(Ty).getAsString(), V);
+
+  if (PointerType *PTy = dyn_cast<PointerType>(Ty))
+    Assert1(!Attrs.hasAttribute(Attributes::ByVal) ||
+            PTy->getElementType()->isSized(),
+            "Attribute 'byval' does not support unsized types!", V);
+  else
+    Assert1(!Attrs.hasAttribute(Attributes::ByVal),
+            "Attribute 'byval' only applies to parameters with pointer type!",
+            V);
 }
 
 // VerifyFunctionAttrs - Check parameter attributes against a function type.
@@ -585,26 +605,50 @@ void Verifier::VerifyFunctionAttrs(FunctionType *FT,
 
     VerifyParameterAttrs(Attr.Attrs, Ty, Attr.Index == 0, V);
 
-    if (Attr.Attrs.hasNestAttr()) {
+    if (Attr.Attrs.hasAttribute(Attributes::Nest)) {
       Assert1(!SawNest, "More than one parameter has attribute nest!", V);
       SawNest = true;
     }
 
-    if (Attr.Attrs.hasStructRetAttr())
+    if (Attr.Attrs.hasAttribute(Attributes::StructRet))
       Assert1(Attr.Index == 1, "Attribute sret not on first parameter!", V);
   }
 
   Attributes FAttrs = Attrs.getFnAttributes();
-  Attributes NotFn = FAttrs & (~Attribute::FunctionOnly);
-  Assert1(!NotFn, "Attribute " + NotFn.getAsString() +
-          " does not apply to the function!", V);
+  AttrBuilder NotFn(FAttrs);
+  NotFn.removeFunctionOnlyAttrs();
+  Assert1(!NotFn.hasAttributes(), "Attributes '" +
+          Attributes::get(V->getContext(), NotFn).getAsString() +
+          "' do not apply to the function!", V);
 
-  for (unsigned i = 0;
-       i < array_lengthof(Attribute::MutuallyIncompatible); ++i) {
-    Attributes MutI = FAttrs & Attribute::MutuallyIncompatible[i];
-    Assert1(MutI.isEmptyOrSingleton(), "Attributes " +
-            MutI.getAsString() + " are incompatible!", V);
-  }
+  // Check for mutually incompatible attributes.
+  Assert1(!((FAttrs.hasAttribute(Attributes::ByVal) &&
+             FAttrs.hasAttribute(Attributes::Nest)) ||
+            (FAttrs.hasAttribute(Attributes::ByVal) &&
+             FAttrs.hasAttribute(Attributes::StructRet)) ||
+            (FAttrs.hasAttribute(Attributes::Nest) &&
+             FAttrs.hasAttribute(Attributes::StructRet))), "Attributes "
+          "'byval, nest, and sret' are incompatible!", V);
+
+  Assert1(!((FAttrs.hasAttribute(Attributes::ByVal) &&
+             FAttrs.hasAttribute(Attributes::Nest)) ||
+            (FAttrs.hasAttribute(Attributes::ByVal) &&
+             FAttrs.hasAttribute(Attributes::InReg)) ||
+            (FAttrs.hasAttribute(Attributes::Nest) &&
+             FAttrs.hasAttribute(Attributes::InReg))), "Attributes "
+          "'byval, nest, and inreg' are incompatible!", V);
+
+  Assert1(!(FAttrs.hasAttribute(Attributes::ZExt) &&
+            FAttrs.hasAttribute(Attributes::SExt)), "Attributes "
+          "'zeroext and signext' are incompatible!", V);
+
+  Assert1(!(FAttrs.hasAttribute(Attributes::ReadNone) &&
+            FAttrs.hasAttribute(Attributes::ReadOnly)), "Attributes "
+          "'readnone and readonly' are incompatible!", V);
+
+  Assert1(!(FAttrs.hasAttribute(Attributes::NoInline) &&
+            FAttrs.hasAttribute(Attributes::AlwaysInline)), "Attributes "
+          "'noinline and alwaysinline' are incompatible!", V);
 }
 
 static bool VerifyAttributeCount(const AttrListPtr &Attrs, unsigned Params) {
@@ -1170,9 +1214,8 @@ void Verifier::VerifyCallSite(CallSite CS) {
 
       VerifyParameterAttrs(Attr, CS.getArgument(Idx-1)->getType(), false, I);
 
-      Attributes VArgI = Attr & Attribute::VarArgsIncompatible;
-      Assert1(!VArgI, "Attribute " + VArgI.getAsString() +
-              " cannot be used for vararg call arguments!", I);
+      Assert1(!Attr.hasIncompatibleWithVarArgsAttrs(),
+              "Attribute 'sret' cannot be used for vararg call arguments!", I);
     }
 
   // Verify that there's no metadata unless it's a direct call to an intrinsic.

@@ -35,7 +35,7 @@ namespace llvm {
   class ConstantInt;
   class Function;
   class GlobalValue;
-  class TargetData;
+  class DataLayout;
   class FunctionType;
   class LLVMContext;
 }
@@ -219,7 +219,7 @@ class CodeGenModule : public CodeGenTypeCache {
   const LangOptions &LangOpts;
   const CodeGenOptions &CodeGenOpts;
   llvm::Module &TheModule;
-  const llvm::TargetData &TheTargetData;
+  const llvm::DataLayout &TheDataLayout;
   mutable const TargetCodeGenInfo *TheTargetCodeGenInfo;
   DiagnosticsEngine &Diags;
   CGCXXABI &ABI;
@@ -357,7 +357,7 @@ class CodeGenModule : public CodeGenTypeCache {
   /// @}
 public:
   CodeGenModule(ASTContext &C, const CodeGenOptions &CodeGenOpts,
-                llvm::Module &M, const llvm::TargetData &TD,
+                llvm::Module &M, const llvm::DataLayout &TD,
                 DiagnosticsEngine &Diags);
 
   ~CodeGenModule();
@@ -451,7 +451,7 @@ public:
   CodeGenVTables &getVTables() { return VTables; }
   VTableContext &getVTableContext() { return VTables.getVTableContext(); }
   DiagnosticsEngine &getDiags() const { return Diags; }
-  const llvm::TargetData &getTargetData() const { return TheTargetData; }
+  const llvm::DataLayout &getDataLayout() const { return TheDataLayout; }
   const TargetInfo &getTarget() const { return Context.getTargetInfo(); }
   llvm::LLVMContext &getLLVMContext() { return VMContext; }
   const TargetCodeGenInfo &getTargetCodeGenInfo();
@@ -548,6 +548,9 @@ public:
   /// GetAddrOfRTTIDescriptor - Get the address of the RTTI descriptor 
   /// for the given type.
   llvm::Constant *GetAddrOfRTTIDescriptor(QualType Ty, bool ForEH = false);
+
+  /// GetAddrOfUuidDescriptor - Get the address of a uuid descriptor .
+  llvm::Constant *GetAddrOfUuidDescriptor(const CXXUuidofExpr* E);
 
   /// GetAddrOfThunk - Get the address of the thunk for the given global decl.
   llvm::Constant *GetAddrOfThunk(GlobalDecl GD, const ThunkInfo &Thunk);
@@ -702,7 +705,7 @@ public:
   llvm::Constant *CreateRuntimeFunction(llvm::FunctionType *Ty,
                                         StringRef Name,
                                         llvm::Attributes ExtraAttrs =
-                                          llvm::Attribute::None);
+                                          llvm::Attributes());
   /// CreateRuntimeVariable - Create a new runtime global variable with the
   /// specified type and name.
   llvm::Constant *CreateRuntimeVariable(llvm::Type *Ty,
@@ -881,7 +884,7 @@ private:
                                           GlobalDecl D,
                                           bool ForVTable,
                                           llvm::Attributes ExtraAttrs =
-                                            llvm::Attribute::None);
+                                            llvm::Attributes());
   llvm::Constant *GetOrCreateLLVMGlobal(StringRef MangledName,
                                         llvm::PointerType *PTy,
                                         const VarDecl *D,
@@ -984,6 +987,9 @@ private:
   /// EmitCoverageFile - Emit the llvm.gcov metadata used to tell LLVM where
   /// to emit the .gcno and .gcda files in a way that persists in .bc files.
   void EmitCoverageFile();
+
+  /// Emits the initializer for a uuidof string.
+  llvm::Constant *EmitUuidofInitializer(StringRef uuidstr, QualType IIDType);
 
   /// MayDeferGeneration - Determine if the given decl can be emitted
   /// lazily; this is only relevant for definitions. The given decl

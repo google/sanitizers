@@ -21,7 +21,7 @@
 #include "clang/AST/StmtObjC.h"
 #include "clang/Basic/Diagnostic.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/InlineAsm.h"
 using namespace clang;
 using namespace CodeGen;
@@ -440,8 +440,8 @@ void CodeGenFunction::StartObjCMethod(const ObjCMethodDecl *OMD,
                                       SourceLocation StartLoc) {
   FunctionArgList args;
   // Check if we should generate debug info for this method.
-  if (CGM.getModuleDebugInfo() && !OMD->hasAttr<NoDebugAttr>())
-    DebugInfo = CGM.getModuleDebugInfo();
+  if (!OMD->hasAttr<NoDebugAttr>())
+    maybeInitializeDebugInfo();
 
   llvm::Function *Fn = CGM.getObjCRuntime().GenerateMethod(OMD, CD);
 
@@ -1705,7 +1705,7 @@ static llvm::Constant *createARCRuntimeFunction(CodeGenModule &CGM,
       f->setLinkage(llvm::Function::ExternalWeakLinkage);
     // set nonlazybind attribute for these APIs for performance.
     if (fnName == "objc_retain" || fnName  == "objc_release")
-      f->addFnAttr(llvm::Attribute::NonLazyBind);
+      f->addFnAttr(llvm::Attributes::NonLazyBind);
   }
 
   return fn;
@@ -1947,6 +1947,28 @@ void CodeGenFunction::EmitARCRelease(llvm::Value *value, bool precise) {
     call->setMetadata("clang.imprecise_release",
                       llvm::MDNode::get(Builder.getContext(), args));
   }
+}
+
+/// Destroy a __strong variable.
+///
+/// At -O0, emit a call to store 'null' into the address;
+/// instrumenting tools prefer this because the address is exposed,
+/// but it's relatively cumbersome to optimize.
+///
+/// At -O1 and above, just load and call objc_release.
+///
+///   call void \@objc_storeStrong(i8** %addr, i8* null)
+void CodeGenFunction::EmitARCDestroyStrong(llvm::Value *addr, bool precise) {
+  if (CGM.getCodeGenOpts().OptimizationLevel == 0) {
+    llvm::PointerType *addrTy = cast<llvm::PointerType>(addr->getType());
+    llvm::Value *null = llvm::ConstantPointerNull::get(
+                          cast<llvm::PointerType>(addrTy->getElementType()));
+    EmitARCStoreStrongCall(addr, null, /*ignored*/ true);
+    return;
+  }
+
+  llvm::Value *value = Builder.CreateLoad(addr);
+  EmitARCRelease(value, precise);
 }
 
 /// Store into a strong object.  Always calls this:
@@ -2222,15 +2244,13 @@ void CodeGenFunction::EmitObjCMRRAutoreleasePoolPop(llvm::Value *Arg) {
 void CodeGenFunction::destroyARCStrongPrecise(CodeGenFunction &CGF,
                                               llvm::Value *addr,
                                               QualType type) {
-  llvm::Value *ptr = CGF.Builder.CreateLoad(addr, "strongdestroy");
-  CGF.EmitARCRelease(ptr, /*precise*/ true);
+  CGF.EmitARCDestroyStrong(addr, /*precise*/ true);
 }
 
 void CodeGenFunction::destroyARCStrongImprecise(CodeGenFunction &CGF,
                                                 llvm::Value *addr,
                                                 QualType type) {
-  llvm::Value *ptr = CGF.Builder.CreateLoad(addr, "strongdestroy");
-  CGF.EmitARCRelease(ptr, /*precise*/ false);  
+  CGF.EmitARCDestroyStrong(addr, /*precise*/ false);
 }
 
 void CodeGenFunction::destroyARCWeak(CodeGenFunction &CGF,
@@ -2830,9 +2850,8 @@ CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
                            "__assign_helper_atomic_property_",
                            &CGM.getModule());
   
-  if (CGM.getModuleDebugInfo())
-    DebugInfo = CGM.getModuleDebugInfo();
-  
+  // Initialize debug info if needed.
+  maybeInitializeDebugInfo();
   
   StartFunction(FD, C.VoidTy, Fn, FI, args, SourceLocation());
   
@@ -2916,9 +2935,8 @@ CodeGenFunction::GenerateObjCAtomicGetterCopyHelperFunction(
   llvm::Function::Create(LTy, llvm::GlobalValue::InternalLinkage,
                          "__copy_helper_atomic_property_", &CGM.getModule());
   
-  if (CGM.getModuleDebugInfo())
-    DebugInfo = CGM.getModuleDebugInfo();
-  
+  // Initialize debug info if needed.
+  maybeInitializeDebugInfo();
   
   StartFunction(FD, C.VoidTy, Fn, FI, args, SourceLocation());
   

@@ -63,6 +63,7 @@ extern void NSLog(NSString *format, ...) __attribute__((format(__NSString__, 1, 
   SomeInvalidationImplementingObject *_Prop3; // property, invalidate via sending a message to a getter method
   SomeInvalidationImplementingObject *_Prop4; // property with @synthesize, invalidate via property
   SomeInvalidationImplementingObject *_Prop5; // property with @synthesize, invalidate via getter method
+  SomeInvalidationImplementingObject *_Prop8;
   
   // No warnings on these as they are not invalidatable.
   NSObject *NIvar1;
@@ -93,12 +94,20 @@ extern void NSLog(NSString *format, ...) __attribute__((format(__NSString__, 1, 
 
 @end
 
-@implementation SomeSubclassInvalidatableObject
+@interface SomeSubclassInvalidatableObject()
+@property (assign) SomeInvalidationImplementingObject* Prop8;
+@end
+
+@implementation SomeSubclassInvalidatableObject{
+  @private
+  SomeInvalidationImplementingObject *Ivar5;
+}
 
 @synthesize Prop7 = _propIvar;
 @synthesize Prop3 = _Prop3;
 @synthesize Prop5 = _Prop5;
 @synthesize Prop4 = _Prop4;
+@synthesize Prop8 = _Prop8;
 
 
 - (void) setProp1: (SomeInvalidationImplementingObject*) InObj {
@@ -126,6 +135,7 @@ extern void NSLog(NSString *format, ...) __attribute__((format(__NSString__, 1, 
    [self setProp3:0];
    [[self Prop5] invalidate2];
    [self.Prop4 invalidate];
+   [self.Prop8 invalidate];
    self.Prop6 = 0;
    [[self Prop7] invalidate];
 
@@ -136,7 +146,8 @@ extern void NSLog(NSString *format, ...) __attribute__((format(__NSString__, 1, 
 // expected-warning@-1 {{Instance variable Ivar1 needs to be invalidated}}
  // expected-warning@-2 {{Instance variable MultipleProtocols needs to be invalidated}}
  // expected-warning@-3 {{Instance variable MultInheritance needs to be invalidated}}
- // expected-warning@-4 {{Property SynthIvarProp needs to be invalidated}}
+ // expected-warning@-4 {{Property SynthIvarProp needs to be invalidated or set to nil}}
  // expected-warning@-5 {{Instance variable _Ivar3 needs to be invalidated}}
  // expected-warning@-6 {{Instance variable _Ivar4 needs to be invalidated}}
+ // expected-warning@-7 {{Instance variable Ivar5 needs to be invalidated or set to nil}}
 @end

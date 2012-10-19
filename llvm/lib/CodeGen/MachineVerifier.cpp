@@ -80,7 +80,6 @@ namespace {
     BlockSet FunctionBlocks;
 
     BitVector regsReserved;
-    BitVector regsAllocatable;
     RegSet regsLive;
     RegVector regsDefined, regsDead, regsKilled;
     RegMaskVector regMasks;
@@ -186,7 +185,7 @@ namespace {
     }
 
     bool isAllocatable(unsigned Reg) {
-      return Reg < regsAllocatable.size() && regsAllocatable.test(Reg);
+      return Reg < TRI->getNumRegs() && MRI->isAllocatable(Reg);
     }
 
     // Analysis information if available
@@ -427,7 +426,7 @@ void MachineVerifier::markReachable(const MachineBasicBlock *MBB) {
 
 void MachineVerifier::visitMachineFunctionBefore() {
   lastIndex = SlotIndex();
-  regsReserved = TRI->getReservedRegs(*MF);
+  regsReserved = MRI->getReservedRegs();
 
   // A sub-register of a reserved register is also reserved
   for (int Reg = regsReserved.find_first(); Reg>=0;
@@ -438,8 +437,6 @@ void MachineVerifier::visitMachineFunctionBefore() {
       regsReserved.set(*SubRegs);
     }
   }
-
-  regsAllocatable = TRI->getAllocatableSet(*MF);
 
   markReachable(&MF->front());
 

@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
+#include "llvm/CodeGen/ScheduleDAGILP.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Support/CommandLine.h"
@@ -359,7 +360,7 @@ void ScheduleDAGMI::moveInstruction(MachineInstr *MI,
   BB->splice(InsertPos, BB, MI);
 
   // Update LiveIntervals
-  LIS->handleMove(MI);
+  LIS->handleMove(MI, /*UpdateFlags=*/true);
 
   // Recede RegionBegin if an instruction moves above the first.
   if (RegionBegin == InsertPos)
@@ -451,26 +452,6 @@ updateScheduledPressure(std::vector<unsigned> NewMaxPressure) {
   }
 }
 
-// Release all DAG roots for scheduling.
-void ScheduleDAGMI::releaseRoots() {
-  SmallVector<SUnit*, 16> BotRoots;
-
-  for (std::vector<SUnit>::iterator
-         I = SUnits.begin(), E = SUnits.end(); I != E; ++I) {
-    // A SUnit is ready to top schedule if it has no predecessors.
-    if (I->Preds.empty())
-      SchedImpl->releaseTopNode(&(*I));
-    // A SUnit is ready to bottom schedule if it has no successors.
-    if (I->Succs.empty())
-      BotRoots.push_back(&(*I));
-  }
-  // Release bottom roots in reverse order so the higher priority nodes appear
-  // first. This is more natural and slightly more efficient.
-  for (SmallVectorImpl<SUnit*>::const_reverse_iterator
-         I = BotRoots.rbegin(), E = BotRoots.rend(); I != E; ++I)
-    SchedImpl->releaseBottomNode(*I);
-}
-
 /// schedule - Called back from MachineScheduler::runOnMachineFunction
 /// after setting up the current scheduling region. [RegionBegin, RegionEnd)
 /// only includes instructions that have DAG nodes, not scheduling boundaries.
@@ -495,6 +476,7 @@ void ScheduleDAGMI::schedule() {
 
   bool IsTopNode = false;
   while (SUnit *SU = SchedImpl->pickNode(IsTopNode)) {
+    assert(!SU->isScheduled && "Node already scheduled");
     if (!checkSchedLimit())
       break;
 
@@ -531,8 +513,29 @@ void ScheduleDAGMI::postprocessDAG() {
   }
 }
 
+// Release all DAG roots for scheduling.
+void ScheduleDAGMI::releaseRoots() {
+  SmallVector<SUnit*, 16> BotRoots;
+
+  for (std::vector<SUnit>::iterator
+         I = SUnits.begin(), E = SUnits.end(); I != E; ++I) {
+    // A SUnit is ready to top schedule if it has no predecessors.
+    if (I->Preds.empty())
+      SchedImpl->releaseTopNode(&(*I));
+    // A SUnit is ready to bottom schedule if it has no successors.
+    if (I->Succs.empty())
+      BotRoots.push_back(&(*I));
+  }
+  // Release bottom roots in reverse order so the higher priority nodes appear
+  // first. This is more natural and slightly more efficient.
+  for (SmallVectorImpl<SUnit*>::const_reverse_iterator
+         I = BotRoots.rbegin(), E = BotRoots.rend(); I != E; ++I)
+    SchedImpl->releaseBottomNode(*I);
+}
+
 /// Identify DAG roots and setup scheduler queues.
 void ScheduleDAGMI::initQueues() {
+
   // Initialize the strategy before modifying the DAG.
   SchedImpl->initialize(this);
 
@@ -542,6 +545,8 @@ void ScheduleDAGMI::initQueues() {
 
   // Release all DAG roots for scheduling.
   releaseRoots();
+
+  SchedImpl->registerRoots();
 
   CurrentTop = nextIfDebug(RegionBegin, RegionEnd);
   CurrentBottom = RegionEnd;
@@ -651,6 +656,7 @@ class ConvergingScheduler : public MachineSchedStrategy {
   /// of "hazards" and other interlocks at the current cycle.
   struct SchedBoundary {
     ScheduleDAGMI *DAG;
+    const TargetSchedModel *SchedModel;
 
     ReadyQueue Available;
     ReadyQueue Pending;
@@ -670,12 +676,17 @@ class ConvergingScheduler : public MachineSchedStrategy {
     /// Pending queues extend the ready queues with the same ID and the
     /// PendingFlag set.
     SchedBoundary(unsigned ID, const Twine &Name):
-      DAG(0), Available(ID, Name+".A"),
+      DAG(0), SchedModel(0), Available(ID, Name+".A"),
       Pending(ID << ConvergingScheduler::LogMaxQID, Name+".P"),
       CheckPending(false), HazardRec(0), CurrCycle(0), IssueCount(0),
       MinReadyCycle(UINT_MAX), MaxMinLatency(0) {}
 
     ~SchedBoundary() { delete HazardRec; }
+
+    void init(ScheduleDAGMI *dag, const TargetSchedModel *smodel) {
+      DAG = dag;
+      SchedModel = smodel;
+    }
 
     bool isTop() const {
       return Available.getID() == ConvergingScheduler::TopQID;
@@ -697,6 +708,7 @@ class ConvergingScheduler : public MachineSchedStrategy {
   };
 
   ScheduleDAGMI *DAG;
+  const TargetSchedModel *SchedModel;
   const TargetRegisterInfo *TRI;
 
   // State of the top and bottom scheduled instruction boundaries.
@@ -712,7 +724,7 @@ public:
   };
 
   ConvergingScheduler():
-    DAG(0), TRI(0), Top(TopQID, "TopQ"), Bot(BotQID, "BotQ") {}
+    DAG(0), SchedModel(0), TRI(0), Top(TopQID, "TopQ"), Bot(BotQID, "BotQ") {}
 
   virtual void initialize(ScheduleDAGMI *dag);
 
@@ -739,13 +751,15 @@ protected:
 
 void ConvergingScheduler::initialize(ScheduleDAGMI *dag) {
   DAG = dag;
+  SchedModel = DAG->getSchedModel();
   TRI = DAG->TRI;
-  Top.DAG = dag;
-  Bot.DAG = dag;
+  Top.init(DAG, SchedModel);
+  Bot.init(DAG, SchedModel);
 
-  // Initialize the HazardRecognizers.
+  // Initialize the HazardRecognizers. If itineraries don't exist, are empty, or
+  // are disabled, then these HazardRecs will be disabled.
+  const InstrItineraryData *Itin = SchedModel->getInstrItineraries();
   const TargetMachine &TM = DAG->MF.getTarget();
-  const InstrItineraryData *Itin = TM.getInstrItineraryData();
   Top.HazardRec = TM.getInstrInfo()->CreateTargetMIHazardRecognizer(Itin, DAG);
   Bot.HazardRec = TM.getInstrInfo()->CreateTargetMIHazardRecognizer(Itin, DAG);
 
@@ -806,7 +820,8 @@ bool ConvergingScheduler::SchedBoundary::checkHazard(SUnit *SU) {
   if (HazardRec->isEnabled())
     return HazardRec->getHazardType(SU) != ScheduleHazardRecognizer::NoHazard;
 
-  if (IssueCount + DAG->getNumMicroOps(SU->getInstr()) > DAG->getIssueWidth())
+  unsigned uops = SchedModel->getNumMicroOps(SU->getInstr());
+  if (IssueCount + uops > SchedModel->getIssueWidth())
     return true;
 
   return false;
@@ -827,7 +842,7 @@ void ConvergingScheduler::SchedBoundary::releaseNode(SUnit *SU,
 
 /// Move the boundary of scheduled code by one cycle.
 void ConvergingScheduler::SchedBoundary::bumpCycle() {
-  unsigned Width = DAG->getIssueWidth();
+  unsigned Width = SchedModel->getIssueWidth();
   IssueCount = (IssueCount <= Width) ? 0 : IssueCount - Width;
 
   assert(MinReadyCycle < UINT_MAX && "MinReadyCycle uninitialized");
@@ -865,8 +880,8 @@ void ConvergingScheduler::SchedBoundary::bumpNode(SUnit *SU) {
   }
   // Check the instruction group dispatch limit.
   // TODO: Check if this SU must end a dispatch group.
-  IssueCount += DAG->getNumMicroOps(SU->getInstr());
-  if (IssueCount >= DAG->getIssueWidth()) {
+  IssueCount += SchedModel->getNumMicroOps(SU->getInstr());
+  if (IssueCount >= SchedModel->getIssueWidth()) {
     DEBUG(dbgs() << "*** Max instrs at cycle " << CurrCycle << '\n');
     bumpCycle();
   }
@@ -1119,33 +1134,36 @@ SUnit *ConvergingScheduler::pickNode(bool &IsTopNode) {
     return NULL;
   }
   SUnit *SU;
-  if (ForceTopDown) {
-    SU = Top.pickOnlyChoice();
-    if (!SU) {
-      SchedCandidate TopCand;
-      CandResult TopResult =
-        pickNodeFromQueue(Top.Available, DAG->getTopRPTracker(), TopCand);
-      assert(TopResult != NoCand && "failed to find the first candidate");
-      (void)TopResult;
-      SU = TopCand.SU;
+  do {
+    if (ForceTopDown) {
+      SU = Top.pickOnlyChoice();
+      if (!SU) {
+        SchedCandidate TopCand;
+        CandResult TopResult =
+          pickNodeFromQueue(Top.Available, DAG->getTopRPTracker(), TopCand);
+        assert(TopResult != NoCand && "failed to find the first candidate");
+        (void)TopResult;
+        SU = TopCand.SU;
+      }
+      IsTopNode = true;
     }
-    IsTopNode = true;
-  }
-  else if (ForceBottomUp) {
-    SU = Bot.pickOnlyChoice();
-    if (!SU) {
-      SchedCandidate BotCand;
-      CandResult BotResult =
-        pickNodeFromQueue(Bot.Available, DAG->getBotRPTracker(), BotCand);
-      assert(BotResult != NoCand && "failed to find the first candidate");
-      (void)BotResult;
-      SU = BotCand.SU;
+    else if (ForceBottomUp) {
+      SU = Bot.pickOnlyChoice();
+      if (!SU) {
+        SchedCandidate BotCand;
+        CandResult BotResult =
+          pickNodeFromQueue(Bot.Available, DAG->getBotRPTracker(), BotCand);
+        assert(BotResult != NoCand && "failed to find the first candidate");
+        (void)BotResult;
+        SU = BotCand.SU;
+      }
+      IsTopNode = false;
     }
-    IsTopNode = false;
-  }
-  else {
-    SU = pickNodeBidrectional(IsTopNode);
-  }
+    else {
+      SU = pickNodeBidrectional(IsTopNode);
+    }
+  } while (SU->isScheduled);
+
   if (SU->isTopReady())
     Top.removeReady(SU);
   if (SU->isBottomReady())
@@ -1182,6 +1200,86 @@ static ScheduleDAGInstrs *createConvergingSched(MachineSchedContext *C) {
 static MachineSchedRegistry
 ConvergingSchedRegistry("converge", "Standard converging scheduler.",
                         createConvergingSched);
+
+//===----------------------------------------------------------------------===//
+// ILP Scheduler. Currently for experimental analysis of heuristics.
+//===----------------------------------------------------------------------===//
+
+namespace {
+/// \brief Order nodes by the ILP metric.
+struct ILPOrder {
+  ScheduleDAGILP *ILP;
+  bool MaximizeILP;
+
+  ILPOrder(ScheduleDAGILP *ilp, bool MaxILP): ILP(ilp), MaximizeILP(MaxILP) {}
+
+  /// \brief Apply a less-than relation on node priority.
+  bool operator()(const SUnit *A, const SUnit *B) const {
+    // Return true if A comes after B in the Q.
+    if (MaximizeILP)
+      return ILP->getILP(A) < ILP->getILP(B);
+    else
+      return ILP->getILP(A) > ILP->getILP(B);
+  }
+};
+
+/// \brief Schedule based on the ILP metric.
+class ILPScheduler : public MachineSchedStrategy {
+  ScheduleDAGILP ILP;
+  ILPOrder Cmp;
+
+  std::vector<SUnit*> ReadyQ;
+public:
+  ILPScheduler(bool MaximizeILP)
+  : ILP(/*BottomUp=*/true), Cmp(&ILP, MaximizeILP) {}
+
+  virtual void initialize(ScheduleDAGMI *DAG) {
+    ReadyQ.clear();
+    ILP.resize(DAG->SUnits.size());
+  }
+
+  virtual void registerRoots() {
+    for (std::vector<SUnit*>::const_iterator
+           I = ReadyQ.begin(), E = ReadyQ.end(); I != E; ++I) {
+      ILP.computeILP(*I);
+    }
+  }
+
+  /// Implement MachineSchedStrategy interface.
+  /// -----------------------------------------
+
+  virtual SUnit *pickNode(bool &IsTopNode) {
+    if (ReadyQ.empty()) return NULL;
+    pop_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
+    SUnit *SU = ReadyQ.back();
+    ReadyQ.pop_back();
+    IsTopNode = false;
+    DEBUG(dbgs() << "*** Scheduling " << *SU->getInstr()
+          << " ILP: " << ILP.getILP(SU) << '\n');
+    return SU;
+  }
+
+  virtual void schedNode(SUnit *, bool) {}
+
+  virtual void releaseTopNode(SUnit *) { /*only called for top roots*/ }
+
+  virtual void releaseBottomNode(SUnit *SU) {
+    ReadyQ.push_back(SU);
+    std::push_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
+  }
+};
+} // namespace
+
+static ScheduleDAGInstrs *createILPMaxScheduler(MachineSchedContext *C) {
+  return new ScheduleDAGMI(C, new ILPScheduler(true));
+}
+static ScheduleDAGInstrs *createILPMinScheduler(MachineSchedContext *C) {
+  return new ScheduleDAGMI(C, new ILPScheduler(false));
+}
+static MachineSchedRegistry ILPMaxRegistry(
+  "ilpmax", "Schedule bottom-up for max ILP", createILPMaxScheduler);
+static MachineSchedRegistry ILPMinRegistry(
+  "ilpmin", "Schedule bottom-up for min ILP", createILPMinScheduler);
 
 //===----------------------------------------------------------------------===//
 // Machine Instruction Shuffler for Correctness Testing

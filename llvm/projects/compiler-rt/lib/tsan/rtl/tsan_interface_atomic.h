@@ -22,6 +22,8 @@ typedef short __tsan_atomic16;  // NOLINT
 typedef int   __tsan_atomic32;
 typedef long  __tsan_atomic64;  // NOLINT
 
+// Part of ABI, do not change.
+// http://llvm.org/viewvc/llvm-project/libcxx/trunk/include/atomic?view=markup
 typedef enum {
   __tsan_memory_order_relaxed = 1 << 0,
   __tsan_memory_order_consume = 1 << 1,
@@ -65,6 +67,15 @@ __tsan_atomic16 __tsan_atomic16_fetch_add(volatile __tsan_atomic16 *a,
 __tsan_atomic32 __tsan_atomic32_fetch_add(volatile __tsan_atomic32 *a,
     __tsan_atomic32 v, __tsan_memory_order mo);
 __tsan_atomic64 __tsan_atomic64_fetch_add(volatile __tsan_atomic64 *a,
+    __tsan_atomic64 v, __tsan_memory_order mo);
+
+__tsan_atomic8 __tsan_atomic8_fetch_sub(volatile __tsan_atomic8 *a,
+    __tsan_atomic8 v, __tsan_memory_order mo);
+__tsan_atomic16 __tsan_atomic16_fetch_sub(volatile __tsan_atomic16 *a,
+    __tsan_atomic16 v, __tsan_memory_order mo);
+__tsan_atomic32 __tsan_atomic32_fetch_sub(volatile __tsan_atomic32 *a,
+    __tsan_atomic32 v, __tsan_memory_order mo);
+__tsan_atomic64 __tsan_atomic64_fetch_sub(volatile __tsan_atomic64 *a,
     __tsan_atomic64 v, __tsan_memory_order mo);
 
 __tsan_atomic8 __tsan_atomic8_fetch_and(volatile __tsan_atomic8 *a,
@@ -113,6 +124,7 @@ int __tsan_atomic64_compare_exchange_strong(volatile __tsan_atomic64 *a,
     __tsan_atomic64 *c, __tsan_atomic64 v, __tsan_memory_order mo);
 
 void __tsan_atomic_thread_fence(__tsan_memory_order mo);
+void __tsan_atomic_signal_fence(__tsan_memory_order mo);
 
 #ifdef __cplusplus
 }  // extern "C"

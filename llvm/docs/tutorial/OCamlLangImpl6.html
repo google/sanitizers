@@ -1506,7 +1506,7 @@ let main () =
 
   (* Set up the optimizer pipeline.  Start with registering info about how the
    * target lays out data structures. *)
-  TargetData.add (ExecutionEngine.target_data the_execution_engine) the_fpm;
+  DataLayout.add (ExecutionEngine.target_data the_execution_engine) the_fpm;
 
   (* Do simple "peephole" optimizations and bit-twiddling optzn. *)
   add_instruction_combination the_fpm;
@@ -1568,7 +1568,7 @@ SSA construction</a>
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="mailto:idadesub@users.sourceforge.net">Erick Tryzelaar</a><br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-07-31 11:05:57 +0400 (Tue, 31 Jul 2012) $
+  Last modified: $Date: 2012-10-08 20:39:34 +0400 (Mon, 08 Oct 2012) $
 </address>
 </body>
 </html>

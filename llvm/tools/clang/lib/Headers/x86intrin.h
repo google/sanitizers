@@ -58,6 +58,10 @@
 #include <xopintrin.h>
 #endif
 
+#ifdef __F16C__
+#include <f16cintrin.h>
+#endif
+
 // FIXME: LWP
 
 #endif /* __X86INTRIN_H */

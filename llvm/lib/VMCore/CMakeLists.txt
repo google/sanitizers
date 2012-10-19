@@ -8,6 +8,7 @@ add_llvm_library(LLVMCore
   ConstantFold.cpp
   Constants.cpp
   Core.cpp
+  DataLayout.cpp
   DebugInfo.cpp
   DebugLoc.cpp
   DIBuilder.cpp
@@ -32,6 +33,7 @@ add_llvm_library(LLVMCore
   PrintModulePass.cpp
   Type.cpp
   TypeFinder.cpp
+  TargetTransformInfo.cpp
   Use.cpp
   User.cpp
   Value.cpp

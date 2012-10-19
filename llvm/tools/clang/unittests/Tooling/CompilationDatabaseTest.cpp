@@ -11,8 +11,10 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclGroup.h"
 #include "clang/Frontend/FrontendAction.h"
+#include "clang/Tooling/FileMatchTrie.h"
 #include "clang/Tooling/JSONCompilationDatabase.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/Support/PathV2.h"
 #include "gtest/gtest.h"
 
 namespace clang {
@@ -55,13 +57,16 @@ TEST(JSONCompilationDatabase, GetAllFiles) {
             getAllFiles("[]", ErrorMessage)) << ErrorMessage;
 
   std::vector<std::string> expected_files;
-  expected_files.push_back("file1");
-  expected_files.push_back("file2");
+  SmallString<16> PathStorage;
+  llvm::sys::path::native("//net/dir/file1", PathStorage);
+  expected_files.push_back(PathStorage.str());
+  llvm::sys::path::native("//net/dir/file2", PathStorage);
+  expected_files.push_back(PathStorage.str());
   EXPECT_EQ(expected_files, getAllFiles(
-    "[{\"directory\":\"dir\","
+    "[{\"directory\":\"//net/dir\","
       "\"command\":\"command\","
       "\"file\":\"file1\"},"
-    " {\"directory\":\"dir\","
+    " {\"directory\":\"//net/dir\","
       "\"command\":\"command\","
       "\"file\":\"file2\"}]",
     ErrorMessage)) << ErrorMessage;
@@ -81,6 +86,82 @@ static CompileCommand findCompileArgsInJsonDatabase(StringRef FileName,
   return Commands[0];
 }
 
+struct FakeComparator : public PathComparator {
+  virtual ~FakeComparator() {}
+  virtual bool equivalent(StringRef FileA, StringRef FileB) const {
+    return FileA.equals_lower(FileB);
+  }
+};
+
+class FileMatchTrieTest : public ::testing::Test {
+protected:
+  FileMatchTrieTest() : Trie(new FakeComparator()) {}
+
+  StringRef find(StringRef Path) {
+    llvm::raw_string_ostream ES(Error);
+    return Trie.findEquivalent(Path, ES);
+  }
+
+  FileMatchTrie Trie;
+  std::string Error;
+};
+
+TEST_F(FileMatchTrieTest, InsertingRelativePath) {
+  Trie.insert("//net/path/file.cc");
+  Trie.insert("file.cc");
+  EXPECT_EQ("//net/path/file.cc", find("//net/path/file.cc"));
+}
+
+TEST_F(FileMatchTrieTest, MatchingRelativePath) {
+  EXPECT_EQ("", find("file.cc"));
+}
+
+TEST_F(FileMatchTrieTest, ReturnsBestResults) {
+  Trie.insert("//net/d/c/b.cc");
+  Trie.insert("//net/d/b/b.cc");
+  EXPECT_EQ("//net/d/b/b.cc", find("//net/d/b/b.cc"));
+}
+
+TEST_F(FileMatchTrieTest, HandlesSymlinks) {
+  Trie.insert("//net/AA/file.cc");
+  EXPECT_EQ("//net/AA/file.cc", find("//net/aa/file.cc"));
+}
+
+TEST_F(FileMatchTrieTest, ReportsSymlinkAmbiguity) {
+  Trie.insert("//net/Aa/file.cc");
+  Trie.insert("//net/aA/file.cc");
+  EXPECT_TRUE(find("//net/aa/file.cc").empty());
+  EXPECT_EQ("Path is ambiguous", Error);
+}
+
+TEST_F(FileMatchTrieTest, LongerMatchingSuffixPreferred) {
+  Trie.insert("//net/src/Aa/file.cc");
+  Trie.insert("//net/src/aA/file.cc");
+  Trie.insert("//net/SRC/aa/file.cc");
+  EXPECT_EQ("//net/SRC/aa/file.cc", find("//net/src/aa/file.cc"));
+}
+
+TEST_F(FileMatchTrieTest, EmptyTrie) {
+  EXPECT_TRUE(find("//net/some/path").empty());
+}
+
+TEST_F(FileMatchTrieTest, NoResult) {
+  Trie.insert("//net/somepath/otherfile.cc");
+  Trie.insert("//net/otherpath/somefile.cc");
+  EXPECT_EQ("", find("//net/somepath/somefile.cc"));
+}
+
+TEST_F(FileMatchTrieTest, RootElementDifferent) {
+  Trie.insert("//net/path/file.cc");
+  Trie.insert("//net/otherpath/file.cc");
+  EXPECT_EQ("//net/path/file.cc", find("//net/path/file.cc"));
+}
+
+TEST_F(FileMatchTrieTest, CannotResolveRelativePath) {
+  EXPECT_EQ("", find("relative-path.cc"));
+  EXPECT_EQ("Cannot resolve relative paths", Error);
+}
+
 TEST(findCompileArgsInJsonDatabase, FindsNothingIfEmpty) {
   std::string ErrorMessage;
   CompileCommand NotFound = findCompileArgsInJsonDatabase(
@@ -90,9 +171,9 @@ TEST(findCompileArgsInJsonDatabase, FindsNothingIfEmpty) {
 }
 
 TEST(findCompileArgsInJsonDatabase, ReadsSingleEntry) {
-  StringRef Directory("/some/directory");
-  StringRef FileName("/path/to/a-file.cpp");
-  StringRef Command("/path/to/compiler and some arguments");
+  StringRef Directory("//net/some/directory");
+  StringRef FileName("//net/path/to/a-file.cpp");
+  StringRef Command("//net/path/to/compiler and some arguments");
   std::string ErrorMessage;
   CompileCommand FoundCommand = findCompileArgsInJsonDatabase(
     FileName,
@@ -102,7 +183,8 @@ TEST(findCompileArgsInJsonDatabase, ReadsSingleEntry) {
     ErrorMessage);
   EXPECT_EQ(Directory, FoundCommand.Directory) << ErrorMessage;
   ASSERT_EQ(4u, FoundCommand.CommandLine.size()) << ErrorMessage;
-  EXPECT_EQ("/path/to/compiler", FoundCommand.CommandLine[0]) << ErrorMessage;
+  EXPECT_EQ("//net/path/to/compiler",
+            FoundCommand.CommandLine[0]) << ErrorMessage;
   EXPECT_EQ("and", FoundCommand.CommandLine[1]) << ErrorMessage;
   EXPECT_EQ("some", FoundCommand.CommandLine[2]) << ErrorMessage;
   EXPECT_EQ("arguments", FoundCommand.CommandLine[3]) << ErrorMessage;
@@ -118,9 +200,9 @@ TEST(findCompileArgsInJsonDatabase, ReadsSingleEntry) {
 }
 
 TEST(findCompileArgsInJsonDatabase, ReadsCompileCommandLinesWithSpaces) {
-  StringRef Directory("/some/directory");
-  StringRef FileName("/path/to/a-file.cpp");
-  StringRef Command("\\\"/path to compiler\\\" \\\"and an argument\\\"");
+  StringRef Directory("//net/some/directory");
+  StringRef FileName("//net/path/to/a-file.cpp");
+  StringRef Command("\\\"//net/path to compiler\\\" \\\"and an argument\\\"");
   std::string ErrorMessage;
   CompileCommand FoundCommand = findCompileArgsInJsonDatabase(
     FileName,
@@ -129,13 +211,14 @@ TEST(findCompileArgsInJsonDatabase, ReadsCompileCommandLinesWithSpaces) {
        "\"file\":\"" + FileName + "\"}]").str(),
     ErrorMessage);
   ASSERT_EQ(2u, FoundCommand.CommandLine.size());
-  EXPECT_EQ("/path to compiler", FoundCommand.CommandLine[0]) << ErrorMessage;
+  EXPECT_EQ("//net/path to compiler",
+            FoundCommand.CommandLine[0]) << ErrorMessage;
   EXPECT_EQ("and an argument", FoundCommand.CommandLine[1]) << ErrorMessage;
 }
 
 TEST(findCompileArgsInJsonDatabase, ReadsDirectoryWithSpaces) {
-  StringRef Directory("/some directory / with spaces");
-  StringRef FileName("/path/to/a-file.cpp");
+  StringRef Directory("//net/some directory / with spaces");
+  StringRef FileName("//net/path/to/a-file.cpp");
   StringRef Command("a command");
   std::string ErrorMessage;
   CompileCommand FoundCommand = findCompileArgsInJsonDatabase(
@@ -148,7 +231,7 @@ TEST(findCompileArgsInJsonDatabase, ReadsDirectoryWithSpaces) {
 }
 
 TEST(findCompileArgsInJsonDatabase, FindsEntry) {
-  StringRef Directory("directory");
+  StringRef Directory("//net/directory");
   StringRef FileName("file");
   StringRef Command("command");
   std::string JsonDatabase = "[";
@@ -162,19 +245,19 @@ TEST(findCompileArgsInJsonDatabase, FindsEntry) {
   JsonDatabase += "]";
   std::string ErrorMessage;
   CompileCommand FoundCommand = findCompileArgsInJsonDatabase(
-    "file4", JsonDatabase, ErrorMessage);
-  EXPECT_EQ("directory4", FoundCommand.Directory) << ErrorMessage;
+    "//net/directory4/file4", JsonDatabase, ErrorMessage);
+  EXPECT_EQ("//net/directory4", FoundCommand.Directory) << ErrorMessage;
   ASSERT_EQ(1u, FoundCommand.CommandLine.size()) << ErrorMessage;
   EXPECT_EQ("command4", FoundCommand.CommandLine[0]) << ErrorMessage;
 }
 
 static std::vector<std::string> unescapeJsonCommandLine(StringRef Command) {
   std::string JsonDatabase =
-    ("[{\"directory\":\"\", \"file\":\"test\", \"command\": \"" +
+    ("[{\"directory\":\"//net/root\", \"file\":\"test\", \"command\": \"" +
      Command + "\"}]").str();
   std::string ErrorMessage;
   CompileCommand FoundCommand = findCompileArgsInJsonDatabase(
-    "test", JsonDatabase, ErrorMessage);
+    "//net/root/test", JsonDatabase, ErrorMessage);
   EXPECT_TRUE(ErrorMessage.empty()) << ErrorMessage;
   return FoundCommand.CommandLine;
 }

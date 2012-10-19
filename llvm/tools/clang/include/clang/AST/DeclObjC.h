@@ -123,8 +123,8 @@ private:
   unsigned IsInstance : 1;
   unsigned IsVariadic : 1;
 
-  // Synthesized declaration method for a property setter/getter
-  unsigned IsSynthesized : 1;
+  /// True if this method is the getter or setter for an explicit property.
+  unsigned IsPropertyAccessor : 1;
 
   // Method has a definition.
   unsigned IsDefined : 1;
@@ -174,8 +174,7 @@ private:
   SourceLocation DeclEndLoc; // the location of the ';' or '{'.
 
   // The following are only used for method definitions, null otherwise.
-  // FIXME: space savings opportunity, consider a sub-class.
-  Stmt *Body;
+  LazyDeclStmtPtr Body;
 
   /// SelfDecl - Decl for the implicit self parameter. This is lazily
   /// constructed by createImplicitParams.
@@ -227,7 +226,7 @@ private:
                  DeclContext *contextDecl,
                  bool isInstance = true,
                  bool isVariadic = false,
-                 bool isSynthesized = false,
+                 bool isPropertyAccessor = false,
                  bool isImplicitlyDeclared = false,
                  bool isDefined = false,
                  ImplementationControl impControl = None,
@@ -235,14 +234,14 @@ private:
   : NamedDecl(ObjCMethod, contextDecl, beginLoc, SelInfo),
     DeclContext(ObjCMethod), Family(InvalidObjCMethodFamily),
     IsInstance(isInstance), IsVariadic(isVariadic),
-    IsSynthesized(isSynthesized),
+    IsPropertyAccessor(isPropertyAccessor),
     IsDefined(isDefined), IsRedeclaration(0), HasRedeclaration(0),
     DeclImplementation(impControl), objcDeclQualifier(OBJC_TQ_None),
     RelatedResultType(HasRelatedResultType),
     SelLocsKind(SelLoc_StandardNoSpace), IsOverriding(0),
     MethodDeclType(T), ResultTInfo(ResultTInfo),
     ParamsAndSelLocs(0), NumParams(0),
-    DeclEndLoc(endLoc), Body(0), SelfDecl(0), CmdDecl(0) {
+    DeclEndLoc(endLoc), Body(), SelfDecl(0), CmdDecl(0) {
     setImplicit(isImplicitlyDeclared);
   }
 
@@ -261,7 +260,7 @@ public:
                                 DeclContext *contextDecl,
                                 bool isInstance = true,
                                 bool isVariadic = false,
-                                bool isSynthesized = false,
+                                bool isPropertyAccessor = false,
                                 bool isImplicitlyDeclared = false,
                                 bool isDefined = false,
                                 ImplementationControl impControl = None,
@@ -403,8 +402,8 @@ public:
 
   bool isClassMethod() const { return !IsInstance; }
 
-  bool isSynthesized() const { return IsSynthesized; }
-  void setSynthesized(bool isSynth) { IsSynthesized = isSynth; }
+  bool isPropertyAccessor() const { return IsPropertyAccessor; }
+  void setPropertyAccessor(bool isAccessor) { IsPropertyAccessor = isAccessor; }
 
   bool isDefined() const { return IsDefined; }
   void setDefined(bool isDefined) { IsDefined = isDefined; }
@@ -418,7 +417,25 @@ public:
   /// method in the interface or its categories.
   bool isOverriding() const { return IsOverriding; }
   void setOverriding(bool isOverriding) { IsOverriding = isOverriding; }
-  
+
+  /// \brief Return overridden methods for the given \p Method.
+  ///
+  /// An ObjC method is considered to override any method in the class's
+  /// base classes (and base's categories), its protocols, or its categories'
+  /// protocols, that has
+  /// the same selector and is of the same kind (class or instance).
+  /// A method in an implementation is not considered as overriding the same
+  /// method in the interface or its categories.
+  void getOverriddenMethods(
+                     SmallVectorImpl<const ObjCMethodDecl *> &Overridden) const;
+
+  /// \brief Returns the property associated with this method's selector.
+  ///
+  /// Note that even if this particular method is not marked as a property
+  /// accessor, it is still possible for it to match a property declared in a
+  /// superclass. Pass \c false if you only want to check the current class.
+  const ObjCPropertyDecl *findPropertyDecl(bool CheckOverrides = true) const;
+
   // Related to protocols declared in  \@protocol
   void setDeclImplementation(ImplementationControl ic) {
     DeclImplementation = ic;
@@ -427,10 +444,15 @@ public:
     return ImplementationControl(DeclImplementation);
   }
 
-  virtual Stmt *getBody() const {
-    return (Stmt*) Body;
-  }
-  CompoundStmt *getCompoundBody() { return (CompoundStmt*)Body; }
+  /// \brief Determine whether this method has a body.
+  virtual bool hasBody() const { return Body; }
+
+  /// \brief Retrieve the body of this method, if it has one.
+  virtual Stmt *getBody() const;
+
+  void setLazyBody(uint64_t Offset) { Body = Offset; }
+
+  CompoundStmt *getCompoundBody() { return (CompoundStmt*)getBody(); }
   void setBody(Stmt *B) { Body = B; }
 
   /// \brief Returns whether this specific method is a definition.
@@ -438,7 +460,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCMethodDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCMethod; }
   static DeclContext *castToDeclContext(const ObjCMethodDecl *D) {
     return static_cast<DeclContext *>(const_cast<ObjCMethodDecl*>(D));
@@ -520,6 +541,12 @@ public:
 
   ObjCPropertyDecl *FindPropertyDeclaration(IdentifierInfo *PropertyId) const;
 
+  typedef llvm::DenseMap<IdentifierInfo *, ObjCPropertyDecl*> PropertyMap;
+
+  /// This routine collects list of properties to be implemented in the class.
+  /// This includes, class's and its conforming protocols' properties.
+  virtual void collectPropertiesToImplement(PropertyMap& PM) const {}
+
   SourceLocation getAtStartLoc() const { return AtStart; }
   void setAtStartLoc(SourceLocation Loc) { AtStart = Loc; }
 
@@ -537,7 +564,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCContainerDecl *D) { return true; }
   static bool classofKind(Kind K) {
     return K >= firstObjCContainer &&
            K <= lastObjCContainer;
@@ -880,6 +906,8 @@ public:
   ObjCPropertyDecl
     *FindPropertyVisibleInPrimaryClass(IdentifierInfo *PropertyId) const;
 
+  virtual void collectPropertiesToImplement(PropertyMap& PM) const;
+
   /// isSuperClassOf - Return true if this class is the specified class or is a
   /// super class of the specified interface class.
   bool isSuperClassOf(const ObjCInterfaceDecl *I) const {
@@ -992,7 +1020,6 @@ public:
   void setTypeForDecl(const Type *TD) const { TypeForDecl = TD; }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCInterfaceDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCInterface; }
 
   friend class ASTReader;
@@ -1065,7 +1092,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCIvarDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCIvar; }
 private:
   /// NextIvar - Next Ivar in the list of ivars declared in class; class's
@@ -1098,7 +1124,6 @@ public:
   
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCAtDefsFieldDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCAtDefsField; }
 };
 
@@ -1277,8 +1302,9 @@ public:
     return getFirstDeclaration();
   }
 
+  virtual void collectPropertiesToImplement(PropertyMap& PM) const;
+
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCProtocolDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCProtocol; }
 
   friend class ASTReader;
@@ -1402,7 +1428,6 @@ public:
   SourceLocation getIvarRBraceLoc() const { return IvarRBraceLoc; }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCCategoryDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCCategory; }
 
   friend class ASTDeclReader;
@@ -1455,7 +1480,6 @@ public:
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCImplDecl *D) { return true; }
   static bool classofKind(Kind K) {
     return K >= firstObjCImpl && K <= lastObjCImpl;
   }
@@ -1532,7 +1556,6 @@ public:
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCCategoryImplDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCCategoryImpl;}
 
   friend class ASTDeclReader;
@@ -1568,8 +1591,12 @@ class ObjCImplementationDecl : public ObjCImplDecl {
   CXXCtorInitializer **IvarInitializers;
   unsigned NumIvarInitializers;
 
-  /// true if class has a .cxx_[construct,destruct] method.
-  bool HasCXXStructors : 1;
+  /// Do the ivars of this class require initialization other than
+  /// zero-initialization?
+  bool HasNonZeroConstructors : 1;
+
+  /// Do the ivars of this class require non-trivial destruction?
+  bool HasDestructors : 1;
 
   ObjCImplementationDecl(DeclContext *DC,
                          ObjCInterfaceDecl *classInterface,
@@ -1581,7 +1608,7 @@ class ObjCImplementationDecl : public ObjCImplDecl {
        SuperClass(superDecl), IvarLBraceLoc(IvarLBraceLoc), 
        IvarRBraceLoc(IvarRBraceLoc),
        IvarInitializers(0), NumIvarInitializers(0),
-       HasCXXStructors(false) {}
+       HasNonZeroConstructors(false), HasDestructors(false) {}
 public:
   static ObjCImplementationDecl *Create(ASTContext &C, DeclContext *DC,
                                         ObjCInterfaceDecl *classInterface,
@@ -1625,8 +1652,15 @@ public:
                            CXXCtorInitializer ** initializers,
                            unsigned numInitializers);
 
-  bool hasCXXStructors() const { return HasCXXStructors; }
-  void setHasCXXStructors(bool val) { HasCXXStructors = val; }
+  /// Do any of the ivars of this class (not counting its base classes)
+  /// require construction other than zero-initialization?
+  bool hasNonZeroConstructors() const { return HasNonZeroConstructors; }
+  void setHasNonZeroConstructors(bool val) { HasNonZeroConstructors = val; }
+
+  /// Do any of the ivars of this class (not counting its base classes)
+  /// require non-trivial destruction?
+  bool hasDestructors() const { return HasDestructors; }
+  void setHasDestructors(bool val) { HasDestructors = val; }
 
   /// getIdentifier - Get the identifier that names the class
   /// interface associated with this implementation.
@@ -1676,7 +1710,6 @@ public:
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCImplementationDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCImplementation; }
 
   friend class ASTDeclReader;
@@ -1708,7 +1741,6 @@ public:
   void setClassInterface(ObjCInterfaceDecl *D) { AliasedClass = D; }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCCompatibleAliasDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCCompatibleAlias; }
 
 };
@@ -1891,7 +1923,6 @@ public:
                                             IdentifierInfo *propertyID);
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCPropertyDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ObjCProperty; }
 };
 
@@ -2002,7 +2033,6 @@ public:
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ObjCPropertyImplDecl *D) { return true; }
   static bool classofKind(Decl::Kind K) { return K == ObjCPropertyImpl; }
 
   friend class ASTDeclReader;

@@ -73,15 +73,10 @@ public:
                                   StringRef SearchPath,
                                   StringRef RelativePath,
                                   const Module *Imported) {
-    if (Imported) {
-      IndexCtx.importedModule(HashLoc, FileName, /*isIncludeDirective=*/true,
-                              Imported);
-      return;
-    }
-
     bool isImport = (IncludeTok.is(tok::identifier) &&
             IncludeTok.getIdentifierInfo()->getPPKeywordID() == tok::pp_import);
-    IndexCtx.ppIncludedFile(HashLoc, FileName, File, isImport, IsAngled);
+    IndexCtx.ppIncludedFile(HashLoc, FileName, File, isImport, IsAngled,
+                            Imported);
   }
 
   /// MacroDefined - This hook is called whenever a macro definition is seen.
@@ -192,19 +187,16 @@ public:
                          unsigned indexOptions,
                          CXTranslationUnit cxTU)
     : IndexCtx(clientData, indexCallbacks, indexOptions, cxTU),
-      CXTU(cxTU), EnablePPDetailedRecordForModules(false) { }
-
-  bool EnablePPDetailedRecordForModules;
+      CXTU(cxTU) { }
 
   virtual ASTConsumer *CreateASTConsumer(CompilerInstance &CI,
                                          StringRef InFile) {
-    // We usually disable the preprocessing record for indexing even if the
-    // original preprocessing options had it enabled. Now that the indexing
-    // Preprocessor has been created (without a preprocessing record), re-enable
-    // the option in case modules are enabled, so that the detailed record
-    // option can be propagated when the module file is generated.
-    if (CI.getLangOpts().Modules && EnablePPDetailedRecordForModules)
-      CI.getPreprocessorOpts().DetailedRecord = true;
+    PreprocessorOptions &PPOpts = CI.getPreprocessorOpts();
+
+    if (!PPOpts.ImplicitPCHInclude.empty()) {
+      IndexCtx.importedPCH(
+                        CI.getFileManager().getFile(PPOpts.ImplicitPCHInclude));
+    }
 
     IndexCtx.setASTContext(CI.getASTContext());
     Preprocessor &PP = CI.getPreprocessor();
@@ -396,16 +388,13 @@ static void clang_indexSourceFile_Impl(void *UserData) {
     // FIXME: Add a flag for modules.
     CacheCodeCompletionResults
       = TU_options & CXTranslationUnit_CacheCompletionResults;
-    if (TU_options & CXTranslationUnit_DetailedPreprocessingRecord) {
-      PPOpts.DetailedRecord = true;
-    }
   }
 
-  IndexAction->EnablePPDetailedRecordForModules
-    = PPOpts.DetailedRecord ||
-      (TU_options & CXTranslationUnit_DetailedPreprocessingRecord);
+  if (TU_options & CXTranslationUnit_DetailedPreprocessingRecord) {
+    PPOpts.DetailedRecord = true;
+  }
 
-  if (!requestedToGetTU)
+  if (!requestedToGetTU && !CInvok->getLangOpts()->Modules)
     PPOpts.DetailedRecord = false;
 
   DiagnosticErrorTrap DiagTrap(*Diags);
@@ -460,14 +449,20 @@ static void indexPreprocessingRecord(ASTUnit &Unit, IndexingContext &IdxCtx) {
   PreprocessingRecord::iterator I, E;
   llvm::tie(I, E) = Unit.getLocalPreprocessingEntities();
 
+  bool isModuleFile = Unit.isModuleFile();
   for (; I != E; ++I) {
     PreprocessedEntity *PPE = *I;
 
     if (InclusionDirective *ID = dyn_cast<InclusionDirective>(PPE)) {
-      if (!ID->importedModule())
-        IdxCtx.ppIncludedFile(ID->getSourceRange().getBegin(),ID->getFileName(),
-                     ID->getFile(), ID->getKind() == InclusionDirective::Import,
-                     !ID->wasInQuotes());
+      SourceLocation Loc = ID->getSourceRange().getBegin();
+      // Modules have synthetic main files as input, give an invalid location
+      // if the location points to such a file.
+      if (isModuleFile && Unit.isInMainFileID(Loc))
+        Loc = SourceLocation();
+      IdxCtx.ppIncludedFile(Loc, ID->getFileName(),
+                            ID->getFile(),
+                            ID->getKind() == InclusionDirective::Import,
+                            !ID->wasInQuotes(), ID->importedModule());
     }
   }
 }
@@ -536,6 +531,9 @@ static void clang_indexTranslationUnit_Impl(void *UserData) {
     return;
 
   ASTUnit::ConcurrencyCheck Check(*Unit);
+
+  if (const FileEntry *PCHFile = Unit->getPCHFile())
+    IndexCtx->importedPCH(PCHFile);
 
   FileManager &FileMgr = Unit->getFileManager();
 

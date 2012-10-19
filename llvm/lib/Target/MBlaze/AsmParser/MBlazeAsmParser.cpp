@@ -44,9 +44,10 @@ class MBlazeAsmParser : public MCTargetAsmParser {
 
   bool ParseDirectiveWord(unsigned Size, SMLoc L);
 
-  bool MatchAndEmitInstruction(SMLoc IDLoc,
+  bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               MCStreamer &Out);
+                               MCStreamer &Out, unsigned &ErrorInfo,
+                               bool MatchingInlineAsm);
 
   /// @name Auto-generated Match Functions
   /// {
@@ -312,15 +313,13 @@ static unsigned MatchRegisterName(StringRef Name);
 /// }
 //
 bool MBlazeAsmParser::
-MatchAndEmitInstruction(SMLoc IDLoc,
+MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                        MCStreamer &Out) {
+                        MCStreamer &Out, unsigned &ErrorInfo,
+                        bool MatchingInlineAsm) {
   MCInst Inst;
-  unsigned Kind;
-  unsigned ErrorInfo;
-  SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
-  switch (MatchInstructionImpl(Operands, Kind, Inst, MapAndConstraints,
-                               ErrorInfo, /*matchingInlineAsm*/ false)) {
+  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo,
+                               MatchingInlineAsm)) {
   default: break;
   case Match_Success:
     Out.EmitInstruction(Inst);

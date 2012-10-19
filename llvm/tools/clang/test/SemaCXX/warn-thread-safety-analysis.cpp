@@ -1543,22 +1543,6 @@ namespace constructor_destructor_tests {
 }
 
 
-namespace invalid_lock_expression_test {
-
-class LOCKABLE MyLockable {
-public:
-  MyLockable() __attribute__((exclusive_lock_function)) { }
-  ~MyLockable() { }
-};
-
-// create an empty lock expression
-void foo() {
-  MyLockable lock;  // \
-    // expected-warning {{cannot resolve lock expression}}
-}
-
-} // end namespace invalid_lock_expression_test
-
 namespace template_member_test {
 
   struct S { int n; };
@@ -3602,4 +3586,129 @@ void testFooT() {
 }
 
 }  // end namespace TemplateFunctionParamRemapTest
+
+
+namespace SelfConstructorTest {
+
+class SelfLock {
+public:
+  SelfLock()  EXCLUSIVE_LOCK_FUNCTION(mu_);
+  ~SelfLock() UNLOCK_FUNCTION(mu_);
+
+  void foo() EXCLUSIVE_LOCKS_REQUIRED(mu_);
+
+  Mutex mu_;
+};
+
+class LOCKABLE SelfLock2 {
+public:
+  SelfLock2()  EXCLUSIVE_LOCK_FUNCTION();
+  ~SelfLock2() UNLOCK_FUNCTION();
+
+  void foo() EXCLUSIVE_LOCKS_REQUIRED(this);
+};
+
+
+void test() {
+  SelfLock s;
+  s.foo();
+}
+
+void test2() {
+  SelfLock2 s2;
+  s2.foo();
+}
+
+}  // end namespace SelfConstructorTest
+
+
+namespace MultipleAttributeTest {
+
+class Foo {
+  Mutex mu1_;
+  Mutex mu2_;
+  int  a GUARDED_BY(mu1_);
+  int  b GUARDED_BY(mu2_);
+  int  c GUARDED_BY(mu1_)    GUARDED_BY(mu2_);
+  int* d PT_GUARDED_BY(mu1_) PT_GUARDED_BY(mu2_);
+
+  void foo1()          EXCLUSIVE_LOCKS_REQUIRED(mu1_)
+                       EXCLUSIVE_LOCKS_REQUIRED(mu2_);
+  void foo2()          SHARED_LOCKS_REQUIRED(mu1_)
+                       SHARED_LOCKS_REQUIRED(mu2_);
+  void foo3()          LOCKS_EXCLUDED(mu1_)
+                       LOCKS_EXCLUDED(mu2_);
+  void lock()          EXCLUSIVE_LOCK_FUNCTION(mu1_)
+                       EXCLUSIVE_LOCK_FUNCTION(mu2_);
+  void readerlock()    EXCLUSIVE_LOCK_FUNCTION(mu1_)
+                       EXCLUSIVE_LOCK_FUNCTION(mu2_);
+  void unlock()        UNLOCK_FUNCTION(mu1_)
+                       UNLOCK_FUNCTION(mu2_);
+  bool trylock()       EXCLUSIVE_TRYLOCK_FUNCTION(true, mu1_)
+                       EXCLUSIVE_TRYLOCK_FUNCTION(true, mu2_);
+  bool readertrylock() SHARED_TRYLOCK_FUNCTION(true, mu1_)
+                       SHARED_TRYLOCK_FUNCTION(true, mu2_);
+
+  void test();
+};
+
+
+void Foo::foo1() {
+  a = 1;
+  b = 2;
+}
+
+void Foo::foo2() {
+  int result = a + b;
+}
+
+void Foo::foo3() { }
+void Foo::lock() { }
+void Foo::readerlock() { }
+void Foo::unlock() { }
+bool Foo::trylock()       { return true; }
+bool Foo::readertrylock() { return true; }
+
+
+void Foo::test() {
+  mu1_.Lock();
+  foo1();             // expected-warning {{}}
+  c = 0;              // expected-warning {{}}
+  *d = 0;             // expected-warning {{}}
+  mu1_.Unlock();
+
+  mu1_.ReaderLock();
+  foo2();             // expected-warning {{}}
+  int x = c;          // expected-warning {{}}
+  int y = *d;         // expected-warning {{}}
+  mu1_.Unlock();
+
+  mu2_.Lock();
+  foo3();             // expected-warning {{}}
+  mu2_.Unlock();
+
+  lock();
+  a = 0;
+  b = 0;
+  unlock();
+
+  readerlock();
+  int z = a + b;
+  unlock();
+
+  if (trylock()) {
+    a = 0;
+    b = 0;
+    unlock();
+  }
+
+  if (readertrylock()) {
+    int zz = a + b;
+    unlock();
+  }
+}
+
+
+}  // end namespace MultipleAttributeTest
+
 

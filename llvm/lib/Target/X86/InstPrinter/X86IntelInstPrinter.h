@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This class prints an X86 MCInst to intel style .s file syntax.
+// This class prints an X86 MCInst to Intel style .s file syntax.
 //
 //===----------------------------------------------------------------------===//
 
@@ -37,6 +37,7 @@ public:
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printMemReference(const MCInst *MI, unsigned Op, raw_ostream &O);
   void printSSECC(const MCInst *MI, unsigned Op, raw_ostream &O);
+  void printAVXCC(const MCInst *MI, unsigned Op, raw_ostream &O);
   void printPCRelImm(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   
   void printopaquemem(const MCInst *MI, unsigned OpNo, raw_ostream &O) {

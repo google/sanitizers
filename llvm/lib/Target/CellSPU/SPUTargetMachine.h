@@ -20,7 +20,8 @@
 #include "SPUSelectionDAGInfo.h"
 #include "SPUFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/Target/TargetTransformImpl.h"
+#include "llvm/DataLayout.h"
 
 namespace llvm {
 
@@ -28,12 +29,14 @@ namespace llvm {
 ///
 class SPUTargetMachine : public LLVMTargetMachine {
   SPUSubtarget        Subtarget;
-  const TargetData    DataLayout;
+  const DataLayout    DL;
   SPUInstrInfo        InstrInfo;
   SPUFrameLowering    FrameLowering;
   SPUTargetLowering   TLInfo;
   SPUSelectionDAGInfo TSInfo;
   InstrItineraryData  InstrItins;
+  ScalarTargetTransformImpl STTI;
+  VectorTargetTransformImpl VTTI;
 public:
   SPUTargetMachine(const Target &T, StringRef TT,
                    StringRef CPU, StringRef FS, const TargetOptions &Options,
@@ -70,12 +73,18 @@ public:
     return &InstrInfo.getRegisterInfo();
   }
 
-  virtual const TargetData *getTargetData() const {
-    return &DataLayout;
+  virtual const DataLayout *getDataLayout() const {
+    return &DL;
   }
 
   virtual const InstrItineraryData *getInstrItineraryData() const {
     return &InstrItins;
+  }
+  virtual const ScalarTargetTransformInfo *getScalarTargetTransformInfo()const {
+    return &STTI;
+  }
+  virtual const VectorTargetTransformInfo *getVectorTargetTransformInfo()const {
+    return &VTTI;
   }
 
   // Pass Pipeline Configuration

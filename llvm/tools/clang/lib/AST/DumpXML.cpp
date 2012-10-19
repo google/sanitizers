@@ -1,4 +1,4 @@
-//===--- DumpXML.cpp - Detailed XML dumping ---------------------*- C++ -*-===//
+//===--- DumpXML.cpp - Detailed XML dumping -------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -64,6 +64,8 @@ template <class Impl> struct XMLDeclVisitor {
   static_cast<Impl*>(this)->NAME(static_cast<CLASS*>(D))
 
   void dispatch(Decl *D) {
+    if (D->isUsed())
+      static_cast<Impl*>(this)->set("used", "1");
     switch (D->getKind()) {
 #define DECL(DERIVED, BASE) \
       case Decl::DERIVED: \
@@ -841,7 +843,7 @@ struct XMLDumper : public XMLDeclVisitor<XMLDumper>,
 
     setFlag("instance", D->isInstanceMethod());
     setFlag("variadic", D->isVariadic());
-    setFlag("synthesized", D->isSynthesized());
+    setFlag("property_accessor", D->isPropertyAccessor());
     setFlag("defined", D->isDefined());
     setFlag("related_result_type", D->hasRelatedResultType());
   }
@@ -920,6 +922,7 @@ struct XMLDumper : public XMLDeclVisitor<XMLDumper>,
     case CC_X86Pascal: return set("cc", "x86_pascal");
     case CC_AAPCS: return set("cc", "aapcs");
     case CC_AAPCS_VFP: return set("cc", "aapcs_vfp");
+    case CC_PnaclCall: return set("cc", "pnaclcall");
     }
   }
 

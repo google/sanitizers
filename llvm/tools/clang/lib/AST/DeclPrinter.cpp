@@ -105,6 +105,8 @@ static QualType GetBaseType(QualType T) {
       break;
     else if (const PointerType* PTy = BaseType->getAs<PointerType>())
       BaseType = PTy->getPointeeType();
+    else if (const BlockPointerType *BPy = BaseType->getAs<BlockPointerType>())
+      BaseType = BPy->getPointeeType();
     else if (const ArrayType* ATy = dyn_cast<ArrayType>(BaseType))
       BaseType = ATy->getElementType();
     else if (const FunctionType* FTy = BaseType->getAs<FunctionType>())
@@ -189,6 +191,9 @@ raw_ostream& DeclPrinter::Indent(unsigned Indentation) {
 }
 
 void DeclPrinter::prettyPrintAttributes(Decl *D) {
+  if (Policy.SuppressAttributes)
+    return;
+  
   if (D->hasAttrs()) {
     AttrVec &Attrs = D->getAttrs();
     for (AttrVec::const_iterator i=Attrs.begin(), e=Attrs.end(); i!=e; ++i) {
@@ -872,7 +877,7 @@ void DeclPrinter::VisitObjCMethodDecl(ObjCMethodDecl *OMD) {
   if (OMD->isVariadic())
       Out << ", ...";
 
-  if (OMD->getBody()) {
+  if (OMD->getBody() && !Policy.TerseOutput) {
     Out << ' ';
     OMD->getBody()->printPretty(Out, 0, Policy);
     Out << '\n';

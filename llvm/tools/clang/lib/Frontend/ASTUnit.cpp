@@ -180,6 +180,14 @@ void OnDiskData::Cleanup() {
   CleanPreambleFile();
 }
 
+struct ASTUnit::ASTWriterData {
+  SmallString<128> Buffer;
+  llvm::BitstreamWriter Stream;
+  ASTWriter Writer;
+
+  ASTWriterData() : Stream(Buffer), Writer(Stream) { }
+};
+
 void ASTUnit::clearFileLevelDecls() {
   for (FileDeclsTy::iterator
          I = FileDecls.begin(), E = FileDecls.end(); I != E; ++I)
@@ -495,6 +503,7 @@ class ASTInfoCollector : public ASTReaderListener {
   ASTContext &Context;
   LangOptions &LangOpt;
   HeaderSearch &HSI;
+  IntrusiveRefCntPtr<TargetOptions> &TargetOpts;
   IntrusiveRefCntPtr<TargetInfo> &Target;
   std::string &Predefines;
   unsigned &Counter;
@@ -504,47 +513,44 @@ class ASTInfoCollector : public ASTReaderListener {
   bool InitializedLanguage;
 public:
   ASTInfoCollector(Preprocessor &PP, ASTContext &Context, LangOptions &LangOpt, 
-                   HeaderSearch &HSI,
+                   HeaderSearch &HSI, 
+                   IntrusiveRefCntPtr<TargetOptions> &TargetOpts,
                    IntrusiveRefCntPtr<TargetInfo> &Target,
                    std::string &Predefines,
                    unsigned &Counter)
-    : PP(PP), Context(Context), LangOpt(LangOpt), HSI(HSI), Target(Target),
+    : PP(PP), Context(Context), LangOpt(LangOpt), HSI(HSI), 
+      TargetOpts(TargetOpts), Target(Target),
       Predefines(Predefines), Counter(Counter), NumHeaderInfos(0),
       InitializedLanguage(false) {}
 
-  virtual bool ReadLanguageOptions(const LangOptions &LangOpts) {
+  virtual bool ReadLanguageOptions(const serialization::ModuleFile &M,
+                                   const LangOptions &LangOpts) {
     if (InitializedLanguage)
       return false;
     
-    LangOpt = LangOpts;
-    
-    // Initialize the preprocessor.
-    PP.Initialize(*Target);
-    
-    // Initialize the ASTContext
-    Context.InitBuiltinTypes(*Target);
-    
-    InitializedLanguage = true;
+    assert(M.Kind == serialization::MK_MainFile);
 
-    applyLangOptsToTarget();
+    LangOpt = LangOpts;
+    InitializedLanguage = true;
+    
+    updated();
     return false;
   }
 
-  virtual bool ReadTargetTriple(StringRef Triple) {
+  virtual bool ReadTargetOptions(const serialization::ModuleFile &M,
+                                 const TargetOptions &TargetOpts) {
     // If we've already initialized the target, don't do it again.
     if (Target)
       return false;
     
-    // FIXME: This is broken, we should store the TargetOptions in the AST file.
-    TargetOptions TargetOpts;
-    TargetOpts.ABI = "";
-    TargetOpts.CXXABI = "";
-    TargetOpts.CPU = "";
-    TargetOpts.Features.clear();
-    TargetOpts.Triple = Triple;
-    Target = TargetInfo::CreateTargetInfo(PP.getDiagnostics(), TargetOpts);
+    assert(M.Kind == serialization::MK_MainFile);
 
-    applyLangOptsToTarget();
+    
+    this->TargetOpts = new TargetOptions(TargetOpts);
+    Target = TargetInfo::CreateTargetInfo(PP.getDiagnostics(), 
+                                          *this->TargetOpts);
+
+    updated();
     return false;
   }
 
@@ -563,19 +569,26 @@ public:
     HSI.setHeaderFileInfoForUID(HFI, NumHeaderInfos++);
   }
 
-  virtual void ReadCounter(unsigned Value) {
+  virtual void ReadCounter(const serialization::ModuleFile &M, unsigned Value) {
     Counter = Value;
   }
 
 private:
-  void applyLangOptsToTarget() {
-    if (Target && InitializedLanguage) {
-      // Inform the target of the language options.
-      //
-      // FIXME: We shouldn't need to do this, the target should be immutable once
-      // created. This complexity should be lifted elsewhere.
-      Target->setForcedLangOptions(LangOpt);
-    }
+  void updated() {
+    if (!Target || !InitializedLanguage)
+      return;
+
+    // Inform the target of the language options.
+    //
+    // FIXME: We shouldn't need to do this, the target should be immutable once
+    // created. This complexity should be lifted elsewhere.
+    Target->setForcedLangOptions(LangOpt);
+
+    // Initialize the preprocessor.
+    PP.Initialize(*Target);
+
+    // Initialize the ASTContext
+    Context.InitBuiltinTypes(*Target);
   }
 };
 
@@ -638,6 +651,12 @@ void StoredDiagnosticConsumer::HandleDiagnostic(DiagnosticsEngine::Level Level,
 
 const std::string &ASTUnit::getOriginalSourceFileName() {
   return OriginalSourceFile;
+}
+
+ASTDeserializationListener *ASTUnit::getDeserializationListener() {
+  if (WriterData)
+    return &WriterData->Writer;
+  return 0;
 }
 
 llvm::MemoryBuffer *ASTUnit::getBufferForFile(StringRef Filename,
@@ -787,7 +806,8 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
 
   Reader->setListener(new ASTInfoCollector(*AST->PP, Context,
                                            AST->ASTFileLangOpts, HeaderInfo, 
-                                           AST->Target, Predefines, Counter));
+                                           AST->TargetOpts, AST->Target, 
+                                           Predefines, Counter));
 
   switch (Reader->ReadAST(Filename, serialization::MK_MainFile)) {
   case ASTReader::Success:
@@ -914,6 +934,10 @@ public:
   void HandleTopLevelDeclInObjCContainer(DeclGroupRef D) {
     for (DeclGroupRef::iterator it = D.begin(), ie = D.end(); it != ie; ++it)
       handleTopLevelDecl(*it);
+  }
+
+  virtual ASTDeserializationListener *GetASTDeserializationListener() {
+    return Unit.getDeserializationListener();
   }
 };
 
@@ -1072,7 +1096,6 @@ bool ASTUnit::Parse(llvm::MemoryBuffer *OverrideMainBuffer) {
   Clang->setDiagnostics(&getDiagnostics());
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
                    Clang->getTargetOpts()));
   if (!Clang->hasTarget()) {
@@ -1542,9 +1565,8 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   Clang->setDiagnostics(&getDiagnostics());
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
-                                               Clang->getTargetOpts()));
+                                                Clang->getTargetOpts()));
   if (!Clang->hasTarget()) {
     llvm::sys::Path(FrontendOpts.OutputFile).eraseFromDisk();
     Preamble.clear();
@@ -1751,9 +1773,6 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
   CI->getFrontendOpts().DisableFree = false;
   ProcessWarningOptions(AST->getDiagnostics(), CI->getDiagnosticOpts());
 
-  // Save the target features.
-  AST->TargetFeatures = CI->getTargetOpts().Features;
-
   // Create the compiler instance to use for building the AST.
   OwningPtr<CompilerInstance> Clang(new CompilerInstance());
 
@@ -1769,7 +1788,6 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
   Clang->setDiagnostics(&AST->getDiagnostics());
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = AST->TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
                    Clang->getTargetOpts()));
   if (!Clang->hasTarget())
@@ -1858,9 +1876,6 @@ bool ASTUnit::LoadFromCompilerInvocation(bool PrecompilePreamble) {
   Invocation->getFrontendOpts().DisableFree = false;
   ProcessWarningOptions(getDiagnostics(), Invocation->getDiagnosticOpts());
 
-  // Save the target features.
-  TargetFeatures = Invocation->getTargetOpts().Features;
-  
   llvm::MemoryBuffer *OverrideMainBuffer = 0;
   if (PrecompilePreamble) {
     PreambleRebuildCounter = 2;
@@ -1927,6 +1942,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
                                       bool AllowPCHWithCompilerErrors,
                                       bool SkipFunctionBodies,
                                       bool UserFilesAreVolatile,
+                                      bool ForSerialization,
                                       OwningPtr<ASTUnit> *ErrAST) {
   if (!Diags.getPtr()) {
     // No diagnostics engine was provided, so create our own diagnostics object
@@ -1990,6 +2006,8 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
   AST->NumStoredDiagnosticsFromDriver = StoredDiagnostics.size();
   AST->StoredDiagnostics.swap(StoredDiagnostics);
   AST->Invocation = CI;
+  if (ForSerialization)
+    AST->WriterData.reset(new ASTWriterData());
   CI = 0; // Zero out now to ease cleanup during crash recovery.
   
   // Recover resources if we crash before exiting this method.
@@ -2367,7 +2385,6 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
                                     StoredDiagnostics);
   
   // Create the target instance.
-  Clang->getTargetOpts().Features = TargetFeatures;
   Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
                                                Clang->getTargetOpts()));
   if (!Clang->hasTarget()) {
@@ -2504,20 +2521,31 @@ bool ASTUnit::Save(StringRef File) {
   return false;
 }
 
+static bool serializeUnit(ASTWriter &Writer,
+                          SmallVectorImpl<char> &Buffer,
+                          Sema &S,
+                          bool hasErrors,
+                          raw_ostream &OS) {
+  Writer.WriteAST(S, 0, std::string(), 0, "", hasErrors);
+
+  // Write the generated bitstream to "Out".
+  if (!Buffer.empty())
+    OS.write(Buffer.data(), Buffer.size());
+
+  return false;
+}
+
 bool ASTUnit::serialize(raw_ostream &OS) {
   bool hasErrors = getDiagnostics().hasErrorOccurred();
+
+  if (WriterData)
+    return serializeUnit(WriterData->Writer, WriterData->Buffer,
+                         getSema(), hasErrors, OS);
 
   SmallString<128> Buffer;
   llvm::BitstreamWriter Stream(Buffer);
   ASTWriter Writer(Stream);
-  // FIXME: Handle modules
-  Writer.WriteAST(getSema(), 0, std::string(), 0, "", hasErrors);
-  
-  // Write the generated bitstream to "Out".
-  if (!Buffer.empty())
-    OS.write((char *)&Buffer.front(), Buffer.size());
-
-  return false;
+  return serializeUnit(Writer, Buffer, getSema(), hasErrors, OS);
 }
 
 typedef ContinuousRangeMap<unsigned, int, 2> SLocRemap;
@@ -2814,6 +2842,46 @@ bool ASTUnit::visitLocalTopLevelDecls(void *context, DeclVisitorFn Fn) {
   }
 
   return true;
+}
+
+namespace {
+struct PCHLocatorInfo {
+  serialization::ModuleFile *Mod;
+  PCHLocatorInfo() : Mod(0) {}
+};
+}
+
+static bool PCHLocator(serialization::ModuleFile &M, void *UserData) {
+  PCHLocatorInfo &Info = *static_cast<PCHLocatorInfo*>(UserData);
+  switch (M.Kind) {
+  case serialization::MK_Module:
+    return true; // skip dependencies.
+  case serialization::MK_PCH:
+    Info.Mod = &M;
+    return true; // found it.
+  case serialization::MK_Preamble:
+    return false; // look in dependencies.
+  case serialization::MK_MainFile:
+    return false; // look in dependencies.
+  }
+
+  return true;
+}
+
+const FileEntry *ASTUnit::getPCHFile() {
+  if (!Reader)
+    return 0;
+
+  PCHLocatorInfo Info;
+  Reader->getModuleManager().visit(PCHLocator, &Info);
+  if (Info.Mod)
+    return Info.Mod->File;
+
+  return 0;
+}
+
+bool ASTUnit::isModuleFile() {
+  return isMainFileAST() && !ASTFileLangOpts.CurrentModule.empty();
 }
 
 void ASTUnit::PreambleData::countLines() const {

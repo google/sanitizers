@@ -193,7 +193,7 @@ static bool useInlineVisibilityHidden(const NamedDecl *D) {
   // anyway.
   return TSK != TSK_ExplicitInstantiationDeclaration &&
     TSK != TSK_ExplicitInstantiationDefinition &&
-    FD->hasBody(Def) && Def->isInlined();
+    FD->hasBody(Def) && Def->isInlined() && !Def->hasAttr<GNUInlineAttr>();
 }
 
 static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
@@ -213,12 +213,12 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
     if (Var->getStorageClass() == SC_Static)
       return LinkageInfo::internal();
 
-    // - an object or reference that is explicitly declared const
-    //   and neither explicitly declared extern nor previously
-    //   declared to have external linkage; or
-    // (there is no equivalent in C99)
+    // - a non-volatile object or reference that is explicitly declared const
+    //   or constexpr and neither explicitly declared extern nor previously
+    //   declared to have external linkage; or (there is no equivalent in C99)
     if (Context.getLangOpts().CPlusPlus &&
-        Var->getType().isConstant(Context) && 
+        Var->getType().isConstQualified() && 
+        !Var->getType().isVolatileQualified() &&
         Var->getStorageClass() != SC_Extern &&
         Var->getStorageClass() != SC_PrivateExtern) {
       bool FoundExtern = false;
@@ -1204,8 +1204,11 @@ void VarDecl::setStorageClass(StorageClass SC) {
 }
 
 SourceRange VarDecl::getSourceRange() const {
-  if (getInit())
-    return SourceRange(getOuterLocStart(), getInit()->getLocEnd());
+  if (const Expr *Init = getInit()) {
+    SourceLocation InitEnd = Init->getLocEnd();
+    if (InitEnd.isValid())
+      return SourceRange(getOuterLocStart(), InitEnd);
+  }
   return DeclaratorDecl::getSourceRange();
 }
 
@@ -2514,7 +2517,7 @@ unsigned FieldDecl::getFieldIndex() const {
   unsigned Index = 0;
   const RecordDecl *RD = getParent();
   const FieldDecl *LastFD = 0;
-  bool IsMsStruct = RD->hasAttr<MsStructAttr>();
+  bool IsMsStruct = RD->isMsStruct(getASTContext());
 
   for (RecordDecl::field_iterator I = RD->field_begin(), E = RD->field_end();
        I != E; ++I, ++Index) {
@@ -2760,6 +2763,13 @@ RecordDecl::field_iterator RecordDecl::field_begin() const {
 void RecordDecl::completeDefinition() {
   assert(!isCompleteDefinition() && "Cannot redefine record!");
   TagDecl::completeDefinition();
+}
+
+/// isMsStruct - Get whether or not this record uses ms_struct layout.
+/// This which can be turned on with an attribute, pragma, or the
+/// -mms-bitfields command-line option.
+bool RecordDecl::isMsStruct(const ASTContext &C) const {
+  return hasAttr<MsStructAttr>() || C.getLangOpts().MSBitfields == 1;
 }
 
 static bool isFieldOrIndirectField(Decl::Kind K) {

@@ -15,7 +15,7 @@
 #include "llvm/Function.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/IntrinsicInst.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 
 using namespace llvm;
 
@@ -54,7 +54,7 @@ bool llvm::callIsSmall(ImmutableCallSite CS) {
   return false;
 }
 
-bool llvm::isInstructionFree(const Instruction *I, const TargetData *TD) {
+bool llvm::isInstructionFree(const Instruction *I, const DataLayout *TD) {
   if (isa<PHINode>(I))
     return true;
 
@@ -91,14 +91,16 @@ bool llvm::isInstructionFree(const Instruction *I, const TargetData *TD) {
     // which doesn't contain values outside the range of a pointer.
     if (isa<IntToPtrInst>(CI) && TD &&
         TD->isLegalInteger(Op->getType()->getScalarSizeInBits()) &&
-        Op->getType()->getScalarSizeInBits() <= TD->getPointerSizeInBits())
+        Op->getType()->getScalarSizeInBits() <= TD->getPointerSizeInBits(
+          cast<IntToPtrInst>(CI)->getAddressSpace()))
       return true;
 
     // A ptrtoint cast is free so long as the result is large enough to store
     // the pointer, and a legal integer type.
     if (isa<PtrToIntInst>(CI) && TD &&
         TD->isLegalInteger(Op->getType()->getScalarSizeInBits()) &&
-        Op->getType()->getScalarSizeInBits() >= TD->getPointerSizeInBits())
+        Op->getType()->getScalarSizeInBits() >= TD->getPointerSizeInBits(
+          cast<PtrToIntInst>(CI)->getPointerAddressSpace()))
       return true;
 
     // trunc to a native type is free (assuming the target has compare and
@@ -119,7 +121,7 @@ bool llvm::isInstructionFree(const Instruction *I, const TargetData *TD) {
 /// analyzeBasicBlock - Fill in the current structure with information gleaned
 /// from the specified block.
 void CodeMetrics::analyzeBasicBlock(const BasicBlock *BB,
-                                    const TargetData *TD) {
+                                    const DataLayout *TD) {
   ++NumBlocks;
   unsigned NumInstsBeforeThisBB = NumInsts;
   for (BasicBlock::const_iterator II = BB->begin(), E = BB->end();
@@ -189,14 +191,14 @@ void CodeMetrics::analyzeBasicBlock(const BasicBlock *BB,
   NumBBInsts[BB] = NumInsts - NumInstsBeforeThisBB;
 }
 
-void CodeMetrics::analyzeFunction(Function *F, const TargetData *TD) {
+void CodeMetrics::analyzeFunction(Function *F, const DataLayout *TD) {
   // If this function contains a call that "returns twice" (e.g., setjmp or
   // _setjmp) and it isn't marked with "returns twice" itself, never inline it.
   // This is a hack because we depend on the user marking their local variables
   // as volatile if they are live across a setjmp call, and they probably
   // won't do this in callers.
   exposesReturnsTwice = F->callsFunctionThatReturnsTwice() &&
-    !F->getFnAttributes().hasReturnsTwiceAttr();
+    !F->getFnAttributes().hasAttribute(Attributes::ReturnsTwice);
 
   // Look at the size of the callee.
   for (Function::const_iterator BB = F->begin(), E = F->end(); BB != E; ++BB)

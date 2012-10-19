@@ -185,13 +185,13 @@ public:
   }
 
   /// \brief Return true if this function has the given attribute.
-  bool hasFnAttr(Attributes N) const {
-    CALLSITE_DELEGATE_GETTER(hasFnAttr(N));
+  bool hasFnAttr(Attributes::AttrVal A) const {
+    CALLSITE_DELEGATE_GETTER(hasFnAttr(A));
   }
 
-  /// paramHasAttr - whether the call or the callee has the given attribute.
-  bool paramHasAttr(uint16_t i, Attributes attr) const {
-    CALLSITE_DELEGATE_GETTER(paramHasAttr(i, attr));
+  /// \brief Return true if the call or the callee has the given attribute.
+  bool paramHasAttr(unsigned i, Attributes::AttrVal A) const {
+    CALLSITE_DELEGATE_GETTER(paramHasAttr(i, A));
   }
 
   /// @brief Extract the alignment for a call or parameter (0=unknown).
@@ -211,32 +211,32 @@ public:
   bool doesNotAccessMemory() const {
     CALLSITE_DELEGATE_GETTER(doesNotAccessMemory());
   }
-  void setDoesNotAccessMemory(bool doesNotAccessMemory = true) {
-    CALLSITE_DELEGATE_SETTER(setDoesNotAccessMemory(doesNotAccessMemory));
+  void setDoesNotAccessMemory() {
+    CALLSITE_DELEGATE_SETTER(setDoesNotAccessMemory());
   }
 
   /// @brief Determine if the call does not access or only reads memory.
   bool onlyReadsMemory() const {
     CALLSITE_DELEGATE_GETTER(onlyReadsMemory());
   }
-  void setOnlyReadsMemory(bool onlyReadsMemory = true) {
-    CALLSITE_DELEGATE_SETTER(setOnlyReadsMemory(onlyReadsMemory));
+  void setOnlyReadsMemory() {
+    CALLSITE_DELEGATE_SETTER(setOnlyReadsMemory());
   }
 
   /// @brief Determine if the call cannot return.
   bool doesNotReturn() const {
     CALLSITE_DELEGATE_GETTER(doesNotReturn());
   }
-  void setDoesNotReturn(bool doesNotReturn = true) {
-    CALLSITE_DELEGATE_SETTER(setDoesNotReturn(doesNotReturn));
+  void setDoesNotReturn() {
+    CALLSITE_DELEGATE_SETTER(setDoesNotReturn());
   }
 
   /// @brief Determine if the call cannot unwind.
   bool doesNotThrow() const {
     CALLSITE_DELEGATE_GETTER(doesNotThrow());
   }
-  void setDoesNotThrow(bool doesNotThrow = true) {
-    CALLSITE_DELEGATE_SETTER(setDoesNotThrow(doesNotThrow));
+  void setDoesNotThrow() {
+    CALLSITE_DELEGATE_SETTER(setDoesNotThrow());
   }
 
 #undef CALLSITE_DELEGATE_GETTER
@@ -244,12 +244,12 @@ public:
 
   /// @brief Determine whether this argument is not captured.
   bool doesNotCapture(unsigned ArgNo) const {
-    return paramHasAttr(ArgNo + 1, Attribute::NoCapture);
+    return paramHasAttr(ArgNo + 1, Attributes::NoCapture);
   }
 
   /// @brief Determine whether this argument is passed by value.
   bool isByValArgument(unsigned ArgNo) const {
-    return paramHasAttr(ArgNo + 1, Attribute::ByVal);
+    return paramHasAttr(ArgNo + 1, Attributes::ByVal);
   }
 
   /// hasArgument - Returns true if this CallSite passes the given Value* as an

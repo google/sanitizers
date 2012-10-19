@@ -221,7 +221,7 @@ static bool reuseOrInsertFastDiv(Function &F,
 // be profitably bypassed and carried out with a shorter, faster divide.
 bool llvm::bypassSlowDivision(Function &F,
                               Function::iterator &I,
-                              const DenseMap<Type*, Type*> &BypassTypeMap) {
+                              const DenseMap<unsigned int, unsigned int> &BypassWidths) {
   DivCacheTy DivCache;
 
   bool MadeChange = false;
@@ -238,14 +238,23 @@ bool llvm::bypassSlowDivision(Function &F,
     if (!UseDivOp && !UseRemOp)
       continue;
 
-    // Continue if div/rem type is not bypassed
-    DenseMap<Type *, Type *>::const_iterator BT =
-      BypassTypeMap.find(J->getType());
-    if (BT == BypassTypeMap.end())
+    // Skip division on vector types, only optimize integer instructions
+    if (!J->getType()->isIntegerTy())
       continue;
 
-    IntegerType *BypassType = cast<IntegerType>(BT->second);
-    MadeChange |= reuseOrInsertFastDiv(F, I, J, BypassType, UseDivOp,
+    // Get bitwidth of div/rem instruction
+    IntegerType *T = cast<IntegerType>(J->getType());
+    int bitwidth = T->getBitWidth();
+
+    // Continue if bitwidth is not bypassed
+    DenseMap<unsigned int, unsigned int>::const_iterator BI = BypassWidths.find(bitwidth);
+    if (BI == BypassWidths.end())
+      continue;
+
+    // Get type for div/rem instruction with bypass bitwidth
+    IntegerType *BT = IntegerType::get(J->getContext(), BI->second);
+
+    MadeChange |= reuseOrInsertFastDiv(F, I, J, BT, UseDivOp,
                                        UseSignedOp, DivCache);
   }
 

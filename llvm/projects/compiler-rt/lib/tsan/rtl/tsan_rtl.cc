@@ -49,7 +49,8 @@ Context::Context()
   , nmissed_expected()
   , thread_mtx(MutexTypeThreads, StatMtxThreads)
   , racy_stacks(MBlockRacyStacks)
-  , racy_addresses(MBlockRacyAddresses) {
+  , racy_addresses(MBlockRacyAddresses)
+  , fired_suppressions(MBlockRacyAddresses) {
 }
 
 // The objects are allocated in TLS, so one may rely on zero-initialization.
@@ -227,7 +228,11 @@ int Finalize(ThreadState *thr) {
 
   if (ctx->nreported) {
     failed = true;
+#ifndef TSAN_GO
     TsanPrintf("ThreadSanitizer: reported %d warnings\n", ctx->nreported);
+#else
+    TsanPrintf("Found %d data race(s)\n", ctx->nreported);
+#endif
   }
 
   if (ctx->nmissed_expected) {

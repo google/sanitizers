@@ -1746,8 +1746,10 @@ SDValue MipsTargetLowering::LowerBlockAddress(SDValue Op,
 
   if (getTargetMachine().getRelocationModel() != Reloc::PIC_ && !IsN64) {
     // %hi/%lo relocation
-    SDValue BAHi = DAG.getTargetBlockAddress(BA, MVT::i32, 0, MipsII::MO_ABS_HI);
-    SDValue BALo = DAG.getTargetBlockAddress(BA, MVT::i32, 0, MipsII::MO_ABS_LO);
+    SDValue BAHi =
+      DAG.getTargetBlockAddress(BA, MVT::i32, 0, MipsII::MO_ABS_HI);
+    SDValue BALo =
+      DAG.getTargetBlockAddress(BA, MVT::i32, 0, MipsII::MO_ABS_LO);
     SDValue Hi = DAG.getNode(MipsISD::Hi, dl, MVT::i32, BAHi);
     SDValue Lo = DAG.getNode(MipsISD::Lo, dl, MVT::i32, BALo);
     return DAG.getNode(ISD::ADD, dl, MVT::i32, Hi, Lo);
@@ -2595,7 +2597,11 @@ static bool CC_MipsO32(unsigned ValNo, MVT ValVT,
     llvm_unreachable("Cannot handle this ValVT.");
 
   unsigned SizeInBytes = ValVT.getSizeInBits() >> 3;
-  unsigned Offset = State.AllocateStack(SizeInBytes, OrigAlign);
+  unsigned Offset;
+  if (!ArgFlags.isSRet())
+    Offset = State.AllocateStack(SizeInBytes, OrigAlign);
+  else
+    Offset = State.AllocateStack(SizeInBytes, SizeInBytes);
 
   if (!Reg)
     State.addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
@@ -3437,6 +3443,17 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
 //===----------------------------------------------------------------------===//
 //               Return Value Calling Convention Implementation
 //===----------------------------------------------------------------------===//
+
+bool
+MipsTargetLowering::CanLowerReturn(CallingConv::ID CallConv,
+                                   MachineFunction &MF, bool isVarArg,
+                                   const SmallVectorImpl<ISD::OutputArg> &Outs,
+                                   LLVMContext &Context) const {
+  SmallVector<CCValAssign, 16> RVLocs;
+  CCState CCInfo(CallConv, isVarArg, MF, getTargetMachine(),
+                 RVLocs, Context);
+  return CCInfo.CheckReturn(Outs, RetCC_Mips);
+}
 
 SDValue
 MipsTargetLowering::LowerReturn(SDValue Chain,

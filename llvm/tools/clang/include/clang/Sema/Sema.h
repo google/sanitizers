@@ -190,6 +190,13 @@ class Sema {
   Sema(const Sema &) LLVM_DELETED_FUNCTION;
   void operator=(const Sema &) LLVM_DELETED_FUNCTION;
   mutable const TargetAttributesSema* TheTargetAttributesSema;
+
+  ///\brief Source of additional semantic information.
+  ExternalSemaSource *ExternalSource;
+
+  ///\brief Whether Sema has generated a multiplexer and has to delete it.
+  bool isMultiplexExternalSource;
+
 public:
   typedef OpaquePtr<DeclGroupRef> DeclGroupPtrTy;
   typedef OpaquePtr<TemplateName> TemplateTy;
@@ -207,9 +214,6 @@ public:
 
   /// \brief Flag indicating whether or not to collect detailed statistics.
   bool CollectStats;
-
-  /// \brief Source of additional semantic information.
-  ExternalSemaSource *ExternalSource;
 
   /// \brief Code-completion consumer.
   CodeCompleteConsumer *CodeCompleter;
@@ -459,6 +463,26 @@ public:
 
     ~ContextRAII() {
       pop();
+    }
+  };
+
+  /// \brief RAII object to handle the state changes required to synthesize
+  /// a function body.
+  class SynthesizedFunctionScope {
+    Sema &S;
+    Sema::ContextRAII SavedContext;
+    
+  public:
+    SynthesizedFunctionScope(Sema &S, DeclContext *DC)
+      : S(S), SavedContext(S, DC) 
+    {
+      S.PushFunctionScope();
+      S.PushExpressionEvaluationContext(Sema::PotentiallyEvaluated);
+    }
+    
+    ~SynthesizedFunctionScope() {
+      S.PopExpressionEvaluationContext();
+      S.PopFunctionScopeInfo();
     }
   };
 
@@ -770,6 +794,14 @@ public:
   ASTContext &getASTContext() const { return Context; }
   ASTConsumer &getASTConsumer() const { return Consumer; }
   ASTMutationListener *getASTMutationListener() const;
+  ExternalSemaSource* getExternalSource() const { return ExternalSource; }
+
+  ///\brief Registers an external source. If an external source already exists,
+  /// creates a multiplex external source and appends to it.
+  ///
+  ///\param[in] E - A non-null external sema source.
+  ///
+  void addExternalSource(ExternalSemaSource *E);
 
   void PrintStats() const;
 
@@ -1894,8 +1926,7 @@ public:
                                             llvm::ArrayRef<Expr *> Args,
                                 TemplateArgumentListInfo *ExplicitTemplateArgs,
                                             OverloadCandidateSet& CandidateSet,
-                                            bool PartialOverloading = false,
-                                        bool StdNamespaceIsAssociated = false);
+                                            bool PartialOverloading = false);
 
   // Emit as a 'note' the specific overload candidate
   void NoteOverloadCandidate(FunctionDecl *Fn, QualType DestType = QualType());
@@ -2188,8 +2219,7 @@ public:
   void ArgumentDependentLookup(DeclarationName Name, bool Operator,
                                SourceLocation Loc,
                                llvm::ArrayRef<Expr *> Args,
-                               ADLResult &Functions,
-                               bool StdNamespaceIsAssociated = false);
+                               ADLResult &Functions);
 
   void LookupVisibleDecls(Scope *S, LookupNameKind Kind,
                           VisibleDeclConsumer &Consumer,
@@ -2308,17 +2338,7 @@ public:
   void CollectImmediateProperties(ObjCContainerDecl *CDecl,
             llvm::DenseMap<IdentifierInfo *, ObjCPropertyDecl*>& PropMap,
             llvm::DenseMap<IdentifierInfo *, ObjCPropertyDecl*>& SuperPropMap);
-
-
-  /// LookupPropertyDecl - Looks up a property in the current class and all
-  /// its protocols.
-  ObjCPropertyDecl *LookupPropertyDecl(const ObjCContainerDecl *CDecl,
-                                       IdentifierInfo *II);
   
-  /// PropertyIfSetterOrGetter - Looks up the property if named declaration
-  /// is a setter or getter method backing a property.
-  ObjCPropertyDecl *PropertyIfSetterOrGetter(NamedDecl *D);
-
   /// Called by ActOnProperty to handle \@property declarations in
   /// class extensions.
   Decl *HandlePropertyInClassExtension(Scope *S,
@@ -2611,6 +2631,8 @@ public:
                              Expr *AsmString, MultiExprArg Clobbers,
                              SourceLocation RParenLoc);
 
+  NamedDecl *LookupInlineAsmIdentifier(StringRef Name, SourceLocation Loc,
+                                       unsigned &Size);
   StmtResult ActOnMSAsmStmt(SourceLocation AsmLoc, SourceLocation LBraceLoc,
                             ArrayRef<Token> AsmToks, SourceLocation EndLoc);
 
@@ -6328,8 +6350,7 @@ public:
 
   /// ActOnPragmaOptionsAlign - Called on well formed \#pragma options align.
   void ActOnPragmaOptionsAlign(PragmaOptionsAlignKind Kind,
-                               SourceLocation PragmaLoc,
-                               SourceLocation KindLoc);
+                               SourceLocation PragmaLoc);
 
   enum PragmaPackKind {
     PPK_Default, // #pragma pack([n])
