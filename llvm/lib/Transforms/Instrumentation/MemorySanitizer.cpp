@@ -69,6 +69,11 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/DataLayout.h"
+#include "llvm/Transforms/Instrumentation.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Type.h"
 
 using namespace llvm;
 
@@ -126,7 +131,7 @@ struct MemorySanitizer : public FunctionPass {
   bool doInitialization(Module &M);
   static char ID;  // Pass identification, replacement for typeid.
 
-  TargetData *TD;
+  DataLayout *TD;
   LLVMContext *C;
   Type *IntptrTy;
   Type *OriginTy;
@@ -173,12 +178,12 @@ static GlobalVariable *createPrivateNonConstGlobalForString(Module &M,
 
 
 bool MemorySanitizer::doInitialization(Module &M) {
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   if (!TD)
     return false;
   BL.reset(new BlackList(ClBlackListFile));
   C = &(M.getContext());
-  int PtrSize = TD->getPointerSizeInBits();
+  int PtrSize = TD->getPointerSizeInBits(/* AddressSpace */0);
   switch (PtrSize) {
     case 64:
       ShadowMask = 1ULL << 46;
@@ -583,7 +588,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
             setOrigin(A, EntryIRB.CreateLoad(
                 getOriginPtrForArgument(AI, EntryIRB, ArgOffset)));
         }
-        ArgOffset += TargetData::RoundUpAlignment(Size, 8);
+        ArgOffset += DataLayout::RoundUpAlignment(Size, 8);
       }
       assert(*ShadowPtr && "Could not find shadow for an argument");
       return *ShadowPtr;
@@ -1029,7 +1034,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                         getOriginPtrForArgument(A, IRB, ArgOffset));
       assert(Size != 0 && Store != 0);
       DEBUG(dbgs() << "  Param:" << *Store << "\n");
-      ArgOffset += TargetData::RoundUpAlignment(Size, 8);
+      ArgOffset += DataLayout::RoundUpAlignment(Size, 8);
     }
     DEBUG(dbgs() << "  done with call args\n");
     // For VarArg functions, store the argument shadow in an ABI-specific format
@@ -1066,7 +1071,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           break;
         case ARG_MEMORY:
           Base = getShadowPtrForVAArgument(A, IRB, OverflowOffset);
-          OverflowOffset += TargetData::RoundUpAlignment(
+          OverflowOffset += DataLayout::RoundUpAlignment(
               MS.TD->getTypeAllocSize(A->getType()), 8);
         }
         IRB.CreateStore(getShadow(A), Base);
@@ -1239,6 +1244,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
 bool MemorySanitizer::runOnFunction(Function &F) {
   MemorySanitizerVisitor Visitor(F, *this);
-  F.removeAttribute(~0, Attribute::ReadOnly | Attribute::ReadNone);
+
+  // Clear out readonly/readnone attributes.
+  AttrBuilder B;
+  B.addAttribute(Attributes::ReadOnly)
+    .addAttribute(Attributes::ReadNone);
+  F.removeAttribute(AttrListPtr::FunctionIndex,
+      Attributes::get(F.getContext(), B));
+
   return Visitor.runOnFunction();
 }
