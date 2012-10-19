@@ -27,7 +27,7 @@
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
@@ -384,7 +384,7 @@ DIE *DwarfDebug::constructLexicalScopeDIE(CompileUnit *TheCU,
     // DW_AT_ranges appropriately.
     TheCU->addUInt(ScopeDIE, dwarf::DW_AT_ranges, dwarf::DW_FORM_data4,
                    DebugRangeSymbols.size() 
-                   * Asm->getTargetData().getPointerSize());
+                   * Asm->getDataLayout().getPointerSize(0));
     for (SmallVector<InsnRange, 4>::const_iterator RI = Ranges.begin(),
          RE = Ranges.end(); RI != RE; ++RI) {
       DebugRangeSymbols.push_back(getLabelBeforeInsn(RI->first));
@@ -450,7 +450,7 @@ DIE *DwarfDebug::constructInlinedScopeDIE(CompileUnit *TheCU,
     // DW_AT_ranges appropriately.
     TheCU->addUInt(ScopeDIE, dwarf::DW_AT_ranges, dwarf::DW_FORM_data4,
                    DebugRangeSymbols.size() 
-                   * Asm->getTargetData().getPointerSize());
+                   * Asm->getDataLayout().getPointerSize(0));
     for (SmallVector<InsnRange, 4>::const_iterator RI = Ranges.begin(),
          RE = Ranges.end(); RI != RE; ++RI) {
       DebugRangeSymbols.push_back(getLabelBeforeInsn(RI->first));
@@ -1069,7 +1069,7 @@ DwarfDebug::collectVariableInfo(const MachineFunction *MF,
     if (AbsVar)
       AbsVar->setMInsn(MInsn);
 
-    // Simple ranges that are fully coalesced.
+    // Simplify ranges that are fully coalesced.
     if (History.size() <= 1 || (History.size() == 2 &&
                                 MInsn->isIdenticalTo(History.back()))) {
       RegVar->setMInsn(MInsn);
@@ -1322,7 +1322,7 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
             // Coalesce identical entries at the end of History.
             if (History.size() >= 2 &&
                 Prev->isIdenticalTo(History[History.size() - 2])) {
-              DEBUG(dbgs() << "Coalesce identical DBG_VALUE entries:\n"
+              DEBUG(dbgs() << "Coalescing identical DBG_VALUE entries:\n"
                     << "\t" << *Prev 
                     << "\t" << *History[History.size() - 2] << "\n");
               History.pop_back();
@@ -1338,7 +1338,7 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
                 PrevMBB->getLastNonDebugInstr();
               if (LastMI == PrevMBB->end()) {
                 // Drop DBG_VALUE for empty range.
-                DEBUG(dbgs() << "Drop DBG_VALUE for empty range:\n"
+                DEBUG(dbgs() << "Dropping DBG_VALUE for empty range:\n"
                       << "\t" << *Prev << "\n");
                 History.pop_back();
               }
@@ -1355,9 +1355,10 @@ void DwarfDebug::beginFunction(const MachineFunction *MF) {
         if (!MI->isLabel())
           AtBlockEntry = false;
 
-        // First known non DBG_VALUE location marks beginning of function
-        // body.
-        if (PrologEndLoc.isUnknown() && !MI->getDebugLoc().isUnknown())
+        // First known non-DBG_VALUE and non-frame setup location marks
+        // the beginning of the function body.
+        if (!MI->getFlag(MachineInstr::FrameSetup) &&
+            (PrologEndLoc.isUnknown() && !MI->getDebugLoc().isUnknown()))
           PrologEndLoc = MI->getDebugLoc();
 
         // Check if the instruction clobbers any registers with debug vars.
@@ -1764,7 +1765,7 @@ void DwarfDebug::emitDebugInfo() {
     Asm->EmitSectionOffset(Asm->GetTempSymbol("abbrev_begin"),
                            DwarfAbbrevSectionSym);
     Asm->OutStreamer.AddComment("Address Size (in bytes)");
-    Asm->EmitInt8(Asm->getTargetData().getPointerSize());
+    Asm->EmitInt8(Asm->getDataLayout().getPointerSize(0));
 
     emitDIE(Die);
     Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("info_end", TheCU->getID()));
@@ -1810,14 +1811,14 @@ void DwarfDebug::emitEndOfLineMatrix(unsigned SectionEnd) {
   Asm->EmitInt8(0);
 
   Asm->OutStreamer.AddComment("Op size");
-  Asm->EmitInt8(Asm->getTargetData().getPointerSize() + 1);
+  Asm->EmitInt8(Asm->getDataLayout().getPointerSize(0) + 1);
   Asm->OutStreamer.AddComment("DW_LNE_set_address");
   Asm->EmitInt8(dwarf::DW_LNE_set_address);
 
   Asm->OutStreamer.AddComment("Section end label");
 
   Asm->OutStreamer.EmitSymbolValue(Asm->GetTempSymbol("section_end",SectionEnd),
-                                   Asm->getTargetData().getPointerSize(),
+                                   Asm->getDataLayout().getPointerSize(0),
                                    0/*AddrSpace*/);
 
   // Mark end of matrix.
@@ -2046,7 +2047,7 @@ void DwarfDebug::emitDebugLoc() {
   // Start the dwarf loc section.
   Asm->OutStreamer.SwitchSection(
     Asm->getObjFileLowering().getDwarfLocSection());
-  unsigned char Size = Asm->getTargetData().getPointerSize();
+  unsigned char Size = Asm->getDataLayout().getPointerSize(0);
   Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("debug_loc", 0));
   unsigned index = 1;
   for (SmallVector<DotDebugLocEntry, 4>::iterator
@@ -2143,7 +2144,7 @@ void DwarfDebug::emitDebugRanges() {
   // Start the dwarf ranges section.
   Asm->OutStreamer.SwitchSection(
     Asm->getObjFileLowering().getDwarfRangesSection());
-  unsigned char Size = Asm->getTargetData().getPointerSize();
+  unsigned char Size = Asm->getDataLayout().getPointerSize(0);
   for (SmallVector<const MCSymbol *, 8>::iterator
          I = DebugRangeSymbols.begin(), E = DebugRangeSymbols.end();
        I != E; ++I) {
@@ -2201,7 +2202,7 @@ void DwarfDebug::emitDebugInlineInfo() {
   Asm->OutStreamer.AddComment("Dwarf Version");
   Asm->EmitInt16(dwarf::DWARF_VERSION);
   Asm->OutStreamer.AddComment("Address Size (in bytes)");
-  Asm->EmitInt8(Asm->getTargetData().getPointerSize());
+  Asm->EmitInt8(Asm->getDataLayout().getPointerSize(0));
 
   for (SmallVector<const MDNode *, 4>::iterator I = InlinedSPNodes.begin(),
          E = InlinedSPNodes.end(); I != E; ++I) {
@@ -2232,7 +2233,7 @@ void DwarfDebug::emitDebugInlineInfo() {
 
       if (Asm->isVerbose()) Asm->OutStreamer.AddComment("low_pc");
       Asm->OutStreamer.EmitSymbolValue(LI->first,
-                                       Asm->getTargetData().getPointerSize(),0);
+                                       Asm->getDataLayout().getPointerSize(0),0);
     }
   }
 

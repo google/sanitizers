@@ -27,7 +27,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
@@ -57,7 +57,7 @@ private:
   PassManager *getCodeGenPasses() const {
     if (!CodeGenPasses) {
       CodeGenPasses = new PassManager();
-      CodeGenPasses->add(new TargetData(TheModule));
+      CodeGenPasses->add(new DataLayout(TheModule));
     }
     return CodeGenPasses;
   }
@@ -65,7 +65,7 @@ private:
   PassManager *getPerModulePasses() const {
     if (!PerModulePasses) {
       PerModulePasses = new PassManager();
-      PerModulePasses->add(new TargetData(TheModule));
+      PerModulePasses->add(new DataLayout(TheModule));
     }
     return PerModulePasses;
   }
@@ -73,7 +73,7 @@ private:
   FunctionPassManager *getPerFunctionPasses() const {
     if (!PerFunctionPasses) {
       PerFunctionPasses = new FunctionPassManager(TheModule);
-      PerFunctionPasses->add(new TargetData(TheModule));
+      PerFunctionPasses->add(new DataLayout(TheModule));
     }
     return PerFunctionPasses;
   }
@@ -175,7 +175,7 @@ void EmitAssemblyHelper::CreatePasses() {
   }
 
   if (LangOpts.AddressSanitizer) {
-    PMBuilder.addExtension(PassManagerBuilder::EP_ScalarOptimizerLate,
+    PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addAddressSanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addAddressSanitizerPass);
@@ -361,7 +361,7 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
     break;
   case LangOptions::FPC_Fast:
     Options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
-    break;              
+    break;
   }
 
   Options.LessPreciseFPMADOption = CodeGenOpts.LessPreciseFPMAD;
@@ -400,6 +400,10 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
   if (!CodeGenOpts.SimplifyLibCalls)
     TLI->disableAllFunctions();
   PM->add(TLI);
+
+  // Add TargetTransformInfo.
+  PM->add(new TargetTransformInfo(TM->getScalarTargetTransformInfo(),
+                                  TM->getVectorTargetTransformInfo()));
 
   // Normal mode, emit a .s or .o file by running the code generator. Note,
   // this also adds codegenerator level optimization passes.

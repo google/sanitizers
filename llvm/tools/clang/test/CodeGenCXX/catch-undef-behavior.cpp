@@ -86,3 +86,9 @@ int lsh_overflow(int a, int b) {
   // CHECK-NEXT: ret i32 %[[RET]]
   return a << b;
 }
+
+// CHECK: @_Z9no_return
+int no_return() {
+  // CHECK:      call void @__ubsan_handle_missing_return(i8* bitcast ({{.*}}* @{{.*}} to i8*)) noreturn nounwind
+  // CHECK-NEXT: unreachable
+}

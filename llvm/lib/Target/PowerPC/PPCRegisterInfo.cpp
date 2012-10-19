@@ -498,7 +498,7 @@ PPCRegisterInfo::hasReservedSpillSlot(const MachineFunction &MF,
     } else if (CRSpillFrameIdx) {
       FrameIdx = CRSpillFrameIdx;
     } else {
-      MachineFrameInfo *MFI = ((MachineFunction &)MF).getFrameInfo();
+      MachineFrameInfo *MFI = (const_cast<MachineFunction &>(MF)).getFrameInfo();
       FrameIdx = MFI->CreateFixedObject((uint64_t)4, (int64_t)-4, true);
       CRSpillFrameIdx = FrameIdx;
     }
@@ -596,7 +596,7 @@ PPCRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // to Offset to get the correct offset.
   // Naked functions have stack size 0, although getStackSize may not reflect that
   // because we didn't call all the pieces that compute it for naked functions.
-  if (!MF.getFunction()->getFnAttributes().hasNakedAttr())
+  if (!MF.getFunction()->getFnAttributes().hasAttribute(Attributes::Naked))
     Offset += MFI->getStackSize();
 
   // If we can, encode the offset directly into the instruction.  If this is a

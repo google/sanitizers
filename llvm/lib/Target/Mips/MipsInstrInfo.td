@@ -296,6 +296,23 @@ def addr :
 // Instructions specific format
 //===----------------------------------------------------------------------===//
 
+/// Move Control Registers From/To CPU Registers
+def MFC0_3OP  : MFC3OP<0x10, 0, (outs CPURegs:$rt),
+                       (ins CPURegs:$rd, uimm16:$sel),"mfc0\t$rt, $rd, $sel">;
+def : InstAlias<"mfc0 $rt, $rd", (MFC0_3OP CPURegs:$rt, CPURegs:$rd, 0)>;
+
+def MTC0_3OP  : MFC3OP<0x10, 4, (outs CPURegs:$rd, uimm16:$sel),
+                       (ins CPURegs:$rt),"mtc0\t$rt, $rd, $sel">;
+def : InstAlias<"mtc0 $rt, $rd", (MTC0_3OP CPURegs:$rd, 0, CPURegs:$rt)>;
+
+def MFC2_3OP  : MFC3OP<0x12, 0, (outs CPURegs:$rt),
+                       (ins CPURegs:$rd, uimm16:$sel),"mfc2\t$rt, $rd, $sel">;
+def : InstAlias<"mfc2 $rt, $rd", (MFC2_3OP CPURegs:$rt, CPURegs:$rd, 0)>;
+
+def MTC2_3OP  : MFC3OP<0x12, 4, (outs CPURegs:$rd, uimm16:$sel),
+                       (ins CPURegs:$rt),"mtc2\t$rt, $rd, $sel">;
+def : InstAlias<"mtc2 $rt, $rd", (MTC2_3OP CPURegs:$rd, 0, CPURegs:$rt)>;
+
 // Arithmetic and logical instructions with 3 register operands.
 class ArithLogicR<bits<6> op, bits<6> func, string instr_asm, SDNode OpNode,
                   InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
@@ -863,6 +880,21 @@ let usesCustomInserter = 1 in {
 //===----------------------------------------------------------------------===//
 // Instruction definition
 //===----------------------------------------------------------------------===//
+
+class LoadImm32< string instr_asm, Operand Od, RegisterClass RC> :
+  MipsAsmPseudoInst<(outs RC:$rt), (ins Od:$imm32),
+                     !strconcat(instr_asm, "\t$rt, $imm32")> ;
+def LoadImm32Reg : LoadImm32<"li", shamt,CPURegs>;
+
+class LoadAddress<string instr_asm, Operand MemOpnd, RegisterClass RC> :
+  MipsAsmPseudoInst<(outs RC:$rt), (ins MemOpnd:$addr),
+                     !strconcat(instr_asm, "\t$rt, $addr")> ;
+def LoadAddr32Reg : LoadAddress<"la", mem, CPURegs>;
+
+class LoadAddressImm<string instr_asm, Operand Od, RegisterClass RC> :
+  MipsAsmPseudoInst<(outs RC:$rt), (ins Od:$imm32),
+                     !strconcat(instr_asm, "\t$rt, $imm32")> ;
+def LoadAddr32Imm : LoadAddressImm<"la", shamt,CPURegs>;
 
 //===----------------------------------------------------------------------===//
 // MipsI Instructions

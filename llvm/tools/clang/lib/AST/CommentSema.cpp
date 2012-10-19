@@ -36,7 +36,7 @@ void Sema::setDecl(const Decl *D) {
     return;
 
   ThisDeclInfo = new (Allocator) DeclInfo;
-  ThisDeclInfo->ThisDecl = D;
+  ThisDeclInfo->CommentDecl = D;
   ThisDeclInfo->IsFilled = false;
 }
 
@@ -441,7 +441,7 @@ void Sema::checkReturnsCommand(const BlockCommandComment *Command) {
   if (isFunctionDecl()) {
     if (ThisDeclInfo->ResultType->isVoidType()) {
       unsigned DiagKind;
-      switch (ThisDeclInfo->ThisDecl->getKind()) {
+      switch (ThisDeclInfo->CommentDecl->getKind()) {
       default:
         if (ThisDeclInfo->IsObjCMethod)
           DiagKind = 3;
@@ -508,7 +508,7 @@ void Sema::checkDeprecatedCommand(const BlockCommandComment *Command) {
   if (!Traits.getCommandInfo(Command->getCommandID())->IsDeprecatedCommand)
     return;
 
-  const Decl *D = ThisDeclInfo->ThisDecl;
+  const Decl *D = ThisDeclInfo->CommentDecl;
   if (!D)
     return;
 
@@ -574,7 +574,7 @@ void Sema::resolveParamCommandIndexes(const FullComment *FC) {
     ParamCommandComment *PCC = dyn_cast<ParamCommandComment>(*I);
     if (!PCC || !PCC->hasParamName())
       continue;
-    StringRef ParamName = PCC->getParamName();
+    StringRef ParamName = PCC->getParamNameAsWritten();
 
     // Check that referenced parameter name is in the function decl.
     const unsigned ResolvedParamIndex = resolveParmVarReference(ParamName,
@@ -609,7 +609,7 @@ void Sema::resolveParamCommandIndexes(const FullComment *FC) {
     const ParamCommandComment *PCC = UnresolvedParamCommands[i];
 
     SourceRange ArgRange = PCC->getParamNameRange();
-    StringRef ParamName = PCC->getParamName();
+    StringRef ParamName = PCC->getParamNameAsWritten();
     Diag(ArgRange.getBegin(), diag::warn_doc_param_not_found)
       << ParamName << ArgRange;
 

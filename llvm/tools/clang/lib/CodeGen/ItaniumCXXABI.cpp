@@ -26,7 +26,7 @@
 #include "clang/AST/Mangle.h"
 #include "clang/AST/Type.h"
 #include "llvm/Intrinsics.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Value.h"
 
 using namespace clang;
@@ -113,6 +113,7 @@ public:
   void EmitInstanceFunctionProlog(CodeGenFunction &CGF);
 
   StringRef GetPureVirtualCallName() { return "__cxa_pure_virtual"; }
+  StringRef GetDeletedVirtualCallName() { return "__cxa_deleted_virtual"; }
 
   CharUnits getArrayCookieSizeImpl(QualType elementType);
   llvm::Value *InitializeArrayCookie(CodeGenFunction &CGF,
@@ -950,9 +951,9 @@ static llvm::Constant *getGuardAcquireFn(CodeGenModule &CGM,
   llvm::FunctionType *FTy =
     llvm::FunctionType::get(CGM.getTypes().ConvertType(CGM.getContext().IntTy),
                             GuardPtrTy, /*isVarArg=*/false);
-  
   return CGM.CreateRuntimeFunction(FTy, "__cxa_guard_acquire",
-                                   llvm::Attribute::NoUnwind);
+                                   llvm::Attributes::get(CGM.getLLVMContext(),
+                                                 llvm::Attributes::NoUnwind));
 }
 
 static llvm::Constant *getGuardReleaseFn(CodeGenModule &CGM,
@@ -960,9 +961,9 @@ static llvm::Constant *getGuardReleaseFn(CodeGenModule &CGM,
   // void __cxa_guard_release(__guard *guard_object);
   llvm::FunctionType *FTy =
     llvm::FunctionType::get(CGM.VoidTy, GuardPtrTy, /*isVarArg=*/false);
-  
   return CGM.CreateRuntimeFunction(FTy, "__cxa_guard_release",
-                                   llvm::Attribute::NoUnwind);
+                                   llvm::Attributes::get(CGM.getLLVMContext(),
+                                                 llvm::Attributes::NoUnwind));
 }
 
 static llvm::Constant *getGuardAbortFn(CodeGenModule &CGM,
@@ -970,9 +971,9 @@ static llvm::Constant *getGuardAbortFn(CodeGenModule &CGM,
   // void __cxa_guard_abort(__guard *guard_object);
   llvm::FunctionType *FTy =
     llvm::FunctionType::get(CGM.VoidTy, GuardPtrTy, /*isVarArg=*/false);
-  
   return CGM.CreateRuntimeFunction(FTy, "__cxa_guard_abort",
-                                   llvm::Attribute::NoUnwind);
+                                   llvm::Attributes::get(CGM.getLLVMContext(),
+                                                 llvm::Attributes::NoUnwind));
 }
 
 namespace {

@@ -464,6 +464,7 @@ CXCallingConv clang_getFunctionTypeCallingConv(CXType X) {
       TCALLINGCONV(X86Pascal);
       TCALLINGCONV(AAPCS);
       TCALLINGCONV(AAPCS_VFP);
+      TCALLINGCONV(PnaclCall);
     }
 #undef TCALLINGCONV
   }
@@ -615,7 +616,7 @@ long long clang_getArraySize(CXType CT) {
 }
 
 CXString clang_getDeclObjCTypeEncoding(CXCursor C) {
-  if ((C.kind < CXCursor_FirstDecl) || (C.kind > CXCursor_LastDecl))
+  if (!clang_isDeclaration(C.kind))
     return cxstring::createCXString("");
 
   Decl *D = static_cast<Decl*>(C.data[0]);

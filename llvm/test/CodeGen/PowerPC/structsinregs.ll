@@ -1,5 +1,9 @@
 ; RUN: llc -mcpu=pwr7 -O0 -disable-fp-elim < %s | FileCheck %s
 
+; FIXME: The code generation for packed structs is very poor because the
+; PowerPC target wrongly rejects all unaligned loads.  This test case will
+; need to be revised when that is fixed.
+
 target datalayout = "E-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v128:128:128-n32:64"
 target triple = "powerpc64-unknown-linux-gnu"
 
@@ -100,14 +104,14 @@ entry:
 ; CHECK: std 9, 96(1)
 ; CHECK: std 8, 88(1)
 ; CHECK: std 7, 80(1)
-; CHECK: stw 6, 72(1)
-; CHECK: stw 5, 64(1)
-; CHECK: sth 4, 58(1)
-; CHECK: stb 3, 51(1)
-; CHECK: lha {{[0-9]+}}, 58(1)
-; CHECK: lbz {{[0-9]+}}, 51(1)
-; CHECK: lha {{[0-9]+}}, 64(1)
-; CHECK: lwz {{[0-9]+}}, 72(1)
+; CHECK: stw 6, 76(1)
+; CHECK: stw 5, 68(1)
+; CHECK: sth 4, 62(1)
+; CHECK: stb 3, 55(1)
+; CHECK: lha {{[0-9]+}}, 62(1)
+; CHECK: lbz {{[0-9]+}}, 55(1)
+; CHECK: lha {{[0-9]+}}, 68(1)
+; CHECK: lwz {{[0-9]+}}, 76(1)
 ; CHECK: lwz {{[0-9]+}}, 80(1)
 ; CHECK: lwz {{[0-9]+}}, 88(1)
 ; CHECK: lwz {{[0-9]+}}, 96(1)
@@ -188,18 +192,26 @@ entry:
 ; CHECK: sldi 8, 8, 16
 ; CHECK: sldi 7, 7, 24
 ; CHECK: sldi 5, 5, 40
-; CHECK: stw 6, 72(1)
-; CHECK: sth 4, 58(1)
-; CHECK: stb 3, 51(1)
+; CHECK: stw 6, 76(1)
+; CHECK: sth 4, 62(1)
+; CHECK: stb 3, 55(1)
 ; CHECK: std 9, 96(1)
 ; CHECK: std 8, 88(1)
 ; CHECK: std 7, 80(1)
 ; CHECK: std 5, 64(1)
-; CHECK: lha {{[0-9]+}}, 58(1)
-; CHECK: lbz {{[0-9]+}}, 51(1)
-; CHECK: lha {{[0-9]+}}, 64(1)
-; CHECK: lwz {{[0-9]+}}, 72(1)
-; CHECK: lwz {{[0-9]+}}, 80(1)
-; CHECK: lwz {{[0-9]+}}, 88(1)
-; CHECK: lwz {{[0-9]+}}, 96(1)
+; CHECK: lbz {{[0-9]+}}, 85(1)
+; CHECK: lbz {{[0-9]+}}, 86(1)
+; CHECK: lbz {{[0-9]+}}, 83(1)
+; CHECK: lbz {{[0-9]+}}, 84(1)
+; CHECK: lbz {{[0-9]+}}, 69(1)
+; CHECK: lbz {{[0-9]+}}, 70(1)
+; CHECK: lha {{[0-9]+}}, 62(1)
+; CHECK: lbz {{[0-9]+}}, 55(1)
+; CHECK: lwz {{[0-9]+}}, 76(1)
+; CHECK: lhz {{[0-9]+}}, 90(1)
+; CHECK: lhz {{[0-9]+}}, 92(1)
+; CHECK: lbz {{[0-9]+}}, 99(1)
+; CHECK: lbz {{[0-9]+}}, 100(1)
+; CHECK: lbz {{[0-9]+}}, 97(1)
+; CHECK: lbz {{[0-9]+}}, 98(1)
 }

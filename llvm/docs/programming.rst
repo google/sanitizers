@@ -6,9 +6,12 @@ Programming Documentation
 .. toctree::
    :hidden:
 
+   Atomics
    CodingStandards
    CommandLine
-   Atomics
+   CompilerWriterInfo
+   ExtendingLLVM
+   HowToSetUpLLVMStyleRTTI
 
 * `LLVM Language Reference Manual <LangRef.html>`_
 
@@ -33,7 +36,12 @@ Programming Documentation
   Details the LLVM coding standards and provides useful information on writing
   efficient C++ code.
 
-* `Extending LLVM <ExtendingLLVM.html>`_
+* :doc:`HowToSetUpLLVMStyleRTTI`
+
+  How to make ``isa<>``, ``dyn_cast<>``, etc. available for clients of your
+  class hierarchy.
+
+* :ref:`extending_llvm`
 
   Look here to see how to add instructions and intrinsics to LLVM.
 
@@ -43,3 +51,7 @@ Programming Documentation
   (`tarball <http://llvm.org/doxygen/doxygen.tar.gz>`_)
 
 * `ViewVC Repository Browser <http://llvm.org/viewvc/>`_
+
+* :ref:`compiler_writer_info`
+
+  A list of helpful links for compiler writers.

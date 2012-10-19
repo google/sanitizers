@@ -16,7 +16,7 @@
 namespace llvm {
   class Value;
   class LLVMContext;
-  class TargetData;
+  class DataLayout;
 }
 
 namespace clang {
@@ -88,7 +88,7 @@ namespace clang {
                                 llvm::Type *Padding = 0) {
       return ABIArgInfo(Direct, T, Offset, false, false, false, Padding);
     }
-    static ABIArgInfo getDirectInReg(llvm::Type *T) {
+    static ABIArgInfo getDirectInReg(llvm::Type *T = 0) {
       return ABIArgInfo(Direct, T, 0, false, false, true, 0);
     }
     static ABIArgInfo getExtend(llvm::Type *T = 0) {
@@ -178,7 +178,7 @@ namespace clang {
 
     ASTContext &getContext() const;
     llvm::LLVMContext &getVMContext() const;
-    const llvm::TargetData &getTargetData() const;
+    const llvm::DataLayout &getDataLayout() const;
 
     virtual void computeInfo(CodeGen::CGFunctionInfo &FI) const = 0;
 

@@ -30,7 +30,7 @@
 #include "llvm/ExecutionEngine/GenericValue.h"
 #include "llvm/ExecutionEngine/JITEventListener.h"
 #include "llvm/ExecutionEngine/JITMemoryManager.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetJITInfo.h"
 #include "llvm/Target/TargetMachine.h"
@@ -383,11 +383,6 @@ namespace {
     ~JITEmitter() {
       delete MemMgr;
     }
-
-    /// classof - Methods for support type inquiry through isa, cast, and
-    /// dyn_cast:
-    ///
-    static inline bool classof(const MachineCodeEmitter*) { return true; }
 
     JITResolver &getJITResolver() { return Resolver; }
 
@@ -763,7 +758,7 @@ void JITEmitter::processDebugLoc(DebugLoc DL, bool BeforePrintingInsn) {
 }
 
 static unsigned GetConstantPoolSizeInBytes(MachineConstantPool *MCP,
-                                           const TargetData *TD) {
+                                           const DataLayout *TD) {
   const std::vector<MachineConstantPoolEntry> &Constants = MCP->getConstants();
   if (Constants.empty()) return 0;
 
@@ -1058,7 +1053,7 @@ void JITEmitter::emitConstantPool(MachineConstantPool *MCP) {
   const std::vector<MachineConstantPoolEntry> &Constants = MCP->getConstants();
   if (Constants.empty()) return;
 
-  unsigned Size = GetConstantPoolSizeInBytes(MCP, TheJIT->getTargetData());
+  unsigned Size = GetConstantPoolSizeInBytes(MCP, TheJIT->getDataLayout());
   unsigned Align = MCP->getConstantPoolAlignment();
   ConstantPoolBase = allocateSpace(Size, Align);
   ConstantPool = MCP;
@@ -1087,7 +1082,7 @@ void JITEmitter::emitConstantPool(MachineConstantPool *MCP) {
           dbgs().write_hex(CAddr) << "]\n");
 
     Type *Ty = CPE.Val.ConstVal->getType();
-    Offset += TheJIT->getTargetData()->getTypeAllocSize(Ty);
+    Offset += TheJIT->getDataLayout()->getTypeAllocSize(Ty);
   }
 }
 
@@ -1104,14 +1099,14 @@ void JITEmitter::initJumpTableInfo(MachineJumpTableInfo *MJTI) {
   for (unsigned i = 0, e = JT.size(); i != e; ++i)
     NumEntries += JT[i].MBBs.size();
 
-  unsigned EntrySize = MJTI->getEntrySize(*TheJIT->getTargetData());
+  unsigned EntrySize = MJTI->getEntrySize(*TheJIT->getDataLayout());
 
   // Just allocate space for all the jump tables now.  We will fix up the actual
   // MBB entries in the tables after we emit the code for each block, since then
   // we will know the final locations of the MBBs in memory.
   JumpTable = MJTI;
   JumpTableBase = allocateSpace(NumEntries * EntrySize,
-                             MJTI->getEntryAlignment(*TheJIT->getTargetData()));
+                             MJTI->getEntryAlignment(*TheJIT->getDataLayout()));
 }
 
 void JITEmitter::emitJumpTableInfo(MachineJumpTableInfo *MJTI) {
@@ -1128,7 +1123,7 @@ void JITEmitter::emitJumpTableInfo(MachineJumpTableInfo *MJTI) {
   case MachineJumpTableInfo::EK_BlockAddress: {
     // EK_BlockAddress - Each entry is a plain address of block, e.g.:
     //     .word LBB123
-    assert(MJTI->getEntrySize(*TheJIT->getTargetData()) == sizeof(void*) &&
+    assert(MJTI->getEntrySize(*TheJIT->getDataLayout()) == sizeof(void*) &&
            "Cross JIT'ing?");
 
     // For each jump table, map each target in the jump table to the address of
@@ -1148,7 +1143,7 @@ void JITEmitter::emitJumpTableInfo(MachineJumpTableInfo *MJTI) {
   case MachineJumpTableInfo::EK_Custom32:
   case MachineJumpTableInfo::EK_GPRel32BlockAddress:
   case MachineJumpTableInfo::EK_LabelDifference32: {
-    assert(MJTI->getEntrySize(*TheJIT->getTargetData()) == 4&&"Cross JIT'ing?");
+    assert(MJTI->getEntrySize(*TheJIT->getDataLayout()) == 4&&"Cross JIT'ing?");
     // For each jump table, place the offset from the beginning of the table
     // to the target address.
     int *SlotPtr = (int*)JumpTableBase;
@@ -1224,7 +1219,7 @@ uintptr_t JITEmitter::getJumpTableEntryAddress(unsigned Index) const {
   const std::vector<MachineJumpTableEntry> &JT = JumpTable->getJumpTables();
   assert(Index < JT.size() && "Invalid jump table index!");
 
-  unsigned EntrySize = JumpTable->getEntrySize(*TheJIT->getTargetData());
+  unsigned EntrySize = JumpTable->getEntrySize(*TheJIT->getDataLayout());
 
   unsigned Offset = 0;
   for (unsigned i = 0; i < Index; ++i)
@@ -1265,15 +1260,13 @@ void *JIT::getPointerToFunctionOrStub(Function *F) {
     return Addr;
 
   // Get a stub if the target supports it.
-  assert(isa<JITEmitter>(JCE) && "Unexpected MCE?");
-  JITEmitter *JE = cast<JITEmitter>(getCodeEmitter());
+  JITEmitter *JE = static_cast<JITEmitter*>(getCodeEmitter());
   return JE->getJITResolver().getLazyFunctionStub(F);
 }
 
 void JIT::updateFunctionStub(Function *F) {
   // Get the empty stub we generated earlier.
-  assert(isa<JITEmitter>(JCE) && "Unexpected MCE?");
-  JITEmitter *JE = cast<JITEmitter>(getCodeEmitter());
+  JITEmitter *JE = static_cast<JITEmitter*>(getCodeEmitter());
   void *Stub = JE->getJITResolver().getLazyFunctionStub(F);
   void *Addr = getPointerToGlobalIfAvailable(F);
   assert(Addr != Stub && "Function must have non-stub address to be updated.");
@@ -1294,6 +1287,5 @@ void JIT::freeMachineCodeForFunction(Function *F) {
   updateGlobalMapping(F, 0);
 
   // Free the actual memory for the function body and related stuff.
-  assert(isa<JITEmitter>(JCE) && "Unexpected MCE?");
-  cast<JITEmitter>(JCE)->deallocateMemForFunction(F);
+  static_cast<JITEmitter*>(JCE)->deallocateMemForFunction(F);
 }

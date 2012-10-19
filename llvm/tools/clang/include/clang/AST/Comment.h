@@ -17,6 +17,7 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/CommentCommandTraits.h"
+#include "clang/AST/DeclObjC.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -26,7 +27,7 @@ class ParmVarDecl;
 class TemplateParameterList;
 
 namespace comments {
-
+class FullComment;
 /// Any part of the comment.
 /// Abstract class.
 class Comment {
@@ -174,8 +175,6 @@ public:
   void dump(llvm::raw_ostream &OS, const CommandTraits *Traits,
             const SourceManager *SM) const;
 
-  static bool classof(const Comment *) { return true; }
-
   SourceRange getSourceRange() const LLVM_READONLY { return Range; }
 
   SourceLocation getLocStart() const LLVM_READONLY {
@@ -217,8 +216,6 @@ public:
            C->getCommentKind() <= LastInlineContentCommentConstant;
   }
 
-  static bool classof(const InlineContentComment *) { return true; }
-
   void addTrailingNewline() {
     InlineContentCommentBits.HasTrailingNewline = 1;
   }
@@ -244,8 +241,6 @@ public:
   static bool classof(const Comment *C) {
     return C->getCommentKind() == TextCommentKind;
   }
-
-  static bool classof(const TextComment *) { return true; }
 
   child_iterator child_begin() const { return NULL; }
 
@@ -304,8 +299,6 @@ public:
   static bool classof(const Comment *C) {
     return C->getCommentKind() == InlineCommandCommentKind;
   }
-
-  static bool classof(const InlineCommandComment *) { return true; }
 
   child_iterator child_begin() const { return NULL; }
 
@@ -366,8 +359,6 @@ public:
     return C->getCommentKind() >= FirstHTMLTagCommentConstant &&
            C->getCommentKind() <= LastHTMLTagCommentConstant;
   }
-
-  static bool classof(const HTMLTagComment *) { return true; }
 
   StringRef getTagName() const LLVM_READONLY { return TagName; }
 
@@ -434,8 +425,6 @@ public:
     return C->getCommentKind() == HTMLStartTagCommentKind;
   }
 
-  static bool classof(const HTMLStartTagComment *) { return true; }
-
   child_iterator child_begin() const { return NULL; }
 
   child_iterator child_end() const { return NULL; }
@@ -491,8 +480,6 @@ public:
     return C->getCommentKind() == HTMLEndTagCommentKind;
   }
 
-  static bool classof(const HTMLEndTagComment *) { return true; }
-
   child_iterator child_begin() const { return NULL; }
 
   child_iterator child_end() const { return NULL; }
@@ -513,8 +500,6 @@ public:
     return C->getCommentKind() >= FirstBlockContentCommentConstant &&
            C->getCommentKind() <= LastBlockContentCommentConstant;
   }
-
-  static bool classof(const BlockContentComment *) { return true; }
 };
 
 /// A single paragraph that contains inline content.
@@ -543,8 +528,6 @@ public:
   static bool classof(const Comment *C) {
     return C->getCommentKind() == ParagraphCommentKind;
   }
-
-  static bool classof(const ParagraphComment *) { return true; }
 
   child_iterator child_begin() const {
     return reinterpret_cast<child_iterator>(Content.begin());
@@ -611,8 +594,6 @@ public:
     return C->getCommentKind() >= FirstBlockCommandCommentConstant &&
            C->getCommentKind() <= LastBlockCommandCommentConstant;
   }
-
-  static bool classof(const BlockCommandComment *) { return true; }
 
   child_iterator child_begin() const {
     return reinterpret_cast<child_iterator>(&Paragraph);
@@ -700,8 +681,6 @@ public:
     return C->getCommentKind() == ParamCommandCommentKind;
   }
 
-  static bool classof(const ParamCommandComment *) { return true; }
-
   enum PassDirection {
     In,
     Out,
@@ -727,7 +706,9 @@ public:
     return getNumArgs() > 0;
   }
 
-  StringRef getParamName() const {
+  StringRef getParamName(comments::FullComment *FC) const;
+  
+  StringRef getParamNameAsWritten() const {
     return Args[0].Text;
   }
 
@@ -778,13 +759,13 @@ public:
     return C->getCommentKind() == TParamCommandCommentKind;
   }
 
-  static bool classof(const TParamCommandComment *) { return true; }
-
   bool hasParamName() const {
     return getNumArgs() > 0;
   }
 
-  StringRef getParamName() const {
+  StringRef getParamName(comments::FullComment *FC) const;
+  
+  StringRef getParamNameAsWritten() const {
     return Args[0].Text;
   }
 
@@ -829,8 +810,6 @@ public:
     return C->getCommentKind() == VerbatimBlockLineCommentKind;
   }
 
-  static bool classof(const VerbatimBlockLineComment *) { return true; }
-
   child_iterator child_begin() const { return NULL; }
 
   child_iterator child_end() const { return NULL; }
@@ -860,8 +839,6 @@ public:
   static bool classof(const Comment *C) {
     return C->getCommentKind() == VerbatimBlockCommentKind;
   }
-
-  static bool classof(const VerbatimBlockComment *) { return true; }
 
   child_iterator child_begin() const {
     return reinterpret_cast<child_iterator>(Lines.begin());
@@ -918,8 +895,6 @@ public:
     return C->getCommentKind() == VerbatimLineCommentKind;
   }
 
-  static bool classof(const VerbatimLineComment *) { return true; }
-
   child_iterator child_begin() const { return NULL; }
 
   child_iterator child_end() const { return NULL; }
@@ -935,23 +910,34 @@ public:
 
 /// Information about the declaration, useful to clients of FullComment.
 struct DeclInfo {
-  /// Declaration the comment is attached to.  Should not be NULL.
-  const Decl *ThisDecl;
-
-  /// Parameters that can be referenced by \\param if \c ThisDecl is something
+  /// Declaration the comment is actually attached to (in the source).
+  /// Should not be NULL.
+  const Decl *CommentDecl;
+  
+  /// CurrentDecl is the declaration with which the FullComment is associated.
+  ///
+  /// It can be different from \c CommentDecl.  It happens when we we decide
+  /// that the comment originally attached to \c CommentDecl is fine for
+  /// \c CurrentDecl too (for example, for a redeclaration or an overrider of
+  /// \c CommentDecl).
+  ///
+  /// The information in the DeclInfo corresponds to CurrentDecl.
+  const Decl *CurrentDecl;
+  
+  /// Parameters that can be referenced by \\param if \c CommentDecl is something
   /// that we consider a "function".
   ArrayRef<const ParmVarDecl *> ParamVars;
 
-  /// Function result type if \c ThisDecl is something that we consider
+  /// Function result type if \c CommentDecl is something that we consider
   /// a "function".
   QualType ResultType;
 
-  /// Template parameters that can be referenced by \\tparam if \c ThisDecl is
+  /// Template parameters that can be referenced by \\tparam if \c CommentDecl is
   /// a template (\c IsTemplateDecl or \c IsTemplatePartialSpecialization is
   /// true).
   const TemplateParameterList *TemplateParameters;
 
-  /// A simplified description of \c ThisDecl kind that should be good enough
+  /// A simplified description of \c CommentDecl kind that should be good enough
   /// for documentation rendering purposes.
   enum DeclKind {
     /// Everything else not explicitly mentioned below.
@@ -992,7 +978,7 @@ struct DeclInfo {
     EnumKind
   };
 
-  /// What kind of template specialization \c ThisDecl is.
+  /// What kind of template specialization \c CommentDecl is.
   enum TemplateDeclKind {
     NotTemplate,
     Template,
@@ -1000,24 +986,24 @@ struct DeclInfo {
     TemplatePartialSpecialization
   };
 
-  /// If false, only \c ThisDecl is valid.
+  /// If false, only \c CommentDecl is valid.
   unsigned IsFilled : 1;
 
-  /// Simplified kind of \c ThisDecl, see\c DeclKind enum.
+  /// Simplified kind of \c CommentDecl, see \c DeclKind enum.
   unsigned Kind : 3;
 
-  /// Is \c ThisDecl a template declaration.
+  /// Is \c CommentDecl a template declaration.
   unsigned TemplateKind : 2;
 
-  /// Is \c ThisDecl an ObjCMethodDecl.
+  /// Is \c CommentDecl an ObjCMethodDecl.
   unsigned IsObjCMethod : 1;
 
-  /// Is \c ThisDecl a non-static member function of C++ class or
+  /// Is \c CommentDecl a non-static member function of C++ class or
   /// instance method of ObjC class.
   /// Can be true only if \c IsFunctionDecl is true.
   unsigned IsInstanceMethod : 1;
 
-  /// Is \c ThisDecl a static member function of C++ class or
+  /// Is \c CommentDecl a static member function of C++ class or
   /// class method of ObjC class.
   /// Can be true only if \c IsFunctionDecl is true.
   unsigned IsClassMethod : 1;
@@ -1036,7 +1022,6 @@ struct DeclInfo {
 /// A full comment attached to a declaration, contains block content.
 class FullComment : public Comment {
   llvm::ArrayRef<BlockContentComment *> Blocks;
-
   DeclInfo *ThisDeclInfo;
 
 public:
@@ -1055,27 +1040,31 @@ public:
     return C->getCommentKind() == FullCommentKind;
   }
 
-  static bool classof(const FullComment *) { return true; }
-
   child_iterator child_begin() const {
     return reinterpret_cast<child_iterator>(Blocks.begin());
   }
 
   child_iterator child_end() const {
-    return reinterpret_cast<child_iterator>(Blocks.end());
+    return reinterpret_cast<child_iterator>(Blocks.end()); 
   }
 
   const Decl *getDecl() const LLVM_READONLY {
-    return ThisDeclInfo->ThisDecl;
+    return ThisDeclInfo->CommentDecl;
   }
-
+  
   const DeclInfo *getDeclInfo() const LLVM_READONLY {
     if (!ThisDeclInfo->IsFilled)
       ThisDeclInfo->fill();
     return ThisDeclInfo;
   }
+  
+  DeclInfo *getThisDeclInfo() const LLVM_READONLY {
+    return ThisDeclInfo;
+  }
+  
+  llvm::ArrayRef<BlockContentComment *> getBlocks() const { return Blocks; }
+  
 };
-
 } // end namespace comments
 } // end namespace clang
 

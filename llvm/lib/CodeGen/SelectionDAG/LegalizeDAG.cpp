@@ -22,7 +22,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -718,7 +718,7 @@ void SelectionDAGLegalize::LegalizeStoreOps(SDNode *Node) {
           // expand it.
           if (!TLI.allowsUnalignedMemoryAccesses(ST->getMemoryVT())) {
             Type *Ty = ST->getMemoryVT().getTypeForEVT(*DAG.getContext());
-            unsigned ABIAlignment= TLI.getTargetData()->getABITypeAlignment(Ty);
+            unsigned ABIAlignment= TLI.getDataLayout()->getABITypeAlignment(Ty);
             if (ST->getAlignment() < ABIAlignment)
               ExpandUnalignedStore(cast<StoreSDNode>(Node),
                                    DAG, TLI, this);
@@ -824,7 +824,7 @@ void SelectionDAGLegalize::LegalizeStoreOps(SDNode *Node) {
           // expand it.
           if (!TLI.allowsUnalignedMemoryAccesses(ST->getMemoryVT())) {
             Type *Ty = ST->getMemoryVT().getTypeForEVT(*DAG.getContext());
-            unsigned ABIAlignment= TLI.getTargetData()->getABITypeAlignment(Ty);
+            unsigned ABIAlignment= TLI.getDataLayout()->getABITypeAlignment(Ty);
             if (ST->getAlignment() < ABIAlignment)
               ExpandUnalignedStore(cast<StoreSDNode>(Node), DAG, TLI, this);
           }
@@ -874,7 +874,7 @@ void SelectionDAGLegalize::LegalizeLoadOps(SDNode *Node) {
       if (!TLI.allowsUnalignedMemoryAccesses(LD->getMemoryVT())) {
         Type *Ty = LD->getMemoryVT().getTypeForEVT(*DAG.getContext());
         unsigned ABIAlignment =
-          TLI.getTargetData()->getABITypeAlignment(Ty);
+          TLI.getDataLayout()->getABITypeAlignment(Ty);
         if (LD->getAlignment() < ABIAlignment){
           ExpandUnalignedLoad(cast<LoadSDNode>(Node), DAG, TLI, RVal, RChain);
         }
@@ -1059,7 +1059,7 @@ void SelectionDAGLegalize::LegalizeLoadOps(SDNode *Node) {
                  Type *Ty =
                    LD->getMemoryVT().getTypeForEVT(*DAG.getContext());
                  unsigned ABIAlignment =
-                   TLI.getTargetData()->getABITypeAlignment(Ty);
+                   TLI.getDataLayout()->getABITypeAlignment(Ty);
                  if (LD->getAlignment() < ABIAlignment){
                    ExpandUnalignedLoad(cast<LoadSDNode>(Node),
                                        DAG, TLI, Value, Chain);
@@ -1587,26 +1587,71 @@ void SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT,
     break;
   case TargetLowering::Expand: {
     ISD::CondCode CC1 = ISD::SETCC_INVALID, CC2 = ISD::SETCC_INVALID;
+    ISD::CondCode InvCC = ISD::SETCC_INVALID;
     unsigned Opc = 0;
     switch (CCCode) {
     default: llvm_unreachable("Don't know how to expand this condition!");
-    case ISD::SETOEQ: CC1 = ISD::SETEQ; CC2 = ISD::SETO;  Opc = ISD::AND; break;
-    case ISD::SETOGT: CC1 = ISD::SETGT; CC2 = ISD::SETO;  Opc = ISD::AND; break;
-    case ISD::SETOGE: CC1 = ISD::SETGE; CC2 = ISD::SETO;  Opc = ISD::AND; break;
-    case ISD::SETOLT: CC1 = ISD::SETLT; CC2 = ISD::SETO;  Opc = ISD::AND; break;
-    case ISD::SETOLE: CC1 = ISD::SETLE; CC2 = ISD::SETO;  Opc = ISD::AND; break;
-    case ISD::SETONE: CC1 = ISD::SETNE; CC2 = ISD::SETO;  Opc = ISD::AND; break;
-    case ISD::SETUEQ: CC1 = ISD::SETEQ; CC2 = ISD::SETUO; Opc = ISD::OR;  break;
-    case ISD::SETUGT: CC1 = ISD::SETGT; CC2 = ISD::SETUO; Opc = ISD::OR;  break;
-    case ISD::SETUGE: CC1 = ISD::SETGE; CC2 = ISD::SETUO; Opc = ISD::OR;  break;
-    case ISD::SETULT: CC1 = ISD::SETLT; CC2 = ISD::SETUO; Opc = ISD::OR;  break;
-    case ISD::SETULE: CC1 = ISD::SETLE; CC2 = ISD::SETUO; Opc = ISD::OR;  break;
-    case ISD::SETUNE: CC1 = ISD::SETNE; CC2 = ISD::SETUO; Opc = ISD::OR;  break;
-    // FIXME: Implement more expansions.
+    case ISD::SETO: 
+        assert(TLI.getCondCodeAction(ISD::SETOEQ, OpVT)
+            == TargetLowering::Legal
+            && "If SETO is expanded, SETOEQ must be legal!");
+        CC1 = ISD::SETOEQ; CC2 = ISD::SETOEQ; Opc = ISD::AND; break;
+    case ISD::SETUO:  
+        assert(TLI.getCondCodeAction(ISD::SETUNE, OpVT)
+            == TargetLowering::Legal
+            && "If SETUO is expanded, SETUNE must be legal!");
+        CC1 = ISD::SETUNE; CC2 = ISD::SETUNE; Opc = ISD::OR;  break;
+    case ISD::SETOEQ:
+    case ISD::SETOGT:
+    case ISD::SETOGE:
+    case ISD::SETOLT:
+    case ISD::SETOLE:
+    case ISD::SETONE: 
+    case ISD::SETUEQ: 
+    case ISD::SETUNE: 
+    case ISD::SETUGT: 
+    case ISD::SETUGE: 
+    case ISD::SETULT: 
+    case ISD::SETULE:
+        // If we are floating point, assign and break, otherwise fall through.
+        if (!OpVT.isInteger()) {
+          // We can use the 4th bit to tell if we are the unordered
+          // or ordered version of the opcode.
+          CC2 = ((unsigned)CCCode & 0x8U) ? ISD::SETUO : ISD::SETO;
+          Opc = ((unsigned)CCCode & 0x8U) ? ISD::OR : ISD::AND;
+          CC1 = (ISD::CondCode)(((int)CCCode & 0x7) | 0x10);
+          break;
+        }
+        // Fallthrough if we are unsigned integer.
+    case ISD::SETLE:
+    case ISD::SETGT:
+    case ISD::SETGE:
+    case ISD::SETLT:
+    case ISD::SETNE:
+    case ISD::SETEQ:
+      InvCC = ISD::getSetCCSwappedOperands(CCCode);
+      if (TLI.getCondCodeAction(InvCC, OpVT) == TargetLowering::Expand) {
+        // We only support using the inverted operation and not a
+        // different manner of supporting expanding these cases.
+        llvm_unreachable("Don't know how to expand this condition!");
+      }
+      LHS = DAG.getSetCC(dl, VT, RHS, LHS, InvCC);
+      RHS = SDValue();
+      CC = SDValue();
+      return;
     }
-
-    SDValue SetCC1 = DAG.getSetCC(dl, VT, LHS, RHS, CC1);
-    SDValue SetCC2 = DAG.getSetCC(dl, VT, LHS, RHS, CC2);
+    
+    SDValue SetCC1, SetCC2;
+    if (CCCode != ISD::SETO && CCCode != ISD::SETUO) {
+      // If we aren't the ordered or unorder operation,
+      // then the pattern is (LHS CC1 RHS) Opc (LHS CC2 RHS).
+      SetCC1 = DAG.getSetCC(dl, VT, LHS, RHS, CC1);
+      SetCC2 = DAG.getSetCC(dl, VT, LHS, RHS, CC2);
+    } else {
+      // Otherwise, the pattern is (LHS CC1 LHS) Opc (RHS CC2 RHS)
+      SetCC1 = DAG.getSetCC(dl, VT, LHS, LHS, CC1);
+      SetCC2 = DAG.getSetCC(dl, VT, RHS, RHS, CC2);
+    }
     LHS = DAG.getNode(Opc, dl, VT, SetCC1, SetCC2);
     RHS = SDValue();
     CC  = SDValue();
@@ -1625,7 +1670,7 @@ SDValue SelectionDAGLegalize::EmitStackConvert(SDValue SrcOp,
                                                DebugLoc dl) {
   // Create the stack frame object.
   unsigned SrcAlign =
-    TLI.getTargetData()->getPrefTypeAlignment(SrcOp.getValueType().
+    TLI.getDataLayout()->getPrefTypeAlignment(SrcOp.getValueType().
                                               getTypeForEVT(*DAG.getContext()));
   SDValue FIPtr = DAG.CreateStackTemporary(SlotVT, SrcAlign);
 
@@ -1637,7 +1682,7 @@ SDValue SelectionDAGLegalize::EmitStackConvert(SDValue SrcOp,
   unsigned SlotSize = SlotVT.getSizeInBits();
   unsigned DestSize = DestVT.getSizeInBits();
   Type *DestType = DestVT.getTypeForEVT(*DAG.getContext());
-  unsigned DestAlign = TLI.getTargetData()->getPrefTypeAlignment(DestType);
+  unsigned DestAlign = TLI.getDataLayout()->getPrefTypeAlignment(DestType);
 
   // Emit a store to the stack slot.  Use a truncstore if the input value is
   // later than DestVT.
@@ -2786,7 +2831,7 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
 
     // Increment the pointer, VAList, to the next vaarg
     Tmp3 = DAG.getNode(ISD::ADD, dl, TLI.getPointerTy(), VAList,
-                       DAG.getConstant(TLI.getTargetData()->
+                       DAG.getConstant(TLI.getDataLayout()->
                           getTypeAllocSize(VT.getTypeForEVT(*DAG.getContext())),
                                        TLI.getPointerTy()));
     // Store the incremented VAList to the legalized pointer
@@ -3108,6 +3153,8 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     Tmp3 = Node->getOperand(1);
     if (TLI.isOperationLegalOrCustom(DivRemOpc, VT) ||
         (isDivRemLibcallAvailable(Node, isSigned, TLI) &&
+         // If div is legal, it's better to do the normal expansion
+         !TLI.isOperationLegalOrCustom(DivOpc, Node->getValueType(0)) &&
          useDivRem(Node, isSigned, false))) {
       Tmp1 = DAG.getNode(DivRemOpc, dl, VTs, Tmp2, Tmp3).getValue(1);
     } else if (TLI.isOperationLegalOrCustom(DivOpc, VT)) {
@@ -3365,7 +3412,7 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
 
     EVT PTy = TLI.getPointerTy();
 
-    const TargetData &TD = *TLI.getTargetData();
+    const DataLayout &TD = *TLI.getDataLayout();
     unsigned EntrySize =
       DAG.getMachineFunction().getJumpTableInfo()->getEntrySize(TD);
 

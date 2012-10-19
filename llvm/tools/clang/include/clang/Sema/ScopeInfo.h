@@ -25,6 +25,7 @@ namespace clang {
 class Decl;
 class BlockDecl;
 class CXXMethodDecl;
+class ObjCPropertyDecl;
 class IdentifierInfo;
 class LabelDecl;
 class ReturnStmt;
@@ -34,6 +35,7 @@ class VarDecl;
 class DeclRefExpr;
 class ObjCIvarRefExpr;
 class ObjCPropertyRefExpr;
+class ObjCMessageExpr;
 
 namespace sema {
 
@@ -166,6 +168,7 @@ public:
 
   public:
     WeakObjectProfileTy(const ObjCPropertyRefExpr *RE);
+    WeakObjectProfileTy(const Expr *Base, const ObjCPropertyDecl *Property);
     WeakObjectProfileTy(const DeclRefExpr *RE);
     WeakObjectProfileTy(const ObjCIvarRefExpr *RE);
 
@@ -261,6 +264,9 @@ public:
   template <typename ExprT>
   inline void recordUseOfWeak(const ExprT *E, bool IsRead = true);
 
+  void recordUseOfWeak(const ObjCMessageExpr *Msg,
+                       const ObjCPropertyDecl *Prop);
+
   /// Record that a given expression is a "safe" access of a weak object (e.g.
   /// assigning it to a strong variable.)
   ///
@@ -302,8 +308,6 @@ public:
   /// \brief Clear out the information in this function scope, making it
   /// suitable for reuse.
   void Clear();
-
-  static bool classof(const FunctionScopeInfo *FSI) { return true; }
 };
 
 class CapturingScopeInfo : public FunctionScopeInfo {
@@ -457,7 +461,6 @@ public:
   static bool classof(const FunctionScopeInfo *FSI) { 
     return FSI->Kind == SK_Block || FSI->Kind == SK_Lambda; 
   }
-  static bool classof(const CapturingScopeInfo *BSI) { return true; }
 };
 
 /// \brief Retains information about a block that is currently being parsed.
@@ -485,7 +488,6 @@ public:
   static bool classof(const FunctionScopeInfo *FSI) { 
     return FSI->Kind == SK_Block; 
   }
-  static bool classof(const BlockScopeInfo *BSI) { return true; }
 };
 
 class LambdaScopeInfo : public CapturingScopeInfo {
@@ -541,8 +543,6 @@ public:
   static bool classof(const FunctionScopeInfo *FSI) { 
     return FSI->Kind == SK_Lambda; 
   }
-  static bool classof(const LambdaScopeInfo *BSI) { return true; }
-
 };
 
 FunctionScopeInfo::WeakObjectProfileTy::WeakObjectProfileTy()

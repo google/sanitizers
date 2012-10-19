@@ -19,6 +19,7 @@ namespace clang {
   class CXXRecordDecl;
   class DeclGroupRef;
   class HandleTagDeclDefinition;
+  class PPMutationListener;
   class ASTMutationListener;
   class ASTDeserializationListener; // layering violation because void* is ugly
   class SemaConsumer; // layering violation required for safe SemaConsumer
@@ -111,6 +112,11 @@ public:
   /// it was actually used.
   virtual void HandleVTable(CXXRecordDecl *RD, bool DefinitionRequired) {}
 
+  /// \brief If the consumer is interested in preprocessor entities getting
+  /// modified after their initial creation, it should return a pointer to
+  /// a PPMutationListener here.
+  virtual PPMutationListener *GetPPMutationListener() { return 0; }
+
   /// \brief If the consumer is interested in entities getting modified after
   /// their initial creation, it should return a pointer to
   /// an ASTMutationListener here.
@@ -124,9 +130,6 @@ public:
 
   /// PrintStats - If desired, print any statistics.
   virtual void PrintStats() {}
-
-  // Support isa/cast/dyn_cast
-  static bool classof(const ASTConsumer *) { return true; }
 };
 
 } // end namespace clang.

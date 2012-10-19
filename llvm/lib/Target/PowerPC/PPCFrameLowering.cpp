@@ -50,6 +50,11 @@ static const uint16_t VRRegNo[] = {
 /// to manipulate the VRSAVE register, even though it uses vector registers.
 /// This can happen when the only registers used are known to be live in or out
 /// of the function.  Remove all of the VRSAVE related code from the function.
+/// FIXME: The removal of the code results in a compile failure at -O0 when the
+/// function contains a function call, as the GPR containing original VRSAVE
+/// contents is spilled and reloaded around the call.  Without the prolog code,
+/// the spill instruction refers to an undefined register.  This code needs
+/// to account for all uses of that GPR.
 static void RemoveVRSaveCode(MachineInstr *MI) {
   MachineBasicBlock *Entry = MI->getParent();
   MachineFunction *MF = Entry->getParent();
@@ -193,7 +198,8 @@ void PPCFrameLowering::determineFrameLayout(MachineFunction &MF) const {
   // to adjust the stack pointer (we fit in the Red Zone).  For 64-bit
   // SVR4, we also require a stack frame if we need to spill the CR,
   // since this spill area is addressed relative to the stack pointer.
-  bool DisableRedZone = MF.getFunction()->getFnAttributes().hasNoRedZoneAttr();
+  bool DisableRedZone = MF.getFunction()->getFnAttributes().
+    hasAttribute(Attributes::NoRedZone);
   // FIXME SVR4 The 32-bit SVR4 ABI has no red zone.  However, it can
   // still generate stackless code if all local vars are reg-allocated.
   // Try: (FrameSize <= 224
@@ -255,7 +261,7 @@ bool PPCFrameLowering::needsFP(const MachineFunction &MF) const {
 
   // Naked functions have no stack frame pushed, so we don't have a frame
   // pointer.
-  if (MF.getFunction()->getFnAttributes().hasNakedAttr())
+  if (MF.getFunction()->getFnAttributes().hasAttribute(Attributes::Naked))
     return false;
 
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
@@ -282,12 +288,13 @@ void PPCFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // Scan the prolog, looking for an UPDATE_VRSAVE instruction.  If we find it,
   // process it.
-  for (unsigned i = 0; MBBI != MBB.end(); ++i, ++MBBI) {
-    if (MBBI->getOpcode() == PPC::UPDATE_VRSAVE) {
-      HandleVRSaveUpdate(MBBI, TII);
-      break;
+  if (!Subtarget.isSVR4ABI())
+    for (unsigned i = 0; MBBI != MBB.end(); ++i, ++MBBI) {
+      if (MBBI->getOpcode() == PPC::UPDATE_VRSAVE) {
+        HandleVRSaveUpdate(MBBI, TII);
+        break;
+      }
     }
-  }
 
   // Move MBBI back to the beginning of the function.
   MBBI = MBB.begin();

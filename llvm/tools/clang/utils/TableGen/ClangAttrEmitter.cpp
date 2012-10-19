@@ -33,7 +33,7 @@ getValueAsListOfStrings(Record &R, StringRef FieldName) {
        i != e;
        ++i) {
     assert(*i && "Got a null element in a ListInit");
-    if (StringInit *S = dynamic_cast<StringInit *>(*i))
+    if (StringInit *S = dyn_cast<StringInit>(*i))
       Strings.push_back(S->getValue());
     else
       assert(false && "Got a non-string, non-code element in a ListInit");
@@ -743,8 +743,6 @@ void EmitClangAttrClass(RecordKeeper &Records, raw_ostream &OS) {
 
     OS << "  static bool classof(const Attr *A) { return A->getKind() == "
        << "attr::" << R.getName() << "; }\n";
-    OS << "  static bool classof(const " << R.getName()
-       << "Attr *) { return true; }\n";
 
     bool LateParsed = R.getValueAsBit("LateParsed");
     OS << "  virtual bool isLateParsed() const { return "

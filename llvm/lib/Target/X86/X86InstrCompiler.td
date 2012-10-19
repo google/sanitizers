@@ -165,6 +165,33 @@ def EH_RETURN64   : I<0xC3, RawFrm, (outs), (ins GR64:$addr),
 
 }
 
+let hasSideEffects = 1, isBarrier = 1, isCodeGenOnly = 1,
+    usesCustomInserter = 1 in {
+  def EH_SjLj_SetJmp32  : I<0, Pseudo, (outs GR32:$dst), (ins i32mem:$buf),
+                            "#EH_SJLJ_SETJMP32",
+                            [(set GR32:$dst, (X86eh_sjlj_setjmp addr:$buf))]>,
+                          Requires<[In32BitMode]>;
+  def EH_SjLj_SetJmp64  : I<0, Pseudo, (outs GR32:$dst), (ins i64mem:$buf),
+                            "#EH_SJLJ_SETJMP64",
+                            [(set GR32:$dst, (X86eh_sjlj_setjmp addr:$buf))]>,
+                          Requires<[In64BitMode]>;
+  let isTerminator = 1 in {
+  def EH_SjLj_LongJmp32 : I<0, Pseudo, (outs), (ins i32mem:$buf),
+                            "#EH_SJLJ_LONGJMP32",
+                            [(X86eh_sjlj_longjmp addr:$buf)]>,
+                          Requires<[In32BitMode]>;
+  def EH_SjLj_LongJmp64 : I<0, Pseudo, (outs), (ins i64mem:$buf),
+                            "#EH_SJLJ_LONGJMP64",
+                            [(X86eh_sjlj_longjmp addr:$buf)]>,
+                          Requires<[In64BitMode]>;
+  }
+}
+
+let isBranch = 1, isTerminator = 1, isCodeGenOnly = 1 in {
+  def EH_SjLj_Setup : I<0, Pseudo, (outs), (ins brtarget:$dst),
+                        "#EH_SjLj_Setup\t$dst", []>;
+}
+
 //===----------------------------------------------------------------------===//
 // Pseudo instructions used by segmented stacks.
 //
@@ -230,25 +257,18 @@ def MOV64ri64i32 : Ii32<0xB8, AddRegFrm, (outs GR64:$dst), (ins i64i32imm:$src),
                         IIC_ALU_NONMEM>;
 
 // Use sbb to materialize carry bit.
-let Uses = [EFLAGS], Defs = [EFLAGS], isCodeGenOnly = 1 in {
+let Uses = [EFLAGS], Defs = [EFLAGS], isPseudo = 1 in {
 // FIXME: These are pseudo ops that should be replaced with Pat<> patterns.
 // However, Pat<> can't replicate the destination reg into the inputs of the
 // result.
-// FIXME: Change these to have encoding Pseudo when X86MCCodeEmitter replaces
-// X86CodeEmitter.
-def SETB_C8r : I<0x18, MRMInitReg, (outs GR8:$dst), (ins), "",
-                 [(set GR8:$dst, (X86setcc_c X86_COND_B, EFLAGS))],
-                 IIC_ALU_NONMEM>;
-def SETB_C16r : I<0x19, MRMInitReg, (outs GR16:$dst), (ins), "",
-                 [(set GR16:$dst, (X86setcc_c X86_COND_B, EFLAGS))],
-                 IIC_ALU_NONMEM>,
-                OpSize;
-def SETB_C32r : I<0x19, MRMInitReg, (outs GR32:$dst), (ins), "",
-                 [(set GR32:$dst, (X86setcc_c X86_COND_B, EFLAGS))],
-                 IIC_ALU_NONMEM>;
-def SETB_C64r : RI<0x19, MRMInitReg, (outs GR64:$dst), (ins), "",
-                 [(set GR64:$dst, (X86setcc_c X86_COND_B, EFLAGS))],
-                 IIC_ALU_NONMEM>;
+def SETB_C8r : I<0, Pseudo, (outs GR8:$dst), (ins), "",
+                 [(set GR8:$dst, (X86setcc_c X86_COND_B, EFLAGS))]>;
+def SETB_C16r : I<0, Pseudo, (outs GR16:$dst), (ins), "",
+                 [(set GR16:$dst, (X86setcc_c X86_COND_B, EFLAGS))]>;
+def SETB_C32r : I<0, Pseudo, (outs GR32:$dst), (ins), "",
+                 [(set GR32:$dst, (X86setcc_c X86_COND_B, EFLAGS))]>;
+def SETB_C64r : I<0, Pseudo, (outs GR64:$dst), (ins), "",
+                 [(set GR64:$dst, (X86setcc_c X86_COND_B, EFLAGS))]>;
 } // isCodeGenOnly
 
 
@@ -453,6 +473,11 @@ def CMOV_GR16 : I<0, Pseudo,
                     "#CMOV_GR16* PSEUDO!",
                     [(set GR16:$dst,
                       (X86cmov GR16:$src1, GR16:$src2, imm:$cond, EFLAGS))]>;
+} // Predicates = [NoCMov]
+
+// fcmov doesn't handle all possible EFLAGS, provide a fallback if there is no
+// SSE1.
+let Predicates = [FPStackf32] in
 def CMOV_RFP32 : I<0, Pseudo,
                     (outs RFP32:$dst),
                     (ins RFP32:$src1, RFP32:$src2, i8imm:$cond),
@@ -460,6 +485,9 @@ def CMOV_RFP32 : I<0, Pseudo,
                     [(set RFP32:$dst,
                       (X86cmov RFP32:$src1, RFP32:$src2, imm:$cond,
                                                   EFLAGS))]>;
+// fcmov doesn't handle all possible EFLAGS, provide a fallback if there is no
+// SSE2.
+let Predicates = [FPStackf64] in
 def CMOV_RFP64 : I<0, Pseudo,
                     (outs RFP64:$dst),
                     (ins RFP64:$src1, RFP64:$src2, i8imm:$cond),
@@ -474,7 +502,6 @@ def CMOV_RFP80 : I<0, Pseudo,
                     [(set RFP80:$dst,
                       (X86cmov RFP80:$src1, RFP80:$src2, imm:$cond,
                                                   EFLAGS))]>;
-} // Predicates = [NoCMov]
 } // UsesCustomInserter = 1, Uses = [EFLAGS]
 
 

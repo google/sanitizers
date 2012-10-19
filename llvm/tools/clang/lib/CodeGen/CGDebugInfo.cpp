@@ -34,7 +34,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 using namespace clang;
 using namespace clang::CodeGen;
 
@@ -254,9 +254,13 @@ unsigned CGDebugInfo::getLineNumber(SourceLocation Loc) {
   return PLoc.isValid()? PLoc.getLine() : 0;
 }
 
-/// getColumnNumber - Get column number for the location. If location is 
-/// invalid then use current location.
+/// getColumnNumber - Get column number for the location.
 unsigned CGDebugInfo::getColumnNumber(SourceLocation Loc) {
+  // We may not want column information at all.
+  if (!CGM.getCodeGenOpts().DebugColumnInfo)
+    return 0;
+
+  // If the location is invalid then use the current column.
   if (Loc.isInvalid() && CurLoc.isInvalid())
     return 0;
   SourceManager &SM = CGM.getContext().getSourceManager();
@@ -824,7 +828,7 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
       }
     }
   } else {
-    bool IsMsStruct = record->hasAttr<MsStructAttr>();
+    bool IsMsStruct = record->isMsStruct(CGM.getContext());
     const FieldDecl *LastFD = 0;
     for (RecordDecl::field_iterator I = record->field_begin(),
            E = record->field_end();
@@ -1023,12 +1027,8 @@ CollectCXXMemberFunctions(const CXXRecordDecl *RD, llvm::DIFile Unit,
     if (D->isImplicit() && !D->isUsed())
       continue;
 
-    if (const CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D)) {
-      // Only emit debug information for user provided functions, we're
-      // unlikely to want info for artificial functions.
-      if (Method->isUserProvided())
-        EltTys.push_back(CreateCXXMemberFunction(Method, Unit, RecordTy));
-    }
+    if (const CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D))
+      EltTys.push_back(CreateCXXMemberFunction(Method, Unit, RecordTy));
     else if (FunctionTemplateDecl *FTD = dyn_cast<FunctionTemplateDecl>(D))
       for (FunctionTemplateDecl::spec_iterator SI = FTD->spec_begin(),
              SE = FTD->spec_end(); SI != SE; ++SI)
@@ -1598,9 +1598,29 @@ llvm::DIType CGDebugInfo::CreateType(const AtomicType *Ty,
 
 /// CreateEnumType - get enumeration type.
 llvm::DIType CGDebugInfo::CreateEnumType(const EnumDecl *ED) {
-  SmallVector<llvm::Value *, 16> Enumerators;
+  uint64_t Size = 0;
+  uint64_t Align = 0;
+  if (!ED->getTypeForDecl()->isIncompleteType()) {
+    Size = CGM.getContext().getTypeSize(ED->getTypeForDecl());
+    Align = CGM.getContext().getTypeAlign(ED->getTypeForDecl());
+  }
+
+  // If this is just a forward declaration, construct an appropriately
+  // marked node and just return it.
+  if (!ED->getDefinition()) {
+    llvm::DIDescriptor EDContext;
+    EDContext = getContextDescriptor(cast<Decl>(ED->getDeclContext()));
+    llvm::DIFile DefUnit = getOrCreateFile(ED->getLocation());
+    unsigned Line = getLineNumber(ED->getLocation());
+    StringRef EDName = ED->getName();
+    return DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_enumeration_type,
+                                      EDName, EDContext, DefUnit, Line, 0,
+                                      Size, Align);
+  }
 
   // Create DIEnumerator elements for each enumerator.
+  SmallVector<llvm::Value *, 16> Enumerators;
+  ED = ED->getDefinition();
   for (EnumDecl::enumerator_iterator
          Enum = ED->enumerator_begin(), EnumEnd = ED->enumerator_end();
        Enum != EnumEnd; ++Enum) {
@@ -1614,21 +1634,14 @@ llvm::DIType CGDebugInfo::CreateEnumType(const EnumDecl *ED) {
 
   llvm::DIFile DefUnit = getOrCreateFile(ED->getLocation());
   unsigned Line = getLineNumber(ED->getLocation());
-  uint64_t Size = 0;
-  uint64_t Align = 0;
-  if (!ED->getTypeForDecl()->isIncompleteType()) {
-    Size = CGM.getContext().getTypeSize(ED->getTypeForDecl());
-    Align = CGM.getContext().getTypeAlign(ED->getTypeForDecl());
-  }
   llvm::DIDescriptor EnumContext = 
     getContextDescriptor(cast<Decl>(ED->getDeclContext()));
   llvm::DIType ClassTy = ED->isScopedUsingClassTag() ?
     getOrCreateType(ED->getIntegerType(), DefUnit) : llvm::DIType();
-  unsigned Flags = !ED->isCompleteDefinition() ? llvm::DIDescriptor::FlagFwdDecl : 0;
   llvm::DIType DbgTy = 
     DBuilder.createEnumerationType(EnumContext, ED->getName(), DefUnit, Line,
                                    Size, Align, EltArray,
-                                   ClassTy, Flags);
+                                   ClassTy);
   return DbgTy;
 }
 
@@ -2447,7 +2460,7 @@ void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(const VarDecl *VD,
   unsigned Line = getLineNumber(VD->getLocation());
   unsigned Column = getColumnNumber(VD->getLocation());
 
-  const llvm::TargetData &target = CGM.getTargetData();
+  const llvm::DataLayout &target = CGM.getDataLayout();
 
   CharUnits offset = CharUnits::fromQuantity(
     target.getStructLayout(blockInfo.StructureType)
@@ -2462,7 +2475,7 @@ void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(const VarDecl *VD,
     addr.push_back(llvm::ConstantInt::get(Int64Ty, llvm::DIBuilder::OpPlus));
     // offset of __forwarding field
     offset = CGM.getContext()
-                .toCharUnitsFromBits(target.getPointerSizeInBits());
+                .toCharUnitsFromBits(target.getPointerSizeInBits(0));
     addr.push_back(llvm::ConstantInt::get(Int64Ty, offset.getQuantity()));
     addr.push_back(llvm::ConstantInt::get(Int64Ty, llvm::DIBuilder::OpDeref));
     addr.push_back(llvm::ConstantInt::get(Int64Ty, llvm::DIBuilder::OpPlus));
@@ -2519,7 +2532,7 @@ void CGDebugInfo::EmitDeclareOfBlockLiteralArgVariable(const CGBlockInfo &block,
   getContextDescriptor(cast<Decl>(blockDecl->getDeclContext()));
 
   const llvm::StructLayout *blockLayout =
-    CGM.getTargetData().getStructLayout(block.StructureType);
+    CGM.getDataLayout().getStructLayout(block.StructureType);
 
   SmallVector<llvm::Value*, 16> fields;
   fields.push_back(createFieldType("__isa", C.VoidPtrTy, 0, loc, AS_public,

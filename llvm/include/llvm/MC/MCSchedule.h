@@ -27,11 +27,18 @@ struct MCProcResourceDesc {
 #ifndef NDEBUG
   const char *Name;
 #endif
-  unsigned Count; // Number of resource of this kind
+  unsigned NumUnits; // Number of resource of this kind
   unsigned SuperIdx; // Index of the resources kind that contains this kind.
 
+  // Buffered resources may be consumed at some indeterminate cycle after
+  // dispatch (e.g. for instructions that may issue out-of-order). Unbuffered
+  // resources always consume their resource some fixed number of cycles after
+  // dispatch (e.g. for instruction interlocking that may stall the pipeline).
+  bool IsBuffered;
+
   bool operator==(const MCProcResourceDesc &Other) const {
-    return Count == Other.Count && SuperIdx == Other.SuperIdx;
+    return NumUnits == Other.NumUnits && SuperIdx == Other.SuperIdx
+      && IsBuffered == Other.IsBuffered;
   }
 };
 
@@ -47,10 +54,12 @@ struct MCWriteProcResEntry {
 };
 
 /// Specify the latency in cpu cycles for a particular scheduling class and def
-/// index. Also identify the WriteResources of this def. When the operand
-/// expands to a sequence of writes, this ID is the last write in the sequence.
+/// index. -1 indicates an invalid latency. Heuristics would typically consider
+/// an instruction with invalid latency to have infinite latency.  Also identify
+/// the WriteResources of this def. When the operand expands to a sequence of
+/// writes, this ID is the last write in the sequence.
 struct MCWriteLatencyEntry {
-  unsigned Cycles;
+  int Cycles;
   unsigned WriteResourceID;
 
   bool operator==(const MCWriteLatencyEntry &Other) const {

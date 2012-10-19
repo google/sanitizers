@@ -134,13 +134,7 @@ bool OptTable::isOptionHelpHidden(OptSpecifier id) const {
 }
 
 Option *OptTable::CreateOption(unsigned id) const {
-  const Info &info = getInfo(id);
-  const Option *Group = getOption(info.GroupID);
-  const Option *Alias = getOption(info.AliasID);
-
-  Option *Opt = new Option(&info, Group, Alias);
-
-  return Opt;
+  return new Option(&getInfo(id), this);
 }
 
 Arg *OptTable::ParseOneArg(const ArgList &Args, unsigned &Index) const {
@@ -165,10 +159,11 @@ Arg *OptTable::ParseOneArg(const ArgList &Args, unsigned &Index) const {
   // FIXME: This is searching much more than necessary, but I am
   // blanking on the simplest way to make it fast. We can solve this
   // problem when we move to TableGen.
+  StringRef StrRef(Str);
   for (; Start != End; ++Start) {
     // Scan for first option which is a proper prefix.
     for (; Start != End; ++Start)
-      if (memcmp(Str, Start->Name, strlen(Start->Name)) == 0)
+      if (StrRef.startswith(Start->Name))
         break;
     if (Start == End)
       break;

@@ -23,7 +23,7 @@ int main() {
   NullDeref((int*)0);
 }
 
-// CHECK: {{.*ERROR: AddressSanitizer crashed on unknown address}}
+// CHECK: ERROR: AddressSanitizer: SEGV on unknown address
 // CHECK:   {{0x0*00028 .*pc 0x.*}}
 // CHECK: {{AddressSanitizer can not provide additional info.}}
 
@@ -31,4 +31,4 @@ int main() {
 // CHECK-Linux: {{    #0 0x.* in NullDeref.*null_deref.cc:20}}
 // CHECK-Darwin: {{    #0 0x.* in .*NullDeref.*null_deref.cc:20}}
 
-// CHECK: {{    #1 0x.* in main.*null_deref.cc:23}}
+// CHECK: {{    #1 0x.* in _?main.*null_deref.cc:23}}

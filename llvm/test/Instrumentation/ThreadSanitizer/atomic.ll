@@ -8,7 +8,7 @@ entry:
   ret i8 %0
 }
 ; CHECK: atomic8_load_unordered
-; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 1)
+; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 100501)
 
 define i8 @atomic8_load_monotonic(i8* %a) nounwind uwtable {
 entry:
@@ -16,7 +16,7 @@ entry:
   ret i8 %0
 }
 ; CHECK: atomic8_load_monotonic
-; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 1)
+; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 100501)
 
 define i8 @atomic8_load_acquire(i8* %a) nounwind uwtable {
 entry:
@@ -24,7 +24,7 @@ entry:
   ret i8 %0
 }
 ; CHECK: atomic8_load_acquire
-; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 4)
+; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 100504)
 
 define i8 @atomic8_load_seq_cst(i8* %a) nounwind uwtable {
 entry:
@@ -32,7 +32,7 @@ entry:
   ret i8 %0
 }
 ; CHECK: atomic8_load_seq_cst
-; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 32)
+; CHECK: call i8 @__tsan_atomic8_load(i8* %a, i32 100532)
 
 define void @atomic8_store_unordered(i8* %a) nounwind uwtable {
 entry:
@@ -40,7 +40,7 @@ entry:
   ret void
 }
 ; CHECK: atomic8_store_unordered
-; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 1)
+; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 100501)
 
 define void @atomic8_store_monotonic(i8* %a) nounwind uwtable {
 entry:
@@ -48,7 +48,7 @@ entry:
   ret void
 }
 ; CHECK: atomic8_store_monotonic
-; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 1)
+; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 100501)
 
 define void @atomic8_store_release(i8* %a) nounwind uwtable {
 entry:
@@ -56,7 +56,7 @@ entry:
   ret void
 }
 ; CHECK: atomic8_store_release
-; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 8)
+; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 100508)
 
 define void @atomic8_store_seq_cst(i8* %a) nounwind uwtable {
 entry:
@@ -64,7 +64,7 @@ entry:
   ret void
 }
 ; CHECK: atomic8_store_seq_cst
-; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 32)
+; CHECK: call void @__tsan_atomic8_store(i8* %a, i8 0, i32 100532)
 
 define i16 @atomic16_load_unordered(i16* %a) nounwind uwtable {
 entry:
@@ -72,7 +72,7 @@ entry:
   ret i16 %0
 }
 ; CHECK: atomic16_load_unordered
-; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 1)
+; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 100501)
 
 define i16 @atomic16_load_monotonic(i16* %a) nounwind uwtable {
 entry:
@@ -80,7 +80,7 @@ entry:
   ret i16 %0
 }
 ; CHECK: atomic16_load_monotonic
-; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 1)
+; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 100501)
 
 define i16 @atomic16_load_acquire(i16* %a) nounwind uwtable {
 entry:
@@ -88,7 +88,7 @@ entry:
   ret i16 %0
 }
 ; CHECK: atomic16_load_acquire
-; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 4)
+; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 100504)
 
 define i16 @atomic16_load_seq_cst(i16* %a) nounwind uwtable {
 entry:
@@ -96,7 +96,7 @@ entry:
   ret i16 %0
 }
 ; CHECK: atomic16_load_seq_cst
-; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 32)
+; CHECK: call i16 @__tsan_atomic16_load(i16* %a, i32 100532)
 
 define void @atomic16_store_unordered(i16* %a) nounwind uwtable {
 entry:
@@ -104,7 +104,7 @@ entry:
   ret void
 }
 ; CHECK: atomic16_store_unordered
-; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 1)
+; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 100501)
 
 define void @atomic16_store_monotonic(i16* %a) nounwind uwtable {
 entry:
@@ -112,7 +112,7 @@ entry:
   ret void
 }
 ; CHECK: atomic16_store_monotonic
-; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 1)
+; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 100501)
 
 define void @atomic16_store_release(i16* %a) nounwind uwtable {
 entry:
@@ -120,7 +120,7 @@ entry:
   ret void
 }
 ; CHECK: atomic16_store_release
-; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 8)
+; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 100508)
 
 define void @atomic16_store_seq_cst(i16* %a) nounwind uwtable {
 entry:
@@ -128,7 +128,7 @@ entry:
   ret void
 }
 ; CHECK: atomic16_store_seq_cst
-; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 32)
+; CHECK: call void @__tsan_atomic16_store(i16* %a, i16 0, i32 100532)
 
 define i32 @atomic32_load_unordered(i32* %a) nounwind uwtable {
 entry:
@@ -136,7 +136,7 @@ entry:
   ret i32 %0
 }
 ; CHECK: atomic32_load_unordered
-; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 1)
+; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 100501)
 
 define i32 @atomic32_load_monotonic(i32* %a) nounwind uwtable {
 entry:
@@ -144,7 +144,7 @@ entry:
   ret i32 %0
 }
 ; CHECK: atomic32_load_monotonic
-; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 1)
+; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 100501)
 
 define i32 @atomic32_load_acquire(i32* %a) nounwind uwtable {
 entry:
@@ -152,7 +152,7 @@ entry:
   ret i32 %0
 }
 ; CHECK: atomic32_load_acquire
-; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 4)
+; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 100504)
 
 define i32 @atomic32_load_seq_cst(i32* %a) nounwind uwtable {
 entry:
@@ -160,7 +160,7 @@ entry:
   ret i32 %0
 }
 ; CHECK: atomic32_load_seq_cst
-; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 32)
+; CHECK: call i32 @__tsan_atomic32_load(i32* %a, i32 100532)
 
 define void @atomic32_store_unordered(i32* %a) nounwind uwtable {
 entry:
@@ -168,7 +168,7 @@ entry:
   ret void
 }
 ; CHECK: atomic32_store_unordered
-; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 1)
+; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 100501)
 
 define void @atomic32_store_monotonic(i32* %a) nounwind uwtable {
 entry:
@@ -176,7 +176,7 @@ entry:
   ret void
 }
 ; CHECK: atomic32_store_monotonic
-; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 1)
+; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 100501)
 
 define void @atomic32_store_release(i32* %a) nounwind uwtable {
 entry:
@@ -184,7 +184,7 @@ entry:
   ret void
 }
 ; CHECK: atomic32_store_release
-; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 8)
+; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 100508)
 
 define void @atomic32_store_seq_cst(i32* %a) nounwind uwtable {
 entry:
@@ -192,7 +192,7 @@ entry:
   ret void
 }
 ; CHECK: atomic32_store_seq_cst
-; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 32)
+; CHECK: call void @__tsan_atomic32_store(i32* %a, i32 0, i32 100532)
 
 define i64 @atomic64_load_unordered(i64* %a) nounwind uwtable {
 entry:
@@ -200,7 +200,7 @@ entry:
   ret i64 %0
 }
 ; CHECK: atomic64_load_unordered
-; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 1)
+; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 100501)
 
 define i64 @atomic64_load_monotonic(i64* %a) nounwind uwtable {
 entry:
@@ -208,7 +208,7 @@ entry:
   ret i64 %0
 }
 ; CHECK: atomic64_load_monotonic
-; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 1)
+; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 100501)
 
 define i64 @atomic64_load_acquire(i64* %a) nounwind uwtable {
 entry:
@@ -216,7 +216,7 @@ entry:
   ret i64 %0
 }
 ; CHECK: atomic64_load_acquire
-; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 4)
+; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 100504)
 
 define i64 @atomic64_load_seq_cst(i64* %a) nounwind uwtable {
 entry:
@@ -224,7 +224,7 @@ entry:
   ret i64 %0
 }
 ; CHECK: atomic64_load_seq_cst
-; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 32)
+; CHECK: call i64 @__tsan_atomic64_load(i64* %a, i32 100532)
 
 define void @atomic64_store_unordered(i64* %a) nounwind uwtable {
 entry:
@@ -232,7 +232,7 @@ entry:
   ret void
 }
 ; CHECK: atomic64_store_unordered
-; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 1)
+; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 100501)
 
 define void @atomic64_store_monotonic(i64* %a) nounwind uwtable {
 entry:
@@ -240,7 +240,7 @@ entry:
   ret void
 }
 ; CHECK: atomic64_store_monotonic
-; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 1)
+; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 100501)
 
 define void @atomic64_store_release(i64* %a) nounwind uwtable {
 entry:
@@ -248,7 +248,7 @@ entry:
   ret void
 }
 ; CHECK: atomic64_store_release
-; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 8)
+; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 100508)
 
 define void @atomic64_store_seq_cst(i64* %a) nounwind uwtable {
 entry:
@@ -256,7 +256,7 @@ entry:
   ret void
 }
 ; CHECK: atomic64_store_seq_cst
-; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 32)
+; CHECK: call void @__tsan_atomic64_store(i64* %a, i64 0, i32 100532)
 
 define i128 @atomic128_load_unordered(i128* %a) nounwind uwtable {
 entry:
@@ -264,7 +264,7 @@ entry:
   ret i128 %0
 }
 ; CHECK: atomic128_load_unordered
-; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 1)
+; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 100501)
 
 define i128 @atomic128_load_monotonic(i128* %a) nounwind uwtable {
 entry:
@@ -272,7 +272,7 @@ entry:
   ret i128 %0
 }
 ; CHECK: atomic128_load_monotonic
-; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 1)
+; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 100501)
 
 define i128 @atomic128_load_acquire(i128* %a) nounwind uwtable {
 entry:
@@ -280,7 +280,7 @@ entry:
   ret i128 %0
 }
 ; CHECK: atomic128_load_acquire
-; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 4)
+; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 100504)
 
 define i128 @atomic128_load_seq_cst(i128* %a) nounwind uwtable {
 entry:
@@ -288,7 +288,7 @@ entry:
   ret i128 %0
 }
 ; CHECK: atomic128_load_seq_cst
-; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 32)
+; CHECK: call i128 @__tsan_atomic128_load(i128* %a, i32 100532)
 
 define void @atomic128_store_unordered(i128* %a) nounwind uwtable {
 entry:
@@ -296,7 +296,7 @@ entry:
   ret void
 }
 ; CHECK: atomic128_store_unordered
-; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 1)
+; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 100501)
 
 define void @atomic128_store_monotonic(i128* %a) nounwind uwtable {
 entry:
@@ -304,7 +304,7 @@ entry:
   ret void
 }
 ; CHECK: atomic128_store_monotonic
-; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 1)
+; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 100501)
 
 define void @atomic128_store_release(i128* %a) nounwind uwtable {
 entry:
@@ -312,7 +312,7 @@ entry:
   ret void
 }
 ; CHECK: atomic128_store_release
-; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 8)
+; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 100508)
 
 define void @atomic128_store_seq_cst(i128* %a) nounwind uwtable {
 entry:
@@ -320,4 +320,4 @@ entry:
   ret void
 }
 ; CHECK: atomic128_store_seq_cst
-; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 32)
+; CHECK: call void @__tsan_atomic128_store(i128* %a, i128 0, i32 100532)

@@ -570,16 +570,6 @@ namespace llvm {
     unsigned VerifyScheduledDAG(bool isBottomUp);
 #endif
 
-  protected:
-    /// ComputeLatency - Compute node latency.
-    ///
-    virtual void computeLatency(SUnit *SU) = 0;
-
-    /// ForceUnitLatencies - Return true if all scheduling edges should be given
-    /// a latency value of one.  The default is to return false; schedulers may
-    /// override this as needed.
-    virtual bool forceUnitLatencies() const { return false; }
-
   private:
     // Return the MCInstrDesc of this SDNode or NULL.
     const MCInstrDesc *getNodeDesc(const SDNode *Node) const;

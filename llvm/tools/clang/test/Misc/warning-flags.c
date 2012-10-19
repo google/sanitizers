@@ -18,7 +18,7 @@ This test serves two purposes:
 
 The list of warnings below should NEVER grow.  It should gradually shrink to 0.
 
-CHECK: Warnings without flags (158):
+CHECK: Warnings without flags (154):
 CHECK-NEXT:   ext_delete_void_ptr_operand
 CHECK-NEXT:   ext_enum_friend
 CHECK-NEXT:   ext_expected_semi_decl_list
@@ -30,8 +30,6 @@ CHECK-NEXT:   ext_new_paren_array_nonconst
 CHECK-NEXT:   ext_plain_complex
 CHECK-NEXT:   ext_pp_macro_redef
 CHECK-NEXT:   ext_template_arg_extra_parens
-CHECK-NEXT:   ext_typecheck_comparison_of_distinct_pointers
-CHECK-NEXT:   ext_typecheck_comparison_of_distinct_pointers_nonstandard
 CHECK-NEXT:   ext_typecheck_comparison_of_pointer_integer
 CHECK-NEXT:   ext_typecheck_cond_incompatible_operands
 CHECK-NEXT:   ext_typecheck_cond_incompatible_operands_nonstandard
@@ -71,7 +69,6 @@ CHECK-NEXT:   warn_delete_array_type
 CHECK-NEXT:   warn_double_const_requires_fp64
 CHECK-NEXT:   warn_drv_assuming_mfloat_abi_is
 CHECK-NEXT:   warn_drv_clang_unsupported
-CHECK-NEXT:   warn_drv_not_using_clang_arch
 CHECK-NEXT:   warn_drv_not_using_clang_cpp
 CHECK-NEXT:   warn_drv_not_using_clang_cxx
 CHECK-NEXT:   warn_drv_objc_gc_unsupported
@@ -133,7 +130,6 @@ CHECK-NEXT:   warn_pragma_expected_rparen
 CHECK-NEXT:   warn_pragma_extra_tokens_at_eol
 CHECK-NEXT:   warn_pragma_ms_struct
 CHECK-NEXT:   warn_pragma_options_align_reset_failed
-CHECK-NEXT:   warn_pragma_options_align_unsupported_option
 CHECK-NEXT:   warn_pragma_options_expected_align
 CHECK-NEXT:   warn_pragma_pack_invalid_action
 CHECK-NEXT:   warn_pragma_pack_invalid_alignment

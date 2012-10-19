@@ -19,8 +19,8 @@
 #define LLVM_DERIVED_TYPES_H
 
 #include "llvm/Type.h"
-#include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataTypes.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
@@ -85,7 +85,6 @@ public:
   bool isPowerOf2ByteWidth() const;
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const IntegerType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == IntegerTyID;
   }
@@ -134,7 +133,6 @@ public:
   unsigned getNumParams() const { return NumContainedTys - 1; }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const FunctionType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == FunctionTyID;
   }
@@ -157,7 +155,6 @@ public:
   bool indexValid(unsigned Idx) const;
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const CompositeType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == ArrayTyID ||
            T->getTypeID() == StructTyID ||
@@ -184,7 +181,7 @@ public:
 /// Independent of what kind of struct you have, the body of a struct type are
 /// laid out in memory consequtively with the elements directly one after the
 /// other (if the struct is packed) or (if not packed) with padding between the
-/// elements as defined by TargetData (which is required to match what the code
+/// elements as defined by DataLayout (which is required to match what the code
 /// generator for a target expects).
 ///
 class StructType : public CompositeType {
@@ -293,7 +290,6 @@ public:
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const StructType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == StructTyID;
   }
@@ -323,7 +319,6 @@ public:
   Type *getElementType() const { return ContainedTys[0]; }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const SequentialType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == ArrayTyID ||
            T->getTypeID() == PointerTyID ||
@@ -353,7 +348,6 @@ public:
   uint64_t getNumElements() const { return NumElements; }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const ArrayType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == ArrayTyID;
   }
@@ -420,7 +414,6 @@ public:
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const VectorType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == VectorTyID;
   }
@@ -452,7 +445,6 @@ public:
   inline unsigned getAddressSpace() const { return getSubclassData(); }
 
   // Implement support type inquiry through isa, cast, and dyn_cast.
-  static inline bool classof(const PointerType *) { return true; }
   static inline bool classof(const Type *T) {
     return T->getTypeID() == PointerTyID;
   }

@@ -1956,6 +1956,25 @@ static int inspect_cursor_at(int argc, const char **argv) {
         if (clang_Cursor_isDynamicCall(Cursor))
           printf(" Dynamic-call");
 
+        {
+          CXModule mod = clang_Cursor_getModule(Cursor);
+          CXString name;
+          unsigned i, numHeaders;
+          if (mod) {
+            name = clang_Module_getFullName(mod);
+            numHeaders = clang_Module_getNumTopLevelHeaders(mod);
+            printf(" ModuleName=%s Headers(%d):",
+                   clang_getCString(name), numHeaders);
+            clang_disposeString(name);
+            for (i = 0; i < numHeaders; ++i) {
+              CXFile file = clang_Module_getTopLevelHeader(mod, i);
+              CXString filename = clang_getFileName(file);
+              printf("\n%s", clang_getCString(filename));
+              clang_disposeString(filename);
+            }
+          }
+        }
+
         if (completionString != NULL) {
           printf("\nCompletion string: ");
           print_completion_string(completionString, stdout);
@@ -2118,7 +2137,7 @@ static void printCXIndexLoc(CXIdxLoc loc, CXClientData client_data) {
   index_data = (IndexData *)client_data;
   clang_indexLoc_getFileLocation(loc, &file, 0, &line, &column, 0);
   if (line == 0) {
-    printf("<null loc>");
+    printf("<invalid>");
     return;
   }
   if (!file) {
@@ -2344,7 +2363,8 @@ static CXIdxClientFile index_ppIncludedFile(CXClientData client_data,
   printf(" | name: \"%s\"", info->filename);
   printf(" | hash loc: ");
   printCXIndexLoc(info->hashLoc, client_data);
-  printf(" | isImport: %d | isAngled: %d\n", info->isImport, info->isAngled);
+  printf(" | isImport: %d | isAngled: %d | isModule: %d\n",
+         info->isImport, info->isAngled, info->isModuleImport);
 
   return (CXIdxClientFile)info->file;
 }
@@ -2357,12 +2377,17 @@ static CXIdxClientFile index_importedASTFile(CXClientData client_data,
 
   printf("[importedASTFile]: ");
   printCXIndexFile((CXIdxClientFile)info->file);
-  printf(" | loc: ");
-  printCXIndexLoc(info->loc, client_data);
-  printf(" | module name: \"%s\"", info->moduleName);
-  printf(" | source name: \"%s\"", info->sourceName);
-  printf(" | isModule: %d | isIncludeDirective: %d\n",
-         info->isModule, info->isIncludeDirective);
+  if (info->module) {
+    CXString name = clang_Module_getFullName(info->module);
+    printf(" | loc: ");
+    printCXIndexLoc(info->loc, client_data);
+    printf(" | name: \"%s\"", clang_getCString(name));
+    printf(" | isImplicit: %d\n", info->isImplicit);
+    clang_disposeString(name);
+  } else {
+    /* PCH file, the rest are not relevant. */
+    printf("\n");
+  }
 
   return (CXIdxClientFile)info->file;
 }
@@ -2547,6 +2572,7 @@ static int index_file(int argc, const char **argv) {
   index_data.first_check_printed = 0;
   index_data.fail_for_error = 0;
   index_data.abort = 0;
+  index_data.main_filename = "";
 
   index_opts = getIndexOptions();
   idxAction = clang_IndexAction_create(Idx);
@@ -2600,6 +2626,7 @@ static int index_tu(int argc, const char **argv) {
   index_data.first_check_printed = 0;
   index_data.fail_for_error = 0;
   index_data.abort = 0;
+  index_data.main_filename = "";
 
   index_opts = getIndexOptions();
   idxAction = clang_IndexAction_create(Idx);
@@ -3034,7 +3061,8 @@ int write_pch_file(const char *filename, int argc, const char *argv[]) {
                                   argc - num_unsaved_files,
                                   unsaved_files,
                                   num_unsaved_files,
-                                  CXTranslationUnit_Incomplete);
+                                  CXTranslationUnit_Incomplete |
+                                    CXTranslationUnit_ForSerialization);
   if (!TU) {
     fprintf(stderr, "Unable to load translation unit!\n");
     free_remapped_files(unsaved_files, num_unsaved_files);

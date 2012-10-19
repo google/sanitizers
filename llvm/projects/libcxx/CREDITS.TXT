@@ -66,3 +66,11 @@ D: Minor patches to is_convertible.
 N: Dimitry Andric
 E: dimitry@andric.com
 D: Visibility fixes, minor FreeBSD portability patches.
+
+N: Holger Arnold
+E: holgerar@gmail.com
+D: Minor fix.
+
+N: Argyrios Kyrtzidis
+E: kyrtzidis@apple.com
+D: Bug fixes.

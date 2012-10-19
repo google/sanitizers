@@ -2367,11 +2367,11 @@ bucket contents:
 |  HEADER.header_data_len | uint32_t
 |  HEADER_DATA            | HeaderData
 |-------------------------|
-|  BUCKETS                | uint32_t[n_buckets] // 32 bit hash indexes
+|  BUCKETS                | uint32_t[bucket_count] // 32 bit hash indexes
 |-------------------------|
-|  HASHES                 | uint32_t[n_buckets] // 32 bit hash values
+|  HASHES                 | uint32_t[hashes_count] // 32 bit hash values
 |-------------------------|
-|  OFFSETS                | uint32_t[n_buckets] // 32 bit offsets to hash value data
+|  OFFSETS                | uint32_t[hashes_count] // 32 bit offsets to hash value data
 |-------------------------|
 |  ALL HASH DATA          |
 `-------------------------'
@@ -2851,7 +2851,7 @@ int main ()
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-06-02 14:20:22 +0400 (Sat, 02 Jun 2012) $
+  Last modified: $Date: 2012-10-09 03:54:10 +0400 (Tue, 09 Oct 2012) $
 </address>
 
 </body>

@@ -38,7 +38,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -47,6 +47,15 @@ using namespace llvm;
 
 static cl::opt<std::string>  ClBlackListFile("tsan-blacklist",
        cl::desc("Blacklist file"), cl::Hidden);
+static cl::opt<bool>  ClInstrumentMemoryAccesses(
+    "tsan-instrument-memory-accesses", cl::init(true),
+    cl::desc("Instrument memory accesses"), cl::Hidden);
+static cl::opt<bool>  ClInstrumentFuncEntryExit(
+    "tsan-instrument-func-entry-exit", cl::init(true),
+    cl::desc("Instrument function entry and exit"), cl::Hidden);
+static cl::opt<bool>  ClInstrumentAtomics(
+    "tsan-instrument-atomics", cl::init(true),
+    cl::desc("Instrument atomics"), cl::Hidden);
 
 STATISTIC(NumInstrumentedReads, "Number of instrumented reads");
 STATISTIC(NumInstrumentedWrites, "Number of instrumented writes");
@@ -76,7 +85,7 @@ struct ThreadSanitizer : public FunctionPass {
   bool addrPointsToConstantData(Value *Addr);
   int getMemoryAccessFuncIndex(Value *Addr);
 
-  TargetData *TD;
+  DataLayout *TD;
   OwningPtr<BlackList> BL;
   IntegerType *OrdTy;
   // Callbacks to run-time library are computed in doInitialization.
@@ -118,7 +127,7 @@ static Function *checkInterfaceFunction(Constant *FuncOrBitcast) {
 }
 
 bool ThreadSanitizer::doInitialization(Module &M) {
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   if (!TD)
     return false;
   BL.reset(new BlackList(ClBlackListFile));
@@ -284,17 +293,19 @@ bool ThreadSanitizer::runOnFunction(Function &F) {
   // (e.g. variables that do not escape, etc).
 
   // Instrument memory accesses.
-  for (size_t i = 0, n = AllLoadsAndStores.size(); i < n; ++i) {
-    Res |= instrumentLoadOrStore(AllLoadsAndStores[i]);
-  }
+  if (ClInstrumentMemoryAccesses)
+    for (size_t i = 0, n = AllLoadsAndStores.size(); i < n; ++i) {
+      Res |= instrumentLoadOrStore(AllLoadsAndStores[i]);
+    }
 
   // Instrument atomic memory accesses.
-  for (size_t i = 0, n = AtomicAccesses.size(); i < n; ++i) {
-    Res |= instrumentAtomic(AtomicAccesses[i]);
-  }
+  if (ClInstrumentAtomics)
+    for (size_t i = 0, n = AtomicAccesses.size(); i < n; ++i) {
+      Res |= instrumentAtomic(AtomicAccesses[i]);
+    }
 
   // Instrument function entry/exit points if there were instrumented accesses.
-  if (Res || HasCalls) {
+  if ((Res || HasCalls) && ClInstrumentFuncEntryExit) {
     IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
     Value *ReturnAddress = IRB.CreateCall(
         Intrinsic::getDeclaration(F.getParent(), Intrinsic::returnaddress),
@@ -350,7 +361,8 @@ static ConstantInt *createOrdering(IRBuilder<> *IRB, AtomicOrdering ord) {
     case AcquireRelease:         v = 1 << 4; break;
     case SequentiallyConsistent: v = 1 << 5; break;
   }
-  return IRB->getInt32(v);
+  // +100500 is temporal to migrate to new enum values.
+  return IRB->getInt32(v + 100500);
 }
 
 bool ThreadSanitizer::instrumentAtomic(Instruction *I) {

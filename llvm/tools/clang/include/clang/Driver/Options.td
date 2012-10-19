@@ -99,9 +99,6 @@ def ccc_no_clang : Flag<"-ccc-no-clang">, CCCDriverOpt,
   HelpText<"Disable the clang compiler">;
 def ccc_no_clang_cpp : Flag<"-ccc-no-clang-cpp">, CCCDriverOpt,
   HelpText<"Disable the clang preprocessor">;
-def ccc_clang_archs : Separate<"-ccc-clang-archs">, CCCDriverOpt,
-  HelpText<"Comma separate list of architectures to use the clang compiler for">,
-  MetaVarName<"<arch-list>">;
 def ccc_pch_is_pch : Flag<"-ccc-pch-is-pch">, CCCDriverOpt,
   HelpText<"Use lazy PCH for precompiled headers">;
 def ccc_pch_is_pth : Flag<"-ccc-pch-is-pth">, CCCDriverOpt,
@@ -719,6 +716,7 @@ def gno_record_gcc_switches : Flag<"-gno-record-gcc-switches">,
   Group<g_flags_Group>;
 def gstrict_dwarf : Flag<"-gstrict-dwarf">, Group<g_flags_Group>;
 def gno_strict_dwarf : Flag<"-gno-strict-dwarf">, Group<g_flags_Group>;
+def gcolumn_info : Flag<"-gcolumn-info">, Group<g_flags_Group>;
 def headerpad__max__install__names : Joined<"-headerpad_max_install_names">;
 def help : Flag<"-help">, Flags<[CC1Option]>,
   HelpText<"Display available options">;
@@ -826,6 +824,7 @@ def mno_popcnt : Flag<"-mno-popcnt">, Group<m_x86_Features_Group>;
 def mno_fma4 : Flag<"-mno-fma4">, Group<m_x86_Features_Group>;
 def mno_fma : Flag<"-mno-fma">, Group<m_x86_Features_Group>;
 def mno_xop : Flag<"-mno-xop">, Group<m_x86_Features_Group>;
+def mno_f16c : Flag<"-mno-f16c">, Group<m_x86_Features_Group>;
 
 def mno_thumb : Flag<"-mno-thumb">, Group<m_Group>;
 def marm : Flag<"-marm">, Alias<mno_thumb>;
@@ -866,6 +865,7 @@ def mpopcnt : Flag<"-mpopcnt">, Group<m_x86_Features_Group>;
 def mfma4 : Flag<"-mfma4">, Group<m_x86_Features_Group>;
 def mfma : Flag<"-mfma">, Group<m_x86_Features_Group>;
 def mxop : Flag<"-mxop">, Group<m_x86_Features_Group>;
+def mf16c : Flag<"-mf16c">, Group<m_x86_Features_Group>;
 def mips16 : Flag<"-mips16">, Group<m_Group>;
 def mno_mips16 : Flag<"-mno-mips16">, Group<m_Group>;
 def mdsp : Flag<"-mdsp">, Group<m_Group>;

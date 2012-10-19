@@ -114,7 +114,8 @@ namespace llvm {
     /// EmitSchedule - Insert MachineInstrs into the MachineBasicBlock
     /// according to the order specified in Sequence.
     ///
-    MachineBasicBlock *EmitSchedule(MachineBasicBlock::iterator &InsertPos);
+    virtual MachineBasicBlock*
+    EmitSchedule(MachineBasicBlock::iterator &InsertPos);
 
     virtual void dumpNode(const SUnit *SU) const;
 
@@ -157,6 +158,12 @@ namespace llvm {
     private:
       void InitNodeNumDefs();
     };
+
+  protected:
+    /// ForceUnitLatencies - Return true if all scheduling edges should be given
+    /// a latency value of one.  The default is to return false; schedulers may
+    /// override this as needed.
+    virtual bool forceUnitLatencies() const { return false; }
 
   private:
     /// ClusterNeighboringLoads - Cluster loads from "near" addresses into

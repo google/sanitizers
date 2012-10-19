@@ -23,7 +23,7 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/InlinerPass.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 using namespace llvm;
@@ -65,7 +65,7 @@ Pass *llvm::createAlwaysInlinerPass(bool InsertLifetime) {
 
 /// \brief Minimal filter to detect invalid constructs for inlining.
 static bool isInlineViable(Function &F) {
-  bool ReturnsTwice = F.getFnAttributes().hasReturnsTwiceAttr();
+  bool ReturnsTwice =F.getFnAttributes().hasAttribute(Attributes::ReturnsTwice);
   for (Function::iterator BI = F.begin(), BE = F.end(); BI != BE; ++BI) {
     // Disallow inlining of functions which contain an indirect branch.
     if (isa<IndirectBrInst>(BI->getTerminator()))
@@ -114,7 +114,7 @@ InlineCost AlwaysInliner::getInlineCost(CallSite CS) {
   if (Callee->isDeclaration()) return InlineCost::getNever();
 
   // Return never for anything not marked as always inline.
-  if (!Callee->getFnAttributes().hasAlwaysInlineAttr())
+  if (!Callee->getFnAttributes().hasAttribute(Attributes::AlwaysInline))
     return InlineCost::getNever();
 
   // Do some minimal analysis to preclude non-viable functions.

@@ -22,7 +22,7 @@
 #include "llvm/LLVMContext.h"
 #include "llvm/Metadata.h"
 #include "llvm/Operator.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Support/ConstantRange.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
@@ -36,17 +36,18 @@ const unsigned MaxDepth = 6;
 
 /// getBitWidth - Returns the bitwidth of the given scalar or pointer type (if
 /// unknown returns 0).  For vector types, returns the element type's bitwidth.
-static unsigned getBitWidth(Type *Ty, const TargetData *TD) {
+static unsigned getBitWidth(Type *Ty, const DataLayout *TD) {
   if (unsigned BitWidth = Ty->getScalarSizeInBits())
     return BitWidth;
   assert(isa<PointerType>(Ty) && "Expected a pointer type!");
-  return TD ? TD->getPointerSizeInBits() : 0;
+  return TD ?
+    TD->getPointerSizeInBits(cast<PointerType>(Ty)->getAddressSpace()) : 0;
 }
 
 static void ComputeMaskedBitsAddSub(bool Add, Value *Op0, Value *Op1, bool NSW,
                                     APInt &KnownZero, APInt &KnownOne,
                                     APInt &KnownZero2, APInt &KnownOne2,
-                                    const TargetData *TD, unsigned Depth) {
+                                    const DataLayout *TD, unsigned Depth) {
   if (!Add) {
     if (ConstantInt *CLHS = dyn_cast<ConstantInt>(Op0)) {
       // We know that the top bits of C-X are clear if X contains less bits
@@ -132,7 +133,7 @@ static void ComputeMaskedBitsAddSub(bool Add, Value *Op0, Value *Op1, bool NSW,
 static void ComputeMaskedBitsMul(Value *Op0, Value *Op1, bool NSW,
                                  APInt &KnownZero, APInt &KnownOne,
                                  APInt &KnownZero2, APInt &KnownOne2,
-                                 const TargetData *TD, unsigned Depth) {
+                                 const DataLayout *TD, unsigned Depth) {
   unsigned BitWidth = KnownZero.getBitWidth();
   ComputeMaskedBits(Op1, KnownZero, KnownOne, TD, Depth+1);
   ComputeMaskedBits(Op0, KnownZero2, KnownOne2, TD, Depth+1);
@@ -226,7 +227,7 @@ void llvm::computeMaskedBitsLoad(const MDNode &Ranges, APInt &KnownZero) {
 /// same width as the vector element, and the bit is set only if it is true
 /// for all of the elements in the vector.
 void llvm::ComputeMaskedBits(Value *V, APInt &KnownZero, APInt &KnownOne,
-                             const TargetData *TD, unsigned Depth) {
+                             const DataLayout *TD, unsigned Depth) {
   assert(V && "No Value?");
   assert(Depth <= MaxDepth && "Limit Search Depth");
   unsigned BitWidth = KnownZero.getBitWidth();
@@ -308,11 +309,20 @@ void llvm::ComputeMaskedBits(Value *V, APInt &KnownZero, APInt &KnownOne,
   }
   
   if (Argument *A = dyn_cast<Argument>(V)) {
-    // Get alignment information off byval arguments if specified in the IR.
-    if (A->hasByValAttr())
-      if (unsigned Align = A->getParamAlignment())
-        KnownZero = APInt::getLowBitsSet(BitWidth,
-                                         CountTrailingZeros_32(Align));
+    unsigned Align = 0;
+
+    if (A->hasByValAttr()) {
+      // Get alignment information off byval arguments if specified in the IR.
+      Align = A->getParamAlignment();
+    } else if (TD && A->hasStructRetAttr()) {
+      // An sret parameter has at least the ABI alignment of the return type.
+      Type *EltTy = cast<PointerType>(A->getType())->getElementType();
+      if (EltTy->isSized())
+        Align = TD->getABITypeAlignment(EltTy);
+    }
+
+    if (Align)
+      KnownZero = APInt::getLowBitsSet(BitWidth, CountTrailingZeros_32(Align));
     return;
   }
 
@@ -778,7 +788,7 @@ void llvm::ComputeMaskedBits(Value *V, APInt &KnownZero, APInt &KnownOne,
 /// ComputeSignBit - Determine whether the sign bit is known to be zero or
 /// one.  Convenience wrapper around ComputeMaskedBits.
 void llvm::ComputeSignBit(Value *V, bool &KnownZero, bool &KnownOne,
-                          const TargetData *TD, unsigned Depth) {
+                          const DataLayout *TD, unsigned Depth) {
   unsigned BitWidth = getBitWidth(V->getType(), TD);
   if (!BitWidth) {
     KnownZero = false;
@@ -796,7 +806,7 @@ void llvm::ComputeSignBit(Value *V, bool &KnownZero, bool &KnownOne,
 /// bit set when defined. For vectors return true if every element is known to
 /// be a power of two when defined.  Supports values with integer or pointer
 /// types and vectors of integers.
-bool llvm::isPowerOfTwo(Value *V, const TargetData *TD, bool OrZero,
+bool llvm::isPowerOfTwo(Value *V, const DataLayout *TD, bool OrZero,
                         unsigned Depth) {
   if (Constant *C = dyn_cast<Constant>(V)) {
     if (C->isNullValue())
@@ -859,7 +869,7 @@ bool llvm::isPowerOfTwo(Value *V, const TargetData *TD, bool OrZero,
 /// when defined.  For vectors return true if every element is known to be
 /// non-zero when defined.  Supports values with integer or pointer type and
 /// vectors of integers.
-bool llvm::isKnownNonZero(Value *V, const TargetData *TD, unsigned Depth) {
+bool llvm::isKnownNonZero(Value *V, const DataLayout *TD, unsigned Depth) {
   if (Constant *C = dyn_cast<Constant>(V)) {
     if (C->isNullValue())
       return false;
@@ -986,7 +996,7 @@ bool llvm::isKnownNonZero(Value *V, const TargetData *TD, unsigned Depth) {
 /// same width as the vector element, and the bit is set only if it is true
 /// for all of the elements in the vector.
 bool llvm::MaskedValueIsZero(Value *V, const APInt &Mask,
-                             const TargetData *TD, unsigned Depth) {
+                             const DataLayout *TD, unsigned Depth) {
   APInt KnownZero(Mask.getBitWidth(), 0), KnownOne(Mask.getBitWidth(), 0);
   ComputeMaskedBits(V, KnownZero, KnownOne, TD, Depth);
   assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?"); 
@@ -1003,10 +1013,10 @@ bool llvm::MaskedValueIsZero(Value *V, const APInt &Mask,
 ///
 /// 'Op' must have a scalar integer type.
 ///
-unsigned llvm::ComputeNumSignBits(Value *V, const TargetData *TD,
+unsigned llvm::ComputeNumSignBits(Value *V, const DataLayout *TD,
                                   unsigned Depth) {
   assert((TD || V->getType()->isIntOrIntVectorTy()) &&
-         "ComputeNumSignBits requires a TargetData object to operate "
+         "ComputeNumSignBits requires a DataLayout object to operate "
          "on non-integer values!");
   Type *Ty = V->getType();
   unsigned TyBits = TD ? TD->getTypeSizeInBits(V->getType()->getScalarType()) :
@@ -1582,7 +1592,7 @@ Value *llvm::FindInsertedValue(Value *V, ArrayRef<unsigned> idx_range,
 /// it can be expressed as a base pointer plus a constant offset.  Return the
 /// base and offset to the caller.
 Value *llvm::GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
-                                              const TargetData &TD) {
+                                              const DataLayout &TD) {
   Operator *PtrOp = dyn_cast<Operator>(Ptr);
   if (PtrOp == 0 || Ptr->getType()->isVectorTy())
     return Ptr;
@@ -1612,7 +1622,8 @@ Value *llvm::GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
   
   // Re-sign extend from the pointer size if needed to get overflow edge cases
   // right.
-  unsigned PtrSize = TD.getPointerSizeInBits();
+  unsigned AS = GEP->getPointerAddressSpace();
+  unsigned PtrSize = TD.getPointerSizeInBits(AS);
   if (PtrSize < 64)
     Offset = SignExtend64(Offset, PtrSize);
   
@@ -1768,7 +1779,7 @@ uint64_t llvm::GetStringLength(Value *V) {
 }
 
 Value *
-llvm::GetUnderlyingObject(Value *V, const TargetData *TD, unsigned MaxLookup) {
+llvm::GetUnderlyingObject(Value *V, const DataLayout *TD, unsigned MaxLookup) {
   if (!V->getType()->isPointerTy())
     return V;
   for (unsigned Count = 0; MaxLookup == 0 || Count < MaxLookup; ++Count) {
@@ -1799,7 +1810,7 @@ llvm::GetUnderlyingObject(Value *V, const TargetData *TD, unsigned MaxLookup) {
 void
 llvm::GetUnderlyingObjects(Value *V,
                            SmallVectorImpl<Value *> &Objects,
-                           const TargetData *TD,
+                           const DataLayout *TD,
                            unsigned MaxLookup) {
   SmallPtrSet<Value *, 4> Visited;
   SmallVector<Value *, 4> Worklist;
@@ -1844,7 +1855,7 @@ bool llvm::onlyUsedByLifetimeMarkers(const Value *V) {
 }
 
 bool llvm::isSafeToSpeculativelyExecute(const Value *V,
-                                        const TargetData *TD) {
+                                        const DataLayout *TD) {
   const Operator *Inst = dyn_cast<Operator>(V);
   if (!Inst)
     return false;
