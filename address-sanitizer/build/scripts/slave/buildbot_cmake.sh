@@ -39,6 +39,11 @@ else
 fi
 LLVM_CHECKOUT=$ROOT/llvm
 
+CMAKE_COMMON_OPTIONS="-DLLVM_ENABLE_ASSERTIONS=ON"
+if [ "$PLATFORM" == "Darwin" ]; then
+  CMAKE_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DPYTHON_EXECUTABLE=/usr/bin/python"
+fi
+
 if [ "$PLATFORM" == "Darwin" ]; then
   # Use bootstrap build on Darwin: first build clang, then use this new
   # clang to build and run ASan tests.
@@ -47,7 +52,7 @@ if [ "$PLATFORM" == "Darwin" ]; then
     mkdir clang_build
   fi
   (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release \
-      -DLLVM_ENABLE_ASSERTIONS=ON $LLVM_CHECKOUT)
+      ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
   (cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
   CLANG=${ROOT}/clang_build/bin/clang
   export CC=${CLANG}
@@ -60,7 +65,7 @@ if [ ! -d llvm_build64 ]; then
   mkdir llvm_build64
 fi
 (cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    -DLLVM_ENABLE_ASSERTIONS=ON $LLVM_CHECKOUT)
+    ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
 (cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP build 32-bit llvm@@@
@@ -69,7 +74,7 @@ if [ ! -d llvm_build32 ]; then
 fi
 (cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DLLVM_BUILD_32_BITS=ON \
-    -DLLVM_ENABLE_ASSERTIONS=ON \
+    ${CMAKE_COMMON_OPTIONS} \
     $LLVM_CHECKOUT)
 (cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
@@ -134,9 +139,9 @@ if [ $BUILD_ANDROID == 1 ] ; then
     mkdir llvm_build64/android
     (cd llvm_build64/android && \
         cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-        -DLLVM_ENABLE_ASSERTIONS=ON \
         -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
         -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
+        ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT)
     (cd llvm_build64/android && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
 fi
