@@ -6,44 +6,44 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// This file is a part of MemorySanitizer, a detector of uninitialized
-// reads.
-//
-// Status: early prototype.
-//
-// The algorithm of the tool is similar to Memcheck
-// (http://goo.gl/QKbem). We associate a few shadow bits with every
-// byte of the application memory, poison the shadow of the malloc-ed
-// or alloca-ed memory, load the shadow bits on every memory read,
-// propagate the shadow bits through some of the arithmetic
-// instruction (including MOV), store the shadow bits on every memory
-// write, report a bug on some other instructions (e.g. JMP) if the
-// associated shadow is poisoned.
-//
-// But there are differences too. The first and the major one:
-// compiler instrumentation instead of binary instrumentation. This
-// gives us much better register allocation, possible compiler
-// optimizations and a fast start-up. But this brings the major issue
-// as well: msan needs to see all program events, including system
-// calls and reads/writes in system libraries, so we either need to
-// compile *everything* with msan or use a binary translation
-// component (e.g. DynamoRIO) to instrument pre-built libraries.
-// Another difference from Memcheck is that we use 8 shadow bits per
-// byte of application memory and use a direct shadow mapping. This
-// greatly simplifies the instrumentation code and avoids races on
-// shadow updates (Memcheck is single-threaded so races are not a
-// concern there. Memcheck uses 2 shadow bits per byte with a slow
-// path storage that uses 8 bits per byte).
-//
-// The default value of shadow is 0, which means "clean" (not poisoned).
-//
-// Every module initializer should call __msan_init to ensure that the
-// shadow memory is ready. On error, __msan_warning is called. Since
-// parameters and return values may be passed via registers, we have a
-// specialized thread-local shadow for return values
-// (__msan_retval_tls) and parameters (__msan_param_tls).
-// ===----------------------------------------------------------------------===//
+/// \file
+/// This file is a part of MemorySanitizer, a detector of uninitialized
+/// reads.
+///
+/// Status: early prototype.
+///
+/// The algorithm of the tool is similar to Memcheck
+/// (http://goo.gl/QKbem). We associate a few shadow bits with every
+/// byte of the application memory, poison the shadow of the malloc-ed
+/// or alloca-ed memory, load the shadow bits on every memory read,
+/// propagate the shadow bits through some of the arithmetic
+/// instruction (including MOV), store the shadow bits on every memory
+/// write, report a bug on some other instructions (e.g. JMP) if the
+/// associated shadow is poisoned.
+///
+/// But there are differences too. The first and the major one:
+/// compiler instrumentation instead of binary instrumentation. This
+/// gives us much better register allocation, possible compiler
+/// optimizations and a fast start-up. But this brings the major issue
+/// as well: msan needs to see all program events, including system
+/// calls and reads/writes in system libraries, so we either need to
+/// compile *everything* with msan or use a binary translation
+/// component (e.g. DynamoRIO) to instrument pre-built libraries.
+/// Another difference from Memcheck is that we use 8 shadow bits per
+/// byte of application memory and use a direct shadow mapping. This
+/// greatly simplifies the instrumentation code and avoids races on
+/// shadow updates (Memcheck is single-threaded so races are not a
+/// concern there. Memcheck uses 2 shadow bits per byte with a slow
+/// path storage that uses 8 bits per byte).
+///
+/// The default value of shadow is 0, which means "clean" (not poisoned).
+///
+/// Every module initializer should call __msan_init to ensure that the
+/// shadow memory is ready. On error, __msan_warning is called. Since
+/// parameters and return values may be passed via registers, we have a
+/// specialized thread-local shadow for return values
+/// (__msan_retval_tls) and parameters (__msan_param_tls).
+//===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "msan"
 
