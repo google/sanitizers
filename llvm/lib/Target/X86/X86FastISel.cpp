@@ -282,8 +282,9 @@ X86FastISel::X86FastEmitStore(EVT VT, unsigned Val, const X86AddressMode &AM) {
 bool X86FastISel::X86FastEmitStore(EVT VT, const Value *Val,
                                    const X86AddressMode &AM) {
   // Handle 'null' like i32/i64 0.
-  if (isa<ConstantPointerNull>(Val))
-    Val = Constant::getNullValue(TD.getIntPtrType(Val->getContext()));
+  if (isa<ConstantPointerNull>(Val)) {
+    Val = Constant::getNullValue(TD.getIntPtrType(Val->getType()));
+  }
 
   // If this is a store of a simple constant, fold the constant into the store.
   if (const ConstantInt *CI = dyn_cast<ConstantInt>(Val)) {
@@ -894,8 +895,9 @@ bool X86FastISel::X86FastEmitCompare(const Value *Op0, const Value *Op1,
   if (Op0Reg == 0) return false;
 
   // Handle 'null' like i32/i64 0.
-  if (isa<ConstantPointerNull>(Op1))
-    Op1 = Constant::getNullValue(TD.getIntPtrType(Op0->getContext()));
+  if (isa<ConstantPointerNull>(Op1)) {
+    Op1 = Constant::getNullValue(TD.getIntPtrType(Op0->getType()));
+  }
 
   // We have two options: compare with register or immediate.  If the RHS of
   // the compare is an immediate that we can fold into this compare, use
@@ -1541,9 +1543,9 @@ static unsigned computeBytesPoppedByCallee(const X86Subtarget &Subtarget,
   CallingConv::ID CC = CS.getCallingConv();
   if (CC == CallingConv::Fast || CC == CallingConv::GHC)
     return 0;
-  if (!CS.paramHasAttr(1, Attribute::StructRet))
+  if (!CS.paramHasAttr(1, Attributes::StructRet))
     return 0;
-  if (CS.paramHasAttr(1, Attribute::InReg))
+  if (CS.paramHasAttr(1, Attributes::InReg))
     return 0;
   return 4;
 }
@@ -1622,12 +1624,12 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
     Value *ArgVal = *i;
     ISD::ArgFlagsTy Flags;
     unsigned AttrInd = i - CS.arg_begin() + 1;
-    if (CS.paramHasAttr(AttrInd, Attribute::SExt))
+    if (CS.paramHasAttr(AttrInd, Attributes::SExt))
       Flags.setSExt();
-    if (CS.paramHasAttr(AttrInd, Attribute::ZExt))
+    if (CS.paramHasAttr(AttrInd, Attributes::ZExt))
       Flags.setZExt();
 
-    if (CS.paramHasAttr(AttrInd, Attribute::ByVal)) {
+    if (CS.paramHasAttr(AttrInd, Attributes::ByVal)) {
       PointerType *Ty = cast<PointerType>(ArgVal->getType());
       Type *ElementTy = Ty->getElementType();
       unsigned FrameSize = TD.getTypeAllocSize(ElementTy);
@@ -1641,9 +1643,9 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
         return false;
     }
 
-    if (CS.paramHasAttr(AttrInd, Attribute::InReg))
+    if (CS.paramHasAttr(AttrInd, Attributes::InReg))
       Flags.setInReg();
-    if (CS.paramHasAttr(AttrInd, Attribute::Nest))
+    if (CS.paramHasAttr(AttrInd, Attributes::Nest))
       Flags.setNest();
 
     // If this is an i1/i8/i16 argument, promote to i32 to avoid an extra
@@ -1911,11 +1913,11 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
       ISD::InputArg MyFlags;
       MyFlags.VT = RegisterVT.getSimpleVT();
       MyFlags.Used = !CS.getInstruction()->use_empty();
-      if (CS.paramHasAttr(0, Attribute::SExt))
+      if (CS.paramHasAttr(0, Attributes::SExt))
         MyFlags.Flags.setSExt();
-      if (CS.paramHasAttr(0, Attribute::ZExt))
+      if (CS.paramHasAttr(0, Attributes::ZExt))
         MyFlags.Flags.setZExt();
-      if (CS.paramHasAttr(0, Attribute::InReg))
+      if (CS.paramHasAttr(0, Attributes::InReg))
         MyFlags.Flags.setInReg();
       Ins.push_back(MyFlags);
     }

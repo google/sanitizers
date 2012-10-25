@@ -126,7 +126,13 @@ namespace clang {
 
     /// \brief The number of predefined identifier IDs.
     const unsigned int NUM_PREDEF_IDENT_IDS = 1;
+
+    /// \brief An ID number that refers to a macro in an AST file.
+    typedef uint32_t MacroID;
     
+    /// \brief The number of predefined macro IDs.
+    const unsigned int NUM_PREDEF_MACRO_IDS = 1;
+
     /// \brief An ID number that refers to an ObjC selector in an AST file.
     typedef uint32_t SelectorID;
 
@@ -210,7 +216,71 @@ namespace clang {
       SUBMODULE_BLOCK_ID,
 
       /// \brief The block containing comments.
-      COMMENTS_BLOCK_ID
+      COMMENTS_BLOCK_ID,
+
+      /// \brief The control block, which contains all of the
+      /// information that needs to be validated prior to committing
+      /// to loading the AST file.
+      CONTROL_BLOCK_ID,
+
+      /// \brief The block of input files, which were used as inputs
+      /// to create this AST file.
+      ///
+      /// This block is part of the control block.
+      INPUT_FILES_BLOCK_ID
+    };
+
+    /// \brief Record types that occur within the control block.
+    enum ControlRecordTypes {
+      /// \brief AST file metadata, including the AST file version number
+      /// and information about the compiler used to build this AST file.
+      METADATA = 1,
+
+      /// \brief Record code for the list of other AST files imported by
+      /// this AST file.
+      IMPORTS = 2,
+
+      /// \brief Record code for the language options table.
+      ///
+      /// The record with this code contains the contents of the
+      /// LangOptions structure. We serialize the entire contents of
+      /// the structure, and let the reader decide which options are
+      /// actually important to check.
+      LANGUAGE_OPTIONS = 3,
+
+      /// \brief Record code for the target options table.
+      TARGET_OPTIONS = 4,
+
+      /// \brief Record code for the original file that was used to
+      /// generate the AST file, including both its file ID and its
+      /// name.
+      ORIGINAL_FILE = 5,
+      
+      /// \brief The directory that the PCH was originally created in.
+      ORIGINAL_PCH_DIR = 6,
+
+      /// \brief Offsets into the input-files block where input files
+      /// reside.
+      INPUT_FILE_OFFSETS = 7,
+
+      /// \brief Record code for the diagnostic options table.
+      DIAGNOSTIC_OPTIONS = 8,
+
+      /// \brief Record code for the filesystem options table.
+      FILE_SYSTEM_OPTIONS = 9,
+
+      /// \brief Record code for the headers search options table.
+      HEADER_SEARCH_OPTIONS = 10,
+
+      /// \brief Record code for the preprocessor options table.
+      PREPROCESSOR_OPTIONS = 11
+    };
+
+    /// \brief Record types that occur within the input-files block
+    /// inside the control block.
+    enum InputFileRecordTypes {
+      /// \brief An input file.
+      INPUT_FILE = 1
     };
 
     /// \brief Record types that occur within the AST block itself.
@@ -241,25 +311,13 @@ namespace clang {
       /// reserved for the translation unit declaration.
       DECL_OFFSET = 2,
 
-      /// \brief Record code for the language options table.
-      ///
-      /// The record with this code contains the contents of the
-      /// LangOptions structure. We serialize the entire contents of
-      /// the structure, and let the reader decide which options are
-      /// actually important to check.
-      LANGUAGE_OPTIONS = 3,
-
-      /// \brief AST file metadata, including the AST file version number
-      /// and the target triple used to build the AST file.
-      METADATA = 4,
-
       /// \brief Record code for the table of offsets of each
       /// identifier ID.
       ///
       /// The offset table contains offsets into the blob stored in
       /// the IDENTIFIER_TABLE record. Each offset points to the
       /// NULL-terminated string that corresponds to that identifier.
-      IDENTIFIER_OFFSET = 5,
+      IDENTIFIER_OFFSET = 3,
 
       /// \brief Record code for the identifier table.
       ///
@@ -273,7 +331,7 @@ namespace clang {
       /// between offsets (for unresolved identifier IDs) and
       /// IdentifierInfo pointers (for already-resolved identifier
       /// IDs).
-      IDENTIFIER_TABLE = 6,
+      IDENTIFIER_TABLE = 4,
 
       /// \brief Record code for the array of external definitions.
       ///
@@ -283,7 +341,7 @@ namespace clang {
       /// reported to the AST consumer after the AST file has been
       /// read, since their presence can affect the semantics of the
       /// program (e.g., for code generation).
-      EXTERNAL_DEFINITIONS = 7,
+      EXTERNAL_DEFINITIONS = 5,
 
       /// \brief Record code for the set of non-builtin, special
       /// types.
@@ -292,33 +350,33 @@ namespace clang {
       /// that are constructed during semantic analysis (e.g.,
       /// __builtin_va_list). The SPECIAL_TYPE_* constants provide
       /// offsets into this record.
-      SPECIAL_TYPES = 8,
+      SPECIAL_TYPES = 6,
 
       /// \brief Record code for the extra statistics we gather while
       /// generating an AST file.
-      STATISTICS = 9,
+      STATISTICS = 7,
 
       /// \brief Record code for the array of tentative definitions.
-      TENTATIVE_DEFINITIONS = 10,
+      TENTATIVE_DEFINITIONS = 8,
 
       /// \brief Record code for the array of locally-scoped external
       /// declarations.
-      LOCALLY_SCOPED_EXTERNAL_DECLS = 11,
+      LOCALLY_SCOPED_EXTERNAL_DECLS = 9,
 
       /// \brief Record code for the table of offsets into the
       /// Objective-C method pool.
-      SELECTOR_OFFSETS = 12,
+      SELECTOR_OFFSETS = 10,
 
       /// \brief Record code for the Objective-C method pool,
-      METHOD_POOL = 13,
+      METHOD_POOL = 11,
 
       /// \brief The value of the next __COUNTER__ to dispense.
       /// [PP_COUNTER_VALUE, Val]
-      PP_COUNTER_VALUE = 14,
+      PP_COUNTER_VALUE = 12,
 
       /// \brief Record code for the table of offsets into the block
       /// of source-location information.
-      SOURCE_LOCATION_OFFSETS = 15,
+      SOURCE_LOCATION_OFFSETS = 13,
 
       /// \brief Record code for the set of source location entries
       /// that need to be preloaded by the AST reader.
@@ -326,153 +384,141 @@ namespace clang {
       /// This set contains the source location entry for the
       /// predefines buffer and for any file entries that need to be
       /// preloaded.
-      SOURCE_LOCATION_PRELOADS = 16,
+      SOURCE_LOCATION_PRELOADS = 14,
 
       /// \brief Record code for the stat() cache.
-      STAT_CACHE = 17,
+      STAT_CACHE = 15,
 
       /// \brief Record code for the set of ext_vector type names.
-      EXT_VECTOR_DECLS = 18,
-
-      /// \brief Record code for the original file that was used to
-      /// generate the AST file.
-      ORIGINAL_FILE_NAME = 19,
-
-      /// \brief Record code for the file ID of the original file used to 
-      /// generate the AST file.
-      ORIGINAL_FILE_ID = 20,
-      
-      /// \brief Record code for the version control branch and revision
-      /// information of the compiler used to build this AST file.
-      VERSION_CONTROL_BRANCH_REVISION = 21,
+      EXT_VECTOR_DECLS = 16,
       
       /// \brief Record code for the array of unused file scoped decls.
-      UNUSED_FILESCOPED_DECLS = 22,
+      UNUSED_FILESCOPED_DECLS = 17,
       
       /// \brief Record code for the table of offsets to entries in the
       /// preprocessing record.
-      PPD_ENTITIES_OFFSETS = 23,
+      PPD_ENTITIES_OFFSETS = 18,
 
       /// \brief Record code for the array of VTable uses.
-      VTABLE_USES = 24,
+      VTABLE_USES = 19,
 
       /// \brief Record code for the array of dynamic classes.
-      DYNAMIC_CLASSES = 25,
-
-      /// \brief Record code for the list of other AST files imported by
-      /// this AST file.
-      IMPORTS = 26,
+      DYNAMIC_CLASSES = 20,
 
       /// \brief Record code for referenced selector pool.
-      REFERENCED_SELECTOR_POOL = 27,
+      REFERENCED_SELECTOR_POOL = 21,
 
       /// \brief Record code for an update to the TU's lexically contained
       /// declarations.
-      TU_UPDATE_LEXICAL = 28,
+      TU_UPDATE_LEXICAL = 22,
       
       /// \brief Record code for the array describing the locations (in the
       /// LOCAL_REDECLARATIONS record) of the redeclaration chains, indexed by
       /// the first known ID.
-      LOCAL_REDECLARATIONS_MAP = 29,
+      LOCAL_REDECLARATIONS_MAP = 23,
 
       /// \brief Record code for declarations that Sema keeps references of.
-      SEMA_DECL_REFS = 30,
+      SEMA_DECL_REFS = 24,
 
       /// \brief Record code for weak undeclared identifiers.
-      WEAK_UNDECLARED_IDENTIFIERS = 31,
+      WEAK_UNDECLARED_IDENTIFIERS = 25,
 
       /// \brief Record code for pending implicit instantiations.
-      PENDING_IMPLICIT_INSTANTIATIONS = 32,
+      PENDING_IMPLICIT_INSTANTIATIONS = 26,
 
       /// \brief Record code for a decl replacement block.
       ///
       /// If a declaration is modified after having been deserialized, and then
       /// written to a dependent AST file, its ID and offset must be added to
       /// the replacement block.
-      DECL_REPLACEMENTS = 33,
+      DECL_REPLACEMENTS = 27,
 
       /// \brief Record code for an update to a decl context's lookup table.
       ///
       /// In practice, this should only be used for the TU and namespaces.
-      UPDATE_VISIBLE = 34,
+      UPDATE_VISIBLE = 28,
 
       /// \brief Record for offsets of DECL_UPDATES records for declarations
       /// that were modified after being deserialized and need updates.
-      DECL_UPDATE_OFFSETS = 35,
+      DECL_UPDATE_OFFSETS = 29,
 
       /// \brief Record of updates for a declaration that was modified after
       /// being deserialized.
-      DECL_UPDATES = 36,
+      DECL_UPDATES = 30,
       
       /// \brief Record code for the table of offsets to CXXBaseSpecifier
       /// sets.
-      CXX_BASE_SPECIFIER_OFFSETS = 37,
+      CXX_BASE_SPECIFIER_OFFSETS = 31,
 
       /// \brief Record code for \#pragma diagnostic mappings.
-      DIAG_PRAGMA_MAPPINGS = 38,
+      DIAG_PRAGMA_MAPPINGS = 32,
 
       /// \brief Record code for special CUDA declarations.
-      CUDA_SPECIAL_DECL_REFS = 39,
+      CUDA_SPECIAL_DECL_REFS = 33,
       
       /// \brief Record code for header search information.
-      HEADER_SEARCH_TABLE = 40,
-
-      /// \brief The directory that the PCH was originally created in.
-      ORIGINAL_PCH_DIR = 41,
+      HEADER_SEARCH_TABLE = 34,
 
       /// \brief Record code for floating point \#pragma options.
-      FP_PRAGMA_OPTIONS = 42,
+      FP_PRAGMA_OPTIONS = 35,
 
       /// \brief Record code for enabled OpenCL extensions.
-      OPENCL_EXTENSIONS = 43,
+      OPENCL_EXTENSIONS = 36,
 
       /// \brief The list of delegating constructor declarations.
-      DELEGATING_CTORS = 44,
+      DELEGATING_CTORS = 37,
 
-      /// \brief Record code for the table of offsets into the block
-      /// of file source-location information.
-      FILE_SOURCE_LOCATION_OFFSETS = 45,
-      
       /// \brief Record code for the set of known namespaces, which are used
       /// for typo correction.
-      KNOWN_NAMESPACES = 46,
+      KNOWN_NAMESPACES = 38,
 
       /// \brief Record code for the remapping information used to relate
       /// loaded modules to the various offsets and IDs(e.g., source location 
       /// offests, declaration and type IDs) that are used in that module to
       /// refer to other modules.
-      MODULE_OFFSET_MAP = 47,
+      MODULE_OFFSET_MAP = 39,
 
       /// \brief Record code for the source manager line table information,
       /// which stores information about \#line directives.
-      SOURCE_MANAGER_LINE_TABLE = 48,
+      SOURCE_MANAGER_LINE_TABLE = 40,
 
       /// \brief Record code for map of Objective-C class definition IDs to the 
       /// ObjC categories in a module that are attached to that class.
-      OBJC_CATEGORIES_MAP = 49,
+      OBJC_CATEGORIES_MAP = 41,
 
       /// \brief Record code for a file sorted array of DeclIDs in a module.
-      FILE_SORTED_DECLS = 50,
+      FILE_SORTED_DECLS = 42,
       
       /// \brief Record code for an array of all of the (sub)modules that were
       /// imported by the AST file.
-      IMPORTED_MODULES = 51,
+      IMPORTED_MODULES = 43,
       
       /// \brief Record code for the set of merged declarations in an AST file.
-      MERGED_DECLARATIONS = 52,
+      MERGED_DECLARATIONS = 44,
       
       /// \brief Record code for the array of redeclaration chains.
       ///
       /// This array can only be interpreted properly using the local 
       /// redeclarations map.
-      LOCAL_REDECLARATIONS = 53,
+      LOCAL_REDECLARATIONS = 45,
       
       /// \brief Record code for the array of Objective-C categories (including
       /// extensions).
       ///
       /// This array can only be interpreted properly using the Objective-C
       /// categories map.
-      OBJC_CATEGORIES = 54
+      OBJC_CATEGORIES = 46,
+
+      /// \brief Record code for the table of offsets of each macro ID.
+      ///
+      /// The offset table contains offsets into the blob stored in
+      /// the preprocessor block. Each offset points to the corresponding
+      /// macro definition.
+      MACRO_OFFSET = 47,
+
+      /// \brief Record of updates for a macro that was modified after
+      /// being deserialized.
+      MACRO_UPDATES = 48
     };
 
     /// \brief Record types used within a source manager block.
@@ -537,16 +583,21 @@ namespace clang {
       SUBMODULE_UMBRELLA_HEADER = 2,
       /// \brief Specifies a header that falls into this (sub)module.
       SUBMODULE_HEADER = 3,
+      /// \brief Specifies a top-level header that falls into this (sub)module.
+      SUBMODULE_TOPHEADER = 4,
       /// \brief Specifies an umbrella directory.
-      SUBMODULE_UMBRELLA_DIR = 4,
+      SUBMODULE_UMBRELLA_DIR = 5,
       /// \brief Specifies the submodules that are imported by this 
       /// submodule.
-      SUBMODULE_IMPORTS = 5,
+      SUBMODULE_IMPORTS = 6,
       /// \brief Specifies the submodules that are re-exported from this 
       /// submodule.
-      SUBMODULE_EXPORTS = 6,
+      SUBMODULE_EXPORTS = 7,
       /// \brief Specifies a required feature.
-      SUBMODULE_REQUIRES = 7
+      SUBMODULE_REQUIRES = 8,
+      /// \brief Specifies a header that has been explicitly excluded
+      /// from this submodule.
+      SUBMODULE_EXCLUDED_HEADER = 9
     };
 
     /// \brief Record types used within a comments block.

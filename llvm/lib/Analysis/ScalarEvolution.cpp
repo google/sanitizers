@@ -73,7 +73,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Assembly/Writer.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConstantRange.h"
@@ -2581,13 +2581,12 @@ const SCEV *ScalarEvolution::getUMinExpr(const SCEV *LHS,
   return getNotSCEV(getUMaxExpr(getNotSCEV(LHS), getNotSCEV(RHS)));
 }
 
-const SCEV *ScalarEvolution::getSizeOfExpr(Type *AllocTy) {
-  // If we have TargetData, we can bypass creating a target-independent
+const SCEV *ScalarEvolution::getSizeOfExpr(Type *AllocTy, Type *IntPtrTy) {
+  // If we have DataLayout, we can bypass creating a target-independent
   // constant expression and then folding it back into a ConstantInt.
   // This is just a compile-time optimization.
   if (TD)
-    return getConstant(TD->getIntPtrType(getContext()),
-                       TD->getTypeAllocSize(AllocTy));
+    return getConstant(IntPtrTy, TD->getTypeAllocSize(AllocTy));
 
   Constant *C = ConstantExpr::getSizeOf(AllocTy);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C))
@@ -2606,13 +2605,13 @@ const SCEV *ScalarEvolution::getAlignOfExpr(Type *AllocTy) {
   return getTruncateOrZeroExtend(getSCEV(C), Ty);
 }
 
-const SCEV *ScalarEvolution::getOffsetOfExpr(StructType *STy,
+const SCEV *ScalarEvolution::getOffsetOfExpr(StructType *STy, Type *IntPtrTy,
                                              unsigned FieldNo) {
-  // If we have TargetData, we can bypass creating a target-independent
+  // If we have DataLayout, we can bypass creating a target-independent
   // constant expression and then folding it back into a ConstantInt.
   // This is just a compile-time optimization.
   if (TD)
-    return getConstant(TD->getIntPtrType(getContext()),
+    return getConstant(IntPtrTy,
                        TD->getStructLayout(STy)->getElementOffset(FieldNo));
 
   Constant *C = ConstantExpr::getOffsetOf(STy, FieldNo);
@@ -2673,7 +2672,7 @@ bool ScalarEvolution::isSCEVable(Type *Ty) const {
 uint64_t ScalarEvolution::getTypeSizeInBits(Type *Ty) const {
   assert(isSCEVable(Ty) && "Type is not SCEVable!");
 
-  // If we have a TargetData, use it!
+  // If we have a DataLayout, use it!
   if (TD)
     return TD->getTypeSizeInBits(Ty);
 
@@ -2681,7 +2680,7 @@ uint64_t ScalarEvolution::getTypeSizeInBits(Type *Ty) const {
   if (Ty->isIntegerTy())
     return Ty->getPrimitiveSizeInBits();
 
-  // The only other support type is pointer. Without TargetData, conservatively
+  // The only other support type is pointer. Without DataLayout, conservatively
   // assume pointers are 64-bit.
   assert(Ty->isPointerTy() && "isSCEVable permitted a non-SCEVable type!");
   return 64;
@@ -2699,9 +2698,9 @@ Type *ScalarEvolution::getEffectiveSCEVType(Type *Ty) const {
 
   // The only other support type is pointer.
   assert(Ty->isPointerTy() && "Unexpected non-pointer non-integer type!");
-  if (TD) return TD->getIntPtrType(getContext());
+  if (TD) return TD->getIntPtrType(Ty);
 
-  // Without TargetData, conservatively assume pointers are 64-bit.
+  // Without DataLayout, conservatively assume pointers are 64-bit.
   return Type::getInt64Ty(getContext());
 }
 
@@ -3152,13 +3151,13 @@ const SCEV *ScalarEvolution::createNodeForGEP(GEPOperator *GEP) {
     if (StructType *STy = dyn_cast<StructType>(*GTI++)) {
       // For a struct, add the member offset.
       unsigned FieldNo = cast<ConstantInt>(Index)->getZExtValue();
-      const SCEV *FieldOffset = getOffsetOfExpr(STy, FieldNo);
+      const SCEV *FieldOffset = getOffsetOfExpr(STy, IntPtrTy, FieldNo);
 
       // Add the field offset to the running total offset.
       TotalOffset = getAddExpr(TotalOffset, FieldOffset);
     } else {
       // For an array, add the element offset, explicitly scaled.
-      const SCEV *ElementSize = getSizeOfExpr(*GTI);
+      const SCEV *ElementSize = getSizeOfExpr(*GTI, IntPtrTy);
       const SCEV *IndexS = getSCEV(Index);
       // Getelementptr indices are signed.
       IndexS = getTruncateOrSignExtend(IndexS, IntPtrTy);
@@ -3980,8 +3979,11 @@ getSmallConstantTripMultiple(Loop *L, BasicBlock *ExitingBlock) {
 
   ConstantInt *Result = MulC->getValue();
 
-  // Guard against huge trip counts.
-  if (!Result || Result->getValue().getActiveBits() > 32)
+  // Guard against huge trip counts (this requires checking
+  // for zero to handle the case where the trip count == -1 and the
+  // addition wraps).
+  if (!Result || Result->getValue().getActiveBits() > 32 ||
+      Result->getValue().getActiveBits() == 0)
     return 1;
 
   return (unsigned)Result->getZExtValue();
@@ -4751,7 +4753,7 @@ static PHINode *getConstantEvolvingPHI(Value *V, const Loop *L) {
 /// reason, return null.
 static Constant *EvaluateExpression(Value *V, const Loop *L,
                                     DenseMap<Instruction *, Constant *> &Vals,
-                                    const TargetData *TD,
+                                    const DataLayout *TD,
                                     const TargetLibraryInfo *TLI) {
   // Convenient constant check, but redundant for recursive calls.
   if (Constant *C = dyn_cast<Constant>(V)) return C;
@@ -6590,7 +6592,7 @@ ScalarEvolution::ScalarEvolution()
 bool ScalarEvolution::runOnFunction(Function &F) {
   this->F = &F;
   LI = &getAnalysis<LoopInfo>();
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   TLI = &getAnalysis<TargetLibraryInfo>();
   DT = &getAnalysis<DominatorTree>();
   return false;

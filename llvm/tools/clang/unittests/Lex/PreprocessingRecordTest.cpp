@@ -10,12 +10,15 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Lex/PreprocessingRecord.h"
 #include "llvm/Config/config.h"
 
@@ -32,10 +35,12 @@ protected:
   PreprocessingRecordTest()
     : FileMgr(FileMgrOpts),
       DiagID(new DiagnosticIDs()),
-      Diags(DiagID, new IgnoringDiagConsumer()),
-      SourceMgr(Diags, FileMgr) {
-    TargetOpts.Triple = "x86_64-apple-darwin11.1.0";
-    Target = TargetInfo::CreateTargetInfo(Diags, TargetOpts);
+      Diags(DiagID, new DiagnosticOptions, new IgnoringDiagConsumer()),
+      SourceMgr(Diags, FileMgr),
+      TargetOpts(new TargetOptions)
+  {
+    TargetOpts->Triple = "x86_64-apple-darwin11.1.0";
+    Target = TargetInfo::CreateTargetInfo(Diags, *TargetOpts);
   }
 
   FileSystemOptions FileMgrOpts;
@@ -44,7 +49,7 @@ protected:
   DiagnosticsEngine Diags;
   SourceManager SourceMgr;
   LangOptions LangOpts;
-  TargetOptions TargetOpts;
+  IntrusiveRefCntPtr<TargetOptions> TargetOpts;
   IntrusiveRefCntPtr<TargetInfo> Target;
 };
 
@@ -80,9 +85,9 @@ TEST_F(PreprocessingRecordTest, PPRecAPI) {
   SourceMgr.createMainFileIDForMemBuffer(buf);
 
   VoidModuleLoader ModLoader;
-  HeaderSearch HeaderInfo(FileMgr, Diags, LangOpts, Target.getPtr());
-  Preprocessor PP(Diags, LangOpts,
-                  Target.getPtr(),
+  HeaderSearch HeaderInfo(new HeaderSearchOptions, FileMgr, Diags, LangOpts, 
+                          Target.getPtr());
+  Preprocessor PP(new PreprocessorOptions(), Diags, LangOpts,Target.getPtr(),
                   SourceMgr, HeaderInfo, ModLoader,
                   /*IILookup =*/ 0,
                   /*OwnsHeaderSearch =*/false,

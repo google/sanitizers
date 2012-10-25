@@ -43,7 +43,7 @@
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Assembly/Writer.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Pass.h"
 #include "llvm/PassManager.h"
@@ -103,7 +103,7 @@ namespace {
     Module *Mod;
     AliasAnalysis *AA;
     DominatorTree *DT;
-    TargetData *TD;
+    DataLayout *TD;
     TargetLibraryInfo *TLI;
 
     std::string Messages;
@@ -177,7 +177,7 @@ bool Lint::runOnFunction(Function &F) {
   Mod = F.getParent();
   AA = &getAnalysis<AliasAnalysis>();
   DT = &getAnalysis<DominatorTree>();
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   TLI = &getAnalysis<TargetLibraryInfo>();
   visit(F);
   dbgs() << MessagesStr.str();
@@ -506,7 +506,7 @@ void Lint::visitShl(BinaryOperator &I) {
             "Undefined result: Shift count out of range", &I);
 }
 
-static bool isZero(Value *V, TargetData *TD) {
+static bool isZero(Value *V, DataLayout *TD) {
   // Assume undef could be zero.
   if (isa<UndefValue>(V)) return true;
 
@@ -626,8 +626,7 @@ Value *Lint::findValueImpl(Value *V, bool OffsetOk,
       if (W != V)
         return findValueImpl(W, OffsetOk, Visited);
   } else if (CastInst *CI = dyn_cast<CastInst>(V)) {
-    if (CI->isNoopCast(TD ? TD->getIntPtrType(V->getContext()) :
-                            Type::getInt64Ty(V->getContext())))
+    if (CI->isNoopCast(*TD))
       return findValueImpl(CI->getOperand(0), OffsetOk, Visited);
   } else if (ExtractValueInst *Ex = dyn_cast<ExtractValueInst>(V)) {
     if (Value *W = FindInsertedValue(Ex->getAggregateOperand(),
@@ -640,7 +639,7 @@ Value *Lint::findValueImpl(Value *V, bool OffsetOk,
       if (CastInst::isNoopCast(Instruction::CastOps(CE->getOpcode()),
                                CE->getOperand(0)->getType(),
                                CE->getType(),
-                               TD ? TD->getIntPtrType(V->getContext()) :
+                               TD ? TD->getIntPtrType(CE->getType()) :
                                     Type::getInt64Ty(V->getContext())))
         return findValueImpl(CE->getOperand(0), OffsetOk, Visited);
     } else if (CE->getOpcode() == Instruction::ExtractValue) {

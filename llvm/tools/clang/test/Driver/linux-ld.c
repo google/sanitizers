@@ -238,33 +238,47 @@
 // and provide correct path to the dynamic linker and emulation mode when build
 // for MIPS platforms.
 // RUN: %clang %s -### -o %t.o 2>&1 \
-// RUN:     -target mips-linux-gnu -ccc-clang-archs mips \
+// RUN:     -target mips-linux-gnu \
 // RUN:   | FileCheck --check-prefix=CHECK-MIPS %s
 // CHECK-MIPS: "{{.*}}ld{{(.exe)?}}"
 // CHECK-MIPS: "-m" "elf32btsmip"
 // CHECK-MIPS: "-dynamic-linker" "{{.*}}/lib/ld.so.1"
 // CHECK-MIPS-NOT: "--hash-style={{gnu|both}}"
 // RUN: %clang %s -### -o %t.o 2>&1 \
-// RUN:     -target mipsel-linux-gnu -ccc-clang-archs mipsel \
+// RUN:     -target mipsel-linux-gnu \
 // RUN:   | FileCheck --check-prefix=CHECK-MIPSEL %s
 // CHECK-MIPSEL: "{{.*}}ld{{(.exe)?}}"
 // CHECK-MIPSEL: "-m" "elf32ltsmip"
 // CHECK-MIPSEL: "-dynamic-linker" "{{.*}}/lib/ld.so.1"
 // CHECK-MIPSEL-NOT: "--hash-style={{gnu|both}}"
 // RUN: %clang %s -### -o %t.o 2>&1 \
-// RUN:     -target mips64-linux-gnu -ccc-clang-archs mips64 \
+// RUN:     -target mips64-linux-gnu \
 // RUN:   | FileCheck --check-prefix=CHECK-MIPS64 %s
 // CHECK-MIPS64: "{{.*}}ld{{(.exe)?}}"
 // CHECK-MIPS64: "-m" "elf64btsmip"
 // CHECK-MIPS64: "-dynamic-linker" "{{.*}}/lib64/ld.so.1"
 // CHECK-MIPS64-NOT: "--hash-style={{gnu|both}}"
 // RUN: %clang %s -### -o %t.o 2>&1 \
-// RUN:     -target mips64el-linux-gnu -ccc-clang-archs mips64el \
+// RUN:     -target mips64el-linux-gnu \
 // RUN:   | FileCheck --check-prefix=CHECK-MIPS64EL %s
 // CHECK-MIPS64EL: "{{.*}}ld{{(.exe)?}}"
 // CHECK-MIPS64EL: "-m" "elf64ltsmip"
 // CHECK-MIPS64EL: "-dynamic-linker" "{{.*}}/lib64/ld.so.1"
 // CHECK-MIPS64EL-NOT: "--hash-style={{gnu|both}}"
+// RUN: %clang %s -### -o %t.o 2>&1 \
+// RUN:     -target mips64-linux-gnu -mabi=n32 \
+// RUN:   | FileCheck --check-prefix=CHECK-MIPS64-N32 %s
+// CHECK-MIPS64-N32: "{{.*}}ld{{(.exe)?}}"
+// CHECK-MIPS64-N32: "-m" "elf32btsmipn32"
+// CHECK-MIPS64-N32: "-dynamic-linker" "{{.*}}/lib32/ld.so.1"
+// CHECK-MIPS64-N32-NOT: "--hash-style={{gnu|both}}"
+// RUN: %clang %s -### -o %t.o 2>&1 \
+// RUN:     -target mips64el-linux-gnu -mabi=n32 \
+// RUN:   | FileCheck --check-prefix=CHECK-MIPS64EL-N32 %s
+// CHECK-MIPS64EL-N32: "{{.*}}ld{{(.exe)?}}"
+// CHECK-MIPS64EL-N32: "-m" "elf32ltsmipn32"
+// CHECK-MIPS64EL-N32: "-dynamic-linker" "{{.*}}/lib32/ld.so.1"
+// CHECK-MIPS64EL-N32-NOT: "--hash-style={{gnu|both}}"
 //
 // Thoroughly exercise the Debian multiarch environment.
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
@@ -361,6 +375,28 @@
 // CHECK-DEBIAN-MIPS64EL: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.5/../../.."
 // CHECK-DEBIAN-MIPS64EL: "-L[[SYSROOT]]/lib"
 // CHECK-DEBIAN-MIPS64EL: "-L[[SYSROOT]]/usr/lib"
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mips64-linux-gnu -mabi=n32 \
+// RUN:     --sysroot=%S/Inputs/debian_multiarch_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-DEBIAN-MIPS64-N32 %s
+// CHECK-DEBIAN-MIPS64-N32: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
+// CHECK-DEBIAN-MIPS64-N32: "{{.*}}/usr/lib/gcc/mips-linux-gnu/4.5/n32/crtbegin.o"
+// CHECK-DEBIAN-MIPS64-N32: "-L[[SYSROOT]]/usr/lib/gcc/mips-linux-gnu/4.5/n32"
+// CHECK-DEBIAN-MIPS64-N32: "-L[[SYSROOT]]/usr/lib/gcc/mips-linux-gnu/4.5"
+// CHECK-DEBIAN-MIPS64-N32: "-L[[SYSROOT]]/usr/lib/gcc/mips-linux-gnu/4.5/../../.."
+// CHECK-DEBIAN-MIPS64-N32: "-L[[SYSROOT]]/lib"
+// CHECK-DEBIAN-MIPS64-N32: "-L[[SYSROOT]]/usr/lib"
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mips64el-linux-gnu -mabi=n32 \
+// RUN:     --sysroot=%S/Inputs/debian_multiarch_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-DEBIAN-MIPS64EL-N32 %s
+// CHECK-DEBIAN-MIPS64EL-N32: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
+// CHECK-DEBIAN-MIPS64EL-N32: "{{.*}}/usr/lib/gcc/mipsel-linux-gnu/4.5/n32/crtbegin.o"
+// CHECK-DEBIAN-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.5/n32"
+// CHECK-DEBIAN-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.5"
+// CHECK-DEBIAN-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.5/../../.."
+// CHECK-DEBIAN-MIPS64EL-N32: "-L[[SYSROOT]]/lib"
+// CHECK-DEBIAN-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib"
 //
 // Test linker invocation on Android.
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
@@ -369,6 +405,10 @@
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID %s
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target arm-linux-android \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:   | FileCheck --check-prefix=CHECK-ANDROID %s
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mipsel-linux-android \
 // RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID %s
 // CHECK-ANDROID: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
@@ -385,6 +425,11 @@
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID-SO %s
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target arm-linux-android \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:     -shared \
+// RUN:   | FileCheck --check-prefix=CHECK-ANDROID-SO %s
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mipsel-linux-android \
 // RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
 // RUN:     -shared \
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID-SO %s
@@ -405,6 +450,11 @@
 // RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
 // RUN:     -static \
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID-STATIC %s
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mipsel-linux-android \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:     -static \
+// RUN:   | FileCheck --check-prefix=CHECK-ANDROID-STATIC %s
 // CHECK-ANDROID-STATIC: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
 // CHECK-ANDROID-STATIC: "{{.*}}/crtbegin_static.o"
 // CHECK-ANDROID-STATIC: "-L[[SYSROOT]]/usr/lib"
@@ -419,6 +469,11 @@
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID-PIE %s
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target arm-linux-android \
+// RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
+// RUN:     -pie \
+// RUN:   | FileCheck --check-prefix=CHECK-ANDROID-PIE %s
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mipsel-linux-android \
 // RUN:     --sysroot=%S/Inputs/basic_android_tree/sysroot \
 // RUN:     -pie \
 // RUN:   | FileCheck --check-prefix=CHECK-ANDROID-PIE %s
@@ -463,6 +518,22 @@
 // CHECK-DEBIAN-ML-MIPS64EL: "-L[[SYSROOT]]/lib"
 // CHECK-DEBIAN-ML-MIPS64EL: "-L[[SYSROOT]]/usr/lib"
 //
+// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
+// RUN:     -target mips64el-linux-gnu -mabi=n32 \
+// RUN:     --sysroot=%S/Inputs/debian_6_mips_tree \
+// RUN:   | FileCheck --check-prefix=CHECK-DEBIAN-ML-MIPS64EL-N32 %s
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "{{.*}}ld{{(.exe)?}}" "--sysroot=[[SYSROOT:[^"]+]]"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "{{.*}}/usr/lib/gcc/mipsel-linux-gnu/4.4/../../../../lib32/crt1.o"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "{{.*}}/usr/lib/gcc/mipsel-linux-gnu/4.4/../../../../lib32/crti.o"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "{{.*}}/usr/lib/gcc/mipsel-linux-gnu/4.4/n32/crtbegin.o"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.4/n32"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.4/../../../../lib32"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/lib/../lib32"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/../lib32"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib/gcc/mipsel-linux-gnu/4.4/../../.."
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/lib"
+// CHECK-DEBIAN-ML-MIPS64EL-N32: "-L[[SYSROOT]]/usr/lib"
+//
 // Test linker invocation for Freescale SDK (OpenEmbedded).
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
 // RUN:     -target powerpc-fsl-linux \
@@ -482,3 +553,24 @@
 // CHECK-FSL-PPC64: "{{.*}}/crt1.o"
 // CHECK-FSL-PPC64: "{{.*}}/crtbegin.o"
 // CHECK-FSL-PPC64: "-L[[SYSROOT]]/usr/lib64/powerpc64-fsl-linux/4.6.2/../.."
+//
+// Check that crtfastmath.o is linked with -ffast-math.
+// RUN: %clang -target x86_64-unknown-linux -### %s \
+// RUN:        --sysroot=%S/Inputs/basic_linux_tree 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-NOCRTFASTMATH %s
+// RUN: %clang -target x86_64-unknown-linux -### %s -ffast-math \
+// RUN:        --sysroot=%S/Inputs/basic_linux_tree 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-CRTFASTMATH %s
+// RUN: %clang -target x86_64-unknown-linux -### %s -funsafe-math-optimizations\
+// RUN:        --sysroot=%S/Inputs/basic_linux_tree 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-CRTFASTMATH %s
+// RUN: %clang -target x86_64-unknown-linux -### %s -ffast-math -fno-fast-math \
+// RUN:        --sysroot=%S/Inputs/basic_linux_tree 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-NOCRTFASTMATH %s
+// We don't have crtfastmath.o in the i386 tree, use it to check that file
+// detection works.
+// RUN: %clang -target i386-unknown-linux -### %s -ffast-math \
+// RUN:        --sysroot=%S/Inputs/basic_linux_tree 2>&1 \
+// RUN:   | FileCheck --check-prefix=CHECK-NOCRTFASTMATH %s
+// CHECK-CRTFASTMATH: usr/lib/gcc/x86_64-unknown-linux/4.6.0/crtfastmath.o
+// CHECK-NOCRTFASTMATH-NOT: crtfastmath.o

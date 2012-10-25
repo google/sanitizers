@@ -10,6 +10,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/AST/Comment.h"
 #include "clang/AST/CommentLexer.h"
 #include "clang/AST/CommentParser.h"
@@ -36,7 +37,7 @@ protected:
   CommentParserTest()
     : FileMgr(FileMgrOpts),
       DiagID(new DiagnosticIDs()),
-      Diags(DiagID, new IgnoringDiagConsumer()),
+      Diags(DiagID, new DiagnosticOptions, new IgnoringDiagConsumer()),
       SourceMgr(Diags, FileMgr),
       Traits(Allocator) {
   }
@@ -213,7 +214,7 @@ template <typename T>
     return ::testing::AssertionFailure()
         << "ParamCommandComment has no parameter name";
 
-  StringRef ActualParamName = PCC->hasParamName() ? PCC->getParamName() : "";
+  StringRef ActualParamName = PCC->hasParamName() ? PCC->getParamNameAsWritten() : "";
   if (ActualParamName != ParamName)
     return ::testing::AssertionFailure()
         << "ParamCommandComment has parameter name \"" << ActualParamName.str()
@@ -247,7 +248,7 @@ template <typename T>
     return ::testing::AssertionFailure()
         << "TParamCommandComment has no parameter name";
 
-  StringRef ActualParamName = TPCC->hasParamName() ? TPCC->getParamName() : "";
+  StringRef ActualParamName = TPCC->hasParamName() ? TPCC->getParamNameAsWritten() : "";
   if (ActualParamName != ParamName)
     return ::testing::AssertionFailure()
         << "TParamCommandComment has parameter name \"" << ActualParamName.str()

@@ -18,6 +18,7 @@
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/PTHLexer.h"
 #include "clang/Lex/PPCallbacks.h"
+#include "clang/Lex/PPMutationListener.h"
 #include "clang/Lex/TokenLexer.h"
 #include "clang/Lex/PTHManager.h"
 #include "clang/Basic/Builtins.h"
@@ -54,6 +55,7 @@ class CodeCompletionHandler;
 class DirectoryLookup;
 class PreprocessingRecord;
 class ModuleLoader;
+class PreprocessorOptions;
 
 /// \brief Stores token information for comparing actual tokens with
 /// predefined values.  Only handles simple tokens and identifiers.
@@ -82,6 +84,7 @@ public:
 /// like the \#include stack, token expansion, etc.
 ///
 class Preprocessor : public RefCountedBase<Preprocessor> {
+  llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts;
   DiagnosticsEngine        *Diags;
   LangOptions       &LangOpts;
   const TargetInfo  *Target;
@@ -288,6 +291,11 @@ class Preprocessor : public RefCountedBase<Preprocessor> {
   /// encountered (e.g. a file is \#included, etc).
   PPCallbacks *Callbacks;
 
+  /// \brief Listener whose actions are invoked when an entity in the
+  /// preprocessor (e.g., a macro) that was loaded from an AST file is
+  /// later mutated.
+  PPMutationListener *Listener;
+
   struct MacroExpandsInfo {
     Token Tok;
     MacroInfo *MI;
@@ -388,7 +396,8 @@ private:  // Cached tokens state.
   MacroInfoChain *MICache;
 
 public:
-  Preprocessor(DiagnosticsEngine &diags, LangOptions &opts,
+  Preprocessor(llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
+               DiagnosticsEngine &diags, LangOptions &opts,
                const TargetInfo *target,
                SourceManager &SM, HeaderSearch &Headers,
                ModuleLoader &TheModuleLoader,
@@ -405,6 +414,10 @@ public:
   /// \param Target Information about the target.
   void Initialize(const TargetInfo &Target);
 
+  /// \brief Retrieve the preprocessor options used to initialize this
+  /// preprocessor.
+  PreprocessorOptions &getPreprocessorOpts() const { return *PPOpts; }
+  
   DiagnosticsEngine &getDiagnostics() const { return *Diags; }
   void setDiagnostics(DiagnosticsEngine &D) { Diags = &D; }
 
@@ -480,6 +493,19 @@ public:
     Callbacks = C;
   }
 
+  /// \brief Attach an preprocessor mutation listener to the preprocessor.
+  ///
+  /// The preprocessor mutation listener provides the ability to track
+  /// modifications to the preprocessor entities committed after they were
+  /// initially created.
+  void setPPMutationListener(PPMutationListener *Listener) {
+    this->Listener = Listener;
+  }
+
+  /// \brief Retrieve a pointer to the preprocessor mutation listener
+  /// associated with this preprocessor, if any.
+  PPMutationListener *getPPMutationListener() const { return Listener; }
+
   /// \brief Given an identifier, return the MacroInfo it is \#defined to
   /// or null if it isn't \#define'd.
   MacroInfo *getMacroInfo(IdentifierInfo *II) const {
@@ -498,8 +524,13 @@ public:
   MacroInfo *getMacroInfoHistory(IdentifierInfo *II) const;
 
   /// \brief Specify a macro for this identifier.
-  void setMacroInfo(IdentifierInfo *II, MacroInfo *MI,
-                    bool LoadedFromAST = false);
+  void setMacroInfo(IdentifierInfo *II, MacroInfo *MI);
+  /// \brief Add a MacroInfo that was loaded from an AST file.
+  void addLoadedMacroInfo(IdentifierInfo *II, MacroInfo *MI,
+                          MacroInfo *Hint = 0);
+  /// \brief Make the given MacroInfo, that was loaded from an AST file and
+  /// previously hidden, visible.
+  void makeLoadedMacroInfoVisible(IdentifierInfo *II, MacroInfo *MI);
   /// \brief Undefine a macro for this identifier.
   void clearMacroInfo(IdentifierInfo *II);
 
@@ -1339,6 +1370,8 @@ private:
   // Macro handling.
   void HandleDefineDirective(Token &Tok);
   void HandleUndefDirective(Token &Tok);
+  void UndefineMacro(IdentifierInfo *II, MacroInfo *MI,
+                     SourceLocation UndefLoc);
 
   // Conditional Inclusion.
   void HandleIfdefDirective(Token &Tok, bool isIfndef,

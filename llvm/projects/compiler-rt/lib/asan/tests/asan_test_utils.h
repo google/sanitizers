@@ -30,12 +30,21 @@ typedef __int16          int16_t;
 typedef __int32          int32_t;
 typedef __int64          int64_t;
 # define NOINLINE __declspec(noinline)
+# define USED
 #else  // defined(_WIN32)
 # define NOINLINE __attribute__((noinline))
+# define USED __attribute__((used))
 #endif  // defined(_WIN32)
 
 #if !defined(__has_feature)
 #define __has_feature(x) 0
+#endif
+
+#if __has_feature(address_sanitizer)
+# define ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS \
+    __attribute__((no_address_safety_analysis))
+#else
+# define ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS
 #endif
 
 #ifndef __WORDSIZE

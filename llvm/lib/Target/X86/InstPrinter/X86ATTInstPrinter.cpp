@@ -34,7 +34,9 @@ using namespace llvm;
 
 void X86ATTInstPrinter::printRegName(raw_ostream &OS,
                                      unsigned RegNo) const {
-  OS << '%' << getRegisterName(RegNo);
+  OS << markup("<reg:")
+     << '%' << getRegisterName(RegNo)
+     << markup(">");
 }
 
 void X86ATTInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
@@ -59,8 +61,33 @@ void X86ATTInstPrinter::printInst(const MCInst *MI, raw_ostream &OS,
 
 void X86ATTInstPrinter::printSSECC(const MCInst *MI, unsigned Op,
                                    raw_ostream &O) {
-  switch (MI->getOperand(Op).getImm()) {
+  int64_t Imm = MI->getOperand(Op).getImm() & 0xf;
+  switch (Imm) {
   default: llvm_unreachable("Invalid ssecc argument!");
+  case    0: O << "eq"; break;
+  case    1: O << "lt"; break;
+  case    2: O << "le"; break;
+  case    3: O << "unord"; break;
+  case    4: O << "neq"; break;
+  case    5: O << "nlt"; break;
+  case    6: O << "nle"; break;
+  case    7: O << "ord"; break;
+  case    8: O << "eq_uq"; break;
+  case    9: O << "nge"; break;
+  case  0xa: O << "ngt"; break;
+  case  0xb: O << "false"; break;
+  case  0xc: O << "neq_oq"; break;
+  case  0xd: O << "ge"; break;
+  case  0xe: O << "gt"; break;
+  case  0xf: O << "true"; break;
+  }
+}
+
+void X86ATTInstPrinter::printAVXCC(const MCInst *MI, unsigned Op,
+                                   raw_ostream &O) {
+  int64_t Imm = MI->getOperand(Op).getImm() & 0x1f;
+  switch (Imm) {
+  default: llvm_unreachable("Invalid avxcc argument!");
   case    0: O << "eq"; break;
   case    1: O << "lt"; break;
   case    2: O << "le"; break;
@@ -126,17 +153,21 @@ void X86ATTInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
-    O << '%' << getRegisterName(Op.getReg());
+    printRegName(O, Op.getReg());
   } else if (Op.isImm()) {
     // Print X86 immediates as signed values.
-    O << '$' << (int64_t)Op.getImm();
+    O << markup("<imm:")
+      << '$' << (int64_t)Op.getImm()
+      << markup(">");
     
     if (CommentStream && (Op.getImm() > 255 || Op.getImm() < -256))
       *CommentStream << format("imm = 0x%" PRIX64 "\n", (uint64_t)Op.getImm());
     
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
-    O << '$' << *Op.getExpr();
+    O << markup("<imm:")
+      << '$' << *Op.getExpr()
+      << markup(">");
   }
 }
 
@@ -147,6 +178,8 @@ void X86ATTInstPrinter::printMemReference(const MCInst *MI, unsigned Op,
   const MCOperand &DispSpec = MI->getOperand(Op+3);
   const MCOperand &SegReg = MI->getOperand(Op+4);
   
+  O << markup("<mem:");
+
   // If this has a segment register, print it.
   if (SegReg.getReg()) {
     printOperand(MI, Op+4, O);
@@ -171,9 +204,15 @@ void X86ATTInstPrinter::printMemReference(const MCInst *MI, unsigned Op,
       O << ',';
       printOperand(MI, Op+2, O);
       unsigned ScaleVal = MI->getOperand(Op+1).getImm();
-      if (ScaleVal != 1)
-        O << ',' << ScaleVal;
+      if (ScaleVal != 1) {
+        O << ','
+	  << markup("<imm:")
+          << ScaleVal
+	  << markup(">");
+      }
     }
     O << ')';
   }
+
+  O << markup(">");
 }

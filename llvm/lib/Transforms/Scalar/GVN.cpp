@@ -41,7 +41,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/PatternMatch.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
@@ -503,7 +503,7 @@ namespace {
     bool NoLoads;
     MemoryDependenceAnalysis *MD;
     DominatorTree *DT;
-    const TargetData *TD;
+    const DataLayout *TD;
     const TargetLibraryInfo *TLI;
 
     ValueTable VN;
@@ -535,7 +535,7 @@ namespace {
       InstrsToErase.push_back(I);
     }
 
-    const TargetData *getTargetData() const { return TD; }
+    const DataLayout *getDataLayout() const { return TD; }
     DominatorTree &getDominatorTree() const { return *DT; }
     AliasAnalysis *getAliasAnalysis() const { return VN.getAliasAnalysis(); }
     MemoryDependenceAnalysis &getMemDep() const { return *MD; }
@@ -730,7 +730,7 @@ SpeculationFailure:
 /// CoerceAvailableValueToLoadType will succeed.
 static bool CanCoerceMustAliasedValueToLoad(Value *StoredVal,
                                             Type *LoadTy,
-                                            const TargetData &TD) {
+                                            const DataLayout &TD) {
   // If the loaded or stored value is an first class array or struct, don't try
   // to transform them.  We need to be able to bitcast to integer.
   if (LoadTy->isStructTy() || LoadTy->isArrayTy() ||
@@ -746,6 +746,15 @@ static bool CanCoerceMustAliasedValueToLoad(Value *StoredVal,
   return true;
 }
 
+/// Wrap TD.getIntPtrType, but return a vector type for vector inputs.
+static Type *getIntPtrType(Type *Ty, const DataLayout &TD) {
+  Type *ITy = TD.getIntPtrType(Ty);
+  if (Ty->isVectorTy()) {
+    ITy = VectorType::get(ITy, Ty->getVectorNumElements());
+  }
+
+  return ITy;
+}
 
 /// CoerceAvailableValueToLoadType - If we saw a store of a value to memory, and
 /// then a load from a must-aliased pointer of a different type, try to coerce
@@ -756,7 +765,7 @@ static bool CanCoerceMustAliasedValueToLoad(Value *StoredVal,
 static Value *CoerceAvailableValueToLoadType(Value *StoredVal,
                                              Type *LoadedTy,
                                              Instruction *InsertPt,
-                                             const TargetData &TD) {
+                                             const DataLayout &TD) {
   if (!CanCoerceMustAliasedValueToLoad(StoredVal, LoadedTy, TD))
     return 0;
 
@@ -769,24 +778,25 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal,
   // If the store and reload are the same size, we can always reuse it.
   if (StoreSize == LoadSize) {
     // Pointer to Pointer -> use bitcast.
-    if (StoredValTy->isPointerTy() && LoadedTy->isPointerTy())
+    if (StoredValTy->getScalarType()->isPointerTy() &&
+        LoadedTy->getScalarType()->isPointerTy())
       return new BitCastInst(StoredVal, LoadedTy, "", InsertPt);
 
     // Convert source pointers to integers, which can be bitcast.
-    if (StoredValTy->isPointerTy()) {
-      StoredValTy = TD.getIntPtrType(StoredValTy->getContext());
+    if (StoredValTy->getScalarType()->isPointerTy()) {
+      StoredValTy = getIntPtrType(StoredValTy, TD);
       StoredVal = new PtrToIntInst(StoredVal, StoredValTy, "", InsertPt);
     }
 
     Type *TypeToCastTo = LoadedTy;
-    if (TypeToCastTo->isPointerTy())
-      TypeToCastTo = TD.getIntPtrType(StoredValTy->getContext());
+    if (TypeToCastTo->getScalarType()->isPointerTy())
+      TypeToCastTo = getIntPtrType(StoredValTy, TD);
 
     if (StoredValTy != TypeToCastTo)
       StoredVal = new BitCastInst(StoredVal, TypeToCastTo, "", InsertPt);
 
     // Cast to pointer if the load needs a pointer type.
-    if (LoadedTy->isPointerTy())
+    if (LoadedTy->getScalarType()->isPointerTy())
       StoredVal = new IntToPtrInst(StoredVal, LoadedTy, "", InsertPt);
 
     return StoredVal;
@@ -798,8 +808,8 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal,
   assert(StoreSize >= LoadSize && "CanCoerceMustAliasedValueToLoad fail");
 
   // Convert source pointers to integers, which can be manipulated.
-  if (StoredValTy->isPointerTy()) {
-    StoredValTy = TD.getIntPtrType(StoredValTy->getContext());
+  if (StoredValTy->getScalarType()->isPointerTy()) {
+    StoredValTy = getIntPtrType(StoredValTy, TD);
     StoredVal = new PtrToIntInst(StoredVal, StoredValTy, "", InsertPt);
   }
 
@@ -824,7 +834,7 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal,
     return StoredVal;
 
   // If the result is a pointer, inttoptr.
-  if (LoadedTy->isPointerTy())
+  if (LoadedTy->getScalarType()->isPointerTy())
     return new IntToPtrInst(StoredVal, LoadedTy, "inttoptr", InsertPt);
 
   // Otherwise, bitcast.
@@ -842,7 +852,7 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal,
 static int AnalyzeLoadFromClobberingWrite(Type *LoadTy, Value *LoadPtr,
                                           Value *WritePtr,
                                           uint64_t WriteSizeInBits,
-                                          const TargetData &TD) {
+                                          const DataLayout &TD) {
   // If the loaded or stored value is a first class array or struct, don't try
   // to transform them.  We need to be able to bitcast to integer.
   if (LoadTy->isStructTy() || LoadTy->isArrayTy())
@@ -915,7 +925,7 @@ static int AnalyzeLoadFromClobberingWrite(Type *LoadTy, Value *LoadPtr,
 /// memdep query of a load that ends up being a clobbering store.
 static int AnalyzeLoadFromClobberingStore(Type *LoadTy, Value *LoadPtr,
                                           StoreInst *DepSI,
-                                          const TargetData &TD) {
+                                          const DataLayout &TD) {
   // Cannot handle reading from store of first-class aggregate yet.
   if (DepSI->getValueOperand()->getType()->isStructTy() ||
       DepSI->getValueOperand()->getType()->isArrayTy())
@@ -931,7 +941,7 @@ static int AnalyzeLoadFromClobberingStore(Type *LoadTy, Value *LoadPtr,
 /// memdep query of a load that ends up being clobbered by another load.  See if
 /// the other load can feed into the second load.
 static int AnalyzeLoadFromClobberingLoad(Type *LoadTy, Value *LoadPtr,
-                                         LoadInst *DepLI, const TargetData &TD){
+                                         LoadInst *DepLI, const DataLayout &TD){
   // Cannot handle reading from store of first-class aggregate yet.
   if (DepLI->getType()->isStructTy() || DepLI->getType()->isArrayTy())
     return -1;
@@ -959,7 +969,7 @@ static int AnalyzeLoadFromClobberingLoad(Type *LoadTy, Value *LoadPtr,
 
 static int AnalyzeLoadFromClobberingMemInst(Type *LoadTy, Value *LoadPtr,
                                             MemIntrinsic *MI,
-                                            const TargetData &TD) {
+                                            const DataLayout &TD) {
   // If the mem operation is a non-constant size, we can't handle it.
   ConstantInt *SizeCst = dyn_cast<ConstantInt>(MI->getLength());
   if (SizeCst == 0) return -1;
@@ -1009,7 +1019,7 @@ static int AnalyzeLoadFromClobberingMemInst(Type *LoadTy, Value *LoadPtr,
 /// before we give up.
 static Value *GetStoreValueForLoad(Value *SrcVal, unsigned Offset,
                                    Type *LoadTy,
-                                   Instruction *InsertPt, const TargetData &TD){
+                                   Instruction *InsertPt, const DataLayout &TD){
   LLVMContext &Ctx = SrcVal->getType()->getContext();
 
   uint64_t StoreSize = (TD.getTypeSizeInBits(SrcVal->getType()) + 7) / 8;
@@ -1019,8 +1029,9 @@ static Value *GetStoreValueForLoad(Value *SrcVal, unsigned Offset,
 
   // Compute which bits of the stored value are being used by the load.  Convert
   // to an integer type to start with.
-  if (SrcVal->getType()->isPointerTy())
-    SrcVal = Builder.CreatePtrToInt(SrcVal, TD.getIntPtrType(Ctx));
+  if (SrcVal->getType()->getScalarType()->isPointerTy())
+    SrcVal = Builder.CreatePtrToInt(SrcVal,
+        getIntPtrType(SrcVal->getType(), TD));
   if (!SrcVal->getType()->isIntegerTy())
     SrcVal = Builder.CreateBitCast(SrcVal, IntegerType::get(Ctx, StoreSize*8));
 
@@ -1048,7 +1059,7 @@ static Value *GetStoreValueForLoad(Value *SrcVal, unsigned Offset,
 static Value *GetLoadValueForLoad(LoadInst *SrcVal, unsigned Offset,
                                   Type *LoadTy, Instruction *InsertPt,
                                   GVN &gvn) {
-  const TargetData &TD = *gvn.getTargetData();
+  const DataLayout &TD = *gvn.getDataLayout();
   // If Offset+LoadTy exceeds the size of SrcVal, then we must be wanting to
   // widen SrcVal out to a larger load.
   unsigned SrcValSize = TD.getTypeStoreSize(SrcVal->getType());
@@ -1107,7 +1118,7 @@ static Value *GetLoadValueForLoad(LoadInst *SrcVal, unsigned Offset,
 /// memdep query of a load that ends up being a clobbering mem intrinsic.
 static Value *GetMemInstValueForLoad(MemIntrinsic *SrcInst, unsigned Offset,
                                      Type *LoadTy, Instruction *InsertPt,
-                                     const TargetData &TD){
+                                     const DataLayout &TD){
   LLVMContext &Ctx = LoadTy->getContext();
   uint64_t LoadSize = TD.getTypeSizeInBits(LoadTy)/8;
 
@@ -1231,7 +1242,7 @@ struct AvailableValueInBlock {
     if (isSimpleValue()) {
       Res = getSimpleValue();
       if (Res->getType() != LoadTy) {
-        const TargetData *TD = gvn.getTargetData();
+        const DataLayout *TD = gvn.getDataLayout();
         assert(TD && "Need target data to handle type mismatch case");
         Res = GetStoreValueForLoad(Res, Offset, LoadTy, BB->getTerminator(),
                                    *TD);
@@ -1253,7 +1264,7 @@ struct AvailableValueInBlock {
                      << *Res << '\n' << "\n\n\n");
       }
     } else {
-      const TargetData *TD = gvn.getTargetData();
+      const DataLayout *TD = gvn.getDataLayout();
       assert(TD && "Need target data to handle type mismatch case");
       Res = GetMemInstValueForLoad(getMemIntrinValue(), Offset,
                                    LoadTy, BB->getTerminator(), *TD);
@@ -1301,7 +1312,7 @@ static Value *ConstructSSAForLoadSet(LoadInst *LI,
   Value *V = SSAUpdate.GetValueInMiddleOfBlock(LI->getParent());
 
   // If new PHI nodes were created, notify alias analysis.
-  if (V->getType()->isPointerTy()) {
+  if (V->getType()->getScalarType()->isPointerTy()) {
     AliasAnalysis *AA = gvn.getAliasAnalysis();
 
     for (unsigned i = 0, e = NewPHIs.size(); i != e; ++i)
@@ -1498,7 +1509,7 @@ bool GVN::processNonLocalLoad(LoadInst *LI) {
 
     if (isa<PHINode>(V))
       V->takeName(LI);
-    if (V->getType()->isPointerTy())
+    if (V->getType()->getScalarType()->isPointerTy())
       MD->invalidateCachedPointerInfo(V);
     markInstructionForDeletion(LI);
     ++NumGVNLoad;
@@ -1730,7 +1741,7 @@ bool GVN::processNonLocalLoad(LoadInst *LI) {
   LI->replaceAllUsesWith(V);
   if (isa<PHINode>(V))
     V->takeName(LI);
-  if (V->getType()->isPointerTy())
+  if (V->getType()->getScalarType()->isPointerTy())
     MD->invalidateCachedPointerInfo(V);
   markInstructionForDeletion(LI);
   ++NumPRELoad;
@@ -1857,7 +1868,7 @@ bool GVN::processLoad(LoadInst *L) {
 
       // Replace the load!
       L->replaceAllUsesWith(AvailVal);
-      if (AvailVal->getType()->isPointerTy())
+      if (AvailVal->getType()->getScalarType()->isPointerTy())
         MD->invalidateCachedPointerInfo(AvailVal);
       markInstructionForDeletion(L);
       ++NumGVNLoad;
@@ -1914,7 +1925,7 @@ bool GVN::processLoad(LoadInst *L) {
 
     // Remove it!
     L->replaceAllUsesWith(StoredVal);
-    if (StoredVal->getType()->isPointerTy())
+    if (StoredVal->getType()->getScalarType()->isPointerTy())
       MD->invalidateCachedPointerInfo(StoredVal);
     markInstructionForDeletion(L);
     ++NumGVNLoad;
@@ -1943,7 +1954,7 @@ bool GVN::processLoad(LoadInst *L) {
 
     // Remove it!
     patchAndReplaceAllUsesWith(AvailableVal, L);
-    if (DepLI->getType()->isPointerTy())
+    if (DepLI->getType()->getScalarType()->isPointerTy())
       MD->invalidateCachedPointerInfo(DepLI);
     markInstructionForDeletion(L);
     ++NumGVNLoad;
@@ -2184,7 +2195,7 @@ bool GVN::processInstruction(Instruction *I) {
   // "%z = and i32 %x, %y" becomes "%z = and i32 %x, %x" which we now simplify.
   if (Value *V = SimplifyInstruction(I, TD, TLI, DT)) {
     I->replaceAllUsesWith(V);
-    if (MD && V->getType()->isPointerTy())
+    if (MD && V->getType()->getScalarType()->isPointerTy())
       MD->invalidateCachedPointerInfo(V);
     markInstructionForDeletion(I);
     ++NumGVNSimpl;
@@ -2284,7 +2295,7 @@ bool GVN::processInstruction(Instruction *I) {
 
   // Remove it!
   patchAndReplaceAllUsesWith(repl, I);
-  if (MD && repl->getType()->isPointerTy())
+  if (MD && repl->getType()->getScalarType()->isPointerTy())
     MD->invalidateCachedPointerInfo(repl);
   markInstructionForDeletion(I);
   return true;
@@ -2295,7 +2306,7 @@ bool GVN::runOnFunction(Function& F) {
   if (!NoLoads)
     MD = &getAnalysis<MemoryDependenceAnalysis>();
   DT = &getAnalysis<DominatorTree>();
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   TLI = &getAnalysis<TargetLibraryInfo>();
   VN.setAliasAnalysis(&getAnalysis<AliasAnalysis>());
   VN.setMemDep(MD);
@@ -2532,7 +2543,7 @@ bool GVN::performPRE(Function &F) {
       addToLeaderTable(ValNo, Phi, CurrentBlock);
       Phi->setDebugLoc(CurInst->getDebugLoc());
       CurInst->replaceAllUsesWith(Phi);
-      if (Phi->getType()->isPointerTy()) {
+      if (Phi->getType()->getScalarType()->isPointerTy()) {
         // Because we have added a PHI-use of the pointer value, it has now
         // "escaped" from alias analysis' perspective.  We need to inform
         // AA of this.

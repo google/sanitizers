@@ -383,19 +383,23 @@ void Sema::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
     // Finally, in ActOnFinishFunctionBody() (SemaDecl), warn if flag is set.
     // Only do this if the current class actually has a superclass.
     if (IC->getSuperClass()) {
-      getCurFunction()->ObjCShouldCallSuperDealloc = 
-        !(Context.getLangOpts().ObjCAutoRefCount ||
-          Context.getLangOpts().getGC() == LangOptions::GCOnly) &&
-          MDecl->getMethodFamily() == OMF_dealloc;
-      if (!getCurFunction()->ObjCShouldCallSuperDealloc) {
-        IMD = IC->getSuperClass()->lookupMethod(MDecl->getSelector(), 
-                                                MDecl->isInstanceMethod());
-        getCurFunction()->ObjCShouldCallSuperDealloc = 
-          (IMD && IMD->hasAttr<ObjCRequiresSuperAttr>());
+      ObjCMethodFamily Family = MDecl->getMethodFamily();
+      if (Family == OMF_dealloc) {
+        if (!(getLangOpts().ObjCAutoRefCount ||
+              getLangOpts().getGC() == LangOptions::GCOnly))
+          getCurFunction()->ObjCShouldCallSuper = true;
+
+      } else if (Family == OMF_finalize) {
+        if (Context.getLangOpts().getGC() != LangOptions::NonGC)
+          getCurFunction()->ObjCShouldCallSuper = true;
+        
+      } else {
+        const ObjCMethodDecl *SuperMethod =
+          IC->getSuperClass()->lookupMethod(MDecl->getSelector(),
+                                            MDecl->isInstanceMethod());
+        getCurFunction()->ObjCShouldCallSuper = 
+          (SuperMethod && SuperMethod->hasAttr<ObjCRequiresSuperAttr>());
       }
-      getCurFunction()->ObjCShouldCallSuperFinalize =
-        Context.getLangOpts().getGC() != LangOptions::NonGC &&
-        MDecl->getMethodFamily() == OMF_finalize;
     }
   }
 }
@@ -1578,9 +1582,9 @@ void Sema::CheckProtocolMethodDefs(SourceLocation ImpLoc,
          E = PDecl->instmeth_end(); I != E; ++I) {
       ObjCMethodDecl *method = *I;
       if (method->getImplementationControl() != ObjCMethodDecl::Optional &&
-          !method->isSynthesized() && !InsMap.count(method->getSelector()) &&
-          (!Super ||
-           !Super->lookupInstanceMethod(method->getSelector()))) {
+          !method->isPropertyAccessor() &&
+          !InsMap.count(method->getSelector()) &&
+          (!Super || !Super->lookupInstanceMethod(method->getSelector()))) {
             // If a method is not implemented in the category implementation but
             // has been declared in its primary class, superclass,
             // or in one of their protocols, no need to issue the warning. 
@@ -1593,7 +1597,7 @@ void Sema::CheckProtocolMethodDefs(SourceLocation ImpLoc,
             if (ObjCMethodDecl *MethodInClass =
                   IDecl->lookupInstanceMethod(method->getSelector(), 
                                               true /*shallowCategoryLookup*/))
-              if (C || MethodInClass->isSynthesized())
+              if (C || MethodInClass->isPropertyAccessor())
                 continue;
             unsigned DIAG = diag::warn_unimplemented_protocol_method;
             if (Diags.getDiagnosticLevel(DIAG, ImpLoc)
@@ -1654,7 +1658,7 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
     if (InsMapSeen.count((*I)->getSelector()))
         continue;
     InsMapSeen.insert((*I)->getSelector());
-    if (!(*I)->isSynthesized() &&
+    if (!(*I)->isPropertyAccessor() &&
         !InsMap.count((*I)->getSelector())) {
       if (ImmediateClass)
         WarnUndefinedMethod(IMPDecl->getLocation(), *I, IncompleteImpl,
@@ -1671,7 +1675,7 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
         if (!WarnCategoryMethodImpl)
           WarnConflictingTypedMethods(ImpMethodDecl, MethodDecl,
                                       isa<ObjCProtocolDecl>(CDecl));
-        else if (!MethodDecl->isSynthesized())
+        else if (!MethodDecl->isPropertyAccessor())
           WarnExactTypedMethods(ImpMethodDecl, MethodDecl,
                                 isa<ObjCProtocolDecl>(CDecl));
       }
@@ -1705,14 +1709,26 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
   }
   
   if (ObjCInterfaceDecl *I = dyn_cast<ObjCInterfaceDecl> (CDecl)) {
-    // Also methods in class extensions need be looked at next.
-    for (const ObjCCategoryDecl *ClsExtDecl = I->getFirstClassExtension(); 
-         ClsExtDecl; ClsExtDecl = ClsExtDecl->getNextClassExtension())
-      MatchAllMethodDeclarations(InsMap, ClsMap, InsMapSeen, ClsMapSeen,
-                                 IMPDecl,
-                                 const_cast<ObjCCategoryDecl *>(ClsExtDecl), 
-                                 IncompleteImpl, false, 
-                                 WarnCategoryMethodImpl);
+    // when checking that methods in implementation match their declaration,
+    // i.e. when WarnCategoryMethodImpl is false, check declarations in class
+    // extension; as well as those in categories.
+    if (!WarnCategoryMethodImpl)
+      for (const ObjCCategoryDecl *CDeclChain = I->getCategoryList();
+           CDeclChain; CDeclChain = CDeclChain->getNextClassCategory())
+        MatchAllMethodDeclarations(InsMap, ClsMap, InsMapSeen, ClsMapSeen,
+                                   IMPDecl,
+                                   const_cast<ObjCCategoryDecl *>(CDeclChain),
+                                   IncompleteImpl, false,
+                                   WarnCategoryMethodImpl);
+    else 
+      // Also methods in class extensions need be looked at next.
+      for (const ObjCCategoryDecl *ClsExtDecl = I->getFirstClassExtension(); 
+           ClsExtDecl; ClsExtDecl = ClsExtDecl->getNextClassExtension())
+        MatchAllMethodDeclarations(InsMap, ClsMap, InsMapSeen, ClsMapSeen,
+                                   IMPDecl,
+                                   const_cast<ObjCCategoryDecl *>(ClsExtDecl), 
+                                   IncompleteImpl, false, 
+                                   WarnCategoryMethodImpl);
     
     // Check for any implementation of a methods declared in protocol.
     for (ObjCInterfaceDecl::all_protocol_iterator
@@ -2372,11 +2388,11 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd,
                CExtDecl; CExtDecl = CExtDecl->getNextClassExtension()) {
             if (ObjCMethodDecl *GetterMethod =
                 CExtDecl->getInstanceMethod(Property->getGetterName()))
-              GetterMethod->setSynthesized(true);
+              GetterMethod->setPropertyAccessor(true);
             if (!Property->isReadOnly())
               if (ObjCMethodDecl *SetterMethod =
                   CExtDecl->getInstanceMethod(Property->getSetterName()))
-                SetterMethod->setSynthesized(true);
+                SetterMethod->setPropertyAccessor(true);
           }        
         }
       }
@@ -2582,7 +2598,7 @@ public:
     // with this selector before.
     Sema::GlobalMethodPool::iterator it = S.MethodPool.find(selector);
     if (it == S.MethodPool.end()) {
-      if (!S.ExternalSource) return;
+      if (!S.getExternalSource()) return;
       S.ReadMethodPool(selector);
       
       it = S.MethodPool.find(selector);
@@ -2824,7 +2840,7 @@ Decl *Sema::ActOnMethodDeclaration(
                            ResultTInfo,
                            CurContext,
                            MethodType == tok::minus, isVariadic,
-                           /*isSynthesized=*/false,
+                           /*isPropertyAccessor=*/false,
                            /*isImplicitlyDeclared=*/false, /*isDefined=*/false,
                            MethodDeclKind == tok::objc_optional 
                              ? ObjCMethodDecl::Optional

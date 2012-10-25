@@ -36,26 +36,119 @@ MacroInfo *Preprocessor::getMacroInfoHistory(IdentifierInfo *II) const {
   assert(II->hadMacroDefinition() && "Identifier has not been not a macro!");
 
   macro_iterator Pos = Macros.find(II);
-  if (Pos == Macros.end()) {
-    // Load this macro from the external source.
-    getExternalSource()->LoadMacroDefinition(II);
-    Pos = Macros.find(II);
-  }
   assert(Pos != Macros.end() && "Identifier macro info is missing!");
   return Pos->second;
 }
 
 /// setMacroInfo - Specify a macro for this identifier.
 ///
-void Preprocessor::setMacroInfo(IdentifierInfo *II, MacroInfo *MI,
-                                bool LoadedFromAST) {
+void Preprocessor::setMacroInfo(IdentifierInfo *II, MacroInfo *MI) {
   assert(MI && "MacroInfo should be non-zero!");
-  assert((LoadedFromAST || MI->getUndefLoc().isInvalid()) &&
-         "Undefined macros can only be registered when just LoadedFromAST");
-  MI->setPreviousDefinition(Macros[II]);
-  Macros[II] = MI;
+  assert(MI->getUndefLoc().isInvalid() &&
+         "Undefined macros cannot be registered");
+
+  MacroInfo *&StoredMI = Macros[II];
+  MI->setPreviousDefinition(StoredMI);
+  StoredMI = MI;
   II->setHasMacroDefinition(MI->getUndefLoc().isInvalid());
-  if (II->isFromAST() && !LoadedFromAST)
+  if (II->isFromAST())
+    II->setChangedSinceDeserialization();
+}
+
+void Preprocessor::addLoadedMacroInfo(IdentifierInfo *II, MacroInfo *MI,
+                                      MacroInfo *Hint) {
+  assert(MI && "Missing macro?");
+  assert(MI->isFromAST() && "Macro is not from an AST?");
+  assert(!MI->getPreviousDefinition() && "Macro already in chain?");
+  
+  MacroInfo *&StoredMI = Macros[II];
+
+  // Easy case: this is the first macro definition for this macro.
+  if (!StoredMI) {
+    StoredMI = MI;
+
+    if (MI->isDefined())
+      II->setHasMacroDefinition(true);
+    return;
+  }
+
+  // If this macro is a definition and this identifier has been neither
+  // defined nor undef'd in the current translation unit, add this macro
+  // to the end of the chain of definitions.
+  if (MI->isDefined() && StoredMI->isFromAST()) {
+    // Simple case: if this is the first actual definition, just put it at
+    // th beginning.
+    if (!StoredMI->isDefined()) {
+      MI->setPreviousDefinition(StoredMI);
+      StoredMI = MI;
+
+      II->setHasMacroDefinition(true);
+      return;
+    }
+
+    // Find the end of the definition chain.
+    MacroInfo *Prev;
+    MacroInfo *PrevPrev = StoredMI;
+    bool Ambiguous = StoredMI->isAmbiguous();
+    bool MatchedOther = false;
+    do {
+      Prev = PrevPrev;
+
+      // If the macros are not identical, we have an ambiguity.
+      if (!Prev->isIdenticalTo(*MI, *this)) {
+        if (!Ambiguous) {
+          Ambiguous = true;
+          StoredMI->setAmbiguous(true);
+        }
+      } else {
+        MatchedOther = true;
+      }
+    } while ((PrevPrev = Prev->getPreviousDefinition()) &&
+             PrevPrev->isDefined());
+
+    // If there are ambiguous definitions, and we didn't match any other
+    // definition, then mark us as ambiguous.
+    if (Ambiguous && !MatchedOther)
+      MI->setAmbiguous(true);
+
+    // Wire this macro information into the chain.
+    MI->setPreviousDefinition(Prev->getPreviousDefinition());
+    Prev->setPreviousDefinition(MI);
+    return;
+  }
+
+  // The macro is not a definition; put it at the end of the list.
+  MacroInfo *Prev = Hint? Hint : StoredMI;
+  while (Prev->getPreviousDefinition())
+    Prev = Prev->getPreviousDefinition();
+  Prev->setPreviousDefinition(MI);
+}
+
+void Preprocessor::makeLoadedMacroInfoVisible(IdentifierInfo *II,
+                                              MacroInfo *MI) {
+  assert(MI->isFromAST() && "Macro must be from the AST");
+
+  MacroInfo *&StoredMI = Macros[II];
+  if (StoredMI == MI) {
+    // Easy case: this is the first macro anyway.
+    II->setHasMacroDefinition(MI->isDefined());
+    return;
+  }
+
+  // Go find the macro and pull it out of the list.
+  // FIXME: Yes, this is O(N), and making a pile of macros visible or hidden
+  // would be quadratic, but it's extremely rare.
+  MacroInfo *Prev = StoredMI;
+  while (Prev->getPreviousDefinition() != MI)
+    Prev = Prev->getPreviousDefinition();
+  Prev->setPreviousDefinition(MI->getPreviousDefinition());
+  MI->setPreviousDefinition(0);
+
+  // Add the macro back to the list.
+  addLoadedMacroInfo(II, MI);
+
+  II->setHasMacroDefinition(StoredMI->isDefined());
+  if (II->isFromAST())
     II->setChangedSinceDeserialization();
 }
 
@@ -283,7 +376,23 @@ bool Preprocessor::HandleMacroExpandedIdentifier(Token &Identifier,
       }
     }
   }
-  
+
+  // If the macro definition is ambiguous, complain.
+  if (MI->isAmbiguous()) {
+    Diag(Identifier, diag::warn_pp_ambiguous_macro)
+      << Identifier.getIdentifierInfo();
+    Diag(MI->getDefinitionLoc(), diag::note_pp_ambiguous_macro_chosen)
+      << Identifier.getIdentifierInfo();
+    for (MacroInfo *PrevMI = MI->getPreviousDefinition();
+         PrevMI && PrevMI->isDefined();
+         PrevMI = PrevMI->getPreviousDefinition()) {
+      if (PrevMI->isAmbiguous()) {
+        Diag(PrevMI->getDefinitionLoc(), diag::note_pp_ambiguous_macro_other)
+          << Identifier.getIdentifierInfo();
+      }
+    }
+  }
+
   // If we started lexing a macro, enter the macro expansion body.
 
   // If this macro expands to no tokens, don't bother to push it onto the
@@ -816,22 +925,30 @@ static bool HasAttribute(const IdentifierInfo *II) {
 static bool EvaluateHasIncludeCommon(Token &Tok,
                                      IdentifierInfo *II, Preprocessor &PP,
                                      const DirectoryLookup *LookupFrom) {
-  SourceLocation LParenLoc;
+  // Save the location of the current token.  If a '(' is later found, use
+  // that location.  If no, use the end of this location instead.
+  SourceLocation LParenLoc = Tok.getLocation();
 
   // Get '('.
   PP.LexNonComment(Tok);
 
   // Ensure we have a '('.
   if (Tok.isNot(tok::l_paren)) {
-    PP.Diag(Tok.getLocation(), diag::err_pp_missing_lparen) << II->getName();
-    return false;
+    // No '(', use end of last token.
+    LParenLoc = PP.getLocForEndOfToken(LParenLoc);
+    PP.Diag(LParenLoc, diag::err_pp_missing_lparen) << II->getName();
+    // If the next token looks like a filename or the start of one,
+    // assume it is and process it as such.
+    if (!Tok.is(tok::angle_string_literal) && !Tok.is(tok::string_literal) &&
+        !Tok.is(tok::less))
+      return false;
+  } else {
+    // Save '(' location for possible missing ')' message.
+    LParenLoc = Tok.getLocation();
+
+    // Get the file name.
+    PP.getCurrentLexer()->LexIncludeFilename(Tok);
   }
-
-  // Save '(' location for possible missing ')' message.
-  LParenLoc = Tok.getLocation();
-
-  // Get the file name.
-  PP.getCurrentLexer()->LexIncludeFilename(Tok);
 
   // Reserve a buffer to get the spelling.
   SmallString<128> FilenameBuffer;
@@ -856,8 +973,11 @@ static bool EvaluateHasIncludeCommon(Token &Tok,
     // This could be a <foo/bar.h> file coming from a macro expansion.  In this
     // case, glue the tokens together into FilenameBuffer and interpret those.
     FilenameBuffer.push_back('<');
-    if (PP.ConcatenateIncludeName(FilenameBuffer, EndLoc))
+    if (PP.ConcatenateIncludeName(FilenameBuffer, EndLoc)) {
+      // Let the caller know a <eod> was found by changing the Token kind.
+      Tok.setKind(tok::eod);
       return false;   // Found <eod> but no ">"?  Diagnostic already emitted.
+    }
     Filename = FilenameBuffer.str();
     break;
   default:
@@ -865,12 +985,15 @@ static bool EvaluateHasIncludeCommon(Token &Tok,
     return false;
   }
 
+  SourceLocation FilenameLoc = Tok.getLocation();
+
   // Get ')'.
   PP.LexNonComment(Tok);
 
   // Ensure we have a trailing ).
   if (Tok.isNot(tok::r_paren)) {
-    PP.Diag(Tok.getLocation(), diag::err_pp_missing_rparen) << II->getName();
+    PP.Diag(PP.getLocForEndOfToken(FilenameLoc), diag::err_pp_missing_rparen)
+        << II->getName();
     PP.Diag(LParenLoc, diag::note_matching) << "(";
     return false;
   }
@@ -1143,7 +1266,8 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
     else
       Value = EvaluateHasIncludeNext(Tok, II, *this);
     OS << (int)Value;
-    Tok.setKind(tok::numeric_constant);
+    if (Tok.is(tok::r_paren))
+      Tok.setKind(tok::numeric_constant);
   } else if (II == Ident__has_warning) {
     // The argument should be a parenthesized string literal.
     // The argument to these builtins should be a parenthesized identifier.

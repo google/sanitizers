@@ -17,6 +17,7 @@
 #define LLVM_INSTRUCTION_TYPES_H
 
 #include "llvm/Instruction.h"
+#include "llvm/DataLayout.h"
 #include "llvm/OperandTraits.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/ADT/Twine.h"
@@ -73,7 +74,6 @@ public:
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const TerminatorInst *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->isTerminator();
   }
@@ -113,7 +113,6 @@ public:
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const UnaryInstruction *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == Instruction::Alloca ||
            I->getOpcode() == Instruction::Load ||
@@ -361,7 +360,6 @@ public:
   bool isExact() const;
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const BinaryOperator *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->isBinaryOp();
   }
@@ -563,7 +561,7 @@ public:
   /// IntPtrTy argument is used to make accurate determinations for casts
   /// involving Integer and Pointer types. They are no-op casts if the integer
   /// is the same size as the pointer. However, pointer size varies with
-  /// platform. Generally, the result of TargetData::getIntPtrType() should be
+  /// platform. Generally, the result of DataLayout::getIntPtrType() should be
   /// passed in. If that's not available, use Type::Int64Ty, which will make
   /// the isNoopCast call conservative.
   /// @brief Determine if the described cast is a no-op cast.
@@ -578,6 +576,11 @@ public:
   bool isNoopCast(
     Type *IntPtrTy ///< Integer type corresponding to pointer
   ) const;
+
+  /// @brief Determine if this cast is a no-op cast.
+  bool isNoopCast(
+      const DataLayout &DL ///< DataLayout to get the Int Ptr type from.
+      ) const;
 
   /// Determine how a pair of casts can be eliminated, if they can be at all.
   /// This is a helper function for both CastInst and ConstantExpr.
@@ -611,7 +614,6 @@ public:
   static bool castIsValid(Instruction::CastOps op, Value *S, Type *DstTy);
 
   /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const CastInst *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->isCast();
   }
@@ -816,7 +818,6 @@ public:
   static bool isFalseWhenEqual(unsigned short predicate);
 
   /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const CmpInst *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == Instruction::ICmp ||
            I->getOpcode() == Instruction::FCmp;

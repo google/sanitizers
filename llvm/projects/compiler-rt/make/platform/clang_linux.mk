@@ -18,38 +18,60 @@ $(error "unable to infer compiler target triple for $(CC)")
 endif
 endif
 
-CompilerTargetArch := $(firstword $(subst -, ,$(CompilerTargetTriple)))
-
 # Only define configs if we detected a linux target.
 ifneq ($(findstring -linux-,$(CompilerTargetTriple)),)
 
-# Configurations which just include all the runtime functions.
+# Define configs only if arch in triple is i386 or x86_64
+CompilerTargetArch := $(firstword $(subst -, ,$(CompilerTargetTriple)))
 ifeq ($(call contains,i386 x86_64,$(CompilerTargetArch)),true)
-Configs += full-i386 full-x86_64
+
+# TryCompile compiler source flags
+# Returns exit code of running a compiler invocation.
+TryCompile = \
+  $(shell \
+    cflags=""; \
+    for flag in $(3); do \
+      cflags="$$cflags $$flag"; \
+    done; \
+    $(1) $$cflags $(2) -o /dev/null > /dev/null 2> /dev/null ; \
+    echo $$?)
+
+test_source = $(ProjSrcRoot)/make/platform/clang_linux_test_input.c
+ifeq ($(CompilerTargetArch),i386)
+  SupportedArches := i386
+  ifeq ($(call TryCompile,$(CC),$(test_source),-m64),0)
+    SupportedArches += x86_64
+  endif
+else
+  SupportedArches := x86_64
+  ifeq ($(call TryCompile,$(CC),$(test_source),-m32),0)
+    SupportedArches += i386
+  endif
+endif
+
+# Build runtime libraries for i386.
+ifeq ($(call contains,$(SupportedArches),i386),true)
+Configs += full-i386 profile-i386 asan-i386
 Arch.full-i386 := i386
-Arch.full-x86_64 := x86_64
-endif
-
-# Configuration for profile runtime.
-ifeq ($(call contains,i386 x86_64,$(CompilerTargetArch)),true)
-Configs += profile-i386 profile-x86_64
 Arch.profile-i386 := i386
-Arch.profile-x86_64 := x86_64
-endif
-
-# Configuration for ASAN runtime.
-ifeq ($(call contains,i386 x86_64,$(CompilerTargetArch)),true)
-Configs += asan-i386 asan-x86_64
 Arch.asan-i386 := i386
-Arch.asan-x86_64 := x86_64
 endif
 
-# Configuration for TSAN runtime.
-ifeq ($(CompilerTargetArch),x86_64)
-Configs += tsan-x86_64
+# Build runtime libraries for x86_64.
+ifeq ($(call contains,$(SupportedArches),x86_64),true)
+Configs += full-x86_64 profile-x86_64 asan-x86_64 tsan-x86_64
+Arch.full-x86_64 := x86_64
+Arch.profile-x86_64 := x86_64
+Arch.asan-x86_64 := x86_64
 Arch.tsan-x86_64 := x86_64
 endif
 
+ifneq ($(LLVM_ANDROID_TOOLCHAIN_DIR),)
+Configs += asan-arm-android
+Arch.asan-arm-android := arm-android
+endif
+
+endif
 endif
 
 ###
@@ -63,6 +85,14 @@ CFLAGS.profile-x86_64 := $(CFLAGS) -m64
 CFLAGS.asan-i386 := $(CFLAGS) -m32 -fPIE -fno-builtin
 CFLAGS.asan-x86_64 := $(CFLAGS) -m64 -fPIE -fno-builtin
 CFLAGS.tsan-x86_64 := $(CFLAGS) -m64 -fPIE -fno-builtin
+
+SHARED_LIBRARY.asan-arm-android := 1
+ANDROID_COMMON_FLAGS := -target arm-linux-androideabi \
+	--sysroot=$(LLVM_ANDROID_TOOLCHAIN_DIR)/sysroot \
+	-B$(LLVM_ANDROID_TOOLCHAIN_DIR)
+CFLAGS.asan-arm-android := $(CFLAGS) -fPIC -fno-builtin \
+	$(ANDROID_COMMON_FLAGS) -mllvm -arm-enable-ehabi
+LDFLAGS.asan-arm-android := $(LDFLAGS) $(ANDROID_COMMON_FLAGS) -ldl
 
 # Use our stub SDK as the sysroot to support more portable building. For now we
 # just do this for the non-ASAN modules, because the stub SDK doesn't have
@@ -80,6 +110,8 @@ FUNCTIONS.asan-i386 := $(AsanFunctions) $(InterceptionFunctions) \
                                         $(SanitizerCommonFunctions)
 FUNCTIONS.asan-x86_64 := $(AsanFunctions) $(InterceptionFunctions) \
                                           $(SanitizerCommonFunctions)
+FUNCTIONS.asan-arm-android := $(AsanFunctions) $(InterceptionFunctions) \
+                                          $(SanitizerCommonFunctions)
 FUNCTIONS.tsan-x86_64 := $(TsanFunctions) $(InterceptionFunctions) \
                                           $(SanitizerCommonFunctions) 
 
@@ -88,3 +120,5 @@ OPTIMIZED := 1
 
 # We don't need to use visibility hidden on Linux.
 VISIBILITY_HIDDEN := 0
+
+SHARED_LIBRARY_SUFFIX := so

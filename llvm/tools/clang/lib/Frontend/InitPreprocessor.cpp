@@ -17,11 +17,12 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/FrontendOptions.h"
-#include "clang/Frontend/PreprocessorOptions.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Serialization/ASTReader.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -79,6 +80,19 @@ static void AddImplicitIncludePTH(MacroBuilder &Builder, Preprocessor &PP,
       << ImplicitIncludePTH;
     return;
   }
+
+  AddImplicitInclude(Builder, OriginalFile, PP.getFileManager());
+}
+
+/// \brief Add an implicit \#include using the original file used to generate
+/// a PCH file.
+static void AddImplicitIncludePCH(MacroBuilder &Builder, Preprocessor &PP,
+                                  StringRef ImplicitIncludePCH) {
+  std::string OriginalFile =
+    ASTReader::getOriginalSourceFile(ImplicitIncludePCH, PP.getFileManager(),
+                                     PP.getDiagnostics());
+  if (OriginalFile.empty())
+    return;
 
   AddImplicitInclude(Builder, OriginalFile, PP.getFileManager());
 }
@@ -288,6 +302,8 @@ static void InitializeStandardPredefinedMacros(const TargetInfo &TI,
     else if (!LangOpts.GNUMode && LangOpts.Digraphs)
       Builder.defineMacro("__STDC_VERSION__", "199409L");
   } else {
+    // FIXME: LangOpts.CPlusPlus1y
+
     // C++11 [cpp.predefined]p1:
     //   The name __cplusplus is defined to the value 201103L when compiling a
     //   C++ translation unit.
@@ -325,8 +341,8 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   Builder.defineMacro("__clang_patchlevel__", "0");
 #endif
   Builder.defineMacro("__clang_version__", 
-                      "\"" CLANG_VERSION_STRING " ("
-                      + getClangFullRepositoryVersion() + ")\"");
+                      "\"" CLANG_VERSION_STRING " "
+                      + getClangFullRepositoryVersion() + "\"");
 #undef TOSTR
 #undef TOSTR2
   if (!LangOpts.MicrosoftMode) {
@@ -761,6 +777,8 @@ void clang::InitializePreprocessor(Preprocessor &PP,
     const std::string &Path = InitOpts.Includes[i];
     if (Path == InitOpts.ImplicitPTHInclude)
       AddImplicitIncludePTH(Builder, PP, Path);
+    else if (Path == InitOpts.ImplicitPCHInclude)
+      AddImplicitIncludePCH(Builder, PP, Path);
     else
       AddImplicitInclude(Builder, Path, PP.getFileManager());
   }

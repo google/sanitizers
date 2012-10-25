@@ -741,6 +741,15 @@ constexpr bool check(T a, T b) { return a == b.k; }
 static_assert(S(5) == 11, "");
 static_assert(check(S(5), 11), "");
 
+namespace PR14171 {
+
+struct X {
+  constexpr (operator int)() { return 0; }
+};
+static_assert(X() == 0, "");
+
+}
+
 }
 
 }
@@ -1407,4 +1416,15 @@ namespace Void {
   static_assert(get(arr, 4) == 4, "");
   static_assert(get(arr, 0) == 4, ""); // expected-error{{not an integral constant expression}} \
   // expected-note{{in call to 'get(arr, 0)'}}
+}
+
+namespace std { struct type_info; }
+
+namespace TypeId {
+  struct A { virtual ~A(); };
+  A f();
+  A &g();
+  constexpr auto &x = typeid(f());
+  constexpr auto &y = typeid(g()); // expected-error{{constant expression}} \
+  // expected-note{{typeid applied to expression of polymorphic type 'TypeId::A' is not allowed in a constant expression}}
 }

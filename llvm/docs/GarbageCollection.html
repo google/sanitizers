@@ -1253,7 +1253,7 @@ methods. Here's a realistic example:</p>
 >#include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Function.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetAsmInfo.h"
 
 void MyGCPrinter::beginAssembly(std::ostream &amp;OS, AsmPrinter &amp;AP,
@@ -1266,7 +1266,7 @@ void MyGCPrinter::finishAssembly(std::ostream &amp;OS, AsmPrinter &amp;AP,
   // Set up for emitting addresses.
   const char *AddressDirective;
   int AddressAlignLog;
-  if (AP.TM.getTargetData()->getPointerSize() == sizeof(int32_t)) {
+  if (AP.TM.getDataLayout()->getPointerSize() == sizeof(int32_t)) {
     AddressDirective = TAI.getData32bitsDirective();
     AddressAlignLog = 2;
   } else {
@@ -1382,7 +1382,7 @@ Fergus Henderson. International Symposium on Memory Management 2002.</p>
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-05-03 19:25:19 +0400 (Thu, 03 May 2012) $
+  Last modified: $Date: 2012-10-08 20:39:34 +0400 (Mon, 08 Oct 2012) $
 </address>
 
 </body>

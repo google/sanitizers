@@ -159,8 +159,6 @@ public:
     return !(LHS == RHS);
   }
 
-  static bool classof(const TypeLoc *TL) { return true; }
-
 private:
   static void initializeImpl(ASTContext &Context, TypeLoc TL,
                              SourceLocation Loc);
@@ -192,7 +190,6 @@ public:
   static bool classof(const TypeLoc *TL) {
     return !TL->getType().hasLocalQualifiers();
   }
-  static bool classof(const UnqualTypeLoc *TL) { return true; }
 };
 
 /// \brief Wrapper of type source information for a type with
@@ -237,7 +234,6 @@ public:
   static bool classof(const TypeLoc *TL) {
     return TL->getType().hasLocalQualifiers();
   }
-  static bool classof(const QualifiedTypeLoc *TL) { return true; }
 };
 
 inline UnqualTypeLoc TypeLoc::getUnqualifiedLoc() const {
@@ -302,9 +298,6 @@ public:
   }
   static bool classof(const UnqualTypeLoc *TL) {
     return Derived::classofType(TL->getTypePtr());
-  }
-  static bool classof(const Derived *TL) {
-    return true;
   }
 
   TypeLoc getNextTypeLoc() const {
@@ -380,9 +373,6 @@ public:
   static bool classof(const UnqualTypeLoc *TL) {
     return Derived::classofType(TL->getTypePtr());
   }
-  static bool classof(const Derived *TL) {
-    return true;
-  }
 
   const TypeClass *getTypePtr() const {
     return cast<TypeClass>(Base::getTypePtr());
@@ -417,7 +407,6 @@ public:
   }
 
   static bool classof(const TypeLoc *TL);
-  static bool classof(const TypeSpecTypeLoc *TL) { return true; }
 };
 
 
@@ -866,6 +855,7 @@ public:
 
   void initializeLocal(ASTContext &Context, SourceLocation Loc) {
     setNameLoc(Loc);
+    setNameEndLoc(Loc);
   }
 };
 
@@ -1060,6 +1050,8 @@ public:
 
 struct FunctionLocInfo {
   SourceLocation LocalRangeBegin;
+  SourceLocation LParenLoc;
+  SourceLocation RParenLoc;
   SourceLocation LocalRangeEnd;
 };
 
@@ -1081,6 +1073,24 @@ public:
   }
   void setLocalRangeEnd(SourceLocation L) {
     getLocalData()->LocalRangeEnd = L;
+  }
+
+  SourceLocation getLParenLoc() const {
+    return this->getLocalData()->LParenLoc;
+  }
+  void setLParenLoc(SourceLocation Loc) {
+    this->getLocalData()->LParenLoc = Loc;
+  }
+
+  SourceLocation getRParenLoc() const {
+    return this->getLocalData()->RParenLoc;
+  }
+  void setRParenLoc(SourceLocation Loc) {
+    this->getLocalData()->RParenLoc = Loc;
+  }
+
+  SourceRange getParensRange() const {
+    return SourceRange(getLParenLoc(), getRParenLoc());
   }
 
   ArrayRef<ParmVarDecl *> getParams() const {
@@ -1110,6 +1120,8 @@ public:
 
   void initializeLocal(ASTContext &Context, SourceLocation Loc) {
     setLocalRangeBegin(Loc);
+    setLParenLoc(Loc);
+    setRParenLoc(Loc);
     setLocalRangeEnd(Loc);
     for (unsigned i = 0, e = getNumArgs(); i != e; ++i)
       setArg(i, NULL);

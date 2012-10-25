@@ -180,11 +180,20 @@ namespace llvm {
 
   //===--------------------------------------------------------------------===//
   //
+  // createDependenceAnalysisPass - This creates an instance of the
+  // DependenceAnalysis pass.
+  //
+  FunctionPass *createDependenceAnalysisPass();
+
+  //===--------------------------------------------------------------------===//
+  //
   // createLoopDependenceAnalysisPass - This creates an instance of the
   // LoopDependenceAnalysis pass.
   //
   LoopPass *createLoopDependenceAnalysisPass();
 
+  //===--------------------------------------------------------------------===//
+  //
   // Minor pass prototypes, allowing us to expose them through bugpoint and
   // analyze.
   FunctionPass *createInstCountPass();

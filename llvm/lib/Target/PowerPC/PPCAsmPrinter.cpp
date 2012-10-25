@@ -437,9 +437,9 @@ void PPCLinuxAsmPrinter::EmitFunctionEntryLabel() {
 
 
 bool PPCLinuxAsmPrinter::doFinalization(Module &M) {
-  const TargetData *TD = TM.getTargetData();
+  const DataLayout *TD = TM.getDataLayout();
 
-  bool isPPC64 = TD->getPointerSizeInBits() == 64;
+  bool isPPC64 = TD->getPointerSizeInBits(0) == 64;
 
   if (isPPC64 && !TOC.empty()) {
     const MCSectionELF *Section = OutStreamer.getContext().getELFSection(".toc",
@@ -451,8 +451,8 @@ bool PPCLinuxAsmPrinter::doFinalization(Module &M) {
     for (DenseMap<MCSymbol*, MCSymbol*>::iterator I = TOC.begin(),
          E = TOC.end(); I != E; ++I) {
       OutStreamer.EmitLabel(I->second);
-      OutStreamer.EmitRawText("\t.tc " + Twine(I->first->getName()) +
-                              "[TC]," + I->first->getName());
+      MCSymbol *S = OutContext.GetOrCreateSymbol(I->first->getName());
+      OutStreamer.EmitTCEntry(*S);
     }
   }
 
@@ -545,7 +545,7 @@ static MCSymbol *GetAnonSym(MCSymbol *Sym, MCContext &Ctx) {
 
 void PPCDarwinAsmPrinter::
 EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
-  bool isPPC64 = TM.getTargetData()->getPointerSizeInBits() == 64;
+  bool isPPC64 = TM.getDataLayout()->getPointerSizeInBits(0) == 64;
   
   const TargetLoweringObjectFileMachO &TLOFMacho = 
     static_cast<const TargetLoweringObjectFileMachO &>(getObjFileLowering());
@@ -640,7 +640,7 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
 
 
 bool PPCDarwinAsmPrinter::doFinalization(Module &M) {
-  bool isPPC64 = TM.getTargetData()->getPointerSizeInBits() == 64;
+  bool isPPC64 = TM.getDataLayout()->getPointerSizeInBits(0) == 64;
 
   // Darwin/PPC always uses mach-o.
   const TargetLoweringObjectFileMachO &TLOFMacho = 

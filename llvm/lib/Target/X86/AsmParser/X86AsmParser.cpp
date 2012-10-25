@@ -11,12 +11,14 @@
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -40,8 +42,8 @@ private:
 
   bool Error(SMLoc L, const Twine &Msg,
              ArrayRef<SMRange> Ranges = ArrayRef<SMRange>(),
-             bool matchingInlineAsm = false) {
-    if (matchingInlineAsm) return true;
+             bool MatchingInlineAsm = false) {
+    if (MatchingInlineAsm) return true;
     return Parser.Error(L, Msg, Ranges);
   }
 
@@ -53,9 +55,12 @@ private:
   X86Operand *ParseOperand();
   X86Operand *ParseATTOperand();
   X86Operand *ParseIntelOperand();
-  X86Operand *ParseIntelMemOperand();
+  X86Operand *ParseIntelOffsetOfOperator(SMLoc StartLoc);
+  X86Operand *ParseIntelMemOperand(unsigned SegReg, SMLoc StartLoc);
   X86Operand *ParseIntelBracExpression(unsigned SegReg, unsigned Size);
   X86Operand *ParseMemOperand(unsigned SegReg, SMLoc StartLoc);
+
+  const MCExpr *ParseIntelDotOperator(const MCExpr *Disp);
 
   bool ParseDirectiveWord(unsigned Size, SMLoc L);
   bool ParseDirectiveCode(StringRef IDVal, SMLoc L);
@@ -63,14 +68,10 @@ private:
   bool processInstruction(MCInst &Inst,
                           const SmallVectorImpl<MCParsedAsmOperand*> &Ops);
 
-  bool MatchAndEmitInstruction(SMLoc IDLoc,
+  bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               MCStreamer &Out);
-  bool MatchInstruction(SMLoc IDLoc,
-                        SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                        MCStreamer &Out, unsigned &Kind, unsigned &Opcode,
-  SmallVectorImpl<std::pair< unsigned, std::string > > &MapAndConstraints,
-                       unsigned &OrigErrorInfo, bool matchingInlineAsm = false);
+                               MCStreamer &Out, unsigned &ErrorInfo,
+                               bool MatchingInlineAsm);
 
   /// isSrcOp - Returns true if operand is either (%rsi) or %ds:%(rsi)
   /// in 64bit mode or (%esi) or %es:(%esi) in 32bit mode.
@@ -162,6 +163,7 @@ struct X86Operand : public MCParsedAsmOperand {
   } Kind;
 
   SMLoc StartLoc, EndLoc;
+  SMLoc OffsetOfLoc;
 
   union {
     struct {
@@ -184,6 +186,7 @@ struct X86Operand : public MCParsedAsmOperand {
       unsigned IndexReg;
       unsigned Scale;
       unsigned Size;
+      bool NeedSizeDir;
     } Mem;
   };
 
@@ -197,6 +200,8 @@ struct X86Operand : public MCParsedAsmOperand {
   /// getLocRange - Get the range between the first and last token of this
   /// operand.
   SMRange getLocRange() const { return SMRange(StartLoc, EndLoc); }
+  /// getOffsetOfLoc - Get the location of the offset operator.
+  SMLoc getOffsetOfLoc() const { return OffsetOfLoc; }
 
   virtual void print(raw_ostream &OS) const {}
 
@@ -314,6 +319,20 @@ struct X86Operand : public MCParsedAsmOperand {
     // Otherwise, check the value is in a range that makes sense for this
     // extension.
     return isImmSExti64i32Value(CE->getValue());
+  }
+
+  unsigned getMemSize() const {
+    assert(Kind == Memory && "Invalid access!");
+    return Mem.Size;
+  }
+
+  bool isOffsetOf() const {
+    return OffsetOfLoc.getPointer();
+  }
+
+  bool needSizeDirective() const {
+    assert(Kind == Memory && "Invalid access!");
+    return Mem.NeedSizeDir;
   }
 
   bool isMem() const { return Kind == Memory; }
@@ -441,9 +460,11 @@ struct X86Operand : public MCParsedAsmOperand {
     return Res;
   }
 
-  static X86Operand *CreateReg(unsigned RegNo, SMLoc StartLoc, SMLoc EndLoc) {
+  static X86Operand *CreateReg(unsigned RegNo, SMLoc StartLoc, SMLoc EndLoc,
+                               SMLoc OffsetOfLoc = SMLoc()) {
     X86Operand *Res = new X86Operand(Register, StartLoc, EndLoc);
     Res->Reg.RegNo = RegNo;
+    Res->OffsetOfLoc = OffsetOfLoc;
     return Res;
   }
 
@@ -454,8 +475,8 @@ struct X86Operand : public MCParsedAsmOperand {
   }
 
   /// Create an absolute memory operand.
-  static X86Operand *CreateMem(const MCExpr *Disp, SMLoc StartLoc,
-                               SMLoc EndLoc, unsigned Size = 0) {
+  static X86Operand *CreateMem(const MCExpr *Disp, SMLoc StartLoc, SMLoc EndLoc,
+                               unsigned Size = 0, bool NeedSizeDir = false){
     X86Operand *Res = new X86Operand(Memory, StartLoc, EndLoc);
     Res->Mem.SegReg   = 0;
     Res->Mem.Disp     = Disp;
@@ -463,6 +484,7 @@ struct X86Operand : public MCParsedAsmOperand {
     Res->Mem.IndexReg = 0;
     Res->Mem.Scale    = 1;
     Res->Mem.Size     = Size;
+    Res->Mem.NeedSizeDir = NeedSizeDir;
     return Res;
   }
 
@@ -470,7 +492,7 @@ struct X86Operand : public MCParsedAsmOperand {
   static X86Operand *CreateMem(unsigned SegReg, const MCExpr *Disp,
                                unsigned BaseReg, unsigned IndexReg,
                                unsigned Scale, SMLoc StartLoc, SMLoc EndLoc,
-                               unsigned Size = 0) {
+                               unsigned Size = 0, bool NeedSizeDir = false) {
     // We should never just have a displacement, that should be parsed as an
     // absolute memory operand.
     assert((SegReg || BaseReg || IndexReg) && "Invalid memory operand!");
@@ -485,6 +507,7 @@ struct X86Operand : public MCParsedAsmOperand {
     Res->Mem.IndexReg = IndexReg;
     Res->Mem.Scale    = Scale;
     Res->Mem.Size     = Size;
+    Res->Mem.NeedSizeDir = NeedSizeDir;
     return Res;
   }
 };
@@ -638,12 +661,13 @@ static unsigned getIntelMemOperandSize(StringRef OpStr) {
   return Size;
 }
 
-X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
+X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg, 
                                                    unsigned Size) {
   unsigned BaseReg = 0, IndexReg = 0, Scale = 1;
-  SMLoc Start = Parser.getTok().getLoc(), End;
+  const AsmToken &Tok = Parser.getTok();
+  SMLoc Start = Tok.getLoc(), End;
 
-  const MCExpr *Disp = MCConstantExpr::Create(0, getParser().getContext());
+  const MCExpr *Disp = MCConstantExpr::Create(0, getContext());
   // Parse [ BaseReg + Scale*IndexReg + Disp ] or [ symbol ]
 
   // Eat '['
@@ -662,9 +686,9 @@ X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
       return X86Operand::CreateMem(Disp, Start, End, Size);
     }
   } else if (getLexer().is(AsmToken::Integer)) {
-      int64_t Val = Parser.getTok().getIntVal();
+      int64_t Val = Tok.getIntVal();
       Parser.Lex();
-      SMLoc Loc = Parser.getTok().getLoc();
+      SMLoc Loc = Tok.getLoc();
       if (getLexer().is(AsmToken::RBrac)) {
         // Handle '[' number ']'
         Parser.Lex();
@@ -676,7 +700,7 @@ X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
       } else if (getLexer().is(AsmToken::Star)) {
         // Handle '[' Scale*IndexReg ']'
         Parser.Lex();
-        SMLoc IdxRegLoc = Parser.getTok().getLoc();
+        SMLoc IdxRegLoc = Tok.getLoc();
         if (ParseRegister(IndexReg, IdxRegLoc, End))
           return ErrorOperand(IdxRegLoc, "Expected register");
         Scale = Val;
@@ -687,13 +711,13 @@ X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
   if (getLexer().is(AsmToken::Plus) || getLexer().is(AsmToken::Minus)) {
     bool isPlus = getLexer().is(AsmToken::Plus);
     Parser.Lex();
-    SMLoc PlusLoc = Parser.getTok().getLoc();
+    SMLoc PlusLoc = Tok.getLoc();
     if (getLexer().is(AsmToken::Integer)) {
-      int64_t Val = Parser.getTok().getIntVal();
+      int64_t Val = Tok.getIntVal();
       Parser.Lex();
       if (getLexer().is(AsmToken::Star)) {
         Parser.Lex();
-        SMLoc IdxRegLoc = Parser.getTok().getLoc();
+        SMLoc IdxRegLoc = Tok.getLoc();
         if (ParseRegister(IndexReg, IdxRegLoc, End))
           return ErrorOperand(IdxRegLoc, "Expected register");
         Scale = Val;
@@ -704,7 +728,7 @@ X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
         return ErrorOperand(PlusLoc, "unexpected token after +");
     } else if (getLexer().is(AsmToken::Identifier)) {
       // This could be an index register or a displacement expression.
-      End = Parser.getTok().getLoc();
+      End = Tok.getLoc();
       if (!IndexReg)
         ParseRegister(IndexReg, Start, End);
       else if (getParser().ParseExpression(Disp, End)) return 0;
@@ -714,11 +738,16 @@ X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
   if (getLexer().isNot(AsmToken::RBrac))
     if (getParser().ParseExpression(Disp, End)) return 0;
 
-  End = Parser.getTok().getLoc();
+  End = Tok.getLoc();
   if (getLexer().isNot(AsmToken::RBrac))
     return ErrorOperand(End, "expected ']' token!");
   Parser.Lex();
-  End = Parser.getTok().getLoc();
+  End = Tok.getLoc();
+
+  if (Tok.getString().startswith("."))
+    Disp = ParseIntelDotOperator(Disp);
+
+  End = Tok.getLoc();
 
   // handle [-42]
   if (!BaseReg && !IndexReg)
@@ -729,10 +758,9 @@ X86Operand *X86AsmParser::ParseIntelBracExpression(unsigned SegReg,
 }
 
 /// ParseIntelMemOperand - Parse intel style memory operand.
-X86Operand *X86AsmParser::ParseIntelMemOperand() {
+X86Operand *X86AsmParser::ParseIntelMemOperand(unsigned SegReg, SMLoc Start) {
   const AsmToken &Tok = Parser.getTok();
-  SMLoc Start = Parser.getTok().getLoc(), End;
-  unsigned SegReg = 0;
+  SMLoc End;
 
   unsigned Size = getIntelMemOperandSize(Tok.getString());
   if (Size) {
@@ -757,11 +785,86 @@ X86Operand *X86AsmParser::ParseIntelMemOperand() {
 
   const MCExpr *Disp = MCConstantExpr::Create(0, getParser().getContext());
   if (getParser().ParseExpression(Disp, End)) return 0;
-  return X86Operand::CreateMem(Disp, Start, End, Size);
+  End = Parser.getTok().getLoc();
+
+  bool NeedSizeDir = false;
+  if (!Size && isParsingInlineAsm()) {
+    if (const MCSymbolRefExpr *SymRef = dyn_cast<MCSymbolRefExpr>(Disp)) {
+      const MCSymbol &Sym = SymRef->getSymbol();
+      // FIXME: The SemaLookup will fail if the name is anything other then an
+      // identifier.
+      // FIXME: Pass a valid SMLoc.
+      SemaCallback->LookupInlineAsmIdentifier(Sym.getName(), NULL, Size);
+      NeedSizeDir = Size > 0;
+    }
+  }
+  if (!isParsingInlineAsm())
+    return X86Operand::CreateMem(Disp, Start, End, Size);
+  else
+    // When parsing inline assembly we set the base register to a non-zero value
+    // as we don't know the actual value at this time.  This is necessary to
+    // get the matching correct in some cases.
+    return X86Operand::CreateMem(/*SegReg*/0, Disp, /*BaseReg*/1, /*IndexReg*/0,
+                                 /*Scale*/1, Start, End, Size, NeedSizeDir);
+}
+
+/// Parse the '.' operator.
+const MCExpr *X86AsmParser::ParseIntelDotOperator(const MCExpr *Disp) {
+  AsmToken Tok = *&Parser.getTok();
+
+  // Drop the '.'.
+  StringRef DotDispStr = Tok.getString().drop_front(1);
+
+  Lex(); // Eat .field.
+
+  // .Imm gets lexed as a real.
+  if (Tok.is(AsmToken::Real)) {
+    APInt DotDisp;
+    DotDispStr.getAsInteger(10, DotDisp);
+    uint64_t DotDispVal = DotDisp.getZExtValue();
+
+    // Special case zero dot displacement.
+    if (!DotDispVal) return Disp;
+
+    // FIXME: Handle non-constant expressions.
+    if (const MCConstantExpr *OrigDisp = dyn_cast<MCConstantExpr>(Disp)) {
+      uint64_t OrigDispVal = OrigDisp->getValue();
+      return MCConstantExpr::Create(OrigDispVal + DotDispVal, getContext());
+    }
+  }
+  return Disp;
+}
+
+/// Parse the 'offset' operator.  This operator is used to specify the
+/// location rather then the content of a variable.
+X86Operand *X86AsmParser::ParseIntelOffsetOfOperator(SMLoc Start) {
+  SMLoc OffsetOfLoc = Start;
+  Parser.Lex(); // Eat offset.
+  Start = Parser.getTok().getLoc();
+  assert (Parser.getTok().is(AsmToken::Identifier) && "Expected an identifier");
+
+  SMLoc End;  
+  const MCExpr *Val;
+  if (getParser().ParseExpression(Val, End))
+    return 0;
+
+  End = Parser.getTok().getLoc();
+
+  // The offset operator will have an 'r' constraint, thus we need to create
+  // register operand to ensure proper matching.  Just pick a GPR based on
+  // the size of a pointer.
+  unsigned RegNo = is64BitMode() ? X86::RBX : X86::EBX;
+  return X86Operand::CreateReg(RegNo, Start, End, OffsetOfLoc);
 }
 
 X86Operand *X86AsmParser::ParseIntelOperand() {
   SMLoc Start = Parser.getTok().getLoc(), End;
+
+  // offset operator.
+  const AsmToken &Tok = Parser.getTok();
+  if ((Tok.getString() == "offset" || Tok.getString() == "OFFSET") &&
+      isParsingInlineAsm())
+    return ParseIntelOffsetOfOperator(Start);
 
   // immediate.
   if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Real) ||
@@ -776,12 +879,17 @@ X86Operand *X86AsmParser::ParseIntelOperand() {
   // register
   unsigned RegNo = 0;
   if (!ParseRegister(RegNo, Start, End)) {
-    End = Parser.getTok().getLoc();
-    return X86Operand::CreateReg(RegNo, Start, End);
+    // If this is a segment register followed by a ':', then this is the start
+    // of a memory reference, otherwise this is a normal register reference.
+    if (getLexer().isNot(AsmToken::Colon))
+      return X86Operand::CreateReg(RegNo, Start, Parser.getTok().getLoc());
+
+    getParser().Lex(); // Eat the colon.
+    return ParseIntelMemOperand(RegNo, Start);
   }
 
   // mem operand
-  return ParseIntelMemOperand();
+  return ParseIntelMemOperand(0, Start);
 }
 
 X86Operand *X86AsmParser::ParseATTOperand() {
@@ -1516,24 +1624,10 @@ processInstruction(MCInst &Inst,
 }
 
 bool X86AsmParser::
-MatchAndEmitInstruction(SMLoc IDLoc,
+MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                        MCStreamer &Out) {
-  unsigned Kind;
-  unsigned Opcode;
-  unsigned ErrorInfo;
-  SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
-  bool Error = MatchInstruction(IDLoc, Operands, Out, Kind, Opcode,
-                                MapAndConstraints, ErrorInfo);
-  return Error;
-}
-
-bool X86AsmParser::
-MatchInstruction(SMLoc IDLoc,
-                 SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                 MCStreamer &Out, unsigned &Kind, unsigned &Opcode,
-  SmallVectorImpl<std::pair< unsigned, std::string > > &MapAndConstraints,
-                 unsigned &OrigErrorInfo, bool matchingInlineAsm) {
+                        MCStreamer &Out, unsigned &ErrorInfo,
+                        bool MatchingInlineAsm) {
   assert(!Operands.empty() && "Unexpect empty operand list!");
   X86Operand *Op = static_cast<X86Operand*>(Operands[0]);
   assert(Op->isToken() && "Leading operand should always be a mnemonic!");
@@ -1550,7 +1644,7 @@ MatchInstruction(SMLoc IDLoc,
     MCInst Inst;
     Inst.setOpcode(X86::WAIT);
     Inst.setLoc(IDLoc);
-    if (!matchingInlineAsm)
+    if (!MatchingInlineAsm)
       Out.EmitInstruction(Inst);
 
     const char *Repl =
@@ -1573,26 +1667,26 @@ MatchInstruction(SMLoc IDLoc,
   MCInst Inst;
 
   // First, try a direct match.
-  switch (MatchInstructionImpl(Operands, Kind, Inst, MapAndConstraints,
-                               OrigErrorInfo, matchingInlineAsm,
+  switch (MatchInstructionImpl(Operands, Inst,
+                               ErrorInfo, MatchingInlineAsm,
                                isParsingIntelSyntax())) {
   default: break;
   case Match_Success:
     // Some instructions need post-processing to, for example, tweak which
     // encoding is selected. Loop on it while changes happen so the
     // individual transformations can chain off each other.
-    if (!matchingInlineAsm)
+    if (!MatchingInlineAsm)
       while (processInstruction(Inst, Operands))
         ;
 
     Inst.setLoc(IDLoc);
-    if (!matchingInlineAsm)
+    if (!MatchingInlineAsm)
       Out.EmitInstruction(Inst);
     Opcode = Inst.getOpcode();
     return false;
   case Match_MissingFeature:
     Error(IDLoc, "instruction requires a CPU feature not currently enabled",
-          EmptyRanges, matchingInlineAsm);
+          EmptyRanges, MatchingInlineAsm);
     return true;
   case Match_InvalidOperand:
     WasOriginallyInvalidOperand = true;
@@ -1625,24 +1719,18 @@ MatchInstruction(SMLoc IDLoc,
   Tmp[Base.size()] = Suffixes[0];
   unsigned ErrorInfoIgnore;
   unsigned Match1, Match2, Match3, Match4;
-  unsigned tKind;
 
-  SmallVector<std::pair< unsigned, std::string >, 4> tMapAndConstraints[4];
-  Match1 = MatchInstructionImpl(Operands, tKind, Inst, tMapAndConstraints[0],
-                                ErrorInfoIgnore, isParsingIntelSyntax());
-  if (Match1 == Match_Success) Kind = tKind;
+  Match1 = MatchInstructionImpl(Operands, Inst, ErrorInfoIgnore,
+                                isParsingIntelSyntax());
   Tmp[Base.size()] = Suffixes[1];
-  Match2 = MatchInstructionImpl(Operands, tKind, Inst, tMapAndConstraints[1],
-                                ErrorInfoIgnore, isParsingIntelSyntax());
-  if (Match2 == Match_Success) Kind = tKind;
+  Match2 = MatchInstructionImpl(Operands, Inst, ErrorInfoIgnore,
+                                isParsingIntelSyntax());
   Tmp[Base.size()] = Suffixes[2];
-  Match3 = MatchInstructionImpl(Operands, tKind, Inst, tMapAndConstraints[2],
-                                ErrorInfoIgnore, isParsingIntelSyntax());
-  if (Match3 == Match_Success) Kind = tKind;
+  Match3 = MatchInstructionImpl(Operands, Inst, ErrorInfoIgnore,
+                                isParsingIntelSyntax());
   Tmp[Base.size()] = Suffixes[3];
-  Match4 = MatchInstructionImpl(Operands, tKind, Inst, tMapAndConstraints[3],
-                                ErrorInfoIgnore, isParsingIntelSyntax());
-  if (Match4 == Match_Success) Kind = tKind;
+  Match4 = MatchInstructionImpl(Operands, Inst, ErrorInfoIgnore,
+                                isParsingIntelSyntax());
 
   // Restore the old token.
   Op->setTokenValue(Base);
@@ -1655,10 +1743,9 @@ MatchInstruction(SMLoc IDLoc,
     (Match3 == Match_Success) + (Match4 == Match_Success);
   if (NumSuccessfulMatches == 1) {
     Inst.setLoc(IDLoc);
-    if (!matchingInlineAsm)
+    if (!MatchingInlineAsm)
       Out.EmitInstruction(Inst);
     Opcode = Inst.getOpcode();
-    // FIXME: Handle the map and constraints.
     return false;
   }
 
@@ -1685,7 +1772,7 @@ MatchInstruction(SMLoc IDLoc,
       OS << "'" << Base << MatchChars[i] << "'";
     }
     OS << ")";
-    Error(IDLoc, OS.str(), EmptyRanges, matchingInlineAsm);
+    Error(IDLoc, OS.str(), EmptyRanges, MatchingInlineAsm);
     return true;
   }
 
@@ -1696,28 +1783,28 @@ MatchInstruction(SMLoc IDLoc,
   if ((Match1 == Match_MnemonicFail) && (Match2 == Match_MnemonicFail) &&
       (Match3 == Match_MnemonicFail) && (Match4 == Match_MnemonicFail)) {
     if (!WasOriginallyInvalidOperand) {
-      ArrayRef<SMRange> Ranges = matchingInlineAsm ? EmptyRanges :
+      ArrayRef<SMRange> Ranges = MatchingInlineAsm ? EmptyRanges :
         Op->getLocRange();
       return Error(IDLoc, "invalid instruction mnemonic '" + Base + "'",
-                   Ranges, matchingInlineAsm);
+                   Ranges, MatchingInlineAsm);
     }
 
     // Recover location info for the operand if we know which was the problem.
-    if (OrigErrorInfo != ~0U) {
-      if (OrigErrorInfo >= Operands.size())
+    if (ErrorInfo != ~0U) {
+      if (ErrorInfo >= Operands.size())
         return Error(IDLoc, "too few operands for instruction",
-                     EmptyRanges, matchingInlineAsm);
+                     EmptyRanges, MatchingInlineAsm);
 
-      X86Operand *Operand = (X86Operand*)Operands[OrigErrorInfo];
+      X86Operand *Operand = (X86Operand*)Operands[ErrorInfo];
       if (Operand->getStartLoc().isValid()) {
         SMRange OperandRange = Operand->getLocRange();
         return Error(Operand->getStartLoc(), "invalid operand for instruction",
-                     OperandRange, matchingInlineAsm);
+                     OperandRange, MatchingInlineAsm);
       }
     }
 
     return Error(IDLoc, "invalid operand for instruction", EmptyRanges,
-                 matchingInlineAsm);
+                 MatchingInlineAsm);
   }
 
   // If one instruction matched with a missing feature, report this as a
@@ -1725,7 +1812,7 @@ MatchInstruction(SMLoc IDLoc,
   if ((Match1 == Match_MissingFeature) + (Match2 == Match_MissingFeature) +
       (Match3 == Match_MissingFeature) + (Match4 == Match_MissingFeature) == 1){
     Error(IDLoc, "instruction requires a CPU feature not currently enabled",
-          EmptyRanges, matchingInlineAsm);
+          EmptyRanges, MatchingInlineAsm);
     return true;
   }
 
@@ -1734,13 +1821,13 @@ MatchInstruction(SMLoc IDLoc,
   if ((Match1 == Match_InvalidOperand) + (Match2 == Match_InvalidOperand) +
       (Match3 == Match_InvalidOperand) + (Match4 == Match_InvalidOperand) == 1){
     Error(IDLoc, "invalid operand for instruction", EmptyRanges,
-          matchingInlineAsm);
+          MatchingInlineAsm);
     return true;
   }
 
   // If all of these were an outright failure, report it in a useless way.
   Error(IDLoc, "unknown use of instruction mnemonic without a size suffix",
-        EmptyRanges, matchingInlineAsm);
+        EmptyRanges, MatchingInlineAsm);
   return true;
 }
 

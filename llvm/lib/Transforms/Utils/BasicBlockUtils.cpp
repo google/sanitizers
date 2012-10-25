@@ -22,7 +22,7 @@
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryDependenceAnalysis.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -689,8 +689,8 @@ ReturnInst *llvm::FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
 
 /// SplitBlockAndInsertIfThen - Split the containing block at the
 /// specified instruction - everything before and including Cmp stays
-/// in the old basic block, and everything after SplitPt moves to a
-/// new block. The two blocks are joined by an conditional branch
+/// in the old basic block, and everything after Cmp is moved to a
+/// new block. The two blocks are connected by a conditional branch
 /// (with value of Cmp being the condition).
 /// Before:
 ///   Head
@@ -700,21 +700,29 @@ ReturnInst *llvm::FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
 ///   Head
 ///   Cmp
 ///   if (Cmp)
-///     NewBasicBlock
+///     ThenBlock
 ///   Tail
 ///
+/// If Unreachable is true, then ThenBlock ends with
+/// UnreachableInst, otherwise it branches to Tail.
 /// Returns the NewBasicBlock's terminator.
-BranchInst *llvm::SplitBlockAndInsertIfThen(Instruction *Cmp,
-    MDNode *BranchWeights) {
+
+TerminatorInst *llvm::SplitBlockAndInsertIfThen(Instruction *Cmp,
+    bool Unreachable, MDNode *BranchWeights) {
   Instruction *SplitBefore = Cmp->getNextNode();
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
   LLVMContext &C = Head->getContext();
-  BasicBlock *NewBasicBlock = BasicBlock::Create(C, "", Head->getParent());
+  BasicBlock *ThenBlock = BasicBlock::Create(C, "", Head->getParent(), Tail);
+  TerminatorInst *CheckTerm;
+  if (Unreachable)
+    CheckTerm = new UnreachableInst(C, ThenBlock);
+  else
+    CheckTerm = BranchInst::Create(Tail, ThenBlock);
   BranchInst *HeadNewTerm =
-      BranchInst::Create(/*ifTrue*/NewBasicBlock, /*ifFalse*/Tail, Cmp);
+    BranchInst::Create(/*ifTrue*/ThenBlock, /*ifFalse*/Tail, Cmp);
   HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
   ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
-  return BranchInst::Create(Tail, NewBasicBlock);
+  return CheckTerm;
 }

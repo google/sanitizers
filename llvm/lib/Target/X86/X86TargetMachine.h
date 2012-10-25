@@ -23,8 +23,9 @@
 #include "X86SelectionDAGInfo.h"
 #include "X86Subtarget.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetTransformImpl.h"
 
 namespace llvm {
 
@@ -80,17 +81,19 @@ public:
 ///
 class X86_32TargetMachine : public X86TargetMachine {
   virtual void anchor();
-  const TargetData  DataLayout; // Calculates type size & alignment
+  const DataLayout  DL; // Calculates type size & alignment
   X86InstrInfo      InstrInfo;
   X86SelectionDAGInfo TSInfo;
   X86TargetLowering TLInfo;
   X86JITInfo        JITInfo;
+  ScalarTargetTransformImpl STTI;
+  VectorTargetTransformImpl VTTI;
 public:
   X86_32TargetMachine(const Target &T, StringRef TT,
                       StringRef CPU, StringRef FS, const TargetOptions &Options,
                       Reloc::Model RM, CodeModel::Model CM,
                       CodeGenOpt::Level OL);
-  virtual const TargetData *getTargetData() const { return &DataLayout; }
+  virtual const DataLayout *getDataLayout() const { return &DL; }
   virtual const X86TargetLowering *getTargetLowering() const {
     return &TLInfo;
   }
@@ -102,6 +105,12 @@ public:
   }
   virtual       X86JITInfo       *getJITInfo()         {
     return &JITInfo;
+  }
+  virtual const ScalarTargetTransformInfo *getScalarTargetTransformInfo()const {
+    return &STTI;
+  }
+  virtual const VectorTargetTransformInfo *getVectorTargetTransformInfo()const {
+    return &VTTI;
   }
 };
 
@@ -109,17 +118,19 @@ public:
 ///
 class X86_64TargetMachine : public X86TargetMachine {
   virtual void anchor();
-  const TargetData  DataLayout; // Calculates type size & alignment
+  const DataLayout  DL; // Calculates type size & alignment
   X86InstrInfo      InstrInfo;
   X86SelectionDAGInfo TSInfo;
   X86TargetLowering TLInfo;
   X86JITInfo        JITInfo;
+  ScalarTargetTransformImpl STTI;
+  VectorTargetTransformImpl VTTI;
 public:
   X86_64TargetMachine(const Target &T, StringRef TT,
                       StringRef CPU, StringRef FS, const TargetOptions &Options,
                       Reloc::Model RM, CodeModel::Model CM,
                       CodeGenOpt::Level OL);
-  virtual const TargetData *getTargetData() const { return &DataLayout; }
+  virtual const DataLayout *getDataLayout() const { return &DL; }
   virtual const X86TargetLowering *getTargetLowering() const {
     return &TLInfo;
   }
@@ -131,6 +142,12 @@ public:
   }
   virtual       X86JITInfo       *getJITInfo()         {
     return &JITInfo;
+  }
+  virtual const ScalarTargetTransformInfo *getScalarTargetTransformInfo()const {
+    return &STTI;
+  }
+  virtual const VectorTargetTransformInfo *getVectorTargetTransformInfo()const {
+    return &VTTI;
   }
 };
 

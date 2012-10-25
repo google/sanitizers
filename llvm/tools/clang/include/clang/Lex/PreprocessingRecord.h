@@ -94,9 +94,6 @@ namespace clang {
     /// entity.
     bool isInvalid() const { return Kind == InvalidKind; }
 
-    // Implement isa/cast/dyncast/etc.
-    static bool classof(const PreprocessedEntity *) { return true; }
-
     // Only allow allocation of preprocessed entities using the allocator 
     // in PreprocessingRecord or by doing a placement new.
     void* operator new(size_t bytes, PreprocessingRecord& PR,
@@ -133,7 +130,6 @@ namespace clang {
       return PD->getKind() >= FirstPreprocessingDirective &&
              PD->getKind() <= LastPreprocessingDirective;
     }
-    static bool classof(const PreprocessingDirective *) { return true; }    
   };
   
   /// \brief Record the location of a macro definition.
@@ -155,7 +151,6 @@ namespace clang {
     static bool classof(const PreprocessedEntity *PE) {
       return PE->getKind() == MacroDefinitionKind;
     }
-    static bool classof(const MacroDefinition *) { return true; }
   };
   
   /// \brief Records the location of a macro expansion.
@@ -193,7 +188,6 @@ namespace clang {
     static bool classof(const PreprocessedEntity *PE) {
       return PE->getKind() == MacroExpansionKind;
     }
-    static bool classof(const MacroExpansion *) { return true; }
   };
 
   /// \brief Record the location of an inclusion directive, such as an
@@ -262,7 +256,6 @@ namespace clang {
     static bool classof(const PreprocessedEntity *PE) {
       return PE->getKind() == InclusionDirectiveKind;
     }
-    static bool classof(const InclusionDirective *) { return true; }
   };
   
   /// \brief An abstract class that should be subclassed by any external source
@@ -352,14 +345,21 @@ namespace clang {
     /// Negative values are used to indicate preprocessed entities
     /// loaded from the external source while non-negative values are used to
     /// indicate preprocessed entities introduced by the current preprocessor.
-    /// If M is the number of loaded preprocessed entities, value -M
-    /// corresponds to element 0 in the loaded entities vector, position -M+1
-    /// corresponds to element 1 in the loaded entities vector, etc.
-    typedef int PPEntityID;
+    /// Value -1 corresponds to element 0 in the loaded entities vector,
+    /// value -2 corresponds to element 1 in the loaded entities vector, etc.
+    /// Value 0 is an invalid value, the index to local entities is 1-based,
+    /// value 1 corresponds to element 0 in the local entities vector,
+    /// value 2 corresponds to element 1 in the local entities vector, etc.
+    class PPEntityID {
+      int ID;
+      explicit PPEntityID(int ID) : ID(ID) {}
+      friend class PreprocessingRecord;
+    public:
+      PPEntityID() : ID(0) {}
+    };
 
-    PPEntityID getPPEntityID(unsigned Index, bool isLoaded) const {
-      return isLoaded ? PPEntityID(Index) - LoadedPreprocessedEntities.size()
-                      : Index;
+    static PPEntityID getPPEntityID(unsigned Index, bool isLoaded) {
+      return isLoaded ? PPEntityID(-int(Index)-1) : PPEntityID(Index+1);
     }
 
     /// \brief Mapping from MacroInfo structures to their definitions.
@@ -428,7 +428,7 @@ namespace clang {
       /// corresponds to element 0 in the loaded entities vector, position -M+1
       /// corresponds to element 1 in the loaded entities vector, etc. This
       /// gives us a reasonably efficient, source-order walk.
-      PPEntityID Position;
+      int Position;
       
     public:
       typedef PreprocessedEntity *value_type;
@@ -439,11 +439,15 @@ namespace clang {
       
       iterator() : Self(0), Position(0) { }
       
-      iterator(PreprocessingRecord *Self, PPEntityID Position) 
+      iterator(PreprocessingRecord *Self, int Position)
         : Self(Self), Position(Position) { }
       
       value_type operator*() const {
-        return Self->getPreprocessedEntity(Position);
+        bool isLoaded = Position < 0;
+        unsigned Index = isLoaded ?
+            Self->LoadedPreprocessedEntities.size() + Position : Position;
+        PPEntityID ID = Self->getPPEntityID(Index, isLoaded);
+        return Self->getPreprocessedEntity(ID);
       }
       
       value_type operator[](difference_type D) {
@@ -634,11 +638,10 @@ namespace clang {
     /// query.
     struct {
       SourceRange Range;
-      std::pair<PPEntityID, PPEntityID> Result;
+      std::pair<int, int> Result;
     } CachedRangeQuery;
 
-    std::pair<PPEntityID, PPEntityID>
-      getPreprocessedEntitiesInRangeSlow(SourceRange R);
+    std::pair<int, int> getPreprocessedEntitiesInRangeSlow(SourceRange R);
 
     friend class ASTReader;
     friend class ASTWriter;

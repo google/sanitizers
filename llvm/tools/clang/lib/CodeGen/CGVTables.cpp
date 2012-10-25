@@ -156,8 +156,7 @@ static void setThunkVisibility(CodeGenModule &CGM, const CXXMethodDecl *MD,
 
   case TSK_ExplicitSpecialization:
   case TSK_ImplicitInstantiation:
-    if (!CGM.getCodeGenOpts().HiddenWeakTemplateVTables)
-      return;
+    return;
     break;
   }
 
@@ -537,7 +536,7 @@ CodeGenVTables::CreateVTableInitializer(const CXXRecordDecl *RD,
   
   unsigned NextVTableThunkIndex = 0;
   
-  llvm::Constant* PureVirtualFn = 0;
+  llvm::Constant *PureVirtualFn = 0, *DeletedVirtualFn = 0;
 
   for (unsigned I = 0; I != NumComponents; ++I) {
     VTableComponent Component = Components[I];
@@ -594,6 +593,17 @@ CodeGenVTables::CreateVTableInitializer(const CXXRecordDecl *RD,
                                                          CGM.Int8PtrTy);
         }
         Init = PureVirtualFn;
+      } else if (cast<CXXMethodDecl>(GD.getDecl())->isDeleted()) {
+        if (!DeletedVirtualFn) {
+          llvm::FunctionType *Ty =
+            llvm::FunctionType::get(CGM.VoidTy, /*isVarArg=*/false);
+          StringRef DeletedCallName =
+            CGM.getCXXABI().GetDeletedVirtualCallName();
+          DeletedVirtualFn = CGM.CreateRuntimeFunction(Ty, DeletedCallName);
+          DeletedVirtualFn = llvm::ConstantExpr::getBitCast(DeletedVirtualFn,
+                                                         CGM.Int8PtrTy);
+        }
+        Init = DeletedVirtualFn;
       } else {
         // Check if we should use a thunk.
         if (NextVTableThunkIndex < NumVTableThunks &&

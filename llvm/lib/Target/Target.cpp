@@ -16,7 +16,7 @@
 #include "llvm-c/Initialization.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/PassManager.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/LLVMContext.h"
 #include <cstring>
@@ -24,8 +24,9 @@
 using namespace llvm;
 
 void llvm::initializeTarget(PassRegistry &Registry) {
-  initializeTargetDataPass(Registry);
+  initializeDataLayoutPass(Registry);
   initializeTargetLibraryInfoPass(Registry);
+  initializeTargetTransformInfoPass(Registry);
 }
 
 void LLVMInitializeTarget(LLVMPassRegistryRef R) {
@@ -33,11 +34,11 @@ void LLVMInitializeTarget(LLVMPassRegistryRef R) {
 }
 
 LLVMTargetDataRef LLVMCreateTargetData(const char *StringRep) {
-  return wrap(new TargetData(StringRep));
+  return wrap(new DataLayout(StringRep));
 }
 
 void LLVMAddTargetData(LLVMTargetDataRef TD, LLVMPassManagerRef PM) {
-  unwrap(PM)->add(new TargetData(*unwrap(TD)));
+  unwrap(PM)->add(new DataLayout(*unwrap(TD)));
 }
 
 void LLVMAddTargetLibraryInfo(LLVMTargetLibraryInfoRef TLI,
@@ -55,11 +56,19 @@ LLVMByteOrdering LLVMByteOrder(LLVMTargetDataRef TD) {
 }
 
 unsigned LLVMPointerSize(LLVMTargetDataRef TD) {
-  return unwrap(TD)->getPointerSize();
+  return unwrap(TD)->getPointerSize(0);
+}
+
+unsigned LLVMPointerSizeForAS(LLVMTargetDataRef TD, unsigned AS) {
+  return unwrap(TD)->getPointerSize(AS);
 }
 
 LLVMTypeRef LLVMIntPtrType(LLVMTargetDataRef TD) {
-  return wrap(unwrap(TD)->getIntPtrType(getGlobalContext()));
+  return wrap(unwrap(TD)->getIntPtrType(getGlobalContext(), 0));
+}
+
+LLVMTypeRef LLVMIntPtrTypeForAS(LLVMTargetDataRef TD, unsigned AS) {
+  return wrap(unwrap(TD)->getIntPtrType(getGlobalContext(), AS));
 }
 
 unsigned long long LLVMSizeOfTypeInBits(LLVMTargetDataRef TD, LLVMTypeRef Ty) {

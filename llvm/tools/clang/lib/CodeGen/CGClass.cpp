@@ -953,7 +953,7 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     // -fapple-kext must inline any call to this dtor into
     // the caller's body.
     if (getContext().getLangOpts().AppleKext)
-      CurFn->addFnAttr(llvm::Attribute::AlwaysInline);
+      CurFn->addFnAttr(llvm::Attributes::AlwaysInline);
     break;
   }
 
@@ -1238,7 +1238,7 @@ CodeGenFunction::EmitCXXConstructorCall(const CXXConstructorDecl *D,
 
   CGDebugInfo *DI = getDebugInfo();
   if (DI &&
-      CGM.getCodeGenOpts().DebugInfo == CodeGenOptions::LimitedDebugInfo) {
+      CGM.getCodeGenOpts().getDebugInfo() == CodeGenOptions::LimitedDebugInfo) {
     // If debug info for this class has not been emitted then this is the
     // right time to do so.
     const CXXRecordDecl *Parent = D->getParent();
@@ -1268,7 +1268,9 @@ CodeGenFunction::EmitCXXConstructorCall(const CXXConstructorDecl *D,
   llvm::Value *VTT = GetVTTParameter(*this, GlobalDecl(D, Type), ForVirtualBase);
   llvm::Value *Callee = CGM.GetAddrOfCXXConstructor(D, Type);
 
-  EmitCXXMemberCall(D, Callee, ReturnValueSlot(), This, VTT, ArgBeg, ArgEnd);
+  // FIXME: Provide a source location here.
+  EmitCXXMemberCall(D, SourceLocation(), Callee, ReturnValueSlot(), This,
+                    VTT, ArgBeg, ArgEnd);
 }
 
 void
@@ -1420,7 +1422,9 @@ void CodeGenFunction::EmitCXXDestructorCall(const CXXDestructorDecl *DD,
   if (!Callee)
     Callee = CGM.GetAddrOfCXXDestructor(DD, Type);
   
-  EmitCXXMemberCall(DD, Callee, ReturnValueSlot(), This, VTT, 0, 0);
+  // FIXME: Provide a source location here.
+  EmitCXXMemberCall(DD, SourceLocation(), Callee, ReturnValueSlot(), This,
+                    VTT, 0, 0);
 }
 
 namespace {

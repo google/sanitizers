@@ -574,6 +574,10 @@ public:
   /// \brief Transform the captures and body of a lambda expression.
   ExprResult TransformLambdaScope(LambdaExpr *E, CXXMethodDecl *CallOperator);
 
+  ExprResult TransformAddressOfOperand(Expr *E);
+  ExprResult TransformDependentScopeDeclRefExpr(DependentScopeDeclRefExpr *E,
+                                                bool IsAddressOfOperand);
+
 #define STMT(Node, Parent)                        \
   StmtResult Transform##Node(Node *S);
 #define EXPR(Node, Parent)                        \
@@ -2073,7 +2077,8 @@ public:
                                           NestedNameSpecifierLoc QualifierLoc,
                                           SourceLocation TemplateKWLoc,
                                        const DeclarationNameInfo &NameInfo,
-                              const TemplateArgumentListInfo *TemplateArgs) {
+                              const TemplateArgumentListInfo *TemplateArgs,
+                                          bool IsAddressOfOperand) {
     CXXScopeSpec SS;
     SS.Adopt(QualifierLoc);
 
@@ -2081,7 +2086,8 @@ public:
       return getSema().BuildQualifiedTemplateIdExpr(SS, TemplateKWLoc,
                                                     NameInfo, TemplateArgs);
 
-    return getSema().BuildQualifiedDeclarationNameExpr(SS, NameInfo);
+    return getSema().BuildQualifiedDeclarationNameExpr(SS, NameInfo,
+                                                       IsAddressOfOperand);
   }
 
   /// \brief Build a new template-id expression.
@@ -4196,6 +4202,8 @@ TreeTransform<Derived>::TransformFunctionProtoType(TypeLocBuilder &TLB,
 
   FunctionProtoTypeLoc NewTL = TLB.push<FunctionProtoTypeLoc>(Result);
   NewTL.setLocalRangeBegin(TL.getLocalRangeBegin());
+  NewTL.setLParenLoc(TL.getLParenLoc());
+  NewTL.setRParenLoc(TL.getRParenLoc());
   NewTL.setLocalRangeEnd(TL.getLocalRangeEnd());
   for (unsigned i = 0, e = NewTL.getNumArgs(); i != e; ++i)
     NewTL.setArg(i, ParamDecls[i]);
@@ -4219,6 +4227,8 @@ QualType TreeTransform<Derived>::TransformFunctionNoProtoType(
 
   FunctionNoProtoTypeLoc NewTL = TLB.push<FunctionNoProtoTypeLoc>(Result);
   NewTL.setLocalRangeBegin(TL.getLocalRangeBegin());
+  NewTL.setLParenLoc(TL.getLParenLoc());
+  NewTL.setRParenLoc(TL.getRParenLoc());
   NewTL.setLocalRangeEnd(TL.getLocalRangeEnd());
 
   return Result;
@@ -6134,10 +6144,22 @@ TreeTransform<Derived>::TransformParenExpr(ParenExpr *E) {
                                        E->getRParen());
 }
 
+/// \brief The operand of a unary address-of operator has special rules: it's
+/// allowed to refer to a non-static member of a class even if there's no 'this'
+/// object available.
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformAddressOfOperand(Expr *E) {
+  if (DependentScopeDeclRefExpr *DRE = dyn_cast<DependentScopeDeclRefExpr>(E))
+    return getDerived().TransformDependentScopeDeclRefExpr(DRE, true);
+  else
+    return getDerived().TransformExpr(E);
+}
+
 template<typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformUnaryOperator(UnaryOperator *E) {
-  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
+  ExprResult SubExpr = TransformAddressOfOperand(E->getSubExpr());
   if (SubExpr.isInvalid())
     return ExprError();
 
@@ -6838,7 +6860,11 @@ TreeTransform<Derived>::TransformCXXOperatorCallExpr(CXXOperatorCallExpr *E) {
   if (Callee.isInvalid())
     return ExprError();
 
-  ExprResult First = getDerived().TransformExpr(E->getArg(0));
+  ExprResult First;
+  if (E->getOperator() == OO_Amp)
+    First = getDerived().TransformAddressOfOperand(E->getArg(0));
+  else
+    First = getDerived().TransformExpr(E->getArg(0));
   if (First.isInvalid())
     return ExprError();
 
@@ -6925,9 +6951,6 @@ TreeTransform<Derived>::TransformCXXNamedCastExpr(CXXNamedCastExpr *E) {
   SourceLocation FakeLAngleLoc
     = SemaRef.PP.getLocForEndOfToken(E->getOperatorLoc());
   SourceLocation FakeRAngleLoc = E->getSubExpr()->getSourceRange().getBegin();
-  SourceLocation FakeRParenLoc
-    = SemaRef.PP.getLocForEndOfToken(
-                                  E->getSubExpr()->getSourceRange().getEnd());
   return getDerived().RebuildCXXNamedCastExpr(E->getOperatorLoc(),
                                               E->getStmtClass(),
                                               FakeLAngleLoc,
@@ -6935,7 +6958,7 @@ TreeTransform<Derived>::TransformCXXNamedCastExpr(CXXNamedCastExpr *E) {
                                               FakeRAngleLoc,
                                               FakeRAngleLoc,
                                               SubExpr.get(),
-                                              FakeRParenLoc);
+                                              E->getRParenLoc());
 }
 
 template<typename Derived>
@@ -7670,6 +7693,14 @@ template<typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformDependentScopeDeclRefExpr(
                                                DependentScopeDeclRefExpr *E) {
+  return TransformDependentScopeDeclRefExpr(E, /*IsAddressOfOperand*/false);
+}
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformDependentScopeDeclRefExpr(
+                                               DependentScopeDeclRefExpr *E,
+                                               bool IsAddressOfOperand) {
   NestedNameSpecifierLoc QualifierLoc
   = getDerived().TransformNestedNameSpecifierLoc(E->getQualifierLoc());
   if (!QualifierLoc)
@@ -7696,7 +7727,8 @@ TreeTransform<Derived>::TransformDependentScopeDeclRefExpr(
     return getDerived().RebuildDependentScopeDeclRefExpr(QualifierLoc,
                                                          TemplateKWLoc,
                                                          NameInfo,
-                                                         /*TemplateArgs*/ 0);
+                                                         /*TemplateArgs*/ 0,
+                                                         IsAddressOfOperand);
   }
 
   TemplateArgumentListInfo TransArgs(E->getLAngleLoc(), E->getRAngleLoc());
@@ -7708,7 +7740,8 @@ TreeTransform<Derived>::TransformDependentScopeDeclRefExpr(
   return getDerived().RebuildDependentScopeDeclRefExpr(QualifierLoc,
                                                        TemplateKWLoc,
                                                        NameInfo,
-                                                       &TransArgs);
+                                                       &TransArgs,
+                                                       IsAddressOfOperand);
 }
 
 template<typename Derived>

@@ -13,15 +13,15 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/FileSystemOptions.h"
+#include "clang/Basic/DiagnosticOptions.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
 #include "clang/Frontend/MigratorOptions.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/DependencyOutputOptions.h"
-#include "clang/Frontend/DiagnosticOptions.h"
 #include "clang/Frontend/FrontendOptions.h"
-#include "clang/Frontend/HeaderSearchOptions.h"
 #include "clang/Frontend/LangStandard.h"
-#include "clang/Frontend/PreprocessorOptions.h"
 #include "clang/Frontend/PreprocessorOutputOptions.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringRef.h"
@@ -52,6 +52,19 @@ class CompilerInvocationBase : public RefCountedBase<CompilerInvocation> {
 protected:
   /// Options controlling the language variant.
   IntrusiveRefCntPtr<LangOptions> LangOpts;
+
+  /// Options controlling the target.
+  IntrusiveRefCntPtr<TargetOptions> TargetOpts;
+
+  /// Options controlling the diagnostic engine.
+  IntrusiveRefCntPtr<DiagnosticOptions> DiagnosticOpts;
+
+  /// Options controlling the \#include directive.
+  IntrusiveRefCntPtr<HeaderSearchOptions> HeaderSearchOpts;
+
+  /// Options controlling the preprocessor (aside from \#include handling).
+  IntrusiveRefCntPtr<PreprocessorOptions> PreprocessorOpts;
+
 public:
   CompilerInvocationBase();
 
@@ -59,6 +72,23 @@ public:
   
   LangOptions *getLangOpts() { return LangOpts.getPtr(); }
   const LangOptions *getLangOpts() const { return LangOpts.getPtr(); }
+
+  TargetOptions &getTargetOpts() { return *TargetOpts.getPtr(); }
+  const TargetOptions &getTargetOpts() const {
+    return *TargetOpts.getPtr();
+  }
+
+  DiagnosticOptions &getDiagnosticOpts() const { return *DiagnosticOpts; }
+
+  HeaderSearchOptions &getHeaderSearchOpts() { return *HeaderSearchOpts; }
+  const HeaderSearchOptions &getHeaderSearchOpts() const {
+    return *HeaderSearchOpts;
+  }
+
+  PreprocessorOptions &getPreprocessorOpts() { return *PreprocessorOpts; }
+  const PreprocessorOptions &getPreprocessorOpts() const {
+    return *PreprocessorOpts;
+  }
 };
   
 /// \brief Helper class for holding the data necessary to invoke the compiler.
@@ -78,26 +108,14 @@ class CompilerInvocation : public CompilerInvocationBase {
   /// Options controlling dependency output.
   DependencyOutputOptions DependencyOutputOpts;
 
-  /// Options controlling the diagnostic engine.
-  DiagnosticOptions DiagnosticOpts;
-
   /// Options controlling file system operations.
   FileSystemOptions FileSystemOpts;
 
   /// Options controlling the frontend itself.
   FrontendOptions FrontendOpts;
 
-  /// Options controlling the \#include directive.
-  HeaderSearchOptions HeaderSearchOpts;
-
-  /// Options controlling the preprocessor (aside from \#include handling).
-  PreprocessorOptions PreprocessorOpts;
-
   /// Options controlling preprocessed output.
   PreprocessorOutputOptions PreprocessorOutputOpts;
-
-  /// Options controlling the target.
-  TargetOptions TargetOpts;
 
 public:
   CompilerInvocation() : AnalyzerOpts(new AnalyzerOptions()) {}
@@ -169,17 +187,9 @@ public:
     return DependencyOutputOpts;
   }
 
-  DiagnosticOptions &getDiagnosticOpts() { return DiagnosticOpts; }
-  const DiagnosticOptions &getDiagnosticOpts() const { return DiagnosticOpts; }
-
   FileSystemOptions &getFileSystemOpts() { return FileSystemOpts; }
   const FileSystemOptions &getFileSystemOpts() const {
     return FileSystemOpts;
-  }
-
-  HeaderSearchOptions &getHeaderSearchOpts() { return HeaderSearchOpts; }
-  const HeaderSearchOptions &getHeaderSearchOpts() const {
-    return HeaderSearchOpts;
   }
 
   FrontendOptions &getFrontendOpts() { return FrontendOpts; }
@@ -187,21 +197,11 @@ public:
     return FrontendOpts;
   }
 
-  PreprocessorOptions &getPreprocessorOpts() { return PreprocessorOpts; }
-  const PreprocessorOptions &getPreprocessorOpts() const {
-    return PreprocessorOpts;
-  }
-
   PreprocessorOutputOptions &getPreprocessorOutputOpts() {
     return PreprocessorOutputOpts;
   }
   const PreprocessorOutputOptions &getPreprocessorOutputOpts() const {
     return PreprocessorOutputOpts;
-  }
-
-  TargetOptions &getTargetOpts() { return TargetOpts; }
-  const TargetOptions &getTargetOpts() const {
-    return TargetOpts;
   }
 
   /// @}

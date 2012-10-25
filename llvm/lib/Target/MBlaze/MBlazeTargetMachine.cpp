@@ -38,11 +38,12 @@ MBlazeTargetMachine(const Target &T, StringRef TT,
                     CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
     Subtarget(TT, CPU, FS),
-    DataLayout("E-p:32:32:32-i8:8:8-i16:16:16"),
+    DL("E-p:32:32:32-i8:8:8-i16:16:16"),
     InstrInfo(*this),
     FrameLowering(Subtarget),
     TLInfo(*this), TSInfo(*this), ELFWriterInfo(*this),
-    InstrItins(Subtarget.getInstrItineraryData()) {
+    InstrItins(Subtarget.getInstrItineraryData()),
+    STTI(&TLInfo), VTTI(&TLInfo) {
 }
 
 namespace {

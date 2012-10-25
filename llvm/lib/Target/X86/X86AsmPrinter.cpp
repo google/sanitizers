@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "X86AsmPrinter.h"
-#include "X86MCInstLower.h"
 #include "X86.h"
 #include "X86COFFMachineModuleInfo.h"
 #include "X86MachineFunctionInfo.h"
@@ -267,46 +266,6 @@ void X86AsmPrinter::printOperand(const MachineInstr *MI, unsigned OpNo,
   }
 }
 
-void X86AsmPrinter::printSSECC(const MachineInstr *MI, unsigned Op,
-                               raw_ostream &O) {
-  unsigned char value = MI->getOperand(Op).getImm();
-  switch (value) {
-  default: llvm_unreachable("Invalid ssecc argument!");
-  case    0: O << "eq"; break;
-  case    1: O << "lt"; break;
-  case    2: O << "le"; break;
-  case    3: O << "unord"; break;
-  case    4: O << "neq"; break;
-  case    5: O << "nlt"; break;
-  case    6: O << "nle"; break;
-  case    7: O << "ord"; break;
-  case    8: O << "eq_uq"; break;
-  case    9: O << "nge"; break;
-  case  0xa: O << "ngt"; break;
-  case  0xb: O << "false"; break;
-  case  0xc: O << "neq_oq"; break;
-  case  0xd: O << "ge"; break;
-  case  0xe: O << "gt"; break;
-  case  0xf: O << "true"; break;
-  case 0x10: O << "eq_os"; break;
-  case 0x11: O << "lt_oq"; break;
-  case 0x12: O << "le_oq"; break;
-  case 0x13: O << "unord_s"; break;
-  case 0x14: O << "neq_us"; break;
-  case 0x15: O << "nlt_uq"; break;
-  case 0x16: O << "nle_uq"; break;
-  case 0x17: O << "ord_s"; break;
-  case 0x18: O << "eq_us"; break;
-  case 0x19: O << "nge_uq"; break;
-  case 0x1a: O << "ngt_uq"; break;
-  case 0x1b: O << "false_os"; break;
-  case 0x1c: O << "neq_os"; break;
-  case 0x1d: O << "ge_oq"; break;
-  case 0x1e: O << "gt_oq"; break;
-  case 0x1f: O << "true_us"; break;
-  }
-}
-
 void X86AsmPrinter::printLeaMemReference(const MachineInstr *MI, unsigned Op,
                                          raw_ostream &O, const char *Modifier) {
   const MachineOperand &BaseReg  = MI->getOperand(Op);
@@ -365,10 +324,51 @@ void X86AsmPrinter::printMemReference(const MachineInstr *MI, unsigned Op,
   printLeaMemReference(MI, Op, O, Modifier);
 }
 
-void X86AsmPrinter::printPICLabel(const MachineInstr *MI, unsigned Op,
-                                  raw_ostream &O) {
-  O << *MF->getPICBaseSymbol() << '\n';
-  O << *MF->getPICBaseSymbol() << ':';
+void X86AsmPrinter::printIntelMemReference(const MachineInstr *MI, unsigned Op,
+                                           raw_ostream &O, const char *Modifier,
+                                           unsigned AsmVariant){
+  const MachineOperand &BaseReg  = MI->getOperand(Op);
+  unsigned ScaleVal = MI->getOperand(Op+1).getImm();
+  const MachineOperand &IndexReg = MI->getOperand(Op+2);
+  const MachineOperand &DispSpec = MI->getOperand(Op+3);
+  const MachineOperand &SegReg   = MI->getOperand(Op+4);
+  
+  // If this has a segment register, print it.
+  if (SegReg.getReg()) {
+    printOperand(MI, Op+4, O, Modifier, AsmVariant);
+    O << ':';
+  }
+  
+  O << '[';
+  
+  bool NeedPlus = false;
+  if (BaseReg.getReg()) {
+    printOperand(MI, Op, O, Modifier, AsmVariant);
+    NeedPlus = true;
+  }
+  
+  if (IndexReg.getReg()) {
+    if (NeedPlus) O << " + ";
+    if (ScaleVal != 1)
+      O << ScaleVal << '*';
+    printOperand(MI, Op+2, O, Modifier, AsmVariant);
+    NeedPlus = true;
+  }
+
+  assert (DispSpec.isImm() && "Displacement is not an immediate!");
+  int64_t DispVal = DispSpec.getImm();
+  if (DispVal || (!IndexReg.getReg() && !BaseReg.getReg())) {
+    if (NeedPlus) {
+      if (DispVal > 0)
+        O << " + ";
+      else {
+        O << " - ";
+        DispVal = -DispVal;
+      }
+    }
+    O << DispVal;
+  }  
+  O << ']';
 }
 
 bool X86AsmPrinter::printAsmMRegister(const MachineOperand &MO, char Mode,
@@ -481,6 +481,11 @@ bool X86AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
                                           unsigned OpNo, unsigned AsmVariant,
                                           const char *ExtraCode,
                                           raw_ostream &O) {
+  if (AsmVariant) {
+    printIntelMemReference(MI, OpNo, O);
+    return false;
+  }
+
   if (ExtraCode && ExtraCode[0]) {
     if (ExtraCode[1] != 0) return true; // Unknown modifier.
 
@@ -682,12 +687,12 @@ void X86AsmPrinter::EmitEndOfAsmFile(Module &M) {
     MachineModuleInfoELF::SymbolListTy Stubs = MMIELF.GetGVStubList();
     if (!Stubs.empty()) {
       OutStreamer.SwitchSection(TLOFELF.getDataRelSection());
-      const TargetData *TD = TM.getTargetData();
+      const DataLayout *TD = TM.getDataLayout();
 
       for (unsigned i = 0, e = Stubs.size(); i != e; ++i) {
         OutStreamer.EmitLabel(Stubs[i].first);
         OutStreamer.EmitSymbolValue(Stubs[i].second.getPointer(),
-                                    TD->getPointerSize(), 0);
+                                    TD->getPointerSize(0), 0);
       }
       Stubs.clear();
     }

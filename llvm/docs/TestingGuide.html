@@ -798,14 +798,15 @@ define two separate CHECK lines that match on the same line.
   <p>Sometimes it is necessary to mark a test case as "expected fail" or XFAIL.
   You can easily mark a test as XFAIL just by including <tt>XFAIL: </tt> on a
   line near the top of the file. This signals that the test case should succeed
-  if the test fails. Such test cases are counted separately by the testing tool. To
-  specify an expected fail, use the XFAIL keyword in the comments of the test
-  program followed by a colon and one or more regular expressions (separated by
-  a comma). The regular expressions allow you to XFAIL the test conditionally by
-  host platform. The regular expressions following the : are matched against the
-  target triplet for the host machine. If there is a match, the test is expected
-  to fail. If not, the test is expected to succeed. To XFAIL everywhere just
-  specify <tt>XFAIL: *</tt>. Here is an example of an <tt>XFAIL</tt> line:</p>
+  if the test fails. Such test cases are counted separately by the testing
+  tool. To specify an expected fail, use the XFAIL keyword in the comments of
+  the test program followed by a colon and one or more failure patterns. Each
+  failure pattern can be either '*' (to specify fail everywhere), or a part of a
+  target triple (indicating the test should fail on that platform), or the name
+  of a configurable feature (for example, "loadable_module"). If there is a
+  match, the test is expected to fail. If not, the test is expected to
+  succeed. To XFAIL everywhere just specify <tt>XFAIL: *</tt>. Here is an
+  example of an <tt>XFAIL</tt> line:</p>
 
 <div class="doc_code">
 <pre>
@@ -909,7 +910,7 @@ the <a href="TestSuiteMakefileGuide.html">Test Suite Makefile Guide.</a></p>
 
   John T. Criswell, Daniel Dunbar, Reid Spencer, and Tanya Lattner<br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-05-08 22:26:07 +0400 (Tue, 08 May 2012) $
+  Last modified: $Date: 2012-10-19 21:23:39 +0400 (Fri, 19 Oct 2012) $
 </address>
 </body>
 </html>

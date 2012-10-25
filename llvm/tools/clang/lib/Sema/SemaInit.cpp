@@ -3611,8 +3611,8 @@ static void TryValueInitialization(Sema &S,
       //    user-provided or deleted default constructor, then the object is
       //    zero-initialized and, if T has a non-trivial default constructor,
       //    default-initialized;
-      // FIXME: The 'non-union' here is a defect (not yet assigned an issue
-      // number). Update the quotation when the defect is resolved.
+      // The 'non-union' here was removed by DR1502. The 'non-trivial default
+      // constructor' part was removed by DR1507.
       if (NeedZeroInitialization)
         Sequence.AddZeroInitializationStep(Entity.getType());
 
@@ -3700,8 +3700,14 @@ static void TryUserDefinedConversion(Sema &S,
 
     // Try to complete the type we're converting to.
     if (!S.RequireCompleteType(Kind.getLocation(), DestType, 0)) {
-      DeclContext::lookup_iterator Con, ConEnd;
-      for (llvm::tie(Con, ConEnd) = S.LookupConstructors(DestRecordDecl);
+      DeclContext::lookup_iterator ConOrig, ConEndOrig;
+      llvm::tie(ConOrig, ConEndOrig) = S.LookupConstructors(DestRecordDecl);
+      // The container holding the constructors can under certain conditions
+      // be changed while iterating. To be safe we copy the lookup results
+      // to a new container.
+      SmallVector<NamedDecl*, 8> CopyOfCon(ConOrig, ConEndOrig);
+      for (SmallVector<NamedDecl*, 8>::iterator
+             Con = CopyOfCon.begin(), ConEnd = CopyOfCon.end();
            Con != ConEnd; ++Con) {
         NamedDecl *D = *Con;
         DeclAccessPair FoundDecl = DeclAccessPair::make(D, D->getAccess());

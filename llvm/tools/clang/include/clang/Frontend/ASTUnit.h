@@ -19,11 +19,13 @@
 #include "clang/Sema/CodeCompleteConsumer.h"
 #include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/PreprocessingRecord.h"
+#include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/FileSystemOptions.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang-c/Index.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/OwningPtr.h"
@@ -56,20 +58,26 @@ class Preprocessor;
 class SourceManager;
 class TargetInfo;
 class ASTFrontendAction;
+class ASTDeserializationListener;
 
 /// \brief Utility class for loading a ASTContext from an AST file.
 ///
 class ASTUnit : public ModuleLoader {
 private:
-  IntrusiveRefCntPtr<LangOptions>       LangOpts;
-  IntrusiveRefCntPtr<DiagnosticsEngine> Diagnostics;
-  IntrusiveRefCntPtr<FileManager>       FileMgr;
-  IntrusiveRefCntPtr<SourceManager>     SourceMgr;
-  OwningPtr<HeaderSearch>               HeaderInfo;
-  IntrusiveRefCntPtr<TargetInfo>        Target;
-  IntrusiveRefCntPtr<Preprocessor>      PP;
-  IntrusiveRefCntPtr<ASTContext>        Ctx;
+  IntrusiveRefCntPtr<LangOptions>         LangOpts;
+  IntrusiveRefCntPtr<DiagnosticsEngine>   Diagnostics;
+  IntrusiveRefCntPtr<FileManager>         FileMgr;
+  IntrusiveRefCntPtr<SourceManager>       SourceMgr;
+  OwningPtr<HeaderSearch>                 HeaderInfo;
+  IntrusiveRefCntPtr<TargetInfo>          Target;
+  IntrusiveRefCntPtr<Preprocessor>        PP;
+  IntrusiveRefCntPtr<ASTContext>          Ctx;
+  IntrusiveRefCntPtr<TargetOptions>       TargetOpts;
+  IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts;
   ASTReader *Reader;
+
+  struct ASTWriterData;
+  OwningPtr<ASTWriterData> WriterData;
 
   FileSystemOptions FileSystemOpts;
 
@@ -84,13 +92,6 @@ private:
   /// Optional owned invocation, just used to make the invocation used in
   /// LoadFromCommandLine available.
   IntrusiveRefCntPtr<CompilerInvocation> Invocation;
-  
-  /// \brief The set of target features.
-  ///
-  /// FIXME: each time we reparse, we need to restore the set of target
-  /// features from this vector, because TargetInfo::CreateTargetInfo()
-  /// mangles the target options in place. Yuck!
-  std::vector<std::string> TargetFeatures;
   
   // OnlyLocalDecls - when true, walking this AST should only visit declarations
   // that come from the AST itself, not from included precompiled headers.
@@ -468,6 +469,8 @@ public:
 
   const std::string &getOriginalSourceFileName();
 
+  ASTDeserializationListener *getDeserializationListener();
+
   /// \brief Add a temporary file that the ASTUnit depends on.
   ///
   /// This file will be erased when the ASTUnit is destroyed.
@@ -623,6 +626,13 @@ public:
   /// \returns true if the iteration was complete or false if it was aborted.
   bool visitLocalTopLevelDecls(void *context, DeclVisitorFn Fn);
 
+  /// \brief Get the PCH file if one was included.
+  const FileEntry *getPCHFile();
+
+  /// \brief Returns true if the ASTUnit was constructed from a serialized
+  /// module file.
+  bool isModuleFile();
+
   llvm::MemoryBuffer *getBufferForFile(StringRef Filename,
                                        std::string *ErrorStr = 0);
 
@@ -766,6 +776,7 @@ public:
                                       bool AllowPCHWithCompilerErrors = false,
                                       bool SkipFunctionBodies = false,
                                       bool UserFilesAreVolatile = false,
+                                      bool ForSerialization = false,
                                       OwningPtr<ASTUnit> *ErrAST = 0);
   
   /// \brief Reparse the source files using the same command-line options that

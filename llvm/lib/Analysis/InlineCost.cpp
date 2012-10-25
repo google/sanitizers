@@ -24,7 +24,7 @@
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Operator.h"
 #include "llvm/GlobalAlias.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
@@ -41,8 +41,8 @@ class CallAnalyzer : public InstVisitor<CallAnalyzer, bool> {
   typedef InstVisitor<CallAnalyzer, bool> Base;
   friend class InstVisitor<CallAnalyzer, bool>;
 
-  // TargetData if available, or null.
-  const TargetData *const TD;
+  // DataLayout if available, or null.
+  const DataLayout *const TD;
 
   // The called function.
   Function &F;
@@ -126,9 +126,9 @@ class CallAnalyzer : public InstVisitor<CallAnalyzer, bool> {
   bool visitCallSite(CallSite CS);
 
 public:
-  CallAnalyzer(const TargetData *TD, Function &Callee, int Threshold)
+  CallAnalyzer(const DataLayout *TD, Function &Callee, int Threshold)
     : TD(TD), F(Callee), Threshold(Threshold), Cost(0),
-      AlwaysInline(F.getFnAttributes().hasAlwaysInlineAttr()),
+      AlwaysInline(F.getFnAttributes().hasAttribute(Attributes::AlwaysInline)),
       IsCallerRecursive(false), IsRecursiveCall(false),
       ExposesReturnsTwice(false), HasDynamicAlloca(false), AllocatedSize(0),
       NumInstructions(0), NumVectorInstructions(0),
@@ -142,6 +142,7 @@ public:
 
   int getThreshold() { return Threshold; }
   int getCost() { return Cost; }
+  bool isAlwaysInline() { return AlwaysInline; }
 
   // Keep a bunch of stats about the cost savings found so we can print them
   // out when debugging.
@@ -242,7 +243,8 @@ bool CallAnalyzer::accumulateGEPOffset(GEPOperator &GEP, APInt &Offset) {
   if (!TD)
     return false;
 
-  unsigned IntPtrWidth = TD->getPointerSizeInBits();
+  unsigned AS = GEP.getPointerAddressSpace();
+  unsigned IntPtrWidth = TD->getPointerSizeInBits(AS);
   assert(IntPtrWidth == Offset.getBitWidth());
 
   for (gep_type_iterator GTI = gep_type_begin(GEP), GTE = gep_type_end(GEP);
@@ -390,7 +392,8 @@ bool CallAnalyzer::visitPtrToInt(PtrToIntInst &I) {
   // Track base/offset pairs when converted to a plain integer provided the
   // integer is large enough to represent the pointer.
   unsigned IntegerSize = I.getType()->getScalarSizeInBits();
-  if (TD && IntegerSize >= TD->getPointerSizeInBits()) {
+  unsigned AS = I.getPointerAddressSpace();
+  if (TD && IntegerSize >= TD->getPointerSizeInBits(AS)) {
     std::pair<Value *, APInt> BaseAndOffset
       = ConstantOffsetPtrs.lookup(I.getOperand(0));
     if (BaseAndOffset.first)
@@ -424,7 +427,8 @@ bool CallAnalyzer::visitIntToPtr(IntToPtrInst &I) {
   // modifications provided the integer is not too large.
   Value *Op = I.getOperand(0);
   unsigned IntegerSize = Op->getType()->getScalarSizeInBits();
-  if (TD && IntegerSize <= TD->getPointerSizeInBits()) {
+  unsigned AS = I.getAddressSpace();
+  if (TD && IntegerSize <= TD->getPointerSizeInBits(AS)) {
     std::pair<Value *, APInt> BaseAndOffset = ConstantOffsetPtrs.lookup(Op);
     if (BaseAndOffset.first)
       ConstantOffsetPtrs[&I] = BaseAndOffset;
@@ -613,7 +617,7 @@ bool CallAnalyzer::visitStore(StoreInst &I) {
 
 bool CallAnalyzer::visitCallSite(CallSite CS) {
   if (CS.isCall() && cast<CallInst>(CS.getInstruction())->canReturnTwice() &&
-      !F.getFnAttributes().hasReturnsTwiceAttr()) {
+      !F.getFnAttributes().hasAttribute(Attributes::ReturnsTwice)) {
     // This aborts the entire analysis.
     ExposesReturnsTwice = true;
     return false;
@@ -759,7 +763,8 @@ ConstantInt *CallAnalyzer::stripAndComputeInBoundsConstantOffsets(Value *&V) {
   if (!TD || !V->getType()->isPointerTy())
     return 0;
 
-  unsigned IntPtrWidth = TD->getPointerSizeInBits();
+  unsigned AS = cast<PointerType>(V->getType())->getAddressSpace();;
+  unsigned IntPtrWidth = TD->getPointerSizeInBits(AS);
   APInt Offset = APInt::getNullValue(IntPtrWidth);
 
   // Even though we don't look through PHI nodes, we could be called on an
@@ -783,7 +788,7 @@ ConstantInt *CallAnalyzer::stripAndComputeInBoundsConstantOffsets(Value *&V) {
     assert(V->getType()->isPointerTy() && "Unexpected operand type!");
   } while (Visited.insert(V));
 
-  Type *IntPtrTy = TD->getIntPtrType(V->getContext());
+  Type *IntPtrTy = TD->getIntPtrType(V->getType());
   return cast<ConstantInt>(ConstantInt::get(IntPtrTy, Offset));
 }
 
@@ -823,7 +828,7 @@ bool CallAnalyzer::analyzeCall(CallSite CS) {
         // size of the byval type by the target's pointer size.
         PointerType *PTy = cast<PointerType>(CS.getArgument(I)->getType());
         unsigned TypeSize = TD->getTypeSizeInBits(PTy->getElementType());
-        unsigned PointerSize = TD->getPointerSizeInBits();
+        unsigned PointerSize = TD->getTypeSizeInBits(PTy);
         // Ceiling division.
         unsigned NumStores = (TypeSize + PointerSize - 1) / PointerSize;
 
@@ -832,7 +837,7 @@ bool CallAnalyzer::analyzeCall(CallSite CS) {
         // one load and one store per word copied.
         // FIXME: The maxStoresPerMemcpy setting from the target should be used
         // here instead of a magic number of 8, but it's not available via
-        // TargetData.
+        // DataLayout.
         NumStores = std::min(NumStores, 8U);
 
         Cost -= 2 * NumStores * InlineConstants::InstrCost;
@@ -1043,7 +1048,8 @@ InlineCost InlineCostAnalyzer::getInlineCost(CallSite CS, Function *Callee,
   // something else.  Don't inline functions marked noinline or call sites
   // marked noinline.
   if (!Callee || Callee->mayBeOverridden() ||
-      Callee->getFnAttributes().hasNoInlineAttr() || CS.isNoInline())
+      Callee->getFnAttributes().hasAttribute(Attributes::NoInline) ||
+      CS.isNoInline())
     return llvm::InlineCost::getNever();
 
   DEBUG(llvm::dbgs() << "      Analyzing call of " << Callee->getName()
@@ -1057,7 +1063,8 @@ InlineCost InlineCostAnalyzer::getInlineCost(CallSite CS, Function *Callee,
   // Check if there was a reason to force inlining or no inlining.
   if (!ShouldInline && CA.getCost() < CA.getThreshold())
     return InlineCost::getNever();
-  if (ShouldInline && CA.getCost() >= CA.getThreshold())
+  if (ShouldInline && (CA.isAlwaysInline() ||
+                       CA.getCost() >= CA.getThreshold()))
     return InlineCost::getAlways();
 
   return llvm::InlineCost::get(CA.getCost(), CA.getThreshold());

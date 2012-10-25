@@ -37,23 +37,52 @@ class TargetSchedModel {
 public:
   TargetSchedModel(): STI(0), TII(0) {}
 
+  /// \brief Initialize the machine model for instruction scheduling.
+  ///
+  /// The machine model API keeps a copy of the top-level MCSchedModel table
+  /// indices and may query TargetSubtargetInfo and TargetInstrInfo to resolve
+  /// dynamic properties.
   void init(const MCSchedModel &sm, const TargetSubtargetInfo *sti,
             const TargetInstrInfo *tii);
 
+  /// \brief TargetInstrInfo getter.
   const TargetInstrInfo *getInstrInfo() const { return TII; }
 
-  /// Return true if this machine model includes an instruction-level scheduling
-  /// model. This is more detailed than the course grain IssueWidth and default
+  /// \brief Return true if this machine model includes an instruction-level
+  /// scheduling model.
+  ///
+  /// This is more detailed than the course grain IssueWidth and default
   /// latency properties, but separate from the per-cycle itinerary data.
-  bool hasInstrSchedModel() const { return SchedModel.hasInstrSchedModel(); }
+  bool hasInstrSchedModel() const;
 
-  /// Return true if this machine model includes cycle-to-cycle itinerary
-  /// data. This models scheduling at each stage in the processor pipeline.
-  bool hasInstrItineraries() const { return !InstrItins.isEmpty(); }
+  const MCSchedModel *getMCSchedModel() const { return &SchedModel; }
 
-  /// computeOperandLatency - Compute and return the latency of the given data
-  /// dependent def and use when the operand indices are already known. UseMI
-  /// may be NULL for an unknown user.
+  /// \brief Return true if this machine model includes cycle-to-cycle itinerary
+  /// data.
+  ///
+  /// This models scheduling at each stage in the processor pipeline.
+  bool hasInstrItineraries() const;
+
+  const InstrItineraryData *getInstrItineraries() const {
+    if (hasInstrItineraries())
+      return &InstrItins;
+    return 0;
+  }
+
+  /// \brief Identify the processor corresponding to the current subtarget.
+  unsigned getProcessorID() const { return SchedModel.getProcessorID(); }
+
+  /// \brief Maximum number of micro-ops that may be scheduled per cycle.
+  unsigned getIssueWidth() const { return SchedModel.IssueWidth; }
+
+  /// \brief Return the number of issue slots required for this MI.
+  unsigned getNumMicroOps(MachineInstr *MI) const;
+
+  /// \brief Compute operand latency based on the available machine model.
+  ///
+  /// Computes and return the latency of the given data dependent def and use
+  /// when the operand indices are already known. UseMI may be NULL for an
+  /// unknown user.
   ///
   /// FindMin may be set to get the minimum vs. expected latency. Minimum
   /// latency is used for scheduling groups, while expected latency is for
@@ -62,7 +91,20 @@ public:
                                  const MachineInstr *UseMI, unsigned UseOperIdx,
                                  bool FindMin) const;
 
-  unsigned getProcessorID() const { return SchedModel.getProcessorID(); }
+  /// \brief Compute the instruction latency based on the available machine
+  /// model.
+  ///
+  /// Compute and return the expected latency of this instruction independent of
+  /// a particular use. computeOperandLatency is the prefered API, but this is
+  /// occasionally useful to help estimate instruction cost.
+  unsigned computeInstrLatency(const MachineInstr *MI) const;
+
+  /// \brief Output dependency latency of a pair of defs of the same register.
+  ///
+  /// This is typically one cycle.
+  unsigned computeOutputLatency(const MachineInstr *DefMI, unsigned DefIdx,
+                                const MachineInstr *DepMI) const;
+
 
 private:
   /// getDefLatency is a helper for computeOperandLatency. Return the

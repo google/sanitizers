@@ -10,6 +10,7 @@ User Guides
    HowToBuildOnARM
    CommandGuide/index
    DeveloperPolicy
+   GettingStarted
    GettingStartedVS
    FAQ
    Lexicon
@@ -17,8 +18,10 @@ User Guides
    HowToAddABuilder
    yaml2obj
    HowToSubmitABug
+   SphinxQuickstartTemplate
+   Phabricator
 
-* `The LLVM Getting Started Guide <GettingStarted.html>`_
+* :ref:`getting_started`
     
    Discusses how to get up and running quickly with the LLVM infrastructure.
    Everything from unpacking and compilation of the distribution to execution
@@ -69,6 +72,10 @@ User Guides
     
    Instructions for properly submitting information about any bugs you run into
    in the LLVM system.
+* :doc:`SphinxQuickstartTemplate`
+
+  A template + tutorial for writing new Sphinx documentation. It is meant
+  to be read in source form.
     
 * `LLVM Testing Infrastructure Guide <TestingGuide.html>`_
 

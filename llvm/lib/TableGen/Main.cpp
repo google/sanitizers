@@ -22,8 +22,8 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/system_error.h"
 #include "llvm/TableGen/Error.h"
+#include "llvm/TableGen/Main.h"
 #include "llvm/TableGen/Record.h"
-#include "llvm/TableGen/TableGenAction.h"
 #include <algorithm>
 #include <cstdio>
 using namespace llvm;
@@ -47,9 +47,37 @@ namespace {
               cl::value_desc("directory"), cl::Prefix);
 }
 
+/// \brief Create a dependency file for `-d` option.
+///
+/// This functionality is really only for the benefit of the build system.
+/// It is similar to GCC's `-M*` family of options.
+static int createDependencyFile(const TGParser &Parser, const char *argv0) {
+  if (OutputFilename == "-") {
+    errs() << argv0 << ": the option -d must be used together with -o\n";
+    return 1;
+  }
+  std::string Error;
+  tool_output_file DepOut(DependFilename.c_str(), Error);
+  if (!Error.empty()) {
+    errs() << argv0 << ": error opening " << DependFilename
+      << ":" << Error << "\n";
+    return 1;
+  }
+  DepOut.os() << OutputFilename << ":";
+  const std::vector<std::string> &Dependencies = Parser.getDependencies();
+  for (std::vector<std::string>::const_iterator I = Dependencies.begin(),
+                                                E = Dependencies.end();
+       I != E; ++I) {
+    DepOut.os() << " " << (*I);
+  }
+  DepOut.os() << "\n";
+  DepOut.keep();
+  return 0;
+}
+
 namespace llvm {
 
-int TableGenMain(char *argv0, TableGenAction &Action) {
+int TableGenMain(char *argv0, TableGenMainFn *MainFn) {
   RecordKeeper Records;
 
   try {
@@ -82,29 +110,11 @@ int TableGenMain(char *argv0, TableGenAction &Action) {
         << ":" << Error << "\n";
       return 1;
     }
-    if (!DependFilename.empty()) {
-      if (OutputFilename == "-") {
-        errs() << argv0 << ": the option -d must be used together with -o\n";
-        return 1;
-      }
-      tool_output_file DepOut(DependFilename.c_str(), Error);
-      if (!Error.empty()) {
-        errs() << argv0 << ": error opening " << DependFilename
-          << ":" << Error << "\n";
-        return 1;
-      }
-      DepOut.os() << OutputFilename << ":";
-      const std::vector<std::string> &Dependencies = Parser.getDependencies();
-      for (std::vector<std::string>::const_iterator I = Dependencies.begin(),
-                                                    E = Dependencies.end();
-           I != E; ++I) {
-        DepOut.os() << " " << (*I);
-      }
-      DepOut.os() << "\n";
-      DepOut.keep();
-    }
+    if (!DependFilename.empty())
+      if (int Ret = createDependencyFile(Parser, argv0))
+        return Ret;
 
-    if (Action(Out.os(), Records))
+    if (MainFn(Out.os(), Records))
       return 1;
 
     // Declare success.

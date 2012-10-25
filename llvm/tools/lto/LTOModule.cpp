@@ -158,7 +158,7 @@ SSPBufferSize("stack-protector-buffer-size", cl::init(8),
 LTOModule::LTOModule(llvm::Module *m, llvm::TargetMachine *t)
   : _module(m), _target(t),
     _context(*_target->getMCAsmInfo(), *_target->getRegisterInfo(), NULL),
-    _mangler(_context, *_target->getTargetData()) {}
+    _mangler(_context, *_target->getDataLayout()) {}
 
 /// isBitcodeFile - Returns 'true' if the file (or memory contents) is LLVM
 /// bitcode.
@@ -278,23 +278,31 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
     return NULL;
   }
 
-  std::string Triple = m->getTargetTriple();
-  if (Triple.empty())
-    Triple = sys::getDefaultTargetTriple();
+  std::string TripleStr = m->getTargetTriple();
+  if (TripleStr.empty())
+    TripleStr = sys::getDefaultTargetTriple();
+  llvm::Triple Triple(TripleStr);
 
   // find machine architecture for this module
-  const Target *march = TargetRegistry::lookupTarget(Triple, errMsg);
+  const Target *march = TargetRegistry::lookupTarget(TripleStr, errMsg);
   if (!march)
     return NULL;
 
   // construct LTOModule, hand over ownership of module and target
   SubtargetFeatures Features;
-  Features.getDefaultSubtargetFeatures(llvm::Triple(Triple));
+  Features.getDefaultSubtargetFeatures(Triple);
   std::string FeatureStr = Features.getString();
+  // Set a default CPU for Darwin triples.
   std::string CPU;
+  if (Triple.isOSDarwin()) {
+    if (Triple.getArch() == llvm::Triple::x86_64)
+      CPU = "core2";
+    else if (Triple.getArch() == llvm::Triple::x86)
+      CPU = "yonah";
+  }
   TargetOptions Options;
   getTargetOptions(Options);
-  TargetMachine *target = march->createTargetMachine(Triple, CPU, FeatureStr,
+  TargetMachine *target = march->createTargetMachine(TripleStr, CPU, FeatureStr,
                                                      Options);
   LTOModule *Ret = new LTOModule(m.take(), target);
   if (Ret->parseSymbols(errMsg)) {

@@ -30,6 +30,7 @@ class MDNode;
 class Pass;
 class ReturnInst;
 class TargetLibraryInfo;
+class TerminatorInst;
 
 /// DeleteDeadBlock - Delete the specified block, which must have no
 /// predecessors.
@@ -207,8 +208,8 @@ ReturnInst *FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
 
 /// SplitBlockAndInsertIfThen - Split the containing block at the
 /// specified instruction - everything before and including Cmp stays
-/// in the old basic block, and everything after SplitPt moves to a
-/// new block. The two blocks are joined by an conditional branch
+/// in the old basic block, and everything after Cmp is moved to a
+/// new block. The two blocks are connected by a conditional branch
 /// (with value of Cmp being the condition).
 /// Before:
 ///   Head
@@ -218,12 +219,15 @@ ReturnInst *FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
 ///   Head
 ///   Cmp
 ///   if (Cmp)
-///     NewBasicBlock
+///     ThenBlock
 ///   Tail
 ///
+/// If Unreachable is true, then ThenBlock ends with
+/// UnreachableInst, otherwise it branches to Tail.
 /// Returns the NewBasicBlock's terminator.
-BranchInst *SplitBlockAndInsertIfThen(Instruction *Cmp,
-                                      MDNode *BranchWeights = 0);
+
+TerminatorInst *SplitBlockAndInsertIfThen(Instruction *Cmp,
+    bool Unreachable, MDNode *BranchWeights = 0);
 
 } // End llvm namespace
 

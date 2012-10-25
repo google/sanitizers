@@ -30,7 +30,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/PredIteratorCache.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 using namespace llvm;
 
 STATISTIC(NumCacheNonLocal, "Number of fully cached non-local responses");
@@ -89,7 +89,7 @@ void MemoryDependenceAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
 
 bool MemoryDependenceAnalysis::runOnFunction(Function &) {
   AA = &getAnalysis<AliasAnalysis>();
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   DT = getAnalysisIfAvailable<DominatorTree>();
   if (PredCache == 0)
     PredCache.reset(new PredIteratorCache());
@@ -256,7 +256,7 @@ isLoadLoadClobberIfExtendedToFullWidth(const AliasAnalysis::Location &MemLoc,
                                        const Value *&MemLocBase,
                                        int64_t &MemLocOffs,
                                        const LoadInst *LI,
-                                       const TargetData *TD) {
+                                       const DataLayout *TD) {
   // If we have no target data, we can't do this.
   if (TD == 0) return false;
 
@@ -280,7 +280,7 @@ isLoadLoadClobberIfExtendedToFullWidth(const AliasAnalysis::Location &MemLoc,
 unsigned MemoryDependenceAnalysis::
 getLoadLoadClobberFullWidthSize(const Value *MemLocBase, int64_t MemLocOffs,
                                 unsigned MemLocSize, const LoadInst *LI,
-                                const TargetData &TD) {
+                                const DataLayout &TD) {
   // We can only extend simple integer loads.
   if (!isa<IntegerType>(LI->getType()) || !LI->isSimple()) return 0;
   
@@ -327,12 +327,12 @@ getLoadLoadClobberFullWidthSize(const Value *MemLocBase, int64_t MemLocOffs,
       return 0;
 
     if (LIOffs+NewLoadByteSize > MemLocEnd &&
-        LI->getParent()->getParent()->getFnAttributes().hasAddressSafetyAttr()){
+        LI->getParent()->getParent()->getFnAttributes().
+          hasAttribute(Attributes::AddressSafety))
       // We will be reading past the location accessed by the original program.
       // While this is safe in a regular build, Address Safety analysis tools
       // may start reporting false warnings. So, don't do widening.
       return 0;
-    }
 
     // If a load of this width would include all of MemLoc, then we succeed.
     if (LIOffs+NewLoadByteSize >= MemLocEnd)
@@ -983,7 +983,7 @@ getNonLocalPointerDepFromBB(const PHITransAddr &Pointer,
     for (NonLocalDepInfo::iterator I = Cache->begin(), E = Cache->end();
          I != E; ++I) {
       Visited.insert(std::make_pair(I->getBB(), Addr));
-      if (!I->getResult().isNonLocal())
+      if (!I->getResult().isNonLocal() && DT->isReachableFromEntry(I->getBB()))
         Result.push_back(NonLocalDepResult(I->getBB(), I->getResult(), Addr));
     }
     ++NumCacheCompleteNonLocalPtr;
@@ -1029,7 +1029,7 @@ getNonLocalPointerDepFromBB(const PHITransAddr &Pointer,
                                                  NumSortedEntries);
       
       // If we got a Def or Clobber, add this to the list of results.
-      if (!Dep.isNonLocal()) {
+      if (!Dep.isNonLocal() && DT->isReachableFromEntry(BB)) {
         Result.push_back(NonLocalDepResult(BB, Dep, Pointer.getAddr()));
         continue;
       }

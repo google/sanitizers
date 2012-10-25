@@ -24,6 +24,7 @@ using namespace clang;
 using namespace CodeGen;
 
 RValue CodeGenFunction::EmitCXXMemberCall(const CXXMethodDecl *MD,
+                                          SourceLocation CallLoc,
                                           llvm::Value *Callee,
                                           ReturnValueSlot ReturnValue,
                                           llvm::Value *This,
@@ -36,8 +37,9 @@ RValue CodeGenFunction::EmitCXXMemberCall(const CXXMethodDecl *MD,
   // C++11 [class.mfct.non-static]p2:
   //   If a non-static member function of a class X is called for an object that
   //   is not of type X, or of a type derived from X, the behavior is undefined.
-  EmitTypeCheck(TCK_MemberCall, This,
-                getContext().getRecordType(MD->getParent()));
+  EmitTypeCheck(isa<CXXConstructorDecl>(MD) ? TCK_ConstructorCall
+                                            : TCK_MemberCall,
+                CallLoc, This, getContext().getRecordType(MD->getParent()));
 
   CallArgList Args;
 
@@ -174,8 +176,9 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(ME->getMemberDecl());
 
   CGDebugInfo *DI = getDebugInfo();
-  if (DI && CGM.getCodeGenOpts().DebugInfo == CodeGenOptions::LimitedDebugInfo
-      && !isa<CallExpr>(ME->getBase())) {
+  if (DI &&
+      CGM.getCodeGenOpts().getDebugInfo() == CodeGenOptions::LimitedDebugInfo &&
+      !isa<CallExpr>(ME->getBase())) {
     QualType PQTy = ME->getBase()->IgnoreParenImpCasts()->getType();
     if (const PointerType * PTy = dyn_cast<PointerType>(PQTy)) {
       DI->getOrCreateRecordType(PTy->getPointeeType(), 
@@ -257,16 +260,16 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
   }
 
   // Compute the function type we're calling.
+  const CXXMethodDecl *CalleeDecl = DevirtualizedMethod ? DevirtualizedMethod : MD;
   const CGFunctionInfo *FInfo = 0;
-  if (isa<CXXDestructorDecl>(MD))
-    FInfo = &CGM.getTypes().arrangeCXXDestructor(cast<CXXDestructorDecl>(MD),
+  if (const CXXDestructorDecl *Dtor = dyn_cast<CXXDestructorDecl>(CalleeDecl))
+    FInfo = &CGM.getTypes().arrangeCXXDestructor(Dtor,
                                                  Dtor_Complete);
-  else if (isa<CXXConstructorDecl>(MD))
-    FInfo = &CGM.getTypes().arrangeCXXConstructorDeclaration(
-                                                 cast<CXXConstructorDecl>(MD),
-                                                 Ctor_Complete);
+  else if (const CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(CalleeDecl))
+    FInfo = &CGM.getTypes().arrangeCXXConstructorDeclaration(Ctor,
+                                                             Ctor_Complete);
   else
-    FInfo = &CGM.getTypes().arrangeCXXMethodDeclaration(MD);
+    FInfo = &CGM.getTypes().arrangeCXXMethodDeclaration(CalleeDecl);
 
   llvm::Type *Ty = CGM.getTypes().GetFunctionType(*FInfo);
 
@@ -312,8 +315,8 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
     }
   }
 
-  return EmitCXXMemberCall(MD, Callee, ReturnValue, This, /*VTT=*/0,
-                           CE->arg_begin(), CE->arg_end());
+  return EmitCXXMemberCall(MD, CE->getExprLoc(), Callee, ReturnValue, This,
+                           /*VTT=*/0, CE->arg_begin(), CE->arg_end());
 }
 
 RValue
@@ -343,7 +346,8 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
   else 
     This = EmitLValue(BaseExpr).getAddress();
 
-  EmitTypeCheck(TCK_MemberCall, This, QualType(MPT->getClass(), 0));
+  EmitTypeCheck(TCK_MemberCall, E->getExprLoc(), This,
+                QualType(MPT->getClass(), 0));
 
   // Ask the ABI to load the callee.  Note that This is modified.
   llvm::Value *Callee =
@@ -383,8 +387,8 @@ CodeGenFunction::EmitCXXOperatorMemberCallExpr(const CXXOperatorCallExpr *E,
   }
 
   llvm::Value *Callee = EmitCXXOperatorMemberCallee(E, MD, This);
-  return EmitCXXMemberCall(MD, Callee, ReturnValue, This, /*VTT=*/0,
-                           E->arg_begin() + 1, E->arg_end());
+  return EmitCXXMemberCall(MD, E->getExprLoc(), Callee, ReturnValue, This,
+                           /*VTT=*/0, E->arg_begin() + 1, E->arg_end());
 }
 
 RValue CodeGenFunction::EmitCUDAKernelCallExpr(const CUDAKernelCallExpr *E,
@@ -1401,8 +1405,9 @@ static void EmitObjectDelete(CodeGenFunction &CGF,
           = CGF.BuildVirtualCall(Dtor, 
                                  UseGlobalDelete? Dtor_Complete : Dtor_Deleting,
                                  Ptr, Ty);
-        CGF.EmitCXXMemberCall(Dtor, Callee, ReturnValueSlot(), Ptr, /*VTT=*/0,
-                              0, 0);
+        // FIXME: Provide a source location here.
+        CGF.EmitCXXMemberCall(Dtor, SourceLocation(), Callee, ReturnValueSlot(),
+                              Ptr, /*VTT=*/0, 0, 0);
 
         if (UseGlobalDelete) {
           CGF.PopCleanupBlock();

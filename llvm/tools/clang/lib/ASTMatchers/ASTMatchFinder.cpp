@@ -352,7 +352,7 @@ public:
                                   const Matcher<NamedDecl> &Base,
                                   BoundNodesTreeBuilder *Builder);
 
-  // Implements ASTMatchFinder::MatchesChildOf.
+  // Implements ASTMatchFinder::matchesChildOf.
   virtual bool matchesChildOf(const ast_type_traits::DynTypedNode &Node,
                               const DynTypedMatcher &Matcher,
                               BoundNodesTreeBuilder *Builder,
@@ -361,7 +361,7 @@ public:
     return matchesRecursively(Node, Matcher, Builder, 1, Traversal,
                               Bind);
   }
-  // Implements ASTMatchFinder::MatchesDescendantOf.
+  // Implements ASTMatchFinder::matchesDescendantOf.
   virtual bool matchesDescendantOf(const ast_type_traits::DynTypedNode &Node,
                                    const DynTypedMatcher &Matcher,
                                    BoundNodesTreeBuilder *Builder,
@@ -372,7 +372,8 @@ public:
   // Implements ASTMatchFinder::matchesAncestorOf.
   virtual bool matchesAncestorOf(const ast_type_traits::DynTypedNode &Node,
                                  const DynTypedMatcher &Matcher,
-                                 BoundNodesTreeBuilder *Builder) {
+                                 BoundNodesTreeBuilder *Builder,
+                                 AncestorMatchMode MatchMode) {
     if (!Parents) {
       // We always need to run over the whole translation unit, as
       // \c hasAncestor can escape any subtree.
@@ -395,6 +396,8 @@ public:
       Ancestor = I->second;
       if (Matcher.matches(Ancestor, this, Builder))
         return true;
+      if (MatchMode == ASTMatchFinder::AMM_ParentOnly)
+        return false;
     }
     return false;
   }
@@ -553,10 +556,15 @@ bool MatchASTVisitor::TraverseType(QualType TypeNode) {
   return RecursiveASTVisitor<MatchASTVisitor>::TraverseType(TypeNode);
 }
 
-bool MatchASTVisitor::TraverseTypeLoc(TypeLoc TypeLoc) {
-  match(TypeLoc.getType());
-  return RecursiveASTVisitor<MatchASTVisitor>::
-      TraverseTypeLoc(TypeLoc);
+bool MatchASTVisitor::TraverseTypeLoc(TypeLoc TypeLocNode) {
+  // The RecursiveASTVisitor only visits types if they're not within TypeLocs.
+  // We still want to find those types via matchers, so we match them here. Note
+  // that the TypeLocs are structurally a shadow-hierarchy to the expressed
+  // type, so we visit all involved parts of a compound type when matching on
+  // each TypeLoc.
+  match(TypeLocNode);
+  match(TypeLocNode.getType());
+  return RecursiveASTVisitor<MatchASTVisitor>::TraverseTypeLoc(TypeLocNode);
 }
 
 bool MatchASTVisitor::TraverseNestedNameSpecifier(NestedNameSpecifier *NNS) {
@@ -649,8 +657,26 @@ void MatchFinder::addMatcher(const NestedNameSpecifierLocMatcher &NodeMatch,
     new NestedNameSpecifierLocMatcher(NodeMatch), Action));
 }
 
+void MatchFinder::addMatcher(const TypeLocMatcher &NodeMatch,
+                             MatchCallback *Action) {
+  MatcherCallbackPairs.push_back(std::make_pair(
+    new TypeLocMatcher(NodeMatch), Action));
+}
+
 ASTConsumer *MatchFinder::newASTConsumer() {
   return new internal::MatchASTConsumer(&MatcherCallbackPairs, ParsingDone);
+}
+
+void MatchFinder::findAll(const Decl &Node, ASTContext &Context) {
+  internal::MatchASTVisitor Visitor(&MatcherCallbackPairs);
+  Visitor.set_active_ast_context(&Context);
+  Visitor.TraverseDecl(const_cast<Decl*>(&Node));
+}
+
+void MatchFinder::findAll(const Stmt &Node, ASTContext &Context) {
+  internal::MatchASTVisitor Visitor(&MatcherCallbackPairs);
+  Visitor.set_active_ast_context(&Context);
+  Visitor.TraverseStmt(const_cast<Stmt*>(&Node));
 }
 
 void MatchFinder::registerTestCallbackAfterParsing(

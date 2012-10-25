@@ -21,6 +21,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/SetVector.h"
 #include <string>
 #include <utility>
 #include <vector>
@@ -71,6 +72,12 @@ private:
 public:
   /// \brief The headers that are part of this module.
   llvm::SmallVector<const FileEntry *, 2> Headers;
+
+  /// \brief The headers that are explicitly excluded from this module.
+  llvm::SmallVector<const FileEntry *, 2> ExcludedHeaders;
+
+  /// \brief The top-level headers associated with this module.
+  llvm::SmallSetVector<const FileEntry *, 2> TopHeaders;
 
   /// \brief The set of language features required to use this module.
   ///
@@ -286,6 +293,10 @@ public:
   submodule_iterator submodule_end()   { return SubModules.end(); }
   submodule_const_iterator submodule_end() const { return SubModules.end(); }
   
+  static StringRef getModuleInputBufferName() {
+    return "<module-includes>";
+  }
+
   /// \brief Print the module map for this module to the given stream. 
   ///
   void print(llvm::raw_ostream &OS, unsigned Indent = 0) const;

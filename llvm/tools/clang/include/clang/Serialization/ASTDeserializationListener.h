@@ -23,6 +23,7 @@ class Decl;
 class ASTReader;
 class QualType;
 class MacroDefinition;
+class MacroInfo;
 class Module;
   
 class ASTDeserializationListener {
@@ -37,6 +38,8 @@ public:
   /// \brief An identifier was deserialized from the AST file.
   virtual void IdentifierRead(serialization::IdentID ID,
                               IdentifierInfo *II) { }
+  /// \brief A macro was read from the AST file.
+  virtual void MacroRead(serialization::MacroID ID, MacroInfo *MI) { }
   /// \brief A type was deserialized from the AST file. The ID here has the
   ///        qualifier bits already removed, and T is guaranteed to be locally
   ///        unqualified.
@@ -48,9 +51,6 @@ public:
   /// \brief A macro definition was read from the AST file.
   virtual void MacroDefinitionRead(serialization::PreprocessedEntityID, 
                                    MacroDefinition *MD) { }
-  /// \brief A macro definition that had previously been deserialized 
-  /// (and removed via IdentifierRead) has now been made visible.
-  virtual void MacroVisible(IdentifierInfo *II) { }
   /// \brief A module definition was read from the AST file.
   virtual void ModuleRead(serialization::SubmoduleID ID, Module *Mod) { }
 };

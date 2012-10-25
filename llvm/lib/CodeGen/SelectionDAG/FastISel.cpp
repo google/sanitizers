@@ -53,7 +53,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Analysis/Loads.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetLowering.h"
@@ -101,8 +101,7 @@ bool FastISel::hasTrivialKill(const Value *V) const {
 
   // No-op casts are trivially coalesced by fast-isel.
   if (const CastInst *Cast = dyn_cast<CastInst>(I))
-    if (Cast->isNoopCast(TD.getIntPtrType(Cast->getContext())) &&
-        !hasTrivialKill(Cast->getOperand(0)))
+    if (Cast->isNoopCast(TD) && !hasTrivialKill(Cast->getOperand(0)))
       return false;
 
   // GEPs with all zero indices are trivially coalesced by fast-isel.
@@ -175,7 +174,7 @@ unsigned FastISel::materializeRegForValue(const Value *V, MVT VT) {
     // Translate this as an integer zero so that it can be
     // local-CSE'd with actual integer zeros.
     Reg =
-      getRegForValue(Constant::getNullValue(TD.getIntPtrType(V->getContext())));
+      getRegForValue(Constant::getNullValue(TD.getIntPtrType(V->getType())));
   } else if (const ConstantFP *CF = dyn_cast<ConstantFP>(V)) {
     if (CF->isNullValue()) {
       Reg = TargetMaterializeFloatZero(CF);
@@ -1059,7 +1058,7 @@ FastISel::FastISel(FunctionLoweringInfo &funcInfo,
     MFI(*FuncInfo.MF->getFrameInfo()),
     MCP(*FuncInfo.MF->getConstantPool()),
     TM(FuncInfo.MF->getTarget()),
-    TD(*TM.getTargetData()),
+    TD(*TM.getDataLayout()),
     TII(*TM.getInstrInfo()),
     TLI(*TM.getTargetLowering()),
     TRI(*TM.getRegisterInfo()),

@@ -42,10 +42,11 @@ void test_dependent_init(T *p) {
 }
 
 namespace PR6948 {
-  template<typename T> class X;
+  template<typename T> class X; // expected-note{{template is declared here}}
   
   void f() {
-    X<char> str (read_from_file()); // expected-error{{use of undeclared identifier 'read_from_file'}}
+    X<char> str (read_from_file()); // expected-error{{use of undeclared identifier 'read_from_file'}} \
+                                       expected-error{{implicit instantiation of undefined template 'PR6948::X<char>'}}
   }
 }
 
@@ -120,5 +121,17 @@ namespace PR11550 {
     S3 x = makeS3(); // expected-warning {{unused variable 'x'}}
     S3 y;
     S3 z = a; // expected-warning {{unused variable 'z'}}
+  }
+}
+
+namespace ctor_with_cleanups {
+  struct S1 {
+    ~S1();
+  };
+  struct S2 {
+    S2(const S1&);
+  };
+  void func() {
+    S2 s((S1()));
   }
 }

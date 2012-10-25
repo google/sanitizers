@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "X86MCInstLower.h"
 #include "X86AsmPrinter.h"
 #include "X86COFFMachineModuleInfo.h"
 #include "InstPrinter/X86ATTInstPrinter.h"
@@ -29,6 +28,31 @@
 #include "llvm/ADT/SmallString.h"
 using namespace llvm;
 
+namespace {
+
+/// X86MCInstLower - This class is used to lower an MachineInstr into an MCInst.
+class X86MCInstLower {
+  MCContext &Ctx;
+  Mangler *Mang;
+  const MachineFunction &MF;
+  const TargetMachine &TM;
+  const MCAsmInfo &MAI;
+  X86AsmPrinter &AsmPrinter;
+public:
+  X86MCInstLower(Mangler *mang, const MachineFunction &MF,
+                 X86AsmPrinter &asmprinter);
+
+  void Lower(const MachineInstr *MI, MCInst &OutMI) const;
+
+  MCSymbol *GetSymbolFromOperand(const MachineOperand &MO) const;
+  MCOperand LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
+
+private:
+  MachineModuleInfoMachO &getMachOMMI() const;
+};
+
+} // end anonymous namespace
+
 X86MCInstLower::X86MCInstLower(Mangler *mang, const MachineFunction &mf,
                                X86AsmPrinter &asmprinter)
 : Ctx(mf.getContext()), Mang(mang), MF(mf), TM(mf.getTarget()),
@@ -43,15 +67,11 @@ MachineModuleInfoMachO &X86MCInstLower::getMachOMMI() const {
 /// operand to an MCSymbol.
 MCSymbol *X86MCInstLower::
 GetSymbolFromOperand(const MachineOperand &MO) const {
-  assert((MO.isGlobal() || MO.isSymbol()) && "Isn't a symbol reference");
+  assert((MO.isGlobal() || MO.isSymbol() || MO.isMBB()) && "Isn't a symbol reference");
 
   SmallString<128> Name;
 
-  if (!MO.isGlobal()) {
-    assert(MO.isSymbol());
-    Name += MAI.getGlobalPrefix();
-    Name += MO.getSymbolName();
-  } else {
+  if (MO.isGlobal()) {
     const GlobalValue *GV = MO.getGlobal();
     bool isImplicitlyPrivate = false;
     if (MO.getTargetFlags() == X86II::MO_DARWIN_STUB ||
@@ -61,6 +81,11 @@ GetSymbolFromOperand(const MachineOperand &MO) const {
       isImplicitlyPrivate = true;
 
     Mang->getNameWithPrefix(Name, GV, isImplicitlyPrivate);
+  } else if (MO.isSymbol()) {
+    Name += MAI.getGlobalPrefix();
+    Name += MO.getSymbolName();
+  } else if (MO.isMBB()) {
+    Name += MO.getMBB()->getSymbol()->getName();
   }
 
   // If the target flags on the operand changes the name of the symbol, do that
@@ -191,7 +216,7 @@ MCOperand X86MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
   if (Expr == 0)
     Expr = MCSymbolRefExpr::Create(Sym, RefKind, Ctx);
 
-  if (!MO.isJTI() && MO.getOffset())
+  if (!MO.isJTI() && !MO.isMBB() && MO.getOffset())
     Expr = MCBinaryExpr::CreateAdd(Expr,
                                    MCConstantExpr::Create(MO.getOffset(), Ctx),
                                    Ctx);
@@ -324,9 +349,6 @@ void X86MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
       MCOp = MCOperand::CreateImm(MO.getImm());
       break;
     case MachineOperand::MO_MachineBasicBlock:
-      MCOp = MCOperand::CreateExpr(MCSymbolRefExpr::Create(
-                       MO.getMBB()->getSymbol(), Ctx));
-      break;
     case MachineOperand::MO_GlobalAddress:
     case MachineOperand::MO_ExternalSymbol:
       MCOp = LowerSymbolOperand(MO, GetSymbolFromOperand(MO));
@@ -371,10 +393,6 @@ ReSimplify:
   case X86::MOVZX64rm8:   LowerSubReg32_Op0(OutMI, X86::MOVZX32rm8); break;
   case X86::MOVZX64rr16:  LowerSubReg32_Op0(OutMI, X86::MOVZX32rr16); break;
   case X86::MOVZX64rm16:  LowerSubReg32_Op0(OutMI, X86::MOVZX32rm16); break;
-  case X86::SETB_C8r:     LowerUnaryToTwoAddr(OutMI, X86::SBB8rr); break;
-  case X86::SETB_C16r:    LowerUnaryToTwoAddr(OutMI, X86::SBB16rr); break;
-  case X86::SETB_C32r:    LowerUnaryToTwoAddr(OutMI, X86::SBB32rr); break;
-  case X86::SETB_C64r:    LowerUnaryToTwoAddr(OutMI, X86::SBB64rr); break;
   case X86::MOV8r0:       LowerUnaryToTwoAddr(OutMI, X86::XOR8rr); break;
   case X86::MOV32r0:      LowerUnaryToTwoAddr(OutMI, X86::XOR32rr); break;
 

@@ -21,15 +21,20 @@ namespace driver {
   class ArgList;
 
 namespace options {
+  /// Base flags for all options. Custom flags may be added after.
   enum DriverFlag {
-    DriverOption     = (1 << 0),
-    HelpHidden       = (1 << 1),
-    LinkerInput      = (1 << 2),
-    NoArgumentUnused = (1 << 3),
-    NoForward        = (1 << 4),
-    RenderAsInput    = (1 << 5),
-    RenderJoined     = (1 << 6),
-    RenderSeparate   = (1 << 7),
+    HelpHidden       = (1 << 0),
+    RenderAsInput    = (1 << 1),
+    RenderJoined     = (1 << 2),
+    RenderSeparate   = (1 << 3)
+  };
+
+  /// Flags specifically for clang options.
+  enum ClangFlags {
+    DriverOption     = (1 << 4),
+    LinkerInput      = (1 << 5),
+    NoArgumentUnused = (1 << 6),
+    NoForward        = (1 << 7),
     Unsupported      = (1 << 8),
     CC1Option        = (1 << 9)
   };
@@ -68,31 +73,60 @@ namespace options {
       RenderValuesStyle
     };
 
-  private:
+  protected:
     const OptTable::Info *Info;
-
-    /// Group this option is a member of, if any.
-    const Option *Group;
-
-    /// Option that this is an alias for, if any.
-    const Option *Alias;
+    const OptTable *Owner;
 
   public:
-    Option(const OptTable::Info *Info,
-           const Option *Group, const Option *Alias);
+    Option(const OptTable::Info *Info, const OptTable *Owner);
     ~Option();
 
-    unsigned getID() const { return Info->ID; }
-    OptionClass getKind() const { return OptionClass(Info->Kind); }
-    StringRef getName() const { return Info->Name; }
-    const Option *getGroup() const { return Group; }
-    const Option *getAlias() const { return Alias; }
+    bool isValid() const {
+      return Info != 0;
+    }
+
+    unsigned getID() const {
+      assert(Info && "Must have a valid info!");
+      return Info->ID;
+    }
+
+    OptionClass getKind() const {
+      assert(Info && "Must have a valid info!");
+      return OptionClass(Info->Kind);
+    }
+
+    /// \brief Get the name of this option without any prefix.
+    StringRef getName() const {
+      assert(Info && "Must have a valid info!");
+      return Info->Name;
+    }
+
+    const Option getGroup() const {
+      assert(Info && "Must have a valid info!");
+      assert(Owner && "Must have a valid owner!");
+      return Owner->getOption(Info->GroupID);
+    }
+
+    const Option getAlias() const {
+      assert(Info && "Must have a valid info!");
+      assert(Owner && "Must have a valid owner!");
+      return Owner->getOption(Info->AliasID);
+    }
+
+    /// \brief Get the default prefix for this option.
+    StringRef getPrefix() const {
+      const char *Prefix = *Info->Prefixes;
+      return Prefix ? Prefix : StringRef();
+    }
+
+    /// \brief Get the name of this option with the default prefix.
+    std::string getPrefixedName() const {
+      std::string Ret = getPrefix();
+      Ret += getName();
+      return Ret;
+    }
 
     unsigned getNumArgs() const { return Info->Param; }
-
-    bool isUnsupported() const { return Info->Flags & options::Unsupported; }
-
-    bool isLinkerInput() const { return Info->Flags & options::LinkerInput; }
 
     bool hasNoOptAsInput() const { return Info->Flags & options::RenderAsInput;}
 
@@ -120,31 +154,23 @@ namespace options {
       llvm_unreachable("Unexpected kind!");
     }
 
-    bool isDriverOption() const { return Info->Flags & options::DriverOption; }
-
-    bool hasNoArgumentUnused() const {
-      return Info->Flags & options::NoArgumentUnused;
-    }
-
-    bool hasNoForward() const { return Info->Flags & options::NoForward; }
-
-    bool isCC1Option() const { return Info->Flags & options::CC1Option; }
-
-    bool hasForwardToGCC() const {
-      return !hasNoForward() && !isDriverOption() && !isLinkerInput();
+    /// Test if this option has the flag \a Val.
+    bool hasFlag(unsigned Val) const {
+      return Info->Flags & Val;
     }
 
     /// getUnaliasedOption - Return the final option this option
     /// aliases (itself, if the option has no alias).
-    const Option *getUnaliasedOption() const {
-      if (Alias) return Alias->getUnaliasedOption();
-      return this;
+    const Option getUnaliasedOption() const {
+      const Option Alias = getAlias();
+      if (Alias.isValid()) return Alias.getUnaliasedOption();
+      return *this;
     }
 
     /// getRenderName - Return the name to use when rendering this
     /// option.
     StringRef getRenderName() const {
-      return getUnaliasedOption()->getName();
+      return getUnaliasedOption().getName();
     }
 
     /// matches - Predicate for whether this option is part of the
@@ -162,7 +188,11 @@ namespace options {
     /// If the option accepts the current argument, accept() sets
     /// Index to the position where argument parsing should resume
     /// (even if the argument is missing values).
-    Arg *accept(const ArgList &Args, unsigned &Index) const;
+    ///
+    /// \parm ArgSize The number of bytes taken up by the matched Option prefix
+    ///               and name. This is used to determine where joined values
+    ///               start.
+    Arg *accept(const ArgList &Args, unsigned &Index, unsigned ArgSize) const;
 
     void dump() const;
   };

@@ -105,7 +105,8 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
     case AttributeList::AT_ThisCall: \
     case AttributeList::AT_Pascal: \
     case AttributeList::AT_Regparm: \
-    case AttributeList::AT_Pcs \
+    case AttributeList::AT_Pcs: \
+    case AttributeList::AT_PnaclCall \
 
 namespace {
   /// An object which stores processing state for the entire
@@ -552,19 +553,28 @@ static void maybeSynthesizeBlockSignature(TypeProcessingState &state,
   SourceLocation loc = declarator.getLocStart();
 
   // ...and *prepend* it to the declarator.
+  SourceLocation NoLoc;
   declarator.AddInnermostTypeInfo(DeclaratorChunk::getFunction(
-                             /*proto*/ true,
-                             /*variadic*/ false,
-                             /*ambiguous*/ false, SourceLocation(),
-                             /*args*/ 0, 0,
-                             /*type quals*/ 0,
-                             /*ref-qualifier*/true, SourceLocation(),
-                             /*const qualifier*/SourceLocation(),
-                             /*volatile qualifier*/SourceLocation(),
-                             /*mutable qualifier*/SourceLocation(),
-                             /*EH*/ EST_None, SourceLocation(), 0, 0, 0, 0,
-                             /*parens*/ loc, loc,
-                             declarator));
+                             /*HasProto=*/true,
+                             /*IsAmbiguous=*/false,
+                             /*LParenLoc=*/NoLoc,
+                             /*ArgInfo=*/0,
+                             /*NumArgs=*/0,
+                             /*EllipsisLoc=*/NoLoc,
+                             /*RParenLoc=*/NoLoc,
+                             /*TypeQuals=*/0,
+                             /*RefQualifierIsLvalueRef=*/true,
+                             /*RefQualifierLoc=*/NoLoc,
+                             /*ConstQualifierLoc=*/NoLoc,
+                             /*VolatileQualifierLoc=*/NoLoc,
+                             /*MutableLoc=*/NoLoc,
+                             EST_None,
+                             /*ESpecLoc=*/NoLoc,
+                             /*Exceptions=*/0,
+                             /*ExceptionRanges=*/0,
+                             /*NumExceptions=*/0,
+                             /*NoexceptExpr=*/0,
+                             loc, loc, declarator));
 
   // For consistency, make sure the state still has us as processing
   // the decl spec.
@@ -2159,16 +2169,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
   ASTContext &Context = S.Context;
   const LangOptions &LangOpts = S.getLangOpts();
 
-  bool ImplicitlyNoexcept = false;
-  if (D.getName().getKind() == UnqualifiedId::IK_OperatorFunctionId &&
-      LangOpts.CPlusPlus0x) {
-    OverloadedOperatorKind OO = D.getName().OperatorFunctionId.Operator;
-    /// In C++0x, deallocation functions (normal and array operator delete)
-    /// are implicitly noexcept.
-    if (OO == OO_Delete || OO == OO_Array_Delete)
-      ImplicitlyNoexcept = true;
-  }
-
   // The name we're declaring, if any.
   DeclarationName Name;
   if (D.getIdentifier())
@@ -2568,12 +2568,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                                       Exceptions,
                                       EPI);
 
-        if (FTI.getExceptionSpecType() == EST_None &&
-            ImplicitlyNoexcept && chunkIndex == 0) {
-          // Only the outermost chunk is marked noexcept, of course.
-          EPI.ExceptionSpecType = EST_BasicNoexcept;
-        }
-
         T = Context.getFunctionType(T, ArgTys.data(), ArgTys.size(), EPI);
       }
 
@@ -2667,6 +2661,9 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 
     // C++0x [dcl.constexpr]p8: A constexpr specifier for a non-static member
     // function that is not a constructor declares that function to be const.
+    // FIXME: This should be deferred until we know whether this is a static
+    //        member function (for an out-of-class definition, we don't know
+    //        this until we perform redeclaration lookup).
     if (D.getDeclSpec().isConstexprSpecified() && !FreeFunction &&
         D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_static &&
         D.getName().getKind() != UnqualifiedId::IK_ConstructorName &&
@@ -2678,6 +2675,12 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       T = Context.getFunctionType(FnTy->getResultType(),
                                   FnTy->arg_type_begin(),
                                   FnTy->getNumArgs(), EPI);
+      // Rebuild any parens around the identifier in the function type.
+      for (unsigned i = 0, e = D.getNumTypeObjects(); i != e; ++i) {
+        if (D.getTypeObject(i).Kind != DeclaratorChunk::Paren)
+          break;
+        T = S.BuildParenType(T);
+      }
     }
 
     // C++11 [dcl.fct]p6 (w/DR1417):
@@ -2731,6 +2734,12 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       T = Context.getFunctionType(FnTy->getResultType(),
                                   FnTy->arg_type_begin(),
                                   FnTy->getNumArgs(), EPI);
+      // Rebuild any parens around the identifier in the function type.
+      for (unsigned i = 0, e = D.getNumTypeObjects(); i != e; ++i) {
+        if (D.getTypeObject(i).Kind != DeclaratorChunk::Paren)
+          break;
+        T = S.BuildParenType(T);
+      }
     }
   }
 
@@ -2995,6 +3004,8 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
     return AttributeList::AT_Pascal;
   case AttributedType::attr_pcs:
     return AttributeList::AT_Pcs;
+  case AttributedType::attr_pnaclcall:
+    return AttributeList::AT_PnaclCall;
   }
   llvm_unreachable("unexpected attribute kind!");
 }
@@ -3281,6 +3292,8 @@ namespace {
       TL.setLocalRangeEnd(Chunk.EndLoc);
 
       const DeclaratorChunk::FunctionTypeInfo &FTI = Chunk.Fun;
+      TL.setLParenLoc(FTI.getLParenLoc());
+      TL.setRParenLoc(FTI.getRParenLoc());
       for (unsigned i = 0, e = TL.getNumArgs(), tpi = 0; i != e; ++i) {
         ParmVarDecl *Param = cast<ParmVarDecl>(FTI.ArgInfo[i].Param);
         TL.setArg(tpi++, Param);

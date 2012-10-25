@@ -420,7 +420,7 @@ private:
       NumBuckets = getNumBuckets();
     }
     if (NumBuckets-(NewNumEntries+getNumTombstones()) <= NumBuckets/8) {
-      this->grow(NumBuckets);
+      this->grow(NumBuckets * 2);
       LookupBucketFor(Key, TheBucket);
     }
     assert(TheBucket);
@@ -600,7 +600,7 @@ public:
     unsigned OldNumBuckets = NumBuckets;
     BucketT *OldBuckets = Buckets;
 
-    allocateBuckets(std::max<unsigned>(64, NextPowerOf2(AtLeast)));
+    allocateBuckets(std::max<unsigned>(64, NextPowerOf2(AtLeast-1)));
     assert(Buckets);
     if (!OldBuckets) {
       this->BaseT::initEmpty();
@@ -826,11 +826,11 @@ public:
   }
 
   void grow(unsigned AtLeast) {
-    if (AtLeast > InlineBuckets)
-      AtLeast = std::max<unsigned>(64, NextPowerOf2(AtLeast));
+    if (AtLeast >= InlineBuckets)
+      AtLeast = std::max<unsigned>(64, NextPowerOf2(AtLeast-1));
 
     if (Small) {
-      if (AtLeast <= InlineBuckets)
+      if (AtLeast < InlineBuckets)
         return; // Nothing to do.
 
       // First move the inline buckets into a temporary storage.

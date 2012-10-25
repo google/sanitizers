@@ -24,7 +24,7 @@
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/MDBuilder.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -348,7 +348,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
       for (FunctionDecl::redecl_iterator RI = FD->redecls_begin(),
              RE = FD->redecls_end(); RI != RE; ++RI)
         if (RI->isInlineSpecified()) {
-          Fn->addFnAttr(llvm::Attribute::InlineHint);
+          Fn->addFnAttr(llvm::Attributes::InlineHint);
           break;
         }
 
@@ -485,7 +485,7 @@ static void TryMarkNoThrow(llvm::Function *F) {
       } else if (isa<llvm::ResumeInst>(&*BI)) {
         return;
       }
-  F->setDoesNotThrow(true);
+  F->setDoesNotThrow();
 }
 
 void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
@@ -493,8 +493,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   const FunctionDecl *FD = cast<FunctionDecl>(GD.getDecl());
   
   // Check if we should generate debug info for this function.
-  if (CGM.getModuleDebugInfo() && !FD->hasAttr<NoDebugAttr>())
-    DebugInfo = CGM.getModuleDebugInfo();
+  if (!FD->hasAttr<NoDebugAttr>())
+    maybeInitializeDebugInfo();
 
   FunctionArgList Args;
   QualType ResTy = FD->getResultType();
@@ -534,6 +534,24 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   }
   else
     EmitFunctionBody(Args);
+
+  // C++11 [stmt.return]p2:
+  //   Flowing off the end of a function [...] results in undefined behavior in
+  //   a value-returning function.
+  // C11 6.9.1p12:
+  //   If the '}' that terminates a function is reached, and the value of the
+  //   function call is used by the caller, the behavior is undefined.
+  if (getContext().getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() &&
+      !FD->getResultType()->isVoidType() && Builder.GetInsertBlock()) {
+    if (CatchUndefined)
+      EmitCheck(Builder.getFalse(), "missing_return",
+                EmitCheckSourceLocation(FD->getLocation()),
+                llvm::ArrayRef<llvm::Value*>());
+    else if (CGM.getCodeGenOpts().OptimizationLevel == 0)
+      Builder.CreateCall(CGM.getIntrinsic(llvm::Intrinsic::trap));
+    Builder.CreateUnreachable();
+    Builder.ClearInsertionPoint();
+  }
 
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());
@@ -1027,6 +1045,7 @@ CodeGenFunction::getVLASize(const VariableArrayType *type) {
       numElements = vlaSize;
     } else {
       // It's undefined behavior if this wraps around, so mark it that way.
+      // FIXME: Teach -fcatch-undefined-behavior to trap this.
       numElements = Builder.CreateNUWMul(numElements, vlaSize);
     }
   } while ((type = getContext().getAsVariableArrayType(elementType)));
@@ -1104,10 +1123,25 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
         // e.g. with a typedef and a pointer to it.
         llvm::Value *&entry = VLASizeMap[size];
         if (!entry) {
+          llvm::Value *Size = EmitScalarExpr(size);
+
+          // C11 6.7.6.2p5:
+          //   If the size is an expression that is not an integer constant
+          //   expression [...] each time it is evaluated it shall have a value
+          //   greater than zero.
+          if (CatchUndefined && size->getType()->isSignedIntegerType()) {
+            llvm::Value *Zero = llvm::Constant::getNullValue(Size->getType());
+            llvm::Constant *StaticArgs[] = {
+              EmitCheckSourceLocation(size->getLocStart()),
+              EmitCheckTypeDescriptor(size->getType())
+            };
+            EmitCheck(Builder.CreateICmpSGT(Size, Zero),
+                      "vla_bound_not_positive", StaticArgs, Size);
+          }
+
           // Always zexting here would be wrong if it weren't
           // undefined behavior to have a negative bound.
-          entry = Builder.CreateIntCast(EmitScalarExpr(size), SizeTy,
-                                        /*signed*/ false);
+          entry = Builder.CreateIntCast(Size, SizeTy, /*signed*/ false);
         }
       }
       type = vat->getElementType();
@@ -1156,7 +1190,7 @@ void CodeGenFunction::EmitDeclRefExprDbgValue(const DeclRefExpr *E,
                                               llvm::Constant *Init) {
   assert (Init && "Invalid DeclRefExpr initializer!");
   if (CGDebugInfo *Dbg = getDebugInfo())
-    if (CGM.getCodeGenOpts().DebugInfo >= CodeGenOptions::LimitedDebugInfo)
+    if (CGM.getCodeGenOpts().getDebugInfo() >= CodeGenOptions::LimitedDebugInfo)
       Dbg->EmitGlobalVariable(E->getDecl(), Init);
 }
 

@@ -120,6 +120,24 @@ Sema::ResolveExceptionSpec(SourceLocation Loc, const FunctionProtoType *FPT) {
   return SourceDecl->getType()->castAs<FunctionProtoType>();
 }
 
+/// Determine whether a function has an implicitly-generated exception
+/// specification.
+static bool hasImplicitExceptionSpec(FunctionDecl *Decl) {
+  if (!isa<CXXDestructorDecl>(Decl) &&
+      Decl->getDeclName().getCXXOverloadedOperator() != OO_Delete &&
+      Decl->getDeclName().getCXXOverloadedOperator() != OO_Array_Delete)
+    return false;
+
+  // If the user didn't declare the function, its exception specification must
+  // be implicit.
+  if (!Decl->getTypeSourceInfo())
+    return true;
+
+  const FunctionProtoType *Ty =
+    Decl->getTypeSourceInfo()->getType()->getAs<FunctionProtoType>();
+  return !Ty->hasExceptionSpec();
+}
+
 bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   OverloadedOperatorKind OO = New->getDeclName().getCXXOverloadedOperator();
   bool IsOperatorNew = OO == OO_New || OO == OO_Array_New;
@@ -129,25 +147,35 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   if (getLangOpts().MicrosoftExt)
     DiagID = diag::warn_mismatched_exception_spec; 
 
-  if (!CheckEquivalentExceptionSpec(PDiag(DiagID),
-                                    PDiag(diag::note_previous_declaration),
-                                    Old->getType()->getAs<FunctionProtoType>(),
-                                    Old->getLocation(),
-                                    New->getType()->getAs<FunctionProtoType>(),
-                                    New->getLocation(),
-                                    &MissingExceptionSpecification,
-                                    &MissingEmptyExceptionSpecification,
-                                    /*AllowNoexceptAllMatchWithNoSpec=*/true,
-                                    IsOperatorNew))
+  // Check the types as written: they must match before any exception
+  // specification adjustment is applied.
+  if (!CheckEquivalentExceptionSpec(
+        PDiag(DiagID), PDiag(diag::note_previous_declaration),
+        Old->getType()->getAs<FunctionProtoType>(), Old->getLocation(),
+        New->getType()->getAs<FunctionProtoType>(), New->getLocation(),
+        &MissingExceptionSpecification, &MissingEmptyExceptionSpecification,
+        /*AllowNoexceptAllMatchWithNoSpec=*/true, IsOperatorNew)) {
+    // C++11 [except.spec]p4 [DR1492]:
+    //   If a declaration of a function has an implicit
+    //   exception-specification, other declarations of the function shall
+    //   not specify an exception-specification.
+    if (getLangOpts().CPlusPlus0x &&
+        hasImplicitExceptionSpec(Old) != hasImplicitExceptionSpec(New)) {
+      Diag(New->getLocation(), diag::ext_implicit_exception_spec_mismatch)
+        << hasImplicitExceptionSpec(Old);
+      if (!Old->getLocation().isInvalid())
+        Diag(Old->getLocation(), diag::note_previous_declaration);
+    }
     return false;
+  }
 
   // The failure was something other than an empty exception
   // specification; return an error.
   if (!MissingExceptionSpecification && !MissingEmptyExceptionSpecification)
     return true;
 
-  const FunctionProtoType *NewProto 
-    = New->getType()->getAs<FunctionProtoType>();
+  const FunctionProtoType *NewProto =
+    New->getType()->getAs<FunctionProtoType>();
 
   // The new function declaration is only missing an empty exception
   // specification "throw()". If the throw() specification came from a
@@ -172,8 +200,8 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   }
 
   if (MissingExceptionSpecification && NewProto) {
-    const FunctionProtoType *OldProto
-      = Old->getType()->getAs<FunctionProtoType>();
+    const FunctionProtoType *OldProto =
+      Old->getType()->getAs<FunctionProtoType>();
 
     FunctionProtoType::ExtProtoInfo EPI = NewProto->getExtProtoInfo();
     EPI.ExceptionSpecType = OldProto->getExceptionSpecType();
@@ -290,14 +318,17 @@ bool Sema::CheckEquivalentExceptionSpec(
   unsigned DiagID = diag::err_mismatched_exception_spec;
   if (getLangOpts().MicrosoftExt)
     DiagID = diag::warn_mismatched_exception_spec; 
-  return CheckEquivalentExceptionSpec(
-                                      PDiag(DiagID),
+  return CheckEquivalentExceptionSpec(PDiag(DiagID),
                                       PDiag(diag::note_previous_declaration),
                                       Old, OldLoc, New, NewLoc);
 }
 
 /// CheckEquivalentExceptionSpec - Check if the two types have compatible
 /// exception specifications. See C++ [except.spec]p3.
+///
+/// \return \c false if the exception specifications match, \c true if there is
+/// a problem. If \c true is returned, either a diagnostic has already been
+/// produced or \c *MissingExceptionSpecification is set to \c true.
 bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
                                         const PartialDiagnostic & NoteID,
                                         const FunctionProtoType *Old,

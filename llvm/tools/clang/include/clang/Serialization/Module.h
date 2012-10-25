@@ -75,6 +75,26 @@ public:
   /// \brief The file name of the module file.
   std::string FileName;
 
+  /// \brief The original source file name that was used to build the
+  /// primary AST file, which may have been modified for
+  /// relocatable-pch support.
+  std::string OriginalSourceFileName;
+
+  /// \brief The actual original source file name that was used to
+  /// build this AST file.
+  std::string ActualOriginalSourceFileName;
+
+  /// \brief The file ID for the original source file that was used to
+  /// build this AST file.
+  FileID OriginalSourceFileID;
+
+  /// \brief The directory that the PCH was originally created in. Used to
+  /// allow resolving headers even after headers+PCH was moved to a new path.
+  std::string OriginalDir;
+
+  /// \brief Whether this precompiled header is a relocatable PCH file.
+  bool RelocatablePCH;
+
   /// \brief The file entry for the module file.
   const FileEntry *File;
 
@@ -108,6 +128,18 @@ public:
   /// \brief The first source location in this module.
   SourceLocation FirstLoc;
 
+  // === Input Files ===
+  /// \brief The cursor to the start of the input-files block.
+  llvm::BitstreamCursor InputFilesCursor;
+
+  /// \brief Offsets for all of the input file entries in the AST file.
+  const uint32_t *InputFileOffsets;
+
+  /// \brief The input files that have been loaded from this AST file, along
+  /// with a bool indicating whether this was an overridden buffer.
+  std::vector<llvm::PointerIntPair<const FileEntry *, 1, bool> > 
+    InputFilesLoaded;
+
   // === Source Locations ===
 
   /// \brief Cursor used to read source location entries.
@@ -128,13 +160,6 @@ public:
 
   /// \brief SLocEntries that we're going to preload.
   SmallVector<uint64_t, 4> PreloadSLocEntries;
-
-  /// \brief The number of source location file entries in this AST file.
-  unsigned LocalNumSLocFileEntries;
-
-  /// \brief Offsets for all of the source location file entries in the
-  /// AST file.
-  const uint32_t *SLocFileOffsets;
 
   /// \brief Remapping table for source locations in this module.
   ContinuousRangeMap<uint32_t, int, 2> SLocRemap;
@@ -172,6 +197,22 @@ public:
   /// \brief The cursor to the start of the preprocessor block, which stores
   /// all of the macro definitions.
   llvm::BitstreamCursor MacroCursor;
+
+  /// \brief The number of macros in this AST file.
+  unsigned LocalNumMacros;
+
+  /// \brief Offsets of macros in the preprocessor block.
+  ///
+  /// This array is indexed by the macro ID (-1), and provides
+  /// the offset into the preprocessor block where macro definitions are
+  /// stored.
+  const uint32_t *MacroOffsets;
+
+  /// \brief Base macro ID for macros local to this module.
+  serialization::MacroID BaseMacroID;
+
+  /// \brief Remapping table for macro IDs in this module.
+  ContinuousRangeMap<uint32_t, int, 2> MacroRemap;
 
   /// \brief The offset of the start of the set of defined macros.
   uint64_t MacroStartOffset;

@@ -58,6 +58,8 @@ def warn_fe_cc_print_header_failure : Warning<
     "unable to open CC_PRINT_HEADERS file: %0 (using stderr)">;
 def warn_fe_cc_log_diagnostics_failure : Warning<
     "unable to open CC_LOG_DIAGNOSTICS file: %0 (using stderr)">;
+def err_fe_no_pch_in_dir : Error<
+    "no suitable precompiled header file found in directory '%0'">;
 
 def warn_fe_serialized_diag_failure : Warning<
     "unable to open file %0 for serializing diagnostics (%1)">,
@@ -76,6 +78,11 @@ def err_verify_invalid_content : Error<
 def err_verify_inconsistent_diags : Error<
     "'%0' diagnostics %select{expected|seen}1 but not %select{seen|expected}1: "
     "%2">;
+def err_verify_invalid_no_diags : Error<
+    "%select{expected|'expected-no-diagnostics'}0 directive cannot follow "
+    "%select{'expected-no-diagnostics' directive|other expected directives}0">;
+def err_verify_no_directives : Error<
+    "no expected directives found: consider use of 'expected-no-diagnostics'">;
 
 def note_fixit_applied : Note<"FIX-IT applied suggested code changes">;
 def note_fixit_in_macro : Note<

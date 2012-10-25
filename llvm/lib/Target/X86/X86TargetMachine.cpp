@@ -36,7 +36,7 @@ X86_32TargetMachine::X86_32TargetMachine(const Target &T, StringRef TT,
                                          Reloc::Model RM, CodeModel::Model CM,
                                          CodeGenOpt::Level OL)
   : X86TargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, false),
-    DataLayout(getSubtargetImpl()->isTargetDarwin() ?
+    DL(getSubtargetImpl()->isTargetDarwin() ?
                "e-p:32:32-f64:32:64-i64:32:64-f80:128:128-f128:128:128-"
                "n8:16:32-S128" :
                (getSubtargetImpl()->isTargetCygMing() ||
@@ -48,7 +48,8 @@ X86_32TargetMachine::X86_32TargetMachine(const Target &T, StringRef TT,
     InstrInfo(*this),
     TSInfo(*this),
     TLInfo(*this),
-    JITInfo(*this) {
+    JITInfo(*this),
+    STTI(&TLInfo), VTTI(&TLInfo) {
 }
 
 void X86_64TargetMachine::anchor() { }
@@ -59,12 +60,13 @@ X86_64TargetMachine::X86_64TargetMachine(const Target &T, StringRef TT,
                                          Reloc::Model RM, CodeModel::Model CM,
                                          CodeGenOpt::Level OL)
   : X86TargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, true),
-    DataLayout("e-p:64:64-s:64-f64:64:64-i64:64:64-f80:128:128-f128:128:128-"
+    DL("e-p:64:64-s:64-f64:64:64-i64:64:64-f80:128:128-f128:128:128-"
                "n8:16:32:64-S128"),
     InstrInfo(*this),
     TSInfo(*this),
     TLInfo(*this),
-    JITInfo(*this) {
+    JITInfo(*this),
+    STTI(&TLInfo), VTTI(&TLInfo){
 }
 
 /// X86TargetMachine ctor - Create an X86 target.

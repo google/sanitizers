@@ -10,53 +10,63 @@
 // This file describes Mips16 instructions.
 //
 //===----------------------------------------------------------------------===//
-
-//
-// RRR-type instruction format
 //
 
-class FRRR16_ins<bits<2> _f, string asmstr,  InstrItinClass itin> :
-  FRRR16<_f, (outs CPU16Regs:$rz), (ins CPU16Regs:$rx, CPU16Regs:$ry),
-         !strconcat(asmstr, "\t$rz, $rx, $ry"), [], itin>;
-
 //
-// I8_MOVR32 instruction format (used only by the MOVR32 instructio
-//
-class FI8_MOVR3216_ins<string asmstr, InstrItinClass itin>:
-       FI8_MOVR3216<(outs CPU16Regs:$rz), (ins CPURegs:$r32),
-       !strconcat(asmstr,  "\t$rz, $r32"), [], itin>;
-
-//
-// I8_MOV32R instruction format (used only by MOV32R instruction)
-//
-
-class FI8_MOV32R16_ins<string asmstr, InstrItinClass itin>:
-  FI8_MOV32R16<(outs CPURegs:$r32), (ins CPU16Regs:$rz),
-               !strconcat(asmstr,  "\t$r32, $rz"), [], itin>;
-
-
-//
-// RR-type instruction format
-//
-
-class FRR16_ins<bits<5> f, string asmstr, InstrItinClass itin> :
-  FRR16<f, (outs CPU16Regs:$rx), (ins CPU16Regs:$ry),
-        !strconcat(asmstr, "\t$rx, $ry"), [], itin> {
+// Address operand
+def mem16 : Operand<i32> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops CPU16Regs, simm16);
+  let EncoderMethod = "getMemEncoding";
 }
 
-class FRxRxRy16_ins<bits<5> f, string asmstr,
-                    InstrItinClass itin> :
-  FRR16<f, (outs CPU16Regs:$rz), (ins CPU16Regs:$rx, CPU16Regs:$ry),
-            !strconcat(asmstr, "\t$rz, $ry"),
-            [], itin> {
-  let Constraints = "$rx = $rz";
+//
+// Compare a register and immediate and place result in CC
+// Implicit use of T8
+//
+// EXT-CCRR Instruction format
+//
+class FEXT_CCRXI16_ins<bits<5> _op, string asmstr,
+                       InstrItinClass itin>:
+  FEXT_RI16<_op, (outs CPU16Regs:$cc), (ins CPU16Regs:$rx, simm16:$imm),
+            !strconcat(asmstr, "\t$rx, $imm\n\tmove\t$cc, $$t8"), [], itin> {
+  let isCodeGenOnly=1;
 }
 
-let rx=0 in
-class FRR16_JALRC_RA_only_ins<bits<1> nd_, bits<1> l_,
-                              string asmstr, InstrItinClass itin>:
-  FRR16_JALRC<nd_, l_, 1, (outs), (ins), !strconcat(asmstr, "\t $$ra"),
-              [], itin> ;
+//
+// EXT-I instruction format
+//
+class FEXT_I16_ins<bits<5> eop, string asmstr, InstrItinClass itin> :
+  FEXT_I16<eop, (outs), (ins brtarget:$imm16),
+           !strconcat(asmstr, "\t$imm16"),[], itin>;
+
+//
+// EXT-I8 instruction format
+//
+
+class FEXT_I816_ins_base<bits<3> _func, string asmstr,
+                         string asmstr2, InstrItinClass itin>:
+  FEXT_I816<_func, (outs), (ins uimm16:$imm), !strconcat(asmstr, asmstr2),
+            [], itin>;
+
+class FEXT_I816_ins<bits<3> _func, string asmstr,
+                    InstrItinClass itin>:
+  FEXT_I816_ins_base<_func, asmstr, "\t$imm", itin>;
+
+//
+// Assembler formats in alphabetical order.
+// Natural and pseudos are mixed together.
+//
+// Compare two registers and place result in CC
+// Implicit use of T8
+//
+// CC-RR Instruction format
+//
+class FCCRR16_ins<bits<5> f, string asmstr, InstrItinClass itin> :
+  FRR16<f, (outs CPU16Regs:$cc), (ins CPU16Regs:$rx, CPU16Regs:$ry),
+        !strconcat(asmstr, "\t$rx, $ry\n\tmove\t$cc, $$t8"), [], itin> {
+  let isCodeGenOnly=1;
+}
 
 //
 // EXT-RI instruction format
@@ -74,6 +84,10 @@ class FEXT_RI16_ins<bits<5> _op, string asmstr,
 class FEXT_RI16_PC_ins<bits<5> _op, string asmstr, InstrItinClass itin>:
   FEXT_RI16_ins_base<_op, asmstr, "\t$rx, $$pc, $imm", itin>;
 
+class FEXT_RI16_B_ins<bits<5> _op, string asmstr,
+                      InstrItinClass itin>:
+  FEXT_RI16<_op, (outs), (ins  CPU16Regs:$rx, brtarget:$imm),
+            !strconcat(asmstr, "\t$rx, $imm"), [], itin>;
 
 class FEXT_2RI16_ins<bits<5> _op, string asmstr,
                      InstrItinClass itin>:
@@ -81,14 +95,14 @@ class FEXT_2RI16_ins<bits<5> _op, string asmstr,
             !strconcat(asmstr, "\t$rx, $imm"), [], itin> {
   let Constraints = "$rx_ = $rx";
 }
+
+
 // this has an explicit sp argument that we ignore to work around a problem
 // in the compiler
 class FEXT_RI16_SP_explicit_ins<bits<5> _op, string asmstr,
                                 InstrItinClass itin>:
   FEXT_RI16<_op, (outs CPU16Regs:$rx), (ins CPUSPReg:$ry, simm16:$imm),
-                  !strconcat(asmstr, "\t$rx, $imm ( $ry ); "), [], itin> {
-}
-
+            !strconcat(asmstr, "\t$rx, $imm ( $ry ); "), [], itin>;
 
 //
 // EXT-RRI instruction format
@@ -112,12 +126,107 @@ class FEXT_SHIFT16_ins<bits<2> _f, string asmstr, InstrItinClass itin>:
                !strconcat(asmstr, "\t$rx, $ry, $sa"), [], itin>;
 
 //
-// Address operand
-def mem16 : Operand<i32> {
-  let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops CPU16Regs, simm16);
-  let EncoderMethod = "getMemEncoding";
+// EXT-T8I8
+//
+class FEXT_T8I816_ins<bits<3> _func, string asmstr, string asmstr2,
+                      InstrItinClass itin>:
+  FEXT_I816<_func, (outs),
+            (ins CPU16Regs:$rx, CPU16Regs:$ry, brtarget:$imm),
+            !strconcat(asmstr2, !strconcat("\t$rx, $ry\n\t",
+            !strconcat(asmstr, "\t$imm"))),[], itin> {
+  let isCodeGenOnly=1;
 }
+
+//
+// EXT-T8I8I
+//
+class FEXT_T8I8I16_ins<bits<3> _func, string asmstr, string asmstr2,
+                       InstrItinClass itin>:
+  FEXT_I816<_func, (outs),
+            (ins CPU16Regs:$rx, simm16:$imm, brtarget:$targ),
+            !strconcat(asmstr2, !strconcat("\t$rx, $imm\n\t",
+            !strconcat(asmstr, "\t$targ"))), [], itin> {
+  let isCodeGenOnly=1;
+}
+//
+
+
+//
+// I8_MOVR32 instruction format (used only by the MOVR32 instructio
+//
+class FI8_MOVR3216_ins<string asmstr, InstrItinClass itin>:
+       FI8_MOVR3216<(outs CPU16Regs:$rz), (ins CPURegs:$r32),
+       !strconcat(asmstr,  "\t$rz, $r32"), [], itin>;
+
+//
+// I8_MOV32R instruction format (used only by MOV32R instruction)
+//
+
+class FI8_MOV32R16_ins<string asmstr, InstrItinClass itin>:
+  FI8_MOV32R16<(outs CPURegs:$r32), (ins CPU16Regs:$rz),
+               !strconcat(asmstr,  "\t$r32, $rz"), [], itin>;
+
+//
+// This are pseudo formats for multiply
+// This first one can be changed to non pseudo now.
+//
+// MULT
+//
+class FMULT16_ins<string asmstr, InstrItinClass itin> :
+  MipsPseudo16<(outs), (ins CPU16Regs:$rx, CPU16Regs:$ry),
+               !strconcat(asmstr, "\t$rx, $ry"), []>;
+
+//
+// MULT-LO
+//
+class FMULT16_LO_ins<string asmstr, InstrItinClass itin> :
+  MipsPseudo16<(outs CPU16Regs:$rz), (ins CPU16Regs:$rx, CPU16Regs:$ry),
+               !strconcat(asmstr, "\t$rx, $ry\n\tmflo\t$rz"), []> {
+  let isCodeGenOnly=1;
+}
+
+//
+// RR-type instruction format
+//
+
+class FRR16_ins<bits<5> f, string asmstr, InstrItinClass itin> :
+  FRR16<f, (outs CPU16Regs:$rx), (ins CPU16Regs:$ry),
+        !strconcat(asmstr, "\t$rx, $ry"), [], itin> {
+}
+
+//
+// maybe refactor but need a $zero as a dummy first parameter
+//
+class FRR16_div_ins<bits<5> f, string asmstr, InstrItinClass itin> :
+  FRR16<f, (outs ), (ins CPU16Regs:$rx, CPU16Regs:$ry),
+        !strconcat(asmstr, "\t$$zero, $rx, $ry"), [], itin> ;
+
+class FRR16_M_ins<bits<5> f, string asmstr,
+                  InstrItinClass itin> :
+  FRR16<f, (outs CPU16Regs:$rx), (ins),
+        !strconcat(asmstr, "\t$rx"), [], itin>;
+
+class FRxRxRy16_ins<bits<5> f, string asmstr,
+                    InstrItinClass itin> :
+  FRR16<f, (outs CPU16Regs:$rz), (ins CPU16Regs:$rx, CPU16Regs:$ry),
+            !strconcat(asmstr, "\t$rz, $ry"),
+            [], itin> {
+  let Constraints = "$rx = $rz";
+}
+
+let rx=0 in
+class FRR16_JALRC_RA_only_ins<bits<1> nd_, bits<1> l_,
+                              string asmstr, InstrItinClass itin>:
+  FRR16_JALRC<nd_, l_, 1, (outs), (ins), !strconcat(asmstr, "\t $$ra"),
+              [], itin> ;
+
+//
+// RRR-type instruction format
+//
+
+class FRRR16_ins<bits<2> _f, string asmstr,  InstrItinClass itin> :
+  FRRR16<_f, (outs CPU16Regs:$rz), (ins CPU16Regs:$rx, CPU16Regs:$ry),
+         !strconcat(asmstr, "\t$rz, $rx, $ry"), [], itin>;
 
 //
 // Some general instruction class info
@@ -129,6 +238,17 @@ class ArithLogic16Defs<bit isCom=0> {
   bit isCommutable = isCom;
   bit isReMaterializable = 1;
   bit neverHasSideEffects = 1;
+}
+
+class branch16 {
+  bit isBranch = 1;
+  bit isTerminator = 1;
+  bit isBarrier = 1;
+}
+
+class cbranch16 {
+  bit isBranch = 1;
+  bit isTerminator = 1;
 }
 
 class MayLoad {
@@ -170,6 +290,87 @@ def AdduRxRyRz16: FRRR16_ins<01, "addu", IIAlu>, ArithLogic16Defs<1>;
 // To do a bitwise logical AND.
 
 def AndRxRxRy16: FRxRxRy16_ins<0b01100, "and", IIAlu>, ArithLogic16Defs<1>;
+
+
+//
+// Format: BEQZ rx, offset MIPS16e
+// Purpose: Branch on Equal to Zero (Extended)
+// To test a GPR then do a PC-relative conditional branch.
+//
+def BeqzRxImmX16: FEXT_RI16_B_ins<0b00100, "beqz", IIAlu>, cbranch16;
+
+// Format: B offset MIPS16e
+// Purpose: Unconditional Branch
+// To do an unconditional PC-relative branch.
+//
+def BimmX16: FEXT_I16_ins<0b00010, "b", IIAlu>, branch16;
+
+//
+// Format: BNEZ rx, offset MIPS16e
+// Purpose: Branch on Not Equal to Zero (Extended)
+// To test a GPR then do a PC-relative conditional branch.
+//
+def BnezRxImmX16: FEXT_RI16_B_ins<0b00101, "bnez", IIAlu>, cbranch16;
+
+//
+// Format: BTEQZ offset MIPS16e
+// Purpose: Branch on T Equal to Zero (Extended)
+// To test special register T then do a PC-relative conditional branch.
+//
+def BteqzX16: FEXT_I816_ins<0b000, "bteqz", IIAlu>, cbranch16;
+
+def BteqzT8CmpX16: FEXT_T8I816_ins<0b000, "bteqz", "cmp", IIAlu>, cbranch16;
+
+def BteqzT8CmpiX16: FEXT_T8I8I16_ins<0b000, "bteqz", "cmpi", IIAlu>,
+  cbranch16;
+
+def BteqzT8SltX16: FEXT_T8I816_ins<0b000, "bteqz", "slt", IIAlu>, cbranch16;
+
+def BteqzT8SltuX16: FEXT_T8I816_ins<0b000, "bteqz", "sltu", IIAlu>, cbranch16;
+
+def BteqzT8SltiX16: FEXT_T8I8I16_ins<0b000, "bteqz", "slti", IIAlu>, cbranch16;
+
+def BteqzT8SltiuX16: FEXT_T8I8I16_ins<0b000, "bteqz", "sltiu", IIAlu>,
+  cbranch16;
+
+//
+// Format: BTNEZ offset MIPS16e
+// Purpose: Branch on T Not Equal to Zero (Extended)
+// To test special register T then do a PC-relative conditional branch.
+//
+def BtnezX16: FEXT_I816_ins<0b001, "btnez", IIAlu> ,cbranch16;
+
+def BtnezT8CmpX16: FEXT_T8I816_ins<0b000, "btnez", "cmp", IIAlu>, cbranch16;
+
+def BtnezT8CmpiX16: FEXT_T8I8I16_ins<0b000, "btnez", "cmpi", IIAlu>, cbranch16;
+
+def BtnezT8SltX16: FEXT_T8I816_ins<0b000, "btnez", "slt", IIAlu>, cbranch16;
+
+def BtnezT8SltuX16: FEXT_T8I816_ins<0b000, "btnez", "sltu", IIAlu>, cbranch16;
+
+def BtnezT8SltiX16: FEXT_T8I8I16_ins<0b000, "btnez", "slti", IIAlu>, cbranch16;
+
+def BtnezT8SltiuX16: FEXT_T8I8I16_ins<0b000, "btnez", "sltiu", IIAlu>,
+  cbranch16;
+
+//
+// Format: DIV rx, ry MIPS16e
+// Purpose: Divide Word
+// To divide 32-bit signed integers.
+//
+def DivRxRy16: FRR16_div_ins<0b11010, "div", IIAlu> {
+  let Defs = [HI, LO];
+}
+
+//
+// Format: DIVU rx, ry MIPS16e
+// Purpose: Divide Unsigned Word
+// To divide 32-bit unsigned integers.
+//
+def DivuRxRy16: FRR16_div_ins<0b11011, "divu", IIAlu> {
+  let Defs = [HI, LO];
+}
+
 
 //
 // Format: JR ra MIPS16e
@@ -243,6 +444,63 @@ def Move32R16: FI8_MOV32R16_ins<"move", IIAlu>;
 // To move the contents of a GPR to a GPR.
 //
 def MoveR3216: FI8_MOVR3216_ins<"move", IIAlu>;
+
+//
+// Format: MFHI rx MIPS16e
+// Purpose: Move From HI Register
+// To copy the special purpose HI register to a GPR.
+//
+def Mfhi16: FRR16_M_ins<0b10000, "mfhi", IIAlu> {
+  let Uses = [HI];
+  let neverHasSideEffects = 1;
+}
+
+//
+// Format: MFLO rx MIPS16e
+// Purpose: Move From LO Register
+// To copy the special purpose LO register to a GPR.
+//
+def Mflo16: FRR16_M_ins<0b10010, "mflo", IIAlu> {
+  let Uses = [LO];
+  let neverHasSideEffects = 1;
+}
+
+//
+// Pseudo Instruction for mult
+//
+def MultRxRy16:  FMULT16_ins<"mult",  IIAlu> {
+  let isCommutable = 1;
+  let neverHasSideEffects = 1;
+  let Defs = [HI, LO];
+}
+
+def MultuRxRy16: FMULT16_ins<"multu", IIAlu> {
+  let isCommutable = 1;
+  let neverHasSideEffects = 1;
+  let Defs = [HI, LO];
+}
+
+//
+// Format: MULT rx, ry MIPS16e
+// Purpose: Multiply Word
+// To multiply 32-bit signed integers.
+//
+def MultRxRyRz16: FMULT16_LO_ins<"mult", IIAlu> {
+  let isCommutable = 1;
+  let neverHasSideEffects = 1;
+  let Defs = [HI, LO];
+}
+
+//
+// Format: MULTU rx, ry MIPS16e
+// Purpose: Multiply Unsigned Word
+// To multiply 32-bit unsigned integers.
+//
+def MultuRxRyRz16: FMULT16_LO_ins<"multu", IIAlu> {
+  let isCommutable = 1;
+  let neverHasSideEffects = 1;
+  let Defs = [HI, LO];
+}
 
 //
 // Format: NEG rx, ry MIPS16e
@@ -328,7 +586,36 @@ def SllX16: FEXT_SHIFT16_ins<0b00, "sll", IIAlu>;
 //
 def SllvRxRy16 : FRxRxRy16_ins<0b00100, "sllv", IIAlu>;
 
+//
+// Format: SLTI rx, immediate MIPS16e
+// Purpose: Set on Less Than Immediate (Extended)
+// To record the result of a less-than comparison with a constant.
+//
+def SltiCCRxImmX16: FEXT_CCRXI16_ins<0b01010, "slti", IIAlu>;
 
+//
+// Format: SLTIU rx, immediate MIPS16e
+// Purpose: Set on Less Than Immediate Unsigned (Extended)
+// To record the result of a less-than comparison with a constant.
+//
+def SltiuCCRxImmX16: FEXT_CCRXI16_ins<0b01011, "sltiu", IIAlu>;
+
+//
+// Format: SLT rx, ry MIPS16e
+// Purpose: Set on Less Than
+// To record the result of a less-than comparison.
+//
+def SltRxRy16: FRR16_ins<0b00010, "slt", IIAlu>;
+
+def SltCCRxRy16: FCCRR16_ins<0b00010, "slt", IIAlu>;
+
+// Format: SLTU rx, ry MIPS16e
+// Purpose: Set on Less Than Unsigned
+// To record the result of an unsigned less-than comparison.
+//
+
+
+def SltuCCRxRy16: FCCRR16_ins<0b00011, "sltu", IIAlu>;
 //
 // Format: SRAV ry, rx MIPS16e
 // Purpose: Shift Word Right Arithmetic Variable
@@ -413,6 +700,7 @@ class ArithLogic16_pat<SDNode OpNode, Instruction I> :
 
 def: ArithLogic16_pat<add, AdduRxRyRz16>;
 def: ArithLogic16_pat<and, AndRxRxRy16>;
+def: ArithLogic16_pat<mul, MultRxRyRz16>;
 def: ArithLogic16_pat<or, OrRxRxRy16>;
 def: ArithLogic16_pat<sub, SubuRxRyRz16>;
 def: ArithLogic16_pat<xor, XorRxRxRy16>;
@@ -452,6 +740,11 @@ def: StoreM16_pat<truncstorei8, SbRxRyOffMemX16>;
 def: StoreM16_pat<truncstorei16, ShRxRyOffMemX16>;
 def: StoreM16_pat<store, SwRxRyOffMemX16>;
 
+// Unconditional branch
+class UncondBranch16_pat<SDNode OpNode, Instruction I>:
+  Mips16Pat<(OpNode bb:$imm16), (I bb:$imm16)> {
+    let Predicates = [RelocPIC, InMips16Mode];
+  }
 
 // Jump and Link (Call)
 let isCall=1, hasDelaySlot=1 in
@@ -464,8 +757,284 @@ let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1,
   hasExtraSrcRegAllocReq = 1 in
 def RetRA16 : MipsPseudo16<(outs), (ins), "", [(MipsRet)]>;
 
+
+// setcc patterns
+
+class SetCC_R16<PatFrag cond_op, Instruction I>:
+  Mips16Pat<(cond_op CPU16Regs:$rx, CPU16Regs:$ry),
+            (I CPU16Regs:$rx, CPU16Regs:$ry)>;
+
+class SetCC_I16<PatFrag cond_op, PatLeaf imm_type, Instruction I>:
+  Mips16Pat<(cond_op CPU16Regs:$rx, imm_type:$imm16),
+            (I   CPU16Regs:$rx, imm_type:$imm16)>;
+
+
+//
+// Some branch conditional patterns are not generated by llvm at this time.
+// Some are for seemingly arbitrary reasons not used: i.e. with signed number
+// comparison they are used and for unsigned a different pattern is used.
+// I am pushing upstream from the full mips16 port and it seemed that I needed
+// these earlier and the mips32 port has these but now I cannot create test
+// cases that use these patterns. While I sort this all out I will leave these
+// extra patterns commented out and if I can be sure they are really not used,
+// I will delete the code. I don't want to check the code in uncommented without
+// a valid test case. In some cases, the compiler is generating patterns with
+// setcc instead and earlier I had implemented setcc first so may have masked
+// the problem. The setcc variants are suboptimal for mips16 so I may wantto
+// figure out how to enable the brcond patterns or else possibly new
+// combinations of of brcond and setcc.
+//
+//
+// bcond-seteq
+//
+def: Mips16Pat
+  <(brcond (i32 (seteq CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+   (BteqzT8CmpX16 CPU16Regs:$rx, CPU16Regs:$ry,  bb:$imm16)
+  >;
+
+
+def: Mips16Pat
+  <(brcond (i32 (seteq CPU16Regs:$rx, immZExt16:$imm)), bb:$targ16),
+   (BteqzT8CmpiX16 CPU16Regs:$rx, immSExt16:$imm,  bb:$targ16)
+  >;
+
+def: Mips16Pat
+  <(brcond (i32 (seteq CPU16Regs:$rx, 0)), bb:$targ16),
+   (BeqzRxImmX16 CPU16Regs:$rx, bb:$targ16)
+  >;
+
+//
+// bcond-setgt (do we need to have this pair of setlt, setgt??)
+//
+def: Mips16Pat
+  <(brcond (i32 (setgt CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+   (BtnezT8SltX16 CPU16Regs:$ry, CPU16Regs:$rx,  bb:$imm16)
+  >;
+
+//
+// bcond-setge
+//
+def: Mips16Pat
+  <(brcond (i32 (setge CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+   (BteqzT8SltX16 CPU16Regs:$rx, CPU16Regs:$ry,  bb:$imm16)
+  >;
+
+//
+// never called because compiler transforms a >= k to a > (k-1)
+def: Mips16Pat
+  <(brcond (i32 (setge CPU16Regs:$rx, immSExt16:$imm)), bb:$imm16),
+   (BteqzT8SltiX16 CPU16Regs:$rx, immSExt16:$imm,  bb:$imm16)
+  >;
+
+//
+// bcond-setlt
+//
+def: Mips16Pat
+  <(brcond (i32 (setlt CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+   (BtnezT8SltX16 CPU16Regs:$rx, CPU16Regs:$ry,  bb:$imm16)
+  >;
+
+def: Mips16Pat
+  <(brcond (i32 (setlt CPU16Regs:$rx, immSExt16:$imm)), bb:$imm16),
+   (BtnezT8SltiX16 CPU16Regs:$rx, immSExt16:$imm,  bb:$imm16)
+  >;
+
+//
+// bcond-setle
+//
+def: Mips16Pat
+  <(brcond (i32 (setle CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+   (BteqzT8SltX16 CPU16Regs:$ry, CPU16Regs:$rx,  bb:$imm16)
+  >;
+
+//
+// bcond-setne
+//
+def: Mips16Pat
+  <(brcond (i32 (setne CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+   (BtnezT8CmpX16 CPU16Regs:$rx, CPU16Regs:$ry,  bb:$imm16)
+  >;
+
+def: Mips16Pat
+  <(brcond (i32 (setne CPU16Regs:$rx, immZExt16:$imm)), bb:$targ16),
+   (BtnezT8CmpiX16 CPU16Regs:$rx, immSExt16:$imm,  bb:$targ16)
+  >;
+
+def: Mips16Pat
+  <(brcond (i32 (setne CPU16Regs:$rx, 0)), bb:$targ16),
+   (BnezRxImmX16 CPU16Regs:$rx, bb:$targ16)
+  >;
+
+//
+// This needs to be there but I forget which code will generate it
+//
+def: Mips16Pat
+  <(brcond CPU16Regs:$rx, bb:$targ16),
+   (BnezRxImmX16 CPU16Regs:$rx, bb:$targ16)
+  >;
+
+//
+
+//
+// bcond-setugt
+//
+//def: Mips16Pat
+//  <(brcond (i32 (setugt CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+//   (BtnezT8SltuX16 CPU16Regs:$ry, CPU16Regs:$rx,  bb:$imm16)
+//  >;
+
+//
+// bcond-setuge
+//
+//def: Mips16Pat
+//  <(brcond (i32 (setuge CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+//   (BteqzT8SltuX16 CPU16Regs:$rx, CPU16Regs:$ry,  bb:$imm16)
+//  >;
+
+
+//
+// bcond-setult
+//
+//def: Mips16Pat
+//  <(brcond (i32 (setult CPU16Regs:$rx, CPU16Regs:$ry)), bb:$imm16),
+//   (BtnezT8SltuX16 CPU16Regs:$rx, CPU16Regs:$ry,  bb:$imm16)
+//  >;
+
+def: UncondBranch16_pat<br, BimmX16>;
+
 // Small immediates
+def: Mips16Pat<(i32 immSExt16:$in),
+               (AddiuRxRxImmX16 (Move32R16 ZERO), immSExt16:$in)>;
+
 def: Mips16Pat<(i32 immZExt16:$in), (LiRxImmX16 immZExt16:$in)>;
+
+//
+// MipsDivRem
+//
+def: Mips16Pat
+  <(MipsDivRem CPU16Regs:$rx, CPU16Regs:$ry),
+   (DivRxRy16 CPU16Regs:$rx, CPU16Regs:$ry)>;
+
+//
+// MipsDivRemU
+//
+def: Mips16Pat
+  <(MipsDivRemU CPU16Regs:$rx, CPU16Regs:$ry),
+   (DivuRxRy16 CPU16Regs:$rx, CPU16Regs:$ry)>;
+
+
+//
+// When writing C code to test setxx these patterns,
+// some will be transformed into
+// other things. So we test using C code but using -O3 and -O0
+//
+// seteq
+//
+def : Mips16Pat
+  <(seteq CPU16Regs:$lhs,CPU16Regs:$rhs),
+   (SltiuCCRxImmX16 (XorRxRxRy16 CPU16Regs:$lhs, CPU16Regs:$rhs), 1)>;
+
+def : Mips16Pat
+  <(seteq CPU16Regs:$lhs, 0),
+   (SltiuCCRxImmX16 CPU16Regs:$lhs, 1)>;
+
+
+//
+// setge
+//
+
+def: Mips16Pat
+  <(setge CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (XorRxRxRy16 (SltCCRxRy16 CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (LiRxImmX16 1))>;
+
+//
+// For constants, llvm transforms this to:
+// x > (k -1) and then reverses the operands to use setlt. So this pattern
+// is not used now by the compiler. (Presumably checking that k-1 does not
+// overflow). The compiler never uses this at a the current time, due to
+// other optimizations.
+//
+//def: Mips16Pat
+//  <(setge CPU16Regs:$lhs, immSExt16:$rhs),
+//   (XorRxRxRy16 (SltiCCRxImmX16 CPU16Regs:$lhs, immSExt16:$rhs),
+//   (LiRxImmX16 1))>;
+
+// This catches the x >= -32768 case by transforming it to  x > -32769
+//
+def: Mips16Pat
+  <(setgt CPU16Regs:$lhs, -32769),
+   (XorRxRxRy16 (SltiCCRxImmX16 CPU16Regs:$lhs, -32768),
+   (LiRxImmX16 1))>;
+
+//
+// setgt
+//
+//
+
+def: Mips16Pat
+  <(setgt CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (SltCCRxRy16 CPU16Regs:$rhs, CPU16Regs:$lhs)>;
+
+//
+// setle
+//
+def: Mips16Pat
+  <(setle CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (XorRxRxRy16 (SltCCRxRy16 CPU16Regs:$rhs, CPU16Regs:$lhs), (LiRxImmX16 1))>;
+
+//
+// setlt
+//
+def: SetCC_R16<setlt, SltCCRxRy16>;
+
+def: SetCC_I16<setlt, immSExt16, SltiCCRxImmX16>;
+
+//
+// setne
+//
+def : Mips16Pat
+  <(setne CPU16Regs:$lhs,CPU16Regs:$rhs),
+   (SltuCCRxRy16 (LiRxImmX16 0),
+   (XorRxRxRy16 CPU16Regs:$lhs, CPU16Regs:$rhs))>;
+
+
+//
+// setuge
+//
+def: Mips16Pat
+  <(setuge CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (XorRxRxRy16 (SltuCCRxRy16 CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (LiRxImmX16 1))>;
+
+// this pattern will never be used because the compiler will transform
+// x >= k to x > (k - 1) and then use SLT
+//
+//def: Mips16Pat
+//  <(setuge CPU16Regs:$lhs, immZExt16:$rhs),
+//   (XorRxRxRy16 (SltiuCCRxImmX16 CPU16Regs:$lhs, immZExt16:$rhs),
+//    (LiRxImmX16 1))>;
+
+//
+// setugt
+//
+def: Mips16Pat
+  <(setugt CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (SltuCCRxRy16 CPU16Regs:$rhs, CPU16Regs:$lhs)>;
+
+//
+// setule
+//
+def: Mips16Pat
+  <(setule CPU16Regs:$lhs, CPU16Regs:$rhs),
+   (XorRxRxRy16 (SltuCCRxRy16 CPU16Regs:$rhs, CPU16Regs:$lhs), (LiRxImmX16 1))>;
+
+//
+// setult
+//
+def: SetCC_R16<setult, SltuCCRxRy16>;
+
+def: SetCC_I16<setult, immSExt16, SltiuCCRxImmX16>;
 
 def: Mips16Pat<(add CPU16Regs:$hi, (MipsLo tglobaladdr:$lo)),
                (AddiuRxRxImmX16 CPU16Regs:$hi, tglobaladdr:$lo)>;

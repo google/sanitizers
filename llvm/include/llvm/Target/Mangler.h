@@ -22,7 +22,7 @@ class GlobalValue;
 template <typename T> class SmallVectorImpl;
 class MCContext;
 class MCSymbol;
-class TargetData;
+class DataLayout;
 
 class Mangler {
 public:
@@ -34,7 +34,7 @@ public:
 
 private:
   MCContext &Context;
-  const TargetData &TD;
+  const DataLayout &TD;
 
   /// AnonGlobalIDs - We need to give global values the same name every time
   /// they are mangled.  This keeps track of the number we give to anonymous
@@ -47,20 +47,19 @@ private:
   unsigned NextAnonGlobalID;
 
 public:
-  Mangler(MCContext &context, const TargetData &td)
+  Mangler(MCContext &context, const DataLayout &td)
     : Context(context), TD(td), NextAnonGlobalID(1) {}
 
   /// getSymbol - Return the MCSymbol for the specified global value.  This
   /// symbol is the main label that is the address of the global.
   MCSymbol *getSymbol(const GlobalValue *GV);
 
-  
   /// getNameWithPrefix - Fill OutName with the name of the appropriate prefix
   /// and the specified global variable's name.  If the global variable doesn't
   /// have a name, this fills in a unique name for the global.
   void getNameWithPrefix(SmallVectorImpl<char> &OutName, const GlobalValue *GV,
                          bool isImplicitlyPrivate);
-  
+
   /// getNameWithPrefix - Fill OutName with the name of the appropriate prefix
   /// and the specified name as the global variable name.  GVName must not be
   /// empty.

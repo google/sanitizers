@@ -93,7 +93,7 @@ bool TGParser::SetValue(Record *CurRec, SMLoc Loc, Init *ValName,
   // Do not allow assignments like 'X = X'.  This will just cause infinite loops
   // in the resolution machinery.
   if (BitList.empty())
-    if (VarInit *VI = dynamic_cast<VarInit*>(V))
+    if (VarInit *VI = dyn_cast<VarInit>(V))
       if (VI->getNameInit() == ValName)
         return false;
 
@@ -102,7 +102,7 @@ bool TGParser::SetValue(Record *CurRec, SMLoc Loc, Init *ValName,
   // initializer.
   //
   if (!BitList.empty()) {
-    BitsInit *CurVal = dynamic_cast<BitsInit*>(RV->getValue());
+    BitsInit *CurVal = dyn_cast<BitsInit>(RV->getValue());
     if (CurVal == 0)
       return Error(Loc, "Value '" + ValName->getAsUnquotedString()
                    + "' is not a bits type");
@@ -110,12 +110,11 @@ bool TGParser::SetValue(Record *CurRec, SMLoc Loc, Init *ValName,
     // Convert the incoming value to a bits type of the appropriate size...
     Init *BI = V->convertInitializerTo(BitsRecTy::get(BitList.size()));
     if (BI == 0) {
-      V->convertInitializerTo(BitsRecTy::get(BitList.size()));
       return Error(Loc, "Initializer is not compatible with bit range");
     }
 
     // We should have a BitsInit type now.
-    BitsInit *BInit = dynamic_cast<BitsInit*>(BI);
+    BitsInit *BInit = dyn_cast<BitsInit>(BI);
     assert(BInit != 0);
 
     SmallVector<Init *, 16> NewBits(CurVal->getNumBits());
@@ -311,7 +310,7 @@ bool TGParser::ProcessForeachDefs(Record *CurRec, SMLoc Loc, IterSet &IterVals){
   if (IterVals.size() != Loops.size()) {
     assert(IterVals.size() < Loops.size());
     ForeachLoop &CurLoop = Loops[IterVals.size()];
-    ListInit *List = dynamic_cast<ListInit *>(CurLoop.ListValue);
+    ListInit *List = dyn_cast<ListInit>(CurLoop.ListValue);
     if (List == 0) {
       Error(Loc, "Loop list is not a list");
       return true;
@@ -336,7 +335,7 @@ bool TGParser::ProcessForeachDefs(Record *CurRec, SMLoc Loc, IterSet &IterVals){
   // Set the iterator values now.
   for (unsigned i = 0, e = IterVals.size(); i != e; ++i) {
     VarInit *IterVar = IterVals[i].IterVar;
-    TypedInit *IVal = dynamic_cast<TypedInit *>(IterVals[i].IterValue);
+    TypedInit *IVal = dyn_cast<TypedInit>(IterVals[i].IterValue);
     if (IVal == 0) {
       Error(Loc, "foreach iterator value is untyped");
       return true;
@@ -407,8 +406,7 @@ Init *TGParser::ParseObjectName(MultiClass *CurMultiClass) {
 
   RecTy *Type = 0;
   if (CurRec) {
-    const TypedInit *CurRecName =
-      dynamic_cast<const TypedInit *>(CurRec->getNameInit());
+    const TypedInit *CurRecName = dyn_cast<TypedInit>(CurRec->getNameInit());
     if (!CurRecName) {
       TokError("Record name is not typed!");
       return 0;
@@ -781,7 +779,7 @@ Init *TGParser::ParseIDValue(Record *CurRec,
   for (LoopVector::iterator i = Loops.begin(), iend = Loops.end();
        i != iend;
        ++i) {
-    VarInit *IterVar = dynamic_cast<VarInit *>(i->IterVar);
+    VarInit *IterVar = dyn_cast<VarInit>(i->IterVar);
     if (IterVar && IterVar->getName() == Name)
       return IterVar;
   }
@@ -856,16 +854,16 @@ Init *TGParser::ParseOperation(Record *CurRec) {
     if (Code == UnOpInit::HEAD
         || Code == UnOpInit::TAIL
         || Code == UnOpInit::EMPTY) {
-      ListInit *LHSl = dynamic_cast<ListInit*>(LHS);
-      StringInit *LHSs = dynamic_cast<StringInit*>(LHS);
-      TypedInit *LHSt = dynamic_cast<TypedInit*>(LHS);
+      ListInit *LHSl = dyn_cast<ListInit>(LHS);
+      StringInit *LHSs = dyn_cast<StringInit>(LHS);
+      TypedInit *LHSt = dyn_cast<TypedInit>(LHS);
       if (LHSl == 0 && LHSs == 0 && LHSt == 0) {
         TokError("expected list or string type argument in unary operator");
         return 0;
       }
       if (LHSt) {
-        ListRecTy *LType = dynamic_cast<ListRecTy*>(LHSt->getType());
-        StringRecTy *SType = dynamic_cast<StringRecTy*>(LHSt->getType());
+        ListRecTy *LType = dyn_cast<ListRecTy>(LHSt->getType());
+        StringRecTy *SType = dyn_cast<StringRecTy>(LHSt->getType());
         if (LType == 0 && SType == 0) {
           TokError("expected list or string type argumnet in unary operator");
           return 0;
@@ -885,7 +883,7 @@ Init *TGParser::ParseOperation(Record *CurRec) {
         }
         if (LHSl) {
           Init *Item = LHSl->getElement(0);
-          TypedInit *Itemt = dynamic_cast<TypedInit*>(Item);
+          TypedInit *Itemt = dyn_cast<TypedInit>(Item);
           if (Itemt == 0) {
             TokError("untyped list element in unary operator");
             return 0;
@@ -897,7 +895,7 @@ Init *TGParser::ParseOperation(Record *CurRec) {
           }
         } else {
           assert(LHSt && "expected list type argument in unary operator");
-          ListRecTy *LType = dynamic_cast<ListRecTy*>(LHSt->getType());
+          ListRecTy *LType = dyn_cast<ListRecTy>(LHSt->getType());
           if (LType == 0) {
             TokError("expected list type argumnet in unary operator");
             return 0;
@@ -1047,24 +1045,24 @@ Init *TGParser::ParseOperation(Record *CurRec) {
       RecTy *MHSTy = 0;
       RecTy *RHSTy = 0;
 
-      if (TypedInit *MHSt = dynamic_cast<TypedInit*>(MHS))
+      if (TypedInit *MHSt = dyn_cast<TypedInit>(MHS))
         MHSTy = MHSt->getType();
-      if (BitsInit *MHSbits = dynamic_cast<BitsInit*>(MHS))
+      if (BitsInit *MHSbits = dyn_cast<BitsInit>(MHS))
         MHSTy = BitsRecTy::get(MHSbits->getNumBits());
-      if (dynamic_cast<BitInit*>(MHS))
+      if (isa<BitInit>(MHS))
         MHSTy = BitRecTy::get();
 
-      if (TypedInit *RHSt = dynamic_cast<TypedInit*>(RHS))
+      if (TypedInit *RHSt = dyn_cast<TypedInit>(RHS))
         RHSTy = RHSt->getType();
-      if (BitsInit *RHSbits = dynamic_cast<BitsInit*>(RHS))
+      if (BitsInit *RHSbits = dyn_cast<BitsInit>(RHS))
         RHSTy = BitsRecTy::get(RHSbits->getNumBits());
-      if (dynamic_cast<BitInit*>(RHS))
+      if (isa<BitInit>(RHS))
         RHSTy = BitRecTy::get();
 
       // For UnsetInit, it's typed from the other hand.
-      if (dynamic_cast<UnsetInit*>(MHS))
+      if (isa<UnsetInit>(MHS))
         MHSTy = RHSTy;
-      if (dynamic_cast<UnsetInit*>(RHS))
+      if (isa<UnsetInit>(RHS))
         RHSTy = MHSTy;
 
       if (!MHSTy || !RHSTy) {
@@ -1083,7 +1081,7 @@ Init *TGParser::ParseOperation(Record *CurRec) {
       break;
     }
     case tgtok::XForEach: {
-      TypedInit *MHSt = dynamic_cast<TypedInit *>(MHS);
+      TypedInit *MHSt = dyn_cast<TypedInit>(MHS);
       if (MHSt == 0) {
         TokError("could not get type for !foreach");
         return 0;
@@ -1092,7 +1090,7 @@ Init *TGParser::ParseOperation(Record *CurRec) {
       break;
     }
     case tgtok::XSubst: {
-      TypedInit *RHSt = dynamic_cast<TypedInit *>(RHS);
+      TypedInit *RHSt = dyn_cast<TypedInit>(RHS);
       if (RHSt == 0) {
         TokError("could not get type for !subst");
         return 0;
@@ -1271,7 +1269,7 @@ Init *TGParser::ParseSimpleValue(Record *CurRec, RecTy *ItemType,
     ListRecTy *GivenListTy = 0;
 
     if (ItemType != 0) {
-      ListRecTy *ListType = dynamic_cast<ListRecTy*>(ItemType);
+      ListRecTy *ListType = dyn_cast<ListRecTy>(ItemType);
       if (ListType == 0) {
         std::stringstream s;
         s << "Type mismatch for list, expected list type, got "
@@ -1316,7 +1314,7 @@ Init *TGParser::ParseSimpleValue(Record *CurRec, RecTy *ItemType,
     for (std::vector<Init *>::iterator i = Vals.begin(), ie = Vals.end();
          i != ie;
          ++i) {
-      TypedInit *TArg = dynamic_cast<TypedInit*>(*i);
+      TypedInit *TArg = dyn_cast<TypedInit>(*i);
       if (TArg == 0) {
         TokError("Untyped list element");
         return 0;
@@ -1499,7 +1497,7 @@ Init *TGParser::ParseValue(Record *CurRec, RecTy *ItemType, IDParseMode Mode) {
       // Create a !strconcat() operation, first casting each operand to
       // a string if necessary.
 
-      TypedInit *LHS = dynamic_cast<TypedInit *>(Result);
+      TypedInit *LHS = dyn_cast<TypedInit>(Result);
       if (!LHS) {
         Error(PasteLoc, "LHS of paste is not typed!");
         return 0;
@@ -1526,7 +1524,7 @@ Init *TGParser::ParseValue(Record *CurRec, RecTy *ItemType, IDParseMode Mode) {
 
       default:
         Init *RHSResult = ParseValue(CurRec, ItemType, ParseNameMode);
-        RHS = dynamic_cast<TypedInit *>(RHSResult);
+        RHS = dyn_cast<TypedInit>(RHSResult);
         if (!RHS) {
           Error(PasteLoc, "RHS of paste is not typed!");
           return 0;
@@ -1717,13 +1715,13 @@ VarInit *TGParser::ParseForeachDeclaration(ListInit *&ForeachListValue) {
   default: TokError("Unknown token when expecting a range list"); return 0;
   case tgtok::l_square: { // '[' ValueList ']'
     Init *List = ParseSimpleValue(0, 0, ParseForeachMode);
-    ForeachListValue = dynamic_cast<ListInit*>(List);
+    ForeachListValue = dyn_cast<ListInit>(List);
     if (ForeachListValue == 0) {
       TokError("Expected a Value list");
       return 0;
     }
     RecTy *ValueType = ForeachListValue->getType();
-    ListRecTy *ListType = dynamic_cast<ListRecTy *>(ValueType);
+    ListRecTy *ListType = dyn_cast<ListRecTy>(ValueType);
     if (ListType == 0) {
       TokError("Value list is not of list type");
       return 0;
@@ -2258,7 +2256,7 @@ InstantiateMulticlassDef(MultiClass &MC,
 
   Init *DefName = DefProto->getNameInit();
 
-  StringInit *DefNameString = dynamic_cast<StringInit *>(DefName);
+  StringInit *DefNameString = dyn_cast<StringInit>(DefName);
 
   if (DefNameString != 0) {
     // We have a fully expanded string so there are no operators to

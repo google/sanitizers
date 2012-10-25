@@ -47,7 +47,6 @@ typedef uint16_t  U2;
 typedef uint32_t  U4;
 typedef uint64_t  U8;
 
-static const char *progname;
 static const int kPageSize = 4096;
 
 // Simple stand-alone pseudorandom number generator.
@@ -300,7 +299,7 @@ TEST(AddressSanitizer, OOBRightTest) {
 }
 
 TEST(AddressSanitizer, UAF_char) {
-  const char *uaf_string = "AddressSanitizer.*heap-use-after-free";
+  const char *uaf_string = "AddressSanitizer:.*heap-use-after-free";
   EXPECT_DEATH(uaf_test<U1>(1, 0), uaf_string);
   EXPECT_DEATH(uaf_test<U1>(10, 0), uaf_string);
   EXPECT_DEATH(uaf_test<U1>(10, 10), uaf_string);
@@ -357,7 +356,7 @@ TEST(AddressSanitizer, OutOfMemoryTest) {
 #if ASAN_NEEDS_SEGV
 namespace {
 
-const char kUnknownCrash[] = "AddressSanitizer crashed on unknown address";
+const char kUnknownCrash[] = "AddressSanitizer: SEGV on unknown address";
 const char kOverriddenHandler[] = "ASan signal handler has been overridden\n";
 
 TEST(AddressSanitizer, WildAddressTest) {
@@ -503,7 +502,7 @@ TEST(AddressSanitizer, ReallocTest) {
 
 #ifndef __APPLE__
 static const char *kMallocUsableSizeErrorMsg =
-  "AddressSanitizer attempting to call malloc_usable_size()";
+  "AddressSanitizer: attempting to call malloc_usable_size()";
 
 TEST(AddressSanitizer, MallocUsableSizeTest) {
   const size_t kArraySize = 100;
@@ -529,7 +528,7 @@ void WrongFree() {
 
 TEST(AddressSanitizer, WrongFreeTest) {
   EXPECT_DEATH(WrongFree(),
-               "ERROR: AddressSanitizer attempting free.*not malloc");
+               "ERROR: AddressSanitizer: attempting free.*not malloc");
 }
 
 void DoubleFree() {
@@ -543,7 +542,7 @@ void DoubleFree() {
 
 TEST(AddressSanitizer, DoubleFreeTest) {
   EXPECT_DEATH(DoubleFree(), ASAN_PCRE_DOTALL
-               "ERROR: AddressSanitizer attempting double-free"
+               "ERROR: AddressSanitizer: attempting double-free"
                ".*is located 0 bytes inside of 400-byte region"
                ".*freed by thread T0 here"
                ".*previously allocated by thread T0 here");
@@ -753,7 +752,7 @@ TEST(AddressSanitizer, Store128Test) {
   assert(((uintptr_t)p % 16) == 0);
   __m128i value_wide = _mm_set1_epi16(0x1234);
   EXPECT_DEATH(_mm_store_si128((__m128i*)p, value_wide),
-               "AddressSanitizer heap-buffer-overflow");
+               "AddressSanitizer: heap-buffer-overflow");
   EXPECT_DEATH(_mm_store_si128((__m128i*)p, value_wide),
                "WRITE of size 16");
   EXPECT_DEATH(_mm_store_si128((__m128i*)p, value_wide),
@@ -1078,8 +1077,14 @@ TEST(AddressSanitizer, StrNCpyOOBTest) {
   free(from);
 }
 
-typedef char*(*PointerToStrChr)(const char*, int);
-void RunStrChrTest(PointerToStrChr StrChr) {
+// Users may have different definitions of "strchr" and "index", so provide
+// function pointer typedefs and overload RunStrChrTest implementation.
+// We can't use macro for RunStrChrTest body here, as this macro would
+// confuse EXPECT_DEATH gtest macro.
+typedef char*(*PointerToStrChr1)(const char*, int);
+typedef char*(*PointerToStrChr2)(char*, int);
+
+USED static void RunStrChrTest(PointerToStrChr1 StrChr) {
   size_t size = Ident(100);
   char *str = MallocAndMemsetString(size);
   str[10] = 'q';
@@ -1095,6 +1100,23 @@ void RunStrChrTest(PointerToStrChr StrChr) {
   EXPECT_DEATH(Ident(StrChr(str, 'a')), RightOOBErrorMessage(0));
   free(str);
 }
+USED static void RunStrChrTest(PointerToStrChr2 StrChr) {
+  size_t size = Ident(100);
+  char *str = MallocAndMemsetString(size);
+  str[10] = 'q';
+  str[11] = '\0';
+  EXPECT_EQ(str, StrChr(str, 'z'));
+  EXPECT_EQ(str + 10, StrChr(str, 'q'));
+  EXPECT_EQ(NULL, StrChr(str, 'a'));
+  // StrChr argument points to not allocated memory.
+  EXPECT_DEATH(Ident(StrChr(str - 1, 'z')), LeftOOBErrorMessage(1));
+  EXPECT_DEATH(Ident(StrChr(str + size, 'z')), RightOOBErrorMessage(0));
+  // Overwrite the terminator and hit not allocated memory.
+  str[11] = 'z';
+  EXPECT_DEATH(Ident(StrChr(str, 'a')), RightOOBErrorMessage(0));
+  free(str);
+}
+
 TEST(AddressSanitizer, StrChrAndIndexOOBTest) {
   RunStrChrTest(&strchr);
   RunStrChrTest(&index);
@@ -1615,7 +1637,7 @@ TEST(AddressSanitizer, ShadowGapTest) {
 #else
   char *addr = (char*)0x0000100000080000;
 #endif
-  EXPECT_DEATH(*addr = 1, "AddressSanitizer crashed on unknown");
+  EXPECT_DEATH(*addr = 1, "AddressSanitizer: SEGV on unknown");
 }
 #endif  // ASAN_NEEDS_SEGV
 
@@ -1717,7 +1739,7 @@ TEST(AddressSanitizer, LocalReferenceReturnTest) {
   // Call 'f' a few more times, 'p' should still be poisoned.
   for (int i = 0; i < 32; i++)
     f();
-  EXPECT_DEATH(*p = 1, "AddressSanitizer stack-use-after-return");
+  EXPECT_DEATH(*p = 1, "AddressSanitizer: stack-use-after-return");
   EXPECT_DEATH(*p = 1, "is located.*in frame .*ReturnsPointerToALocal");
 }
 #endif
@@ -1811,7 +1833,7 @@ TEST(AddressSanitizer, LargeStructCopyTest) {
   *Ident(&a) = *Ident(&a);
 }
 
-__attribute__((no_address_safety_analysis))
+ATTRIBUTE_NO_ADDRESS_SAFETY_ANALYSIS
 static void NoAddressSafety() {
   char *foo = new char[10];
   Ident(foo)[10] = 0;
@@ -1917,7 +1939,7 @@ TEST(AddressSanitizer, BufferOverflowAfterManyFrees) {
     delete [] (Ident(new char [8644]));
   }
   char *x = new char[8192];
-  EXPECT_DEATH(x[Ident(8192)] = 0, "AddressSanitizer heap-buffer-overflow");
+  EXPECT_DEATH(x[Ident(8192)] = 0, "AddressSanitizer: heap-buffer-overflow");
   delete [] Ident(x);
 }
 
@@ -2144,11 +2166,4 @@ TEST(AddressSanitizer, LongDoubleNegativeTest) {
   static long double c;
   memcpy(Ident(&a), Ident(&b), sizeof(long double));
   memcpy(Ident(&c), Ident(&b), sizeof(long double));
-}
-
-int main(int argc, char **argv) {
-  progname = argv[0];
-  testing::GTEST_FLAG(death_test_style) = "threadsafe";
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

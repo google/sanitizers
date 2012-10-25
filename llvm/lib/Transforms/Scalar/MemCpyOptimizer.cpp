@@ -27,7 +27,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <list>
@@ -39,7 +39,7 @@ STATISTIC(NumMoveToCpy,   "Number of memmoves converted to memcpy");
 STATISTIC(NumCpyToSet,    "Number of memcpys converted to memset");
 
 static int64_t GetOffsetFromIndex(const GEPOperator *GEP, unsigned Idx,
-                                  bool &VariableIdxFound, const TargetData &TD){
+                                  bool &VariableIdxFound, const DataLayout &TD){
   // Skip over the first indices.
   gep_type_iterator GTI = gep_type_begin(GEP);
   for (unsigned i = 1; i != Idx; ++i, ++GTI)
@@ -72,7 +72,7 @@ static int64_t GetOffsetFromIndex(const GEPOperator *GEP, unsigned Idx,
 /// constant offset, and return that constant offset.  For example, Ptr1 might
 /// be &A[42], and Ptr2 might be &A[40].  In this case offset would be -8.
 static bool IsPointerOffset(Value *Ptr1, Value *Ptr2, int64_t &Offset,
-                            const TargetData &TD) {
+                            const DataLayout &TD) {
   Ptr1 = Ptr1->stripPointerCasts();
   Ptr2 = Ptr2->stripPointerCasts();
   GEPOperator *GEP1 = dyn_cast<GEPOperator>(Ptr1);
@@ -141,12 +141,12 @@ struct MemsetRange {
   /// TheStores - The actual stores that make up this range.
   SmallVector<Instruction*, 16> TheStores;
 
-  bool isProfitableToUseMemset(const TargetData &TD) const;
+  bool isProfitableToUseMemset(const DataLayout &TD) const;
 
 };
 } // end anon namespace
 
-bool MemsetRange::isProfitableToUseMemset(const TargetData &TD) const {
+bool MemsetRange::isProfitableToUseMemset(const DataLayout &TD) const {
   // If we found more than 4 stores to merge or 16 bytes, use memset.
   if (TheStores.size() >= 4 || End-Start >= 16) return true;
 
@@ -174,10 +174,11 @@ bool MemsetRange::isProfitableToUseMemset(const TargetData &TD) const {
   // this width can be stored.  If so, check to see whether we will end up
   // actually reducing the number of stores used.
   unsigned Bytes = unsigned(End-Start);
-  unsigned NumPointerStores = Bytes/TD.getPointerSize();
+  unsigned AS = cast<StoreInst>(TheStores[0])->getPointerAddressSpace();
+  unsigned NumPointerStores = Bytes/TD.getPointerSize(AS);
 
   // Assume the remaining bytes if any are done a byte at a time.
-  unsigned NumByteStores = Bytes - NumPointerStores*TD.getPointerSize();
+  unsigned NumByteStores = Bytes - NumPointerStores*TD.getPointerSize(AS);
 
   // If we will reduce the # stores (according to this heuristic), do the
   // transformation.  This encourages merging 4 x i8 -> i32 and 2 x i16 -> i32
@@ -192,9 +193,9 @@ class MemsetRanges {
   /// because each element is relatively large and expensive to copy.
   std::list<MemsetRange> Ranges;
   typedef std::list<MemsetRange>::iterator range_iterator;
-  const TargetData &TD;
+  const DataLayout &TD;
 public:
-  MemsetRanges(const TargetData &td) : TD(td) {}
+  MemsetRanges(const DataLayout &td) : TD(td) {}
 
   typedef std::list<MemsetRange>::const_iterator const_iterator;
   const_iterator begin() const { return Ranges.begin(); }
@@ -302,7 +303,7 @@ namespace {
   class MemCpyOpt : public FunctionPass {
     MemoryDependenceAnalysis *MD;
     TargetLibraryInfo *TLI;
-    const TargetData *TD;
+    const DataLayout *TD;
   public:
     static char ID; // Pass identification, replacement for typeid
     MemCpyOpt() : FunctionPass(ID) {
@@ -332,7 +333,7 @@ namespace {
     bool processMemCpy(MemCpyInst *M);
     bool processMemMove(MemMoveInst *M);
     bool performCallSlotOptzn(Instruction *cpy, Value *cpyDst, Value *cpySrc,
-                              uint64_t cpyLen, CallInst *C);
+                              uint64_t cpyLen, unsigned cpyAlign, CallInst *C);
     bool processMemCpyMemCpyDependence(MemCpyInst *M, MemCpyInst *MDep,
                                        uint64_t MSize);
     bool processByValArgument(CallSite CS, unsigned ArgNo);
@@ -509,10 +510,18 @@ bool MemCpyOpt::processStore(StoreInst *SI, BasicBlock::iterator &BBI) {
       }
 
       if (C) {
+        unsigned storeAlign = SI->getAlignment();
+        if (!storeAlign)
+          storeAlign = TD->getABITypeAlignment(SI->getOperand(0)->getType());
+        unsigned loadAlign = LI->getAlignment();
+        if (!loadAlign)
+          loadAlign = TD->getABITypeAlignment(LI->getType());
+
         bool changed = performCallSlotOptzn(LI,
                         SI->getPointerOperand()->stripPointerCasts(),
                         LI->getPointerOperand()->stripPointerCasts(),
-                        TD->getTypeStoreSize(SI->getOperand(0)->getType()), C);
+                        TD->getTypeStoreSize(SI->getOperand(0)->getType()),
+                        std::min(storeAlign, loadAlign), C);
         if (changed) {
           MD->removeInstruction(SI);
           SI->eraseFromParent();
@@ -559,7 +568,8 @@ bool MemCpyOpt::processMemSet(MemSetInst *MSI, BasicBlock::iterator &BBI) {
 /// the call write its result directly into the destination of the memcpy.
 bool MemCpyOpt::performCallSlotOptzn(Instruction *cpy,
                                      Value *cpyDest, Value *cpySrc,
-                                     uint64_t cpyLen, CallInst *C) {
+                                     uint64_t cpyLen, unsigned cpyAlign,
+                                     CallInst *C) {
   // The general transformation to keep in mind is
   //
   //   call @func(..., src, ...)
@@ -625,6 +635,16 @@ bool MemCpyOpt::performCallSlotOptzn(Instruction *cpy,
     return false;
   }
 
+  // Check that dest points to memory that is at least as aligned as src.
+  unsigned srcAlign = srcAlloca->getAlignment();
+  if (!srcAlign)
+    srcAlign = TD->getABITypeAlignment(srcAlloca->getAllocatedType());
+  bool isDestSufficientlyAligned = srcAlign <= cpyAlign;
+  // If dest is not aligned enough and we can't increase its alignment then
+  // bail out.
+  if (!isDestSufficientlyAligned && !isa<AllocaInst>(cpyDest))
+    return false;
+
   // Check that src is not accessed except via the call and the memcpy.  This
   // guarantees that it holds only undefined values when passed in (so the final
   // memcpy can be dropped), that it is not read or written between the call and
@@ -673,19 +693,25 @@ bool MemCpyOpt::performCallSlotOptzn(Instruction *cpy,
   bool changedArgument = false;
   for (unsigned i = 0; i < CS.arg_size(); ++i)
     if (CS.getArgument(i)->stripPointerCasts() == cpySrc) {
-      if (cpySrc->getType() != cpyDest->getType())
-        cpyDest = CastInst::CreatePointerCast(cpyDest, cpySrc->getType(),
-                                              cpyDest->getName(), C);
+      Value *Dest = cpySrc->getType() == cpyDest->getType() ?  cpyDest
+        : CastInst::CreatePointerCast(cpyDest, cpySrc->getType(),
+                                      cpyDest->getName(), C);
       changedArgument = true;
-      if (CS.getArgument(i)->getType() == cpyDest->getType())
-        CS.setArgument(i, cpyDest);
+      if (CS.getArgument(i)->getType() == Dest->getType())
+        CS.setArgument(i, Dest);
       else
-        CS.setArgument(i, CastInst::CreatePointerCast(cpyDest,
-                          CS.getArgument(i)->getType(), cpyDest->getName(), C));
+        CS.setArgument(i, CastInst::CreatePointerCast(Dest,
+                          CS.getArgument(i)->getType(), Dest->getName(), C));
     }
 
   if (!changedArgument)
     return false;
+
+  // If the destination wasn't sufficiently aligned then increase its alignment.
+  if (!isDestSufficientlyAligned) {
+    assert(isa<AllocaInst>(cpyDest) && "Can only increase alloca alignment!");
+    cast<AllocaInst>(cpyDest)->setAlignment(srcAlign);
+  }
 
   // Drop any cached information about the call, because we may have changed
   // its dependence information by changing its parameter.
@@ -813,7 +839,8 @@ bool MemCpyOpt::processMemCpy(MemCpyInst *M) {
   if (DepInfo.isClobber()) {
     if (CallInst *C = dyn_cast<CallInst>(DepInfo.getInst())) {
       if (performCallSlotOptzn(M, M->getDest(), M->getSource(),
-                               CopySize->getZExtValue(), C)) {
+                               CopySize->getZExtValue(), M->getAlignment(),
+                               C)) {
         MD->removeInstruction(M);
         M->eraseFromParent();
         return true;
@@ -974,7 +1001,7 @@ bool MemCpyOpt::iterateOnFunction(Function &F) {
 bool MemCpyOpt::runOnFunction(Function &F) {
   bool MadeChange = false;
   MD = &getAnalysis<MemoryDependenceAnalysis>();
-  TD = getAnalysisIfAvailable<TargetData>();
+  TD = getAnalysisIfAvailable<DataLayout>();
   TLI = &getAnalysis<TargetLibraryInfo>();
 
   // If we don't have at least memset and memcpy, there is little point of doing

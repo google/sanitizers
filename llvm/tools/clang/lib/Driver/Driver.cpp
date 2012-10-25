@@ -60,17 +60,6 @@ Driver::Driver(StringRef ClangExecutable,
     CCGenDiagnostics(false), CCCGenericGCCName(""), CheckInputsExist(true),
     CCCUseClang(true), CCCUseClangCXX(true), CCCUseClangCPP(true),
     ForcedClangUse(false), CCCUsePCH(true), SuppressMissingInputWarning(false) {
-  if (IsProduction) {
-    // In a "production" build, only use clang on architectures we expect to
-    // work.
-    //
-    // During development its more convenient to always have the driver use
-    // clang, but we don't want users to be confused when things don't work, or
-    // to file bugs for things we don't support.
-    CCCClangArchs.insert(llvm::Triple::x86);
-    CCCClangArchs.insert(llvm::Triple::x86_64);
-    CCCClangArchs.insert(llvm::Triple::arm);
-  }
 
   Name = llvm::sys::path::stem(ClangExecutable);
   Dir  = llvm::sys::path::parent_path(ClangExecutable);
@@ -109,7 +98,7 @@ InputArgList *Driver::ParseArgStrings(ArrayRef<const char *> ArgList) {
   for (ArgList::const_iterator it = Args->begin(), ie = Args->end();
        it != ie; ++it) {
     Arg *A = *it;
-    if (A->getOption().isUnsupported()) {
+    if (A->getOption().hasFlag(options::Unsupported)) {
       Diag(clang::diag::err_drv_unsupported_opt) << A->getAsString(*Args);
       continue;
     }
@@ -293,26 +282,6 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
                             options::OPT_ccc_pch_is_pth);
   CCCUseClang = !Args->hasArg(options::OPT_ccc_no_clang);
   CCCUseClangCPP = !Args->hasArg(options::OPT_ccc_no_clang_cpp);
-  if (const Arg *A = Args->getLastArg(options::OPT_ccc_clang_archs)) {
-    StringRef Cur = A->getValue(*Args);
-
-    CCCClangArchs.clear();
-    while (!Cur.empty()) {
-      std::pair<StringRef, StringRef> Split = Cur.split(',');
-
-      if (!Split.first.empty()) {
-        llvm::Triple::ArchType Arch =
-          llvm::Triple(Split.first, "", "").getArch();
-
-        if (Arch == llvm::Triple::UnknownArch)
-          Diag(clang::diag::err_drv_invalid_arch_name) << Split.first;
-
-        CCCClangArchs.insert(Arch);
-      }
-
-      Cur = Split.second;
-    }
-  }
   // FIXME: DefaultTargetTriple is used by the target-prefixed calls to as/ld
   // and getToolChain is const.
   if (const Arg *A = Args->getLastArg(options::OPT_target))
@@ -639,7 +608,7 @@ void Driver::PrintOptions(const ArgList &Args) const {
        it != ie; ++it, ++i) {
     Arg *A = *it;
     llvm::errs() << "Option " << i << " - "
-                 << "Name: \"" << A->getOption().getName() << "\", "
+                 << "Name: \"" << A->getOption().getPrefixedName() << "\", "
                  << "Values: {";
     for (unsigned j = 0; j < A->getNumValues(); ++j) {
       if (j)
@@ -1064,7 +1033,7 @@ void Driver::BuildInputs(const ToolChain &TC, const DerivedArgList &Args,
       } else
         Inputs.push_back(std::make_pair(Ty, A));
 
-    } else if (A->getOption().isLinkerInput()) {
+    } else if (A->getOption().hasFlag(options::LinkerInput)) {
       // Just treat as object type, we could make a special type for this if
       // necessary.
       Inputs.push_back(std::make_pair(types::TY_Object, A));
@@ -1331,7 +1300,7 @@ void Driver::BuildJobs(Compilation &C) const {
     // DiagnosticsEngine, so that extra values, position, and so on could be
     // printed.
     if (!A->isClaimed()) {
-      if (A->getOption().hasNoArgumentUnused())
+      if (A->getOption().hasFlag(options::NoArgumentUnused))
         continue;
 
       // Suppress the warning automatically if this is just a flag, and it is an
@@ -1581,7 +1550,7 @@ const char *Driver::GetNamedOutputPath(Compilation &C,
 
 std::string Driver::GetFilePath(const char *Name, const ToolChain &TC) const {
   // Respect a limited subset of the '-Bprefix' functionality in GCC by
-  // attempting to use this prefix when lokup up program paths.
+  // attempting to use this prefix when looking for file paths.
   for (Driver::prefix_list::const_iterator it = PrefixDirs.begin(),
        ie = PrefixDirs.end(); it != ie; ++it) {
     std::string Dir(*it);
@@ -1620,26 +1589,20 @@ std::string Driver::GetFilePath(const char *Name, const ToolChain &TC) const {
   return Name;
 }
 
-static bool isPathExecutable(llvm::sys::Path &P, bool WantFile) {
-    bool Exists;
-    return (WantFile ? !llvm::sys::fs::exists(P.str(), Exists) && Exists
-                 : P.canExecute());
-}
-
-std::string Driver::GetProgramPath(const char *Name, const ToolChain &TC,
-                                   bool WantFile) const {
+std::string Driver::GetProgramPath(const char *Name,
+                                   const ToolChain &TC) const {
   // FIXME: Needs a better variable than DefaultTargetTriple
   std::string TargetSpecificExecutable(DefaultTargetTriple + "-" + Name);
   // Respect a limited subset of the '-Bprefix' functionality in GCC by
-  // attempting to use this prefix when lokup up program paths.
+  // attempting to use this prefix when looking for program paths.
   for (Driver::prefix_list::const_iterator it = PrefixDirs.begin(),
        ie = PrefixDirs.end(); it != ie; ++it) {
     llvm::sys::Path P(*it);
     P.appendComponent(TargetSpecificExecutable);
-    if (isPathExecutable(P, WantFile)) return P.str();
+    if (P.canExecute()) return P.str();
     P.eraseComponent();
     P.appendComponent(Name);
-    if (isPathExecutable(P, WantFile)) return P.str();
+    if (P.canExecute()) return P.str();
   }
 
   const ToolChain::path_list &List = TC.getProgramPaths();
@@ -1647,10 +1610,10 @@ std::string Driver::GetProgramPath(const char *Name, const ToolChain &TC,
          it = List.begin(), ie = List.end(); it != ie; ++it) {
     llvm::sys::Path P(*it);
     P.appendComponent(TargetSpecificExecutable);
-    if (isPathExecutable(P, WantFile)) return P.str();
+    if (P.canExecute()) return P.str();
     P.eraseComponent();
     P.appendComponent(Name);
-    if (isPathExecutable(P, WantFile)) return P.str();
+    if (P.canExecute()) return P.str();
   }
 
   // If all else failed, search the path.
@@ -1845,13 +1808,6 @@ bool Driver::ShouldUseClangCompiler(const Compilation &C, const JobAction &JA,
   if (isa<PrecompileJobAction>(JA) ||
       types::isOnlyAcceptedByClang(JA.getType()))
     return true;
-
-  // Finally, don't use clang if this isn't one of the user specified archs to
-  // build.
-  if (!CCCClangArchs.empty() && !CCCClangArchs.count(Triple.getArch())) {
-    Diag(clang::diag::warn_drv_not_using_clang_arch) << Triple.getArchName();
-    return false;
-  }
 
   return true;
 }

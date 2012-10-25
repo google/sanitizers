@@ -87,3 +87,47 @@ entry:
 main.f.exit:                                      ; preds = %"3.i"
   unreachable
 }
+
+
+; PR13967
+
+define void @f() nounwind ssp {
+bb:
+  br label %bb4
+
+bb4:
+  %tmp = phi i64 [ %tmp5, %bb7 ], [ undef, %bb ]
+  %tmp5 = add nsw i64 %tmp, 1
+  %extract.t1 = trunc i64 %tmp5 to i32
+  br i1 false, label %bb6, label %bb7
+
+bb6:
+  br label %bb7
+
+bb7:
+  %.off0 = phi i32 [ undef, %bb6 ], [ %extract.t1, %bb4 ]
+  %tmp8 = icmp eq i32 %.off0, 0
+  br i1 %tmp8, label %bb9, label %bb4
+
+bb9:
+  ret void
+}
+
+; PR12536
+define void @fn1() noreturn nounwind {
+entry:
+  br label %for.cond
+
+for.cond:                                         ; preds = %for.end, %entry
+  %b.0 = phi i32 [ undef, %entry ], [ %conv, %for.end ]
+  br label %for.cond1
+
+for.cond1:                                        ; preds = %for.cond1, %for.cond
+  %c.0 = phi i32 [ %b.0, %for.cond1 ], [ 0, %for.cond ]
+  br i1 undef, label %for.cond1, label %for.end
+
+for.end:                                          ; preds = %for.cond1
+  %cmp2 = icmp slt i32 %c.0, 1
+  %conv = zext i1 %cmp2 to i32
+  br label %for.cond
+}

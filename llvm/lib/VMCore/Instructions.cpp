@@ -332,21 +332,30 @@ CallInst::CallInst(const CallInst &CI)
 
 void CallInst::addAttribute(unsigned i, Attributes attr) {
   AttrListPtr PAL = getAttributes();
-  PAL = PAL.addAttr(i, attr);
+  PAL = PAL.addAttr(getContext(), i, attr);
   setAttributes(PAL);
 }
 
 void CallInst::removeAttribute(unsigned i, Attributes attr) {
   AttrListPtr PAL = getAttributes();
-  PAL = PAL.removeAttr(i, attr);
+  PAL = PAL.removeAttr(getContext(), i, attr);
   setAttributes(PAL);
 }
 
-bool CallInst::paramHasAttr(unsigned i, Attributes attr) const {
-  if (AttributeList.paramHasAttr(i, attr))
+bool CallInst::hasFnAttr(Attributes::AttrVal A) const {
+  if (AttributeList.getParamAttributes(AttrListPtr::FunctionIndex)
+      .hasAttribute(A))
     return true;
   if (const Function *F = getCalledFunction())
-    return F->paramHasAttr(i, attr);
+    return F->getParamAttributes(AttrListPtr::FunctionIndex).hasAttribute(A);
+  return false;
+}
+
+bool CallInst::paramHasAttr(unsigned i, Attributes::AttrVal A) const {
+  if (AttributeList.getParamAttributes(i).hasAttribute(A))
+    return true;
+  if (const Function *F = getCalledFunction())
+    return F->getParamAttributes(i).hasAttribute(A);
   return false;
 }
 
@@ -562,23 +571,32 @@ void InvokeInst::setSuccessorV(unsigned idx, BasicBlock *B) {
   return setSuccessor(idx, B);
 }
 
-bool InvokeInst::paramHasAttr(unsigned i, Attributes attr) const {
-  if (AttributeList.paramHasAttr(i, attr))
+bool InvokeInst::hasFnAttr(Attributes::AttrVal A) const {
+  if (AttributeList.getParamAttributes(AttrListPtr::FunctionIndex).
+      hasAttribute(A))
     return true;
   if (const Function *F = getCalledFunction())
-    return F->paramHasAttr(i, attr);
+    return F->getParamAttributes(AttrListPtr::FunctionIndex).hasAttribute(A);
+  return false;
+}
+
+bool InvokeInst::paramHasAttr(unsigned i, Attributes::AttrVal A) const {
+  if (AttributeList.getParamAttributes(i).hasAttribute(A))
+    return true;
+  if (const Function *F = getCalledFunction())
+    return F->getParamAttributes(i).hasAttribute(A);
   return false;
 }
 
 void InvokeInst::addAttribute(unsigned i, Attributes attr) {
   AttrListPtr PAL = getAttributes();
-  PAL = PAL.addAttr(i, attr);
+  PAL = PAL.addAttr(getContext(), i, attr);
   setAttributes(PAL);
 }
 
 void InvokeInst::removeAttribute(unsigned i, Attributes attr) {
   AttrListPtr PAL = getAttributes();
-  PAL = PAL.removeAttr(i, attr);
+  PAL = PAL.removeAttr(getContext(), i, attr);
   setAttributes(PAL);
 }
 
@@ -2099,6 +2117,17 @@ bool CastInst::isNoopCast(Instruction::CastOps Opcode,
 
 /// @brief Determine if a cast is a no-op.
 bool CastInst::isNoopCast(Type *IntPtrTy) const {
+  return isNoopCast(getOpcode(), getOperand(0)->getType(), getType(), IntPtrTy);
+}
+
+/// @brief Determine if a cast is a no-op
+bool CastInst::isNoopCast(const DataLayout &DL) const {
+  unsigned AS = 0;
+  if (getOpcode() == Instruction::PtrToInt)
+    AS = getOperand(0)->getType()->getPointerAddressSpace();
+  else if (getOpcode() == Instruction::IntToPtr)
+    AS = getType()->getPointerAddressSpace();
+  Type *IntPtrTy = DL.getIntPtrType(getContext(), AS);
   return isNoopCast(getOpcode(), getOperand(0)->getType(), getType(), IntPtrTy);
 }
 

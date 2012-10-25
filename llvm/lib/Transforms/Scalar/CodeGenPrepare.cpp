@@ -28,6 +28,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/Dominators.h"
+#include "llvm/Analysis/DominatorInternals.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/ProfileInfo.h"
 #include "llvm/Assembly/Writer.h"
@@ -38,7 +39,7 @@
 #include "llvm/Support/PatternMatch.h"
 #include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Transforms/Utils/AddrModeMatcher.h"
@@ -149,14 +150,15 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
   TLInfo = &getAnalysis<TargetLibraryInfo>();
   DT = getAnalysisIfAvailable<DominatorTree>();
   PFI = getAnalysisIfAvailable<ProfileInfo>();
-  OptSize = F.getFnAttributes().hasOptimizeForSizeAttr();
+  OptSize = F.getFnAttributes().hasAttribute(Attributes::OptimizeForSize);
 
   /// This optimization identifies DIV instructions that can be
   /// profitably bypassed and carried out with a shorter, faster divide.
   if (TLI && TLI->isSlowDivBypassed()) {
-    const DenseMap<Type*, Type*> &BypassTypeMap = TLI->getBypassSlowDivTypes();
+    const DenseMap<unsigned int, unsigned int> &BypassWidths =
+       TLI->getBypassSlowDivWidths();
     for (Function::iterator I = F.begin(); I != F.end(); I++)
-      EverMadeChange |= bypassSlowDivision(F, I, BypassTypeMap);
+      EverMadeChange |= bypassSlowDivision(F, I, BypassWidths);
   }
 
   // Eliminate blocks that contain only PHI nodes and an
@@ -622,7 +624,7 @@ bool CodeGenPrepare::OptimizeCallInst(CallInst *CI) {
     // happens.
     WeakVH IterHandle(CurInstIterator);
 
-    replaceAndRecursivelySimplify(CI, RetVal, TLI ? TLI->getTargetData() : 0,
+    replaceAndRecursivelySimplify(CI, RetVal, TLI ? TLI->getDataLayout() : 0,
                                   TLInfo, ModifiedDT ? 0 : DT);
 
     // If the iterator instruction was recursively deleted, start over at the
@@ -646,8 +648,8 @@ bool CodeGenPrepare::OptimizeCallInst(CallInst *CI) {
   // From here on out we're working with named functions.
   if (CI->getCalledFunction() == 0) return false;
 
-  // We'll need TargetData from here on out.
-  const TargetData *TD = TLI ? TLI->getTargetData() : 0;
+  // We'll need DataLayout from here on out.
+  const DataLayout *TD = TLI ? TLI->getDataLayout() : 0;
   if (!TD) return false;
 
   // Lower all default uses of _chk calls.  This is very similar
@@ -714,7 +716,8 @@ bool CodeGenPrepare::DupRetToEnableTailCallOpts(ReturnInst *RI) {
   // See llvm::isInTailCallPosition().
   const Function *F = BB->getParent();
   Attributes CallerRetAttr = F->getAttributes().getRetAttributes();
-  if ((CallerRetAttr & Attribute::ZExt) || (CallerRetAttr & Attribute::SExt))
+  if (CallerRetAttr.hasAttribute(Attributes::ZExt) ||
+      CallerRetAttr.hasAttribute(Attributes::SExt))
     return false;
 
   // Make sure there are no instructions between the PHI and return, or that the
@@ -772,7 +775,10 @@ bool CodeGenPrepare::DupRetToEnableTailCallOpts(ReturnInst *RI) {
     // Conservatively require the attributes of the call to match those of the
     // return. Ignore noalias because it doesn't affect the call sequence.
     Attributes CalleeRetAttr = CS.getAttributes().getRetAttributes();
-    if ((CalleeRetAttr ^ CallerRetAttr) & ~Attribute::NoAlias)
+    if (AttrBuilder(CalleeRetAttr).
+          removeAttribute(Attributes::NoAlias) !=
+        AttrBuilder(CallerRetAttr).
+          removeAttribute(Attributes::NoAlias))
       continue;
 
     // Make sure the call instruction is followed by an unconditional branch to
@@ -929,7 +935,7 @@ bool CodeGenPrepare::OptimizeMemoryInst(Instruction *MemoryInst, Value *Addr,
     DEBUG(dbgs() << "CGP: SINKING nonlocal addrmode: " << AddrMode << " for "
                  << *MemoryInst);
     Type *IntPtrTy =
-          TLI->getTargetData()->getIntPtrType(AccessTy->getContext());
+          TLI->getDataLayout()->getIntPtrType(Addr->getType());
 
     Value *Result = 0;
 

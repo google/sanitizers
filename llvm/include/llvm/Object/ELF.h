@@ -413,6 +413,35 @@ struct Elf_Ehdr_Impl {
 };
 
 template<support::endianness target_endianness, bool is64Bits>
+struct Elf_Phdr;
+
+template<support::endianness target_endianness>
+struct Elf_Phdr<target_endianness, false> {
+  LLVM_ELF_IMPORT_TYPES(target_endianness, false)
+  Elf_Word p_type;   // Type of segment
+  Elf_Off  p_offset; // FileOffset where segment is located, in bytes
+  Elf_Addr p_vaddr;  // Virtual Address of beginning of segment 
+  Elf_Addr p_paddr;  // Physical address of beginning of segment (OS-specific)
+  Elf_Word p_filesz; // Num. of bytes in file image of segment (may be zero)
+  Elf_Word p_memsz;  // Num. of bytes in mem image of segment (may be zero)
+  Elf_Word p_flags;  // Segment flags
+  Elf_Word p_align;  // Segment alignment constraint
+};
+
+template<support::endianness target_endianness>
+struct Elf_Phdr<target_endianness, true> {
+  LLVM_ELF_IMPORT_TYPES(target_endianness, true)
+  Elf_Word p_type;   // Type of segment
+  Elf_Word p_flags;  // Segment flags
+  Elf_Off  p_offset; // FileOffset where segment is located, in bytes
+  Elf_Addr p_vaddr;  // Virtual Address of beginning of segment 
+  Elf_Addr p_paddr;  // Physical address of beginning of segment (OS-specific)
+  Elf_Word p_filesz; // Num. of bytes in file image of segment (may be zero)
+  Elf_Word p_memsz;  // Num. of bytes in mem image of segment (may be zero)
+  Elf_Word p_align;  // Segment alignment constraint
+};
+
+template<support::endianness target_endianness, bool is64Bits>
 class ELFObjectFile : public ObjectFile {
   LLVM_ELF_IMPORT_TYPES(target_endianness, is64Bits)
 
@@ -611,6 +640,7 @@ protected:
                                                    bool &Res) const;
   virtual error_code isSectionVirtual(DataRefImpl Sec, bool &Res) const;
   virtual error_code isSectionZeroInit(DataRefImpl Sec, bool &Res) const;
+  virtual error_code isSectionReadOnlyData(DataRefImpl Sec, bool &Res) const;
   virtual error_code sectionContainsSymbol(DataRefImpl Sec, DataRefImpl Symb,
                                            bool &Result) const;
   virtual relocation_iterator getSectionRelBegin(DataRefImpl Sec) const;
@@ -693,7 +723,6 @@ public:
     return v->getType() == getELFType(target_endianness == support::little,
                                       is64Bits);
   }
-  static inline bool classof(const ELFObjectFile *v) { return true; }
 };
 
 // Iterate through the version definitions, and place each Elf_Verdef
@@ -1259,7 +1288,8 @@ error_code ELFObjectFile<target_endianness, is64Bits>
 }
 
 template<support::endianness target_endianness, bool is64Bits>
-error_code ELFObjectFile<target_endianness, is64Bits>::isSectionZeroInit(DataRefImpl Sec,
+error_code ELFObjectFile<target_endianness, is64Bits>
+                        ::isSectionZeroInit(DataRefImpl Sec,
                                             bool &Result) const {
   const Elf_Shdr *sec = reinterpret_cast<const Elf_Shdr *>(Sec.p);
   // For ELF, all zero-init sections are virtual (that is, they occupy no space
@@ -1268,6 +1298,18 @@ error_code ELFObjectFile<target_endianness, is64Bits>::isSectionZeroInit(DataRef
     Result = true;
   else
     Result = false;
+  return object_error::success;
+}
+
+template<support::endianness target_endianness, bool is64Bits>
+error_code ELFObjectFile<target_endianness, is64Bits>
+                       ::isSectionReadOnlyData(DataRefImpl Sec,
+                                               bool &Result) const {
+  const Elf_Shdr *sec = reinterpret_cast<const Elf_Shdr *>(Sec.p);
+  if (sec->sh_flags & ELF::SHF_WRITE || sec->sh_flags & ELF::SHF_EXECINSTR)
+    Result = false;
+  else
+    Result = true;
   return object_error::success;
 }
 
@@ -2272,6 +2314,8 @@ StringRef ELFObjectFile<target_endianness, is64Bits>
       return "ELF64-i386";
     case ELF::EM_X86_64:
       return "ELF64-x86-64";
+    case ELF::EM_PPC64:
+      return "ELF64-ppc64";
     default:
       return "ELF64-unknown";
     }
@@ -2295,6 +2339,8 @@ unsigned ELFObjectFile<target_endianness, is64Bits>::getArch() const {
   case ELF::EM_MIPS:
     return (target_endianness == support::little) ?
            Triple::mipsel : Triple::mips;
+  case ELF::EM_PPC64:
+    return Triple::ppc64;
   default:
     return Triple::UnknownArch;
   }

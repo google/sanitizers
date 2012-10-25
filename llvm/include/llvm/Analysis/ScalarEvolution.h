@@ -40,7 +40,7 @@ namespace llvm {
   class DominatorTree;
   class Type;
   class ScalarEvolution;
-  class TargetData;
+  class DataLayout;
   class TargetLibraryInfo;
   class LLVMContext;
   class Loop;
@@ -162,7 +162,6 @@ namespace llvm {
     SCEVCouldNotCompute();
 
     /// Methods for support type inquiry through isa, cast, and dyn_cast:
-    static inline bool classof(const SCEVCouldNotCompute *S) { return true; }
     static bool classof(const SCEV *S);
   };
 
@@ -227,7 +226,7 @@ namespace llvm {
 
     /// TD - The target data information for the target we are targeting.
     ///
-    TargetData *TD;
+    DataLayout *TD;
 
     /// TLI - The target library information for the target we are targeting.
     ///
@@ -629,7 +628,7 @@ namespace llvm {
 
     /// getSizeOfExpr - Return an expression for sizeof on the given type.
     ///
-    const SCEV *getSizeOfExpr(Type *AllocTy);
+    const SCEV *getSizeOfExpr(Type *AllocTy, Type *IntPtrTy);
 
     /// getAlignOfExpr - Return an expression for alignof on the given type.
     ///
@@ -637,7 +636,8 @@ namespace llvm {
 
     /// getOffsetOfExpr - Return an expression for offsetof on the given field.
     ///
-    const SCEV *getOffsetOfExpr(StructType *STy, unsigned FieldNo);
+    const SCEV *getOffsetOfExpr(StructType *STy, Type *IntPtrTy,
+        unsigned FieldNo);
 
     /// getOffsetOfExpr - Return an expression for offsetof on the given field.
     ///

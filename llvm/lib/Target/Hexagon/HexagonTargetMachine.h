@@ -20,20 +20,23 @@
 #include "HexagonSelectionDAGInfo.h"
 #include "HexagonFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
+#include "llvm/Target/TargetTransformImpl.h"
 
 namespace llvm {
 
 class Module;
 
 class HexagonTargetMachine : public LLVMTargetMachine {
-  const TargetData DataLayout;       // Calculates type size & alignment.
+  const DataLayout DL;       // Calculates type size & alignment.
   HexagonSubtarget Subtarget;
   HexagonInstrInfo InstrInfo;
   HexagonTargetLowering TLInfo;
   HexagonSelectionDAGInfo TSInfo;
   HexagonFrameLowering FrameLowering;
   const InstrItineraryData* InstrItins;
+  ScalarTargetTransformImpl STTI;
+  VectorTargetTransformImpl VTTI;
 
 public:
   HexagonTargetMachine(const Target &T, StringRef TT,StringRef CPU,
@@ -68,7 +71,15 @@ public:
     return &TSInfo;
   }
 
-  virtual const TargetData       *getTargetData() const { return &DataLayout; }
+  virtual const ScalarTargetTransformInfo *getScalarTargetTransformInfo()const {
+    return &STTI;
+  }
+
+  virtual const VectorTargetTransformInfo *getVectorTargetTransformInfo()const {
+    return &VTTI;
+  }
+
+  virtual const DataLayout       *getDataLayout() const { return &DL; }
   static unsigned getModuleMatchQuality(const Module &M);
 
   // Pass Pipeline Configuration.

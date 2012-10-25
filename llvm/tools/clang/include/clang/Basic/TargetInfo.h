@@ -23,6 +23,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/DataTypes.h"
 #include "clang/Basic/AddressSpaces.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/VersionTuple.h"
 #include "clang/Basic/Specifiers.h"
 #include <cassert>
@@ -39,7 +40,6 @@ class LangOptions;
 class MacroBuilder;
 class SourceLocation;
 class SourceManager;
-class TargetOptions;
 
 namespace Builtin { struct Info; }
 
@@ -62,6 +62,7 @@ enum TargetCXXABI {
 /// \brief Exposes information about the current target.
 ///
 class TargetInfo : public RefCountedBase<TargetInfo> {
+  llvm::IntrusiveRefCntPtr<TargetOptions> TargetOpts;
   llvm::Triple Triple;
 protected:
   // Target values set by the ctor of the actual target implementation.  Default
@@ -112,6 +113,16 @@ public:
 
   virtual ~TargetInfo();
 
+  /// \brief Retrieve the target options.
+  TargetOptions &getTargetOpts() const { 
+    assert(TargetOpts && "Missing target options");
+    return *TargetOpts; 
+  }
+
+  void setTargetOpts(TargetOptions &TargetOpts) {
+    this->TargetOpts = &TargetOpts;
+  }
+
   ///===---- Target Data Type Query Methods -------------------------------===//
   enum IntType {
     NoInt = 0,
@@ -151,7 +162,12 @@ public:
 
     /// __builtin_va_list as defined by the x86-64 ABI:
     /// http://www.x86-64.org/documentation/abi.pdf
-    X86_64ABIBuiltinVaList
+    X86_64ABIBuiltinVaList,
+
+    /// __builtin_va_list as defined by ARM AAPCS ABI
+    /// http://infocenter.arm.com
+    //        /help/topic/com.arm.doc.ihi0042d/IHI0042D_aapcs.pdf
+    AAPCSABIBuiltinVaList
   };
 
 protected:

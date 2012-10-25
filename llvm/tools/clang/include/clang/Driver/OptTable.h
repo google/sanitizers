@@ -12,6 +12,7 @@
 
 #include "clang/Basic/LLVM.h"
 #include "clang/Driver/OptSpecifier.h"
+#include "llvm/ADT/StringSet.h"
 
 namespace clang {
 namespace driver {
@@ -31,6 +32,9 @@ namespace driver {
   public:
     /// \brief Entry for a single option instance in the option data table.
     struct Info {
+      /// A null terminated array of prefix strings to apply to name while
+      /// matching.
+      const char *const *Prefixes;
       const char *Name;
       const char *HelpText;
       const char *MetaVar;
@@ -47,18 +51,17 @@ namespace driver {
     const Info *OptionInfos;
     unsigned NumOptionInfos;
 
-    /// \brief The lazily constructed options table, indexed by option::ID - 1.
-    mutable Option **Options;
-
-    /// \brief Prebound input option instance.
-    const Option *TheInputOption;
-
-    /// \brief Prebound unknown option instance.
-    const Option *TheUnknownOption;
+    unsigned TheInputOptionID;
+    unsigned TheUnknownOptionID;
 
     /// The index of the first option which can be parsed (i.e., is not a
     /// special option like 'input' or 'unknown', and is not an option group).
     unsigned FirstSearchableIndex;
+
+    /// The union of all option prefixes. If an argument does not begin with
+    /// one of these, it is an input.
+    llvm::StringSet<> PrefixesUnion;
+    std::string PrefixChars;
 
   private:
     const Info &getInfo(OptSpecifier Opt) const {
@@ -66,8 +69,6 @@ namespace driver {
       assert(id > 0 && id - 1 < getNumOptions() && "Invalid Option ID.");
       return OptionInfos[id - 1];
     }
-
-    Option *CreateOption(unsigned id) const;
 
   protected:
     OptTable(const Info *_OptionInfos, unsigned _NumOptionInfos);
@@ -81,17 +82,7 @@ namespace driver {
     /// if necessary.
     ///
     /// \return The option, or null for the INVALID option id.
-    const Option *getOption(OptSpecifier Opt) const {
-      unsigned id = Opt.getID();
-      if (id == 0)
-        return 0;
-
-      assert((unsigned) (id - 1) < getNumOptions() && "Invalid ID.");
-      Option *&Entry = Options[id - 1];
-      if (!Entry)
-        Entry = CreateOption(id);
-      return Entry;
-    }
+    const Option getOption(OptSpecifier Opt) const;
 
     /// \brief Lookup the name of the given option.
     const char *getOptionName(OptSpecifier id) const {

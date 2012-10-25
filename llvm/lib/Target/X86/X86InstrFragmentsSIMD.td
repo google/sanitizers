@@ -90,7 +90,18 @@ def X86vsmovl  : SDNode<"X86ISD::VSEXT_MOVL",
 def X86vzload  : SDNode<"X86ISD::VZEXT_LOAD", SDTLoad,
                         [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
 
+def X86vzext   : SDNode<"X86ISD::VZEXT",
+                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
+                                              SDTCisInt<0>, SDTCisInt<1>]>>;
+
+def X86vsext   : SDNode<"X86ISD::VSEXT",
+                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
+                                              SDTCisInt<0>, SDTCisInt<1>]>>;
+
 def X86vfpext  : SDNode<"X86ISD::VFPEXT",
+                        SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
+                                             SDTCisFP<0>, SDTCisFP<1>]>>;
+def X86vfpround: SDNode<"X86ISD::VFPROUND",
                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
                                              SDTCisFP<0>, SDTCisFP<1>]>>;
 

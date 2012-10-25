@@ -287,7 +287,7 @@ Instruction *InstCombiner::FoldSelectIntoOp(SelectInst &SI, Value *TrueVal,
 /// SimplifyWithOpReplaced - See if V simplifies when its operand Op is
 /// replaced with RepOp.
 static Value *SimplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
-                                     const TargetData *TD,
+                                     const DataLayout *TD,
                                      const TargetLibraryInfo *TLI) {
   // Trivial replacement.
   if (V == Op)
@@ -333,6 +333,10 @@ static Value *SimplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
 
     // All operands were constants, fold it.
     if (ConstOps.size() == I->getNumOperands()) {
+      if (CmpInst *C = dyn_cast<CmpInst>(I))
+        return ConstantFoldCompareInstOperands(C->getPredicate(), ConstOps[0],
+                                               ConstOps[1], TD, TLI);
+
       if (LoadInst *LI = dyn_cast<LoadInst>(I))
         if (!LI->isVolatile())
           return ConstantFoldLoadFromConstPtr(ConstOps[0], TD);

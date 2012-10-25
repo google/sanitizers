@@ -1,7 +1,6 @@
 add_llvm_library(LLVMTarget
   Mangler.cpp
   Target.cpp
-  TargetData.cpp
   TargetELFWriterInfo.cpp
   TargetInstrInfo.cpp
   TargetIntrinsicInfo.cpp
@@ -12,6 +11,7 @@ add_llvm_library(LLVMTarget
   TargetMachineC.cpp
   TargetRegisterInfo.cpp
   TargetSubtargetInfo.cpp
+  TargetTransformImpl.cpp
   )
 
 foreach(t ${LLVM_TARGETS_TO_BUILD})

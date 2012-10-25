@@ -14,7 +14,7 @@
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
@@ -515,7 +515,7 @@ static void InitCmpLibcallCCs(ISD::CondCode *CCs) {
 /// NOTE: The constructor takes ownership of TLOF.
 TargetLowering::TargetLowering(const TargetMachine &tm,
                                const TargetLoweringObjectFile *tlof)
-  : TM(tm), TD(TM.getTargetData()), TLOF(*tlof) {
+  : TM(tm), TD(TM.getDataLayout()), TLOF(*tlof) {
   // All operations default to being supported.
   memset(OpActions, 0, sizeof(OpActions));
   memset(LoadExtActions, 0, sizeof(LoadExtActions));
@@ -583,8 +583,13 @@ TargetLowering::TargetLowering(const TargetMachine &tm,
   // Default ISD::TRAP to expand (which turns it into abort).
   setOperationAction(ISD::TRAP, MVT::Other, Expand);
 
+  // On most systems, DEBUGTRAP and TRAP have no difference. The "Expand"
+  // here is to inform DAG Legalizer to replace DEBUGTRAP with TRAP.
+  //
+  setOperationAction(ISD::DEBUGTRAP, MVT::Other, Expand);
+
   IsLittleEndian = TD->isLittleEndian();
-  PointerTy = MVT::getIntegerVT(8*TD->getPointerSize());
+  PointerTy = MVT::getIntegerVT(8*TD->getPointerSize(0));
   memset(RegClassForVT, 0,MVT::LAST_VALUETYPE*sizeof(TargetRegisterClass*));
   memset(TargetDAGCombineArray, 0, array_lengthof(TargetDAGCombineArray));
   maxStoresPerMemset = maxStoresPerMemcpy = maxStoresPerMemmove = 8;
@@ -625,7 +630,7 @@ TargetLowering::~TargetLowering() {
 }
 
 MVT TargetLowering::getShiftAmountTy(EVT LHSTy) const {
-  return MVT::getIntegerVT(8*TD->getPointerSize());
+  return MVT::getIntegerVT(8*TD->getPointerSize(0));
 }
 
 /// canOpTrap - Returns true if the operation can trap for the value type.
@@ -901,7 +906,7 @@ const char *TargetLowering::getTargetNodeName(unsigned Opcode) const {
 
 EVT TargetLowering::getSetCCResultType(EVT VT) const {
   assert(!VT.isVector() && "No default SetCC type for vectors!");
-  return PointerTy.SimpleTy;
+  return getPointerTy(0).SimpleTy;
 }
 
 MVT::SimpleValueType TargetLowering::getCmpLibcallReturnType() const {
@@ -997,9 +1002,9 @@ void llvm::GetReturnInfo(Type* ReturnType, Attributes attr,
     EVT VT = ValueVTs[j];
     ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
 
-    if (attr.hasSExtAttr())
+    if (attr.hasAttribute(Attributes::SExt))
       ExtendKind = ISD::SIGN_EXTEND;
-    else if (attr.hasZExtAttr())
+    else if (attr.hasAttribute(Attributes::ZExt))
       ExtendKind = ISD::ZERO_EXTEND;
 
     // FIXME: C calling convention requires the return type to be promoted to
@@ -1017,13 +1022,13 @@ void llvm::GetReturnInfo(Type* ReturnType, Attributes attr,
 
     // 'inreg' on function refers to return value
     ISD::ArgFlagsTy Flags = ISD::ArgFlagsTy();
-    if (attr.hasInRegAttr())
+    if (attr.hasAttribute(Attributes::InReg))
       Flags.setInReg();
 
     // Propagate extension type if any
-    if (attr.hasSExtAttr())
+    if (attr.hasAttribute(Attributes::SExt))
       Flags.setSExt();
-    else if (attr.hasZExtAttr())
+    else if (attr.hasAttribute(Attributes::ZExt))
       Flags.setZExt();
 
     for (unsigned i = 0; i < NumParts; ++i)
@@ -1061,7 +1066,7 @@ SDValue TargetLowering::getPICJumpTableRelocBase(SDValue Table,
 
   if ((JTEncoding == MachineJumpTableInfo::EK_GPRel64BlockAddress) ||
       (JTEncoding == MachineJumpTableInfo::EK_GPRel32BlockAddress))
-    return DAG.getGLOBAL_OFFSET_TABLE(getPointerTy());
+    return DAG.getGLOBAL_OFFSET_TABLE(getPointerTy(0));
 
   return Table;
 }
@@ -2953,8 +2958,9 @@ TargetLowering::AsmOperandInfoVector TargetLowering::ParseConstraints(
               EVT::getEVT(IntegerType::get(OpTy->getContext(), BitSize), true);
           break;
         }
-      } else if (dyn_cast<PointerType>(OpTy)) {
-        OpInfo.ConstraintVT = MVT::getIntegerVT(8*TD->getPointerSize());
+      } else if (PointerType *PT = dyn_cast<PointerType>(OpTy)) {
+        OpInfo.ConstraintVT = MVT::getIntegerVT(
+            8*TD->getPointerSize(PT->getAddressSpace()));
       } else {
         OpInfo.ConstraintVT = EVT::getEVT(OpTy, true);
       }

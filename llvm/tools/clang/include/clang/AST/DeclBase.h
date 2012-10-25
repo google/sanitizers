@@ -430,16 +430,10 @@ public:
   void dropAttr() {
     if (!HasAttrs) return;
 
-    AttrVec &Attrs = getAttrs();
-    for (unsigned i = 0, e = Attrs.size(); i != e; /* in loop */) {
-      if (isa<T>(Attrs[i])) {
-        Attrs.erase(Attrs.begin() + i);
-        --e;
-      }
-      else
-        ++i;
-    }
-    if (Attrs.empty())
+    AttrVec &Vec = getAttrs();
+    Vec.erase(std::remove_if(Vec.begin(), Vec.end(), isa<T, Attr*>), Vec.end());
+
+    if (Vec.empty())
       HasAttrs = false;
   }
 
@@ -844,8 +838,6 @@ public:
     IdentifierNamespace |= IDNS_NonMemberOperator;
   }
 
-  // Implement isa/cast/dyncast/etc.
-  static bool classof(const Decl *) { return true; }
   static bool classofKind(Kind K) { return true; }
   static DeclContext *castToDeclContext(const Decl *);
   static Decl *castFromDeclContext(const DeclContext *);
@@ -1523,10 +1515,6 @@ public:
 
   static bool classof(const Decl *D);
   static bool classof(const DeclContext *D) { return true; }
-#define DECL(NAME, BASE)
-#define DECL_CONTEXT(NAME) \
-  static bool classof(const NAME##Decl *D) { return true; }
-#include "clang/AST/DeclNodes.inc"
 
   LLVM_ATTRIBUTE_USED void dumpDeclContext() const;
 
