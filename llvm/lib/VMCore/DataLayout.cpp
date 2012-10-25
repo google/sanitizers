@@ -524,6 +524,14 @@ std::string DataLayout::getStringRepresentation() const {
   return OS.str();
 }
 
+unsigned DataLayout::getPointerTypeSizeInBits(Type *Ty) const
+{
+    if (Ty->isPointerTy()) return getTypeSizeInBits(Ty);
+    if (Ty->isVectorTy()
+        && cast<VectorType>(Ty)->getElementType()->isPointerTy())
+      return getTypeSizeInBits(cast<VectorType>(Ty)->getElementType());
+    return getPointerSizeInBits(0);
+}
 
 uint64_t DataLayout::getTypeSizeInBits(Type *Ty) const {
   assert(Ty->isSized() && "Cannot getTypeInfo() on a type that is unsized!");
@@ -559,8 +567,10 @@ uint64_t DataLayout::getTypeSizeInBits(Type *Ty) const {
   // only 80 bits contain information.
   case Type::X86_FP80TyID:
     return 80;
-  case Type::VectorTyID:
-    return cast<VectorType>(Ty)->getBitWidth();
+  case Type::VectorTyID: {
+    VectorType *VTy = cast<VectorType>(Ty);
+    return VTy->getNumElements()*getTypeSizeInBits(VTy->getElementType());
+  }
   default:
     llvm_unreachable("DataLayout::getTypeSizeInBits(): Unsupported type");
   }
@@ -658,11 +668,30 @@ unsigned DataLayout::getPreferredTypeAlignmentShift(Type *Ty) const {
   return Log2_32(Align);
 }
 
-/// getIntPtrType - Return an unsigned integer type that is the same size or
-/// greater to the host pointer size.
+/// getIntPtrType - Return an integer type that is the same size or
+/// greater to the pointer size for the address space.
 IntegerType *DataLayout::getIntPtrType(LLVMContext &C,
                                        unsigned AddressSpace) const {
   return IntegerType::get(C, getPointerSizeInBits(AddressSpace));
+}
+
+/// getIntPtrType - Return an integer type that is the same size or
+/// greater to the pointer size of the specific PointerType.
+IntegerType *DataLayout::getIntPtrType(Type *Ty) const {
+  LLVMContext &C = Ty->getContext();
+  // For pointers, we return the size for the specific address space.
+  if (Ty->isPointerTy()) return IntegerType::get(C, getTypeSizeInBits(Ty));
+  // For vector of pointers, we return the size of the address space
+  // of the pointer type.
+  if (Ty->isVectorTy() && cast<VectorType>(Ty)->getElementType()->isPointerTy())
+    return IntegerType::get(C,
+        getTypeSizeInBits(cast<VectorType>(Ty)->getElementType()));
+  // Otherwise return the address space for the default address space.
+  // An example of this occuring is that you want to get the IntPtr
+  // for all of the arguments in a function. However, the IntPtr
+  // for a non-pointer type cannot be determined by the type, so
+  // the default value is used.
+  return getIntPtrType(C, 0);
 }
 
 

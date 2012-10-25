@@ -52,6 +52,10 @@ def MipsJmpLink : SDNode<"MipsISD::JmpLink",SDT_MipsJmpLink,
                          [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
                           SDNPVariadic]>;
 
+// Tail call
+def MipsTailCall : SDNode<"MipsISD::TailCall", SDT_MipsJmpLink,
+                          [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+
 // Hi and Lo nodes are used to handle global addresses. Used on
 // MipsISelLowering to lower stuff like GlobalAddress, ExternalSymbol
 // static model. (nothing to do with Mips Registers Hi and Lo)
@@ -173,6 +177,27 @@ def HasStandardEncoding : Predicate<"Subtarget.hasStandardEncoding()">,
 
 class MipsPat<dag pattern, dag result> : Pat<pattern, result> {
   let Predicates = [HasStandardEncoding];
+}
+
+class IsBranch {
+  bit isBranch = 1;
+}
+
+class IsReturn {
+  bit isReturn = 1;
+}
+
+class IsCall {
+  bit isCall = 1;
+}
+
+class IsTailCall {
+  bit isCall = 1;
+  bit isTerminator = 1;
+  bit isReturn = 1;
+  bit isBarrier = 1;
+  bit hasExtraSrcRegAllocReq = 1;
+  bit isCodeGenOnly = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -573,14 +598,13 @@ class SetCC_I<bits<6> op, string instr_asm, PatFrag cond_op, Operand Od,
      IIAlu>;
 
 // Jump
-class JumpFJ<bits<6> op, string instr_asm>:
-  FJ<op, (outs), (ins jmptarget:$target),
-     !strconcat(instr_asm, "\t$target"), [(br bb:$target)], IIBranch> {
-  let isBranch=1;
+class JumpFJ<bits<6> op, DAGOperand opnd, string instr_asm,
+             SDPatternOperator operator, SDPatternOperator targetoperator>:
+  FJ<op, (outs), (ins opnd:$target), !strconcat(instr_asm, "\t$target"),
+     [(operator targetoperator:$target)], IIBranch> {
   let isTerminator=1;
   let isBarrier=1;
   let hasDelaySlot = 1;
-  let Predicates = [RelocStatic, HasStandardEncoding];
   let DecoderMethod = "DecodeJumpTarget";
   let Defs = [AT];
 }
@@ -601,21 +625,21 @@ class UncondBranch<bits<6> op, string instr_asm>:
 
 // Base class for indirect branch and return instruction classes.
 let isTerminator=1, isBarrier=1, hasDelaySlot = 1 in
-class JumpFR<RegisterClass RC, list<dag> pattern>:
-  FR<0, 0x8, (outs), (ins RC:$rs), "jr\t$rs", pattern, IIBranch> {
+class JumpFR<RegisterClass RC, SDPatternOperator operator = null_frag>:
+  FR<0, 0x8, (outs), (ins RC:$rs), "jr\t$rs", [(operator RC:$rs)], IIBranch> {
   let rt = 0;
   let rd = 0;
   let shamt = 0;
 }
 
 // Indirect branch
-class IndirectBranch<RegisterClass RC>: JumpFR<RC, [(brind RC:$rs)]> {
+class IndirectBranch<RegisterClass RC>: JumpFR<RC, brind> {
   let isBranch = 1;
   let isIndirectBranch = 1;
 }
 
 // Return instruction
-class RetBase<RegisterClass RC>: JumpFR<RC, []> {
+class RetBase<RegisterClass RC>: JumpFR<RC> {
   let isReturn = 1;
   let isCodeGenOnly = 1;
   let hasCtrlDep = 1;
@@ -980,7 +1004,8 @@ def SC_P8 : SCBase<0x38, "sc", CPURegs, mem64>,
 }
 
 /// Jump and Branch Instructions
-def J       : JumpFJ<0x02, "j">;
+def J       : JumpFJ<0x02, jmptarget, "j", br, bb>,
+              Requires<[RelocStatic, HasStandardEncoding]>, IsBranch;
 def JR      : IndirectBranch<CPURegs>;
 def B       : UncondBranch<0x04, "b">;
 def BEQ     : CBranch<0x04, "beq", seteq, CPURegs>;
@@ -998,6 +1023,8 @@ def JAL  : JumpLink<0x03, "jal">;
 def JALR : JumpLinkReg<0x00, 0x09, "jalr", CPURegs>;
 def BGEZAL  : BranchLink<"bgezal", 0x11, CPURegs>;
 def BLTZAL  : BranchLink<"bltzal", 0x10, CPURegs>;
+def TAILCALL : JumpFJ<0x02, calltarget, "j", MipsTailCall, imm>, IsTailCall;
+def TAILCALL_R : JumpFR<CPURegs, MipsTailCall>, IsTailCall;
 
 def RET : RetBase<CPURegs>;
 
@@ -1107,6 +1134,11 @@ def : MipsPat<(MipsJmpLink (i32 texternalsym:$dst)),
 //def : MipsPat<(MipsJmpLink CPURegs:$dst),
 //              (JALR CPURegs:$dst)>;
 
+// Tail call
+def : MipsPat<(MipsTailCall (iPTR tglobaladdr:$dst)),
+              (TAILCALL tglobaladdr:$dst)>;
+def : MipsPat<(MipsTailCall (iPTR texternalsym:$dst)),
+              (TAILCALL texternalsym:$dst)>;
 // hi/lo relocs
 def : MipsPat<(MipsHi tglobaladdr:$in), (LUi tglobaladdr:$in)>;
 def : MipsPat<(MipsHi tblockaddress:$in), (LUi tblockaddress:$in)>;

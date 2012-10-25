@@ -262,6 +262,14 @@ public:
     }
     return 8*val->second.TypeBitWidth;
   }
+  /// Layout pointer size, in bits, based on the type.
+  /// If this function is called with a pointer type, then
+  /// the type size of the pointer is returned.
+  /// If this function is called with a vector of pointers,
+  /// then the type size of the pointer is returned.
+  /// Otherwise the type sizeo f a default pointer is returned.
+  unsigned getPointerTypeSizeInBits(Type* Ty)    const;
+
   /// Size examples:
   ///
   /// Type        SizeInBits  StoreSizeInBits  AllocSizeInBits[*]
@@ -337,11 +345,13 @@ public:
   ///
   unsigned getPreferredTypeAlignmentShift(Type *Ty) const;
 
-  /// getIntPtrType - Return an unsigned integer type that is the same size or
-  /// greater to the host pointer size.
-  /// FIXME: Need to remove the default argument when the rest of the LLVM code
-  /// base has been updated.
-  IntegerType *getIntPtrType(LLVMContext &C, unsigned AddressSpace = 0) const;
+  /// getIntPtrType - Return an integer type that is the same size or
+  /// greater to the pointer size based on the address space.
+  IntegerType *getIntPtrType(LLVMContext &C, unsigned AddressSpace) const;
+
+  /// getIntPtrType - Return an integer type that is the same size or
+  /// greater to the pointer size based on the Type.
+  IntegerType *getIntPtrType(Type *) const;
 
   /// getIndexedOffset - return the offset from the beginning of the type for
   /// the specified indices.  This is used to implement getelementptr.

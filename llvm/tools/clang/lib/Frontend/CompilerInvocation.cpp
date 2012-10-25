@@ -35,12 +35,18 @@ using namespace clang;
 //===----------------------------------------------------------------------===//
 
 CompilerInvocationBase::CompilerInvocationBase()
-  : LangOpts(new LangOptions()), TargetOpts(new TargetOptions()) {}
+  : LangOpts(new LangOptions()), TargetOpts(new TargetOptions()),
+    DiagnosticOpts(new DiagnosticOptions()),
+    HeaderSearchOpts(new HeaderSearchOptions()),
+    PreprocessorOpts(new PreprocessorOptions()) {}
 
 CompilerInvocationBase::CompilerInvocationBase(const CompilerInvocationBase &X)
   : RefCountedBase<CompilerInvocation>(),
     LangOpts(new LangOptions(*X.getLangOpts())), 
-    TargetOpts(new TargetOptions(X.getTargetOpts())) {}
+    TargetOpts(new TargetOptions(X.getTargetOpts())),
+    DiagnosticOpts(new DiagnosticOptions(X.getDiagnosticOpts())),
+    HeaderSearchOpts(new HeaderSearchOptions(X.getHeaderSearchOpts())),
+    PreprocessorOpts(new PreprocessorOptions(X.getPreprocessorOpts())) {}
 
 //===----------------------------------------------------------------------===//
 // Utility functions.
@@ -182,7 +188,7 @@ static void AnalyzerOptsToArgs(const AnalyzerOptions &Opts, ToArgsList &Res) {
 }
 
 static void CodeGenOptsToArgs(const CodeGenOptions &Opts, ToArgsList &Res) {
-  switch (Opts.DebugInfo) {
+  switch (Opts.getDebugInfo()) {
     case CodeGenOptions::NoDebugInfo:
       break;
     case CodeGenOptions::DebugLineTablesOnly:
@@ -313,7 +319,7 @@ static void CodeGenOptsToArgs(const CodeGenOptions &Opts, ToArgsList &Res) {
   for (unsigned i = 0, e = Opts.BackendOptions.size(); i != e; ++i)
     Res.push_back("-backend-option", Opts.BackendOptions[i]);
 
-  switch (Opts.DefaultTLSModel) {
+  switch (Opts.getDefaultTLSModel()) {
   case CodeGenOptions::GeneralDynamicTLSModel:
     break;
   case CodeGenOptions::LocalDynamicTLSModel:
@@ -376,7 +382,7 @@ static void DiagnosticOptsToArgs(const DiagnosticOptions &Opts,
     Res.push_back("-fdiagnostics-show-category=id");
   else if (Opts.ShowCategories == 2)
     Res.push_back("-fdiagnostics-show-category=name");
-  switch (Opts.Format) {
+  switch (Opts.getFormat()) {
   case DiagnosticOptions::Clang: 
     Res.push_back("-fdiagnostics-format=clang"); break;
   case DiagnosticOptions::Msvc:  
@@ -1003,10 +1009,10 @@ static void addWarningArgs(ArgList &Args, std::vector<std::string> &Warnings) {
   for (arg_iterator I = Args.filtered_begin(OPT_W_Group),
          E = Args.filtered_end(); I != E; ++I) {
     Arg *A = *I;
-    // If the argument is a pure flag, add its name (minus the "-W" at the beginning)
+    // If the argument is a pure flag, add its name (minus the "W" at the beginning)
     // to the warning list. Else, add its value (for the OPT_W case).
     if (A->getOption().getKind() == Option::FlagClass) {
-      Warnings.push_back(A->getOption().getName().substr(2));
+      Warnings.push_back(A->getOption().getName().substr(1));
     } else {
       for (unsigned Idx = 0, End = A->getNumValues();
            Idx < End; ++Idx) {
@@ -1138,7 +1144,6 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   Opts.TrimGraph = Args.hasArg(OPT_trim_egraph);
   Opts.MaxNodes = Args.getLastArgIntValue(OPT_analyzer_max_nodes, 150000,Diags);
   Opts.maxBlockVisitOnPath = Args.getLastArgIntValue(OPT_analyzer_max_loop, 4, Diags);
-  Opts.eagerlyTrimExplodedGraph = !Args.hasArg(OPT_analyzer_no_eagerly_trim_egraph);
   Opts.PrintStats = Args.hasArg(OPT_analyzer_stats);
   Opts.InlineMaxStackDepth =
     Args.getLastArgIntValue(OPT_analyzer_inline_max_stack_depth,
@@ -1217,20 +1222,21 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.OptimizationLevel = OptLevel;
 
   // We must always run at least the always inlining pass.
-  Opts.Inlining = (Opts.OptimizationLevel > 1) ? CodeGenOptions::NormalInlining
-    : CodeGenOptions::OnlyAlwaysInlining;
+  Opts.setInlining(
+    (Opts.OptimizationLevel > 1) ? CodeGenOptions::NormalInlining
+                                 : CodeGenOptions::OnlyAlwaysInlining);
   // -fno-inline-functions overrides OptimizationLevel > 1.
   Opts.NoInline = Args.hasArg(OPT_fno_inline);
-  Opts.Inlining = Args.hasArg(OPT_fno_inline_functions) ?
-    CodeGenOptions::OnlyAlwaysInlining : Opts.Inlining;
+  Opts.setInlining(Args.hasArg(OPT_fno_inline_functions) ?
+                     CodeGenOptions::OnlyAlwaysInlining : Opts.getInlining());
 
   if (Args.hasArg(OPT_gline_tables_only)) {
-    Opts.DebugInfo = CodeGenOptions::DebugLineTablesOnly;
+    Opts.setDebugInfo(CodeGenOptions::DebugLineTablesOnly);
   } else if (Args.hasArg(OPT_g_Flag)) {
     if (Args.hasFlag(OPT_flimit_debug_info, OPT_fno_limit_debug_info, true))
-      Opts.DebugInfo = CodeGenOptions::LimitedDebugInfo;
+      Opts.setDebugInfo(CodeGenOptions::LimitedDebugInfo);
     else
-      Opts.DebugInfo = CodeGenOptions::FullDebugInfo;
+      Opts.setDebugInfo(CodeGenOptions::FullDebugInfo);
   }
   Opts.DebugColumnInfo = Args.hasArg(OPT_dwarf_column_info);
 
@@ -1310,7 +1316,9 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.StackRealignment = Args.hasArg(OPT_mstackrealign);
   if (Arg *A = Args.getLastArg(OPT_mstack_alignment)) {
     StringRef Val = A->getValue(Args);
-    Val.getAsInteger(10, Opts.StackAlignment);
+    unsigned StackAlignment = Opts.StackAlignment;
+    Val.getAsInteger(10, StackAlignment);
+    Opts.StackAlignment = StackAlignment;
   }
 
   if (Arg *A = Args.getLastArg(OPT_fobjc_dispatch_method_EQ)) {
@@ -1324,7 +1332,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Name;
       Success = false;
     } else {
-      Opts.ObjCDispatchMethod = Method;
+      Opts.setObjCDispatchMethod(
+        static_cast<CodeGenOptions::ObjCDispatchMethodKind>(Method));
     }
   }
 
@@ -1340,7 +1349,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Name;
       Success = false;
     } else {
-      Opts.DefaultTLSModel = static_cast<CodeGenOptions::TLSModel>(Model);
+      Opts.setDefaultTLSModel(static_cast<CodeGenOptions::TLSModel>(Model));
     }
   }
 
@@ -1391,9 +1400,9 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   StringRef ShowOverloads =
     Args.getLastArgValue(OPT_fshow_overloads_EQ, "all");
   if (ShowOverloads == "best")
-    Opts.ShowOverloads = DiagnosticsEngine::Ovl_Best;
+    Opts.setShowOverloads(Ovl_Best);
   else if (ShowOverloads == "all")
-    Opts.ShowOverloads = DiagnosticsEngine::Ovl_All;
+    Opts.setShowOverloads(Ovl_All);
   else {
     Success = false;
     if (Diags)
@@ -1421,11 +1430,11 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   StringRef Format =
     Args.getLastArgValue(OPT_fdiagnostics_format, "clang");
   if (Format == "clang")
-    Opts.Format = DiagnosticOptions::Clang;
+    Opts.setFormat(DiagnosticOptions::Clang);
   else if (Format == "msvc")
-    Opts.Format = DiagnosticOptions::Msvc;
+    Opts.setFormat(DiagnosticOptions::Msvc);
   else if (Format == "vi")
-    Opts.Format = DiagnosticOptions::Vi;
+    Opts.setFormat(DiagnosticOptions::Vi);
   else {
     Success = false;
     if (Diags)
@@ -2227,16 +2236,7 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
                                              OPT_include_pth),
          ie = Args.filtered_end(); it != ie; ++it) {
     const Arg *A = *it;
-    // PCH is handled specially, we need to extra the original include path.
-    if (A->getOption().matches(OPT_include_pch)) {
-      std::string OriginalFile =
-        ASTReader::getOriginalSourceFile(A->getValue(Args), FileMgr, Diags);
-      if (OriginalFile.empty())
-        continue;
-
-      Opts.Includes.push_back(OriginalFile);
-    } else
-      Opts.Includes.push_back(A->getValue(Args));
+    Opts.Includes.push_back(A->getValue(Args));
   }
 
   for (arg_iterator it = Args.filtered_begin(OPT_chain_include),
@@ -2333,7 +2333,7 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
   // Issue errors on arguments that are not valid for CC1.
   for (ArgList::iterator I = Args->begin(), E = Args->end();
        I != E; ++I) {
-    if (!(*I)->getOption().isCC1Option()) {
+    if (!(*I)->getOption().hasFlag(options::CC1Option)) {
       Diags.Report(diag::err_drv_unknown_argument) << (*I)->getAsString(*Args);
       Success = false;
     }

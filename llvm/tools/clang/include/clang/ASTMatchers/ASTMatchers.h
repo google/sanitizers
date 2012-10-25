@@ -546,6 +546,18 @@ const internal::VariadicDynCastAllOfMatcher<
   Stmt,
   CXXConstructExpr> constructExpr;
 
+/// \brief Matches implicit and explicit this expressions.
+///
+/// Example matches the implicit this expression in "return i".
+///     (matcher = thisExpr())
+/// \code
+/// struct foo {
+///   int i;
+///   int f() { return i; }
+/// };
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<Stmt, CXXThisExpr> thisExpr;
+
 /// \brief Matches nodes where temporaries are created.
 ///
 /// Example matches FunctionTakesString(GetStringByValue())
@@ -1402,6 +1414,24 @@ forEachDescendant(
     DescendantT>(DescendantMatcher);
 }
 
+/// \brief Matches AST nodes that have a parent that matches the provided
+/// matcher.
+///
+/// Given
+/// \code
+/// void f() { for (;;) { int x = 42; if (true) { int x = 43; } } }
+/// \endcode
+/// \c compoundStmt(hasParent(ifStmt())) matches "{ int x = 43; }".
+///
+/// Usable as: Any Matcher
+template <typename ParentT>
+internal::ArgumentAdaptingMatcher<internal::HasParentMatcher, ParentT>
+hasParent(const internal::Matcher<ParentT> &ParentMatcher) {
+  return internal::ArgumentAdaptingMatcher<
+    internal::HasParentMatcher,
+    ParentT>(ParentMatcher);
+}
+
 /// \brief Matches AST nodes that have an ancestor that matches the provided
 /// matcher.
 ///
@@ -1440,7 +1470,8 @@ unless(const M &InnerMatcher) {
 /// \brief Matches a type if the declaration of the type matches the given
 /// matcher.
 ///
-/// Usable as: Matcher<QualType>, Matcher<CallExpr>, Matcher<CXXConstructExpr>
+/// Usable as: Matcher<QualType>, Matcher<CallExpr>, Matcher<CXXConstructExpr>,
+///   Matcher<MemberExpr>
 inline internal::PolymorphicMatcherWithParam1< internal::HasDeclarationMatcher,
                                      internal::Matcher<Decl> >
     hasDeclaration(const internal::Matcher<Decl> &InnerMatcher) {

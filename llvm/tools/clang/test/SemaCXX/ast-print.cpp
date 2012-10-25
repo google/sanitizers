@@ -52,3 +52,32 @@ void test6() {
     unsigned int y = 0;
     test6fn((int&)y);
 }
+
+// CHECK: S s( 1, 2 );
+
+template <class S> void test7()
+{
+    S s( 1,2 );
+}
+
+
+// CHECK: t.~T();
+
+template <typename T> void test8(T t) { t.~T(); }
+
+
+// CHECK:      enum E {
+// CHECK-NEXT:  A,
+// CHECK-NEXT:  B,
+// CHECK-NEXT:  C
+// CHECK-NEXT:  };
+// CHECK-NEXT: {{^[ ]+}}E a = A;
+
+struct test9
+{
+    void f()
+    {
+        enum E { A, B, C };
+        E a = A;
+    }
+};
