@@ -60,7 +60,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -1017,7 +1016,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *ArgShadowBase = getShadowPtrForArgument(A, IRB, ArgOffset);
       DEBUG(dbgs() << "  Arg#" << i << ": " << *A <<
             " Shadow: " << *ArgShadow << "\n");
-      if (CS.paramHasAttr(i + 1, Attribute::ByVal)) {
+      if (CS.paramHasAttr(i + 1, Attributes::ByVal)) {
         assert(A->getType()->isPointerTy() &&
             "ByVal argument is not a pointer!");
         Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
