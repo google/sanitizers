@@ -309,7 +309,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
           getCleanShadow(ConvertedShadow), "_mscmp");
       Instruction *CheckTerm = SplitBlockAndInsertIfThen(cast<Instruction>(Cmp),
-          MS.ColdCallWeights);
+          /* Unreachable */ false, MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);
       if (ClTrackOrigins) {
