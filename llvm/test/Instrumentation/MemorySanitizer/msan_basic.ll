@@ -163,7 +163,7 @@ declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, 
 ; CHECK: }
 
 
-; memmove
+; memmove is lowered to a call
 define void @MemMove(i8* nocapture %x, i8* nocapture %y) nounwind uwtable {
 entry:
   call void @llvm.memmove.p0i8.p0i8.i64(i8* %x, i8* %y, i64 10, i32 1, i1 false)
@@ -173,8 +173,7 @@ entry:
 declare void @llvm.memmove.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemMove
-; CHECK: call void @llvm.memmove.p0i8.p0i8.i64
-; CHECK: call void @llvm.memmove.p0i8.p0i8.i64
+; CHECK: call i8* @memmove
 ; CHECK: }
 
 
