@@ -309,7 +309,7 @@ def fthread_sanitizer : Flag<["-"], "fthread-sanitizer">, Group<f_Group>, Flags<
 def fno_thread_sanitizer : Flag<["-"], "fno-thread-sanitizer">, Group<f_Group>, Flags<[CC1Option]>;
 def fmemory_sanitizer : Flag<["-"], "fmemory-sanitizer">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable MemorySanitizer instrumentation (memory error detection)">;
-def fno_memory_sanitizer : Flag<"-", "fno-memory-sanitizer">, Group<f_Group>, Flags<[CC1Option]>;
+def fno_memory_sanitizer : Flag<["-"], "fno-memory-sanitizer">, Group<f_Group>, Flags<[CC1Option]>;
 def fasm : Flag<["-"], "fasm">, Group<f_Group>;
 
 def fasm_blocks : Flag<["-"], "fasm-blocks">, Group<f_Group>;
