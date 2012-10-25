@@ -24,7 +24,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "clang/Lex/LexDiagnostic.h"
-#include "clang/Frontend/DiagnosticOptions.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include <cstring>
 #include <utility>
@@ -51,8 +51,7 @@ void clang::ProcessWarningOptions(DiagnosticsEngine &Diags,
                                   const DiagnosticOptions &Opts) {
   Diags.setSuppressSystemWarnings(true);  // Default to -Wno-system-headers
   Diags.setIgnoreAllWarnings(Opts.IgnoreWarnings);
-  Diags.setShowOverloads(
-    static_cast<DiagnosticsEngine::OverloadsShown>(Opts.ShowOverloads));
+  Diags.setShowOverloads(Opts.getShowOverloads());
 
   Diags.setElideType(Opts.ElideType);
   Diags.setPrintTemplateTree(Opts.ShowTemplateTree);

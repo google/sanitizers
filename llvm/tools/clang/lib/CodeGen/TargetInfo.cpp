@@ -528,8 +528,10 @@ class X86_32ABIInfo : public ABIInfo {
   Class classify(QualType Ty) const;
   ABIArgInfo classifyReturnType(QualType RetTy,
                                 unsigned callingConvention) const;
-  ABIArgInfo classifyArgumentType(QualType RetTy, unsigned &FreeRegs) const;
-  bool shouldUseInReg(QualType Ty, unsigned &FreeRegs) const;
+  ABIArgInfo classifyArgumentType(QualType RetTy, unsigned &FreeRegs,
+                                  bool IsFastCall) const;
+  bool shouldUseInReg(QualType Ty, unsigned &FreeRegs,
+                      bool IsFastCall, bool &NeedsPadding) const;
 
 public:
 
@@ -804,23 +806,51 @@ X86_32ABIInfo::Class X86_32ABIInfo::classify(QualType Ty) const {
   return Integer;
 }
 
-bool X86_32ABIInfo::shouldUseInReg(QualType Ty, unsigned &FreeRegs) const {
+bool X86_32ABIInfo::shouldUseInReg(QualType Ty, unsigned &FreeRegs,
+                                   bool IsFastCall, bool &NeedsPadding) const {
+  NeedsPadding = false;
   Class C = classify(Ty);
   if (C == Float)
     return false;
 
-  unsigned SizeInRegs = (getContext().getTypeSize(Ty) + 31) / 32;
+  unsigned Size = getContext().getTypeSize(Ty);
+  unsigned SizeInRegs = (Size + 31) / 32;
+
+  if (SizeInRegs == 0)
+    return false;
+
   if (SizeInRegs > FreeRegs) {
     FreeRegs = 0;
     return false;
   }
 
   FreeRegs -= SizeInRegs;
+
+  if (IsFastCall) {
+    if (Size > 32)
+      return false;
+
+    if (Ty->isIntegralOrEnumerationType())
+      return true;
+
+    if (Ty->isPointerType())
+      return true;
+
+    if (Ty->isReferenceType())
+      return true;
+
+    if (FreeRegs)
+      NeedsPadding = true;
+
+    return false;
+  }
+
   return true;
 }
 
 ABIArgInfo X86_32ABIInfo::classifyArgumentType(QualType Ty,
-                                               unsigned &FreeRegs) const {
+                                               unsigned &FreeRegs,
+                                               bool IsFastCall) const {
   // FIXME: Set alignment on indirect arguments.
   if (isAggregateTypeForABI(Ty)) {
     // Structures with flexible arrays are always indirect.
@@ -838,16 +868,18 @@ ABIArgInfo X86_32ABIInfo::classifyArgumentType(QualType Ty,
     if (isEmptyRecord(getContext(), Ty, true))
       return ABIArgInfo::getIgnore();
 
-    if (shouldUseInReg(Ty, FreeRegs)) {
+    llvm::LLVMContext &LLVMContext = getVMContext();
+    llvm::IntegerType *Int32 = llvm::Type::getInt32Ty(LLVMContext);
+    bool NeedsPadding;
+    if (shouldUseInReg(Ty, FreeRegs, IsFastCall, NeedsPadding)) {
       unsigned SizeInRegs = (getContext().getTypeSize(Ty) + 31) / 32;
-      llvm::LLVMContext &LLVMContext = getVMContext();
-      llvm::Type *Int32 = llvm::Type::getInt32Ty(LLVMContext);
       SmallVector<llvm::Type*, 3> Elements;
       for (unsigned I = 0; I < SizeInRegs; ++I)
         Elements.push_back(Int32);
       llvm::Type *Result = llvm::StructType::get(LLVMContext, Elements);
       return ABIArgInfo::getDirectInReg(Result);
     }
+    llvm::IntegerType *PaddingType = NeedsPadding ? Int32 : 0;
 
     // Expand small (<= 128-bit) record types when we know that the stack layout
     // of those arguments will match the struct. This is important because the
@@ -855,7 +887,7 @@ ABIArgInfo X86_32ABIInfo::classifyArgumentType(QualType Ty,
     // optimizations.
     if (getContext().getTypeSize(Ty) <= 4*32 &&
         canExpandIndirectArgument(Ty, getContext()))
-      return ABIArgInfo::getExpand();
+      return ABIArgInfo::getExpandWithPadding(IsFastCall, PaddingType);
 
     return getIndirectResult(Ty, true, FreeRegs);
   }
@@ -888,7 +920,8 @@ ABIArgInfo X86_32ABIInfo::classifyArgumentType(QualType Ty,
   if (const EnumType *EnumTy = Ty->getAs<EnumType>())
     Ty = EnumTy->getDecl()->getIntegerType();
 
-  bool InReg = shouldUseInReg(Ty, FreeRegs);
+  bool NeedsPadding;
+  bool InReg = shouldUseInReg(Ty, FreeRegs, IsFastCall, NeedsPadding);
 
   if (Ty->isPromotableIntegerType()) {
     if (InReg)
@@ -904,8 +937,15 @@ void X86_32ABIInfo::computeInfo(CGFunctionInfo &FI) const {
   FI.getReturnInfo() = classifyReturnType(FI.getReturnType(),
                                           FI.getCallingConvention());
 
-  unsigned FreeRegs = FI.getHasRegParm() ? FI.getRegParm() :
-    DefaultNumRegisterParameters;
+  unsigned CC = FI.getCallingConvention();
+  bool IsFastCall = CC == llvm::CallingConv::X86_FastCall;
+  unsigned FreeRegs;
+  if (IsFastCall)
+    FreeRegs = 2;
+  else if (FI.getHasRegParm())
+    FreeRegs = FI.getRegParm();
+  else
+    FreeRegs = DefaultNumRegisterParameters;
 
   // If the return value is indirect, then the hidden argument is consuming one
   // integer register.
@@ -919,7 +959,7 @@ void X86_32ABIInfo::computeInfo(CGFunctionInfo &FI) const {
 
   for (CGFunctionInfo::arg_iterator it = FI.arg_begin(), ie = FI.arg_end();
        it != ie; ++it)
-    it->info = classifyArgumentType(it->type, FreeRegs);
+    it->info = classifyArgumentType(it->type, FreeRegs, IsFastCall);
 }
 
 llvm::Value *X86_32ABIInfo::EmitVAArg(llvm::Value *VAListAddr, QualType Ty,
@@ -2539,6 +2579,8 @@ llvm::Value *WinX86_64ABIInfo::EmitVAArg(llvm::Value *VAListAddr, QualType Ty,
   return AddrTyped;
 }
 
+namespace {
+
 class NaClX86_64ABIInfo : public ABIInfo {
  public:
   NaClX86_64ABIInfo(CodeGen::CodeGenTypes &CGT, bool HasAVX)
@@ -2556,6 +2598,8 @@ class NaClX86_64TargetCodeGenInfo : public TargetCodeGenInfo  {
   NaClX86_64TargetCodeGenInfo(CodeGen::CodeGenTypes &CGT, bool HasAVX)
       : TargetCodeGenInfo(new NaClX86_64ABIInfo(CGT, HasAVX)) {}
 };
+
+}
 
 void NaClX86_64ABIInfo::computeInfo(CGFunctionInfo &FI) const {
   if (FI.getASTCallingConvention() == CC_PnaclCall)
@@ -3304,6 +3348,8 @@ llvm::Value *ARMABIInfo::EmitVAArg(llvm::Value *VAListAddr, QualType Ty,
   return AddrTyped;
 }
 
+namespace {
+
 class NaClARMABIInfo : public ABIInfo {
  public:
   NaClARMABIInfo(CodeGen::CodeGenTypes &CGT, ARMABIInfo::ABIKind Kind)
@@ -3321,6 +3367,8 @@ class NaClARMTargetCodeGenInfo : public TargetCodeGenInfo  {
   NaClARMTargetCodeGenInfo(CodeGen::CodeGenTypes &CGT, ARMABIInfo::ABIKind Kind)
       : TargetCodeGenInfo(new NaClARMABIInfo(CGT, Kind)) {}
 };
+
+}
 
 void NaClARMABIInfo::computeInfo(CGFunctionInfo &FI) const {
   if (FI.getASTCallingConvention() == CC_PnaclCall)

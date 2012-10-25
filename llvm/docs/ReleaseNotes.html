@@ -466,13 +466,18 @@ Release Notes</a>.</h1>
 <p>In addition to many minor performance tweaks and bug fixes, this release
    includes a few major enhancements and additions to the optimizers:</p>
 
-<p> Loop Vectorizer - We've added a basic loop vectorizer and we are now able
-    to vectorize small loops. The loop vectorizer is disabled by default and
-    can be enabled using the -mllvm -vectorize flags. We can vectorize this code:
+<p> Loop Vectorizer - We've added a loop vectorizer and we are now able to
+    vectorize small loops. The loop vectorizer is disabled by default and
+    can be enabled using the <b>-mllvm -vectorize</b> flag.
+    The SIMD vector width can be specified using the flag
+    <b>-mllvm -force-vector-width=4</b>.
+    <br/>
+    We can now vectorize this code:
 
     <pre class="doc_code">
     for (i=0; i&lt;n; i++) {
       a[i] = b[i+1] + c[i+3] + i;
+      sum += d[i];
     }
     </pre>
 
@@ -767,7 +772,7 @@ Release Notes</a>.</h1>
   src="http://www.w3.org/Icons/valid-html401-blue" alt="Valid HTML 4.01"></a>
 
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-10-18 09:46:16 +0400 (Thu, 18 Oct 2012) $
+  Last modified: $Date: 2012-10-25 00:47:55 +0400 (Thu, 25 Oct 2012) $
 </address>
 
 </body>

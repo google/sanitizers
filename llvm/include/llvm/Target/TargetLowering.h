@@ -103,6 +103,10 @@ public:
     TypeWidenVector      // This vector should be widened into a larger vector.
   };
 
+  /// LegalizeKind holds the legalization kind that needs to happen to EVT
+  /// in order to type-legalize it.
+  typedef std::pair<LegalizeTypeAction, EVT> LegalizeKind;
+
   enum BooleanContent { // How the target represents true/false values.
     UndefinedBooleanContent,    // Only bit 0 counts, the rest can hold garbage.
     ZeroOrOneBooleanContent,        // All bits zero except for bit 0.
@@ -1954,8 +1958,7 @@ private:
 
   ValueTypeActionImpl ValueTypeActions;
 
-  typedef std::pair<LegalizeTypeAction, EVT> LegalizeKind;
-
+public:
   LegalizeKind
   getTypeConversion(LLVMContext &Context, EVT VT) const {
     // If this is a simple type, use the ComputeRegisterProp mechanism.
@@ -2072,6 +2075,7 @@ private:
     return LegalizeKind(TypeSplitVector, NVT);
   }
 
+private:
   std::vector<std::pair<EVT, const TargetRegisterClass*> > AvailableRegClasses;
 
   /// TargetDAGCombineArray - Targets can specify ISD nodes that they would

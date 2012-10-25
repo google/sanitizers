@@ -27,6 +27,7 @@
 #include "llvm/LLVMContext.h"
 #include "llvm/MDBuilder.h"
 #include "llvm/DataLayout.h"
+#include "llvm/ADT/Hashing.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -558,6 +559,18 @@ unsigned CodeGenFunction::getAccessedFieldNo(unsigned Idx,
       ->getZExtValue();
 }
 
+/// Emit the hash_16_bytes function from include/llvm/ADT/Hashing.h.
+static llvm::Value *emitHash16Bytes(CGBuilderTy &Builder, llvm::Value *Low,
+                                    llvm::Value *High) {
+  llvm::Value *KMul = Builder.getInt64(0x9ddfea08eb382d69ULL);
+  llvm::Value *K47 = Builder.getInt64(47);
+  llvm::Value *A0 = Builder.CreateMul(Builder.CreateXor(Low, High), KMul);
+  llvm::Value *A1 = Builder.CreateXor(Builder.CreateLShr(A0, K47), A0);
+  llvm::Value *B0 = Builder.CreateMul(Builder.CreateXor(High, A1), KMul);
+  llvm::Value *B1 = Builder.CreateXor(Builder.CreateLShr(B0, K47), B0);
+  return Builder.CreateMul(B1, KMul);
+}
+
 void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
                                     llvm::Value *Address,
                                     QualType Ty, CharUnits Alignment) {
@@ -612,6 +625,62 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
       llvm::ConstantInt::get(Int8Ty, TCK)
     };
     EmitCheck(Cond, "type_mismatch", StaticData, Address);
+  }
+
+  CXXRecordDecl *RD = Ty->getAsCXXRecordDecl();
+  if (TCK != TCK_ConstructorCall &&
+      RD && RD->hasDefinition() && RD->isDynamicClass()) {
+    // Check that the vptr indicates that there is a subobject of type Ty at
+    // offset zero within this object.
+    // FIXME: Produce a diagnostic if the user tries to combine this check with
+    //        -fno-rtti.
+
+    // Compute a hash of the mangled name of the type.
+    //
+    // FIXME: This is not guaranteed to be deterministic! Move to a
+    //        fingerprinting mechanism once LLVM provides one. For the time
+    //        being the implementation happens to be deterministic.
+    llvm::SmallString<64> MangledName;
+    llvm::raw_svector_ostream Out(MangledName);
+    CGM.getCXXABI().getMangleContext().mangleCXXRTTI(Ty.getUnqualifiedType(),
+                                                     Out);
+    llvm::hash_code TypeHash = hash_value(Out.str());
+
+    // Load the vptr, and compute hash_16_bytes(TypeHash, vptr).
+    llvm::Value *Low = llvm::ConstantInt::get(Int64Ty, TypeHash);
+    llvm::Type *VPtrTy = llvm::PointerType::get(IntPtrTy, 0);
+    llvm::Value *VPtrAddr = Builder.CreateBitCast(Address, VPtrTy);
+    llvm::Value *VPtrVal = Builder.CreateLoad(VPtrAddr);
+    llvm::Value *High = Builder.CreateZExt(VPtrVal, Int64Ty);
+
+    llvm::Value *Hash = emitHash16Bytes(Builder, Low, High);
+    Hash = Builder.CreateTrunc(Hash, IntPtrTy);
+
+    // Look the hash up in our cache.
+    const int CacheSize = 128;
+    llvm::Type *HashTable = llvm::ArrayType::get(IntPtrTy, CacheSize);
+    llvm::Value *Cache = CGM.CreateRuntimeVariable(HashTable,
+                                                   "__ubsan_vptr_type_cache");
+    llvm::Value *Slot = Builder.CreateAnd(Hash,
+                                          llvm::ConstantInt::get(IntPtrTy,
+                                                                 CacheSize-1));
+    llvm::Value *Indices[] = { Builder.getInt32(0), Slot };
+    llvm::Value *CacheVal =
+      Builder.CreateLoad(Builder.CreateInBoundsGEP(Cache, Indices));
+
+    // If the hash isn't in the cache, call a runtime handler to perform the
+    // hard work of checking whether the vptr is for an object of the right
+    // type. This will either fill in the cache and return, or produce a
+    // diagnostic.
+    llvm::Constant *StaticData[] = {
+      EmitCheckSourceLocation(Loc),
+      EmitCheckTypeDescriptor(Ty),
+      CGM.GetAddrOfRTTIDescriptor(Ty.getUnqualifiedType()),
+      llvm::ConstantInt::get(Int8Ty, TCK)
+    };
+    llvm::Value *DynamicData[] = { Address, Hash };
+    EmitCheck(Builder.CreateICmpEQ(CacheVal, Hash),
+              "dynamic_type_cache_miss", StaticData, DynamicData, true);
   }
 }
 
@@ -1695,6 +1764,21 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   CharUnits Alignment = getContext().getDeclAlign(ND);
   QualType T = E->getType();
 
+  // A DeclRefExpr for a reference initialized by a constant expression can
+  // appear without being odr-used. Directly emit the constant initializer.
+  if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
+    const Expr *Init = VD->getAnyInitializer(VD);
+    if (Init && !isa<ParmVarDecl>(VD) && VD->getType()->isReferenceType() &&
+        VD->isUsableInConstantExpressions(getContext()) &&
+        VD->checkInitIsICE()) {
+      llvm::Constant *Val =
+        CGM.EmitConstantValue(*VD->evaluateValue(), VD->getType(), this);
+      assert(Val && "failed to emit reference constant expression");
+      // FIXME: Eventually we will want to emit vector element references.
+      return MakeAddrLValue(Val, T, Alignment);
+    }
+  }
+
   // FIXME: We should be able to assert this for FunctionDecls as well!
   // FIXME: We should be able to assert this for all DeclRefExprs, not just
   // those with a valid source location.
@@ -1705,7 +1789,7 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   if (ND->hasAttr<WeakRefAttr>()) {
     const ValueDecl *VD = cast<ValueDecl>(ND);
     llvm::Constant *Aliasee = CGM.GetWeakRefReference(VD);
-    return MakeAddrLValue(Aliasee, E->getType(), Alignment);
+    return MakeAddrLValue(Aliasee, T, Alignment);
   }
 
   if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
@@ -1733,9 +1817,8 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
       }
 
       assert(isa<BlockDecl>(CurCodeDecl) && E->refersToEnclosingLocal());
-      CharUnits alignment = getContext().getDeclAlign(VD);
       return MakeAddrLValue(GetAddrOfBlockDecl(VD, isBlockVariable),
-                            E->getType(), alignment);
+                            T, Alignment);
     }
 
     assert(V && "DeclRefExpr not entered in LocalDeclMap?");
@@ -2028,7 +2111,8 @@ llvm::Constant *CodeGenFunction::EmitCheckSourceLocation(SourceLocation Loc) {
 
 void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
                                 llvm::ArrayRef<llvm::Constant *> StaticArgs,
-                                llvm::ArrayRef<llvm::Value *> DynamicArgs) {
+                                llvm::ArrayRef<llvm::Value *> DynamicArgs,
+                                bool Recoverable) {
   llvm::BasicBlock *Cont = createBasicBlock("cont");
 
   // If -fcatch-undefined-behavior is not enabled, just emit a trap. This
@@ -2082,17 +2166,23 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
   llvm::FunctionType *FnType =
     llvm::FunctionType::get(CGM.VoidTy, ArgTypes, false);
   llvm::AttrBuilder B;
-  B.addAttribute(llvm::Attributes::NoReturn)
-    .addAttribute(llvm::Attributes::NoUnwind)
-    .addAttribute(llvm::Attributes::UWTable);
+  if (!Recoverable) {
+    B.addAttribute(llvm::Attributes::NoReturn)
+     .addAttribute(llvm::Attributes::NoUnwind);
+  }
+  B.addAttribute(llvm::Attributes::UWTable);
   llvm::Value *Fn = CGM.CreateRuntimeFunction(FnType,
                                           ("__ubsan_handle_" + CheckName).str(),
                                          llvm::Attributes::get(getLLVMContext(),
                                                                B));
   llvm::CallInst *HandlerCall = Builder.CreateCall(Fn, Args);
-  HandlerCall->setDoesNotReturn();
-  HandlerCall->setDoesNotThrow();
-  Builder.CreateUnreachable();
+  if (Recoverable) {
+    Builder.CreateBr(Cont);
+  } else {
+    HandlerCall->setDoesNotReturn();
+    HandlerCall->setDoesNotThrow();
+    Builder.CreateUnreachable();
+  }
 
   EmitBlock(Cont);
 }

@@ -17,4 +17,3 @@
 
 // <rdar://problem/7181838> clang 1.0 fails to compile Python 2.6
 // RUN: %clang -target x86_64-apple-darwin9 -### -S %s -mmacosx-version-min=10.4
-

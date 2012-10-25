@@ -362,33 +362,40 @@ const char *DerivedArgList::MakeArgString(StringRef Str) const {
   return BaseArgs.MakeArgString(Str);
 }
 
-Arg *DerivedArgList::MakeFlagArg(const Arg *BaseArg, const Option *Opt) const {
-  Arg *A = new Arg(Opt, BaseArgs.MakeIndex(Opt->getName()), BaseArg);
+Arg *DerivedArgList::MakeFlagArg(const Arg *BaseArg, const Option Opt) const {
+  Arg *A = new Arg(Opt, ArgList::MakeArgString(Twine(Opt.getPrefix()) +
+                                               Twine(Opt.getName())),
+                   BaseArgs.MakeIndex(Opt.getName()), BaseArg);
   SynthesizedArgs.push_back(A);
   return A;
 }
 
-Arg *DerivedArgList::MakePositionalArg(const Arg *BaseArg, const Option *Opt,
+Arg *DerivedArgList::MakePositionalArg(const Arg *BaseArg, const Option Opt,
                                        StringRef Value) const {
   unsigned Index = BaseArgs.MakeIndex(Value);
-  Arg *A = new Arg(Opt, Index, BaseArgs.getArgString(Index), BaseArg);
+  Arg *A = new Arg(Opt, ArgList::MakeArgString(Twine(Opt.getPrefix()) +
+                                               Twine(Opt.getName())),
+                   Index, BaseArgs.getArgString(Index), BaseArg);
   SynthesizedArgs.push_back(A);
   return A;
 }
 
-Arg *DerivedArgList::MakeSeparateArg(const Arg *BaseArg, const Option *Opt,
+Arg *DerivedArgList::MakeSeparateArg(const Arg *BaseArg, const Option Opt,
                                      StringRef Value) const {
-  unsigned Index = BaseArgs.MakeIndex(Opt->getName(), Value);
-  Arg *A = new Arg(Opt, Index, BaseArgs.getArgString(Index + 1), BaseArg);
+  unsigned Index = BaseArgs.MakeIndex(Opt.getName(), Value);
+  Arg *A = new Arg(Opt, ArgList::MakeArgString(Twine(Opt.getPrefix()) +
+                                               Twine(Opt.getName())),
+                   Index, BaseArgs.getArgString(Index + 1), BaseArg);
   SynthesizedArgs.push_back(A);
   return A;
 }
 
-Arg *DerivedArgList::MakeJoinedArg(const Arg *BaseArg, const Option *Opt,
+Arg *DerivedArgList::MakeJoinedArg(const Arg *BaseArg, const Option Opt,
                                    StringRef Value) const {
-  unsigned Index = BaseArgs.MakeIndex(Opt->getName().str() + Value.str());
-  Arg *A = new Arg(Opt, Index,
-                   BaseArgs.getArgString(Index) + Opt->getName().size(),
+  unsigned Index = BaseArgs.MakeIndex(Opt.getName().str() + Value.str());
+  Arg *A = new Arg(Opt, ArgList::MakeArgString(Twine(Opt.getPrefix()) +
+                                               Twine(Opt.getName())), Index,
+                   BaseArgs.getArgString(Index) + Opt.getName().size(),
                    BaseArg);
   SynthesizedArgs.push_back(A);
   return A;

@@ -90,15 +90,12 @@ public:
   /// ParseMSInlineAsm - Parse ms-style inline assembly.
   virtual bool ParseMSInlineAsm(void *AsmLoc, std::string &AsmString,
                                 unsigned &NumOutputs, unsigned &NumInputs,
-                                SmallVectorImpl<void *> &OpDecls,
+                                SmallVectorImpl<std::pair<void *, bool> > &OpDecls,
                                 SmallVectorImpl<std::string> &Constraints,
                                 SmallVectorImpl<std::string> &Clobbers,
                                 const MCInstrInfo *MII,
                                 const MCInstPrinter *IP,
                                 MCAsmParserSemaCallback &SI) = 0;
-
-  /// ParseStatement - Parse the next statement.
-  virtual bool ParseStatement() = 0;
 
   /// Warning - Emit a warning at the location \p L, with the message \p Msg.
   ///

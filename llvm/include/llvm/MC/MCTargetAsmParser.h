@@ -41,11 +41,25 @@ protected: // Can only create subclasses.
   /// AvailableFeatures - The current set of available features.
   unsigned AvailableFeatures;
 
+  /// ParsingInlineAsm - Are we parsing ms-style inline assembly?
+  bool ParsingInlineAsm;
+
+  /// SemaCallback - The Sema callback implementation.  Must be set when parsing
+  /// ms-style inline assembly.
+  MCAsmParserSemaCallback *SemaCallback;
+
 public:
   virtual ~MCTargetAsmParser();
 
   unsigned getAvailableFeatures() const { return AvailableFeatures; }
   void setAvailableFeatures(unsigned Value) { AvailableFeatures = Value; }
+
+  bool isParsingInlineAsm () { return ParsingInlineAsm; }
+  void setParsingInlineAsm (bool Value) { ParsingInlineAsm = Value; }
+
+  void setSemaCallback(MCAsmParserSemaCallback *Callback) {
+    SemaCallback = Callback;
+  }
 
   virtual bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
                              SMLoc &EndLoc) = 0;

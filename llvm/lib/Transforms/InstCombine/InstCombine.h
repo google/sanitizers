@@ -208,7 +208,7 @@ private:
   bool ShouldChangeType(Type *From, Type *To) const;
   Value *dyn_castNegVal(Value *V) const;
   Value *dyn_castFNegVal(Value *V) const;
-  Type *FindElementAtOffset(Type *Ty, int64_t Offset, 
+  Type *FindElementAtOffset(Type *Ty, int64_t Offset, Type *IntPtrTy,
                                   SmallVectorImpl<Value*> &NewIndices);
   Instruction *FoldOpIntoSelect(Instruction &Op, SelectInst *SI);
                                  
@@ -367,6 +367,10 @@ private:
 
 
   Value *EvaluateInDifferentType(Value *V, Type *Ty, bool isSigned);
+
+  /// Descale - Return a value X such that Val = X * Scale, or null if none.  If
+  /// the multiplication is known not to overflow then NoSignedWrap is set.
+  Value *Descale(Value *Val, APInt Scale, bool &NoSignedWrap);
 };
 
       

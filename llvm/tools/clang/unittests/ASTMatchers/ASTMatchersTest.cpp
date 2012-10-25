@@ -1333,6 +1333,13 @@ TEST(Matcher, ConstructorArgumentCount) {
                  Constructor1Arg));
 }
 
+TEST(Matcher,ThisExpr) {
+  EXPECT_TRUE(
+      matches("struct X { int a; int f () { return a; } };", thisExpr()));
+  EXPECT_TRUE(
+      notMatches("struct X { int f () { int a; return a; } };", thisExpr()));
+}
+
 TEST(Matcher, BindTemporaryExpression) {
   StatementMatcher TempExpression = bindTemporaryExpr();
 
@@ -2132,6 +2139,15 @@ TEST(Member, MatchesInMemberFunctionCall) {
                       memberExpr(member(hasName("first")))));
 }
 
+TEST(Member, MatchesMember) {
+  EXPECT_TRUE(matches(
+      "struct A { int i; }; void f() { A a; a.i = 2; }",
+      memberExpr(hasDeclaration(fieldDecl(hasType(isInteger()))))));
+  EXPECT_TRUE(notMatches(
+      "struct A { float f; }; void f() { A a; a.f = 2.0f; }",
+      memberExpr(hasDeclaration(fieldDecl(hasType(isInteger()))))));
+}
+
 TEST(Member, MatchesMemberAllocationFunction) {
   // Fails in C++11 mode
   EXPECT_TRUE(matchesConditionally(
@@ -2884,6 +2900,18 @@ TEST(HasAncestor, MatchesInImplicitCode) {
               hasAncestor(recordDecl(hasName("A")))))))));
 }
 
+TEST(HasParent, MatchesOnlyParent) {
+  EXPECT_TRUE(matches(
+      "void f() { if (true) { int x = 42; } }",
+      compoundStmt(hasParent(ifStmt()))));
+  EXPECT_TRUE(notMatches(
+      "void f() { for (;;) { int x = 42; } }",
+      compoundStmt(hasParent(ifStmt()))));
+  EXPECT_TRUE(notMatches(
+      "void f() { if (true) for (;;) { int x = 42; } }",
+      compoundStmt(hasParent(ifStmt()))));
+}
+
 TEST(TypeMatching, MatchesTypes) {
   EXPECT_TRUE(matches("struct S {};", qualType().bind("loc")));
 }
@@ -3141,6 +3169,43 @@ TEST(NNS, MatchesNestedNameSpecifierPrefixes) {
       "struct A { struct B { struct C {}; }; }; A::B::C c;",
       nestedNameSpecifierLoc(hasPrefix(
           specifiesTypeLoc(loc(qualType(asString("struct A"))))))));
+}
+
+template <typename T>
+class VerifyRecursiveMatch : public BoundNodesCallback {
+public:
+  explicit VerifyRecursiveMatch(StringRef Id,
+                                const internal::Matcher<T> &InnerMatcher)
+      : Id(Id), InnerMatcher(InnerMatcher) {}
+  virtual bool run(const BoundNodes *Nodes, ASTContext *Context) {
+    const T *Node = Nodes->getNodeAs<T>(Id);
+    bool Found = false;
+    MatchFinder Finder;
+    Finder.addMatcher(InnerMatcher, new VerifyMatch(0, &Found));
+    Finder.findAll(*Node, *Context);
+    return Found;
+  }
+private:
+  std::string Id;
+  internal::Matcher<T> InnerMatcher;
+};
+
+TEST(MatchFinder, CanMatchDeclarationsRecursively) {
+  EXPECT_TRUE(matchAndVerifyResultTrue("class X { class Y {}; };",
+    recordDecl(hasName("::X")).bind("X"),
+    new VerifyRecursiveMatch<clang::Decl>("X", recordDecl(hasName("X::Y")))));
+  EXPECT_TRUE(matchAndVerifyResultFalse("class X { class Y {}; };",
+    recordDecl(hasName("::X")).bind("X"),
+    new VerifyRecursiveMatch<clang::Decl>("X", recordDecl(hasName("X::Z")))));
+}
+
+TEST(MatchFinder, CanMatchStatementsRecursively) {
+  EXPECT_TRUE(matchAndVerifyResultTrue("void f() { if (1) { for (;;) { } } }",
+    ifStmt().bind("if"),
+    new VerifyRecursiveMatch<clang::Stmt>("if", forStmt())));
+  EXPECT_TRUE(matchAndVerifyResultFalse("void f() { if (1) { for (;;) { } } }",
+    ifStmt().bind("if"),
+    new VerifyRecursiveMatch<clang::Stmt>("if", declStmt())));
 }
 
 } // end namespace ast_matchers

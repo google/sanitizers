@@ -16,6 +16,7 @@
 #define LLVM_TARGET_TARGET_TRANSFORMATION_IMPL_H
 
 #include "llvm/TargetTransformInfo.h"
+#include "llvm/CodeGen/ValueTypes.h"
 
 namespace llvm {
 
@@ -47,7 +48,27 @@ public:
   virtual unsigned getJumpBufSize() const;
 };
 
-class VectorTargetTransformImpl : public VectorTargetTransformInfo { };
+class VectorTargetTransformImpl : public VectorTargetTransformInfo {
+private:
+  const TargetLowering *TLI;
+
+  /// Estimate the cost of type-legalization and the legalized type.
+  std::pair<unsigned, EVT>
+  getTypeLegalizationCost(LLVMContext &C, EVT Ty) const;
+
+public:
+  explicit VectorTargetTransformImpl(const TargetLowering *TL) : TLI(TL) {}
+  
+  virtual ~VectorTargetTransformImpl() {}
+
+  virtual unsigned getInstrCost(unsigned Opcode, Type *Ty1, Type *Ty2) const;
+
+  virtual unsigned getBroadcastCost(Type *Tp) const;
+
+  virtual unsigned getMemoryOpCost(unsigned Opcode, Type *Src,
+                                   unsigned Alignment,
+                                   unsigned AddressSpace) const;
+};
 
 } // end llvm namespace
 

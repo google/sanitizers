@@ -665,6 +665,8 @@ void Sema::ActOnEndOfTranslationUnit() {
                                    diag::err_tentative_def_incomplete_type))
       VD->setInvalidDecl();
 
+    CheckCompleteVariableDeclaration(VD);
+
     // Notify the consumer that we've completed a tentative definition.
     if (!VD->isInvalidDecl())
       Consumer.CompleteTentativeDefinition(VD);
@@ -1185,8 +1187,7 @@ static void noteOverloads(Sema &S, const UnresolvedSetImpl &Overloads,
        DeclsEnd = Overloads.end(); It != DeclsEnd; ++It) {
     // FIXME: Magic number for max shown overloads stolen from
     // OverloadCandidateSet::NoteCandidates.
-    if (ShownOverloads >= 4 &&
-        S.Diags.getShowOverloads() == DiagnosticsEngine::Ovl_Best) {
+    if (ShownOverloads >= 4 && S.Diags.getShowOverloads() == Ovl_Best) {
       ++SuppressedOverloads;
       continue;
     }

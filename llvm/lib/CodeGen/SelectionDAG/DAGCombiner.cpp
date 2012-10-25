@@ -270,6 +270,8 @@ namespace {
     SDValue ReduceLoadWidth(SDNode *N);
     SDValue ReduceLoadOpStoreWidth(SDNode *N);
     SDValue TransformFPLoadStorePair(SDNode *N);
+    SDValue reduceBuildVecExtToExtBuildVec(SDNode *N);
+    SDValue reduceBuildVecConvertToConvertBuildVec(SDNode *N);
 
     SDValue GetDemandedBits(SDValue V, const APInt &Mask);
 
@@ -8356,14 +8358,20 @@ SDValue DAGCombiner::visitEXTRACT_VECTOR_ELT(SDNode *N) {
   return SDValue();
 }
 
-SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
+// Simplify (build_vec (ext )) to (bitcast (build_vec ))
+SDValue DAGCombiner::reduceBuildVecExtToExtBuildVec(SDNode *N) {
+  // We perform this optimization post type-legalization because
+  // the type-legalizer often scalarizes integer-promoted vectors.
+  // Performing this optimization before may create bit-casts which
+  // will be type-legalized to complex code sequences.
+  // We perform this optimization only before the operation legalizer because we
+  // may introduce illegal operations.
+  if (Level != AfterLegalizeVectorOps && Level != AfterLegalizeTypes)
+    return SDValue();
+
   unsigned NumInScalars = N->getNumOperands();
   DebugLoc dl = N->getDebugLoc();
   EVT VT = N->getValueType(0);
-
-  // A vector built entirely of undefs is undef.
-  if (ISD::allOperandsUndef(N))
-    return DAG.getUNDEF(VT);
 
   // Check to see if this is a BUILD_VECTOR of a bunch of values
   // which come from any_extend or zero_extend nodes. If so, we can create
@@ -8407,64 +8415,141 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
   // In order to have valid types, all of the inputs must be extended from the
   // same source type and all of the inputs must be any or zero extend.
   // Scalar sizes must be a power of two.
-  EVT OutScalarTy = N->getValueType(0).getScalarType();
+  EVT OutScalarTy = VT.getScalarType();
   bool ValidTypes = SourceType != MVT::Other &&
                  isPowerOf2_32(OutScalarTy.getSizeInBits()) &&
                  isPowerOf2_32(SourceType.getSizeInBits());
 
-  // We perform this optimization post type-legalization because
-  // the type-legalizer often scalarizes integer-promoted vectors.
-  // Performing this optimization before may create bit-casts which
-  // will be type-legalized to complex code sequences.
-  // We perform this optimization only before the operation legalizer because we
-  // may introduce illegal operations.
   // Create a new simpler BUILD_VECTOR sequence which other optimizations can
   // turn into a single shuffle instruction.
-  if ((Level == AfterLegalizeVectorOps || Level == AfterLegalizeTypes) &&
-      ValidTypes) {
-    bool isLE = TLI.isLittleEndian();
-    unsigned ElemRatio = OutScalarTy.getSizeInBits()/SourceType.getSizeInBits();
-    assert(ElemRatio > 1 && "Invalid element size ratio");
-    SDValue Filler = AllAnyExt ? DAG.getUNDEF(SourceType):
-                                 DAG.getConstant(0, SourceType);
+  if (!ValidTypes)
+    return SDValue();
 
-    unsigned NewBVElems = ElemRatio * N->getValueType(0).getVectorNumElements();
-    SmallVector<SDValue, 8> Ops(NewBVElems, Filler);
+  bool isLE = TLI.isLittleEndian();
+  unsigned ElemRatio = OutScalarTy.getSizeInBits()/SourceType.getSizeInBits();
+  assert(ElemRatio > 1 && "Invalid element size ratio");
+  SDValue Filler = AllAnyExt ? DAG.getUNDEF(SourceType):
+                               DAG.getConstant(0, SourceType);
 
-    // Populate the new build_vector
-    for (unsigned i=0; i < N->getNumOperands(); ++i) {
-      SDValue Cast = N->getOperand(i);
-      assert((Cast.getOpcode() == ISD::ANY_EXTEND ||
-              Cast.getOpcode() == ISD::ZERO_EXTEND ||
-              Cast.getOpcode() == ISD::UNDEF) && "Invalid cast opcode");
-      SDValue In;
-      if (Cast.getOpcode() == ISD::UNDEF)
-        In = DAG.getUNDEF(SourceType);
-      else
-        In = Cast->getOperand(0);
-      unsigned Index = isLE ? (i * ElemRatio) :
-                              (i * ElemRatio + (ElemRatio - 1));
+  unsigned NewBVElems = ElemRatio * VT.getVectorNumElements();
+  SmallVector<SDValue, 8> Ops(NewBVElems, Filler);
 
-      assert(Index < Ops.size() && "Invalid index");
-      Ops[Index] = In;
-    }
+  // Populate the new build_vector
+  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
+    SDValue Cast = N->getOperand(i);
+    assert((Cast.getOpcode() == ISD::ANY_EXTEND ||
+            Cast.getOpcode() == ISD::ZERO_EXTEND ||
+            Cast.getOpcode() == ISD::UNDEF) && "Invalid cast opcode");
+    SDValue In;
+    if (Cast.getOpcode() == ISD::UNDEF)
+      In = DAG.getUNDEF(SourceType);
+    else
+      In = Cast->getOperand(0);
+    unsigned Index = isLE ? (i * ElemRatio) :
+                            (i * ElemRatio + (ElemRatio - 1));
 
-    // The type of the new BUILD_VECTOR node.
-    EVT VecVT = EVT::getVectorVT(*DAG.getContext(), SourceType, NewBVElems);
-    assert(VecVT.getSizeInBits() == N->getValueType(0).getSizeInBits() &&
-           "Invalid vector size");
-    // Check if the new vector type is legal.
-    if (!isTypeLegal(VecVT)) return SDValue();
-
-    // Make the new BUILD_VECTOR.
-    SDValue BV = DAG.getNode(ISD::BUILD_VECTOR, N->getDebugLoc(),
-                                 VecVT, &Ops[0], Ops.size());
-
-    // The new BUILD_VECTOR node has the potential to be further optimized.
-    AddToWorkList(BV.getNode());
-    // Bitcast to the desired type.
-    return DAG.getNode(ISD::BITCAST, dl, N->getValueType(0), BV);
+    assert(Index < Ops.size() && "Invalid index");
+    Ops[Index] = In;
   }
+
+  // The type of the new BUILD_VECTOR node.
+  EVT VecVT = EVT::getVectorVT(*DAG.getContext(), SourceType, NewBVElems);
+  assert(VecVT.getSizeInBits() == VT.getSizeInBits() &&
+         "Invalid vector size");
+  // Check if the new vector type is legal.
+  if (!isTypeLegal(VecVT)) return SDValue();
+
+  // Make the new BUILD_VECTOR.
+  SDValue BV = DAG.getNode(ISD::BUILD_VECTOR, dl, VecVT, &Ops[0], Ops.size());
+
+  // The new BUILD_VECTOR node has the potential to be further optimized.
+  AddToWorkList(BV.getNode());
+  // Bitcast to the desired type.
+  return DAG.getNode(ISD::BITCAST, dl, VT, BV);
+}
+
+SDValue DAGCombiner::reduceBuildVecConvertToConvertBuildVec(SDNode *N) {
+  EVT VT = N->getValueType(0);
+
+  unsigned NumInScalars = N->getNumOperands();
+  DebugLoc dl = N->getDebugLoc();
+
+  EVT SrcVT = MVT::Other;
+  unsigned Opcode = ISD::DELETED_NODE;
+  unsigned NumDefs = 0;
+
+  for (unsigned i = 0; i != NumInScalars; ++i) {
+    SDValue In = N->getOperand(i);
+    unsigned Opc = In.getOpcode();
+
+    if (Opc == ISD::UNDEF)
+      continue;
+
+    // If all scalar values are floats and converted from integers.
+    if (Opcode == ISD::DELETED_NODE &&
+        (Opc == ISD::UINT_TO_FP || Opc == ISD::SINT_TO_FP)) {
+      Opcode = Opc;
+      // If not supported by target, bail out.
+      if (TLI.getOperationAction(Opcode, VT) != TargetLowering::Legal &&
+          TLI.getOperationAction(Opcode, VT) != TargetLowering::Custom)
+        return SDValue();
+    }
+    if (Opc != Opcode)
+      return SDValue();
+
+    EVT InVT = In.getOperand(0).getValueType();
+
+    // If all scalar values are typed differently, bail out. It's chosen to
+    // simplify BUILD_VECTOR of integer types.
+    if (SrcVT == MVT::Other)
+      SrcVT = InVT;
+    if (SrcVT != InVT)
+      return SDValue();
+    NumDefs++;
+  }
+
+  // If the vector has just one element defined, it's not worth to fold it into
+  // a vectorized one.
+  if (NumDefs < 2)
+    return SDValue();
+
+  assert((Opcode == ISD::UINT_TO_FP || Opcode == ISD::SINT_TO_FP)
+         && "Should only handle conversion from integer to float.");
+  assert(SrcVT != MVT::Other && "Cannot determine source type!");
+
+  EVT NVT = EVT::getVectorVT(*DAG.getContext(), SrcVT, NumInScalars);
+  SmallVector<SDValue, 8> Opnds;
+  for (unsigned i = 0; i != NumInScalars; ++i) {
+    SDValue In = N->getOperand(i);
+
+    if (In.getOpcode() == ISD::UNDEF)
+      Opnds.push_back(DAG.getUNDEF(SrcVT));
+    else
+      Opnds.push_back(In.getOperand(0));
+  }
+  SDValue BV = DAG.getNode(ISD::BUILD_VECTOR, dl, NVT,
+                           &Opnds[0], Opnds.size());
+  AddToWorkList(BV.getNode());
+
+  return DAG.getNode(Opcode, dl, VT, BV);
+}
+
+SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
+  unsigned NumInScalars = N->getNumOperands();
+  DebugLoc dl = N->getDebugLoc();
+  EVT VT = N->getValueType(0);
+
+  // A vector built entirely of undefs is undef.
+  if (ISD::allOperandsUndef(N))
+    return DAG.getUNDEF(VT);
+
+  SDValue V = reduceBuildVecExtToExtBuildVec(N);
+  if (V.getNode())
+    return V;
+
+  V = reduceBuildVecConvertToConvertBuildVec(N);
+  if (V.getNode())
+    return V;
 
   // Check to see if this is a BUILD_VECTOR of a bunch of EXTRACT_VECTOR_ELT
   // operations.  If so, and if the EXTRACT_VECTOR_ELT vector inputs come from
@@ -8549,7 +8634,7 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
         return SDValue();
 
       // Widen the input vector by adding undef values.
-      VecIn1 = DAG.getNode(ISD::CONCAT_VECTORS, N->getDebugLoc(), VT,
+      VecIn1 = DAG.getNode(ISD::CONCAT_VECTORS, dl, VT,
                            VecIn1, DAG.getUNDEF(VecIn1.getValueType()));
     }
 
@@ -8570,7 +8655,7 @@ SDValue DAGCombiner::visitBUILD_VECTOR(SDNode *N) {
     SDValue Ops[2];
     Ops[0] = VecIn1;
     Ops[1] = VecIn2;
-    return DAG.getVectorShuffle(VT, N->getDebugLoc(), Ops[0], Ops[1], &Mask[0]);
+    return DAG.getVectorShuffle(VT, dl, Ops[0], Ops[1], &Mask[0]);
   }
 
   return SDValue();

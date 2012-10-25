@@ -19,8 +19,8 @@
 #include "llvm/LLVMContext.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/DataLayout.h"
+#include "llvm/Target/TargetLowering.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/TargetTransformInfo.h"
 
 using namespace llvm;
 
@@ -417,7 +417,9 @@ Value *SCEVExpander::expandAddToGEP(const SCEV *const *op_begin,
     // array indexing.
     SmallVector<const SCEV *, 8> ScaledOps;
     if (ElTy->isSized()) {
-      const SCEV *ElSize = SE.getSizeOfExpr(ElTy);
+      Type *IntPtrTy = SE.TD ? SE.TD->getIntPtrType(PTy) :
+        IntegerType::getInt64Ty(PTy->getContext());
+      const SCEV *ElSize = SE.getSizeOfExpr(ElTy, IntPtrTy);
       if (!ElSize->isZero()) {
         SmallVector<const SCEV *, 8> NewOps;
         for (unsigned i = 0, e = Ops.size(); i != e; ++i) {
@@ -1599,15 +1601,15 @@ static bool width_descending(Value *lhs, Value *rhs) {
 /// This does not depend on any SCEVExpander state but should be used in
 /// the same context that SCEVExpander is used.
 unsigned SCEVExpander::replaceCongruentIVs(Loop *L, const DominatorTree *DT,
-                                          SmallVectorImpl<WeakVH> &DeadInsts,
-                                          const ScalarTargetTransformInfo *STTI) {
+                                           SmallVectorImpl<WeakVH> &DeadInsts,
+                                           const TargetLowering *TLI) {
   // Find integer phis in order of increasing width.
   SmallVector<PHINode*, 8> Phis;
   for (BasicBlock::iterator I = L->getHeader()->begin();
        PHINode *Phi = dyn_cast<PHINode>(I); ++I) {
     Phis.push_back(Phi);
   }
-  if (STTI)
+  if (TLI)
     std::sort(Phis.begin(), Phis.end(), width_descending);
 
   unsigned NumElim = 0;
@@ -1618,14 +1620,25 @@ unsigned SCEVExpander::replaceCongruentIVs(Loop *L, const DominatorTree *DT,
          PEnd = Phis.end(); PIter != PEnd; ++PIter) {
     PHINode *Phi = *PIter;
 
+    // Fold constant phis. They may be congruent to other constant phis and
+    // would confuse the logic below that expects proper IVs.
+    if (Value *V = Phi->hasConstantValue()) {
+      Phi->replaceAllUsesWith(V);
+      DeadInsts.push_back(Phi);
+      ++NumElim;
+      DEBUG_WITH_TYPE(DebugType, dbgs()
+                      << "INDVARS: Eliminated constant iv: " << *Phi << '\n');
+      continue;
+    }
+
     if (!SE.isSCEVable(Phi->getType()))
       continue;
 
     PHINode *&OrigPhiRef = ExprToIVMap[SE.getSCEV(Phi)];
     if (!OrigPhiRef) {
       OrigPhiRef = Phi;
-      if (Phi->getType()->isIntegerTy() && STTI &&
-          STTI->isTruncateFree(Phi->getType(), Phis.back()->getType())) {
+      if (Phi->getType()->isIntegerTy() && TLI
+          && TLI->isTruncateFree(Phi->getType(), Phis.back()->getType())) {
         // This phi can be freely truncated to the narrowest phi type. Map the
         // truncated expression to it so it will be reused for narrow types.
         const SCEV *TruncExpr =

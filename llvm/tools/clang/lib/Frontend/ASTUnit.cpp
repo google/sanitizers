@@ -27,6 +27,7 @@
 #include "clang/Serialization/ASTWriter.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/Diagnostic.h"
@@ -505,7 +506,6 @@ class ASTInfoCollector : public ASTReaderListener {
   HeaderSearch &HSI;
   IntrusiveRefCntPtr<TargetOptions> &TargetOpts;
   IntrusiveRefCntPtr<TargetInfo> &Target;
-  std::string &Predefines;
   unsigned &Counter;
 
   unsigned NumHeaderInfos;
@@ -516,20 +516,17 @@ public:
                    HeaderSearch &HSI, 
                    IntrusiveRefCntPtr<TargetOptions> &TargetOpts,
                    IntrusiveRefCntPtr<TargetInfo> &Target,
-                   std::string &Predefines,
                    unsigned &Counter)
     : PP(PP), Context(Context), LangOpt(LangOpt), HSI(HSI), 
       TargetOpts(TargetOpts), Target(Target),
-      Predefines(Predefines), Counter(Counter), NumHeaderInfos(0),
+      Counter(Counter), NumHeaderInfos(0),
       InitializedLanguage(false) {}
 
-  virtual bool ReadLanguageOptions(const serialization::ModuleFile &M,
-                                   const LangOptions &LangOpts) {
+  virtual bool ReadLanguageOptions(const LangOptions &LangOpts,
+                                   bool Complain) {
     if (InitializedLanguage)
       return false;
     
-    assert(M.Kind == serialization::MK_MainFile);
-
     LangOpt = LangOpts;
     InitializedLanguage = true;
     
@@ -537,31 +534,17 @@ public:
     return false;
   }
 
-  virtual bool ReadTargetOptions(const serialization::ModuleFile &M,
-                                 const TargetOptions &TargetOpts) {
+  virtual bool ReadTargetOptions(const TargetOptions &TargetOpts,
+                                 bool Complain) {
     // If we've already initialized the target, don't do it again.
     if (Target)
       return false;
-    
-    assert(M.Kind == serialization::MK_MainFile);
-
     
     this->TargetOpts = new TargetOptions(TargetOpts);
     Target = TargetInfo::CreateTargetInfo(PP.getDiagnostics(), 
                                           *this->TargetOpts);
 
     updated();
-    return false;
-  }
-
-  virtual bool ReadPredefinesBuffer(const PCHPredefinesBlocks &Buffers,
-                                    StringRef OriginalFileName,
-                                    std::string &SuggestedPredefines,
-                                    FileManager &FileMgr) {
-    Predefines = Buffers[0].Data;
-    for (unsigned I = 1, N = Buffers.size(); I != N; ++I) {
-      Predefines += Buffers[I].Data;
-    }
     return false;
   }
 
@@ -672,11 +655,11 @@ void ASTUnit::ConfigureDiags(IntrusiveRefCntPtr<DiagnosticsEngine> &Diags,
   if (!Diags.getPtr()) {
     // No diagnostics engine was provided, so create our own diagnostics object
     // with the default options.
-    DiagnosticOptions DiagOpts;
     DiagnosticConsumer *Client = 0;
     if (CaptureDiagnostics)
       Client = new StoredDiagnosticConsumer(AST.StoredDiagnostics);
-    Diags = CompilerInstance::createDiagnostics(DiagOpts, ArgEnd-ArgBegin,
+    Diags = CompilerInstance::createDiagnostics(new DiagnosticOptions(),
+                                                ArgEnd-ArgBegin,
                                                 ArgBegin, Client,
                                                 /*ShouldOwnClient=*/true,
                                                 /*ShouldCloneClient=*/false);
@@ -713,7 +696,10 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
   AST->SourceMgr = new SourceManager(AST->getDiagnostics(),
                                      AST->getFileManager(),
                                      UserFilesAreVolatile);
-  AST->HeaderInfo.reset(new HeaderSearch(AST->getFileManager(),
+  AST->HSOpts = new HeaderSearchOptions();
+  
+  AST->HeaderInfo.reset(new HeaderSearch(AST->HSOpts,
+                                         AST->getFileManager(),
                                          AST->getDiagnostics(),
                                          AST->ASTFileLangOpts,
                                          /*Target=*/0));
@@ -768,12 +754,12 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
   // Gather Info for preprocessor construction later on.
 
   HeaderSearch &HeaderInfo = *AST->HeaderInfo.get();
-  std::string Predefines;
   unsigned Counter;
 
   OwningPtr<ASTReader> Reader;
 
-  AST->PP = new Preprocessor(AST->getDiagnostics(), AST->ASTFileLangOpts, 
+  AST->PP = new Preprocessor(new PreprocessorOptions(),
+                             AST->getDiagnostics(), AST->ASTFileLangOpts,
                              /*Target=*/0, AST->getSourceManager(), HeaderInfo, 
                              *AST, 
                              /*IILookup=*/0,
@@ -807,21 +793,24 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
   Reader->setListener(new ASTInfoCollector(*AST->PP, Context,
                                            AST->ASTFileLangOpts, HeaderInfo, 
                                            AST->TargetOpts, AST->Target, 
-                                           Predefines, Counter));
+                                           Counter));
 
-  switch (Reader->ReadAST(Filename, serialization::MK_MainFile)) {
+  switch (Reader->ReadAST(Filename, serialization::MK_MainFile,
+                          ASTReader::ARR_None)) {
   case ASTReader::Success:
     break;
 
   case ASTReader::Failure:
-  case ASTReader::IgnorePCH:
+  case ASTReader::OutOfDate:
+  case ASTReader::VersionMismatch:
+  case ASTReader::ConfigurationMismatch:
+  case ASTReader::HadErrors:
     AST->getDiagnostics().Report(diag::err_fe_unable_to_load_pch);
     return NULL;
   }
 
   AST->OriginalSourceFile = Reader->getOriginalSourceFile();
 
-  PP.setPredefines(Reader->getSuggestedPredefines());
   PP.setCounterValue(Counter);
 
   // Attach the AST reader to the AST context as an external AST
@@ -1947,8 +1936,8 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
   if (!Diags.getPtr()) {
     // No diagnostics engine was provided, so create our own diagnostics object
     // with the default options.
-    DiagnosticOptions DiagOpts;
-    Diags = CompilerInstance::createDiagnostics(DiagOpts, ArgEnd - ArgBegin, 
+    Diags = CompilerInstance::createDiagnostics(new DiagnosticOptions(),
+                                                ArgEnd - ArgBegin,
                                                 ArgBegin);
   }
 

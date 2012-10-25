@@ -39,14 +39,18 @@ static ASTReader *createASTReader(CompilerInstance &CI,
     Reader->addInMemoryBuffer(sr, memBufs[ti]);
   }
   Reader->setDeserializationListener(deserialListener);
-  switch (Reader->ReadAST(pchFile, serialization::MK_PCH)) {
+  switch (Reader->ReadAST(pchFile, serialization::MK_PCH,
+                          ASTReader::ARR_None)) {
   case ASTReader::Success:
     // Set the predefines buffer as suggested by the PCH reader.
     PP.setPredefines(Reader->getSuggestedPredefines());
     return Reader.take();
 
   case ASTReader::Failure:
-  case ASTReader::IgnorePCH:
+  case ASTReader::OutOfDate:
+  case ASTReader::VersionMismatch:
+  case ASTReader::ConfigurationMismatch:
+  case ASTReader::HadErrors:
     break;
   }
   return 0;
@@ -86,10 +90,10 @@ ChainedIncludesSource *ChainedIncludesSource::create(CompilerInstance &CI) {
                                                                  IK));
 
     TextDiagnosticPrinter *DiagClient =
-      new TextDiagnosticPrinter(llvm::errs(), DiagnosticOptions());
+      new TextDiagnosticPrinter(llvm::errs(), new DiagnosticOptions());
     IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
     IntrusiveRefCntPtr<DiagnosticsEngine> Diags(
-        new DiagnosticsEngine(DiagID, DiagClient));
+        new DiagnosticsEngine(DiagID, &CI.getDiagnosticOpts(), DiagClient));
 
     OwningPtr<CompilerInstance> Clang(new CompilerInstance());
     Clang->setInvocation(CInvok.take());

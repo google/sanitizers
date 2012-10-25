@@ -1895,9 +1895,10 @@ ExprResult Sema::ActOnIdExpression(Scope *S,
 /// this path.
 ExprResult
 Sema::BuildQualifiedDeclarationNameExpr(CXXScopeSpec &SS,
-                                        const DeclarationNameInfo &NameInfo) {
-  DeclContext *DC;
-  if (!(DC = computeDeclContext(SS, false)) || DC->isDependentContext())
+                                        const DeclarationNameInfo &NameInfo,
+                                        bool IsAddressOfOperand) {
+  DeclContext *DC = computeDeclContext(SS, false);
+  if (!DC)
     return BuildDependentDeclRefExpr(SS, /*TemplateKWLoc=*/SourceLocation(),
                                      NameInfo, /*TemplateArgs=*/0);
 
@@ -1910,13 +1911,26 @@ Sema::BuildQualifiedDeclarationNameExpr(CXXScopeSpec &SS,
   if (R.isAmbiguous())
     return ExprError();
 
+  if (R.getResultKind() == LookupResult::NotFoundInCurrentInstantiation)
+    return BuildDependentDeclRefExpr(SS, /*TemplateKWLoc=*/SourceLocation(),
+                                     NameInfo, /*TemplateArgs=*/0);
+
   if (R.empty()) {
     Diag(NameInfo.getLoc(), diag::err_no_member)
       << NameInfo.getName() << DC << SS.getRange();
     return ExprError();
   }
 
-  return BuildDeclarationNameExpr(SS, R, /*ADL*/ false);
+  // Defend against this resolving to an implicit member access. We usually
+  // won't get here if this might be a legitimate a class member (we end up in
+  // BuildMemberReferenceExpr instead), but this can be valid if we're forming
+  // a pointer-to-member or in an unevaluated context in C++11.
+  if (!R.empty() && (*R.begin())->isCXXClassMember() && !IsAddressOfOperand)
+    return BuildPossibleImplicitMemberExpr(SS,
+                                           /*TemplateKWLoc=*/SourceLocation(),
+                                           R, /*TemplateArgs=*/0);
+
+  return BuildDeclarationNameExpr(SS, R, /* ADL */ false);
 }
 
 /// LookupInObjCMethod - The parser has read a name in, and Sema has
@@ -8586,12 +8600,12 @@ static void DiagnoseBitwiseAndInBitwiseOr(Sema &S, SourceLocation OpLoc,
 }
 
 static void DiagnoseAdditionInShift(Sema &S, SourceLocation OpLoc,
-                                    Expr *SubExpr, StringRef shift) {
+                                    Expr *SubExpr, StringRef Shift) {
   if (BinaryOperator *Bop = dyn_cast<BinaryOperator>(SubExpr)) {
     if (Bop->getOpcode() == BO_Add || Bop->getOpcode() == BO_Sub) {
       StringRef Op = Bop->getOpcodeStr();
       S.Diag(Bop->getOperatorLoc(), diag::warn_addition_in_bitshift)
-          << Bop->getSourceRange() << OpLoc << Op << shift;
+          << Bop->getSourceRange() << OpLoc << Shift << Op;
       SuggestParentheses(S, Bop->getOperatorLoc(),
           S.PDiag(diag::note_precedence_silence) << Op,
           Bop->getSourceRange());
@@ -8623,9 +8637,9 @@ static void DiagnoseBinOpPrecedence(Sema &Self, BinaryOperatorKind Opc,
 
   if ((Opc == BO_Shl && LHSExpr->getType()->isIntegralType(Self.getASTContext()))
       || Opc == BO_Shr) {
-    StringRef shift = BinaryOperator::getOpcodeStr(Opc);
-    DiagnoseAdditionInShift(Self, OpLoc, LHSExpr, shift);
-    DiagnoseAdditionInShift(Self, OpLoc, RHSExpr, shift);
+    StringRef Shift = BinaryOperator::getOpcodeStr(Opc);
+    DiagnoseAdditionInShift(Self, OpLoc, LHSExpr, Shift);
+    DiagnoseAdditionInShift(Self, OpLoc, RHSExpr, Shift);
   }
 }
 
@@ -9643,6 +9657,16 @@ ExprResult Sema::BuildVAArgExpr(SourceLocation BuiltinLoc,
     if (Result.isInvalid())
       return ExprError();
     E = Result.take();
+  } else if (VaListType->isRecordType() && getLangOpts().CPlusPlus) {
+    // If va_list is a record type and we are compiling in C++ mode,
+    // check the argument using reference binding.
+    InitializedEntity Entity
+      = InitializedEntity::InitializeParameter(Context,
+          Context.getLValueReferenceType(VaListType), false);
+    ExprResult Init = PerformCopyInitialization(Entity, SourceLocation(), E);
+    if (Init.isInvalid())
+      return ExprError();
+    E = Init.takeAs<Expr>();
   } else {
     // Otherwise, the va_list argument must be an l-value because
     // it is modified by va_arg.
@@ -11010,20 +11034,21 @@ static void DoMarkVarDeclReferenced(Sema &SemaRef, SourceLocation Loc,
     }
   }
 
-  // Per C++11 [basic.def.odr], a variable is odr-used "unless it is 
-  // an object that satisfies the requirements for appearing in a
-  // constant expression (5.19) and the lvalue-to-rvalue conversion (4.1)
+  // Per C++11 [basic.def.odr], a variable is odr-used "unless it satisfies
+  // the requirements for appearing in a constant expression (5.19) and, if
+  // it is an object, the lvalue-to-rvalue conversion (4.1)
   // is immediately applied."  We check the first part here, and
   // Sema::UpdateMarkingForLValueToRValue deals with the second part.
   // Note that we use the C++11 definition everywhere because nothing in
-  // C++03 depends on whether we get the C++03 version correct. This does not
-  // apply to references, since they are not objects.
+  // C++03 depends on whether we get the C++03 version correct. The second
+  // part does not apply to references, since they are not objects.
   const VarDecl *DefVD;
-  if (E && !isa<ParmVarDecl>(Var) && !Var->getType()->isReferenceType() &&
+  if (E && !isa<ParmVarDecl>(Var) &&
       Var->isUsableInConstantExpressions(SemaRef.Context) &&
-      Var->getAnyInitializer(DefVD) && DefVD->checkInitIsICE())
-    SemaRef.MaybeODRUseExprs.insert(E);
-  else
+      Var->getAnyInitializer(DefVD) && DefVD->checkInitIsICE()) {
+    if (!Var->getType()->isReferenceType())
+      SemaRef.MaybeODRUseExprs.insert(E);
+  } else
     MarkVarDeclODRUsed(SemaRef, Var, Loc);
 }
 

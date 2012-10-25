@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++11 %s -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 -triple i386-unknown-unknown -std=c++11 %s -emit-llvm -o - | FileCheck %s
 
 namespace Test1 {
   struct A {
@@ -131,8 +131,7 @@ namespace Test7 {
     // CHECK: alloca
     // CHECK-NEXT: store
     // CHECK-NEXT: load
-    // CHECK-NEXT: bitcast
-    // CHECK-NEXT: call {{.*}} @_ZN5Test73zed1fEv
+    // CHECK-NEXT: call i32 @_ZN5Test73zed1fEv
     // CHECK-NEXT: ret
     return static_cast<bar*>(z)->f();
   }

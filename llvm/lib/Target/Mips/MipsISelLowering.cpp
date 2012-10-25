@@ -25,6 +25,7 @@
 #include "llvm/GlobalVariable.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/CallingConv.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -32,11 +33,18 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
+
+STATISTIC(NumTailCalls, "Number of tail calls");
+
+static cl::opt<bool>
+EnableMipsTailCalls("enable-mips-tail-calls", cl::Hidden,
+                    cl::desc("MIPS: Enable tail calls."), cl::init(false));
 
 // If I is a shifted mask, set the size (Size) and the first bit of the
 // mask (Pos), and return true.
@@ -58,6 +66,7 @@ static SDValue GetGlobalReg(SelectionDAG &DAG, EVT Ty) {
 const char *MipsTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   case MipsISD::JmpLink:           return "MipsISD::JmpLink";
+  case MipsISD::TailCall:          return "MipsISD::TailCall";
   case MipsISD::Hi:                return "MipsISD::Hi";
   case MipsISD::Lo:                return "MipsISD::Lo";
   case MipsISD::GPRel:             return "MipsISD::GPRel";
@@ -2870,9 +2879,26 @@ PassByValArg64(SDValue Chain, DebugLoc dl,
   MemOpChains.push_back(Chain);
 }
 
+/// IsEligibleForTailCallOptimization - Check whether the call is eligible
+/// for tail call optimization.
+bool MipsTargetLowering::
+IsEligibleForTailCallOptimization(CallingConv::ID CalleeCC,
+                                  unsigned NextStackOffset) const {
+  if (!EnableMipsTailCalls)
+    return false;
+
+  // Do not tail-call optimize if there is an argument passed on stack.
+  if (IsO32 && (CalleeCC != CallingConv::Fast)) {
+    if (NextStackOffset > 16)
+      return false;
+  } else if (NextStackOffset)
+    return false;
+
+  return true;
+}
+
 /// LowerCall - functions arguments are copied from virtual regs to
 /// (physical regs)/(stack frame), CALLSEQ_START and CALLSEQ_END are emitted.
-/// TODO: isTailCall.
 SDValue
 MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                               SmallVectorImpl<SDValue> &InVals) const {
@@ -2887,14 +2913,10 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   CallingConv::ID CallConv              = CLI.CallConv;
   bool isVarArg                         = CLI.IsVarArg;
 
-  // MIPs target does not yet support tail call optimization.
-  isTailCall = false;
-
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const TargetFrameLowering *TFL = MF.getTarget().getFrameLowering();
   bool IsPIC = getTargetMachine().getRelocationModel() == Reloc::PIC_;
-  MipsFunctionInfo *MipsFI = MF.getInfo<MipsFunctionInfo>();
 
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
@@ -2921,18 +2943,24 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (IsO32 && (CallConv != CallingConv::Fast))
     NextStackOffset = std::max(NextStackOffset, (unsigned)16);
 
+  // Check if it's really possible to do a tail call.
+  if (isTailCall)
+    isTailCall = IsEligibleForTailCallOptimization(CallConv, NextStackOffset);
+
+  if (isTailCall)
+    ++NumTailCalls;
+
   // Chain is the output chain of the last Load/Store or CopyToReg node.
   // ByValChain is the output chain of the last Memcpy node created for copying
   // byval arguments to the stack.
   SDValue NextStackOffsetVal = DAG.getIntPtrConstant(NextStackOffset, true);
-  Chain = DAG.getCALLSEQ_START(Chain, NextStackOffsetVal);
+
+  if (!isTailCall)
+    Chain = DAG.getCALLSEQ_START(Chain, NextStackOffsetVal);
 
   SDValue StackPtr = DAG.getCopyFromReg(Chain, dl,
                                         IsN64 ? Mips::SP_64 : Mips::SP,
                                         getPointerTy());
-
-  if (MipsFI->getMaxCallFrameSize() < NextStackOffset)
-    MipsFI->setMaxCallFrameSize(NextStackOffset);
 
   // With EABI is it possible to have 16 args on registers.
   SmallVector<std::pair<unsigned, SDValue>, 16> RegsToPass;
@@ -3137,6 +3165,9 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   if (InFlag.getNode())
     Ops.push_back(InFlag);
+
+  if (isTailCall)
+    return DAG.getNode(MipsISD::TailCall, dl, MVT::Other, &Ops[0], Ops.size());
 
   Chain  = DAG.getNode(MipsISD::JmpLink, dl, NodeTys, &Ops[0], Ops.size());
   InFlag = Chain.getValue(1);
@@ -3379,7 +3410,8 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
   if (DAG.getMachineFunction().getFunction()->hasStructRetAttr()) {
     unsigned Reg = MipsFI->getSRetReturnReg();
     if (!Reg) {
-      Reg = MF.getRegInfo().createVirtualRegister(getRegClassFor(MVT::i32));
+      Reg = MF.getRegInfo().
+        createVirtualRegister(getRegClassFor(IsN64 ? MVT::i64 : MVT::i32));
       MipsFI->setSRetReturnReg(Reg);
     }
     SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), dl, Reg, InVals[0]);
@@ -3507,9 +3539,11 @@ MipsTargetLowering::LowerReturn(SDValue Chain,
     if (!Reg)
       llvm_unreachable("sret virtual register not created in the entry block");
     SDValue Val = DAG.getCopyFromReg(Chain, dl, Reg, getPointerTy());
+    unsigned V0 = IsN64 ? Mips::V0_64 : Mips::V0;
 
-    Chain = DAG.getCopyToReg(Chain, dl, Mips::V0, Val, Flag);
+    Chain = DAG.getCopyToReg(Chain, dl, V0, Val, Flag);
     Flag = Chain.getValue(1);
+    MF.getRegInfo().addLiveOut(V0);
   }
 
   // Return on Mips is always a "jr $ra"

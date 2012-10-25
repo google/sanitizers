@@ -551,15 +551,17 @@ void IndVarSimplify::RewriteLoopExitValues(Loop *L, SCEVExpander &Rewriter) {
 
         PN->setIncomingValue(i, ExitVal);
 
-        // If this instruction is dead now, delete it.
-        RecursivelyDeleteTriviallyDeadInstructions(Inst, TLI);
+        // If this instruction is dead now, delete it. Don't do it now to avoid
+        // invalidating iterators.
+        if (isInstructionTriviallyDead(Inst, TLI))
+          DeadInsts.push_back(Inst);
 
         if (NumPreds == 1) {
           // Completely replace a single-pred PHI. This is safe, because the
           // NewVal won't be variant in the loop, so we don't need an LCSSA phi
           // node anymore.
           PN->replaceAllUsesWith(ExitVal);
-          RecursivelyDeleteTriviallyDeadInstructions(PN, TLI);
+          PN->eraseFromParent();
         }
       }
       if (NumPreds != 1) {
@@ -1428,7 +1430,8 @@ FindLoopCounter(Loop *L, const SCEV *BECount,
 /// genLoopLimit - Help LinearFunctionTestReplace by generating a value that
 /// holds the RHS of the new loop test.
 static Value *genLoopLimit(PHINode *IndVar, const SCEV *IVCount, Loop *L,
-                           SCEVExpander &Rewriter, ScalarEvolution *SE) {
+                           SCEVExpander &Rewriter, ScalarEvolution *SE,
+                           Type *IntPtrTy) {
   const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(SE->getSCEV(IndVar));
   assert(AR && AR->getLoop() == L && AR->isAffine() && "bad loop counter");
   const SCEV *IVInit = AR->getStart();
@@ -1454,7 +1457,8 @@ static Value *genLoopLimit(PHINode *IndVar, const SCEV *IVCount, Loop *L,
     // We could handle pointer IVs other than i8*, but we need to compensate for
     // gep index scaling. See canExpandBackedgeTakenCount comments.
     assert(SE->getSizeOfExpr(
-             cast<PointerType>(GEPBase->getType())->getElementType())->isOne()
+             cast<PointerType>(GEPBase->getType())->getElementType(),
+             IntPtrTy)->isOne()
            && "unit stride pointer IV must be i8*");
 
     IRBuilder<> Builder(L->getLoopPreheader()->getTerminator());
@@ -1553,7 +1557,9 @@ LinearFunctionTestReplace(Loop *L,
     CmpIndVar = IndVar;
   }
 
-  Value *ExitCnt = genLoopLimit(IndVar, IVCount, L, Rewriter, SE);
+  Type *IntPtrTy = TD ? TD->getIntPtrType(IndVar->getType()) :
+    IntegerType::getInt64Ty(IndVar->getContext());
+  Value *ExitCnt = genLoopLimit(IndVar, IVCount, L, Rewriter, SE, IntPtrTy);
   assert(ExitCnt->getType()->isPointerTy() == IndVar->getType()->isPointerTy()
          && "genLoopLimit missed a cast");
 

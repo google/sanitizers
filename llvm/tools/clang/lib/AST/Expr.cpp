@@ -1950,6 +1950,11 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
     return false;
   }
 
+  // If we don't know precisely what we're looking at, let's not warn.
+  case UnresolvedLookupExprClass:
+  case CXXUnresolvedConstructExprClass:
+    return false;
+
   case CXXTemporaryObjectExprClass:
   case CXXConstructExprClass:
     return false;
@@ -2037,6 +2042,10 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
       }
       return false;
     }
+
+    // Ignore casts within macro expansions.
+    if (getExprLoc().isMacroID())
+      return CE->getSubExpr()->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
 
     // If this is a cast to a constructor conversion, check the operand.
     // Otherwise, the result of the cast is unused.

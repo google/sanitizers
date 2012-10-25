@@ -1286,6 +1286,8 @@ static bool ShouldDiagnoseUnusedDecl(const NamedDecl *D) {
           return false;
 
         if (const Expr *Init = VD->getInit()) {
+          if (const ExprWithCleanups *Cleanups = dyn_cast<ExprWithCleanups>(Init))
+            Init = Cleanups->getSubExpr();
           const CXXConstructExpr *Construct =
             dyn_cast<CXXConstructExpr>(Init);
           if (Construct && !Construct->isElidable()) {
@@ -5519,6 +5521,20 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
            diag::err_static_out_of_line)
         << FixItHint::CreateRemoval(D.getDeclSpec().getStorageClassSpecLoc());
     }
+
+    // C++11 [except.spec]p15:
+    //   A deallocation function with no exception-specification is treated
+    //   as if it were specified with noexcept(true).
+    const FunctionProtoType *FPT = R->getAs<FunctionProtoType>();
+    if ((Name.getCXXOverloadedOperator() == OO_Delete ||
+         Name.getCXXOverloadedOperator() == OO_Array_Delete) &&
+        getLangOpts().CPlusPlus0x && FPT && !FPT->hasExceptionSpec()) {
+      FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
+      EPI.ExceptionSpecType = EST_BasicNoexcept;
+      NewFD->setType(Context.getFunctionType(FPT->getResultType(),
+                                             FPT->arg_type_begin(),
+                                             FPT->getNumArgs(), EPI));
+    }
   }
 
   // Filter out previous declarations that don't match the scope.
@@ -7134,6 +7150,17 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
     }
   }
 
+  if (var->isThisDeclarationADefinition() &&
+      var->getLinkage() == ExternalLinkage) {
+    // Find a previous declaration that's not a definition.
+    VarDecl *prev = var->getPreviousDecl();
+    while (prev && prev->isThisDeclarationADefinition())
+      prev = prev->getPreviousDecl();
+
+    if (!prev)
+      Diag(var->getLocation(), diag::warn_missing_variable_declarations) << var;
+  }
+
   // All the following checks are C++ only.
   if (!getLangOpts().CPlusPlus) return;
 
@@ -7944,23 +7971,16 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
       if (Body)
         computeNRVO(Body, getCurFunction());
     }
-    if (getCurFunction()->ObjCShouldCallSuperDealloc) {
+    if (getCurFunction()->ObjCShouldCallSuper) {
       Diag(MD->getLocEnd(), diag::warn_objc_missing_super_call)
         << MD->getSelector().getAsString();
-      getCurFunction()->ObjCShouldCallSuperDealloc = false;
-    }
-    if (getCurFunction()->ObjCShouldCallSuperFinalize) {
-      Diag(MD->getLocEnd(), diag::warn_objc_missing_super_finalize);
-      getCurFunction()->ObjCShouldCallSuperFinalize = false;
+      getCurFunction()->ObjCShouldCallSuper = false;
     }
   } else {
     return 0;
   }
 
-  assert(!getCurFunction()->ObjCShouldCallSuperDealloc &&
-         "This should only be set for ObjC methods, which should have been "
-         "handled in the block above.");
-  assert(!getCurFunction()->ObjCShouldCallSuperFinalize &&
+  assert(!getCurFunction()->ObjCShouldCallSuper &&
          "This should only be set for ObjC methods, which should have been "
          "handled in the block above.");
 

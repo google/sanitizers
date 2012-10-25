@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 156080 $
+" Version:      $Revision: 166305 $
 
 if version < 600
   syntax clear
@@ -79,7 +79,6 @@ syn match  llvmSpecialComment /;\s*RUN:.*$/
 syn match  llvmSpecialComment /;\s*PR\d*\s*$/
 syn match  llvmSpecialComment /;\s*END\.\s*$/
 syn match  llvmSpecialComment /;\s*XFAIL:.*$/
-syn match  llvmSpecialComment /;\s*XTARGET:.*$/
 
 if version >= 508 || !exists("did_c_syn_inits")
   if version < 508
