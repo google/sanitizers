@@ -126,6 +126,9 @@ static cl::opt<std::string>  ClBlackListFile("msan-blacklist",
 
 namespace {
 
+/// \brief An instrumentation pass implementing detection of uninitialized
+/// reads.
+///
 /// MemorySanitizer: instrument the code in module to find
 /// uninitialized reads.
 class MemorySanitizer : public FunctionPass {
@@ -363,6 +366,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     DEBUG(dbgs() << "DONE:\n" << F);
   }
 
+  /// \brief Add MemorySanitizer instrumentation to a function.
   bool runOnFunction() {
     if (!MS.TD) return false;
     // Iterate all BBs in depth-first order and create shadow instructions
@@ -433,11 +437,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return true;
   }
 
-  // Compute the shadow type that corresponds to a given Value.
+  /// \brief Compute the shadow type that corresponds to a given Value.
   Type *getShadowTy(Value *V) {
     return getShadowTy(V->getType());
   }
 
+  /// \brief Compute the shadow type that corresponds to a given Type.
   Type *getShadowTy(Type *OrigTy) {
     if (!OrigTy->isSized()) {
       return 0;
@@ -460,12 +465,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IntegerType::get(*MS.C, TypeSize);
   }
 
+  /// \brief Flatten a vector type.
   Type *getShadowTyNoVec(Type *ty) {
     if (VectorType *vt = dyn_cast<VectorType>(ty))
       return IntegerType::get(*MS.C, vt->getBitWidth());
     return ty;
   }
 
+  /// \brief Convert a shadow value to it's flattened variant.
   Value *convertToShadowTyNoVec(Value *V, IRBuilder<> &IRB) {
     Type *Ty = V->getType();
     Type *NoVecTy = getShadowTyNoVec(Ty);
@@ -473,8 +480,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateBitCast(V, NoVecTy);
   }
 
-  // Compute the shadow address that corresponds to a given application address.
-  // Shadow = Addr & ~ShadowMask.
+  /// \brief Compute the shadow address that corresponds to a given application
+  /// address.
+  ///
+  /// Shadow = Addr & ~ShadowMask.
   Value *getShadowPtr(Value *Addr, Type *ShadowTy,
                       IRBuilder<> &IRB) {
     Value *ShadowLong =
@@ -483,8 +492,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateIntToPtr(ShadowLong, PointerType::get(ShadowTy, 0));
   }
 
-  // OriginAddr = (ShadowAddr + OriginOffset) & ~3ULL
-  //            = Addr & (~ShadowAddr & ~3ULL) + OriginOffset
+  /// \brief Compute the origin address that corresponds to a given application
+  /// address.
+  ///
+  /// OriginAddr = (ShadowAddr + OriginOffset) & ~3ULL
+  ///            = Addr & (~ShadowAddr & ~3ULL) + OriginOffset
   Value *getOriginPtr(Value *Addr, IRBuilder<> &IRB) {
     Value *ShadowLong =
         IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
@@ -495,8 +507,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateIntToPtr(Add, PointerType::get(IRB.getInt32Ty(), 0));
   }
 
-  // Compute the shadow address for a given function argument.
-  // Shadow = ParamTLS+ArgOffset.
+  /// \brief Compute the shadow address for a given function argument.
+  ///
+  /// Shadow = ParamTLS+ArgOffset.
   Value *getShadowPtrForArgument(Value *A, IRBuilder<> &IRB,
                                  int ArgOffset) {
     Value *Base = IRB.CreatePointerCast(MS.ParamTLS, MS.IntptrTy);
@@ -505,6 +518,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                               "_msarg");
   }
 
+  /// \brief Compute the origin address for a given function argument.
   Value *getOriginPtrForArgument(Value *A, IRBuilder<> &IRB,
                                  int ArgOffset) {
     if (!ClTrackOrigins) return 0;
@@ -514,7 +528,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                               "_msarg_o");
   }
 
-
+  /// \brief Compute the shadow address for a given va_arg.
   Value *getShadowPtrForVAArgument(Value *A, IRBuilder<> &IRB,
                                     int ArgOffset) {
     Value *Base = IRB.CreatePointerCast(MS.VAArgTLS, MS.IntptrTy);
@@ -523,23 +537,26 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                               "_msarg");
   }
 
-  // Compute the shadow address for a retval.
+  /// \brief Compute the shadow address for a retval.
   Value *getShadowPtrForRetval(Value *A, IRBuilder<> &IRB) {
     Value *Base = IRB.CreatePointerCast(MS.RetvalTLS, MS.IntptrTy);
     return IRB.CreateIntToPtr(Base, PointerType::get(getShadowTy(A), 0),
                               "_msret");
   }
 
+  /// \brief Compute the origin address for a retval.
   Value *getOriginPtrForRetval(IRBuilder<> &IRB) {
     // We keep a single origin for the entire retval. Might be too optimistic.
     return MS.RetvalOriginTLS;
   }
 
+  /// \brief Set SV to be the shadow value for V.
   void setShadow(Value *V, Value *SV) {
     assert(!ShadowMap.count(V) && "Values may only have one shadow");
     ShadowMap[V] = SV;
   }
 
+  /// \brief Set Origin to be the origin value for V.
   void setOrigin(Value *V, Value *Origin) {
     if (!ClTrackOrigins) return;
     assert(!OriginMap.count(V) && "Values may only have one origin");
@@ -547,8 +564,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     OriginMap[V] = Origin;
   }
 
-  // Create a clean (zero) shadow value for a given value
-  // (i.e. consider all bits of this value defined).
+  /// \brief Create a clean shadow value for a given value.
+  ///
+  /// Clean shadow (all zeroes) means all bits of the value are defined
+  /// (initialized).
   Value *getCleanShadow(Value *V) {
     Type *ShadowTy = getShadowTy(V);
     if (!ShadowTy)
@@ -556,7 +575,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return Constant::getNullValue(ShadowTy);
   }
 
-  // We don't have getAllOnesValue for struct types...
+  /// \brief Create a dirty shadow of a given shadow type.
   Constant *getPoisonedShadow(Type *ShadowTy) {
     assert(ShadowTy);
     if (isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy))
@@ -568,12 +587,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return ConstantStruct::get(ST, Vals);
   }
 
-  // Create a clean (zero) origin.
+  /// \brief Create a clean (zero) origin.
   Value *getCleanOrigin() {
     return Constant::getNullValue(MS.OriginTy);
   }
 
-  // Get the shadow value for a given Value.
+  /// \brief Get the shadow value for a given Value.
+  ///
+  /// This function either returns the value set earlier with setShadow,
+  /// or extracts if from ParamTLS (for function arguments).
   Value *getShadow(Value *V) {
     if (Instruction *I = dyn_cast<Instruction>(V)) {
       // For instructions the shadow is already stored in the map.
@@ -634,11 +656,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return getCleanShadow(V);
   }
 
-  // Get the shadow for i-th argument of the instruction I.
+  /// \brief Get the shadow for i-th argument of the instruction I.
   Value *getShadow(Instruction *I, int i) {
     return getShadow(I->getOperand(i));
   }
 
+  /// \brief Get the origin for a value.
   Value *getOrigin(Value *V) {
     if (!ClTrackOrigins) return 0;
     if (isa<Instruction>(V) || isa<Argument>(V)) {
@@ -652,11 +675,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return getCleanOrigin();
   }
 
+  /// \brief Get the origin for i-th argument of the instruction I.
   Value *getOrigin(Instruction *I, int i) {
     return getOrigin(I->getOperand(i));
   }
 
-  // Remember the place where a check for ShadowVal should be inserted.
+  /// \brief Remember the place where a shadow check should be inserted.
+  ///
+  /// This location will be later instrumented with a check that will print a
+  /// UMR warning in runtime if the value is not fully defined.
   void insertCheck(Value *Val, Instruction *OrigIns) {
     assert(Val);
     if (!InsertChecks) return;
@@ -671,6 +698,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   //------------------- Visitors.
+
+  /// \brief Instrument LoadInst
+  ///
+  /// Loads the corresponding shadow and (optionally) origin.
+  /// Optionally, checks that the load address is fully defined.
   void visitLoadInst(LoadInst &I) {
     Type *LoadTy = I.getType();
     assert(LoadTy->isSized() && "Load type must have size");
@@ -687,6 +719,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
   }
 
+  /// \brief Instrument StoreInst
+  ///
+  /// Stores the corresponding shadow and (optionally) origin.
+  /// Optionally, checks that the store address is fully defined.
+  /// Volatile stores check that the value being stored is fully defined.
   void visitStoreInst(StoreInst &I) {
     IRBuilder<> IRB(&I);
     Value *Val = I.getValueOperand();
@@ -752,6 +789,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitFPExtInst(CastInst& I) { handleShadowOr(I); }
   void visitFPTruncInst(CastInst& I) { handleShadowOr(I); }
 
+  /// \brief Propagate shadow for bitwise AND.
+  ///
+  /// This code is exact, i.e. if, for example, a bit in the left argument
+  /// is defined and 0, then neither the value not definedness of the
+  /// corresponding bit in B don't affect the resulting shadow.
   void visitAnd(BinaryOperator &I) {
     IRBuilder<> IRB(&I);
     //  "And" of 0 and a poisoned value results in unpoisoned value.
@@ -796,6 +838,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  /// \brief Propagate origin for an instruction.
+  ///
+  /// This is a general case of origin propagation. For an Nary operation,
+  /// is set to the origin of an argument that is not entirely initialized.
+  /// It does not matter which one is picked if all arguments are initialized.
   void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
@@ -808,7 +855,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOrigin(&I, Origin);
   }
 
-  // Shadow = Shadow0 | Shadow1, all 3 have the same type.
+  /// \brief Propagate shadow for a binary operation.
+  ///
+  /// Shadow = Shadow0 | Shadow1, all 3 must have the same type.
+  /// Bitwise OR is selected as an operation that will never lose even a bit of
+  /// poison.
   void handleShadowOrBinary(Instruction &I) {
     IRBuilder<> IRB(&I);
     Value *Shadow0 = getShadow(&I, 0);
@@ -817,7 +868,15 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
-  // Shadow = Shadow0 | ... | ShadowN with proper casting.
+  /// \brief Propagate shadow for arbitrary operation.
+  ///
+  /// This is a general case of shadow propagation, used in all cases where we
+  /// don't know and/or care about what the operation actually does.
+  /// It converts all input shadow values to a common type (extending or
+  /// truncating as necessary), and bitwise OR's them.
+  ///
+  /// This is much cheaper than inserting checks (i.e. requiring inputs to be
+  /// fully initialized), and less prone to false positives.
   // FIXME: is the casting actually correct?
   // FIXME: merge this with handleShadowOrBinary.
   void handleShadowOr(Instruction &I) {
@@ -855,6 +914,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitSRem(BinaryOperator &I) { handleDiv(I); }
   void visitFRem(BinaryOperator &I) { handleDiv(I); }
 
+  /// \brief Instrument == and != comparisons.
+  ///
+  /// Sometimes the comparison result is known even if some of the bits of the
+  /// arguments are not.
   void handleEqualityComparison(ICmpInst &I) {
     IRBuilder<> IRB(&I);
     Value *A = I.getOperand(0);
@@ -942,15 +1005,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRB.CreateCall3(MS.MsanCopyOriginFn, Dst, Src, Size);
   }
 
-  // At this point we don't know if llvm.memmove will be inlined or not.
-  // If we don't instrument it and it gets inlined,
-  // our interceptor will not kick in and we will lose the memmove.
-  // If we instrument the call here, but it does not get inlined,
-  // we will memove the shadow twice: which is bad in case
-  // of overlapping regions. So, we simply lower the intrinsic to a call.
-  //
-  // Similar situation exists for memcpy and memset, but for those functions
-  // calling instrumentation twice does not lead to incorrect results.
+  /// \brief Instrument llvm.memmove
+  ///
+  /// At this point we don't know if llvm.memmove will be inlined or not.
+  /// If we don't instrument it and it gets inlined,
+  /// our interceptor will not kick in and we will lose the memmove.
+  /// If we instrument the call here, but it does not get inlined,
+  /// we will memove the shadow twice: which is bad in case
+  /// of overlapping regions. So, we simply lower the intrinsic to a call.
+  ///
+  /// Similar situation exists for memcpy and memset, but for those functions
+  /// calling instrumentation twice does not lead to incorrect results.
   void handleMemMove(MemMoveInst &I) {
     IRBuilder<> IRB(&I);
     IRB.CreateCall3(MS.MemmoveFn,
