@@ -242,7 +242,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
   // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
   IRBuilder<> IRB(*C);
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
-        "__msan_init", IRB.getVoidTy(), 0)), 0);
+        "__msan_init", IRB.getVoidTy(), NULL)), 0);
 
   new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(IRB.getInt32Ty(), ClTrackOrigins),
@@ -258,17 +258,17 @@ bool MemorySanitizer::doInitialization(Module &M) {
     WarningFn = InlineAsm::get(FunctionType::get(Type::getVoidTy(*C), false),
                                   StringRef("ud2"), StringRef(""), true);
   } else {
-    WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), 0);
+    WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
   }
   MsanCopyOriginFn = M.getOrInsertFunction("__msan_copy_origin",
-    IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, 0);
+    IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
     IRB.getVoidTy(),
-    IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), 0);
+    IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), NULL);
   MsanPoisonStackFn = M.getOrInsertFunction("__msan_poison_stack",
-    IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, 0);
+    IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MemmoveFn = M.getOrInsertFunction("memmove",
-    IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, 0);
+    IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
 
   // Create globals.
   RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
@@ -976,7 +976,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitAShr(BinaryOperator &I) { handleShift(I); }
   void visitLShr(BinaryOperator &I) { handleShift(I); }
 
-  void handleMemSet(MemSetInst &I) {
+  void visitMemSetInst(MemSetInst &I) {
     IRBuilder<> IRB(&I);
     Value *Ptr = I.getArgOperand(0);
     Value *Val = I.getArgOperand(1);
@@ -989,7 +989,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRB.CreateMemSet(ShadowPtr, ShadowVal, Size, Align, isVolatile);
   }
 
-  void handleMemCpy(MemCpyInst &I) {
+  void visitMemCpyInst(MemCpyInst &I) {
     IRBuilder<> IRB(&I);
     Value *Dst = I.getArgOperand(0);
     Value *Src = I.getArgOperand(1);
@@ -1016,7 +1016,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///
   /// Similar situation exists for memcpy and memset, but for those functions
   /// calling instrumentation twice does not lead to incorrect results.
-  void handleMemMove(MemMoveInst &I) {
+  void visitMemMoveInst(MemMoveInst &I) {
     IRBuilder<> IRB(&I);
     IRB.CreateCall3(MS.MemmoveFn,
         IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
@@ -1025,7 +1025,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     I.eraseFromParent();
   }
 
-  void handleVAStart(IntrinsicInst &I) {
+  void visitVAStartInst(VAStartInst &I) {
     IRBuilder<> IRB(&I);
     VAStartInstrumentationList.push_back(&I);
     Value *VAListTag = I.getArgOperand(0);
@@ -1037,7 +1037,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         /* size */24, /* alignment */16, false);
   }
 
-  void handleVACopy(IntrinsicInst &I) {
+  void visitVACopyInst(VACopyInst &I) {
     IRBuilder<> IRB(&I);
     Value *VAListTag = I.getArgOperand(0);
     Value *ShadowPtr = getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
@@ -1072,21 +1072,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       CallInst *Call = cast<CallInst>(&I);
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
-      // Handle intirnsics. FIXME: these should be separate visitX methods.
-      if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
-        if (MemSetInst *MemSet = dyn_cast<MemSetInst>(&I))
-          handleMemSet(*MemSet);
-        else if (MemCpyInst *MemCpy = dyn_cast<MemCpyInst>(&I))
-          handleMemCpy(*MemCpy);
-        else if (MemMoveInst *MemMove = dyn_cast<MemMoveInst>(&I))
-          handleMemMove(*MemMove);
-        else if (II->getIntrinsicID() == llvm::Intrinsic::vastart)
-          handleVAStart(*II);
-        else if (II->getIntrinsicID() == llvm::Intrinsic::vacopy)
-          handleVACopy(*II);
-        else
-          // Unhandled intrinsic: mark retval as clean.
-          visitInstruction(I);
+      if (isa<IntrinsicInst>(&I)) {
+        // All intrinsics we care about are handled in corresponding visit*
+        // methods. Add checks for the arguments, mark retval as clean.
+        visitInstruction(I);
         return;
       }
     }
