@@ -302,9 +302,19 @@ bool MemorySanitizer::doInitialization(Module &M) {
 namespace {
 
 struct MemorySanitizerVarArgHelper {
+  /// \brief Visit a CallSite.
   virtual void visitCallSite(CallSite &CS, IRBuilder<> &IRB) = 0;
+
+  /// \brief Visit a va_start call.
   virtual void visitVAStartInst(VAStartInst &I) = 0;
+
+  /// \brief Visit a va_copy call.
   virtual void visitVACopyInst(VACopyInst &I) = 0;
+
+  /// \brief Finalize function instrumentation.
+  ///
+  /// This method is called after visiting all interesting (see above)
+  /// instructions in a function.
   virtual void finalizeInstrumentation() = 0;
 };
 
