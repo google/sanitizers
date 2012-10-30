@@ -234,13 +234,14 @@ bool MemorySanitizer::doInitialization(Module &M) {
       report_fatal_error("unsupported pointer size");
       break;
   }
-  IntptrTy = Type::getIntNTy(*C, PtrSize);
-  OriginTy = Type::getIntNTy(*C, 32);
+
+  IRBuilder<> IRB(*C);
+  IntptrTy = IRB.getIntPtrTy(TD);
+  OriginTy = IRB.getInt32Ty();
 
   ColdCallWeights = MDBuilder(*C).createBranchWeights(1, 1000);
 
   // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
-  IRBuilder<> IRB(*C);
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
         "__msan_init", IRB.getVoidTy(), NULL)), 0);
 
