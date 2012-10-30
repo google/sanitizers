@@ -148,4 +148,3 @@ define <8 x i8> @test6(<8 x i8> %A1, <8 x i8> %A2, <8 x i8> %B1, <8 x i8> %B2) {
 ; CHECK: ret <8 x i8> %R
 }
 
-

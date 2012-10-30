@@ -24,6 +24,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/SwapByteOrder.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h"
 #include <map>
@@ -41,6 +43,9 @@ class Twine;
 /// linker.
 class SectionEntry {
 public:
+  /// Name - section name.
+  StringRef Name;
+
   /// Address - address in the linker's memory where the section resides.
   uint8_t *Address;
 
@@ -61,9 +66,9 @@ public:
   /// for calculating relocations in some object formats (like MachO).
   uintptr_t ObjAddress;
 
-  SectionEntry(uint8_t *address, size_t size, uintptr_t stubOffset,
-               uintptr_t objAddress)
-    : Address(address), Size(size), LoadAddress((uintptr_t)address),
+  SectionEntry(StringRef name, uint8_t *address, size_t size,
+	       uintptr_t stubOffset, uintptr_t objAddress)
+    : Name(name), Address(address), Size(size), LoadAddress((uintptr_t)address),
       StubOffset(stubOffset), ObjAddress(objAddress) {}
 };
 
@@ -135,8 +140,10 @@ protected:
   typedef StringMap<SymbolLoc> SymbolTableMap;
   SymbolTableMap GlobalSymbolTable;
 
-  // Keep a map of common symbols to their sizes
-  typedef std::map<SymbolRef, unsigned> CommonSymbolMap;
+  // Pair representing the size and alignment requirement for a common symbol.
+  typedef std::pair<unsigned, unsigned> CommonSymbolInfo;
+  // Keep a map of common symbols to their info pairs
+  typedef std::map<SymbolRef, CommonSymbolInfo> CommonSymbolMap;
 
   // For each symbol, keep a list of relocations based on it. Anytime
   // its address is reassigned (the JIT re-compiled the function, e.g.),
@@ -163,6 +170,8 @@ protected:
       return 8; // 32-bit instruction and 32-bit address
     else if (Arch == Triple::mipsel)
       return 16;
+    else if (Arch == Triple::ppc64)
+      return 44;
     else
       return 0;
   }
@@ -183,6 +192,42 @@ protected:
 
   uint8_t *getSectionAddress(unsigned SectionID) {
     return (uint8_t*)Sections[SectionID].Address;
+  }
+
+  // Subclasses can override this method to get the alignment requirement of
+  // a common symbol. Returns no alignment requirement if not implemented.
+  virtual unsigned getCommonSymbolAlignment(const SymbolRef &Sym) {
+    return 0;
+  }
+
+
+  void writeInt16BE(uint8_t *Addr, uint16_t Value) {
+    if (sys::isLittleEndianHost())
+      Value = sys::SwapByteOrder(Value);
+    *Addr     = (Value >> 8) & 0xFF;
+    *(Addr+1) = Value & 0xFF;
+  }
+
+  void writeInt32BE(uint8_t *Addr, uint32_t Value) {
+    if (sys::isLittleEndianHost())
+      Value = sys::SwapByteOrder(Value);
+    *Addr     = (Value >> 24) & 0xFF;
+    *(Addr+1) = (Value >> 16) & 0xFF;
+    *(Addr+2) = (Value >> 8) & 0xFF;
+    *(Addr+3) = Value & 0xFF;
+  }
+
+  void writeInt64BE(uint8_t *Addr, uint64_t Value) {
+    if (sys::isLittleEndianHost())
+      Value = sys::SwapByteOrder(Value);
+    *Addr     = (Value >> 56) & 0xFF;
+    *(Addr+1) = (Value >> 48) & 0xFF;
+    *(Addr+2) = (Value >> 40) & 0xFF;
+    *(Addr+3) = (Value >> 32) & 0xFF;
+    *(Addr+4) = (Value >> 24) & 0xFF;
+    *(Addr+5) = (Value >> 16) & 0xFF;
+    *(Addr+6) = (Value >> 8) & 0xFF;
+    *(Addr+7) = Value & 0xFF;
   }
 
   /// \brief Given the common symbols discovered in the object file, emit a

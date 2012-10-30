@@ -71,7 +71,7 @@ static const Value *getUnderlyingObjectFromInt(const Value *V) {
       // object. We don't have to worry about the case where the
       // object address is somehow being computed by the multiply,
       // because our callers only care when the result is an
-      // identifibale object.
+      // identifiable object.
       if (U->getOpcode() != Instruction::Add ||
           (!isa<ConstantInt>(U->getOperand(1)) &&
            Operator::getOpcode(U->getOperand(1)) != Instruction::Mul))
@@ -420,6 +420,11 @@ void ScheduleDAGInstrs::addVRegUseDeps(SUnit *SU, unsigned OperIdx) {
 /// Return true if MI is an instruction we are unable to reason about
 /// (like a call or something with unmodeled side effects).
 static inline bool isGlobalMemoryObject(AliasAnalysis *AA, MachineInstr *MI) {
+  if (MI->isInlineAsm()) {
+    // Until we can tell if an inline assembly instruction accesses
+    // memory, we must assume all such instructions do so.
+    return true;
+  }
   if (MI->isCall() || MI->hasUnmodeledSideEffects() ||
       (MI->hasOrderedMemoryRef() &&
        (!MI->mayLoad() || !MI->isInvariantLoad(AA))))

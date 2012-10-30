@@ -18,15 +18,13 @@ void testva (int n, ...)
 // CHECK: bitcast %struct.x* %{{[0-9]+}} to i8*
 // CHECK: call void @llvm.memcpy
 
-  __int128_t u = va_arg (ap, __int128_t);
-// CHECK: ptrtoint i8* %{{[a-z.0-9]*}} to i64
-// CHECK: add i64 %{{[0-9]+}}, 15
-// CHECK: and i64 %{{[0-9]+}}, 4294967280
-// CHECK: inttoptr i64 %{{[0-9]+}} to i8*
-
   int v = va_arg (ap, int);
 // CHECK: ptrtoint i8* %{{[a-z.0-9]*}} to i64
 // CHECK: add i64 %{{[0-9]+}}, 4
 // CHECK: inttoptr i64 %{{[0-9]+}} to i8*
 // CHECK: bitcast i8* %{{[0-9]+}} to i32*
+
+  __int128_t u = va_arg (ap, __int128_t);
+// CHECK: bitcast i8* %{{[a-z.0-9]+}} to i128*
+// CHECK-NEXT: load i128* %{{[0-9]+}}
 }

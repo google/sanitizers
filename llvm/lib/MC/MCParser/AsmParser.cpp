@@ -86,7 +86,7 @@ public:
                      MemoryBuffer *I);
 };
 
-struct AsmRewrite;
+//struct AsmRewrite;
 struct ParseStatementInfo {
   /// ParsedOperands - The parsed operands from the last parsed statement.
   SmallVector<MCParsedAsmOperand*, 8> ParsedOperands;
@@ -1365,8 +1365,9 @@ bool AsmParser::ParseStatement(ParseStatementInfo &Info) {
   for (unsigned i = 0, e = IDVal.size(); i != e; ++i)
     OpcodeStr.push_back(tolower(IDVal[i]));
 
-  bool HadError = getTargetParser().ParseInstruction(OpcodeStr.str(), IDLoc,
-                                                     Info.ParsedOperands);
+  ParseInstructionInfo IInfo(Info.AsmRewrites);
+  bool HadError = getTargetParser().ParseInstruction(IInfo, OpcodeStr.str(),
+                                                     IDLoc,Info.ParsedOperands);
 
   // Dump the parsed representation, if requested.
   if (getShowParsedOperands()) {
@@ -3583,27 +3584,6 @@ bool AsmParser::ParseDirectiveEndr(SMLoc DirectiveLoc) {
   return false;
 }
 
-namespace {
-enum AsmRewriteKind {
-   AOK_Imm,
-   AOK_Input,
-   AOK_Output,
-   AOK_SizeDirective,
-   AOK_Emit,
-   AOK_Skip
-};
-
-struct AsmRewrite {
-  AsmRewriteKind Kind;
-  SMLoc Loc;
-  unsigned Len;
-  unsigned Size;
-public:
-  AsmRewrite(AsmRewriteKind kind, SMLoc loc, unsigned len, unsigned size = 0)
-    : Kind(kind), Loc(loc), Len(len), Size(size) { }
-};
-}
-
 bool AsmParser::ParseDirectiveEmit(SMLoc IDLoc, ParseStatementInfo &Info) {
   const MCExpr *Value;
   SMLoc ExprLoc = getLexer().getLoc();
@@ -3658,9 +3638,9 @@ bool AsmParser::ParseMSInlineAsm(void *AsmLoc, std::string &AsmString,
 
         // Immediate.
         if (Operand->isImm()) {
-          AsmStrRewrites.push_back(AsmRewrite(AOK_Imm,
-                                              Operand->getStartLoc(),
-                                              Operand->getNameLen()));
+          if (Operand->needAsmRewrite())
+            AsmStrRewrites.push_back(AsmRewrite(AOK_ImmPrefix,
+                                                Operand->getStartLoc()));
           continue;
         }
 
@@ -3685,14 +3665,9 @@ bool AsmParser::ParseMSInlineAsm(void *AsmLoc, std::string &AsmString,
           bool isOutput = (i == 1) && Desc.mayStore();
           if (!Operand->isOffsetOf() && Operand->needSizeDirective())
             AsmStrRewrites.push_back(AsmRewrite(AOK_SizeDirective,
-                                                Operand->getStartLoc(), 0,
+                                                Operand->getStartLoc(),
+                                                /*Len*/0,
                                                 Operand->getMemSize()));
-
-          // Don't emit the offset directive.
-          if (Operand->isOffsetOf())
-            AsmStrRewrites.push_back(AsmRewrite(AOK_Skip,
-                                                Operand->getOffsetOfLoc(), 7));
-
           if (isOutput) {
             std::string Constraint = "=";
             ++InputIdx;
@@ -3769,7 +3744,11 @@ bool AsmParser::ParseMSInlineAsm(void *AsmLoc, std::string &AsmString,
     switch (Kind) {
     default: break;
     case AOK_Imm:
-      OS << Twine("$$") + StringRef(Loc, (*I).Len);
+      OS << Twine("$$");
+      OS << (*I).Val;
+      break;
+    case AOK_ImmPrefix:
+      OS << Twine("$$");
       break;
     case AOK_Input:
       OS << '$';
@@ -3780,7 +3759,7 @@ bool AsmParser::ParseMSInlineAsm(void *AsmLoc, std::string &AsmString,
       OS << OutputIdx++;
       break;
     case AOK_SizeDirective:
-      switch((*I).Size) {
+      switch((*I).Val) {
       default: break;
       case 8:  OS << "byte ptr "; break;
       case 16: OS << "word ptr "; break;
@@ -3793,6 +3772,9 @@ bool AsmParser::ParseMSInlineAsm(void *AsmLoc, std::string &AsmString,
       break;
     case AOK_Emit:
       OS << ".byte";
+      break;
+    case AOK_DotOperator:
+      OS << (*I).Val;
       break;
     }
 

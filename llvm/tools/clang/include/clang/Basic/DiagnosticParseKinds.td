@@ -734,6 +734,7 @@ def err_pragma_fp_contract_scope : Error<
   "'#pragma fp_contract' should only appear at file scope or at the start of a "
   "compound expression">; 
 
+
 // OpenCL Section 6.8.g
 def err_not_opencl_storage_class_specifier : Error<
   "OpenCL does not support the '%0' storage class specifier">;

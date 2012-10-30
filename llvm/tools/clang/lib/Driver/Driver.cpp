@@ -58,7 +58,7 @@ Driver::Driver(StringRef ClangExecutable,
     CCCIsCPP(false),CCCEcho(false), CCCPrintBindings(false),
     CCPrintOptions(false), CCPrintHeaders(false), CCLogDiagnostics(false),
     CCGenDiagnostics(false), CCCGenericGCCName(""), CheckInputsExist(true),
-    CCCUseClang(true), CCCUseClangCXX(true), CCCUseClangCPP(true),
+    CCCUseClang(true), CCCUseClangCPP(true),
     ForcedClangUse(false), CCCUsePCH(true), SuppressMissingInputWarning(false) {
 
   Name = llvm::sys::path::stem(ClangExecutable);
@@ -275,9 +275,6 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   CCCEcho = Args->hasArg(options::OPT_ccc_echo);
   if (const Arg *A = Args->getLastArg(options::OPT_ccc_gcc_name))
     CCCGenericGCCName = A->getValue(*Args);
-  CCCUseClangCXX = Args->hasFlag(options::OPT_ccc_clang_cxx,
-                                 options::OPT_ccc_no_clang_cxx,
-                                 CCCUseClangCXX);
   CCCUsePCH = Args->hasFlag(options::OPT_ccc_pch_is_pch,
                             options::OPT_ccc_pch_is_pth);
   CCCUseClang = !Args->hasArg(options::OPT_ccc_no_clang);
@@ -1018,8 +1015,8 @@ void Driver::BuildInputs(const ToolChain &TC, const DerivedArgList &Args,
       if (CheckInputsExist && memcmp(Value, "-", 2) != 0) {
         SmallString<64> Path(Value);
         if (Arg *WorkDir = Args.getLastArg(options::OPT_working_directory)) {
-          SmallString<64> Directory(WorkDir->getValue(Args));
-          if (llvm::sys::path::is_absolute(Directory.str())) {
+          if (!llvm::sys::path::is_absolute(Path.str())) {
+            SmallString<64> Directory(WorkDir->getValue(Args));
             llvm::sys::path::append(Directory, Value);
             Path.assign(Directory);
           }
@@ -1796,18 +1793,6 @@ bool Driver::ShouldUseClangCompiler(const Compilation &C, const JobAction &JA,
     }
   } else if (!isa<PrecompileJobAction>(JA) && !isa<CompileJobAction>(JA))
     return false;
-
-  // Use clang for C++?
-  if (!CCCUseClangCXX && types::isCXX((*JA.begin())->getType())) {
-    Diag(clang::diag::warn_drv_not_using_clang_cxx);
-    return false;
-  }
-
-  // Always use clang for precompiling, AST generation, and rewriting,
-  // regardless of archs.
-  if (isa<PrecompileJobAction>(JA) ||
-      types::isOnlyAcceptedByClang(JA.getType()))
-    return true;
 
   return true;
 }

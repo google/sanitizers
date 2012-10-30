@@ -135,10 +135,15 @@ namespace {
 /// interesting value comes from an inlined function call.
 class ReturnVisitor : public BugReporterVisitorImpl<ReturnVisitor> {
   const StackFrameContext *StackFrame;
-  bool Satisfied;
+  enum {
+    Initial,
+    MaybeSuppress,
+    Satisfied
+  } Mode;
+
 public:
   ReturnVisitor(const StackFrameContext *Frame)
-    : StackFrame(Frame), Satisfied(false) {}
+    : StackFrame(Frame), Mode(Initial) {}
 
   static void *getTag() {
     static int Tag = 0;
@@ -190,13 +195,16 @@ public:
     }
   }
 
-  PathDiagnosticPiece *VisitNode(const ExplodedNode *N,
-                                 const ExplodedNode *PrevN,
-                                 BugReporterContext &BRC,
-                                 BugReport &BR) {
-    if (Satisfied)
-      return 0;
+  /// Returns true if any counter-suppression heuristics are enabled for
+  /// ReturnVisitor.
+  static bool hasCounterSuppression(AnalyzerOptions &Options) {
+    return Options.shouldAvoidSuppressingNullArgumentPaths();
+  }
 
+  PathDiagnosticPiece *visitNodeInitial(const ExplodedNode *N,
+                                        const ExplodedNode *PrevN,
+                                        BugReporterContext &BRC,
+                                        BugReport &BR) {
     // Only print a message at the interesting return statement.
     if (N->getLocationContext() != StackFrame)
       return 0;
@@ -217,7 +225,7 @@ public:
       return 0;
 
     // Don't print any more notes after this one.
-    Satisfied = true;
+    Mode = Satisfied;
 
     const Expr *RetE = Ret->getRetValue();
     assert(RetE && "Tracking a return value for a void function");
@@ -243,8 +251,13 @@ public:
       // report invalid. We still want to emit a path note, however, in case
       // the report is resurrected as valid later on.
       ExprEngine &Eng = BRC.getBugReporter().getEngine();
-      if (Eng.getAnalysisManager().options.shouldPruneNullReturnPaths())
-        BR.markInvalid(ReturnVisitor::getTag(), StackFrame);
+      AnalyzerOptions &Options = Eng.getAnalysisManager().options;
+      if (Options.shouldPruneNullReturnPaths()) {
+        if (hasCounterSuppression(Options))
+          Mode = MaybeSuppress;
+        else
+          BR.markInvalid(ReturnVisitor::getTag(), StackFrame);
+      }
 
       if (RetE->getType()->isObjCObjectPointerType())
         Out << "Returning nil";
@@ -261,6 +274,74 @@ public:
 
     PathDiagnosticLocation L(Ret, BRC.getSourceManager(), StackFrame);
     return new PathDiagnosticEventPiece(L, Out.str());
+  }
+
+  PathDiagnosticPiece *visitNodeMaybeSuppress(const ExplodedNode *N,
+                                              const ExplodedNode *PrevN,
+                                              BugReporterContext &BRC,
+                                              BugReport &BR) {
+    // Are we at the entry node for this call?
+    const CallEnter *CE = N->getLocationAs<CallEnter>();
+    if (!CE)
+      return 0;
+
+    if (CE->getCalleeContext() != StackFrame)
+      return 0;
+
+    Mode = Satisfied;
+
+    ExprEngine &Eng = BRC.getBugReporter().getEngine();
+    AnalyzerOptions &Options = Eng.getAnalysisManager().options;
+    if (Options.shouldAvoidSuppressingNullArgumentPaths()) {
+      // Don't automatically suppress a report if one of the arguments is
+      // known to be a null pointer. Instead, start tracking /that/ null
+      // value back to its origin.
+      ProgramStateManager &StateMgr = BRC.getStateManager();
+      CallEventManager &CallMgr = StateMgr.getCallEventManager();
+
+      ProgramStateRef State = N->getState();
+      CallEventRef<> Call = CallMgr.getCaller(StackFrame, State);
+      for (unsigned I = 0, E = Call->getNumArgs(); I != E; ++I) {
+        SVal ArgV = Call->getArgSVal(I);
+        if (!isa<Loc>(ArgV))
+          continue;
+
+        const Expr *ArgE = Call->getArgExpr(I);
+        if (!ArgE)
+          continue;
+
+        // Is it possible for this argument to be non-null?
+        if (State->assume(cast<Loc>(ArgV), true))
+          continue;
+
+        if (bugreporter::trackNullOrUndefValue(N, ArgE, BR, /*IsArg=*/true))
+          return 0;
+
+        // If we /can't/ track the null pointer, we should err on the side of
+        // false negatives, and continue towards marking this report invalid.
+        // (We will still look at the other arguments, though.)
+      }
+    }
+
+    // There is no reason not to suppress this report; go ahead and do it.
+    BR.markInvalid(ReturnVisitor::getTag(), StackFrame);
+    return 0;
+  }
+
+  PathDiagnosticPiece *VisitNode(const ExplodedNode *N,
+                                 const ExplodedNode *PrevN,
+                                 BugReporterContext &BRC,
+                                 BugReport &BR) {
+    switch (Mode) {
+    case Initial:
+      return visitNodeInitial(N, PrevN, BRC, BR);
+    case MaybeSuppress:
+      return visitNodeMaybeSuppress(N, PrevN, BRC, BR);
+    case Satisfied:
+      return 0;
+    }
+
+    llvm_unreachable("Invalid visit mode!");
   }
 };
 } // end anonymous namespace
@@ -283,6 +364,7 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
 
   const ExplodedNode *StoreSite = 0;
   const Expr *InitE = 0;
+  bool IsParam = false;
 
   // First see if we reached the declaration of the region.
   if (const VarRegion *VR = dyn_cast<VarRegion>(R)) {
@@ -327,6 +409,7 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
       CallEventRef<> Call = CallMgr.getCaller(CE->getCalleeContext(),
                                               Succ->getState());
       InitE = Call->getArgExpr(Param->getFunctionScopeIndex());
+      IsParam = true;
     }
   }
 
@@ -337,12 +420,14 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
   // If we have an expression that provided the value, try to track where it
   // came from.
   if (InitE) {
-    InitE = InitE->IgnoreParenCasts();
-
-    if (V.isUndef() || isa<loc::ConcreteInt>(V))
-      bugreporter::trackNullOrUndefValue(StoreSite, InitE, BR);
-    else
-      ReturnVisitor::addVisitorIfNecessary(StoreSite, InitE, BR);
+    if (V.isUndef() || isa<loc::ConcreteInt>(V)) {
+      if (!IsParam)
+        InitE = InitE->IgnoreParenCasts();
+      bugreporter::trackNullOrUndefValue(StoreSite, InitE, BR, IsParam);
+    } else {
+      ReturnVisitor::addVisitorIfNecessary(StoreSite, InitE->IgnoreParenCasts(),
+                                           BR);
+    }
   }
 
   if (!R->canPrintPretty())
@@ -467,6 +552,12 @@ void TrackConstraintBRVisitor::Profile(llvm::FoldingSetNodeID &ID) const {
   ID.Add(Constraint);
 }
 
+/// Return the tag associated with this visitor.  This tag will be used
+/// to make all PathDiagnosticPieces created by this visitor.
+const char *TrackConstraintBRVisitor::getTag() {
+  return "TrackConstraintBRVisitor";
+}
+
 PathDiagnosticPiece *
 TrackConstraintBRVisitor::VisitNode(const ExplodedNode *N,
                                     const ExplodedNode *PrevN,
@@ -506,37 +597,42 @@ TrackConstraintBRVisitor::VisitNode(const ExplodedNode *N,
       PathDiagnosticLocation::create(P, BRC.getSourceManager());
     if (!L.isValid())
       return NULL;
-    return new PathDiagnosticEventPiece(L, os.str());
+    
+    PathDiagnosticEventPiece *X = new PathDiagnosticEventPiece(L, os.str());
+    X->setTag(getTag());
+    return X;
   }
 
   return NULL;
 }
 
-void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
-                                        BugReport &report) {
+bool bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
+                                        BugReport &report, bool IsArg) {
   if (!S || !N)
-    return;
+    return false;
 
   if (const OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(S))
     S = OVE->getSourceExpr();
 
-  ProgramStateManager &StateMgr = N->getState()->getStateManager();
+  if (IsArg) {
+    assert(isa<CallEnter>(N->getLocation()) && "Tracking arg but not at call");
+  } else {
+    // Walk through nodes until we get one that matches the statement exactly.
+    do {
+      const ProgramPoint &pp = N->getLocation();
+      if (const PostStmt *ps = dyn_cast<PostStmt>(&pp)) {
+        if (ps->getStmt() == S)
+          break;
+      } else if (const CallExitEnd *CEE = dyn_cast<CallExitEnd>(&pp)) {
+        if (CEE->getCalleeContext()->getCallSite() == S)
+          break;
+      }
+      N = N->getFirstPred();
+    } while (N);
 
-  // Walk through nodes until we get one that matches the statement exactly.
-  while (N) {
-    const ProgramPoint &pp = N->getLocation();
-    if (const PostStmt *ps = dyn_cast<PostStmt>(&pp)) {
-      if (ps->getStmt() == S)
-        break;
-    } else if (const CallExitEnd *CEE = dyn_cast<CallExitEnd>(&pp)) {
-      if (CEE->getCalleeContext()->getCallSite() == S)
-        break;
-    }
-    N = N->getFirstPred();
+    if (!N)
+      return false;
   }
-
-  if (!N)
-    return;
   
   ProgramStateRef state = N->getState();
 
@@ -551,11 +647,28 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
       // FIXME: Right now we only track VarDecls because it's non-trivial to
       // get a MemRegion for any other DeclRefExprs. <rdar://problem/12114812>
       if (const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl())) {
-        const VarRegion *R =
-          StateMgr.getRegionManager().getVarRegion(VD, N->getLocationContext());
+        ProgramStateManager &StateMgr = state->getStateManager();
+        MemRegionManager &MRMgr = StateMgr.getRegionManager();
+        const VarRegion *R = MRMgr.getVarRegion(VD, N->getLocationContext());
 
         // Mark both the variable region and its contents as interesting.
         SVal V = state->getRawSVal(loc::MemRegionVal(R));
+
+        // If the value matches the default for the variable region, that
+        // might mean that it's been cleared out of the state. Fall back to
+        // the full argument expression (with casts and such intact).
+        if (IsArg) {
+          bool UseArgValue = V.isUnknownOrUndef() || V.isZeroConstant();
+          if (!UseArgValue) {
+            const SymbolRegionValue *SRV =
+              dyn_cast_or_null<SymbolRegionValue>(V.getAsLocSymbol());
+            if (SRV)
+              UseArgValue = (SRV->getRegion() == R);
+          }
+          if (UseArgValue)
+            V = state->getSValAsScalarOrLoc(S, N->getLocationContext());
+        }
+
         report.markInteresting(R);
         report.markInteresting(V);
         report.addVisitor(new UndefOrNullArgVisitor(R));
@@ -568,7 +681,7 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
         }
 
         report.addVisitor(new FindLastStoreBRVisitor(V, R));
-        return;
+        return true;
       }
     }
   }
@@ -602,6 +715,8 @@ void bugreporter::trackNullOrUndefValue(const ExplodedNode *N, const Stmt *S,
       S = E->IgnoreParenCasts();
     ReturnVisitor::addVisitorIfNecessary(N, S, report);
   }
+
+  return true;
 }
 
 BugReporterVisitor *
@@ -689,14 +804,23 @@ void FindLastStoreBRVisitor::registerStatementVarDecls(BugReport &BR,
 //===----------------------------------------------------------------------===//
 // Visitor that tries to report interesting diagnostics from conditions.
 //===----------------------------------------------------------------------===//
+
+/// Return the tag associated with this visitor.  This tag will be used
+/// to make all PathDiagnosticPieces created by this visitor.
+const char *ConditionBRVisitor::getTag() {
+  return "ConditionBRVisitor";
+}
+
 PathDiagnosticPiece *ConditionBRVisitor::VisitNode(const ExplodedNode *N,
                                                    const ExplodedNode *Prev,
                                                    BugReporterContext &BRC,
                                                    BugReport &BR) {
   PathDiagnosticPiece *piece = VisitNodeImpl(N, Prev, BRC, BR);
-  if (PathDiagnosticEventPiece *ev =
-      dyn_cast_or_null<PathDiagnosticEventPiece>(piece))
-    ev->setPrunable(true, /* override */ false);
+  if (piece) {
+    piece->setTag(getTag());
+    if (PathDiagnosticEventPiece *ev=dyn_cast<PathDiagnosticEventPiece>(piece))
+      ev->setPrunable(true, /* override */ false);
+  }
   return piece;
 }
 

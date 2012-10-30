@@ -157,50 +157,6 @@ void CodeGenFunction::EmitAnyExprToMem(const Expr *E,
   }
 }
 
-namespace {
-/// \brief An adjustment to be made to the temporary created when emitting a
-/// reference binding, which accesses a particular subobject of that temporary.
-  struct SubobjectAdjustment {
-    enum {
-      DerivedToBaseAdjustment,
-      FieldAdjustment,
-      MemberPointerAdjustment
-    } Kind;
-
-    union {
-      struct {
-        const CastExpr *BasePath;
-        const CXXRecordDecl *DerivedClass;
-      } DerivedToBase;
-
-      FieldDecl *Field;
-
-      struct {
-        const MemberPointerType *MPT;
-        llvm::Value *Ptr;
-      } Ptr;
-    };
-
-    SubobjectAdjustment(const CastExpr *BasePath,
-                        const CXXRecordDecl *DerivedClass)
-      : Kind(DerivedToBaseAdjustment) {
-      DerivedToBase.BasePath = BasePath;
-      DerivedToBase.DerivedClass = DerivedClass;
-    }
-
-    SubobjectAdjustment(FieldDecl *Field)
-      : Kind(FieldAdjustment) {
-      this->Field = Field;
-    }
-
-    SubobjectAdjustment(const MemberPointerType *MPT, llvm::Value *Ptr)
-      : Kind(MemberPointerAdjustment) {
-      this->Ptr.MPT = MPT;
-      this->Ptr.Ptr = Ptr;
-    }
-  };
-}
-
 static llvm::Value *
 CreateReferenceTemporary(CodeGenFunction &CGF, QualType Type,
                          const NamedDecl *InitializedDecl) {
@@ -233,32 +189,18 @@ EmitExprForReferenceBinding(CodeGenFunction &CGF, const Expr *E,
                             const CXXDestructorDecl *&ReferenceTemporaryDtor,
                             QualType &ObjCARCReferenceLifetimeType,
                             const NamedDecl *InitializedDecl) {
-  // Look through single-element init lists that claim to be lvalues. They're
-  // just syntactic wrappers in this case.
-  if (const InitListExpr *ILE = dyn_cast<InitListExpr>(E)) {
-    if (ILE->getNumInits() == 1 && ILE->isGLValue())
-      E = ILE->getInit(0);
-  }
+  const MaterializeTemporaryExpr *M = NULL;
+  E = E->findMaterializedTemporary(M);
+  // Objective-C++ ARC:
+  //   If we are binding a reference to a temporary that has ownership, we
+  //   need to perform retain/release operations on the temporary.
+  if (M && CGF.getContext().getLangOpts().ObjCAutoRefCount &&
+      M->getType()->isObjCLifetimeType() &&
+      (M->getType().getObjCLifetime() == Qualifiers::OCL_Strong ||
+       M->getType().getObjCLifetime() == Qualifiers::OCL_Weak ||
+       M->getType().getObjCLifetime() == Qualifiers::OCL_Autoreleasing))
+    ObjCARCReferenceLifetimeType = M->getType();
 
-  // Look through expressions for materialized temporaries (for now).
-  if (const MaterializeTemporaryExpr *M 
-                                      = dyn_cast<MaterializeTemporaryExpr>(E)) {
-    // Objective-C++ ARC:
-    //   If we are binding a reference to a temporary that has ownership, we 
-    //   need to perform retain/release operations on the temporary.
-    if (CGF.getContext().getLangOpts().ObjCAutoRefCount &&        
-        E->getType()->isObjCLifetimeType() &&
-        (E->getType().getObjCLifetime() == Qualifiers::OCL_Strong ||
-         E->getType().getObjCLifetime() == Qualifiers::OCL_Weak ||
-         E->getType().getObjCLifetime() == Qualifiers::OCL_Autoreleasing))
-      ObjCARCReferenceLifetimeType = E->getType();
-    
-    E = M->GetTemporaryExpr();
-  }
-
-  if (const CXXDefaultArgExpr *DAE = dyn_cast<CXXDefaultArgExpr>(E))
-    E = DAE->getExpr();
-  
   if (const ExprWithCleanups *EWC = dyn_cast<ExprWithCleanups>(E)) {
     CGF.enterFullExpression(EWC);
     CodeGenFunction::RunCleanupsScope Scope(CGF);
@@ -336,54 +278,13 @@ EmitExprForReferenceBinding(CodeGenFunction &CGF, const Expr *E,
       
       return ReferenceTemporary;
     }
-    
+
     SmallVector<SubobjectAdjustment, 2> Adjustments;
-    while (true) {
-      E = E->IgnoreParens();
+    E = E->skipRValueSubobjectAdjustments(Adjustments);
+    if (const OpaqueValueExpr *opaque = dyn_cast<OpaqueValueExpr>(E))
+      if (opaque->getType()->isRecordType())
+        return CGF.EmitOpaqueValueLValue(opaque).getAddress();
 
-      if (const CastExpr *CE = dyn_cast<CastExpr>(E)) {
-        if ((CE->getCastKind() == CK_DerivedToBase ||
-             CE->getCastKind() == CK_UncheckedDerivedToBase) &&
-            E->getType()->isRecordType()) {
-          E = CE->getSubExpr();
-          CXXRecordDecl *Derived 
-            = cast<CXXRecordDecl>(E->getType()->getAs<RecordType>()->getDecl());
-          Adjustments.push_back(SubobjectAdjustment(CE, Derived));
-          continue;
-        }
-
-        if (CE->getCastKind() == CK_NoOp) {
-          E = CE->getSubExpr();
-          continue;
-        }
-      } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
-        if (!ME->isArrow() && ME->getBase()->isRValue()) {
-          assert(ME->getBase()->getType()->isRecordType());
-          if (FieldDecl *Field = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-            E = ME->getBase();
-            Adjustments.push_back(SubobjectAdjustment(Field));
-            continue;
-          }
-        }
-      } else if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
-        if (BO->isPtrMemOp()) {
-          assert(BO->getLHS()->isRValue());
-          E = BO->getLHS();
-          const MemberPointerType *MPT =
-              BO->getRHS()->getType()->getAs<MemberPointerType>();
-          llvm::Value *Ptr = CGF.EmitScalarExpr(BO->getRHS());
-          Adjustments.push_back(SubobjectAdjustment(MPT, Ptr));
-        }
-      }
-
-      if (const OpaqueValueExpr *opaque = dyn_cast<OpaqueValueExpr>(E))
-        if (opaque->getType()->isRecordType())
-          return CGF.EmitOpaqueValueLValue(opaque).getAddress();
-
-      // Nothing changed.
-      break;
-    }
-    
     // Create a reference temporary if necessary.
     AggValueSlot AggSlot = AggValueSlot::ignored();
     if (CGF.hasAggregateLLVMType(E->getType()) &&
@@ -447,8 +348,9 @@ EmitExprForReferenceBinding(CodeGenFunction &CGF, const Expr *E,
         }
 
         case SubobjectAdjustment::MemberPointerAdjustment: {
+          llvm::Value *Ptr = CGF.EmitScalarExpr(Adjustment.Ptr.RHS);
           Object = CGF.CGM.getCXXABI().EmitMemberDataPointerAddress(
-                        CGF, Object, Adjustment.Ptr.Ptr, Adjustment.Ptr.MPT);
+                        CGF, Object, Ptr, Adjustment.Ptr.MPT);
           break;
         }
         }
@@ -3460,6 +3362,13 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
     return ConvertTempToRValue(*this, E->getType(), Dest);
   }
 
+  bool IsStore = E->getOp() == AtomicExpr::AO__c11_atomic_store ||
+                 E->getOp() == AtomicExpr::AO__atomic_store ||
+                 E->getOp() == AtomicExpr::AO__atomic_store_n;
+  bool IsLoad = E->getOp() == AtomicExpr::AO__c11_atomic_load ||
+                E->getOp() == AtomicExpr::AO__atomic_load ||
+                E->getOp() == AtomicExpr::AO__atomic_load_n;
+
   llvm::Type *IPtrTy =
       llvm::IntegerType::get(getLLVMContext(), Size * 8)->getPointerTo();
   llvm::Value *OrigDest = Dest;
@@ -3477,14 +3386,20 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
       break;
     case 1:  // memory_order_consume
     case 2:  // memory_order_acquire
+      if (IsStore)
+        break; // Avoid crashing on code with undefined behavior
       EmitAtomicOp(*this, E, Dest, Ptr, Val1, Val2, Size, Align,
                    llvm::Acquire);
       break;
     case 3:  // memory_order_release
+      if (IsLoad)
+        break; // Avoid crashing on code with undefined behavior
       EmitAtomicOp(*this, E, Dest, Ptr, Val1, Val2, Size, Align,
                    llvm::Release);
       break;
     case 4:  // memory_order_acq_rel
+      if (IsLoad || IsStore)
+        break; // Avoid crashing on code with undefined behavior
       EmitAtomicOp(*this, E, Dest, Ptr, Val1, Val2, Size, Align,
                    llvm::AcquireRelease);
       break;
@@ -3503,13 +3418,6 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
   }
 
   // Long case, when Order isn't obviously constant.
-
-  bool IsStore = E->getOp() == AtomicExpr::AO__c11_atomic_store ||
-                 E->getOp() == AtomicExpr::AO__atomic_store ||
-                 E->getOp() == AtomicExpr::AO__atomic_store_n;
-  bool IsLoad = E->getOp() == AtomicExpr::AO__c11_atomic_load ||
-                E->getOp() == AtomicExpr::AO__atomic_load ||
-                E->getOp() == AtomicExpr::AO__atomic_load_n;
 
   // Create all the relevant BB's
   llvm::BasicBlock *MonotonicBB = 0, *AcquireBB = 0, *ReleaseBB = 0,

@@ -106,148 +106,12 @@ getReservedRegs(const MachineFunction &MF) const {
     for (unsigned i = 0; i != 16; ++i)
       Reserved.set(ARM::D16 + i);
   }
+  const TargetRegisterClass *RC  = &ARM::GPRPairRegClass;
+  for(TargetRegisterClass::iterator I = RC->begin(), E = RC->end(); I!=E; ++I)
+    for (MCSubRegIterator SI(*I, this); SI.isValid(); ++SI)
+      if (Reserved.test(*SI)) Reserved.set(*I);
+
   return Reserved;
-}
-
-bool ARMBaseRegisterInfo::isReservedReg(const MachineFunction &MF,
-                                        unsigned Reg) const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-
-  switch (Reg) {
-  default: break;
-  case ARM::SP:
-  case ARM::PC:
-    return true;
-  case ARM::R6:
-    if (hasBasePointer(MF))
-      return true;
-    break;
-  case ARM::R7:
-  case ARM::R11:
-    if (FramePtr == Reg && TFI->hasFP(MF))
-      return true;
-    break;
-  case ARM::R9:
-    return STI.isR9Reserved();
-  }
-
-  return false;
-}
-
-bool
-ARMBaseRegisterInfo::canCombineSubRegIndices(const TargetRegisterClass *RC,
-                                          SmallVectorImpl<unsigned> &SubIndices,
-                                          unsigned &NewSubIdx) const {
-
-  unsigned Size = RC->getSize() * 8;
-  if (Size < 6)
-    return 0;
-
-  NewSubIdx = 0;  // Whole register.
-  unsigned NumRegs = SubIndices.size();
-  if (NumRegs == 8) {
-    // 8 D registers -> 1 QQQQ register.
-    return (Size == 512 &&
-            SubIndices[0] == ARM::dsub_0 &&
-            SubIndices[1] == ARM::dsub_1 &&
-            SubIndices[2] == ARM::dsub_2 &&
-            SubIndices[3] == ARM::dsub_3 &&
-            SubIndices[4] == ARM::dsub_4 &&
-            SubIndices[5] == ARM::dsub_5 &&
-            SubIndices[6] == ARM::dsub_6 &&
-            SubIndices[7] == ARM::dsub_7);
-  } else if (NumRegs == 4) {
-    if (SubIndices[0] == ARM::qsub_0) {
-      // 4 Q registers -> 1 QQQQ register.
-      return (Size == 512 &&
-              SubIndices[1] == ARM::qsub_1 &&
-              SubIndices[2] == ARM::qsub_2 &&
-              SubIndices[3] == ARM::qsub_3);
-    } else if (SubIndices[0] == ARM::dsub_0) {
-      // 4 D registers -> 1 QQ register.
-      if (Size >= 256 &&
-          SubIndices[1] == ARM::dsub_1 &&
-          SubIndices[2] == ARM::dsub_2 &&
-          SubIndices[3] == ARM::dsub_3) {
-        if (Size == 512)
-          NewSubIdx = ARM::qqsub_0;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::dsub_4) {
-      // 4 D registers -> 1 QQ register (2nd).
-      if (Size == 512 &&
-          SubIndices[1] == ARM::dsub_5 &&
-          SubIndices[2] == ARM::dsub_6 &&
-          SubIndices[3] == ARM::dsub_7) {
-        NewSubIdx = ARM::qqsub_1;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::ssub_0) {
-      // 4 S registers -> 1 Q register.
-      if (Size >= 128 &&
-          SubIndices[1] == ARM::ssub_1 &&
-          SubIndices[2] == ARM::ssub_2 &&
-          SubIndices[3] == ARM::ssub_3) {
-        if (Size >= 256)
-          NewSubIdx = ARM::qsub_0;
-        return true;
-      }
-    }
-  } else if (NumRegs == 2) {
-    if (SubIndices[0] == ARM::qsub_0) {
-      // 2 Q registers -> 1 QQ register.
-      if (Size >= 256 && SubIndices[1] == ARM::qsub_1) {
-        if (Size == 512)
-          NewSubIdx = ARM::qqsub_0;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::qsub_2) {
-      // 2 Q registers -> 1 QQ register (2nd).
-      if (Size == 512 && SubIndices[1] == ARM::qsub_3) {
-        NewSubIdx = ARM::qqsub_1;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::dsub_0) {
-      // 2 D registers -> 1 Q register.
-      if (Size >= 128 && SubIndices[1] == ARM::dsub_1) {
-        if (Size >= 256)
-          NewSubIdx = ARM::qsub_0;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::dsub_2) {
-      // 2 D registers -> 1 Q register (2nd).
-      if (Size >= 256 && SubIndices[1] == ARM::dsub_3) {
-        NewSubIdx = ARM::qsub_1;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::dsub_4) {
-      // 2 D registers -> 1 Q register (3rd).
-      if (Size == 512 && SubIndices[1] == ARM::dsub_5) {
-        NewSubIdx = ARM::qsub_2;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::dsub_6) {
-      // 2 D registers -> 1 Q register (3rd).
-      if (Size == 512 && SubIndices[1] == ARM::dsub_7) {
-        NewSubIdx = ARM::qsub_3;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::ssub_0) {
-      // 2 S registers -> 1 D register.
-      if (SubIndices[1] == ARM::ssub_1) {
-        if (Size >= 128)
-          NewSubIdx = ARM::dsub_0;
-        return true;
-      }
-    } else if (SubIndices[0] == ARM::ssub_2) {
-      // 2 S registers -> 1 D register (2nd).
-      if (Size >= 128 && SubIndices[1] == ARM::ssub_3) {
-        NewSubIdx = ARM::dsub_1;
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 const TargetRegisterClass*
@@ -263,6 +127,7 @@ ARMBaseRegisterInfo::getLargestLegalSuperClass(const TargetRegisterClass *RC)
     case ARM::QPRRegClassID:
     case ARM::QQPRRegClassID:
     case ARM::QQQQPRRegClassID:
+    case ARM::GPRPairRegClassID:
       return Super;
     }
     Super = *I++;
@@ -596,6 +461,7 @@ unsigned ARMBaseRegisterInfo::getEHHandlerRegister() const {
 
 unsigned ARMBaseRegisterInfo::getRegisterPairEven(unsigned Reg,
                                               const MachineFunction &MF) const {
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
   switch (Reg) {
   default: break;
   // Return 0 if either register of the pair is a special register.
@@ -604,10 +470,10 @@ unsigned ARMBaseRegisterInfo::getRegisterPairEven(unsigned Reg,
   case ARM::R3: return ARM::R2;
   case ARM::R5: return ARM::R4;
   case ARM::R7:
-    return (isReservedReg(MF, ARM::R7) || isReservedReg(MF, ARM::R6))
+    return (MRI.isReserved(ARM::R7) || MRI.isReserved(ARM::R6))
       ? 0 : ARM::R6;
-  case ARM::R9: return isReservedReg(MF, ARM::R9)  ? 0 :ARM::R8;
-  case ARM::R11: return isReservedReg(MF, ARM::R11) ? 0 : ARM::R10;
+  case ARM::R9: return MRI.isReserved(ARM::R9)  ? 0 :ARM::R8;
+  case ARM::R11: return MRI.isReserved(ARM::R11) ? 0 : ARM::R10;
 
   case ARM::S1: return ARM::S0;
   case ARM::S3: return ARM::S2;
@@ -649,6 +515,7 @@ unsigned ARMBaseRegisterInfo::getRegisterPairEven(unsigned Reg,
 
 unsigned ARMBaseRegisterInfo::getRegisterPairOdd(unsigned Reg,
                                              const MachineFunction &MF) const {
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
   switch (Reg) {
   default: break;
   // Return 0 if either register of the pair is a special register.
@@ -657,10 +524,10 @@ unsigned ARMBaseRegisterInfo::getRegisterPairOdd(unsigned Reg,
   case ARM::R2: return ARM::R3;
   case ARM::R4: return ARM::R5;
   case ARM::R6:
-    return (isReservedReg(MF, ARM::R7) || isReservedReg(MF, ARM::R6))
+    return (MRI.isReserved(ARM::R7) || MRI.isReserved(ARM::R6))
       ? 0 : ARM::R7;
-  case ARM::R8: return isReservedReg(MF, ARM::R9)  ? 0 :ARM::R9;
-  case ARM::R10: return isReservedReg(MF, ARM::R11) ? 0 : ARM::R11;
+  case ARM::R8: return MRI.isReserved(ARM::R9)  ? 0 :ARM::R9;
+  case ARM::R10: return MRI.isReserved(ARM::R11) ? 0 : ARM::R11;
 
   case ARM::S0: return ARM::S1;
   case ARM::S2: return ARM::S3;

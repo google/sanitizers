@@ -136,3 +136,26 @@ cc_YCbCr cc_hsl::YCbCr()
 }
 
 }
+
+namespace test1 {
+  int getString(const int*);
+  template<int a> class ELFObjectFile  {
+    const int* sh;
+    ELFObjectFile() {
+      switch (*sh) {
+      }
+      int SectionName(getString(sh));
+    }
+  };
+}
+
+namespace test2 {
+  struct fltSemantics ;
+  const fltSemantics &foobar();
+  void VisitCastExpr(int x) {
+    switch (x) {
+    case 42:
+      const fltSemantics &Sem = foobar();
+    }
+  }
+}

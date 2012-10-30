@@ -1,4 +1,3 @@
-set(LLVM_REQUIRES_EH 1)
 set(LLVM_LINK_COMPONENTS Support)
 
 add_tablegen(llvm-tblgen LLVM
@@ -9,6 +8,7 @@ add_tablegen(llvm-tblgen LLVM
   CodeEmitterGen.cpp
   CodeGenDAGPatterns.cpp
   CodeGenInstruction.cpp
+  CodeGenMapTable.cpp
   CodeGenRegisters.cpp
   CodeGenSchedule.cpp
   CodeGenTarget.cpp

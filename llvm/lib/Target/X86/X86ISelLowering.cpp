@@ -2266,14 +2266,15 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   int FPDiff = 0;
   if (isTailCall && !IsSibcall) {
     // Lower arguments at fp - stackoffset + fpdiff.
-    unsigned NumBytesCallerPushed =
-      MF.getInfo<X86MachineFunctionInfo>()->getBytesToPopOnReturn();
+    X86MachineFunctionInfo *X86Info = MF.getInfo<X86MachineFunctionInfo>();
+    unsigned NumBytesCallerPushed = X86Info->getBytesToPopOnReturn();
+
     FPDiff = NumBytesCallerPushed - NumBytes;
 
     // Set the delta of movement of the returnaddr stackslot.
     // But only set if delta is greater than previous delta.
-    if (FPDiff < (MF.getInfo<X86MachineFunctionInfo>()->getTCReturnAddrDelta()))
-      MF.getInfo<X86MachineFunctionInfo>()->setTCReturnAddrDelta(FPDiff);
+    if (FPDiff < X86Info->getTCReturnAddrDelta())
+      X86Info->setTCReturnAddrDelta(FPDiff);
   }
 
   if (!IsSibcall)
@@ -4634,7 +4635,6 @@ static SDValue getShuffleScalarElt(SDNode *N, unsigned Index, SelectionDAG &DAG,
     MVT ShufVT = V.getValueType().getSimpleVT();
     unsigned NumElems = ShufVT.getVectorNumElements();
     SmallVector<int, 16> ShuffleMask;
-    SDValue ImmN;
     bool IsUnary;
 
     if (!getTargetShuffleMask(N, ShufVT, ShuffleMask, IsUnary))
@@ -6438,17 +6438,17 @@ LowerVECTOR_SHUFFLE_128v4(ShuffleVectorSDNode *SVOp, SelectionDAG &DAG) {
 }
 
 static bool MayFoldVectorLoad(SDValue V) {
-  if (V.hasOneUse() && V.getOpcode() == ISD::BITCAST)
+  while (V.hasOneUse() && V.getOpcode() == ISD::BITCAST)
     V = V.getOperand(0);
+
   if (V.hasOneUse() && V.getOpcode() == ISD::SCALAR_TO_VECTOR)
     V = V.getOperand(0);
   if (V.hasOneUse() && V.getOpcode() == ISD::BUILD_VECTOR &&
       V.getNumOperands() == 2 && V.getOperand(1).getOpcode() == ISD::UNDEF)
     // BUILD_VECTOR (load), undef
     V = V.getOperand(0);
-  if (MayFoldLoad(V))
-    return true;
-  return false;
+
+  return MayFoldLoad(V);
 }
 
 // FIXME: the version above should always be used. Since there's
@@ -6598,8 +6598,8 @@ X86TargetLowering::lowerVectorIntExtend(SDValue Op, SelectionDAG &DAG) const {
 
   // Find the expansion ratio, e.g. expanding from i8 to i32 has a ratio of 4.
   unsigned Shift = 1; // Start from 2, i.e. 1 << 1.
-  while ((1 << Shift) < NumElems) {
-    if (SVOp->getMaskElt(1 << Shift) == 1)
+  while ((1U << Shift) < NumElems) {
+    if (SVOp->getMaskElt(1U << Shift) == 1)
       break;
     Shift += 1;
     // The maximal ratio is 8, i.e. from i8 to i64.
