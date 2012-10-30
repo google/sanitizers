@@ -243,11 +243,10 @@ bool MemorySanitizer::doInitialization(Module &M) {
 
   // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
-        "__msan_init", IRB.getVoidTy(), NULL)), 0);
+                      "__msan_init", IRB.getVoidTy(), NULL)), 0);
 
   new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::LinkOnceODRLinkage,
-                     ConstantInt::get(IRB.getInt32Ty(), ClTrackOrigins),
-                     "__msan_track_origins");
+                     IRB.getInt32(ClTrackOrigins)), "__msan_track_origins");
 
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
@@ -257,7 +256,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
     // We can recover from ud2 in the SIGILL handler, making it an efficient
     // way to implement a very unlikely call.
     WarningFn = InlineAsm::get(FunctionType::get(Type::getVoidTy(*C), false),
-                                  StringRef("ud2"), StringRef(""), true);
+                               StringRef("ud2"), StringRef(""), true);
   } else {
     WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
   }
