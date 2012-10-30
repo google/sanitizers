@@ -24,7 +24,6 @@
 namespace llvm {
 
 class AliasAnalysis;
-class BranchInst;
 class Instruction;
 class MDNode;
 class Pass;
