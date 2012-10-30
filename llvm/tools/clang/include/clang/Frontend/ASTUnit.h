@@ -467,7 +467,9 @@ public:
 
   const FileSystemOptions &getFileSystemOpts() const { return FileSystemOpts; }
 
-  const std::string &getOriginalSourceFileName();
+  StringRef getOriginalSourceFileName() {
+    return OriginalSourceFile;
+  }
 
   ASTDeserializationListener *getDeserializationListener();
 

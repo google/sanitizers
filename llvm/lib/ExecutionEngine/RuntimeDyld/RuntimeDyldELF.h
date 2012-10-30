@@ -18,8 +18,18 @@
 
 using namespace llvm;
 
-
 namespace llvm {
+
+namespace {
+  // Helper for extensive error checking in debug builds.
+  error_code Check(error_code Err) {
+    if (Err) {
+      report_fatal_error(Err.message());
+    }
+    return Err;
+  }
+} // end anonymous namespace
+
 class RuntimeDyldELF : public RuntimeDyldImpl {
 protected:
   void resolveX86_64Relocation(uint8_t *LocalAddress,
@@ -46,6 +56,12 @@ protected:
                              uint32_t Type,
                              int32_t Addend);
 
+  void resolvePPC64Relocation(uint8_t *LocalAddress,
+                              uint64_t FinalAddress,
+                              uint64_t Value,
+                              uint32_t Type,
+                              int64_t Addend);
+
   virtual void resolveRelocation(uint8_t *LocalAddress,
                                  uint64_t FinalAddress,
                                  uint64_t Value,
@@ -58,7 +74,14 @@ protected:
                                     const SymbolTableMap &Symbols,
                                     StubMap &Stubs);
 
+  unsigned getCommonSymbolAlignment(const SymbolRef &Sym);
+
   virtual ObjectImage *createObjectImage(ObjectBuffer *InputBuffer);
+
+  uint64_t findPPC64TOC() const;
+  void findOPDEntrySection(ObjectImage &Obj,
+                           ObjSectionToIDMap &LocalSections,
+                           RelocationValueRef &Rel);
 
 public:
   RuntimeDyldELF(RTDyldMemoryManager *mm)

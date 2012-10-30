@@ -85,6 +85,9 @@ public:
                                          const MCFragment &F,
                                          const MCFixup &Fixup,
                                          bool IsPCRel) const;
+  virtual const MCSymbol *undefinedExplicitRelSym(const MCValue &Target,
+                                                  const MCFixup &Fixup,
+                                                  bool IsPCRel) const;
   virtual void adjustFixupOffset(const MCFixup &Fixup,
                                  uint64_t &RelocOffset);
 
@@ -93,9 +96,9 @@ public:
 
   /// @name Accessors
   /// @{
-  uint8_t getOSABI() { return OSABI; }
-  uint16_t getEMachine() { return EMachine; }
-  bool hasRelocationAddend() { return HasRelocationAddend; }
+  uint8_t getOSABI() const { return OSABI; }
+  uint16_t getEMachine() const { return EMachine; }
+  bool hasRelocationAddend() const { return HasRelocationAddend; }
   bool is64Bit() const { return Is64Bit; }
   bool isN64() const { return IsN64; }
   /// @}

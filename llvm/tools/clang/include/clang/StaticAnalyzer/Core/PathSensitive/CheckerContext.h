@@ -16,6 +16,22 @@
 #define LLVM_CLANG_SA_CORE_PATHSENSITIVE_CHECKERCONTEXT
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
+#include "llvm/ADT/ImmutableMap.h"
+
+/// Declares an immutable map of type NameTy, suitable for placement into
+/// the ProgramState. The macro should not be used inside namespaces.
+#define REGISTER_MAP_WITH_PROGRAMSTATE(Name, Key, Value) \
+  class Name {}; \
+  typedef llvm::ImmutableMap<Key, Value> Name ## Ty; \
+  namespace clang { \
+  namespace ento { \
+    template <> \
+    struct ProgramStateTrait<Name> \
+      : public ProgramStatePartialTrait<Name ## Ty> { \
+      static void *GDMIndex() { static int Index; return &Index; } \
+    }; \
+  } \
+  }
 
 namespace clang {
 namespace ento {
@@ -196,6 +212,15 @@ public:
 
   /// \brief Get the name of the called function (path-sensitive).
   StringRef getCalleeName(const FunctionDecl *FunDecl) const;
+
+  /// \brief Get the identifier of the called function (path-sensitive).
+  const IdentifierInfo *getCalleeIdentifier(const CallExpr *CE) const {
+    const FunctionDecl *FunDecl = getCalleeDecl(CE);
+    if (FunDecl)
+      return FunDecl->getIdentifier();
+    else
+      return 0;
+  }
 
   /// \brief Get the name of the called function (path-sensitive).
   StringRef getCalleeName(const CallExpr *CE) const {

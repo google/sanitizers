@@ -105,6 +105,11 @@ MaxBruteForceIterations("scalar-evolution-max-iterations", cl::ReallyHidden,
                                  "derived loop"),
                         cl::init(100));
 
+// FIXME: Enable this with XDEBUG when the test suite is clean.
+static cl::opt<bool>
+VerifySCEV("verify-scev",
+           cl::desc("Verify ScalarEvolution's backedge taken counts (slow)"));
+
 INITIALIZE_PASS_BEGIN(ScalarEvolution, "scalar-evolution",
                 "Scalar Evolution Analysis", false, true)
 INITIALIZE_PASS_DEPENDENCY(LoopInfo)
@@ -6933,4 +6938,88 @@ void ScalarEvolution::forgetMemoizedResults(const SCEV *S) {
   BlockDispositions.erase(S);
   UnsignedRanges.erase(S);
   SignedRanges.erase(S);
+}
+
+typedef DenseMap<const Loop *, std::string> VerifyMap;
+
+/// replaceSubString - Replaces all occurences of From in Str with To.
+static void replaceSubString(std::string &Str, StringRef From, StringRef To) {
+  size_t Pos = 0;
+  while ((Pos = Str.find(From, Pos)) != std::string::npos) {
+    Str.replace(Pos, From.size(), To.data(), To.size());
+    Pos += To.size();
+  }
+}
+
+/// getLoopBackedgeTakenCounts - Helper method for verifyAnalysis.
+static void
+getLoopBackedgeTakenCounts(Loop *L, VerifyMap &Map, ScalarEvolution &SE) {
+  for (Loop::reverse_iterator I = L->rbegin(), E = L->rend(); I != E; ++I) {
+    getLoopBackedgeTakenCounts(*I, Map, SE); // recurse.
+
+    std::string &S = Map[L];
+    if (S.empty()) {
+      raw_string_ostream OS(S);
+      SE.getBackedgeTakenCount(L)->print(OS);
+
+      // false and 0 are semantically equivalent. This can happen in dead loops.
+      replaceSubString(OS.str(), "false", "0");
+      // Remove wrap flags, their use in SCEV is highly fragile.
+      // FIXME: Remove this when SCEV gets smarter about them.
+      replaceSubString(OS.str(), "<nw>", "");
+      replaceSubString(OS.str(), "<nsw>", "");
+      replaceSubString(OS.str(), "<nuw>", "");
+    }
+  }
+}
+
+void ScalarEvolution::verifyAnalysis() const {
+  if (!VerifySCEV)
+    return;
+
+  ScalarEvolution &SE = *const_cast<ScalarEvolution *>(this);
+
+  // Gather stringified backedge taken counts for all loops using SCEV's caches.
+  // FIXME: It would be much better to store actual values instead of strings,
+  //        but SCEV pointers will change if we drop the caches.
+  VerifyMap BackedgeDumpsOld, BackedgeDumpsNew;
+  for (LoopInfo::reverse_iterator I = LI->rbegin(), E = LI->rend(); I != E; ++I)
+    getLoopBackedgeTakenCounts(*I, BackedgeDumpsOld, SE);
+
+  // Gather stringified backedge taken counts for all loops without using
+  // SCEV's caches.
+  SE.releaseMemory();
+  for (LoopInfo::reverse_iterator I = LI->rbegin(), E = LI->rend(); I != E; ++I)
+    getLoopBackedgeTakenCounts(*I, BackedgeDumpsNew, SE);
+
+  // Now compare whether they're the same with and without caches. This allows
+  // verifying that no pass changed the cache.
+  assert(BackedgeDumpsOld.size() == BackedgeDumpsNew.size() &&
+         "New loops suddenly appeared!");
+
+  for (VerifyMap::iterator OldI = BackedgeDumpsOld.begin(),
+                           OldE = BackedgeDumpsOld.end(),
+                           NewI = BackedgeDumpsNew.begin();
+       OldI != OldE; ++OldI, ++NewI) {
+    assert(OldI->first == NewI->first && "Loop order changed!");
+
+    // Compare the stringified SCEVs. We don't care if undef backedgetaken count
+    // changes.
+    // FIXME: We currently ignore SCEV changes from/to CouldNotCompute. This
+    // means that a pass is buggy or SCEV has to learn a new pattern but is
+    // usually not harmful.
+    if (OldI->second != NewI->second &&
+        OldI->second.find("undef") == std::string::npos &&
+        NewI->second.find("undef") == std::string::npos &&
+        OldI->second != "***COULDNOTCOMPUTE***" &&
+        NewI->second != "***COULDNOTCOMPUTE***") {
+      dbgs() << "SCEVValidator: SCEV for loop '"
+             << OldI->first->getHeader()->getName()
+             << "' changed from '" << OldI->second
+             << "' to '" << NewI->second << "'!\n";
+      std::abort();
+    }
+  }
+
+  // TODO: Verify more things.
 }

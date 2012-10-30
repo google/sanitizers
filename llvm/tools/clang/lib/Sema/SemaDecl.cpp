@@ -1204,8 +1204,14 @@ bool Sema::ShouldWarnIfUnusedFileScopedDecl(const DeclaratorDecl *D) const {
         Context.DeclMustBeEmitted(FD))
       return false;
   } else if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
+    // Don't warn on variables of const-qualified or reference type, since their
+    // values can be used even if though they're not odr-used, and because const
+    // qualified variables can appear in headers in contexts where they're not
+    // intended to be used.
+    // FIXME: Use more principled rules for these exemptions.
     if (!VD->isFileVarDecl() ||
-        VD->getType().isConstant(Context) ||
+        VD->getType().isConstQualified() ||
+        VD->getType()->isReferenceType() ||
         Context.DeclMustBeEmitted(VD))
       return false;
 
@@ -7194,7 +7200,8 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
   Expr *Init = var->getInit();
   bool IsGlobal = var->hasGlobalStorage() && !var->isStaticLocal();
 
-  if (!var->getDeclContext()->isDependentContext() && Init) {
+  if (!var->getDeclContext()->isDependentContext() &&
+      Init && !Init->isValueDependent()) {
     if (IsGlobal && !var->isConstexpr() &&
         getDiagnostics().getDiagnosticLevel(diag::warn_global_constructor,
                                             var->getLocation())

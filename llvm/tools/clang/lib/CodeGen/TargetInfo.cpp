@@ -2755,21 +2755,6 @@ llvm::Value *PPC64_SVR4_ABIInfo::EmitVAArg(llvm::Value *VAListAddr,
   llvm::Value *VAListAddrAsBPP = Builder.CreateBitCast(VAListAddr, BPP, "ap");
   llvm::Value *Addr = Builder.CreateLoad(VAListAddrAsBPP, "ap.cur");
 
-  // Handle address alignment for type alignment > 64 bits.  Although
-  // long double normally requires 16-byte alignment, this is not the
-  // case when it is passed as an argument; so handle that special case.
-  const BuiltinType *BT = Ty->getAs<BuiltinType>();
-  unsigned TyAlign = CGF.getContext().getTypeAlign(Ty) / 8;
-
-  if (TyAlign > 8 && (!BT || !BT->isFloatingPoint())) {
-    assert((TyAlign & (TyAlign - 1)) == 0 &&
-           "Alignment is not power of 2!");
-    llvm::Value *AddrAsInt = Builder.CreatePtrToInt(Addr, CGF.Int64Ty);
-    AddrAsInt = Builder.CreateAdd(AddrAsInt, Builder.getInt64(TyAlign - 1));
-    AddrAsInt = Builder.CreateAnd(AddrAsInt, Builder.getInt64(~(TyAlign - 1)));
-    Addr = Builder.CreateIntToPtr(AddrAsInt, BP);
-  }
-
   // Update the va_list pointer.
   unsigned SizeInBytes = CGF.getContext().getTypeSize(Ty) / 8;
   unsigned Offset = llvm::RoundUpToAlignment(SizeInBytes, 8);
@@ -2933,7 +2918,9 @@ void ARMABIInfo::computeInfo(CGFunctionInfo &FI) const {
 
   // Calling convention as default by an ABI.
   llvm::CallingConv::ID DefaultCC;
-  if (isEABI())
+  if (getContext().getTargetInfo().getTriple().getEnvironmentName()=="gnueabihf")
+    DefaultCC = llvm::CallingConv::ARM_AAPCS_VFP;
+  else if (isEABI())
     DefaultCC = llvm::CallingConv::ARM_AAPCS;
   else
     DefaultCC = llvm::CallingConv::ARM_APCS;
@@ -4187,10 +4174,10 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
   case llvm::Triple::thumb:
     {
       ARMABIInfo::ABIKind Kind = ARMABIInfo::AAPCS;
-
       if (strcmp(getContext().getTargetInfo().getABI(), "apcs-gnu") == 0)
         Kind = ARMABIInfo::APCS;
-      else if (CodeGenOpts.FloatABI == "hard")
+      else if (CodeGenOpts.FloatABI == "hard" ||
+               (CodeGenOpts.FloatABI != "soft" && Triple.getEnvironment()==llvm::Triple::GNUEABIHF))
         Kind = ARMABIInfo::AAPCS_VFP;
 
       switch (Triple.getOS()) {

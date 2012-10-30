@@ -468,9 +468,10 @@ Release Notes</a>.</h1>
 
 <p> Loop Vectorizer - We've added a loop vectorizer and we are now able to
     vectorize small loops. The loop vectorizer is disabled by default and
-    can be enabled using the <b>-mllvm -vectorize</b> flag.
+    can be enabled using the <b>-mllvm -vectorize-loops</b> flag.
     The SIMD vector width can be specified using the flag
     <b>-mllvm -force-vector-width=4</b>.
+    The default value is <b>0</b> which means auto-select.
     <br/>
     We can now vectorize this code:
 
@@ -669,6 +670,9 @@ Release Notes</a>.</h1>
   "TargetTransformInfo" provides a number of low-level interfaces.
   LSR and LowerInvoke already use the new interface. </p>
 
+<p> The TargetData structure has been renamed to DataLayout and moved to VMCore
+to remove a dependency on Target. </p>
+
 <ul>
   <li>...</li>
 </ul>
@@ -772,7 +776,7 @@ Release Notes</a>.</h1>
   src="http://www.w3.org/Icons/valid-html401-blue" alt="Valid HTML 4.01"></a>
 
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-10-25 00:47:55 +0400 (Thu, 25 Oct 2012) $
+  Last modified: $Date: 2012-10-30 01:49:46 +0400 (Tue, 30 Oct 2012) $
 </address>
 
 </body>

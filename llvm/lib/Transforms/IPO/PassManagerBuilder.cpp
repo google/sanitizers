@@ -33,7 +33,10 @@
 using namespace llvm;
 
 static cl::opt<bool>
-RunVectorization("vectorize", cl::desc("Run vectorization passes"));
+RunLoopVectorization("vectorize-loops", cl::desc("Run the Loop vectorization passes"));
+
+static cl::opt<bool>
+RunBBVectorization("vectorize", cl::desc("Run the BB vectorization passes"));
 
 static cl::opt<bool>
 UseGVNAfterVectorization("use-gvn-after-vectorization",
@@ -52,7 +55,8 @@ PassManagerBuilder::PassManagerBuilder() {
     DisableSimplifyLibCalls = false;
     DisableUnitAtATime = false;
     DisableUnrollLoops = false;
-    Vectorize = RunVectorization;
+    Vectorize = RunBBVectorization;
+    LoopVectorize = RunLoopVectorization;
 }
 
 PassManagerBuilder::~PassManagerBuilder() {
@@ -185,7 +189,7 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
   MPM.add(createLoopIdiomPass());             // Recognize idioms like memset.
   MPM.add(createLoopDeletionPass());          // Delete dead loops
 
-  if (Vectorize) {
+  if (LoopVectorize) {
     MPM.add(createLoopVectorizePass());
     MPM.add(createLICMPass());
   }
@@ -245,8 +249,11 @@ void PassManagerBuilder::populateLTOPassManager(PassManagerBase &PM,
   // Now that composite has been compiled, scan through the module, looking
   // for a main function.  If main is defined, mark all other functions
   // internal.
-  if (Internalize)
-    PM.add(createInternalizePass(true));
+  if (Internalize) {
+    std::vector<const char*> E;
+    E.push_back("main");
+    PM.add(createInternalizePass(E));
+  }
 
   // Propagate constants at call sites into the functions they call.  This
   // opens opportunities for globalopt (and inlining) by substituting function
