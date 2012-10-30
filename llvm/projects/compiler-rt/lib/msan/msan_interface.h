@@ -12,7 +12,17 @@ extern "C" {
 
 extern const int __msan_track_origins;
 void __msan_init();
+
+// Print a warning and maybe return.
+// This function can die based on flags.exit_code.
 void __msan_warning();
+
+// Print a warning and die.
+// Intrumentation inserts calls to this function when building in "fast" mode
+// (i.e. -mllvm -msan-keep-going)
+__attribute__((noreturn))
+void __msan_warning_noreturn();
+
 void __msan_unpoison(void *a, uptr size);
 void __msan_clear_and_unpoison(void *a, uptr size);
 void __msan_memcpy_with_poison(void *dst, const void *src, uptr size);

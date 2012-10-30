@@ -39,7 +39,7 @@ RTL_CXXFLAGS=$(CXXFLAGS) -ffreestanding -fno-exceptions
 LDFLAGS=-pie
 ORIGINS=0
 MSAN_ORIGINS=-mllvm -msan-track-origins=$(ORIGINS)
-MSAN_EXTRA_OPT=
+MSAN_EXTRA_OPT=-mllvm -msan-keep-going=1
 MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT) $(MSAN_ORIGINS) \
          -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer
 

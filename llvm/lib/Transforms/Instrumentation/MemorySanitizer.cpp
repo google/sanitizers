@@ -88,9 +88,9 @@ static const uint64_t kOriginOffset64 = 1ULL << 45;
 static cl::opt<bool> ClTrackOrigins("msan-track-origins",
        cl::desc("Track origins (allocation sites) of poisoned memory"),
        cl::Hidden, cl::init(false));
-static cl::opt<bool> ClUseTrap("msan-use-trap",
-       cl::desc("use trap (ud2) instead of __msan_warning"),
-       cl::Hidden, cl::init(true));
+static cl::opt<bool> ClKeepGoing("msan-keep-going",
+       cl::desc("keep going after reporting a UMR"),
+       cl::Hidden, cl::init(false));
 static cl::opt<bool> ClPoisonStack("msan-poison-stack",
        cl::desc("poison uninitialized stack variables"),
        cl::Hidden, cl::init(true));
@@ -246,20 +246,14 @@ bool MemorySanitizer::doInitialization(Module &M) {
                       "__msan_init", IRB.getVoidTy(), NULL)), 0);
 
   new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::LinkOnceODRLinkage,
-                     IRB.getInt32(ClTrackOrigins)), "__msan_track_origins");
+                     IRB.getInt32(ClTrackOrigins), "__msan_track_origins");
 
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
-  // which is not yet implemented. Alternatively, we may use llvm.trap.
-  if (ClUseTrap) {
-    // We use inline asm because Intrinsic::trap is treated as never return.
-    // We can recover from ud2 in the SIGILL handler, making it an efficient
-    // way to implement a very unlikely call.
-    WarningFn = InlineAsm::get(FunctionType::get(Type::getVoidTy(*C), false),
-                               StringRef("ud2"), StringRef(""), true);
-  } else {
-    WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
-  }
+  // which is not yet implemented.
+  WarningFn = M.getOrInsertFunction(ClKeepGoing ? "__msan_warning" :
+      "__msan_warning_noreturn", IRB.getVoidTy(), NULL);
+
   MsanCopyOriginFn = M.getOrInsertFunction("__msan_copy_origin",
     IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
@@ -371,7 +365,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
           getCleanShadow(ConvertedShadow), "_mscmp");
       Instruction *CheckTerm = SplitBlockAndInsertIfThen(cast<Instruction>(Cmp),
-          /* Unreachable */ false, MS.ColdCallWeights);
+          /* Unreachable */ !ClKeepGoing, MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);
       if (ClTrackOrigins) {

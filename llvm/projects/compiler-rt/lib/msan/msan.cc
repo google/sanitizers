@@ -142,6 +142,12 @@ void __msan_warning() {
   __msan::PrintWarning(pc, bp);
 }
 
+void __msan_warning_noreturn() {
+  GET_CALLER_PC_BP_SP;
+  __msan::PrintWarning(pc, bp);
+  Die();
+}
+
 void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
