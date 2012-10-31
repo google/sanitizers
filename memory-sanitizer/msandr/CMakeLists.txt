@@ -12,4 +12,6 @@ endif(NOT DynamoRIO_FOUND)
 
 add_library(msandr SHARED msandr.cpp)
 
+target_link_libraries(msandr drmgr drutil)
+
 configure_DynamoRIO_client(msandr)
