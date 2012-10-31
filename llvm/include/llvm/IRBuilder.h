@@ -268,7 +268,7 @@ public:
   }
 
   IntegerType* getIntPtrTy(DataLayout *DL, unsigned AddrSpace = 0) {
-    return Type::getIntNTy(Context, DL->getPointerSizeInBits(AddrSpace));
+    return DL->getIntPtrType(Context, AddrSpace);
   }
 
   //===--------------------------------------------------------------------===//
