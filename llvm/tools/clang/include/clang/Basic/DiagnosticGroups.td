@@ -209,7 +209,7 @@ def TautologicalCompare : DiagGroup<"tautological-compare",
                                     [TautologicalOutOfRangeCompare]>;
 def HeaderHygiene : DiagGroup<"header-hygiene">;
 def DuplicateDeclSpecifier : DiagGroup<"duplicate-decl-specifier">;
-def CompareDistinctPointerType : DiagGroup<"compare-distinct-pointer-type">;
+def CompareDistinctPointerType : DiagGroup<"compare-distinct-pointer-types">;
 
 // Preprocessor warnings.
 def : DiagGroup<"builtin-macro-redefined">;
@@ -480,4 +480,10 @@ def ObjCCocoaAPI : DiagGroup<"objc-cocoa-api", [
 def ObjCStringComparison : DiagGroup<"objc-string-compare">;
 def ObjCLiteralComparison : DiagGroup<"objc-literal-compare", [
     ObjCStringComparison
+  ]>;
+
+// Inline ASM warnings.
+def ASMOperandWidths : DiagGroup<"asm-operand-widths">;
+def ASM : DiagGroup<"asm", [
+    ASMOperandWidths
   ]>;

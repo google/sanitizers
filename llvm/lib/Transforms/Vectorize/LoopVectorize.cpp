@@ -55,6 +55,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AliasSetTracker.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -98,8 +99,9 @@ class SingleBlockLoopVectorizer {
 public:
   /// Ctor.
   SingleBlockLoopVectorizer(Loop *Orig, ScalarEvolution *Se, LoopInfo *Li,
-                            LPPassManager *Lpm, unsigned VecWidth):
-  OrigLoop(Orig), SE(Se), LI(Li), LPM(Lpm), VF(VecWidth),
+                            DominatorTree *dt, LPPassManager *Lpm,
+                            unsigned VecWidth):
+  OrigLoop(Orig), SE(Se), LI(Li), DT(dt), LPM(Lpm), VF(VecWidth),
   Builder(Se->getContext()), Induction(0), OldInduction(0) { }
 
   // Perform the actual loop widening (vectorization).
@@ -108,9 +110,9 @@ public:
     createEmptyLoop(Legal);
     /// Widen each instruction in the old loop to a new one in the new loop.
     /// Use the Legality module to find the induction and reduction variables.
-   vectorizeLoop(Legal);
+    vectorizeLoop(Legal);
     // register the new loop.
-    cleanup();
+    updateAnalysis();
  }
 
 private:
@@ -119,7 +121,7 @@ private:
   /// Copy and widen the instructions from the old loop.
   void vectorizeLoop(LoopVectorizationLegality *Legal);
   /// Insert the new loop to the loop hierarchy and pass manager.
-  void cleanup();
+  void updateAnalysis();
 
   /// This instruction is un-vectorizable. Implement it as a sequence
   /// of scalars.
@@ -155,6 +157,8 @@ private:
   ScalarEvolution *SE;
   // Loop Info.
   LoopInfo *LI;
+  // Dominator Tree.
+  DominatorTree *DT;
   // Loop Pass Manager;
   LPPassManager *LPM;
   // The vectorization factor to use.
@@ -165,6 +169,10 @@ private:
 
   // --- Vectorization state ---
 
+  /// The vector-loop preheader.
+  BasicBlock *LoopVectorPreHeader;
+  /// The scalar-loop preheader.
+  BasicBlock *LoopScalarPreHeader;
   /// Middle Block between the vector and the scalar.
   BasicBlock *LoopMiddleBlock;
   ///The ExitBlock of the scalar loop.
@@ -203,8 +211,6 @@ public:
   TheLoop(Lp), SE(Se), DL(Dl), Induction(0) { }
 
   /// This represents the kinds of reductions that we support.
-  /// We use the enum values to hold the 'identity' value for
-  /// each operand. This value does not change the result if applied.
   enum ReductionKind {
     NoReduction = -1, /// Not a reduction.
     IntegerAdd  = 0,  /// Sum of numbers.
@@ -254,6 +260,9 @@ public:
   /// This check allows us to vectorize A[idx] into a wide load/store.
   bool isConsecutiveGep(Value *Ptr);
 
+  /// Returns true if this instruction will remain scalar after vectorization.
+  bool isUniformAfterVectorization(Instruction* I) {return Uniforms.count(I);}
+
 private:
   /// Check if a single basic block loop is vectorizable.
   /// At this point we know that this is a loop with a constant trip count
@@ -291,6 +300,9 @@ private:
   /// Allowed outside users. This holds the reduction
   /// vars which can be accessed from outside the loop.
   SmallPtrSet<Value*, 4> AllowedExit;
+  /// This set holds the variables which are known to be uniform after
+  /// vectorization.
+  SmallPtrSet<Instruction*, 4> Uniforms;
 };
 
 /// LoopVectorizationCostModel - estimates the expected speedups due to
@@ -311,7 +323,7 @@ public:
   /// Returns the most profitable vectorization factor for the loop that is
   /// smaller or equal to the VF argument. This method checks every power
   /// of two up to VF.
-  unsigned findBestVectorizationFactor(unsigned VF = 4);
+  unsigned findBestVectorizationFactor(unsigned VF = 8);
 
 private:
   /// Returns the expected execution cost. The unit of the cost does
@@ -323,6 +335,11 @@ private:
   /// Returns the execution time cost of an instruction for a given vector
   /// width. Vector width of one means scalar.
   unsigned getInstructionCost(Instruction *I, unsigned VF);
+
+  /// A helper function for converting Scalar types to vector types.
+  /// If the incoming type is void, we return void. If the VF is 1, we return
+  /// the scalar type.
+  static Type* ToVectorTy(Type *Scalar, unsigned VF);
 
   /// The loop that we evaluate.
   Loop *TheLoop;
@@ -346,6 +363,7 @@ struct LoopVectorize : public LoopPass {
   DataLayout *DL;
   LoopInfo *LI;
   TargetTransformInfo *TTI;
+  DominatorTree *DT;
 
   virtual bool runOnLoop(Loop *L, LPPassManager &LPM) {
     // We only vectorize innermost loops.
@@ -356,6 +374,7 @@ struct LoopVectorize : public LoopPass {
     DL = getAnalysisIfAvailable<DataLayout>();
     LI = &getAnalysis<LoopInfo>();
     TTI = getAnalysisIfAvailable<TargetTransformInfo>();
+    DT = &getAnalysis<DominatorTree>();
 
     DEBUG(dbgs() << "LV: Checking a loop in \"" <<
           L->getHeader()->getParent()->getName() << "\"\n");
@@ -387,10 +406,12 @@ struct LoopVectorize : public LoopPass {
       VF = VectorizationFactor;
     }
 
-    DEBUG(dbgs() << "LV: Found a vectorizable loop ("<< VF << ").\n");
+    DEBUG(dbgs() << "LV: Found a vectorizable loop ("<< VF << ") in "<<
+          L->getHeader()->getParent()->getParent()->getModuleIdentifier()<<
+          "\n");
 
     // If we decided that it is *legal* to vectorizer the loop then do it.
-    SingleBlockLoopVectorizer LB(L, SE, LI, &LPM, VF);
+    SingleBlockLoopVectorizer LB(L, SE, LI, DT, &LPM, VF);
     LB.vectorize(&LVL);
 
     DEBUG(verifyFunction(*L->getHeader()->getParent()));
@@ -403,6 +424,9 @@ struct LoopVectorize : public LoopPass {
     AU.addRequiredID(LCSSAID);
     AU.addRequired<LoopInfo>();
     AU.addRequired<ScalarEvolution>();
+    AU.addRequired<DominatorTree>();
+    AU.addPreserved<LoopInfo>();
+    AU.addPreserved<DominatorTree>();
   }
 
 };
@@ -497,7 +521,7 @@ SingleBlockLoopVectorizer::getUniformVector(unsigned Val, Type* ScalarTy) {
   SmallVector<Constant*, 8> Indices;
   // Create a vector of consecutive numbers from zero to VF.
   for (unsigned i = 0; i < VF; ++i)
-    Indices.push_back(ConstantInt::get(ScalarTy, Val));
+    Indices.push_back(ConstantInt::get(ScalarTy, Val, true));
 
   // Add the consecutive indices to the vector value.
   return ConstantVector::get(Indices);
@@ -573,7 +597,8 @@ void SingleBlockLoopVectorizer::scalarizeInstruction(Instruction *Instr) {
     WidenMap[Instr] = VecResults;
 }
 
-void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
+void
+SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
   /*
    In this function we generate a new loop. The new loop will contain
    the vectorized instructions while the old loop will continue to run the
@@ -608,6 +633,10 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
   BasicBlock *ExitBlock = OrigLoop->getExitBlock();
   assert(ExitBlock && "Must have an exit block");
 
+  // The loop index does not have to start at Zero. It starts with this value.
+  OldInduction = Legal->getInduction();
+  Value *StartIdx = OldInduction->getIncomingValueForBlock(BypassBlock);
+
   assert(OrigLoop->getNumBlocks() == 1 && "Invalid loop");
   assert(BypassBlock && "Invalid loop structure");
 
@@ -623,7 +652,6 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
                                  "scalar.preheader");
   // Find the induction variable.
   BasicBlock *OldBasicBlock = OrigLoop->getHeader();
-  OldInduction = Legal->getInduction();
   assert(OldInduction && "We must have a single phi node.");
   Type *IdxTy = OldInduction->getType();
 
@@ -633,7 +661,6 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
 
   // Generate the induction variable.
   Induction = Builder.CreatePHI(IdxTy, 2, "index");
-  Constant *Zero = ConstantInt::get(IdxTy, 0);
   Constant *Step = ConstantInt::get(IdxTy, VF);
 
   // Find the loop boundaries.
@@ -657,15 +684,22 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
 
   // Count holds the overall loop count (N).
   Value *Count = Exp.expandCodeFor(ExitCount, Induction->getType(), Loc);
+
+  // Add the start index to the loop count to get the new end index.
+  Value *IdxEnd = BinaryOperator::CreateAdd(Count, StartIdx, "end.idx", Loc);
+
   // Now we need to generate the expression for N - (N % VF), which is
   // the part that the vectorized body will execute.
   Constant *CIVF = ConstantInt::get(IdxTy, VF);
   Value *R = BinaryOperator::CreateURem(Count, CIVF, "n.mod.vf", Loc);
   Value *CountRoundDown = BinaryOperator::CreateSub(Count, R, "n.vec", Loc);
+  Value *IdxEndRoundDown = BinaryOperator::CreateAdd(CountRoundDown, StartIdx,
+                                                     "end.idx.rnd.down", Loc);
 
   // Now, compare the new count to zero. If it is zero, jump to the scalar part.
   Value *Cmp = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ,
-                               CountRoundDown, ConstantInt::getNullValue(IdxTy),
+                               IdxEndRoundDown,
+                               StartIdx,
                                "cmp.zero", Loc);
   BranchInst::Create(MiddleBlock, VectorPH, Cmp, Loc);
   // Remove the old terminator.
@@ -674,8 +708,8 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
   // Add a check in the middle block to see if we have completed
   // all of the iterations in the first vector loop.
   // If (N - N%VF) == N, then we *don't* need to run the remainder.
-  Value *CmpN = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, Count,
-                                CountRoundDown, "cmp.n",
+  Value *CmpN = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, IdxEnd,
+                                IdxEndRoundDown, "cmp.n",
                                 MiddleBlock->getTerminator());
 
   BranchInst::Create(ExitBlock, ScalarPH, CmpN, MiddleBlock->getTerminator());
@@ -684,10 +718,10 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
 
   // Create i+1 and fill the PHINode.
   Value *NextIdx = Builder.CreateAdd(Induction, Step, "index.next");
-  Induction->addIncoming(Zero, VectorPH);
+  Induction->addIncoming(StartIdx, VectorPH);
   Induction->addIncoming(NextIdx, VecBody);
   // Create the compare.
-  Value *ICmp = Builder.CreateICmpEQ(NextIdx, CountRoundDown);
+  Value *ICmp = Builder.CreateICmpEQ(NextIdx, IdxEndRoundDown);
   Builder.CreateCondBr(ICmp, MiddleBlock, VecBody);
 
   // Now we have two terminators. Remove the old one from the block.
@@ -695,7 +729,7 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
 
   // Fix the scalar body iteration count.
   unsigned BlockIdx = OldInduction->getBasicBlockIndex(ScalarPH);
-  OldInduction->setIncomingValue(BlockIdx, CountRoundDown);
+  OldInduction->setIncomingValue(BlockIdx, IdxEndRoundDown);
 
   // Get ready to start creating new instructions into the vectorized body.
   Builder.SetInsertPoint(VecBody->getFirstInsertionPt());
@@ -714,11 +748,34 @@ void SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal
   }
 
   // Save the state.
+  LoopVectorPreHeader = VectorPH;
+  LoopScalarPreHeader = ScalarPH;
   LoopMiddleBlock = MiddleBlock;
   LoopExitBlock = ExitBlock;
   LoopVectorBody = VecBody;
   LoopScalarBody = OldBasicBlock;
   LoopBypassBlock = BypassBlock;
+}
+
+/// This function returns the identity element (or neutral element) for
+/// the operation K.
+static unsigned
+getReductionIdentity(LoopVectorizationLegality::ReductionKind K) {
+  switch (K) {
+  case LoopVectorizationLegality::IntegerXor:
+  case LoopVectorizationLegality::IntegerAdd:
+  case LoopVectorizationLegality::IntegerOr:
+    // Adding, Xoring, Oring zero to a number does not change it.
+    return 0;
+  case LoopVectorizationLegality::IntegerMult:
+    // Multiplying a number by 1 does not change it.
+    return 1;
+  case LoopVectorizationLegality::IntegerAnd:
+    // AND-ing a number with an all-1 value does not change it.
+    return -1;
+  default:
+    llvm_unreachable("Unknown reduction kind");
+  }
 }
 
 void
@@ -844,8 +901,8 @@ SingleBlockLoopVectorizer::vectorizeLoop(LoopVectorizationLegality *Legal) {
         // The last index does not have to be the induction. It can be
         // consecutive and be a function of the index. For example A[I+1];
         unsigned NumOperands = Gep->getNumOperands();
-        Value *LastIndex = getVectorValue(Gep->getOperand(NumOperands -1));
-        LastIndex = Builder.CreateExtractElement(LastIndex, Builder.getInt32(0));
+        Value *LastIndex = getVectorValue(Gep->getOperand(NumOperands - 1));
+        LastIndex = Builder.CreateExtractElement(LastIndex, Zero);
 
         // Create the new GEP with the new induction variable.
         GetElementPtrInst *Gep2 = cast<GetElementPtrInst>(Gep->clone());
@@ -874,7 +931,7 @@ SingleBlockLoopVectorizer::vectorizeLoop(LoopVectorizationLegality *Legal) {
         // consecutive and be a function of the index. For example A[I+1];
         unsigned NumOperands = Gep->getNumOperands();
         Value *LastIndex = getVectorValue(Gep->getOperand(NumOperands -1));
-        LastIndex = Builder.CreateExtractElement(LastIndex, Builder.getInt32(0));
+        LastIndex = Builder.CreateExtractElement(LastIndex, Zero);
 
         // Create the new GEP with the new induction variable.
         GetElementPtrInst *Gep2 = cast<GetElementPtrInst>(Gep->clone());
@@ -945,10 +1002,9 @@ SingleBlockLoopVectorizer::vectorizeLoop(LoopVectorizationLegality *Legal) {
     Value *VectorExit = getVectorValue(RdxDesc.LoopExitInstr);
     Type *VecTy = VectorExit->getType();
 
-    // Find the reduction identity variable. The value of the enum is the
-    // identity. Zero for addition. One for Multiplication.
-    unsigned IdentitySclr =  RdxDesc.Kind;
-    Constant *Identity = getUniformVector(IdentitySclr,
+    // Find the reduction identity variable. Zero for addition, or, xor,
+    // one for multiplication, -1 for And.
+    Constant *Identity = getUniformVector(getReductionIdentity(RdxDesc.Kind),
                                           VecTy->getScalarType());
 
     // This vector is the Identity vector where the first element is the
@@ -1040,9 +1096,22 @@ SingleBlockLoopVectorizer::vectorizeLoop(LoopVectorizationLegality *Legal) {
   }// end of for each redux variable.
 }
 
-void SingleBlockLoopVectorizer::cleanup() {
+void SingleBlockLoopVectorizer::updateAnalysis() {
   // The original basic block.
   SE->forgetLoop(OrigLoop);
+
+  // Update the dominator tree information.
+  assert(DT->properlyDominates(LoopBypassBlock, LoopExitBlock) &&
+         "Entry does not dominate exit.");
+
+  DT->addNewBlock(LoopVectorPreHeader, LoopBypassBlock);
+  DT->addNewBlock(LoopVectorBody, LoopVectorPreHeader);
+  DT->addNewBlock(LoopMiddleBlock, LoopBypassBlock);
+  DT->addNewBlock(LoopScalarPreHeader, LoopMiddleBlock);
+  DT->changeImmediateDominator(LoopScalarBody, LoopScalarPreHeader);
+  DT->changeImmediateDominator(LoopExitBlock, LoopMiddleBlock);
+
+  DEBUG(DT->verifyAnalysis());
 }
 
 bool LoopVectorizationLegality::canVectorize() {
@@ -1073,6 +1142,14 @@ bool LoopVectorizationLegality::canVectorize() {
   const SCEV *ExitCount = SE->getExitCount(TheLoop, BB);
   if (ExitCount == SE->getCouldNotCompute()) {
     DEBUG(dbgs() << "LV: SCEV could not compute the loop exit count.\n");
+    return false;
+  }
+
+  // Do not loop-vectorize loops with a tiny trip count.
+  unsigned TC = SE->getSmallConstantTripCount(TheLoop, BB);
+  if (TC > 0 && TC < 16) {
+    DEBUG(dbgs() << "LV: Found a loop with a very small trip count. " <<
+          "This loop is not worth vectorizing.\n");
     return false;
   }
 
@@ -1139,8 +1216,7 @@ bool LoopVectorizationLegality::canVectorizeBlock(BasicBlock &BB) {
     // We still don't handle functions.
     CallInst *CI = dyn_cast<CallInst>(I);
     if (CI) {
-      DEBUG(dbgs() << "LV: Found a call site:"<<
-            CI->getCalledFunction()->getName() << "\n");
+      DEBUG(dbgs() << "LV: Found a call site.\n");
       return false;
     }
 
@@ -1172,9 +1248,40 @@ bool LoopVectorizationLegality::canVectorizeBlock(BasicBlock &BB) {
       return false;
   }
 
-  // If the memory dependencies do not prevent us from
-  // vectorizing, then vectorize.
-  return canVectorizeMemory(BB);
+  // Don't vectorize if the memory dependencies do not allow vectorization.
+  if (!canVectorizeMemory(BB))
+    return false;
+
+  // We now know that the loop is vectorizable!
+  // Collect variables that will remain uniform after vectorization.
+  std::vector<Value*> Worklist;
+
+  // Start with the conditional branch and walk up the block.
+  Worklist.push_back(BB.getTerminator()->getOperand(0));
+
+  while (Worklist.size()) {
+    Instruction *I = dyn_cast<Instruction>(Worklist.back());
+    Worklist.pop_back();
+    // Look at instructions inside this block.
+    if (!I) continue;
+    if (I->getParent() != &BB) continue;
+
+    // Stop when reaching PHI nodes.
+    if (isa<PHINode>(I)) {
+      assert(I == Induction && "Found a uniform PHI that is not the induction");
+      break;
+    }
+
+    // This is a known uniform.
+    Uniforms.insert(I);
+
+    // Insert all operands.
+    for (int i=0, Op = I->getNumOperands(); i < Op; ++i) {
+      Worklist.push_back(I->getOperand(i));
+    }
+  }
+
+  return true;
 }
 
 bool LoopVectorizationLegality::canVectorizeMemory(BasicBlock &BB) {
@@ -1260,6 +1367,13 @@ bool LoopVectorizationLegality::canVectorizeMemory(BasicBlock &BB) {
     // words may be written to the same address.
     if (Seen.insert(Ptr) || !isConsecutiveGep(Ptr))
       Reads.push_back(Ptr);
+  }
+
+  // If we write (or read-write) to a single destination and there are no
+  // other reads in this loop then is it safe to vectorize.
+  if (ReadWrites.size() == 1 && Reads.size() == 0) {
+    DEBUG(dbgs() << "LV: Found a write-only loop!\n");
+    return true;
   }
 
   // Now that the pointers are in two lists (Reads and ReadWrites), we
@@ -1420,10 +1534,9 @@ bool LoopVectorizationLegality::isInductionVariable(PHINode *Phi) {
     return false;
   }
   const SCEV *Step = AR->getStepRecurrence(*SE);
-  const SCEV *Start = AR->getStart();
 
-  if (!Step->isOne() || !Start->isZero()) {
-    DEBUG(dbgs() << "LV: PHI does not start at zero or steps by one.\n");
+  if (!Step->isOne()) {
+    DEBUG(dbgs() << "LV: PHI stride does not equal one.\n");
     return false;
   }
   return true;
@@ -1478,11 +1591,25 @@ unsigned LoopVectorizationCostModel::expectedCost(unsigned VF) {
 unsigned
 LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
   assert(VTTI && "Invalid vector target transformation info");
+
+  // If we know that this instruction will remain uniform, check the cost of
+  // the scalar version.
+  if (Legal->isUniformAfterVectorization(I))
+    VF = 1;
+
+  Type *RetTy = I->getType();
+  Type *VectorTy = ToVectorTy(RetTy, VF);
+
+
+  // TODO: We need to estimate the cost of intrinsic calls.
   switch (I->getOpcode()) {
     case Instruction::GetElementPtr:
+      // We mark this instruction as zero-cost because scalar GEPs are usually
+      // lowered to the intruction addressing mode. At the moment we don't
+      // generate vector geps.
       return 0;
     case Instruction::Br: {
-      return VTTI->getInstrCost(I->getOpcode());
+      return VTTI->getCFInstrCost(I->getOpcode());
     }
     case Instruction::PHI:
       return 0;
@@ -1504,74 +1631,76 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
     case Instruction::And:
     case Instruction::Or:
     case Instruction::Xor: {
-      Type *VTy = VectorType::get(I->getType(), VF);
-      return VTTI->getInstrCost(I->getOpcode(), VTy);
+      return VTTI->getArithmeticInstrCost(I->getOpcode(), VectorTy);
     }
     case Instruction::Select: {
       SelectInst *SI = cast<SelectInst>(I);
-      Type *VTy = VectorType::get(I->getType(), VF);
       const SCEV *CondSCEV = SE->getSCEV(SI->getCondition());
       bool ScalarCond = (SE->isLoopInvariant(CondSCEV, TheLoop));
       Type *CondTy = SI->getCondition()->getType();
       if (ScalarCond)
         CondTy = VectorType::get(CondTy, VF);
 
-      return VTTI->getInstrCost(I->getOpcode(), VTy, CondTy);
+      return VTTI->getCmpSelInstrCost(I->getOpcode(), VectorTy, CondTy);
     }
     case Instruction::ICmp:
     case Instruction::FCmp: {
-      Type *VTy = VectorType::get(I->getOperand(0)->getType(), VF);
-      return VTTI->getInstrCost(I->getOpcode(), VTy);
+      Type *ValTy = I->getOperand(0)->getType();
+      VectorTy = ToVectorTy(ValTy, VF);
+      return VTTI->getCmpSelInstrCost(I->getOpcode(), VectorTy);
     }
     case Instruction::Store: {
       StoreInst *SI = cast<StoreInst>(I);
-      Type *VTy = VectorType::get(SI->getValueOperand()->getType(), VF);
+      Type *ValTy = SI->getValueOperand()->getType();
+      VectorTy = ToVectorTy(ValTy, VF);
+
+      if (VF == 1)
+        return VTTI->getMemoryOpCost(I->getOpcode(), ValTy,
+                              SI->getAlignment(), SI->getPointerAddressSpace());
 
       // Scalarized stores.
       if (!Legal->isConsecutiveGep(SI->getPointerOperand())) {
         unsigned Cost = 0;
-        if (VF != 1) {
-          unsigned ExtCost = VTTI->getInstrCost(Instruction::ExtractElement,
-                                                VTy);
-          // The cost of extracting from the value vector and pointer vector.
-          Cost += VF * (ExtCost * 2);
-        }
+        unsigned ExtCost = VTTI->getInstrCost(Instruction::ExtractElement,
+                                              ValTy);
+        // The cost of extracting from the value vector.
+        Cost += VF * (ExtCost);
         // The cost of the scalar stores.
         Cost += VF * VTTI->getMemoryOpCost(I->getOpcode(),
-                                           VTy->getScalarType(),
+                                           ValTy->getScalarType(),
                                            SI->getAlignment(),
                                            SI->getPointerAddressSpace());
         return Cost;
       }
 
       // Wide stores.
-      return VTTI->getMemoryOpCost(I->getOpcode(), VTy, SI->getAlignment(),
+      return VTTI->getMemoryOpCost(I->getOpcode(), VectorTy, SI->getAlignment(),
                                    SI->getPointerAddressSpace());
     }
     case Instruction::Load: {
       LoadInst *LI = cast<LoadInst>(I);
-      Type *VTy = VectorType::get(I->getType(), VF);
+
+      if (VF == 1)
+        return VTTI->getMemoryOpCost(I->getOpcode(), RetTy,
+                                     LI->getAlignment(),
+                                     LI->getPointerAddressSpace());
 
       // Scalarized loads.
       if (!Legal->isConsecutiveGep(LI->getPointerOperand())) {
         unsigned Cost = 0;
-        if (VF != 1) {
-          unsigned InCost = VTTI->getInstrCost(Instruction::InsertElement, VTy);
-          unsigned ExCost = VTTI->getInstrCost(Instruction::ExtractValue, VTy);
-
-          // The cost of inserting the loaded value into the result vector, and
-          // extracting from a vector of pointers.
-          Cost += VF * (InCost + ExCost);
-        }
+        unsigned InCost = VTTI->getInstrCost(Instruction::InsertElement, RetTy);
+        // The cost of inserting the loaded value into the result vector.
+        Cost += VF * (InCost);
         // The cost of the scalar stores.
-        Cost += VF * VTTI->getMemoryOpCost(I->getOpcode(), VTy->getScalarType(),
+        Cost += VF * VTTI->getMemoryOpCost(I->getOpcode(),
+                                           RetTy->getScalarType(),
                                            LI->getAlignment(),
                                            LI->getPointerAddressSpace());
         return Cost;
       }
 
       // Wide loads.
-      return VTTI->getMemoryOpCost(I->getOpcode(), VTy, LI->getAlignment(),
+      return VTTI->getMemoryOpCost(I->getOpcode(), VectorTy, LI->getAlignment(),
                                    LI->getPointerAddressSpace());
     }
     case Instruction::ZExt:
@@ -1586,35 +1715,40 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
     case Instruction::Trunc:
     case Instruction::FPTrunc:
     case Instruction::BitCast: {
-      Type *SrcTy = VectorType::get(I->getOperand(0)->getType(), VF);
-      Type *DstTy = VectorType::get(I->getType(), VF);
-      return VTTI->getInstrCost(I->getOpcode(), DstTy, SrcTy);
+      Type *SrcVecTy = ToVectorTy(I->getOperand(0)->getType(), VF);
+      return VTTI->getCastInstrCost(I->getOpcode(), VectorTy, SrcVecTy);
     }
     default: {
       // We are scalarizing the instruction. Return the cost of the scalar
       // instruction, plus the cost of insert and extract into vector
       // elements, times the vector width.
       unsigned Cost = 0;
-      Type *Ty = I->getType();
 
-      if (!Ty->isVoidTy()) {
-        Type *VTy = VectorType::get(Ty, VF);
-        unsigned InsCost = VTTI->getInstrCost(Instruction::InsertElement, VTy);
-        unsigned ExtCost = VTTI->getInstrCost(Instruction::ExtractElement, VTy);
-        Cost += VF * (InsCost + ExtCost);
-      }
+      bool IsVoid = RetTy->isVoidTy();
 
-      /// We don't have any information on the scalar instruction, but maybe
-      /// the target has.
-      /// TODO: This may be a target-specific intrinsic.
-      /// Need to add API for that.
-      Cost += VF * VTTI->getInstrCost(I->getOpcode(), Ty);
+      unsigned InsCost = (IsVoid ? 0 :
+                          VTTI->getInstrCost(Instruction::InsertElement,
+                                             VectorTy));
 
+      unsigned ExtCost = VTTI->getInstrCost(Instruction::ExtractElement,
+                                            VectorTy);
+
+      // The cost of inserting the results plus extracting each one of the
+      // operands.
+      Cost += VF * (InsCost + ExtCost * I->getNumOperands());
+
+      // The cost of executing VF copies of the scalar instruction.
+      Cost += VF * VTTI->getInstrCost(I->getOpcode(), RetTy);
       return Cost;
     }
   }// end of switch.
 }
 
+Type* LoopVectorizationCostModel::ToVectorTy(Type *Scalar, unsigned VF) {
+  if (Scalar->isVoidTy() || VF == 1)
+    return Scalar;
+  return VectorType::get(Scalar, VF);
+}
 
 } // namespace
 

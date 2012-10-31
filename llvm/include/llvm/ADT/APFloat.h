@@ -455,14 +455,11 @@ namespace llvm {
 
     /* The sign bit of this number.  */
     unsigned int sign: 1;
-
-    /* For PPCDoubleDouble, we have a second exponent and sign (the second
-       significand is appended to the first one, although it would be wrong to
-       regard these as a single number for arithmetic purposes).  These fields
-       are not meaningful for any other type. */
-    exponent_t exponent2 : 11;
-    unsigned int sign2: 1;
   };
+
+  // See friend declaration above. This additional declaration is required in
+  // order to compile LLVM with IBM xlC compiler.
+  hash_code hash_value(const APFloat &Arg);
 } /* namespace llvm */
 
 #endif /* LLVM_FLOAT_H */

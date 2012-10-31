@@ -760,7 +760,7 @@ public:
   APInt shl(unsigned shiftAmt) const {
     assert(shiftAmt <= BitWidth && "Invalid shift amount");
     if (isSingleWord()) {
-      if (shiftAmt == BitWidth)
+      if (shiftAmt >= BitWidth)
         return APInt(BitWidth, 0); // avoid undefined shift results
       return APInt(BitWidth, VAL << shiftAmt);
     }
@@ -1780,6 +1780,9 @@ inline APInt Not(const APInt& APIVal) {
 
 } // End of APIntOps namespace
 
+  // See friend declaration above. This additional declaration is required in
+  // order to compile LLVM with IBM xlC compiler.
+  hash_code hash_value(const APInt &Arg);
 } // End of llvm namespace
 
 #endif

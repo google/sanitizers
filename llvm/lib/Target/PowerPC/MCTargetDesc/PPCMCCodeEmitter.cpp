@@ -15,7 +15,9 @@
 #include "MCTargetDesc/PPCBaseInfo.h"
 #include "MCTargetDesc/PPCFixupKinds.h"
 #include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -28,12 +30,24 @@ class PPCMCCodeEmitter : public MCCodeEmitter {
   PPCMCCodeEmitter(const PPCMCCodeEmitter &) LLVM_DELETED_FUNCTION;
   void operator=(const PPCMCCodeEmitter &) LLVM_DELETED_FUNCTION;
 
+  const MCSubtargetInfo &STI;
+  Triple TT;
+
 public:
   PPCMCCodeEmitter(const MCInstrInfo &mcii, const MCSubtargetInfo &sti,
-                   MCContext &ctx) {
+                   MCContext &ctx)
+    : STI(sti), TT(STI.getTargetTriple()) {
   }
   
   ~PPCMCCodeEmitter() {}
+
+  bool is64BitMode() const {
+    return (STI.getFeatureBits() & PPC::Feature64Bit) != 0;
+  }
+
+  bool isSVR4ABI() const {
+    return TT.isMacOSX() == 0;
+  }
 
   unsigned getDirectBrEncoding(const MCInst &MI, unsigned OpNo,
                                SmallVectorImpl<MCFixup> &Fixups) const;
@@ -61,11 +75,19 @@ public:
                                  SmallVectorImpl<MCFixup> &Fixups) const;
   void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups) const {
-    unsigned Bits = getBinaryCodeForInstr(MI, Fixups);
+    uint64_t Bits = getBinaryCodeForInstr(MI, Fixups);
+
+    // BL8_NOPELF and BLA8_NOP_ELF is both size of 8 bacause of the
+    // following 'nop'.
+    unsigned Size = 4; // FIXME: Have Desc.getSize() return the correct value!
+    unsigned Opcode = MI.getOpcode();
+    if (Opcode == PPC::BL8_NOP_ELF || Opcode == PPC::BLA8_NOP_ELF)
+      Size = 8;
     
     // Output the constant in big endian byte order.
-    for (unsigned i = 0; i != 4; ++i) {
-      OS << (char)(Bits >> 24);
+    int ShiftValue = (Size * 8) - 8;
+    for (unsigned i = 0; i != Size; ++i) {
+      OS << (char)(Bits >> ShiftValue);
       Bits <<= 8;
     }
     
@@ -140,8 +162,12 @@ unsigned PPCMCCodeEmitter::getMemRIEncoding(const MCInst &MI, unsigned OpNo,
     return (getMachineOpValue(MI, MO, Fixups) & 0xFFFF) | RegBits;
   
   // Add a fixup for the displacement field.
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
-                                   (MCFixupKind)PPC::fixup_ppc_lo16));
+  if (isSVR4ABI() && is64BitMode())
+    Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+                                     (MCFixupKind)PPC::fixup_ppc_toc16));
+  else
+    Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+                                     (MCFixupKind)PPC::fixup_ppc_lo16));
   return RegBits;
 }
 
@@ -158,8 +184,12 @@ unsigned PPCMCCodeEmitter::getMemRIXEncoding(const MCInst &MI, unsigned OpNo,
     return (getMachineOpValue(MI, MO, Fixups) & 0x3FFF) | RegBits;
   
   // Add a fixup for the branch target.
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
-                                   (MCFixupKind)PPC::fixup_ppc_lo14));
+  if (isSVR4ABI() && is64BitMode())
+    Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+                                     (MCFixupKind)PPC::fixup_ppc_toc16_ds));
+  else
+    Fixups.push_back(MCFixup::Create(0, MO.getExpr(),
+                                     (MCFixupKind)PPC::fixup_ppc_lo14));
   return RegBits;
 }
 

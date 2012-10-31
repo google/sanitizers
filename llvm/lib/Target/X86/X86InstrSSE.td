@@ -3293,17 +3293,52 @@ defm SQRT  : sse1_fp_unop_s<0x51, "sqrt",  fsqrt, int_x86_sse_sqrt_ss,
              sse2_fp_unop_p<0x51, "sqrt",  fsqrt, SSE_SQRTS>,
              sse2_fp_unop_p_int<0x51, "sqrt", int_x86_sse2_sqrt_pd, SSE_SQRTS>;
 
+/// sse1_fp_unop_s_rw - SSE1 unops where vector form has a read-write operand.
+multiclass sse1_fp_unop_rw<bits<8> opc, string OpcodeStr, SDNode OpNode,
+                               Intrinsic F32Int, OpndItins itins> {
+  def SSr : SSI<opc, MRMSrcReg, (outs FR32:$dst), (ins FR32:$src),
+                !strconcat(OpcodeStr, "ss\t{$src, $dst|$dst, $src}"),
+                [(set FR32:$dst, (OpNode FR32:$src))]>;
+  // For scalar unary operations, fold a load into the operation
+  // only in OptForSize mode. It eliminates an instruction, but it also
+  // eliminates a whole-register clobber (the load), so it introduces a
+  // partial register update condition.
+  def SSm : I<opc, MRMSrcMem, (outs FR32:$dst), (ins f32mem:$src),
+                !strconcat(OpcodeStr, "ss\t{$src, $dst|$dst, $src}"),
+                [(set FR32:$dst, (OpNode (load addr:$src)))], itins.rm>, XS,
+            Requires<[UseSSE1, OptForSize]>;
+  let Constraints = "$src1 = $dst" in {
+    def SSr_Int : SSI<opc, MRMSrcReg, (outs VR128:$dst),
+                      (ins VR128:$src1, VR128:$src2),
+                      !strconcat(OpcodeStr, "ss\t{$src2, $dst|$dst, $src2}"),
+                      [], itins.rr>;
+    def SSm_Int : SSI<opc, MRMSrcMem, (outs VR128:$dst),
+                      (ins VR128:$src1, ssmem:$src2),
+                      !strconcat(OpcodeStr, "ss\t{$src2, $dst|$dst, $src2}"),
+                      [], itins.rm>;
+  }
+}
+
 // Reciprocal approximations. Note that these typically require refinement
 // in order to obtain suitable precision.
-defm RSQRT : sse1_fp_unop_s<0x52, "rsqrt", X86frsqrt, int_x86_sse_rsqrt_ss,
-                            SSE_SQRTS>,
+defm RSQRT : sse1_fp_unop_rw<0x52, "rsqrt", X86frsqrt, int_x86_sse_rsqrt_ss,
+                             SSE_SQRTS>,
              sse1_fp_unop_p<0x52, "rsqrt", X86frsqrt, SSE_SQRTS>,
              sse1_fp_unop_p_int<0x52, "rsqrt", int_x86_sse_rsqrt_ps,
                             SSE_SQRTS>;
-defm RCP   : sse1_fp_unop_s<0x53, "rcp", X86frcp, int_x86_sse_rcp_ss,
-                            SSE_RCPS>,
+let Predicates = [UseSSE1] in {
+  def : Pat<(int_x86_sse_rsqrt_ss VR128:$src),
+            (RSQRTSSr_Int VR128:$src, VR128:$src)>;
+}
+
+defm RCP   : sse1_fp_unop_rw<0x53, "rcp", X86frcp, int_x86_sse_rcp_ss,
+                             SSE_RCPS>,
              sse1_fp_unop_p<0x53, "rcp", X86frcp, SSE_RCPS>,
              sse1_fp_unop_p_int<0x53, "rcp", int_x86_sse_rcp_ps, SSE_RCPS>;
+let Predicates = [UseSSE1] in {
+  def : Pat<(int_x86_sse_rcp_ss VR128:$src),
+            (RCPSSr_Int VR128:$src, VR128:$src)>;
+}
 
 // There is no f64 version of the reciprocal approximation instructions.
 
@@ -5850,6 +5885,21 @@ let Predicates = [HasAVX2] in {
   def : Pat<(v4i64  (X86vzext (v8i16 VR128:$src))), (VPMOVZXWQYrr VR128:$src)>;
 
   def : Pat<(v4i64  (X86vzext (v4i32 VR128:$src))), (VPMOVZXDQYrr VR128:$src)>;
+
+  def : Pat<(v16i16 (X86vzext (v32i8 VR256:$src))),
+            (VPMOVZXBWYrr (EXTRACT_SUBREG VR256:$src, sub_xmm))>;
+  def : Pat<(v8i32 (X86vzext (v32i8 VR256:$src))),
+            (VPMOVZXBDYrr (EXTRACT_SUBREG VR256:$src, sub_xmm))>;
+  def : Pat<(v4i64 (X86vzext (v32i8 VR256:$src))),
+            (VPMOVZXBQYrr (EXTRACT_SUBREG VR256:$src, sub_xmm))>;
+
+  def : Pat<(v8i32 (X86vzext (v16i16 VR256:$src))),
+            (VPMOVZXWDYrr (EXTRACT_SUBREG VR256:$src, sub_xmm))>;
+  def : Pat<(v4i64 (X86vzext (v16i16 VR256:$src))),
+            (VPMOVZXWQYrr (EXTRACT_SUBREG VR256:$src, sub_xmm))>;
+
+  def : Pat<(v4i64 (X86vzext (v8i32 VR256:$src))),
+            (VPMOVZXDQYrr (EXTRACT_SUBREG VR256:$src, sub_xmm))>;
 }
 
 let Predicates = [HasAVX] in {

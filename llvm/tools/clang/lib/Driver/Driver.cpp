@@ -58,7 +58,6 @@ Driver::Driver(StringRef ClangExecutable,
     CCCIsCPP(false),CCCEcho(false), CCCPrintBindings(false),
     CCPrintOptions(false), CCPrintHeaders(false), CCLogDiagnostics(false),
     CCGenDiagnostics(false), CCCGenericGCCName(""), CheckInputsExist(true),
-    CCCUseClang(true), CCCUseClangCXX(true), CCCUseClangCPP(true),
     ForcedClangUse(false), CCCUsePCH(true), SuppressMissingInputWarning(false) {
 
   Name = llvm::sys::path::stem(ClangExecutable);
@@ -275,13 +274,8 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   CCCEcho = Args->hasArg(options::OPT_ccc_echo);
   if (const Arg *A = Args->getLastArg(options::OPT_ccc_gcc_name))
     CCCGenericGCCName = A->getValue(*Args);
-  CCCUseClangCXX = Args->hasFlag(options::OPT_ccc_clang_cxx,
-                                 options::OPT_ccc_no_clang_cxx,
-                                 CCCUseClangCXX);
   CCCUsePCH = Args->hasFlag(options::OPT_ccc_pch_is_pch,
                             options::OPT_ccc_pch_is_pth);
-  CCCUseClang = !Args->hasArg(options::OPT_ccc_no_clang);
-  CCCUseClangCPP = !Args->hasArg(options::OPT_ccc_no_clang_cpp);
   // FIXME: DefaultTargetTriple is used by the target-prefixed calls to as/ld
   // and getToolChain is const.
   if (const Arg *A = Args->getLastArg(options::OPT_target))
@@ -1018,8 +1012,8 @@ void Driver::BuildInputs(const ToolChain &TC, const DerivedArgList &Args,
       if (CheckInputsExist && memcmp(Value, "-", 2) != 0) {
         SmallString<64> Path(Value);
         if (Arg *WorkDir = Args.getLastArg(options::OPT_working_directory)) {
-          SmallString<64> Directory(WorkDir->getValue(Args));
-          if (llvm::sys::path::is_absolute(Directory.str())) {
+          if (!llvm::sys::path::is_absolute(Path.str())) {
+            SmallString<64> Directory(WorkDir->getValue(Args));
             llvm::sys::path::append(Directory, Value);
             Path.assign(Directory);
           }
@@ -1784,30 +1778,14 @@ bool Driver::ShouldUseClangCompiler(const Compilation &C, const JobAction &JA,
                                     const llvm::Triple &Triple) const {
   // Check if user requested no clang, or clang doesn't understand this type (we
   // only handle single inputs for now).
-  if (!CCCUseClang || JA.size() != 1 ||
+  if (JA.size() != 1 ||
       !types::isAcceptedByClang((*JA.begin())->getType()))
     return false;
 
   // Otherwise make sure this is an action clang understands.
-  if (isa<PreprocessJobAction>(JA)) {
-    if (!CCCUseClangCPP) {
-      Diag(clang::diag::warn_drv_not_using_clang_cpp);
-      return false;
-    }
-  } else if (!isa<PrecompileJobAction>(JA) && !isa<CompileJobAction>(JA))
+  if (!isa<PreprocessJobAction>(JA) && !isa<PrecompileJobAction>(JA) &&
+      !isa<CompileJobAction>(JA))
     return false;
-
-  // Use clang for C++?
-  if (!CCCUseClangCXX && types::isCXX((*JA.begin())->getType())) {
-    Diag(clang::diag::warn_drv_not_using_clang_cxx);
-    return false;
-  }
-
-  // Always use clang for precompiling, AST generation, and rewriting,
-  // regardless of archs.
-  if (isa<PrecompileJobAction>(JA) ||
-      types::isOnlyAcceptedByClang(JA.getType()))
-    return true;
 
   return true;
 }

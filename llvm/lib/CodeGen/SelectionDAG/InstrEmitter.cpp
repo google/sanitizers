@@ -897,7 +897,8 @@ EmitSpecialNode(SDNode *Node, bool IsClone, bool IsCloned,
     const char *AsmStr = cast<ExternalSymbolSDNode>(AsmStrV)->getSymbol();
     MI->addOperand(MachineOperand::CreateES(AsmStr));
 
-    // Add the HasSideEffect and isAlignStack bits.
+    // Add the HasSideEffect, isAlignStack, AsmDialect, MayLoad and MayStore
+    // bits.
     int64_t ExtraInfo =
       cast<ConstantSDNode>(Node->getOperand(InlineAsm::Op_ExtraInfo))->
                           getZExtValue();

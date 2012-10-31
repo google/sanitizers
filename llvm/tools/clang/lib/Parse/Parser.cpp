@@ -23,6 +23,7 @@
 #include "clang/AST/ASTConsumer.h"
 using namespace clang;
 
+
 namespace {
 /// \brief A comment handler that passes comments found by the preprocessor
 /// to the parser action.
@@ -52,6 +53,7 @@ Parser::Parser(Preprocessor &pp, Sema &actions, bool SkipFunctionBodies)
     GreaterThanIsOperator(true), ColonIsSacred(false), 
     InMessageExpression(false), TemplateParameterDepth(0),
     ParsingInObjCContainer(false), SkipFunctionBodies(SkipFunctionBodies) {
+  Tok.startToken();
   Tok.setKind(tok::eof);
   Actions.CurScope = 0;
   NumCachedScopes = 0;

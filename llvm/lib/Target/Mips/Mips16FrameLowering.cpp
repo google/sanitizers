@@ -41,6 +41,11 @@ void Mips16FrameLowering::emitPrologue(MachineFunction &MF) const {
   // Adjust stack.
   if (isInt<16>(-StackSize))
     BuildMI(MBB, MBBI, dl, TII.get(Mips::SaveRaF16)).addImm(StackSize);
+
+  if (hasFP(MF))
+    BuildMI(MBB, MBBI, dl, TII.get(Mips::MoveR3216), Mips::S0)
+      .addReg(Mips::SP);
+
 }
 
 void Mips16FrameLowering::emitEpilogue(MachineFunction &MF,
@@ -54,6 +59,10 @@ void Mips16FrameLowering::emitEpilogue(MachineFunction &MF,
 
   if (!StackSize)
     return;
+
+  if (hasFP(MF))
+    BuildMI(MBB, MBBI, dl, TII.get(Mips::Move32R16), Mips::SP)
+      .addReg(Mips::S0);
 
   // Adjust stack.
   if (isInt<16>(StackSize))
@@ -106,8 +115,10 @@ bool Mips16FrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
 bool
 Mips16FrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
-  // FIXME: implement.
-  return true;
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  // Reserve call frame if the size of the maximum call frame fits into 15-bit
+  // immediate field and there are no variable sized objects on the stack.
+  return isInt<15>(MFI->getMaxCallFrameSize()) && !MFI->hasVarSizedObjects();
 }
 
 void Mips16FrameLowering::

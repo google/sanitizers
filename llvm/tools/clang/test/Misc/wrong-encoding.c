@@ -1,16 +1,39 @@
-// RUN: %clang_cc1 -fsyntax-only %s 2>&1 | FileCheck -strict-whitespace %s
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value %s 2>&1 | FileCheck -strict-whitespace %s
+// REQUIRES: asserts
 
 void foo() {
 
   "ß√"; // ¯
 // CHECK: {{^  "<A7><C3>"; // <F8>}}
-// CHECK: {{^   \^~~~}}
+// CHECK: {{^   \^~~~~~~}}
 
   /* ˛´ */ const char *d = "•";
 
 // CHECK: {{^  /\* <FE><AB> \*/ const char \*d = "<A5>";}}
 // CHECK: {{^                                  \^~~~}}
 
-// CHECK: {{^  "<A7><C3>"; // <F8>}}
-// CHECK: {{^  \^~~~~~~~~~}}
+  "xxÈøøød";
+// CHECK: {{^  "xx<U\+9FFF><BF>d";}}
+// CHECK: {{^             \^~~~}}
+
+  "xxÈøbcd";
+// CHECK: {{^  "xx<E9><BF>bcd";}}
+// CHECK: {{^     \^~~~~~~~}}
+
+  "xxÈabcd";
+// CHECK: {{^  "xx<E9>abcd";}}
+// CHECK: {{^     \^~~~}}
+
+  "xxÈøÈød";
+// CHECK: {{^  "xx<E9><BF><E9><BF>d";}}
+// CHECK: {{^     \^~~~~~~~~~~~~~~}}
+
+  "xxÈøxxxxxxxxxxxxxxxxxxxxxÈøxx";
+// CHECK: {{^  "xx<E9><BF>xxxxxxxxxxxxxxxxxxxxx<E9><BF>xx";}}
+// CHECK: {{^     \^~~~~~~~                     ~~~~~~~~}}
+
+  "Å?kÕõS•«ÿgè7Ü,	2,DÌuÑÜ*…,p˚‰⁄&îâ(êKß:—'1·ãŒjO≈∞<:";
+
+  "xÈøxÈøxÈøxÈøxÈøxÈøxÈøxÈøxÈøxÈøxÈøxÈøx";
 }
+// CHECK-NOT:Assertion

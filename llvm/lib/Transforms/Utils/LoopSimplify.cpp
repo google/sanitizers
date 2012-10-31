@@ -46,6 +46,7 @@
 #include "llvm/LLVMContext.h"
 #include "llvm/Type.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/DependenceAnalysis.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopPass.h"
@@ -89,6 +90,7 @@ namespace {
 
       AU.addPreserved<AliasAnalysis>();
       AU.addPreserved<ScalarEvolution>();
+      AU.addPreserved<DependenceAnalysis>();
       AU.addPreservedID(BreakCriticalEdgesID);  // No critical edges added.
     }
 
@@ -194,6 +196,11 @@ ReprocessLoop:
 
           BI->setCondition(ConstantInt::get(Cond->getType(),
                                             !L->contains(BI->getSuccessor(0))));
+
+          // This may make the loop analyzable, force SCEV recomputation.
+          if (SE)
+            SE->forgetLoop(L);
+
           Changed = true;
         }
       }

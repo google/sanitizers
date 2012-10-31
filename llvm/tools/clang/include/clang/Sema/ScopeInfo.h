@@ -169,6 +169,7 @@ public:
     WeakObjectProfileTy(const DeclRefExpr *RE);
     WeakObjectProfileTy(const ObjCIvarRefExpr *RE);
 
+    const NamedDecl *getBase() const { return Base.getPointer(); }
     const NamedDecl *getProperty() const { return Property; }
 
     /// Returns true if the object base specifies a known object in memory,
@@ -420,11 +421,7 @@ public:
   }
 
   void addThisCapture(bool isNested, SourceLocation Loc, QualType CaptureType,
-                      Expr *Cpy) {
-    Captures.push_back(Capture(Capture::ThisCapture, isNested, Loc, CaptureType,
-                               Cpy));
-    CXXThisCaptureIndex = Captures.size();
-  }
+                      Expr *Cpy);
 
   /// \brief Determine whether the C++ 'this' is captured.
   bool isCXXThisCaptured() const { return CXXThisCaptureIndex != 0; }
@@ -535,11 +532,12 @@ public:
   void finishedExplicitCaptures() {
     NumExplicitCaptures = Captures.size();
   }
-  
-  static bool classof(const FunctionScopeInfo *FSI) { 
+
+  static bool classof(const FunctionScopeInfo *FSI) {
     return FSI->Kind == SK_Lambda; 
   }
 };
+
 
 FunctionScopeInfo::WeakObjectProfileTy::WeakObjectProfileTy()
   : Base(0, false), Property(0) {}
@@ -556,6 +554,17 @@ void FunctionScopeInfo::recordUseOfWeak(const ExprT *E, bool IsRead) {
   assert(E);
   WeakUseVector &Uses = WeakObjectUses[WeakObjectProfileTy(E)];
   Uses.push_back(WeakUseTy(E, IsRead));
+}
+
+inline void
+CapturingScopeInfo::addThisCapture(bool isNested, SourceLocation Loc,
+                                   QualType CaptureType, Expr *Cpy) {
+  Captures.push_back(Capture(Capture::ThisCapture, isNested, Loc, CaptureType,
+                             Cpy));
+  CXXThisCaptureIndex = Captures.size();
+
+  if (LambdaScopeInfo *LSI = dyn_cast<LambdaScopeInfo>(this))
+    LSI->ArrayIndexStarts.push_back(LSI->ArrayIndexVars.size());
 }
 
 } // end namespace sema

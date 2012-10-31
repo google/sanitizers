@@ -158,7 +158,6 @@ X86TargetLowering::X86TargetLowering(X86TargetMachine &TM)
   Subtarget = &TM.getSubtarget<X86Subtarget>();
   X86ScalarSSEf64 = Subtarget->hasSSE2();
   X86ScalarSSEf32 = Subtarget->hasSSE1();
-  X86StackPtr = Subtarget->is64Bit() ? X86::RSP : X86::ESP;
 
   RegInfo = TM.getRegisterInfo();
   TD = getDataLayout();
@@ -180,7 +179,7 @@ X86TargetLowering::X86TargetLowering(X86TargetMachine &TM)
     setSchedulingPreference(Sched::ILP);
   else
     setSchedulingPreference(Sched::RegPressure);
-  setStackPointerRegisterToSaveRestore(X86StackPtr);
+  setStackPointerRegisterToSaveRestore(RegInfo->getStackRegister());
 
   // Bypass i32 with i8 on Atom when compiling with O2
   if (Subtarget->hasSlowDivide() && TM.getOptLevel() >= CodeGenOpt::Default)
@@ -2266,14 +2265,15 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   int FPDiff = 0;
   if (isTailCall && !IsSibcall) {
     // Lower arguments at fp - stackoffset + fpdiff.
-    unsigned NumBytesCallerPushed =
-      MF.getInfo<X86MachineFunctionInfo>()->getBytesToPopOnReturn();
+    X86MachineFunctionInfo *X86Info = MF.getInfo<X86MachineFunctionInfo>();
+    unsigned NumBytesCallerPushed = X86Info->getBytesToPopOnReturn();
+
     FPDiff = NumBytesCallerPushed - NumBytes;
 
     // Set the delta of movement of the returnaddr stackslot.
     // But only set if delta is greater than previous delta.
-    if (FPDiff < (MF.getInfo<X86MachineFunctionInfo>()->getTCReturnAddrDelta()))
-      MF.getInfo<X86MachineFunctionInfo>()->setTCReturnAddrDelta(FPDiff);
+    if (FPDiff < X86Info->getTCReturnAddrDelta())
+      X86Info->setTCReturnAddrDelta(FPDiff);
   }
 
   if (!IsSibcall)
@@ -2350,7 +2350,8 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     } else if (!IsSibcall && (!isTailCall || isByVal)) {
       assert(VA.isMemLoc());
       if (StackPtr.getNode() == 0)
-        StackPtr = DAG.getCopyFromReg(Chain, dl, X86StackPtr, getPointerTy());
+        StackPtr = DAG.getCopyFromReg(Chain, dl, RegInfo->getStackRegister(),
+                                      getPointerTy());
       MemOpChains.push_back(LowerMemOpCallTo(Chain, StackPtr, Arg,
                                              dl, DAG, VA, Flags));
     }
@@ -2438,7 +2439,8 @@ X86TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
           // Copy relative to framepointer.
           SDValue Source = DAG.getIntPtrConstant(VA.getLocMemOffset());
           if (StackPtr.getNode() == 0)
-            StackPtr = DAG.getCopyFromReg(Chain, dl, X86StackPtr,
+            StackPtr = DAG.getCopyFromReg(Chain, dl,
+                                          RegInfo->getStackRegister(),
                                           getPointerTy());
           Source = DAG.getNode(ISD::ADD, dl, getPointerTy(), StackPtr, Source);
 
@@ -4634,7 +4636,6 @@ static SDValue getShuffleScalarElt(SDNode *N, unsigned Index, SelectionDAG &DAG,
     MVT ShufVT = V.getValueType().getSimpleVT();
     unsigned NumElems = ShufVT.getVectorNumElements();
     SmallVector<int, 16> ShuffleMask;
-    SDValue ImmN;
     bool IsUnary;
 
     if (!getTargetShuffleMask(N, ShufVT, ShuffleMask, IsUnary))
@@ -6438,17 +6439,17 @@ LowerVECTOR_SHUFFLE_128v4(ShuffleVectorSDNode *SVOp, SelectionDAG &DAG) {
 }
 
 static bool MayFoldVectorLoad(SDValue V) {
-  if (V.hasOneUse() && V.getOpcode() == ISD::BITCAST)
+  while (V.hasOneUse() && V.getOpcode() == ISD::BITCAST)
     V = V.getOperand(0);
+
   if (V.hasOneUse() && V.getOpcode() == ISD::SCALAR_TO_VECTOR)
     V = V.getOperand(0);
   if (V.hasOneUse() && V.getOpcode() == ISD::BUILD_VECTOR &&
       V.getNumOperands() == 2 && V.getOperand(1).getOpcode() == ISD::UNDEF)
     // BUILD_VECTOR (load), undef
     V = V.getOperand(0);
-  if (MayFoldLoad(V))
-    return true;
-  return false;
+
+  return MayFoldLoad(V);
 }
 
 // FIXME: the version above should always be used. Since there's
@@ -6598,8 +6599,8 @@ X86TargetLowering::lowerVectorIntExtend(SDValue Op, SelectionDAG &DAG) const {
 
   // Find the expansion ratio, e.g. expanding from i8 to i32 has a ratio of 4.
   unsigned Shift = 1; // Start from 2, i.e. 1 << 1.
-  while ((1 << Shift) < NumElems) {
-    if (SVOp->getMaskElt(1 << Shift) == 1)
+  while ((1U << Shift) < NumElems) {
+    if (SVOp->getMaskElt(1U << Shift) == 1)
       break;
     Shift += 1;
     // The maximal ratio is 8, i.e. from i8 to i64.
@@ -9771,7 +9772,8 @@ X86TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
     Chain = DAG.getNode(X86ISD::WIN_ALLOCA, dl, NodeTys, Chain, Flag);
     Flag = Chain.getValue(1);
 
-    Chain = DAG.getCopyFromReg(Chain, dl, X86StackPtr, SPTy).getValue(1);
+    Chain = DAG.getCopyFromReg(Chain, dl, RegInfo->getStackRegister(),
+                               SPTy).getValue(1);
 
     SDValue Ops1[2] = { Chain.getValue(0), Chain };
     return DAG.getMergeValues(Ops1, 2, dl);
@@ -14399,6 +14401,14 @@ static SDValue PerformEXTRACT_VECTOR_ELTCombine(SDNode *N, SelectionDAG &DAG,
     return NewOp;
 
   SDValue InputVector = N->getOperand(0);
+  // Detect whether we are trying to convert from mmx to i32 and the bitcast
+  // from mmx to v2i32 has a single usage.
+  if (InputVector.getNode()->getOpcode() == llvm::ISD::BITCAST &&
+      InputVector.getNode()->getOperand(0).getValueType() == MVT::x86mmx &&
+      InputVector.hasOneUse() && N->getValueType(0) == MVT::i32)
+    return DAG.getNode(X86ISD::MMX_MOVD2W, InputVector.getDebugLoc(),
+                       N->getValueType(0),
+                       InputVector.getNode()->getOperand(0));
 
   // Only operate on vectors of 4 elements, where the alternative shuffling
   // gets to be more expensive.

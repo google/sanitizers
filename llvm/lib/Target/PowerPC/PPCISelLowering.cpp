@@ -363,6 +363,12 @@ PPCTargetLowering::PPCTargetLowering(PPCTargetMachine &TM)
       setOperationAction(ISD::CTTZ_ZERO_UNDEF, VT, Expand);
     }
 
+    for (unsigned i = (unsigned)MVT::FIRST_FP_VECTOR_VALUETYPE;
+         i <= (unsigned)MVT::LAST_FP_VECTOR_VALUETYPE; ++i) {
+      MVT::SimpleValueType VT = (MVT::SimpleValueType)i;
+      setOperationAction(ISD::FSQRT, VT, Expand);
+    }
+
     // We can custom expand all VECTOR_SHUFFLEs to VPERM, others we can handle
     // with merges, splats, etc.
     setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i8, Custom);
@@ -396,6 +402,14 @@ PPCTargetLowering::PPCTargetLowering(PPCTargetMachine &TM)
     setOperationAction(ISD::BUILD_VECTOR, MVT::v8i16, Custom);
     setOperationAction(ISD::BUILD_VECTOR, MVT::v4i32, Custom);
     setOperationAction(ISD::BUILD_VECTOR, MVT::v4f32, Custom);
+
+    // Altivec does not contain unordered floating-point compare instructions
+    setCondCodeAction(ISD::SETUO, MVT::v4f32, Expand);
+    setCondCodeAction(ISD::SETUEQ, MVT::v4f32, Expand);
+    setCondCodeAction(ISD::SETUGT, MVT::v4f32, Expand);
+    setCondCodeAction(ISD::SETUGE, MVT::v4f32, Expand);
+    setCondCodeAction(ISD::SETULT, MVT::v4f32, Expand);
+    setCondCodeAction(ISD::SETULE, MVT::v4f32, Expand);
   }
 
   if (Subtarget->has64BitSupport()) {
@@ -2077,6 +2091,19 @@ PPCTargetLowering::LowerFormalArguments_64SVR4(
       // ObjSize is the true size, ArgSize rounded up to multiple of registers.
       ObjSize = Flags.getByValSize();
       ArgSize = ((ObjSize + PtrByteSize - 1)/PtrByteSize) * PtrByteSize;
+      // Empty aggregate parameters do not take up registers.  Examples:
+      //   struct { } a;
+      //   union  { } b;
+      //   int c[0];
+      // etc.  However, we have to provide a place-holder in InVals, so
+      // pretend we have an 8-byte item at the current address for that
+      // purpose.
+      if (!ObjSize) {
+        int FI = MFI->CreateFixedObject(PtrByteSize, ArgOffset, true);
+        SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
+        InVals.push_back(FIN);
+        continue;
+      }
       // All aggregates smaller than 8 bytes must be passed right-justified.
       if (ObjSize < PtrByteSize)
         CurArgOffset = CurArgOffset + (PtrByteSize - ObjSize);
@@ -2084,25 +2111,42 @@ PPCTargetLowering::LowerFormalArguments_64SVR4(
       int FI = MFI->CreateFixedObject(ObjSize, CurArgOffset, true);
       SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
       InVals.push_back(FIN);
-      if (ObjSize==1 || ObjSize==2 || ObjSize==4) {
+
+      if (ObjSize < 8) {
         if (GPR_idx != Num_GPR_Regs) {
-          unsigned VReg;
-          VReg = MF.addLiveIn(GPR[GPR_idx], &PPC::G8RCRegClass);
+          unsigned VReg = MF.addLiveIn(GPR[GPR_idx], &PPC::G8RCRegClass);
           SDValue Val = DAG.getCopyFromReg(Chain, dl, VReg, PtrVT);
-          EVT ObjType = (ObjSize == 1 ? MVT::i8 :
-                         (ObjSize == 2 ? MVT::i16 : MVT::i32));
-          SDValue Store = DAG.getTruncStore(Val.getValue(1), dl, Val, FIN,
-                                            MachinePointerInfo(FuncArg,
-                                              CurArgOffset),
-                                            ObjType, false, false, 0);
+          SDValue Store;
+
+          if (ObjSize==1 || ObjSize==2 || ObjSize==4) {
+            EVT ObjType = (ObjSize == 1 ? MVT::i8 :
+                           (ObjSize == 2 ? MVT::i16 : MVT::i32));
+            Store = DAG.getTruncStore(Val.getValue(1), dl, Val, FIN,
+                                      MachinePointerInfo(FuncArg, CurArgOffset),
+                                      ObjType, false, false, 0);
+          } else {
+            // For sizes that don't fit a truncating store (3, 5, 6, 7),
+            // store the whole register as-is to the parameter save area
+            // slot.  The address of the parameter was already calculated
+            // above (InVals.push_back(FIN)) to be the right-justified
+            // offset within the slot.  For this store, we need a new
+            // frame index that points at the beginning of the slot.
+            int FI = MFI->CreateFixedObject(PtrByteSize, ArgOffset, true);
+            SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
+            Store = DAG.getStore(Val.getValue(1), dl, Val, FIN,
+                                 MachinePointerInfo(FuncArg, ArgOffset),
+                                 false, false, 0);
+          }
+
           MemOps.push_back(Store);
           ++GPR_idx;
         }
-
+        // Whether we copied from a register or not, advance the offset
+        // into the parameter save area by a full doubleword.
         ArgOffset += PtrByteSize;
-
         continue;
       }
+
       for (unsigned j = 0; j < ArgSize; j += PtrByteSize) {
         // Store whatever pieces of the object are in registers
         // to memory.  ArgOffset will be the address of the beginning
@@ -2113,16 +2157,7 @@ PPCTargetLowering::LowerFormalArguments_64SVR4(
           int FI = MFI->CreateFixedObject(PtrByteSize, ArgOffset, true);
           SDValue FIN = DAG.getFrameIndex(FI, PtrVT);
           SDValue Val = DAG.getCopyFromReg(Chain, dl, VReg, PtrVT);
-          SDValue Shifted = Val;
-
-          // For 64-bit SVR4, small structs come in right-adjusted.
-          // Shift them left so the following logic works as expected.
-          if (ObjSize < 8) {
-            SDValue ShiftAmt = DAG.getConstant(64 - 8 * ObjSize, PtrVT);
-            Shifted = DAG.getNode(ISD::SHL, dl, PtrVT, Val, ShiftAmt);
-          }
-
-          SDValue Store = DAG.getStore(Val.getValue(1), dl, Shifted, FIN,
+          SDValue Store = DAG.getStore(Val.getValue(1), dl, Val, FIN,
                                        MachinePointerInfo(FuncArg, ArgOffset),
                                        false, false, 0);
           MemOps.push_back(Store);
@@ -3633,6 +3668,12 @@ PPCTargetLowering::LowerCall_64SVR4(SDValue Chain, SDValue Callee,
       // These are the proper values we need for right-justifying the
       // aggregate in a parameter register.
       unsigned Size = Flags.getByValSize();
+
+      // An empty aggregate parameter takes up no storage and no
+      // registers.
+      if (Size == 0)
+        continue;
+
       // All aggregates smaller than 8 bytes must be passed right-justified.
       if (Size==1 || Size==2 || Size==4) {
         EVT VT = (Size==1) ? MVT::i8 : ((Size==2) ? MVT::i16 : MVT::i32);
@@ -3743,7 +3784,17 @@ PPCTargetLowering::LowerCall_64SVR4(SDValue Chain, SDValue Callee,
         RegsToPass.push_back(std::make_pair(FPR[FPR_idx++], Arg));
 
         if (isVarArg) {
-          SDValue Store = DAG.getStore(Chain, dl, Arg, PtrOff,
+          // A single float or an aggregate containing only a single float
+          // must be passed right-justified in the stack doubleword, and
+          // in the GPR, if one is available.
+          SDValue StoreOff;
+          if (Arg.getValueType().getSimpleVT().SimpleTy == MVT::f32) {
+            SDValue ConstFour = DAG.getConstant(4, PtrOff.getValueType());
+            StoreOff = DAG.getNode(ISD::ADD, dl, PtrVT, PtrOff, ConstFour);
+          } else
+            StoreOff = PtrOff;
+
+          SDValue Store = DAG.getStore(Chain, dl, Arg, StoreOff,
                                        MachinePointerInfo(), false, false, 0);
           MemOpChains.push_back(Store);
 
@@ -6441,9 +6492,9 @@ PPCTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
         return std::make_pair(0U, &PPC::G8RCRegClass);
       return std::make_pair(0U, &PPC::GPRCRegClass);
     case 'f':
-      if (VT == MVT::f32)
+      if (VT == MVT::f32 || VT == MVT::i32)
         return std::make_pair(0U, &PPC::F4RCRegClass);
-      if (VT == MVT::f64)
+      if (VT == MVT::f64 || VT == MVT::i64)
         return std::make_pair(0U, &PPC::F8RCRegClass);
       break;
     case 'v':
