@@ -141,6 +141,7 @@ namespace llvm {
   //===--------------------------------------------------------------------===//
   // TargetLowering Implementation
   //===--------------------------------------------------------------------===//
+  class MipsFunctionInfo;
 
   class MipsTargetLowering : public TargetLowering  {
   public:
@@ -275,8 +276,8 @@ namespace llvm {
     /// IsEligibleForTailCallOptimization - Check whether the call is eligible
     /// for tail call optimization.
     bool IsEligibleForTailCallOptimization(const MipsCC &MipsCCInfo,
-                                           bool IsVarArg,
-                                           unsigned NextStackOffset) const;
+                                           unsigned NextStackOffset,
+                                           const MipsFunctionInfo& FI) const;
 
     /// copyByValArg - Copy argument registers which were used to pass a byval
     /// argument to the stack. Create a stack frame object for the byval
@@ -308,6 +309,10 @@ namespace llvm {
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals) const;
+
+    SDValue passArgOnStack(SDValue StackPtr, unsigned Offset, SDValue Chain,
+                           SDValue Arg, DebugLoc DL, bool IsTailCall,
+                           SelectionDAG &DAG) const;
 
     virtual SDValue
       LowerCall(TargetLowering::CallLoweringInfo &CLI,
