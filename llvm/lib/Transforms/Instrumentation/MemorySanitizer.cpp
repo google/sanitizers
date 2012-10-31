@@ -1141,7 +1141,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         if (!Origin) {
           Origin = OpOrigin;
         } else {
-          assert(!Shadow);
+          assert(Shadow);
           Value *S = convertToShadowTyNoVec(Shadow, IRB);
           Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
               Origin, OpOrigin);
@@ -1165,7 +1165,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         if (!Origin) {
           Origin = MemOrigin;
         } else {
-          assert(!Shadow);
+          assert(Shadow);
           Value *S = convertToShadowTyNoVec(Shadow, IRB);
           Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
               Origin, MemOrigin);
