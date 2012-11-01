@@ -155,6 +155,7 @@ if [ $RUN_ANDROID == 1 ] ; then
     echo "Rebooting the device"
     $ADB reboot
     $ADB wait-for-device
+    sleep 20
 
     $ADB devices
 
