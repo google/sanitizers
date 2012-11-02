@@ -1218,6 +1218,20 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // we may have a false positive: shadow for a non-void RetVal
       // will get propagated to a void RetVal.
       CallInst *Call = cast<CallInst>(&I);
+
+      // HACK: We are going to insert code that relies on the fact that the
+      // callee will become a non-readonly function after it is instrumented by
+      // us. To avoid this code being optimized out, mark this function
+      // non-readonly in advance.
+      if (Function *Func = Call->getCalledFunction()) {
+        // Clear out readonly/readnone attributes.
+        AttrBuilder B;
+        B.addAttribute(Attributes::ReadOnly)
+          .addAttribute(Attributes::ReadNone);
+        Func->removeAttribute(AttrListPtr::FunctionIndex,
+            Attributes::get(Func->getContext(), B));
+      }
+
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
       if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
