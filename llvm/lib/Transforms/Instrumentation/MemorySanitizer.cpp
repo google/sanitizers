@@ -1229,6 +1229,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       // will get propagated to a void RetVal.
       CallInst *Call = cast<CallInst>(&I);
 
+      if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
+        Call->setTailCall(false);
+      if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
+        handleIntrinsicInst(*II);
+        return;
+      }
+
       // HACK: We are going to insert code that relies on the fact that the
       // callee will become a non-readonly function after it is instrumented by
       // us. To avoid this code being optimized out, mark this function
@@ -1240,13 +1247,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           .addAttribute(Attributes::ReadNone);
         Func->removeAttribute(AttrListPtr::FunctionIndex,
             Attributes::get(Func->getContext(), B));
-      }
-
-      if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
-        Call->setTailCall(false);
-      if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
-        handleIntrinsicInst(*II);
-        return;
       }
     }
     IRBuilder<> IRB(&I);
