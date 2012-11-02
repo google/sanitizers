@@ -1195,10 +1195,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void handleBswap(IntrinsicInst &I) {
     IRBuilder<> IRB(&I);
-    Type* ArgType = I.getArgOperand(0)->getType();
-    Function* BswapFunc = Intrinsic::getDeclaration(F.getParent(),
-        Intrinsic::bswap, ArrayRef<Type*>(&ArgType, 1));
-    setShadow(&I, IRB.CreateCall(BswapFunc, getShadow(I.getArgOperand(0))));
+    Value *Op = I.getArgOperand(0);
+    Type *OpType = Op->getType();
+    Function *BswapFunc = Intrinsic::getDeclaration(F.getParent(),
+        Intrinsic::bswap, ArrayRef<Type*>(&OpType, 1));
+    setShadow(&I, IRB.CreateCall(BswapFunc, getShadow(Op)));
+    setOrigin(&I, getOrigin(Op));
   }
 
   void handleIntrinsicInst(IntrinsicInst &I) {
