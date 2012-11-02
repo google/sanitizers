@@ -1193,6 +1193,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
   }
 
+  void handleBswap(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Type* ArgType = I.getArgOperand(0)->getType();
+    Function* BswapFunc = Intrinsic::getDeclaration(F.getParent(),
+        Intrinsic::bswap, ArrayRef<Type*>(&ArgType, 1));
+    setShadow(&I, IRB.CreateCall(BswapFunc, getShadow(I.getArgOperand(0))));
+  }
+
   void handleIntrinsicInst(IntrinsicInst &I) {
     switch (I.getIntrinsicID()) {
     case llvm::Intrinsic::memset:
@@ -1205,6 +1213,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       handleVAStart(I); break;
     case llvm::Intrinsic::vacopy:
       handleVACopy(I); break;
+    case llvm::Intrinsic::bswap:
+      handleBswap(I); break;
     default:
       handleUnknownIntrinsic(I);
     }
