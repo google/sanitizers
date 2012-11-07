@@ -3,6 +3,7 @@
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
+#include "sanitizer_common/sanitizer_mutex.h"
 #include "sanitizer_common/sanitizer_flags.h"
 #include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
@@ -28,6 +29,8 @@ THREADLOCAL long long __msan_va_arg_overflow_size_tls;
 THREADLOCAL u32       __msan_origin_tls;
 
 THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
+
+StaticSpinMutex report_mu;
 
 static bool IsRunningUnderDr() {
   return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
@@ -106,6 +109,9 @@ void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
     msan_expected_umr_found = 1;
     return;
   }
+
+  GenericScopedLock<StaticSpinMutex> lock(&report_mu);
+
   Report(" WARNING: MemorySanitizer: UMR (uninitialized-memory-read)\n");
   if (flags.fast_unwinder)
     PrintCurrentStackTrace(pc, bp);
@@ -146,6 +152,8 @@ void __msan_init() {
   using namespace __msan;
   if (msan_inited) return;
   msan_init_is_running = 1;
+
+  report_mu.Init();
 
   SetDieCallback(MsanDie);
   __msan::InitializeInterceptors();
