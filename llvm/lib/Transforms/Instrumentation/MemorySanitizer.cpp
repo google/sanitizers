@@ -136,6 +136,38 @@ public:
   static char ID;  // Pass identification, replacement for typeid.
 
 private:
+  DataLayout *TD;
+  LLVMContext *C;
+  Type *IntptrTy;
+  Type *OriginTy;
+  /// \brief Thread-local shadow storage for function parameters.
+  GlobalVariable *ParamTLS;
+  /// \brief Thread-local origin storage for function parameters.
+  GlobalVariable *ParamOriginTLS;
+  /// \brief Thread-local shadow storage for function return value.
+  GlobalVariable *RetvalTLS;
+  /// \brief Thread-local origin storage for function return value.
+  GlobalVariable *RetvalOriginTLS;
+  /// \brief Thread-local shadow storage for in-register va_arg function
+  /// parameters (x86_64-specific).
+  GlobalVariable *VAArgTLS;
+  /// \brief Thread-local shadow storage for va_arg overflow area
+  /// (x86_64-specific).
+  GlobalVariable *VAArgOverflowSizeTLS;
+  /// \brief Thread-local space used to pass origin value to the UMR reporting
+  /// function.
+  GlobalVariable *OriginTLS;
+
+  /// \brief The run-time callback to print a warning.
+  Value *WarningFn;
+  /// \brief Run-time helper that copies origin info for a memory range.
+  Value *MsanCopyOriginFn;
+  /// \brief Run-time helper that generates a new origin value for a stack
+  /// allocation.
+  Value *MsanSetAllocaOriginFn;
+  /// \brief Run-time helper that poisons stack on function entry.
+  Value *MsanPoisonStackFn;
+
   /// \brief The actual memmove, memcpy, memset functions.
   Value *MemmoveFn, *MemcpyFn, *MemsetFn;
 
