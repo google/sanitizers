@@ -7,66 +7,66 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file is a part of MemorySanitizer, a detector uninitialized reads.
+// This file is a part of MemorySanitizer, a detector of uninitialized
+// reads.
 //
 // Status: early prototype.
 //
-// The algorithm of the tool is similar to Memcheck (http://goo.gl/QKbem).
-// We associate a few shadow bits with every byte of the application memory,
-// poison the shadow of the malloc-ed or alloca-ed memory,
-// load the shadow bits on every memory read,
-// propagate the shadow bits through some of the arithmetic instruction
-// (including MOV), store the shadow bits on every memory write,
-// report a bug on some other instructions (e.g. JMP) if the associated shadow
-// is poisoned.
+// The algorithm of the tool is similar to Memcheck
+// (http://goo.gl/QKbem). We associate a few shadow bits with every
+// byte of the application memory, poison the shadow of the malloc-ed
+// or alloca-ed memory, load the shadow bits on every memory read,
+// propagate the shadow bits through some of the arithmetic
+// instruction (including MOV), store the shadow bits on every memory
+// write, report a bug on some other instructions (e.g. JMP) if the
+// associated shadow is poisoned.
 //
-// But there are differences too.
-// The first and the major one: compiler instrumentation instead of
-// binary instrumentation.
-// This gives us much better register allocation, possible compiler
-// optimizations and a fast start-up.
-// But this brings the major issue as well: msan needs to see all program
-// events, including system calls and reads/writes in system libraries,
-// so we either need to compile *everything* with msan or use a binary
-// translation component (e.g. DynamoRIO) to instrument pre-built libraries.
-// Another difference from Memcheck is that we use 8 shadow bits per byte
-// of application memory and use a direct shadow mapping.
-// This greatly simplifies the instrumentation code and avoids races on
-// shadow updates (Memcheck is single-threaded so races are not a concern there.
-// Memcheck uses 2 shadow bits per byte with a slow path storage
-// that uses 8 bits per byte).
+// But there are differences too. The first and the major one:
+// compiler instrumentation instead of binary instrumentation. This
+// gives us much better register allocation, possible compiler
+// optimizations and a fast start-up. But this brings the major issue
+// as well: msan needs to see all program events, including system
+// calls and reads/writes in system libraries, so we either need to
+// compile *everything* with msan or use a binary translation
+// component (e.g. DynamoRIO) to instrument pre-built libraries.
+// Another difference from Memcheck is that we use 8 shadow bits per
+// byte of application memory and use a direct shadow mapping. This
+// greatly simplifies the instrumentation code and avoids races on
+// shadow updates (Memcheck is single-threaded so races are not a
+// concern there. Memcheck uses 2 shadow bits per byte with a slow
+// path storage that uses 8 bits per byte).
 //
-// The dafault value of shadow is 0, which means "good" (not poisoned).
+// The default value of shadow is 0, which means "clean" (not poisoned).
 //
-// Every module initializer should call __msan_init to ensure that the shadow
-// memory is ready.
-// On error, __msan_warning is called.
-// Since parameters and return values may be passed via registers, we
-// have a specialized thread-local shadow for return values (__msan_retval_tls)
-// and parameters (__msan_param_tls).
-//===----------------------------------------------------------------------===//
+// Every module initializer should call __msan_init to ensure that the
+// shadow memory is ready. On error, __msan_warning is called. Since
+// parameters and return values may be passed via registers, we have a
+// specialized thread-local shadow for return values
+// (__msan_retval_tls) and parameters (__msan_param_tls).
+// ===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "msan"
 
 #include "BlackList.h"
+#include "llvm/DataLayout.h"
+#include "llvm/Function.h"
+#include "llvm/IRBuilder.h"
+#include "llvm/InlineAsm.h"
+#include "llvm/IntrinsicInst.h"
+#include "llvm/LLVMContext.h"
+#include "llvm/MDBuilder.h"
+#include "llvm/Module.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Function.h"
-#include "llvm/InlineAsm.h"
-#include "llvm/IntrinsicInst.h"
-#include "llvm/IRBuilder.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/MDBuilder.h"
-#include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/DataLayout.h"
+#include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -74,9 +74,11 @@
 
 using namespace llvm;
 
-// This is an important flag that makes the reports much more informative
-// at the cost of greater slowdown. Not fully implemented yet.
-// FIXME: this should be a top-level clang flag, e.g. -fmemory-sanitizer-full.
+// This is an important flag that makes the reports much more
+// informative at the cost of greater slowdown. Not fully implemented
+// yet.
+// FIXME: this should be a top-level clang flag, e.g.
+// -fmemory-sanitizer-full.
 static cl::opt<bool> ClTrackOrigins("msan-track-origins",
        cl::desc("Track origins (allocation sites) of poisoned memory"),
        cl::Hidden, cl::init(false));
@@ -97,13 +99,12 @@ static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
        cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
        cl::Hidden, cl::init(true));
 
-// This flag controls whether we check the shadow of the address operand
-// of load or store.
-// Such bugs are very rare, since load from a garbage address typically results
-// in SEGV, but still happen (e.g. only lower bits of address are garbage,
-// or the access happens early at program startup where malloc-ed memory is more
-// likely to be zeroed.
-// As of 2012-08-28 this flag adds 20% slowdown.
+// This flag controls whether we check the shadow of the address
+// operand of load or store. Such bugs are very rare, since load from
+// a garbage address typically results in SEGV, but still happen
+// (e.g. only lower bits of address are garbage, or the access happens
+// early at program startup where malloc-ed memory is more likely to
+// be zeroed. As of 2012-08-28 this flag adds 20% slowdown.
 static cl::opt<bool> ClTrapOnDirtyAccess("msan-trap-on-dirty-access",
        cl::desc("trap on access to a pointer which has poisoned shadow"),
        cl::Hidden, cl::init(true));
@@ -118,9 +119,10 @@ static cl::opt<std::string>  ClBlackListFile("msan-blacklist",
 
 namespace {
 
-/// MemorySanitizer: instrument the code in module to find uninitialized reads.
+/// MemorySanitizer: instrument the code in module to find
+/// uninitialized reads.
 struct MemorySanitizer : public FunctionPass {
-  MemorySanitizer() : FunctionPass(ID), TD(NULL) {  }
+  MemorySanitizer() : FunctionPass(ID), TD(NULL) { }
   const char *getPassName() const { return "MemorySanitizer"; }
   bool runOnFunction(Function &F);
   bool doInitialization(Module &M);
@@ -177,20 +179,19 @@ FunctionPass *llvm::createMemorySanitizerPass() {
 //
 // FIXME: AddressSanitizer has a similar function.
 // What is the best place to move it?
-static BranchInst *splitBlockAndInsertIfThen(Value *Cmp,
+static BranchInst *splitBlockAndInsertIfThen(Instruction *Cmp,
     MDNode *BranchWeights = 0) {
-  Instruction *SplitBefore = cast<Instruction>(Cmp)->getNextNode();
+  Instruction *SplitBefore = Cmp->getNextNode();
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore);
   TerminatorInst *HeadOldTerm = Head->getTerminator();
-  LLVMContext &C = Head->getParent()->getParent()->getContext();
+  LLVMContext &C = Head->getContext();
   BasicBlock *NewBasicBlock = BasicBlock::Create(C, "", Head->getParent());
   BranchInst *HeadNewTerm =
       BranchInst::Create(/*ifTrue*/NewBasicBlock, /*ifFalse*/Tail, Cmp);
   HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
   ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
-  BranchInst *CheckTerm = BranchInst::Create(Tail, NewBasicBlock);
-  return CheckTerm;
+  return BranchInst::Create(Tail, NewBasicBlock);
 }
 
 // Create a non-const global for Str so that we can pass it to the run-time lib.
@@ -330,9 +331,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
       DEBUG(dbgs() << "  SHAD1 : " << *ConvertedShadow << "\n");
       Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
-                                    getCleanShadow(ConvertedShadow), "_mscmp");
-      Instruction *CheckTerm =
-          splitBlockAndInsertIfThen(Cmp, MS.ColdCallWeights);
+          getCleanShadow(ConvertedShadow), "_mscmp");
+      Instruction *CheckTerm = splitBlockAndInsertIfThen(cast<Instruction>(Cmp),
+          MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);
       if (ClTrackOrigins) {
@@ -597,7 +598,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           if (AI->hasByValAttr()) {
             // ByVal pointer itself has clean shadow. We copy the actual
             // argument shadow to the underlying memory.
-            Instruction *Cpy = EntryIRB.CreateMemCpy(
+            Value* Cpy = EntryIRB.CreateMemCpy(
                 getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
                 Base, Size, AI->getParamAlignment());
             DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
