@@ -66,11 +66,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
-#include "llvm/Type.h"
 
 using namespace llvm;
 
@@ -110,8 +108,8 @@ static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
 // (e.g. only lower bits of address are garbage, or the access happens
 // early at program startup where malloc-ed memory is more likely to
 // be zeroed. As of 2012-08-28 this flag adds 20% slowdown.
-static cl::opt<bool> ClTrapOnDirtyAccess("msan-trap-on-dirty-access",
-       cl::desc("trap on access to a pointer which has poisoned shadow"),
+static cl::opt<bool> ClCheckAccessAddress("msan-check-access-address",
+       cl::desc("report accesses through a pointer which has poisoned shadow"),
        cl::Hidden, cl::init(true));
 
 static cl::opt<bool> ClDumpStrictInstructions("msan-dump-strict-instructions",
@@ -188,7 +186,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
     return false;
   BL.reset(new BlackList(ClBlackListFile));
   C = &(M.getContext());
-  int PtrSize = TD->getPointerSizeInBits(/* AddressSpace */0);
+  unsigned PtrSize = TD->getPointerSizeInBits(/* AddressSpace */0);
   switch (PtrSize) {
     case 64:
       ShadowMask = kShadowMask64;
@@ -656,7 +654,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *ShadowPtr = getShadowPtr(Addr, ShadowTy, IRB);
     setShadow(&I, IRB.CreateAlignedLoad(ShadowPtr, I.getAlignment(), "_msld"));
 
-    if (ClTrapOnDirtyAccess)
+    if (ClCheckAccessAddress)
       insertCheck(I.getPointerOperand(), &I);
 
     if (ClTrackOrigins)
@@ -680,7 +678,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // If the store is volatile, add a check.
     if (I.isVolatile())
       insertCheck(Val, &I);
-    if (ClTrapOnDirtyAccess)
+    if (ClCheckAccessAddress)
       insertCheck(Addr, &I);
 
     if (ClTrackOrigins)
