@@ -47,8 +47,7 @@ void *internal_memcpy(void *dest, const void *src, uptr n) {
 void *internal_memmove(void *dest, const void *src, uptr n) {
   char *d = (char*)dest;
   char *s = (char*)src;
-  sptr i, signed_n = (sptr)n;
-  CHECK_GE(signed_n, 0);
+  uptr i;
   if (d < s) {
     for (i = 0; i < signed_n; ++i)
       d[i] = s[i];
