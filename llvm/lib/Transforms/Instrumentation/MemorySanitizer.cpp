@@ -153,6 +153,7 @@ private:
   OwningPtr<BlackList> BL;
 
   friend class MemorySanitizerVisitor;
+  friend class MemorySanitizerVarArgHelper_X86_64;
 };
 }  // namespace
 
@@ -270,6 +271,19 @@ bool MemorySanitizer::doInitialization(Module &M) {
 }
 
 namespace {
+
+struct MemorySanitizerVarArgHelper {
+  virtual void visitCallSite(CallSite &CS, IRBuilder<> &IRB) = 0;
+  virtual void visitVAStartInst(VAStartInst &I) = 0;
+  virtual void visitVACopyInst(VACopyInst &I) = 0;
+  virtual void finalizeInstrumentation() = 0;
+};
+
+struct MemorySanitizerVisitor;
+
+MemorySanitizerVarArgHelper* CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
+    MemorySanitizerVisitor &Visitor);
+
 // This class does all the work for a given function. Store and Load
 // instructions store and load corresponding shadow and origin
 // values. Most instructions propagate shadow from arguments to their
@@ -281,9 +295,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   MemorySanitizer &MS;
   SmallVector<PHINode *, 16> ShadowPHINodes, OriginPHINodes;
   ValueMap<Value*, Value*> ShadowMap, OriginMap;
-  Value *VAArgTLSCopy;
-  Value *VAArgOverflowSize;
   bool InsertChecks;
+  OwningPtr<MemorySanitizerVarArgHelper> VarArgHelper;
 
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
@@ -300,11 +313,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   };
   SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationList;
 
-  SmallVector<CallInst*, 16> VAStartInstrumentationList;
-
-
   MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan)
-    : F(Func), MS(Msan), VAArgTLSCopy(0), VAArgOverflowSize(0) {
+    : F(Func), MS(Msan),
+      VarArgHelper(CreateVarArgHelper(F, Msan, *this)) {
     InsertChecks = !MS.BL->isIn(F);
     DEBUG(if (!InsertChecks)
           dbgs() << "MemorySanitizer is not inserting checks into '"
@@ -362,46 +373,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       }
     }
 
-    if (!VAStartInstrumentationList.empty()) {
-      // If there is a va_start in this function, make a backup copy of
-      // va_arg_tls somewhere in the function entry block.
-      IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
-      VAArgOverflowSize = IRB.CreateLoad(MS.VAArgOverflowSizeTLS);
-      Value *CopySize =
-          IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
-          VAArgOverflowSize);
-      VAArgTLSCopy = IRB.CreateAlloca(Type::getInt8Ty(*MS.C), CopySize);
-      IRB.CreateMemCpy(VAArgTLSCopy, MS.VAArgTLS, CopySize, 8);
-    }
-
-    // Instrument va_start.
-    // Copy va_list shadow from TLS.
-    for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
-      CallInst *OrigInst = VAStartInstrumentationList[i];
-      IRBuilder<> IRB(OrigInst->getNextNode());
-      Value *VAListTag = OrigInst->getArgOperand(0);
-
-      Value *RegSaveAreaPtrPtr = IRB.CreateIntToPtr(
-          IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
-                        ConstantInt::get(MS.IntptrTy, 16)),
-          Type::getInt64PtrTy(*MS.C));
-      Value *RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
-      Value *RegSaveAreaShadowPtr =
-          getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
-      IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy,
-                       AMD64FpEndOffset, 16);
-
-      Value *OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(
-          IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
-                        ConstantInt::get(MS.IntptrTy, 8)),
-          Type::getInt64PtrTy(*MS.C));
-      Value *OverflowArgAreaPtr = IRB.CreateLoad(OverflowArgAreaPtrPtr);
-      Value *OverflowArgAreaShadowPtr =
-          getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
-      Value *SrcPtr =
-          getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
-      IRB.CreateMemCpy(OverflowArgAreaShadowPtr, SrcPtr, VAArgOverflowSize, 16);
-    }
+    VarArgHelper->finalizeInstrumentation();
 
     materializeChecks();
 
@@ -497,15 +469,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
     return IRB.CreateIntToPtr(Base, PointerType::get(MS.OriginTy, 0),
                               "_msarg_o");
-  }
-
-  /// \brief Compute the shadow address for a given va_arg.
-  Value *getShadowPtrForVAArgument(Value *A, IRBuilder<> &IRB,
-                                    int ArgOffset) {
-    Value *Base = IRB.CreatePointerCast(MS.VAArgTLS, MS.IntptrTy);
-    Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
-    return IRB.CreateIntToPtr(Base, PointerType::get(getShadowTy(A), 0),
-                              "_msarg");
   }
 
   /// \brief Compute the shadow address for a retval.
@@ -1047,40 +1010,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void visitVAStartInst(VAStartInst &I) {
-    IRBuilder<> IRB(&I);
-    VAStartInstrumentationList.push_back(&I);
-    Value *VAListTag = I.getArgOperand(0);
-    Value *ShadowPtr = getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
-
-    // Unpoison the whole __va_list_tag.
-    // FIXME: magic ABI constants.
-    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
-        /* size */24, /* alignment */16, false);
+    VarArgHelper->visitVAStartInst(I);
   }
 
   void visitVACopyInst(VACopyInst &I) {
-    IRBuilder<> IRB(&I);
-    Value *VAListTag = I.getArgOperand(0);
-    Value *ShadowPtr = getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
-
-    // Unpoison the whole __va_list_tag.
-    // FIXME: magic ABI constants.
-    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
-        /* size */ 24, /* alignment */ 16, false);
-  }
-
-  enum ArgClass { ARG_GP, ARG_FP, ARG_MEMORY };
-
-  ArgClass classifyArgument(Value* arg) {
-    // A very rough approximation of X86_64 argument classification rules.
-    Type *T = arg->getType();
-    if (T->isFPOrFPVectorTy() || T->isX86_MMXTy())
-      return ARG_FP;
-    if (T->isIntegerTy() && T->getPrimitiveSizeInBits() <= 64)
-      return ARG_GP;
-    if (T->isPointerTy())
-      return ARG_GP;
-    return ARG_MEMORY;
+    VarArgHelper->visitVACopyInst(I);
   }
 
   // GET_INTRINSIC_MODREF_BEHAVIOR requires that ModRefBehaviour definition is
@@ -1321,49 +1255,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       ArgOffset += DataLayout::RoundUpAlignment(Size, 8);
     }
     DEBUG(dbgs() << "  done with call args\n");
-    // For VarArg functions, store the argument shadow in an ABI-specific format
-    // that corresponds to va_list layout.
-    // We do this because Clang lowers va_arg in the frontend, and this pass
-    // only sees the low level code that deals with va_list internals.
-    // A much easier alternative (provided that Clang emits va_arg instructions)
-    // would have been to associate each live instance of va_list with a copy of
-    // MSanParamTLS, and extract shadow on va_arg() call in the argument list
-    // order.
+
     FunctionType *FT = cast<FunctionType>(CS.getCalledValue()->getType()->
         getContainedType(0));
     if (FT->isVarArg()) {
-      unsigned GpOffset = 0;
-      unsigned FpOffset = AMD64GpEndOffset;
-      unsigned OverflowOffset = AMD64FpEndOffset;
-      for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
-           ArgIt != End; ++ArgIt) {
-        Value *A = *ArgIt;
-        ArgClass arg_class = classifyArgument(A);
-        if (arg_class == ARG_GP && GpOffset >= AMD64GpEndOffset)
-          arg_class = ARG_MEMORY;
-        if (arg_class == ARG_FP && FpOffset >= AMD64FpEndOffset)
-          arg_class = ARG_MEMORY;
-        Value *Base;
-        switch (arg_class) {
-        case ARG_GP:
-          Base = getShadowPtrForVAArgument(A, IRB, GpOffset);
-          GpOffset += 8;
-          break;
-        case ARG_FP:
-          Base = getShadowPtrForVAArgument(A, IRB, FpOffset);
-          FpOffset += 16;
-          break;
-        case ARG_MEMORY:
-          Base = getShadowPtrForVAArgument(A, IRB, OverflowOffset);
-          OverflowOffset += DataLayout::RoundUpAlignment(
-              MS.TD->getTypeAllocSize(A->getType()), 8);
-        }
-        IRB.CreateStore(getShadow(A), Base);
-      }
-      IRB.CreateStore(ConstantInt::get(MS.VAArgOverflowSizeTLS->getType()->
-              getElementType(), OverflowOffset - AMD64FpEndOffset),
-          MS.VAArgOverflowSizeTLS);
+      VarArgHelper->visitCallSite(CS, IRB);
     }
+
     // Now, get the shadow for the RetVal.
     if (!I.getType()->isSized()) return;
     IRBuilder<> IRBBefore(&I);
@@ -1523,6 +1421,163 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOrigin(&I, getCleanOrigin());
   }
 };
+
+struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
+  // An unfortunate workaround for asymmetric lowering of va_arg stuff.
+  // See a comment in visitCallSite for more details.
+  static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
+  static const unsigned AMD64FpEndOffset = 176;
+
+  Function &F;
+  MemorySanitizer &MS;
+  MemorySanitizerVisitor &MSV;
+  Value *VAArgTLSCopy;
+  Value *VAArgOverflowSize;
+
+  SmallVector<CallInst*, 16> VAStartInstrumentationList;
+
+  MemorySanitizerVarArgHelper_X86_64(Function &Func, MemorySanitizer &Msan,
+      MemorySanitizerVisitor &Visitor)
+    : F(Func), MS(Msan), MSV(Visitor), VAArgTLSCopy(0), VAArgOverflowSize(0) { }
+
+  enum ArgClass { ARG_GP, ARG_FP, ARG_MEMORY };
+
+  ArgClass classifyArgument(Value* arg) {
+    // A very rough approximation of X86_64 argument classification rules.
+    Type *T = arg->getType();
+    if (T->isFPOrFPVectorTy() || T->isX86_MMXTy())
+      return ARG_FP;
+    if (T->isIntegerTy() && T->getPrimitiveSizeInBits() <= 64)
+      return ARG_GP;
+    if (T->isPointerTy())
+      return ARG_GP;
+    return ARG_MEMORY;
+  }
+
+  // For VarArg functions, store the argument shadow in an ABI-specific format
+  // that corresponds to va_list layout.
+  // We do this because Clang lowers va_arg in the frontend, and this pass
+  // only sees the low level code that deals with va_list internals.
+  // A much easier alternative (provided that Clang emits va_arg instructions)
+  // would have been to associate each live instance of va_list with a copy of
+  // MSanParamTLS, and extract shadow on va_arg() call in the argument list
+  // order.
+  void visitCallSite(CallSite &CS, IRBuilder<> &IRB) {
+    unsigned GpOffset = 0;
+    unsigned FpOffset = AMD64GpEndOffset;
+    unsigned OverflowOffset = AMD64FpEndOffset;
+    for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
+         ArgIt != End; ++ArgIt) {
+      Value *A = *ArgIt;
+      ArgClass arg_class = classifyArgument(A);
+      if (arg_class == ARG_GP && GpOffset >= AMD64GpEndOffset)
+        arg_class = ARG_MEMORY;
+      if (arg_class == ARG_FP && FpOffset >= AMD64FpEndOffset)
+        arg_class = ARG_MEMORY;
+      Value *Base;
+      switch (arg_class) {
+      case ARG_GP:
+        Base = getShadowPtrForVAArgument(A, IRB, GpOffset);
+        GpOffset += 8;
+        break;
+      case ARG_FP:
+        Base = getShadowPtrForVAArgument(A, IRB, FpOffset);
+        FpOffset += 16;
+        break;
+      case ARG_MEMORY:
+        Base = getShadowPtrForVAArgument(A, IRB, OverflowOffset);
+        OverflowOffset += DataLayout::RoundUpAlignment(MS.TD->getTypeAllocSize(
+            A->getType()), 8);
+      }
+      IRB.CreateStore(MSV.getShadow(A), Base);
+    }
+    IRB.CreateStore(ConstantInt::get(MS.VAArgOverflowSizeTLS->getType()->
+            getElementType(), OverflowOffset - AMD64FpEndOffset),
+        MS.VAArgOverflowSizeTLS);
+  }
+
+  /// \brief Compute the shadow address for a given va_arg.
+  Value *getShadowPtrForVAArgument(Value *A, IRBuilder<> &IRB,
+                                    int ArgOffset) {
+    Value *Base = IRB.CreatePointerCast(MS.VAArgTLS, MS.IntptrTy);
+    Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
+    return IRB.CreateIntToPtr(Base, PointerType::get(MSV.getShadowTy(A), 0),
+                              "_msarg");
+  }
+
+  void visitVAStartInst(VAStartInst &I) {
+    IRBuilder<> IRB(&I);
+    VAStartInstrumentationList.push_back(&I);
+    Value *VAListTag = I.getArgOperand(0);
+    Value *ShadowPtr = MSV.getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
+
+    // Unpoison the whole __va_list_tag.
+    // FIXME: magic ABI constants.
+    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
+        /* size */24, /* alignment */16, false);
+  }
+
+  void visitVACopyInst(VACopyInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *VAListTag = I.getArgOperand(0);
+    Value *ShadowPtr = MSV.getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
+
+    // Unpoison the whole __va_list_tag.
+    // FIXME: magic ABI constants.
+    IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
+        /* size */ 24, /* alignment */ 16, false);
+  }
+
+  void finalizeInstrumentation() {
+    assert(!VAArgOverflowSize && !VAArgTLSCopy &&
+        "finalizeInstrumentation called twice");
+    if (!VAStartInstrumentationList.empty()) {
+      // If there is a va_start in this function, make a backup copy of
+      // va_arg_tls somewhere in the function entry block.
+      IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
+      VAArgOverflowSize = IRB.CreateLoad(MS.VAArgOverflowSizeTLS);
+      Value *CopySize =
+          IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
+          VAArgOverflowSize);
+      VAArgTLSCopy = IRB.CreateAlloca(Type::getInt8Ty(*MS.C), CopySize);
+      IRB.CreateMemCpy(VAArgTLSCopy, MS.VAArgTLS, CopySize, 8);
+    }
+
+    // Instrument va_start.
+    // Copy va_list shadow from the backup copy of the TLS contents.
+    for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
+      CallInst *OrigInst = VAStartInstrumentationList[i];
+      IRBuilder<> IRB(OrigInst->getNextNode());
+      Value *VAListTag = OrigInst->getArgOperand(0);
+
+      Value *RegSaveAreaPtrPtr = IRB.CreateIntToPtr(
+          IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
+                        ConstantInt::get(MS.IntptrTy, 16)),
+          Type::getInt64PtrTy(*MS.C));
+      Value *RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
+      Value *RegSaveAreaShadowPtr =
+          MSV.getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
+      IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy,
+                       AMD64FpEndOffset, 16);
+
+      Value *OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(
+          IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
+                        ConstantInt::get(MS.IntptrTy, 8)),
+          Type::getInt64PtrTy(*MS.C));
+      Value *OverflowArgAreaPtr = IRB.CreateLoad(OverflowArgAreaPtrPtr);
+      Value *OverflowArgAreaShadowPtr =
+          MSV.getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
+      Value *SrcPtr =
+          getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
+      IRB.CreateMemCpy(OverflowArgAreaShadowPtr, SrcPtr, VAArgOverflowSize, 16);
+    }
+  }
+};
+
+MemorySanitizerVarArgHelper* CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
+    MemorySanitizerVisitor &Visitor) {
+  return new MemorySanitizerVarArgHelper_X86_64(Func, Msan, Visitor);
+}
 
 }  // namespace
 
