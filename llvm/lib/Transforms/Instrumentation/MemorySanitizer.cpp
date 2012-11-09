@@ -209,7 +209,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
   // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
   IRBuilder<> IRB(*C);
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
-        "__msan_init", IRB.getVoidTy(), 0)), 0);
+        "__msan_init", IRB.getVoidTy(), NULL)), 0);
 
   new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::LinkOnceODRLinkage,
                      ConstantInt::get(IRB.getInt32Ty(), ClTrackOrigins),
@@ -225,15 +225,15 @@ bool MemorySanitizer::doInitialization(Module &M) {
     WarningFn = InlineAsm::get(FunctionType::get(Type::getVoidTy(*C), false),
                                   StringRef("ud2"), StringRef(""), true);
   } else {
-    WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), 0);
+    WarningFn = M.getOrInsertFunction("__msan_warning", IRB.getVoidTy(), NULL);
   }
   MsanCopyOriginFn = M.getOrInsertFunction("__msan_copy_origin",
-    IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, 0);
+    IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
     IRB.getVoidTy(),
-    IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), 0);
+    IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), NULL);
   MsanPoisonStackFn = M.getOrInsertFunction("__msan_poison_stack",
-    IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, 0);
+    IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MemmoveFn = M.getOrInsertFunction("memmove",
     IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MemcpyFn = M.getOrInsertFunction("memcpy",
@@ -1014,7 +1014,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///
   /// Similar situation exists for memcpy and memset, but for those functions
   /// calling instrumentation twice does not lead to incorrect results.
-  void handleMemMove(MemMoveInst &I) {
+  void visitMemMoveInst(MemMoveInst &I) {
     IRBuilder<> IRB(&I);
     IRB.CreateCall3(MS.MemmoveFn,
         IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
@@ -1027,7 +1027,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // This is somewhat unfortunate as it may slowdown small constant memcpys.
   // FIXME: consider doing manual inline for small constant sizes and proper
   // alignment.
-  void handleMemCpy(MemCpyInst &I) {
+  void visitMemCpyInst(MemCpyInst &I) {
     IRBuilder<> IRB(&I);
     IRB.CreateCall3(MS.MemcpyFn,
         IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
@@ -1037,7 +1037,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   // Same as memcpy.
-  void handleMemSet(MemSetInst &I) {
+  void visitMemSetInst(MemSetInst &I) {
     IRBuilder<> IRB(&I);
     IRB.CreateCall3(MS.MemsetFn,
         IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
@@ -1046,7 +1046,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     I.eraseFromParent();
   }
 
-  void handleVAStart(IntrinsicInst &I) {
+  void visitVAStartInst(VAStartInst &I) {
     IRBuilder<> IRB(&I);
     VAStartInstrumentationList.push_back(&I);
     Value *VAListTag = I.getArgOperand(0);
@@ -1058,7 +1058,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         /* size */24, /* alignment */16, false);
   }
 
-  void handleVACopy(IntrinsicInst &I) {
+  void visitVACopyInst(VACopyInst &I) {
     IRBuilder<> IRB(&I);
     Value *VAListTag = I.getArgOperand(0);
     Value *ShadowPtr = getShadowPtr(VAListTag, IRB.getInt8Ty(), IRB);
@@ -1244,22 +1244,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOrigin(&I, getOrigin(Op));
   }
 
-  void handleIntrinsicInst(IntrinsicInst &I) {
+  void visitIntrinsicInst(IntrinsicInst &I) {
     switch (I.getIntrinsicID()) {
-    case llvm::Intrinsic::memset:
-      handleMemSet(*dyn_cast<MemSetInst>(&I)); break;
-    case llvm::Intrinsic::memcpy:
-      handleMemCpy(*dyn_cast<MemCpyInst>(&I)); break;
-    case llvm::Intrinsic::memmove:
-      handleMemMove(*dyn_cast<MemMoveInst>(&I)); break;
-    case llvm::Intrinsic::vastart:
-      handleVAStart(I); break;
-    case llvm::Intrinsic::vacopy:
-      handleVACopy(I); break;
     case llvm::Intrinsic::bswap:
       handleBswap(I); break;
     default:
-      handleUnknownIntrinsic(I);
+      handleUnknownIntrinsic(I); break;
     }
   }
 
@@ -1274,10 +1264,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
-      if (IntrinsicInst* II = dyn_cast<IntrinsicInst>(&I)) {
-        handleIntrinsicInst(*II);
-        return;
-      }
+
+      assert(!isa<IntrinsicInst>(&I) &&
+          "intrinsics should be intercepted elsewhere");
 
       // HACK: We are going to insert code that relies on the fact that the
       // callee will become a non-readonly function after it is instrumented by
