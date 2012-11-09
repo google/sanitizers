@@ -211,8 +211,6 @@ public:
   TheLoop(Lp), SE(Se), DL(Dl), Induction(0) { }
 
   /// This represents the kinds of reductions that we support.
-  /// We use the enum values to hold the 'identity' value for
-  /// each operand. This value does not change the result if applied.
   enum ReductionKind {
     NoReduction = -1, /// Not a reduction.
     IntegerAdd  = 0,  /// Sum of numbers.
@@ -523,7 +521,7 @@ SingleBlockLoopVectorizer::getUniformVector(unsigned Val, Type* ScalarTy) {
   SmallVector<Constant*, 8> Indices;
   // Create a vector of consecutive numbers from zero to VF.
   for (unsigned i = 0; i < VF; ++i)
-    Indices.push_back(ConstantInt::get(ScalarTy, Val));
+    Indices.push_back(ConstantInt::get(ScalarTy, Val, true));
 
   // Add the consecutive indices to the vector value.
   return ConstantVector::get(Indices);
@@ -635,6 +633,10 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
   BasicBlock *ExitBlock = OrigLoop->getExitBlock();
   assert(ExitBlock && "Must have an exit block");
 
+  // The loop index does not have to start at Zero. It starts with this value.
+  OldInduction = Legal->getInduction();
+  Value *StartIdx = OldInduction->getIncomingValueForBlock(BypassBlock);
+
   assert(OrigLoop->getNumBlocks() == 1 && "Invalid loop");
   assert(BypassBlock && "Invalid loop structure");
 
@@ -650,7 +652,6 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
                                  "scalar.preheader");
   // Find the induction variable.
   BasicBlock *OldBasicBlock = OrigLoop->getHeader();
-  OldInduction = Legal->getInduction();
   assert(OldInduction && "We must have a single phi node.");
   Type *IdxTy = OldInduction->getType();
 
@@ -660,7 +661,6 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
 
   // Generate the induction variable.
   Induction = Builder.CreatePHI(IdxTy, 2, "index");
-  Constant *Zero = ConstantInt::get(IdxTy, 0);
   Constant *Step = ConstantInt::get(IdxTy, VF);
 
   // Find the loop boundaries.
@@ -684,15 +684,22 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
 
   // Count holds the overall loop count (N).
   Value *Count = Exp.expandCodeFor(ExitCount, Induction->getType(), Loc);
+
+  // Add the start index to the loop count to get the new end index.
+  Value *IdxEnd = BinaryOperator::CreateAdd(Count, StartIdx, "end.idx", Loc);
+
   // Now we need to generate the expression for N - (N % VF), which is
   // the part that the vectorized body will execute.
   Constant *CIVF = ConstantInt::get(IdxTy, VF);
   Value *R = BinaryOperator::CreateURem(Count, CIVF, "n.mod.vf", Loc);
   Value *CountRoundDown = BinaryOperator::CreateSub(Count, R, "n.vec", Loc);
+  Value *IdxEndRoundDown = BinaryOperator::CreateAdd(CountRoundDown, StartIdx,
+                                                     "end.idx.rnd.down", Loc);
 
   // Now, compare the new count to zero. If it is zero, jump to the scalar part.
   Value *Cmp = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ,
-                               CountRoundDown, ConstantInt::getNullValue(IdxTy),
+                               IdxEndRoundDown,
+                               StartIdx,
                                "cmp.zero", Loc);
   BranchInst::Create(MiddleBlock, VectorPH, Cmp, Loc);
   // Remove the old terminator.
@@ -701,8 +708,8 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
   // Add a check in the middle block to see if we have completed
   // all of the iterations in the first vector loop.
   // If (N - N%VF) == N, then we *don't* need to run the remainder.
-  Value *CmpN = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, Count,
-                                CountRoundDown, "cmp.n",
+  Value *CmpN = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, IdxEnd,
+                                IdxEndRoundDown, "cmp.n",
                                 MiddleBlock->getTerminator());
 
   BranchInst::Create(ExitBlock, ScalarPH, CmpN, MiddleBlock->getTerminator());
@@ -711,10 +718,10 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
 
   // Create i+1 and fill the PHINode.
   Value *NextIdx = Builder.CreateAdd(Induction, Step, "index.next");
-  Induction->addIncoming(Zero, VectorPH);
+  Induction->addIncoming(StartIdx, VectorPH);
   Induction->addIncoming(NextIdx, VecBody);
   // Create the compare.
-  Value *ICmp = Builder.CreateICmpEQ(NextIdx, CountRoundDown);
+  Value *ICmp = Builder.CreateICmpEQ(NextIdx, IdxEndRoundDown);
   Builder.CreateCondBr(ICmp, MiddleBlock, VecBody);
 
   // Now we have two terminators. Remove the old one from the block.
@@ -722,7 +729,7 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
 
   // Fix the scalar body iteration count.
   unsigned BlockIdx = OldInduction->getBasicBlockIndex(ScalarPH);
-  OldInduction->setIncomingValue(BlockIdx, CountRoundDown);
+  OldInduction->setIncomingValue(BlockIdx, IdxEndRoundDown);
 
   // Get ready to start creating new instructions into the vectorized body.
   Builder.SetInsertPoint(VecBody->getFirstInsertionPt());
@@ -748,6 +755,27 @@ SingleBlockLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
   LoopVectorBody = VecBody;
   LoopScalarBody = OldBasicBlock;
   LoopBypassBlock = BypassBlock;
+}
+
+/// This function returns the identity element (or neutral element) for
+/// the operation K.
+static unsigned
+getReductionIdentity(LoopVectorizationLegality::ReductionKind K) {
+  switch (K) {
+  case LoopVectorizationLegality::IntegerXor:
+  case LoopVectorizationLegality::IntegerAdd:
+  case LoopVectorizationLegality::IntegerOr:
+    // Adding, Xoring, Oring zero to a number does not change it.
+    return 0;
+  case LoopVectorizationLegality::IntegerMult:
+    // Multiplying a number by 1 does not change it.
+    return 1;
+  case LoopVectorizationLegality::IntegerAnd:
+    // AND-ing a number with an all-1 value does not change it.
+    return -1;
+  default:
+    llvm_unreachable("Unknown reduction kind");
+  }
 }
 
 void
@@ -974,10 +1002,9 @@ SingleBlockLoopVectorizer::vectorizeLoop(LoopVectorizationLegality *Legal) {
     Value *VectorExit = getVectorValue(RdxDesc.LoopExitInstr);
     Type *VecTy = VectorExit->getType();
 
-    // Find the reduction identity variable. The value of the enum is the
-    // identity. Zero for addition. One for Multiplication.
-    unsigned IdentitySclr =  RdxDesc.Kind;
-    Constant *Identity = getUniformVector(IdentitySclr,
+    // Find the reduction identity variable. Zero for addition, or, xor,
+    // one for multiplication, -1 for And.
+    Constant *Identity = getUniformVector(getReductionIdentity(RdxDesc.Kind),
                                           VecTy->getScalarType());
 
     // This vector is the Identity vector where the first element is the
@@ -1115,6 +1142,14 @@ bool LoopVectorizationLegality::canVectorize() {
   const SCEV *ExitCount = SE->getExitCount(TheLoop, BB);
   if (ExitCount == SE->getCouldNotCompute()) {
     DEBUG(dbgs() << "LV: SCEV could not compute the loop exit count.\n");
+    return false;
+  }
+
+  // Do not loop-vectorize loops with a tiny trip count.
+  unsigned TC = SE->getSmallConstantTripCount(TheLoop, BB);
+  if (TC > 0 && TC < 16) {
+    DEBUG(dbgs() << "LV: Found a loop with a very small trip count. " <<
+          "This loop is not worth vectorizing.\n");
     return false;
   }
 
@@ -1334,6 +1369,13 @@ bool LoopVectorizationLegality::canVectorizeMemory(BasicBlock &BB) {
       Reads.push_back(Ptr);
   }
 
+  // If we write (or read-write) to a single destination and there are no
+  // other reads in this loop then is it safe to vectorize.
+  if (ReadWrites.size() == 1 && Reads.size() == 0) {
+    DEBUG(dbgs() << "LV: Found a write-only loop!\n");
+    return true;
+  }
+
   // Now that the pointers are in two lists (Reads and ReadWrites), we
   // can check that there are no conflicts between each of the writes and
   // between the writes to the reads.
@@ -1492,10 +1534,9 @@ bool LoopVectorizationLegality::isInductionVariable(PHINode *Phi) {
     return false;
   }
   const SCEV *Step = AR->getStepRecurrence(*SE);
-  const SCEV *Start = AR->getStart();
 
-  if (!Step->isOne() || !Start->isZero()) {
-    DEBUG(dbgs() << "LV: PHI does not start at zero or steps by one.\n");
+  if (!Step->isOne()) {
+    DEBUG(dbgs() << "LV: PHI stride does not equal one.\n");
     return false;
   }
   return true;

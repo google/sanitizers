@@ -445,6 +445,11 @@ public:
   /// Instructions with this flag set are not necessarily simple load
   /// instructions, they may load a value and modify it, for example.
   bool mayLoad(QueryType Type = AnyInBundle) const {
+    if (isInlineAsm()) {
+      unsigned ExtraInfo = getOperand(InlineAsm::MIOp_ExtraInfo).getImm();
+      if (ExtraInfo & InlineAsm::Extra_MayLoad)
+        return true;
+    }
     return hasProperty(MCID::MayLoad, Type);
   }
 
@@ -454,6 +459,11 @@ public:
   /// instructions, they may store a modified value based on their operands, or
   /// may not actually modify anything, for example.
   bool mayStore(QueryType Type = AnyInBundle) const {
+    if (isInlineAsm()) {
+      unsigned ExtraInfo = getOperand(InlineAsm::MIOp_ExtraInfo).getImm();
+      if (ExtraInfo & InlineAsm::Extra_MayStore)
+        return true;
+    }
     return hasProperty(MCID::MayStore, Type);
   }
 

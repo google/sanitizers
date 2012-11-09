@@ -1773,7 +1773,7 @@ bool DependenceAnalysis::weakZeroDstSIVtest(const SCEV *SrcCoeff,
 // where i and j are induction variable, c1 and c2 are loop invariant,
 // and a and b are constants.
 // Returns true if any possible dependence is disproved.
-// Marks the result as inconsistant.
+// Marks the result as inconsistent.
 // Works in some cases that symbolicRDIVtest doesn't, and vice versa.
 bool DependenceAnalysis::exactRDIVtest(const SCEV *SrcCoeff,
                                        const SCEV *DstCoeff,
@@ -2202,7 +2202,7 @@ const SCEVConstant *getConstantPart(const SCEVMulExpr *Product) {
 // gcdMIVtest -
 // Tests an MIV subscript pair for dependence.
 // Returns true if any possible dependence is disproved.
-// Marks the result as inconsistant.
+// Marks the result as inconsistent.
 // Can sometimes disprove the equal direction for 1 or more loops,
 // as discussed in Michael Wolfe's book,
 // High Performance Compilers for Parallel Computing, page 235.
@@ -2278,11 +2278,12 @@ bool DependenceAnalysis::gcdMIVtest(const SCEV *Src,
         assert(!Constant && "Surprised to find multiple constants");
         Constant = cast<SCEVConstant>(Operand);
       }
-      else if (isa<SCEVMulExpr>(Operand)) {
+      else if (const SCEVMulExpr *Product = dyn_cast<SCEVMulExpr>(Operand)) {
         // Search for constant operand to participate in GCD;
         // If none found; return false.
-        const SCEVConstant *ConstOp =
-          getConstantPart(cast<SCEVMulExpr>(Operand));
+        const SCEVConstant *ConstOp = getConstantPart(Product);
+        if (!ConstOp)
+          return false;
         APInt ConstOpValue = ConstOp->getValue()->getValue();
         ExtraGCD = APIntOps::GreatestCommonDivisor(ExtraGCD,
                                                    ConstOpValue.abs());
