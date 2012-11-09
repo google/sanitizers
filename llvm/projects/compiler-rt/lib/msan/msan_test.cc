@@ -1259,6 +1259,19 @@ TEST(MemorySanitizerOrigins, SetGet) {
   EXPECT_EQ(0, __msan_get_origin(&x));
 }
 
+// http://code.google.com/p/memory-sanitizer/issues/detail?id=6
+TEST(MemorySanitizerOrigins, DISABLED_InitializedStoreDoesNotChangeOrigin) {
+  EXPECT_EQ(TrackingOrigins(), __msan_track_origins);
+  if (!TrackingOrigins()) return;
+  int x = 0;
+  __msan_set_origin(&x, sizeof(x), 1234);
+  int y;
+  __msan_set_origin(&y, sizeof(y), 5678);
+  y = x;
+  EXPECT_EQ(1234, __msan_get_origin(&x));
+  EXPECT_EQ(5678, __msan_get_origin(&y));
+}
+
 template<class T, class BinaryOp>
 INLINE
 void BinaryOpOriginTest(BinaryOp op) {
