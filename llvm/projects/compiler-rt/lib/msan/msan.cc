@@ -300,7 +300,7 @@ void __msan_set_origin(void *a, uptr size, u32 origin) {
     *(u32*)beg = origin;
     beg += 4;
   }
-  for (uptr addr = beg; addr < end; addr += 8)
+  for (uptr addr = beg; addr < (end & ~7UL); addr += 8)
     *(u64*)addr = origin64;
   if (end & 7ULL)
     *(u32*)(end - 4) = origin;
