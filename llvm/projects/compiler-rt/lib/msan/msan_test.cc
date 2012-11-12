@@ -1259,18 +1259,28 @@ TEST(MemorySanitizerOrigins, SetGet) {
   EXPECT_EQ(0, __msan_get_origin(&x));
 }
 
+namespace {
+struct S {
+  U4 dummy;
+  U2 a;
+  U2 b;
+};
+
 // http://code.google.com/p/memory-sanitizer/issues/detail?id=6
 TEST(MemorySanitizerOrigins, DISABLED_InitializedStoreDoesNotChangeOrigin) {
-  EXPECT_EQ(TrackingOrigins(), __msan_track_origins);
   if (!TrackingOrigins()) return;
-  int x = 0;
-  __msan_set_origin(&x, sizeof(x), 1234);
-  int y;
-  __msan_set_origin(&y, sizeof(y), 5678);
-  y = x;
-  EXPECT_EQ(1234, __msan_get_origin(&x));
-  EXPECT_EQ(5678, __msan_get_origin(&y));
+
+  S s;
+  u32 origin = rand();
+  s.a = *GetPoisonedO<U2>(0, origin);
+  EXPECT_EQ(origin, __msan_get_origin(&s.a));
+  EXPECT_EQ(origin, __msan_get_origin(&s.b));
+
+  s.b = 42;
+  EXPECT_EQ(origin, __msan_get_origin(&s.a));
+  EXPECT_EQ(origin, __msan_get_origin(&s.b));
 }
+} // namespace
 
 template<class T, class BinaryOp>
 INLINE
