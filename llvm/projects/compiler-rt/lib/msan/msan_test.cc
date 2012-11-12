@@ -343,7 +343,7 @@ NOINLINE static int GetPoisonedZero() {
 TEST(MemorySanitizer, LoadFromDirtyAddress) {
   int *a = new int;
   *a = 0;
-  EXPECT_POISONED(__msan_break_optimization((void*)a[GetPoisonedZero()]));
+  EXPECT_POISONED(__msan_break_optimization((void*)(U8)a[GetPoisonedZero()]));
   delete a;
 }
 
