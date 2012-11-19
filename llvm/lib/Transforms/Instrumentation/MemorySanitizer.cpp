@@ -102,6 +102,10 @@ static cl::opt<bool> ClHandleICmp("msan-handle-icmp",
        cl::desc("propagate shadow through ICmpEQ and ICmpNE"),
        cl::Hidden, cl::init(true));
 
+static cl::opt<bool> ClStoreCleanOrigin("msan-store-clean-origin",
+       cl::desc("store origin for clean (fully initialized) values"),
+       cl::Hidden, cl::init(false));
+
 // This flag controls whether we check the shadow of the address
 // operand of load or store. Such bugs are very rare, since load from
 // a garbage address typically results in SEGV, but still happen
@@ -346,6 +350,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     ShadowOriginAndInsertPoint() : Shadow(0), Origin(0), OrigIns(0) { }
   };
   SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationList;
+  SmallVector<ShadowOriginAndInsertPoint, 16> StoreList;
 
   MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan)
     : F(Func), MS(Msan),
@@ -357,6 +362,40 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void materializeChecks() {
+    for (size_t i = 0, n = StoreList.size(); i < n; i++) {
+      StoreInst& I = *dyn_cast<StoreInst>(StoreList[i].OrigIns);
+
+      IRBuilder<> IRB(&I);
+      Value *Val = I.getValueOperand();
+      Value *Addr = I.getPointerOperand();
+      Value *Shadow = getShadow(Val);
+      Value *ShadowPtr = getShadowPtr(Addr, Shadow->getType(), IRB);
+
+      StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
+      DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
+      // If the store is volatile, add a check.
+      if (I.isVolatile())
+        insertCheck(Val, &I);
+      if (ClCheckAccessAddress)
+        insertCheck(Addr, &I);
+
+      if (ClTrackOrigins) {
+        if (ClStoreCleanOrigin) {
+          IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
+        } else {
+          Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
+
+          Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
+              getCleanShadow(ConvertedShadow), "_mscmp");
+          Instruction *CheckTerm =
+            SplitBlockAndInsertIfThen(cast<Instruction>(Cmp), false);
+          IRBuilder<> IRBNewBlock(CheckTerm);
+          IRBNewBlock.CreateAlignedStore(getOrigin(Val),
+              getOriginPtr(Addr, IRBNewBlock), I.getAlignment());
+        }
+      }
+    }
+
     for (size_t i = 0, n = InstrumentationList.size(); i < n; i++) {
       Instruction *Shadow = InstrumentationList[i].Shadow;
       Instruction *OrigIns = InstrumentationList[i].OrigIns;
@@ -656,8 +695,30 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void insertCheck(Value *Val, Instruction *OrigIns) {
     assert(Val);
     if (!InsertChecks) return;
+    Value *Shadow0 = getShadow(Val);
+    if (!Shadow0) {
+      // errs() << "no shadow: " << *Val << "\n";
+      return;
+    }
     Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
-    if (!Shadow) return;
+    if (!Shadow) {
+      Constant *Cst = dyn_cast_or_null<Constant>(getShadow(Val));
+      if (!Cst)
+        errs() << *Shadow << "\n";
+      assert(Cst && "Shadow is neither an Instruction, nor a constant!");
+      if (!Cst->isNullValue()) {
+        errs() << "Dirty shadow: " << *Cst << "\n";
+        errs() << "In function: " << F << "\n";
+        errs() << *OrigIns << "\n";
+        errs() << "shadow type: " << *getShadowTy(Val->getType()) << "\n";
+      }
+      // TODO(eugenis): handle non-zero constant shadow by inserting an
+      // unconditional check (can not simply fail as this could be in the dead
+      // code).
+      // assert(Cst->isNullValue() &&
+      //     "NOT HANDLED: Shadow is a non-zero compile-time constant.");
+      return;
+    }
     Type *ShadowTy = Shadow->getType();
     assert((isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy)) &&
            "Can only insert checks for integer and vector shadow types");
@@ -694,22 +755,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// Optionally, checks that the store address is fully defined.
   /// Volatile stores check that the value being stored is fully defined.
   void visitStoreInst(StoreInst &I) {
-    IRBuilder<> IRB(&I);
-    Value *Val = I.getValueOperand();
-    Value *Addr = I.getPointerOperand();
-    Value *Shadow = getShadow(Val);
-    Value *ShadowPtr = getShadowPtr(Addr, Shadow->getType(), IRB);
-
-    StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
-    DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
-    // If the store is volatile, add a check.
-    if (I.isVolatile())
-      insertCheck(Val, &I);
-    if (ClCheckAccessAddress)
-      insertCheck(Addr, &I);
-
-    if (ClTrackOrigins)
-      IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
+    StoreList.push_back(ShadowOriginAndInsertPoint(NULL, NULL, &I));
   }
 
   // Vector manipulation.
