@@ -711,6 +711,31 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
   }
 
+  // Vector manipulation.
+  void visitExtractElementInst(ExtractElementInst &I) {
+    insertCheck(I.getOperand(1), &I);
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateExtractElement(getShadow(&I, 0), I.getOperand(1),
+            "_msprop"));
+    setOrigin(&I, getOrigin(&I, 0));
+  }
+
+  void visitInsertElementInst(InsertElementInst &I) {
+    insertCheck(I.getOperand(2), &I);
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateInsertElement(getShadow(&I, 0), getShadow(&I, 1),
+            I.getOperand(2), "_msprop"));
+    setOriginForNaryOp(I);
+  }
+
+  void visitShuffleVectorInst(ShuffleVectorInst &I) {
+    insertCheck(I.getOperand(2), &I);
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateShuffleVector(getShadow(&I, 0), getShadow(&I, 1),
+            I.getOperand(2), "_msprop"));
+    setOriginForNaryOp(I);
+  }
+
   // Casts.
   void visitSExtInst(SExtInst &I) {
     IRBuilder<> IRB(&I);
@@ -810,6 +835,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///
   /// This is a general case of origin propagation. For an Nary operation,
   /// is set to the origin of an argument that is not entirely initialized.
+  /// If there is more than one such arguments, the rightmost of them is picked.
   /// It does not matter which one is picked if all arguments are initialized.
   void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
