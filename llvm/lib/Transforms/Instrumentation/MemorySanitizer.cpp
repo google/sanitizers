@@ -816,9 +816,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     Value *Origin = getOrigin(&I, 0);
     for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op) {
-      Value *S = convertToShadowTyNoVec(getShadow(&I, Op - 1), IRB);
+      Value *S = convertToShadowTyNoVec(getShadow(&I, Op), IRB);
       Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                Origin, getOrigin(&I, Op));
+                                getOrigin(&I, Op), Origin);
     }
     setOrigin(&I, Origin);
   }
