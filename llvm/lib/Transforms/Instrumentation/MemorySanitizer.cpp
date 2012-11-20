@@ -185,7 +185,7 @@ private:
   OwningPtr<BlackList> BL;
 
   friend class MemorySanitizerVisitor;
-  friend class MemorySanitizerVarArgHelper_X86_64;
+  friend class VarArgAMD64Helper;
 };
 }  // namespace
 
@@ -300,7 +300,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
 
 namespace {
 
-struct MemorySanitizerVarArgHelper {
+struct VarArgHelper {
   /// \brief Visit a CallSite.
   virtual void visitCallSite(CallSite &CS, IRBuilder<> &IRB) = 0;
 
@@ -319,7 +319,7 @@ struct MemorySanitizerVarArgHelper {
 
 struct MemorySanitizerVisitor;
 
-MemorySanitizerVarArgHelper*
+VarArgHelper*
 CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
                    MemorySanitizerVisitor &Visitor);
 
@@ -335,7 +335,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   SmallVector<PHINode *, 16> ShadowPHINodes, OriginPHINodes;
   ValueMap<Value*, Value*> ShadowMap, OriginMap;
   bool InsertChecks;
-  OwningPtr<MemorySanitizerVarArgHelper> VarArgHelper;
+  OwningPtr<VarArgHelper> VAHelper;
 
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
@@ -352,9 +352,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   };
   SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationList;
 
-  MemorySanitizerVisitor(Function &Func, MemorySanitizer &Msan)
-    : F(Func), MS(Msan),
-      VarArgHelper(CreateVarArgHelper(F, Msan, *this)) {
+  MemorySanitizerVisitor(Function &F, MemorySanitizer &MS)
+    : F(F), MS(MS), VAHelper(CreateVarArgHelper(F, MS, *this)) {
     InsertChecks = !MS.BL->isIn(F);
     DEBUG(if (!InsertChecks)
             dbgs() << "MemorySanitizer is not inserting checks into '"
@@ -414,7 +413,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       }
     }
 
-    VarArgHelper->finalizeInstrumentation();
+    VAHelper->finalizeInstrumentation();
 
     materializeChecks();
 
@@ -480,7 +479,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// address.
   ///
   /// OriginAddr = (ShadowAddr + OriginOffset) & ~3ULL
-  ///            = Addr & (~ShadowAddr & ~3ULL) + OriginOffset
+  ///            = Addr & (~ShadowMask & ~3ULL) + OriginOffset
   Value *getOriginPtr(Value *Addr, IRBuilder<> &IRB) {
     Value *ShadowLong =
       IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
@@ -1004,11 +1003,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   void visitVAStartInst(VAStartInst &I) {
-    VarArgHelper->visitVAStartInst(I);
+    VAHelper->visitVAStartInst(I);
   }
 
   void visitVACopyInst(VACopyInst &I) {
-    VarArgHelper->visitVACopyInst(I);
+    VAHelper->visitVACopyInst(I);
   }
 
   void visitCallSite(CallSite CS) {
@@ -1072,7 +1071,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     FunctionType *FT = cast<FunctionType>(CS.getCalledValue()->getType()->
         getContainedType(0));
     if (FT->isVarArg()) {
-      VarArgHelper->visitCallSite(CS, IRB);
+      VAHelper->visitCallSite(CS, IRB);
     }
 
     // Now, get the shadow for the RetVal.
@@ -1235,7 +1234,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 };
 
-struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
+struct VarArgAMD64Helper : public VarArgHelper {
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
   static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
@@ -1249,22 +1248,22 @@ struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
 
   SmallVector<CallInst*, 16> VAStartInstrumentationList;
 
-  MemorySanitizerVarArgHelper_X86_64(Function &Func, MemorySanitizer &Msan,
-      MemorySanitizerVisitor &Visitor)
-    : F(Func), MS(Msan), MSV(Visitor), VAArgTLSCopy(0), VAArgOverflowSize(0) { }
+  VarArgAMD64Helper(Function &F, MemorySanitizer &MS,
+                    MemorySanitizerVisitor &MSV)
+    : F(F), MS(MS), MSV(MSV), VAArgTLSCopy(0), VAArgOverflowSize(0) { }
 
-  enum ArgClass { ARG_GP, ARG_FP, ARG_MEMORY };
+  enum ArgKind { AK_GeneralPurpose, AK_FloatingPoint, AK_Memory };
 
-  ArgClass classifyArgument(Value* arg) {
+  ArgKind classifyArgument(Value* arg) {
     // A very rough approximation of X86_64 argument classification rules.
     Type *T = arg->getType();
     if (T->isFPOrFPVectorTy() || T->isX86_MMXTy())
-      return ARG_FP;
+      return AK_FloatingPoint;
     if (T->isIntegerTy() && T->getPrimitiveSizeInBits() <= 64)
-      return ARG_GP;
+      return AK_GeneralPurpose;
     if (T->isPointerTy())
-      return ARG_GP;
-    return ARG_MEMORY;
+      return AK_GeneralPurpose;
+    return AK_Memory;
   }
 
   // For VarArg functions, store the argument shadow in an ABI-specific format
@@ -1282,36 +1281,36 @@ struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
     for (CallSite::arg_iterator ArgIt = CS.arg_begin(), End = CS.arg_end();
          ArgIt != End; ++ArgIt) {
       Value *A = *ArgIt;
-      ArgClass arg_class = classifyArgument(A);
-      if (arg_class == ARG_GP && GpOffset >= AMD64GpEndOffset)
-        arg_class = ARG_MEMORY;
-      if (arg_class == ARG_FP && FpOffset >= AMD64FpEndOffset)
-        arg_class = ARG_MEMORY;
+      ArgKind AK = classifyArgument(A);
+      if (AK == AK_GeneralPurpose && GpOffset >= AMD64GpEndOffset)
+        AK = AK_Memory;
+      if (AK == AK_FloatingPoint && FpOffset >= AMD64FpEndOffset)
+        AK = AK_Memory;
       Value *Base;
-      switch (arg_class) {
-      case ARG_GP:
+      switch (AK) {
+      case AK_GeneralPurpose:
         Base = getShadowPtrForVAArgument(A, IRB, GpOffset);
         GpOffset += 8;
         break;
-      case ARG_FP:
+      case AK_FloatingPoint:
         Base = getShadowPtrForVAArgument(A, IRB, FpOffset);
         FpOffset += 16;
         break;
-      case ARG_MEMORY:
+      case AK_Memory:
+        uint64_t ArgSize = MS.TD->getTypeAllocSize(A->getType());
         Base = getShadowPtrForVAArgument(A, IRB, OverflowOffset);
-        OverflowOffset += DataLayout::RoundUpAlignment(MS.TD->getTypeAllocSize(
-            A->getType()), 8);
+        OverflowOffset += DataLayout::RoundUpAlignment(ArgSize, 8);
       }
       IRB.CreateStore(MSV.getShadow(A), Base);
     }
-    IRB.CreateStore(ConstantInt::get(MS.VAArgOverflowSizeTLS->getType()->
-            getElementType(), OverflowOffset - AMD64FpEndOffset),
-        MS.VAArgOverflowSizeTLS);
+    Constant *OverflowSize =
+      ConstantInt::get(IRB.getInt64Ty(), OverflowOffset - AMD64FpEndOffset);
+    IRB.CreateStore(OverflowSize, MS.VAArgOverflowSizeTLS);
   }
 
   /// \brief Compute the shadow address for a given va_arg.
   Value *getShadowPtrForVAArgument(Value *A, IRBuilder<> &IRB,
-                                    int ArgOffset) {
+                                   int ArgOffset) {
     Value *Base = IRB.CreatePointerCast(MS.VAArgTLS, MS.IntptrTy);
     Base = IRB.CreateAdd(Base, ConstantInt::get(MS.IntptrTy, ArgOffset));
     return IRB.CreateIntToPtr(Base, PointerType::get(MSV.getShadowTy(A), 0),
@@ -1327,7 +1326,7 @@ struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
     // Unpoison the whole __va_list_tag.
     // FIXME: magic ABI constants.
     IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
-        /* size */24, /* alignment */16, false);
+                     /* size */24, /* alignment */16, false);
   }
 
   void visitVACopyInst(VACopyInst &I) {
@@ -1338,20 +1337,20 @@ struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
     // Unpoison the whole __va_list_tag.
     // FIXME: magic ABI constants.
     IRB.CreateMemSet(ShadowPtr, Constant::getNullValue(IRB.getInt8Ty()),
-        /* size */ 24, /* alignment */ 16, false);
+                     /* size */ 24, /* alignment */ 16, false);
   }
 
   void finalizeInstrumentation() {
     assert(!VAArgOverflowSize && !VAArgTLSCopy &&
-        "finalizeInstrumentation called twice");
+           "finalizeInstrumentation called twice");
     if (!VAStartInstrumentationList.empty()) {
       // If there is a va_start in this function, make a backup copy of
       // va_arg_tls somewhere in the function entry block.
       IRBuilder<> IRB(F.getEntryBlock().getFirstNonPHI());
       VAArgOverflowSize = IRB.CreateLoad(MS.VAArgOverflowSizeTLS);
       Value *CopySize =
-          IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
-          VAArgOverflowSize);
+        IRB.CreateAdd(ConstantInt::get(MS.IntptrTy, AMD64FpEndOffset),
+                      VAArgOverflowSize);
       VAArgTLSCopy = IRB.CreateAlloca(Type::getInt8Ty(*MS.C), CopySize);
       IRB.CreateMemCpy(VAArgTLSCopy, MS.VAArgTLS, CopySize, 8);
     }
@@ -1363,33 +1362,35 @@ struct MemorySanitizerVarArgHelper_X86_64: public MemorySanitizerVarArgHelper {
       IRBuilder<> IRB(OrigInst->getNextNode());
       Value *VAListTag = OrigInst->getArgOperand(0);
 
-      Value *RegSaveAreaPtrPtr = IRB.CreateIntToPtr(
+      Value *RegSaveAreaPtrPtr =
+        IRB.CreateIntToPtr(
           IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
                         ConstantInt::get(MS.IntptrTy, 16)),
           Type::getInt64PtrTy(*MS.C));
       Value *RegSaveAreaPtr = IRB.CreateLoad(RegSaveAreaPtrPtr);
       Value *RegSaveAreaShadowPtr =
-          MSV.getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
+        MSV.getShadowPtr(RegSaveAreaPtr, IRB.getInt8Ty(), IRB);
       IRB.CreateMemCpy(RegSaveAreaShadowPtr, VAArgTLSCopy,
                        AMD64FpEndOffset, 16);
 
-      Value *OverflowArgAreaPtrPtr = IRB.CreateIntToPtr(
+      Value *OverflowArgAreaPtrPtr =
+        IRB.CreateIntToPtr(
           IRB.CreateAdd(IRB.CreatePtrToInt(VAListTag, MS.IntptrTy),
                         ConstantInt::get(MS.IntptrTy, 8)),
           Type::getInt64PtrTy(*MS.C));
       Value *OverflowArgAreaPtr = IRB.CreateLoad(OverflowArgAreaPtrPtr);
       Value *OverflowArgAreaShadowPtr =
-          MSV.getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
+        MSV.getShadowPtr(OverflowArgAreaPtr, IRB.getInt8Ty(), IRB);
       Value *SrcPtr =
-          getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
+        getShadowPtrForVAArgument(VAArgTLSCopy, IRB, AMD64FpEndOffset);
       IRB.CreateMemCpy(OverflowArgAreaShadowPtr, SrcPtr, VAArgOverflowSize, 16);
     }
   }
 };
 
-MemorySanitizerVarArgHelper* CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
+VarArgHelper* CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
     MemorySanitizerVisitor &Visitor) {
-  return new MemorySanitizerVarArgHelper_X86_64(Func, Msan, Visitor);
+  return new VarArgAMD64Helper(Func, Msan, Visitor);
 }
 
 }  // namespace
@@ -1402,7 +1403,7 @@ bool MemorySanitizer::runOnFunction(Function &F) {
   B.addAttribute(Attributes::ReadOnly)
     .addAttribute(Attributes::ReadNone);
   F.removeAttribute(AttrListPtr::FunctionIndex,
-      Attributes::get(F.getContext(), B));
+    Attributes::get(F.getContext(), B));
 
   return Visitor.runOnFunction();
 }
