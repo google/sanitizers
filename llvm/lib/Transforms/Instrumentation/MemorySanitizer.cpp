@@ -1076,8 +1076,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
     DEBUG(dbgs() << "  done with call args\n");
 
-    FunctionType *FT = cast<FunctionType>(CS.getCalledValue()->getType()->
-        getContainedType(0));
+    FunctionType *FT =
+      cast<FunctionType>(CS.getCalledValue()->getType()-> getContainedType(0));
     if (FT->isVarArg()) {
       VAHelper->visitCallSite(CS, IRB);
     }
