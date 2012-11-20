@@ -204,7 +204,7 @@ FunctionPass *llvm::createMemorySanitizerPass() {
 /// run-time lib. Runtime uses first 4 bytes of the string to store the
 /// frame ID, so the string needs to be mutable.
 static GlobalVariable *createPrivateNonConstGlobalForString(Module &M,
-    StringRef Str) {
+                                                            StringRef Str) {
   Constant *StrConst = ConstantDataArray::getString(M.getContext(), Str);
   return new GlobalVariable(M, StrConst->getType(), /*isConstant=*/false,
                             GlobalValue::PrivateLinkage, StrConst, "");
@@ -251,44 +251,50 @@ bool MemorySanitizer::doInitialization(Module &M) {
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
   // which is not yet implemented.
-  WarningFn = M.getOrInsertFunction(ClKeepGoing ? "__msan_warning" :
-      "__msan_warning_noreturn", IRB.getVoidTy(), NULL);
+  StringRef WarningFnName = ClKeepGoing ? "__msan_warning"
+                                        : "__msan_warning_noreturn";
+  WarningFn = M.getOrInsertFunction(WarningFnName, IRB.getVoidTy(), NULL);
 
-  MsanCopyOriginFn = M.getOrInsertFunction("__msan_copy_origin",
-    IRB.getVoidTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
-  MsanSetAllocaOriginFn = M.getOrInsertFunction("__msan_set_alloca_origin",
-    IRB.getVoidTy(),
-    IRB.getInt8PtrTy(), IntptrTy, IRB.getInt8PtrTy(), NULL);
-  MsanPoisonStackFn = M.getOrInsertFunction("__msan_poison_stack",
-    IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
-  MemmoveFn = M.getOrInsertFunction("memmove",
-    IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
+  MsanCopyOriginFn = M.getOrInsertFunction(
+    "__msan_copy_origin", IRB.getVoidTy(), IRB.getInt8PtrTy(),
+    IRB.getInt8PtrTy(), IntptrTy, NULL);
+  MsanSetAllocaOriginFn = M.getOrInsertFunction(
+    "__msan_set_alloca_origin", IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy,
+    IRB.getInt8PtrTy(), NULL);
+  MsanPoisonStackFn = M.getOrInsertFunction(
+    "__msan_poison_stack", IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
+  MemmoveFn = M.getOrInsertFunction(
+    "memmove", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
+    IntptrTy, NULL);
 
   // Create globals.
-  RetvalTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 8),
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls",
-    0, GlobalVariable::GeneralDynamicTLSModel);
-  RetvalOriginTLS = new GlobalVariable(M, OriginTy,
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_retval_origin_tls",
-    0, GlobalVariable::GeneralDynamicTLSModel);
+  RetvalTLS = new GlobalVariable(
+    M, ArrayType::get(IRB.getInt64Ty(), 8), false,
+    GlobalVariable::ExternalLinkage, 0, "__msan_retval_tls", 0,
+    GlobalVariable::GeneralDynamicTLSModel);
+  RetvalOriginTLS = new GlobalVariable(
+    M, OriginTy, false, GlobalVariable::ExternalLinkage, 0,
+    "__msan_retval_origin_tls", 0, GlobalVariable::GeneralDynamicTLSModel);
 
-  ParamTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 1000),
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_param_tls", 0,
+  ParamTLS = new GlobalVariable(
+    M, ArrayType::get(IRB.getInt64Ty(), 1000), false,
+    GlobalVariable::ExternalLinkage, 0, "__msan_param_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
-  ParamOriginTLS = new GlobalVariable(M, ArrayType::get(OriginTy, 1000),
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_param_origin_tls", 0,
-    GlobalVariable::GeneralDynamicTLSModel);
+  ParamOriginTLS = new GlobalVariable(
+    M, ArrayType::get(OriginTy, 1000), false, GlobalVariable::ExternalLinkage,
+    0, "__msan_param_origin_tls", 0, GlobalVariable::GeneralDynamicTLSModel);
 
-  VAArgTLS = new GlobalVariable(M, ArrayType::get(IRB.getInt64Ty(), 1000),
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_va_arg_tls", 0,
+  VAArgTLS = new GlobalVariable(
+    M, ArrayType::get(IRB.getInt64Ty(), 1000), false,
+    GlobalVariable::ExternalLinkage, 0, "__msan_va_arg_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
-  VAArgOverflowSizeTLS = new GlobalVariable(M, IRB.getInt64Ty(),
-    false, GlobalVariable::ExternalLinkage, 0,
+  VAArgOverflowSizeTLS = new GlobalVariable(
+    M, IRB.getInt64Ty(), false, GlobalVariable::ExternalLinkage, 0,
     "__msan_va_arg_overflow_size_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
-  OriginTLS = new GlobalVariable(M, IRB.getInt32Ty(),
-    false, GlobalVariable::ExternalLinkage, 0, "__msan_origin_tls", 0,
-    GlobalVariable::GeneralDynamicTLSModel);
+  OriginTLS = new GlobalVariable(
+    M, IRB.getInt32Ty(), false, GlobalVariable::ExternalLinkage, 0,
+    "__msan_origin_tls", 0, GlobalVariable::GeneralDynamicTLSModel);
   return true;
 }
 
@@ -313,8 +319,9 @@ struct MemorySanitizerVarArgHelper {
 
 struct MemorySanitizerVisitor;
 
-MemorySanitizerVarArgHelper* CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
-    MemorySanitizerVisitor &Visitor);
+MemorySanitizerVarArgHelper*
+CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
+                   MemorySanitizerVisitor &Visitor);
 
 // This class does all the work for a given function. Store and Load
 // instructions store and load corresponding shadow and origin
@@ -350,8 +357,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       VarArgHelper(CreateVarArgHelper(F, Msan, *this)) {
     InsertChecks = !MS.BL->isIn(F);
     DEBUG(if (!InsertChecks)
-          dbgs() << "MemorySanitizer is not inserting checks into '"
-                 << F.getName() << "'\n");
+            dbgs() << "MemorySanitizer is not inserting checks into '"
+                   << F.getName() << "'\n");
   }
 
   void materializeChecks() {
@@ -363,9 +370,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
       DEBUG(dbgs() << "  SHAD1 : " << *ConvertedShadow << "\n");
       Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
-          getCleanShadow(ConvertedShadow), "_mscmp");
-      Instruction *CheckTerm = SplitBlockAndInsertIfThen(cast<Instruction>(Cmp),
-          /* Unreachable */ !ClKeepGoing, MS.ColdCallWeights);
+                                    getCleanShadow(ConvertedShadow), "_mscmp");
+      Instruction *CheckTerm =
+        SplitBlockAndInsertIfThen(cast<Instruction>(Cmp),
+                                  /* Unreachable */ !ClKeepGoing,
+                                  MS.ColdCallWeights);
 
       IRB.SetInsertPoint(CheckTerm);
       if (ClTrackOrigins) {
@@ -462,8 +471,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Value *getShadowPtr(Value *Addr, Type *ShadowTy,
                       IRBuilder<> &IRB) {
     Value *ShadowLong =
-        IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
-                      ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask));
+      IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
+                    ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask));
     return IRB.CreateIntToPtr(ShadowLong, PointerType::get(ShadowTy, 0));
   }
 
@@ -474,11 +483,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///            = Addr & (~ShadowAddr & ~3ULL) + OriginOffset
   Value *getOriginPtr(Value *Addr, IRBuilder<> &IRB) {
     Value *ShadowLong =
-        IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
-                      ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask & ~3ULL));
+      IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
+                    ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask & ~3ULL));
     Value *Add =
-        IRB.CreateAdd(ShadowLong,
-                      ConstantInt::get(MS.IntptrTy, MS.OriginOffset));
+      IRB.CreateAdd(ShadowLong,
+                    ConstantInt::get(MS.IntptrTy, MS.OriginOffset));
     return IRB.CreateIntToPtr(Add, PointerType::get(IRB.getInt32Ty(), 0));
   }
 
@@ -600,8 +609,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
             // ByVal pointer itself has clean shadow. We copy the actual
             // argument shadow to the underlying memory.
             Value *Cpy = EntryIRB.CreateMemCpy(
-                getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
-                Base, Size, AI->getParamAlignment());
+              getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
+              Base, Size, AI->getParamAlignment());
             DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
             *ShadowPtr = getCleanShadow(V);
           } else {
@@ -611,7 +620,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                 **ShadowPtr << "\n");
           if (ClTrackOrigins)
             setOrigin(A, EntryIRB.CreateLoad(
-                getOriginPtrForArgument(AI, EntryIRB, ArgOffset)));
+              getOriginPtrForArgument(AI, EntryIRB, ArgOffset)));
         }
         ArgOffset += DataLayout::RoundUpAlignment(Size, 8);
       }
@@ -660,7 +669,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
            "Can only insert checks for integer and vector shadow types");
     Instruction *Origin = dyn_cast_or_null<Instruction>(getOrigin(Val));
     InstrumentationList.push_back(
-        ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
+      ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
   }
 
   //------------------- Visitors.
@@ -737,14 +746,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitPtrToIntInst(PtrToIntInst &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateIntCast(getShadow(&I, 0), getShadowTy(&I), false,
-            "_msprop_ptrtoint"));
+             "_msprop_ptrtoint"));
     setOrigin(&I, getOrigin(&I, 0));
   }
 
   void visitIntToPtrInst(IntToPtrInst &I) {
     IRBuilder<> IRB(&I);
     setShadow(&I, IRB.CreateIntCast(getShadow(&I, 0), getShadowTy(&I), false,
-            "_msprop_inttoptr"));
+             "_msprop_inttoptr"));
     setOrigin(&I, getOrigin(&I, 0));
   }
 
@@ -849,9 +858,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     Value *Shadow = getShadow(&I, 0);
     for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
-      Shadow = IRB.CreateOr(Shadow,
-          IRB.CreateIntCast(getShadow(&I, Op), Shadow->getType(), false),
-          "_msprop");
+      Shadow = IRB.CreateOr(
+        Shadow, IRB.CreateIntCast(getShadow(&I, Op), Shadow->getType(), false),
+        "_msprop");
     Shadow = IRB.CreateIntCast(Shadow, getShadowTy(&I), false);
     setShadow(&I, Shadow);
     setOriginForNaryOp(I);
@@ -906,8 +915,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // Si = !(C & ~Sc) && Sc
     Value *Zero = Constant::getNullValue(Sc->getType());
     Value *MinusOne = Constant::getAllOnesValue(Sc->getType());
-    Value *Si = IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
-        IRB.CreateICmpEQ(IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
+    Value *Si =
+      IRB.CreateAnd(IRB.CreateICmpNE(Sc, Zero),
+                    IRB.CreateICmpEQ(
+                      IRB.CreateAnd(IRB.CreateXor(Sc, MinusOne), C), Zero));
     Si->setName("_msprop_icmp");
     setShadow(&I, Si);
     setOriginForNaryOp(I);
@@ -984,10 +995,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// calling instrumentation twice does not lead to incorrect results.
   void visitMemMoveInst(MemMoveInst &I) {
     IRBuilder<> IRB(&I);
-    IRB.CreateCall3(MS.MemmoveFn,
-        IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
-        IRB.CreatePointerCast(I.getArgOperand(1), IRB.getInt8PtrTy()),
-        IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
+    IRB.CreateCall3(
+      MS.MemmoveFn,
+      IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
+      IRB.CreatePointerCast(I.getArgOperand(1), IRB.getInt8PtrTy()),
+      IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
     I.eraseFromParent();
   }
 
@@ -1154,11 +1166,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitSelectInst(SelectInst& I) {
     IRBuilder<> IRB(&I);
     setShadow(&I,  IRB.CreateSelect(I.getCondition(),
-            getShadow(I.getTrueValue()), getShadow(I.getFalseValue()),
-            "_msprop"));
+              getShadow(I.getTrueValue()), getShadow(I.getFalseValue()),
+              "_msprop"));
     if (ClTrackOrigins)
       setOrigin(&I, IRB.CreateSelect(I.getCondition(),
-            getOrigin(I.getTrueValue()), getOrigin(I.getFalseValue())));
+                getOrigin(I.getTrueValue()), getOrigin(I.getFalseValue())));
   }
 
   void visitLandingPadInst(LandingPadInst &I) {
