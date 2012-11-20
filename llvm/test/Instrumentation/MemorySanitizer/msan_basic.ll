@@ -24,7 +24,7 @@ declare void @foo(...)
 ; CHECK: define void @LoadAndCmp
 ; CHECK: = load
 ; CHECK: = load
-; CHECK: call void asm sideeffect "ud2"
+; CHECK: call void @__msan_warning_noreturn()
 ; CHECK: }
 
 ; Check that we store the shadow for the retval.
