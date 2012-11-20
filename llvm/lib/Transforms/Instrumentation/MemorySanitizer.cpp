@@ -300,6 +300,14 @@ bool MemorySanitizer::doInitialization(Module &M) {
 
 namespace {
 
+/// \brief A helper class that handles instrumentation of VarArg
+/// functions on a particular platform.
+///
+/// Implementations are expected to insert the instrumentation
+/// necessary to propagate argument shadow through VarArg function
+/// calls. Visit* methods are called during an InstVisitor pass over
+/// the function, and should avoid creating new basic blocks. A new
+/// instance of this class is created for each instrumented function.
 struct VarArgHelper {
   /// \brief Visit a CallSite.
   virtual void visitCallSite(CallSite &CS, IRBuilder<> &IRB) = 0;
@@ -323,12 +331,12 @@ VarArgHelper*
 CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
                    MemorySanitizerVisitor &Visitor);
 
-// This class does all the work for a given function. Store and Load
-// instructions store and load corresponding shadow and origin
-// values. Most instructions propagate shadow from arguments to their
-// return values. Certain instructions (most importantly, BranchInst)
-// test their shadow and print reports (with a runtime call) if it's
-// non-zero.
+/// This class does all the work for a given function. Store and Load
+/// instructions store and load corresponding shadow and origin
+/// values. Most instructions propagate shadow from arguments to their
+/// return values. Certain instructions (most importantly, BranchInst)
+/// test their argument shadow and print reports (with a runtime call) if it's
+/// non-zero.
 struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Function &F;
   MemorySanitizer &MS;
@@ -1234,6 +1242,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 };
 
+/// \brief AMD64-specific implementation of VarArgHelper.
 struct VarArgAMD64Helper : public VarArgHelper {
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
