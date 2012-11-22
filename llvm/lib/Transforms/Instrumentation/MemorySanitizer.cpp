@@ -383,7 +383,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         insertCheck(Addr, &I);
 
       if (ClTrackOrigins) {
-        if (ClStoreCleanOrigin) {
+        if (ClStoreCleanOrigin || isa<StructType>(Shadow->getType())) {
           IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
         } else {
           Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
