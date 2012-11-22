@@ -388,6 +388,16 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         } else {
           Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
 
+          Constant *Cst = dyn_cast_or_null<Constant>(ConvertedShadow);
+          if (Cst) {
+            // TODO(eugenis): handle non-zero constant shadow by inserting an
+            // unconditional check (can not simply fail as this could be in the dead
+            // code).
+            // assert(Cst->isNullValue() &&
+            //     "NOT HANDLED: Shadow is a non-zero compile-time constant.");
+            continue;
+          }
+
           Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
               getCleanShadow(ConvertedShadow), "_mscmp");
           Instruction *CheckTerm =
