@@ -183,6 +183,8 @@ private:
   uint64_t OriginOffset;
   /// \brief Branch weights for error reporting.
   MDNode *ColdCallWeights;
+  /// \brief Branch weights for origin store.
+  MDNode *OriginStoreWeights;
   /// \brief The blacklist.
   OwningPtr<BlackList> BL;
 
@@ -242,6 +244,7 @@ bool MemorySanitizer::doInitialization(Module &M) {
   OriginTy = IRB.getInt32Ty();
 
   ColdCallWeights = MDBuilder(*C).createBranchWeights(1, 1000);
+  OriginStoreWeights = MDBuilder(*C).createBranchWeights(1, 1000);
 
   // Insert a call to __msan_init/__msan_track_origins into the module's CTORs.
   appendToGlobalCtors(M, cast<Function>(M.getOrInsertFunction(
@@ -388,7 +391,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
               getCleanShadow(ConvertedShadow), "_mscmp");
           Instruction *CheckTerm =
-            SplitBlockAndInsertIfThen(cast<Instruction>(Cmp), false);
+            SplitBlockAndInsertIfThen(cast<Instruction>(Cmp), false, MS.OriginStoreWeights);
           IRBuilder<> IRBNewBlock(CheckTerm);
           IRBNewBlock.CreateAlignedStore(getOrigin(Val),
               getOriginPtr(Addr, IRBNewBlock), I.getAlignment());
