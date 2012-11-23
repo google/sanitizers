@@ -44,6 +44,14 @@ INTERCEPTOR(size_t, fread, void *ptr, size_t size, size_t nmemb, void *file) {
   return res;
 }
 
+INTERCEPTOR(size_t, fread_unlocked, void *ptr, size_t size, size_t nmemb, void *file) {
+  ENSURE_MSAN_INITED();
+  size_t res = REAL(fread_unlocked)(ptr, size, nmemb, file);
+  if (res > 0)
+    __msan_unpoison(ptr, res * size);
+  return res;
+}
+
 INTERCEPTOR(ssize_t, read, int fd, void *ptr, size_t count) {
   ENSURE_MSAN_INITED();
   ssize_t res = REAL(read)(fd, ptr, count);
@@ -480,6 +488,14 @@ INTERCEPTOR(char*, fgets, char* s, int size, void* stream) {
   return res;
 }
 
+INTERCEPTOR(char*, fgets_unlocked, char* s, int size, void* stream) {
+  ENSURE_MSAN_INITED();
+  char* res = REAL(fgets_unlocked)(s, size, stream);
+  if (res)
+    __msan_unpoison(s, REAL(strlen)(s) + 1);
+  return res;
+}
+
 INTERCEPTOR(char*, getcwd, char* buf, size_t size) {
   ENSURE_MSAN_INITED();
   char* res = REAL(getcwd)(buf, size);
@@ -749,6 +765,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(realloc));
   CHECK(INTERCEPT_FUNCTION(free));
   CHECK(INTERCEPT_FUNCTION(fread));
+  CHECK(INTERCEPT_FUNCTION(fread_unlocked));
   CHECK(INTERCEPT_FUNCTION(read));
   CHECK(INTERCEPT_FUNCTION(pread));
   CHECK(INTERCEPT_FUNCTION(pread64));
@@ -799,6 +816,7 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(wait));
   CHECK(INTERCEPT_FUNCTION(waitpid));
   CHECK(INTERCEPT_FUNCTION(fgets));
+  CHECK(INTERCEPT_FUNCTION(fgets_unlocked));
   CHECK(INTERCEPT_FUNCTION(getcwd));
   CHECK(INTERCEPT_FUNCTION(realpath));
   CHECK(INTERCEPT_FUNCTION(getrlimit));
