@@ -1,3 +1,4 @@
+#include "msan.h"
 #include "msan_platform_limits.h"
 
 #include <sys/utsname.h>
@@ -6,6 +7,7 @@
 #include <sys/resource.h>
 #include <sys/vfs.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <dirent.h>
 
 
@@ -19,4 +21,16 @@ namespace __msan {
   unsigned struct_statfs_sz = sizeof(struct statfs);
   unsigned struct_statfs64_sz = sizeof(struct statfs64);
   unsigned struct_epoll_event_sz = sizeof(struct epoll_event);
+
+  void* __msan_get_msghdr_iov_iov_base(void* msg, int idx) {
+    return ((struct msghdr *)msg)->msg_iov[idx].iov_base;
+  }
+
+  uptr __msan_get_msghdr_iov_iov_len(void* msg, int idx) {
+    return ((struct msghdr *)msg)->msg_iov[idx].iov_len;
+  }
+
+  uptr __msan_get_msghdr_iovlen(void* msg) {
+    return ((struct msghdr *)msg)->msg_iovlen;
+  }
 };

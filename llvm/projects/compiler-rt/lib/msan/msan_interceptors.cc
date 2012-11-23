@@ -577,6 +577,34 @@ INTERCEPTOR(int, epoll_pwait, int epfd, void* events, int maxevents,
   return res;
 }
 
+INTERCEPTOR(ssize_t, recv, int fd, void *buf, size_t len, int flags) {
+  ENSURE_MSAN_INITED();
+  ssize_t res = REAL(recv)(fd, buf, len, flags);
+  if (res > 0)
+    __msan_unpoison(buf, res);
+  return res;
+}
+
+INTERCEPTOR(ssize_t, recvfrom, int fd, void *buf, size_t len, int flags,
+    void* srcaddr, void* addrlen) {
+  ENSURE_MSAN_INITED();
+  ssize_t res = REAL(recvfrom)(fd, buf, len, flags, srcaddr, addrlen);
+  if (res > 0)
+    __msan_unpoison(buf, res);
+  return res;
+}
+
+INTERCEPTOR(ssize_t, recvmsg, int fd, struct msghdr *msg, int flags) {
+  ENSURE_MSAN_INITED();
+  ssize_t res = REAL(recvmsg)(fd, msg, flags);
+  if (res > 0) {
+    for (int i = 0; i < __msan_get_msghdr_iovlen(msg); ++i)
+      __msan_unpoison(__msan_get_msghdr_iov_iov_base(msg, i),
+          __msan_get_msghdr_iov_iov_len(msg, i));
+  }
+  return res;
+}
+
 INTERCEPTOR(void *, calloc, size_t nmemb, size_t size) {
   GET_MALLOC_STACK_TRACE;
   if (!msan_inited) {
@@ -782,5 +810,8 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(uname));
   CHECK(INTERCEPT_FUNCTION(epoll_wait));
   CHECK(INTERCEPT_FUNCTION(epoll_pwait));
+  CHECK(INTERCEPT_FUNCTION(recv));
+  CHECK(INTERCEPT_FUNCTION(recvfrom));
+  CHECK(INTERCEPT_FUNCTION(recvmsg));
 }
 }  // namespace __msan
