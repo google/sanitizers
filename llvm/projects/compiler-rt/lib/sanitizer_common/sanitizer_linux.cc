@@ -31,12 +31,21 @@
 #include <unistd.h>
 #include <errno.h>
 
+// Are we using 32-bit or 64-bit syscalls?
+// x32 (which defines __x86_64__) has SANITIZER_WORDSIZE == 32
+// but it still needs to use 64-bit syscalls.
+#if defined(__x86_64__) || SANITIZER_WORDSIZE == 64
+# define SANITIZER_LINUX_USES_64BIT_SYSCALLS 1
+#else
+# define SANITIZER_LINUX_USES_64BIT_SYSCALLS 0
+#endif
+
 namespace __sanitizer {
 
 // --------------- sanitizer_libc.h
 void *internal_mmap(void *addr, uptr length, int prot, int flags,
                     int fd, u64 offset) {
-#if __WORDSIZE == 64
+#if SANITIZER_LINUX_USES_64BIT_SYSCALLS
   return (void *)syscall(__NR_mmap, addr, length, prot, flags, fd, offset);
 #else
   return (void *)syscall(__NR_mmap2, addr, length, prot, flags, fd, offset);
@@ -69,7 +78,7 @@ uptr internal_write(fd_t fd, const void *buf, uptr count) {
 }
 
 uptr internal_filesize(fd_t fd) {
-#if __WORDSIZE == 64
+#if SANITIZER_LINUX_USES_64BIT_SYSCALLS
   struct stat st;
   if (syscall(__NR_fstat, fd, &st))
     return -1;
@@ -94,6 +103,20 @@ int internal_sched_yield() {
 }
 
 // ----------------- sanitizer_common.h
+bool FileExists(const char *filename) {
+#if SANITIZER_LINUX_USES_64BIT_SYSCALLS
+  struct stat st;
+  if (syscall(__NR_stat, filename, &st))
+    return false;
+#else
+  struct stat64 st;
+  if (syscall(__NR_stat64, filename, &st))
+    return false;
+#endif
+  // Sanity check: filename is a regular file.
+  return S_ISREG(st.st_mode);
+}
+
 uptr GetTid() {
   return syscall(__NR_gettid);
 }

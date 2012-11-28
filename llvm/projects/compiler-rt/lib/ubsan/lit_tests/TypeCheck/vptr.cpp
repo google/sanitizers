@@ -1,4 +1,4 @@
-// RUN: %clang -ccc-cxx -fcatch-undefined-behavior %s -O3 -o %t
+// RUN: %clang -ccc-cxx -fsanitize=vptr %s -O3 -o %t
 // RUN: %t rT && %t mT && %t fT
 // RUN: %t rU && %t mU && %t fU
 // RUN: %t rS 2>&1 | FileCheck %s --check-prefix=CHECK-REFERENCE
@@ -7,6 +7,9 @@
 // RUN: %t rV 2>&1 | FileCheck %s --check-prefix=CHECK-REFERENCE
 // RUN: %t mV 2>&1 | FileCheck %s --check-prefix=CHECK-MEMBER
 // RUN: %t fV 2>&1 | FileCheck %s --check-prefix=CHECK-MEMFUN
+
+// FIXME: This test produces linker errors on Darwin.
+// XFAIL: darwin
 
 struct S {
   S() : a(0) {}
@@ -61,14 +64,14 @@ int main(int, char **argv) {
 
   switch (argv[1][0]) {
   case 'r':
-    // CHECK-REFERENCE: vptr.cpp:65:13: fatal error: reference binding to address 0x{{[0-9a-f]*}} which does not point to an object of type 'T'
+    // CHECK-REFERENCE: vptr.cpp:[[@LINE+1]]:13: fatal error: reference binding to address 0x{{[0-9a-f]*}} which does not point to an object of type 'T'
     {T &r = *p;}
     break;
   case 'm':
-    // CHECK-MEMBER: vptr.cpp:69:15: fatal error: member access within address 0x{{[0-9a-f]*}} which does not point to an object of type 'T'
+    // CHECK-MEMBER: vptr.cpp:[[@LINE+1]]:15: fatal error: member access within address 0x{{[0-9a-f]*}} which does not point to an object of type 'T'
     return p->b;
   case 'f':
-    // CHECK-MEMFUN: vptr.cpp:72:12: fatal error: member call on address 0x{{[0-9a-f]*}} which does not point to an object of type 'T'
+    // CHECK-MEMFUN: vptr.cpp:[[@LINE+1]]:12: fatal error: member call on address 0x{{[0-9a-f]*}} which does not point to an object of type 'T'
     return p->g();
   }
 }

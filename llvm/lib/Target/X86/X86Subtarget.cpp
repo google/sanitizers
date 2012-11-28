@@ -302,6 +302,10 @@ void X86Subtarget::AutoDetectSubtargetFeatures() {
         HasBMI2 = true;
         ToggleFeature(X86::FeatureBMI2);
       }
+      if (IsIntel && ((EBX >> 11) & 0x1)) {
+        HasRTM = true;
+        ToggleFeature(X86::FeatureRTM);
+      }
     }
   }
 }
@@ -330,6 +334,7 @@ X86Subtarget::X86Subtarget(const std::string &TT, const std::string &CPU,
   , HasLZCNT(false)
   , HasBMI(false)
   , HasBMI2(false)
+  , HasRTM(false)
   , IsBTMemSlow(false)
   , IsUAMemFast(false)
   , HasVectorUAMem(false)
@@ -410,12 +415,12 @@ X86Subtarget::X86Subtarget(const std::string &TT, const std::string &CPU,
   assert((!In64BitMode || HasX86_64) &&
          "64-bit code requested on a subtarget that doesn't support it!");
 
-  // Stack alignment is 16 bytes on Darwin, FreeBSD, Linux and Solaris (both
+  // Stack alignment is 16 bytes on Darwin, Linux and Solaris (both
   // 32 and 64 bit) and for all 64-bit targets.
   if (StackAlignOverride)
     stackAlignment = StackAlignOverride;
-  else if (isTargetDarwin() || isTargetFreeBSD() || isTargetLinux() ||
-           isTargetSolaris() || In64BitMode)
+  else if (isTargetDarwin() || isTargetLinux() || isTargetSolaris() ||
+           In64BitMode)
     stackAlignment = 16;
 }
 

@@ -113,6 +113,10 @@ namespace {
   cl::opt<bool> WithoutAliases("without-aliases", cl::Hidden,
                                cl::desc("Exclude aliases from output"));
 
+  cl::opt<bool> ArchiveMap("print-armap",
+    cl::desc("Print the archive map"));
+  cl::alias ArchiveMaps("s", cl::desc("Alias for --print-armap"),
+                                 cl::aliasopt(ArchiveMap));
   bool PrintAddress = true;
 
   bool MultipleFiles = false;
@@ -146,6 +150,8 @@ namespace {
       return true;
     else if (a.Address == b.Address && a.Name < b.Name)
       return true;
+    else if (a.Address == b.Address && a.Name == b.Name && a.Size < b.Size)
+      return true;
     else
       return false;
 
@@ -156,12 +162,21 @@ namespace {
       return true;
     else if (a.Size == b.Size && a.Name < b.Name)
       return true;
+    else if (a.Size == b.Size && a.Name == b.Name && a.Address < b.Address)
+      return true;
     else
       return false;
   }
 
   static bool CompareSymbolName(const NMSymbol &a, const NMSymbol &b) {
-    return a.Name < b.Name;
+    if (a.Name < b.Name)
+      return true;
+    else if (a.Name == b.Name && a.Size < b.Size)
+      return true;
+    else if (a.Name == b.Name && a.Size == b.Size && a.Address < b.Address)
+      return true;
+    else
+      return false;
   }
 
   StringRef CurrentFilename;
@@ -346,6 +361,24 @@ static void DumpSymbolNamesFromFile(std::string &Filename) {
       return;
 
     if (object::Archive *a = dyn_cast<object::Archive>(arch.get())) {
+      if (ArchiveMap) {
+        outs() << "Archive map" << "\n";
+        for (object::Archive::symbol_iterator i = a->begin_symbols(), 
+             e = a->end_symbols(); i != e; ++i) {
+          object::Archive::child_iterator c;
+          StringRef symname;
+          StringRef filename;
+          if (error(i->getMember(c))) 
+              return;
+          if (error(i->getName(symname)))
+              return;
+          if (error(c->getName(filename)))
+              return;
+          outs() << symname << " in " << filename << "\n";
+        }
+        outs() << "\n";
+      }
+
       for (object::Archive::child_iterator i = a->begin_children(),
                                            e = a->end_children(); i != e; ++i) {
         OwningPtr<Binary> child;

@@ -122,7 +122,6 @@ public:
   llvm::BitstreamCursor Stream;
 
   /// \brief The source location where this module was first imported.
-  /// FIXME: This is not properly initialized yet.
   SourceLocation ImportLoc;
 
   /// \brief The first source location in this module.
@@ -384,11 +383,6 @@ public:
 
   /// \brief Diagnostic IDs and their mappings that the user changed.
   SmallVector<uint64_t, 8> PragmaDiagMappings;
-
-  /// \brief The AST stat cache installed for this file, if any.
-  ///
-  /// The dynamic type of this stat cache is always ASTStatCache
-  void *StatCache;
 
   /// \brief List of modules which depend on this module
   llvm::SetVector<ModuleFile *> ImportedBy;

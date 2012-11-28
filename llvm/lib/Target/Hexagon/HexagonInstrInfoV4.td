@@ -1002,108 +1002,6 @@ def LDriw_indexed_shl_cdnNotPt_V4 : LDInst2<(outs IntRegs:$dst),
                     []>,
                     Requires<[HasV4T]>;
 
-// Rd=memw(Rt<<#u2+#U6)
-
-
-// Post-inc Load, Predicated, Dot new
-
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDrid_cdnPt_V4 : LDInst2PI<(outs DoubleRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_3Imm:$src3),
-            "if ($src1.new) $dst1 = memd($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDrid_cdnNotPt_V4 : LDInst2PI<(outs DoubleRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_3Imm:$src3),
-            "if (!$src1.new) $dst1 = memd($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDrib_cdnPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_0Imm:$src3),
-            "if ($src1.new) $dst1 = memb($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDrib_cdnNotPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_0Imm:$src3),
-            "if (!$src1.new) $dst1 = memb($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDrih_cdnPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_1Imm:$src3),
-            "if ($src1.new) $dst1 = memh($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDrih_cdnNotPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_1Imm:$src3),
-            "if (!$src1.new) $dst1 = memh($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDriub_cdnPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_0Imm:$src3),
-            "if ($src1.new) $dst1 = memub($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDriub_cdnNotPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_0Imm:$src3),
-            "if (!$src1.new) $dst1 = memub($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDriuh_cdnPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_1Imm:$src3),
-            "if ($src1.new) $dst1 = memuh($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDriuh_cdnNotPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_1Imm:$src3),
-            "if (!$src1.new) $dst1 = memuh($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDriw_cdnPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_2Imm:$src3),
-            "if ($src1.new) $dst1 = memw($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
-let hasCtrlDep = 1, neverHasSideEffects = 1, isPredicated = 1 in
-def POST_LDriw_cdnNotPt_V4 : LDInst2PI<(outs IntRegs:$dst1, IntRegs:$dst2),
-            (ins PredRegs:$src1, IntRegs:$src2, s4_2Imm:$src3),
-            "if (!$src1.new) $dst1 = memw($src2++#$src3)",
-            [],
-            "$src2 = $dst2">,
-            Requires<[HasV4T]>;
-
 /// Load from global offset
 
 let isPredicable = 1, neverHasSideEffects = 1 in
@@ -4519,18 +4417,6 @@ def LSRd_rr_xor_V4 : MInst_acc<(outs DoubleRegs:$dst),
 //===----------------------------------------------------------------------===//
 
 
-// MEMw_ADDSUBi_indexed_V4:
-//   pseudo operation for MEMw_ADDi_indexed_V4 and
-//   MEMw_SUBi_indexed_V4 a later pass will change it
-//   to the corresponding pattern.
-let AddedComplexity = 30 in
-def MEMw_ADDSUBi_indexed_MEM_V4 : MEMInst_V4<(outs),
-            (ins IntRegs:$base, u6_2Imm:$offset, m6Imm:$addend),
-            "Error; should not emit",
-            [(store (add (load (add (i32 IntRegs:$base), u6_2ImmPred:$offset)),
-                         m6ImmPred:$addend),
-                    (add (i32 IntRegs:$base), u6_2ImmPred:$offset))]>,
-            Requires<[HasV4T, UseMEMOP]>;
 
 // memw(Rs+#u6:2) += #U5
 let AddedComplexity = 30 in
@@ -4586,17 +4472,6 @@ def MEMw_ORr_indexed_MEM_V4 : MEMInst_V4<(outs),
             [(store (or (load (add (i32 IntRegs:$base), u6_2ImmPred:$offset)),
                         (i32 IntRegs:$orend)),
                     (add (i32 IntRegs:$base), u6_2ImmPred:$offset))]>,
-            Requires<[HasV4T, UseMEMOP]>;
-
-// MEMw_ADDSUBi_V4:
-//   Pseudo operation for MEMw_ADDi_V4 and MEMw_SUBi_V4
-//   a later pass will change it to the right pattern.
-let AddedComplexity = 30 in
-def MEMw_ADDSUBi_MEM_V4 : MEMInst_V4<(outs),
-            (ins MEMri:$addr, m6Imm:$addend),
-            "Error; should not emit",
-            [(store (add (load ADDRriU6_2:$addr), m6ImmPred:$addend),
-                    ADDRriU6_2:$addr)]>,
             Requires<[HasV4T, UseMEMOP]>;
 
 // memw(Rs+#u6:2) += #U5
@@ -4676,20 +4551,6 @@ def MEMw_ORr_MEM_V4 : MEMInst_V4<(outs),
 //===----------------------------------------------------------------------===//
 
 
-// MEMh_ADDSUBi_indexed_V4:
-//   Pseudo operation for MEMh_ADDi_indexed_V4 and
-//   MEMh_SUBi_indexed_V4 a later pass will change it
-//   to the corresponding pattern.
-let AddedComplexity = 30 in
-def MEMh_ADDSUBi_indexed_MEM_V4 : MEMInst_V4<(outs),
-            (ins IntRegs:$base, u6_1Imm:$offset, m6Imm:$addend),
-            "Error; should not emit",
-            [(truncstorei16 (add (sextloadi16 (add (i32 IntRegs:$base),
-                                                   u6_1ImmPred:$offset)),
-                                 m6ImmPred:$addend),
-                            (add (i32 IntRegs:$base), u6_1ImmPred:$offset))]>,
-            Requires<[HasV4T, UseMEMOP]>;
-
 // memh(Rs+#u6:1) += #U5
 let AddedComplexity = 30 in
 def MEMh_ADDi_indexed_MEM_V4 : MEMInst_V4<(outs),
@@ -4748,17 +4609,6 @@ def MEMh_ORr_indexed_MEM_V4 : MEMInst_V4<(outs),
                                               u6_1ImmPred:$offset)),
                              (i32 IntRegs:$orend)),
                             (add (i32 IntRegs:$base), u6_1ImmPred:$offset))]>,
-            Requires<[HasV4T, UseMEMOP]>;
-
-// MEMh_ADDSUBi_V4:
-//   Pseudo operation for MEMh_ADDi_V4 and MEMh_SUBi_V4
-//   a later pass will change it to the right pattern.
-let AddedComplexity = 30 in
-def MEMh_ADDSUBi_MEM_V4 : MEMInst_V4<(outs),
-            (ins MEMri:$addr, m6Imm:$addend),
-            "Error; should not emit",
-            [(truncstorei16 (add (sextloadi16 ADDRriU6_1:$addr),
-                                 m6ImmPred:$addend), ADDRriU6_1:$addr)]>,
             Requires<[HasV4T, UseMEMOP]>;
 
 // memh(Rs+#u6:1) += #U5
@@ -4838,21 +4688,6 @@ def MEMh_ORr_MEM_V4 : MEMInst_V4<(outs),
 //     MEMb_SETi_V4          : memb(Rs+#u6:0)=setbit(#U5)
 //===----------------------------------------------------------------------===//
 
-
-// MEMb_ADDSUBi_indexed_V4:
-//   Pseudo operation for MEMb_ADDi_indexed_V4 and
-//   MEMb_SUBi_indexed_V4 a later pass will change it
-//   to the corresponding pattern.
-let AddedComplexity = 30 in
-def MEMb_ADDSUBi_indexed_MEM_V4 : MEMInst_V4<(outs),
-            (ins IntRegs:$base, u6_0Imm:$offset, m6Imm:$addend),
-            "Error; should not emit",
-            [(truncstorei8 (add (sextloadi8 (add (i32 IntRegs:$base),
-                                                 u6_0ImmPred:$offset)),
-                                m6ImmPred:$addend),
-                           (add (i32 IntRegs:$base), u6_0ImmPred:$offset))]>,
-            Requires<[HasV4T, UseMEMOP]>;
-
 // memb(Rs+#u6:0) += #U5
 let AddedComplexity = 30 in
 def MEMb_ADDi_indexed_MEM_V4 : MEMInst_V4<(outs),
@@ -4911,17 +4746,6 @@ def MEMb_ORr_indexed_MEM_V4 : MEMInst_V4<(outs),
                                                 u6_0ImmPred:$offset)),
                                (i32 IntRegs:$orend)),
                            (add (i32 IntRegs:$base), u6_0ImmPred:$offset))]>,
-            Requires<[HasV4T, UseMEMOP]>;
-
-// MEMb_ADDSUBi_V4:
-//   Pseudo operation for MEMb_ADDi_V4 and MEMb_SUBi_V4
-//   a later pass will change it to the right pattern.
-let AddedComplexity = 30 in
-def MEMb_ADDSUBi_MEM_V4 : MEMInst_V4<(outs),
-            (ins MEMri:$addr, m6Imm:$addend),
-            "Error; should not emit",
-            [(truncstorei8 (add (sextloadi8 ADDRriU6_0:$addr),
-                                m6ImmPred:$addend), ADDRriU6_0:$addr)]>,
             Requires<[HasV4T, UseMEMOP]>;
 
 // memb(Rs+#u6:0) += #U5

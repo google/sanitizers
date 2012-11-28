@@ -18,6 +18,16 @@
 // of memory references in a function, returning either NULL, for no dependence,
 // or a more-or-less detailed description of the dependence between them.
 //
+// This pass exists to support the DependenceGraph pass. There are two separate
+// passes because there's a useful separation of concerns. A dependence exists
+// if two conditions are met:
+//
+//    1) Two instructions reference the same memory location, and
+//    2) There is a flow of control leading from one instruction to the other.
+//
+// DependenceAnalysis attacks the first condition; DependenceGraph will attack
+// the second (it's not yet ready).
+//
 // Please note that this is work in progress and the interface is subject to
 // change.
 //
@@ -53,8 +63,8 @@ namespace llvm {
   /// input dependences are unordered.
   class Dependence {
   public:
-    Dependence(const Instruction *Source,
-               const Instruction *Destination) :
+    Dependence(Instruction *Source,
+               Instruction *Destination) :
       Src(Source), Dst(Destination) {}
     virtual ~Dependence() {}
 
@@ -82,11 +92,11 @@ namespace llvm {
 
     /// getSrc - Returns the source instruction for this dependence.
     ///
-    const Instruction *getSrc() const { return Src; }
+    Instruction *getSrc() const { return Src; }
 
     /// getDst - Returns the destination instruction for this dependence.
     ///
-    const Instruction *getDst() const { return Dst; }
+    Instruction *getDst() const { return Dst; }
 
     /// isInput - Returns true if this is an input dependence.
     ///
@@ -158,7 +168,7 @@ namespace llvm {
     ///
     void dump(raw_ostream &OS) const;
   private:
-    const Instruction *Src, *Dst;
+    Instruction *Src, *Dst;
     friend class DependenceAnalysis;
   };
 
@@ -173,8 +183,8 @@ namespace llvm {
   /// input dependences are unordered.
   class FullDependence : public Dependence {
   public:
-    FullDependence(const Instruction *Src,
-                   const Instruction *Dst,
+    FullDependence(Instruction *Src,
+                   Instruction *Dst,
                    bool LoopIndependent,
                    unsigned Levels);
     ~FullDependence() {
@@ -243,8 +253,8 @@ namespace llvm {
     /// The flag PossiblyLoopIndependent should be set by the caller
     /// if it appears that control flow can reach from Src to Dst
     /// without traversing a loop back edge.
-    Dependence *depends(const Instruction *Src,
-                        const Instruction *Dst,
+    Dependence *depends(Instruction *Src,
+                        Instruction *Dst,
                         bool PossiblyLoopIndependent);
 
     /// getSplitIteration - Give a dependence that's splitable at some

@@ -117,7 +117,7 @@ void NilArgChecker::WarnNilArg(CheckerContext &C,
 
     BugReport *R = new BugReport(*BT, os.str(), N);
     R->addRange(msg.getArgSourceRange(Arg));
-    C.EmitReport(R);
+    C.emitReport(R);
   }
 }
 
@@ -358,20 +358,20 @@ void CFNumberCreateChecker::checkPreStmt(const CallExpr *CE,
     
     BugReport *report = new BugReport(*BT, os.str(), N);
     report->addRange(CE->getArg(2)->getSourceRange());
-    C.EmitReport(report);
+    C.emitReport(report);
   }
 }
 
 //===----------------------------------------------------------------------===//
-// CFRetain/CFRelease checking for null arguments.
+// CFRetain/CFRelease/CFMakeCollectable checking for null arguments.
 //===----------------------------------------------------------------------===//
 
 namespace {
 class CFRetainReleaseChecker : public Checker< check::PreStmt<CallExpr> > {
   mutable OwningPtr<APIMisuse> BT;
-  mutable IdentifierInfo *Retain, *Release;
+  mutable IdentifierInfo *Retain, *Release, *MakeCollectable;
 public:
-  CFRetainReleaseChecker(): Retain(0), Release(0) {}
+  CFRetainReleaseChecker(): Retain(0), Release(0), MakeCollectable(0) {}
   void checkPreStmt(const CallExpr *CE, CheckerContext &C) const;
 };
 } // end anonymous namespace
@@ -392,12 +392,14 @@ void CFRetainReleaseChecker::checkPreStmt(const CallExpr *CE,
     ASTContext &Ctx = C.getASTContext();
     Retain = &Ctx.Idents.get("CFRetain");
     Release = &Ctx.Idents.get("CFRelease");
-    BT.reset(new APIMisuse("null passed to CFRetain/CFRelease"));
+    MakeCollectable = &Ctx.Idents.get("CFMakeCollectable");
+    BT.reset(
+      new APIMisuse("null passed to CFRetain/CFRelease/CFMakeCollectable"));
   }
 
-  // Check if we called CFRetain/CFRelease.
+  // Check if we called CFRetain/CFRelease/CFMakeCollectable.
   const IdentifierInfo *FuncII = FD->getIdentifier();
-  if (!(FuncII == Retain || FuncII == Release))
+  if (!(FuncII == Retain || FuncII == Release || FuncII == MakeCollectable))
     return;
 
   // FIXME: The rest of this just checks that the argument is non-null.
@@ -426,14 +428,20 @@ void CFRetainReleaseChecker::checkPreStmt(const CallExpr *CE,
     if (!N)
       return;
 
-    const char *description = (FuncII == Retain)
-                            ? "Null pointer argument in call to CFRetain"
-                            : "Null pointer argument in call to CFRelease";
+    const char *description;
+    if (FuncII == Retain)
+      description = "Null pointer argument in call to CFRetain";
+    else if (FuncII == Release)
+      description = "Null pointer argument in call to CFRelease";
+    else if (FuncII == MakeCollectable)
+      description = "Null pointer argument in call to CFMakeCollectable";
+    else
+      llvm_unreachable("impossible case");
 
     BugReport *report = new BugReport(*BT, description, N);
     report->addRange(Arg->getSourceRange());
     bugreporter::trackNullOrUndefValue(N, Arg, *report);
-    C.EmitReport(report);
+    C.emitReport(report);
     return;
   }
 
@@ -491,7 +499,7 @@ void ClassReleaseChecker::checkPreObjCMessage(const ObjCMethodCall &msg,
   
     BugReport *report = new BugReport(*BT, os.str(), N);
     report->addRange(msg.getSourceRange());
-    C.EmitReport(report);
+    C.emitReport(report);
   }
 }
 
@@ -644,7 +652,7 @@ void VariadicMethodTypeChecker::checkPreObjCMessage(const ObjCMethodCall &msg,
 
     BugReport *R = new BugReport(*BT, os.str(), errorNode.getValue());
     R->addRange(msg.getArgSourceRange(I));
-    C.EmitReport(R);
+    C.emitReport(R);
   }
 }
 
@@ -763,7 +771,7 @@ void ObjCNonNilReturnValueChecker::checkPostObjCMessage(const ObjCMethodCall &M,
     // since 'nil' is rarely returned in practice, we should not warn when the
     // caller to the defensive constructor uses the object in contexts where
     // 'nil' is not accepted.
-    if (C.isWithinInlined() && M.getDecl() &&
+    if (!C.inTopFrame() && M.getDecl() &&
         M.getDecl()->getMethodFamily() == OMF_init &&
         M.isReceiverSelfOrSuper()) {
       State = assumeExprIsNonNull(M.getOriginExpr(), State, C);

@@ -39,7 +39,7 @@ static ASTReader *createASTReader(CompilerInstance &CI,
     Reader->addInMemoryBuffer(sr, memBufs[ti]);
   }
   Reader->setDeserializationListener(deserialListener);
-  switch (Reader->ReadAST(pchFile, serialization::MK_PCH,
+  switch (Reader->ReadAST(pchFile, serialization::MK_PCH, SourceLocation(),
                           ASTReader::ARR_None)) {
   case ASTReader::Success:
     // Set the predefines buffer as suggested by the PCH reader.
@@ -67,7 +67,7 @@ ChainedIncludesSource *ChainedIncludesSource::create(CompilerInstance &CI) {
   assert(!includes.empty() && "No '-chain-include' in options!");
 
   OwningPtr<ChainedIncludesSource> source(new ChainedIncludesSource());
-  InputKind IK = CI.getFrontendOpts().Inputs[0].Kind;
+  InputKind IK = CI.getFrontendOpts().Inputs[0].getKind();
 
   SmallVector<llvm::MemoryBuffer *, 4> serialBufs;
   SmallVector<std::string, 4> serialBufNames;
@@ -86,8 +86,8 @@ ChainedIncludesSource *ChainedIncludesSource::create(CompilerInstance &CI) {
     CInvok->getPreprocessorOpts().Macros.clear();
     
     CInvok->getFrontendOpts().Inputs.clear();
-    CInvok->getFrontendOpts().Inputs.push_back(FrontendInputFile(includes[i],
-                                                                 IK));
+    FrontendInputFile InputFile(includes[i], IK);
+    CInvok->getFrontendOpts().Inputs.push_back(InputFile);
 
     TextDiagnosticPrinter *DiagClient =
       new TextDiagnosticPrinter(llvm::errs(), new DiagnosticOptions());
@@ -99,7 +99,7 @@ ChainedIncludesSource *ChainedIncludesSource::create(CompilerInstance &CI) {
     Clang->setInvocation(CInvok.take());
     Clang->setDiagnostics(Diags.getPtr());
     Clang->setTarget(TargetInfo::CreateTargetInfo(Clang->getDiagnostics(),
-                                                  Clang->getTargetOpts()));
+                                                  &Clang->getTargetOpts()));
     Clang->createFileManager();
     Clang->createSourceManager(Clang->getFileManager());
     Clang->createPreprocessor();
@@ -147,7 +147,7 @@ ChainedIncludesSource *ChainedIncludesSource::create(CompilerInstance &CI) {
       Clang->getASTContext().setExternalSource(Reader);
     }
     
-    if (!Clang->InitializeSourceManager(includes[i]))
+    if (!Clang->InitializeSourceManager(InputFile))
       return 0;
 
     ParseAST(Clang->getSema());

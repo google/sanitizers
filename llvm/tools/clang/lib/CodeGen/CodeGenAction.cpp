@@ -65,9 +65,11 @@ namespace clang {
       TargetOpts(targetopts),
       LangOpts(langopts),
       AsmOutStream(OS),
+      Context(), 
       LLVMIRGeneration("LLVM IR Generation Time"),
       Gen(CreateLLVMCodeGen(Diags, infile, compopts, C)),
-      LinkModule(LinkModule) {
+      LinkModule(LinkModule)
+    {
       llvm::TimePassesIsEnabled = TimePasses;
     }
 
@@ -379,7 +381,7 @@ void CodeGenAction::ExecuteAction() {
     // FIXME: This is stupid, IRReader shouldn't take ownership.
     llvm::MemoryBuffer *MainFileCopy =
       llvm::MemoryBuffer::getMemBufferCopy(MainFile->getBuffer(),
-                                           getCurrentFile().c_str());
+                                           getCurrentFile());
 
     llvm::SMDiagnostic Err;
     TheModule.reset(ParseIR(MainFileCopy, Err, *VMContext));

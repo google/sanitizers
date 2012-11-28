@@ -134,10 +134,13 @@ AddCodeToMergeInOperand(Record *R, BitsInit *BI, const std::string &VarName,
     assert(!CGI.Operands.isFlatOperandNotEmitted(OpIdx) &&
            "Explicitly used operand also marked as not emitted!");
   } else {
+    unsigned NumberOps = CGI.Operands.size();
     /// If this operand is not supposed to be emitted by the
     /// generated emitter, skip it.
-    while (CGI.Operands.isFlatOperandNotEmitted(NumberedOp))
+    while (NumberedOp < NumberOps &&
+           CGI.Operands.isFlatOperandNotEmitted(NumberedOp))
       ++NumberedOp;
+
     OpIdx = NumberedOp++;
   }
   

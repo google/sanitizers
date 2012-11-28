@@ -225,20 +225,16 @@ getGlobalAddressWrapper(SDValue GA, const GlobalValue *GV,
 {
   // FIXME there is no actual debug info here
   DebugLoc dl = GA.getDebugLoc();
-  if (isa<Function>(GV)) {
-    return DAG.getNode(XCoreISD::PCRelativeWrapper, dl, MVT::i32, GA);
+  const GlobalValue *UnderlyingGV = GV;
+  // If GV is an alias then use the aliasee to determine the wrapper type
+  if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
+    UnderlyingGV = GA->resolveAliasedGlobal();
+  if (const GlobalVariable *GVar = dyn_cast<GlobalVariable>(UnderlyingGV)) {
+    if (GVar->isConstant())
+      return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, GA);
+    return DAG.getNode(XCoreISD::DPRelativeWrapper, dl, MVT::i32, GA);
   }
-  const GlobalVariable *GVar = dyn_cast<GlobalVariable>(GV);
-  if (!GVar) {
-    // If GV is an alias then use the aliasee to determine constness
-    if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
-      GVar = dyn_cast_or_null<GlobalVariable>(GA->resolveAliasedGlobal());
-  }
-  bool isConst = GVar && GVar->isConstant();
-  if (isConst) {
-    return DAG.getNode(XCoreISD::CPRelativeWrapper, dl, MVT::i32, GA);
-  }
-  return DAG.getNode(XCoreISD::DPRelativeWrapper, dl, MVT::i32, GA);
+  return DAG.getNode(XCoreISD::PCRelativeWrapper, dl, MVT::i32, GA);
 }
 
 SDValue XCoreTargetLowering::
@@ -477,8 +473,7 @@ LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
   }
 
   // Lower to a call to __misaligned_load(BasePtr).
-  unsigned AS = LD->getAddressSpace();
-  Type *IntPtrTy = getDataLayout()->getIntPtrType(*DAG.getContext(), AS);
+  Type *IntPtrTy = getDataLayout()->getIntPtrType(*DAG.getContext());
   TargetLowering::ArgListTy Args;
   TargetLowering::ArgListEntry Entry;
 
@@ -537,8 +532,7 @@ LowerSTORE(SDValue Op, SelectionDAG &DAG) const
   }
 
   // Lower to a call to __misaligned_store(BasePtr, Value).
-  unsigned AS = ST->getAddressSpace();
-  Type *IntPtrTy = getDataLayout()->getIntPtrType(*DAG.getContext(), AS);
+  Type *IntPtrTy = getDataLayout()->getIntPtrType(*DAG.getContext());
   TargetLowering::ArgListTy Args;
   TargetLowering::ArgListEntry Entry;
 

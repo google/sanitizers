@@ -16,6 +16,7 @@
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SVals.h"
+#include "llvm/Support/SaveAndRestore.h"
 
 namespace llvm {
 class APSInt;
@@ -37,12 +38,12 @@ public:
   ConditionTruthVal() {}
   
   /// Return true if the constraint is perfectly constrained to 'true'.
-  bool isTrue() const {
+  bool isConstrainedTrue() const {
     return Val.hasValue() && Val.getValue();
   }
 
   /// Return true if the constraint is perfectly constrained to 'false'.
-  bool isFalse() const {
+  bool isConstrainedFalse() const {
     return Val.hasValue() && !Val.getValue();
   }
 
@@ -68,12 +69,30 @@ public:
                                  bool Assumption) = 0;
 
   typedef std::pair<ProgramStateRef, ProgramStateRef> ProgramStatePair;
-  
-  ProgramStatePair assumeDual(ProgramStateRef state, DefinedSVal Cond) {
-    ProgramStatePair res(assume(state, Cond, true),
-                         assume(state, Cond, false));
-    assert(!(!res.first && !res.second) && "System is over constrained.");
-    return res;
+
+  /// Returns a pair of states (StTrue, StFalse) where the given condition is
+  /// assumed to be true or false, respectively.
+  ProgramStatePair assumeDual(ProgramStateRef State, DefinedSVal Cond) {
+    ProgramStateRef StTrue = assume(State, Cond, true);
+
+    // If StTrue is infeasible, asserting the falseness of Cond is unnecessary
+    // because the existing constraints already establish this.
+    if (!StTrue) {
+      // FIXME: This is fairly expensive and should be disabled even in
+      // Release+Asserts builds.
+      assert(assume(State, Cond, false) && "System is over constrained.");
+      return ProgramStatePair((ProgramStateRef)NULL, State);
+    }
+
+    ProgramStateRef StFalse = assume(State, Cond, false);
+    if (!StFalse) {
+      // We are careful to return the original state, /not/ StTrue,
+      // because we want to avoid having callers generate a new node
+      // in the ExplodedGraph.
+      return ProgramStatePair(State, (ProgramStateRef)NULL);
+    }
+
+    return ProgramStatePair(StTrue, StFalse);
   }
 
   /// \brief If a symbol is perfectly constrained to a constant, attempt
@@ -97,8 +116,12 @@ public:
   virtual void EndPath(ProgramStateRef state) {}
   
   /// Convenience method to query the state to see if a symbol is null or
-  /// not null, or neither assumption can be made.
-  ConditionTruthVal isNull(ProgramStateRef State, SymbolRef Sym);
+  /// not null, or if neither assumption can be made.
+  ConditionTruthVal isNull(ProgramStateRef State, SymbolRef Sym) {
+    llvm::SaveAndRestore<bool> DisableNotify(NotifyAssumeClients, false);
+
+    return checkNull(State, Sym);
+  }
 
 protected:
   /// A flag to indicate that clients should be notified of assumptions.
@@ -115,6 +138,10 @@ protected:
   ///  ExprEngine to determine if the value should be replaced with a
   ///  conjured symbolic value in order to recover some precision.
   virtual bool canReasonAbout(SVal X) const = 0;
+
+  /// Returns whether or not a symbol is known to be null ("true"), known to be
+  /// non-null ("false"), or may be either ("underconstrained"). 
+  virtual ConditionTruthVal checkNull(ProgramStateRef State, SymbolRef Sym);
 };
 
 ConstraintManager* CreateRangeConstraintManager(ProgramStateManager& statemgr,

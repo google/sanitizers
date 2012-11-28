@@ -152,15 +152,15 @@ static void addObjCARCOptPass(const PassManagerBuilder &Builder, PassManagerBase
     PM.add(createObjCARCOptPass());
 }
 
-static unsigned BoundsChecking;
 static void addBoundsCheckingPass(const PassManagerBuilder &Builder,
                                     PassManagerBase &PM) {
-  PM.add(createBoundsCheckingPass(BoundsChecking));
+  PM.add(createBoundsCheckingPass());
 }
 
 static void addAddressSanitizerPass(const PassManagerBuilder &Builder,
                                     PassManagerBase &PM) {
-  PM.add(createAddressSanitizerPass());
+  PM.add(createAddressSanitizerFunctionPass());
+  PM.add(createAddressSanitizerModulePass());
 }
 
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
@@ -197,22 +197,21 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
                            addObjCARCOptPass);
   }
 
-  if (CodeGenOpts.BoundsChecking > 0) {
-    BoundsChecking = CodeGenOpts.BoundsChecking;
+  if (LangOpts.SanitizeBounds) {
     PMBuilder.addExtension(PassManagerBuilder::EP_ScalarOptimizerLate,
                            addBoundsCheckingPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addBoundsCheckingPass);
   }
 
-  if (LangOpts.AddressSanitizer) {
+  if (LangOpts.SanitizeAddress) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addAddressSanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addAddressSanitizerPass);
   }
 
-  if (LangOpts.ThreadSanitizer) {
+  if (LangOpts.SanitizeThread) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addThreadSanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
@@ -381,14 +380,14 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   }
 
   // Set FP fusion mode.
-  switch (LangOpts.getFPContractMode()) {
-  case LangOptions::FPC_Off:
+  switch (CodeGenOpts.getFPContractMode()) {
+  case CodeGenOptions::FPC_Off:
     Options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
     break;
-  case LangOptions::FPC_On:
+  case CodeGenOptions::FPC_On:
     Options.AllowFPOpFusion = llvm::FPOpFusion::Standard;
     break;
-  case LangOptions::FPC_Fast:
+  case CodeGenOptions::FPC_Fast:
     Options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
     break;
   }

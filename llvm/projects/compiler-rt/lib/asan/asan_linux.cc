@@ -68,6 +68,27 @@ void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
   *pc = ucontext->uc_mcontext.gregs[REG_EIP];
   *bp = ucontext->uc_mcontext.gregs[REG_EBP];
   *sp = ucontext->uc_mcontext.gregs[REG_ESP];
+# elif defined(__powerpc__) || defined(__powerpc64__)
+  ucontext_t *ucontext = (ucontext_t*)context;
+  *pc = ucontext->uc_mcontext.regs->nip;
+  *sp = ucontext->uc_mcontext.regs->gpr[PT_R1];
+  // The powerpc{,64}-linux ABIs do not specify r31 as the frame
+  // pointer, but GCC always uses r31 when we need a frame pointer.
+  *bp = ucontext->uc_mcontext.regs->gpr[PT_R31];
+# elif defined(__sparc__)
+  ucontext_t *ucontext = (ucontext_t*)context;
+  uptr *stk_ptr;
+# if defined (__arch64__)
+  *pc = ucontext->uc_mcontext.mc_gregs[MC_PC];
+  *sp = ucontext->uc_mcontext.mc_gregs[MC_O6];
+  stk_ptr = (uptr *) (*sp + 2047);
+  *bp = stk_ptr[15];
+# else
+  *pc = ucontext->uc_mcontext.gregs[REG_PC];
+  *sp = ucontext->uc_mcontext.gregs[REG_O6];
+  stk_ptr = (uptr *) *sp;
+  *bp = stk_ptr[15];
+# endif
 #else
 # error "Unsupported arch"
 #endif
@@ -137,8 +158,10 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
   stack->trace[0] = pc;
   if ((max_s) > 1) {
     stack->max_size = max_s;
-#ifdef __arm__
+#if defined(__arm__) || defined(__powerpc__) || defined(__powerpc64__)
     _Unwind_Backtrace(Unwind_Trace, stack);
+    // Pop off the two ASAN functions from the backtrace.
+    stack->PopStackFrames(2);
 #else
     if (!asan_inited) return;
     if (AsanThread *t = asanThreadRegistry().GetCurrent())
@@ -146,6 +169,24 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp) {
 #endif
   }
 }
+
+#if !ASAN_ANDROID
+void ClearShadowMemoryForContext(void *context) {
+  ucontext_t *ucp = (ucontext_t*)context;
+  uptr sp = (uptr)ucp->uc_stack.ss_sp;
+  uptr size = ucp->uc_stack.ss_size;
+  // Align to page size.
+  uptr PageSize = GetPageSizeCached();
+  uptr bottom = sp & ~(PageSize - 1);
+  size += sp - bottom;
+  size = RoundUpTo(size, PageSize);
+  PoisonShadow(bottom, size, 0);
+}
+#else
+void ClearShadowMemoryForContext(void *context) {
+  UNIMPLEMENTED();
+}
+#endif
 
 }  // namespace __asan
 

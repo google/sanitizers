@@ -21,7 +21,7 @@
 #include "clang/Lex/LexDiagnostic.h"
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/ExternalPreprocessorSource.h"
-#include "clang/Lex/LiteralSupport.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Config/llvm-config.h"
@@ -619,9 +619,14 @@ MacroArgs *Preprocessor::ReadFunctionLikeMacroArgs(Token &MacroName,
       // Varargs where the named vararg parameter is missing: OK as extension.
       //   #define A(x, ...)
       //   A("blah")
-      Diag(Tok, diag::ext_missing_varargs_arg);
-      Diag(MI->getDefinitionLoc(), diag::note_macro_here)
-        << MacroName.getIdentifierInfo();
+      //
+      // If the macro contains the comma pasting extension, the diagnostic
+      // is suppressed; we know we'll get another diagnostic later.
+      if (!MI->hasCommaPasting()) {
+        Diag(Tok, diag::ext_missing_varargs_arg);
+        Diag(MI->getDefinitionLoc(), diag::note_macro_here)
+          << MacroName.getIdentifierInfo();
+      }
 
       // Remember this occurred, allowing us to elide the comma when used for
       // cases like:
@@ -745,7 +750,7 @@ static bool HasFeature(const Preprocessor &PP, const IdentifierInfo *II) {
     Feature = Feature.substr(2, Feature.size() - 4);
 
   return llvm::StringSwitch<bool>(Feature)
-           .Case("address_sanitizer", LangOpts.AddressSanitizer)
+           .Case("address_sanitizer", LangOpts.SanitizeAddress)
            .Case("attribute_analyzer_noreturn", true)
            .Case("attribute_availability", true)
            .Case("attribute_availability_with_message", true)
@@ -840,10 +845,6 @@ static bool HasFeature(const Preprocessor &PP, const IdentifierInfo *II) {
            .Case("is_base_of", LangOpts.CPlusPlus)
            .Case("is_class", LangOpts.CPlusPlus)
            .Case("is_convertible_to", LangOpts.CPlusPlus)
-            // __is_empty is available only if the horrible
-            // "struct __is_empty" parsing hack hasn't been needed in this
-            // translation unit. If it has, __is_empty reverts to a normal
-            // identifier and __has_feature(is_empty) evaluates false.
            .Case("is_empty", LangOpts.CPlusPlus)
            .Case("is_enum", LangOpts.CPlusPlus)
            .Case("is_final", LangOpts.CPlusPlus)
@@ -1223,15 +1224,15 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
     IdentifierInfo *FeatureII = 0;
 
     // Read the '('.
-    Lex(Tok);
+    LexUnexpandedToken(Tok);
     if (Tok.is(tok::l_paren)) {
       // Read the identifier
-      Lex(Tok);
+      LexUnexpandedToken(Tok);
       if (Tok.is(tok::identifier) || Tok.is(tok::kw_const)) {
         FeatureII = Tok.getIdentifierInfo();
 
         // Read the ')'.
-        Lex(Tok);
+        LexUnexpandedToken(Tok);
         if (Tok.is(tok::r_paren))
           IsValid = true;
       }
@@ -1275,69 +1276,49 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
     bool IsValid = false;
     bool Value = false;
     // Read the '('.
-    Lex(Tok);
+    LexUnexpandedToken(Tok);
     do {
-      if (Tok.is(tok::l_paren)) {      
-        // Read the string.
-        Lex(Tok);
-      
-        // We need at least one string literal.
-        if (!Tok.is(tok::string_literal)) {
-          StartLoc = Tok.getLocation();
-          IsValid = false;
-          // Eat tokens until ')'.
-          do Lex(Tok); while (!(Tok.is(tok::r_paren) || Tok.is(tok::eod)));
-          break;
-        }
-        
-        // String concatenation allows multiple strings, which can even come
-        // from macro expansion.
-        SmallVector<Token, 4> StrToks;
-        while (Tok.is(tok::string_literal)) {
-          // Complain about, and drop, any ud-suffix.
-          if (Tok.hasUDSuffix())
-            Diag(Tok, diag::err_invalid_string_udl);
-          StrToks.push_back(Tok);
-          LexUnexpandedToken(Tok);
-        }
-        
-        // Is the end a ')'?
-        if (!(IsValid = Tok.is(tok::r_paren)))
-          break;
-        
-        // Concatenate and parse the strings.
-        StringLiteralParser Literal(&StrToks[0], StrToks.size(), *this);
-        assert(Literal.isAscii() && "Didn't allow wide strings in");
-        if (Literal.hadError)
-          break;
-        if (Literal.Pascal) {
-          Diag(Tok, diag::warn_pragma_diagnostic_invalid);
-          break;
-        }
-        
-        StringRef WarningName(Literal.GetString());
-        
-        if (WarningName.size() < 3 || WarningName[0] != '-' ||
-            WarningName[1] != 'W') {
-          Diag(StrToks[0].getLocation(), diag::warn_has_warning_invalid_option);
-          break;
-        }
-        
-        // Finally, check if the warning flags maps to a diagnostic group.
-        // We construct a SmallVector here to talk to getDiagnosticIDs().
-        // Although we don't use the result, this isn't a hot path, and not
-        // worth special casing.
-        llvm::SmallVector<diag::kind, 10> Diags;
-        Value = !getDiagnostics().getDiagnosticIDs()->
-          getDiagnosticsInGroup(WarningName.substr(2), Diags);
+      if (Tok.isNot(tok::l_paren)) {
+        Diag(StartLoc, diag::err_warning_check_malformed);
+        break;
       }
+
+      LexUnexpandedToken(Tok);
+      std::string WarningName;
+      SourceLocation StrStartLoc = Tok.getLocation();
+      if (!FinishLexStringLiteral(Tok, WarningName, "'__has_warning'",
+                                  /*MacroExpansion=*/false)) {
+        // Eat tokens until ')'.
+        while (Tok.isNot(tok::r_paren) && Tok.isNot(tok::eod) &&
+               Tok.isNot(tok::eof))
+          LexUnexpandedToken(Tok);
+        break;
+      }
+
+      // Is the end a ')'?
+      if (!(IsValid = Tok.is(tok::r_paren))) {
+        Diag(StartLoc, diag::err_warning_check_malformed);
+        break;
+      }
+
+      if (WarningName.size() < 3 || WarningName[0] != '-' ||
+          WarningName[1] != 'W') {
+        Diag(StrStartLoc, diag::warn_has_warning_invalid_option);
+        break;
+      }
+
+      // Finally, check if the warning flags maps to a diagnostic group.
+      // We construct a SmallVector here to talk to getDiagnosticIDs().
+      // Although we don't use the result, this isn't a hot path, and not
+      // worth special casing.
+      llvm::SmallVector<diag::kind, 10> Diags;
+      Value = !getDiagnostics().getDiagnosticIDs()->
+        getDiagnosticsInGroup(WarningName.substr(2), Diags);
     } while (false);
-    
-    if (!IsValid)
-      Diag(StartLoc, diag::err_warning_check_malformed);
 
     OS << (int)Value;
-    Tok.setKind(tok::numeric_constant);
+    if (IsValid)
+      Tok.setKind(tok::numeric_constant);
   } else if (II == Ident__building_module) {
     // The argument to this builtin should be an identifier. The
     // builtin evaluates to 1 when that identifier names the module we are

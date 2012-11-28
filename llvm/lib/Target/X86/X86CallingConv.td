@@ -103,6 +103,15 @@ def RetCC_Intel_OCL_BI : CallingConv<[
   CCDelegateTo<RetCC_X86Common>
 ]>;
 
+// X86-32 HiPE return-value convention.
+def RetCC_X86_32_HiPE : CallingConv<[
+  // Promote all types to i32
+  CCIfType<[i8, i16], CCPromoteToType<i32>>,
+
+  // Return: HP, P, VAL1, VAL2
+  CCIfType<[i32], CCAssignToReg<[ESI, EBP, EAX, EDX]>>
+]>;
+
 // X86-64 C return-value convention.
 def RetCC_X86_64_C : CallingConv<[
   // The X86-64 calling convention always returns FP values in XMM0.
@@ -123,17 +132,30 @@ def RetCC_X86_Win64_C : CallingConv<[
   CCDelegateTo<RetCC_X86_64_C>
 ]>;
 
+// X86-64 HiPE return-value convention.
+def RetCC_X86_64_HiPE : CallingConv<[
+  // Promote all types to i64
+  CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
+
+  // Return: HP, P, VAL1, VAL2
+  CCIfType<[i64], CCAssignToReg<[R15, RBP, RAX, RDX]>>
+]>;
 
 // This is the root return-value convention for the X86-32 backend.
 def RetCC_X86_32 : CallingConv<[
   // If FastCC, use RetCC_X86_32_Fast.
   CCIfCC<"CallingConv::Fast", CCDelegateTo<RetCC_X86_32_Fast>>,
+  // If HiPE, use RetCC_X86_32_HiPE.
+  CCIfCC<"CallingConv::HiPE", CCDelegateTo<RetCC_X86_32_HiPE>>,
+
   // Otherwise, use RetCC_X86_32_C.
   CCDelegateTo<RetCC_X86_32_C>
 ]>;
 
 // This is the root return-value convention for the X86-64 backend.
 def RetCC_X86_64 : CallingConv<[
+  // HiPE uses RetCC_X86_64_HiPE
+  CCIfCC<"CallingConv::HiPE", CCDelegateTo<RetCC_X86_64_HiPE>>,
   // Mingw64 and native Win64 use Win64 CC
   CCIfSubtarget<"isTargetWin64()", CCDelegateTo<RetCC_X86_Win64_C>>,
 
@@ -254,29 +276,6 @@ def CC_X86_Win64_C : CallingConv<[
   CCIfType<[f80], CCAssignToStack<0, 0>>
 ]>;
 
-// X86-64 Intel OpenCL built-ins calling convention.
-def CC_Intel_OCL_BI : CallingConv<[
-  CCIfType<[i32], CCIfSubtarget<"isTargetWin32()", CCAssignToStack<4, 4>>>,
-
-  CCIfType<[i32], CCIfSubtarget<"isTargetWin64()", CCAssignToReg<[ECX, EDX, R8D, R9D]>>>,
-  CCIfType<[i64], CCIfSubtarget<"isTargetWin64()", CCAssignToReg<[RCX, RDX, R8,  R9 ]>>>,
-
-  CCIfType<[i32], CCAssignToReg<[EDI, ESI, EDX, ECX]>>,
-  CCIfType<[i64], CCAssignToReg<[RDI, RSI, RDX, RCX]>>,
-
- // The SSE vector arguments are passed in XMM registers.
-  CCIfType<[f32, f64, v4i32, v2i64, v4f32, v2f64],
-           CCAssignToReg<[XMM0, XMM1, XMM2, XMM3]>>,
-  
-  // The 256-bit vector arguments are passed in YMM registers.
-  CCIfType<[v8f32, v4f64, v8i32, v4i64],
-                CCAssignToReg<[YMM0, YMM1, YMM2, YMM3]>>,
-  
-  CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,
-  CCDelegateTo<CC_X86_64_C>
-]>;
-
-
 def CC_X86_64_GHC : CallingConv<[
   // Promote i8/i16/i32 arguments to i64.
   CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
@@ -289,6 +288,18 @@ def CC_X86_64_GHC : CallingConv<[
   CCIfType<[f32, f64, v16i8, v8i16, v4i32, v2i64, v4f32, v2f64],
             CCIfSubtarget<"hasSSE1()",
             CCAssignToReg<[XMM1, XMM2, XMM3, XMM4, XMM5, XMM6]>>>
+]>;
+
+def CC_X86_64_HiPE : CallingConv<[
+  // Promote i8/i16/i32 arguments to i64.
+  CCIfType<[i8, i16, i32], CCPromoteToType<i64>>,
+
+  // Pass in VM's registers: HP, P, ARG0, ARG1, ARG2, ARG3
+  CCIfType<[i64], CCAssignToReg<[R15, RBP, RSI, RDX, RCX, R8]>>,
+
+  // Integer/FP values get stored in stack slots that are 8 bytes in size and
+  // 8-byte aligned if there are no more registers to hold them.
+  CCIfType<[i32, i64, f32, f64], CCAssignToStack<8, 8>>
 ]>;
 
 //===----------------------------------------------------------------------===//
@@ -422,6 +433,42 @@ def CC_X86_32_GHC : CallingConv<[
   CCIfType<[i32], CCAssignToReg<[EBX, EBP, EDI, ESI]>>
 ]>;
 
+def CC_X86_32_HiPE : CallingConv<[
+  // Promote i8/i16 arguments to i32.
+  CCIfType<[i8, i16], CCPromoteToType<i32>>,
+
+  // Pass in VM's registers: HP, P, ARG0, ARG1, ARG2
+  CCIfType<[i32], CCAssignToReg<[ESI, EBP, EAX, EDX, ECX]>>,
+
+  // Integer/Float values get stored in stack slots that are 4 bytes in
+  // size and 4-byte aligned.
+  CCIfType<[i32, f32], CCAssignToStack<4, 4>>
+]>;
+
+// X86-64 Intel OpenCL built-ins calling convention.
+def CC_Intel_OCL_BI : CallingConv<[
+
+  CCIfType<[i32], CCIfSubtarget<"isTargetWin64()", CCAssignToReg<[ECX, EDX, R8D, R9D]>>>,
+  CCIfType<[i64], CCIfSubtarget<"isTargetWin64()", CCAssignToReg<[RCX, RDX, R8,  R9 ]>>>,
+
+  CCIfType<[i32], CCIfSubtarget<"is64Bit()", CCAssignToReg<[EDI, ESI, EDX, ECX]>>>,
+  CCIfType<[i64], CCIfSubtarget<"is64Bit()", CCAssignToReg<[RDI, RSI, RDX, RCX]>>>,
+
+  CCIfType<[i32], CCAssignToStack<4, 4>>,
+
+  // The SSE vector arguments are passed in XMM registers.
+  CCIfType<[f32, f64, v4i32, v2i64, v4f32, v2f64],
+           CCAssignToReg<[XMM0, XMM1, XMM2, XMM3]>>,
+
+  // The 256-bit vector arguments are passed in YMM registers.
+  CCIfType<[v8f32, v4f64, v8i32, v4i64],
+           CCAssignToReg<[YMM0, YMM1, YMM2, YMM3]>>,
+
+  CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,
+  CCIfSubtarget<"is64Bit()",       CCDelegateTo<CC_X86_64_C>>,
+  CCDelegateTo<CC_X86_32_C>
+]>;
+
 //===----------------------------------------------------------------------===//
 // X86 Root Argument Calling Conventions
 //===----------------------------------------------------------------------===//
@@ -432,6 +479,7 @@ def CC_X86_32 : CallingConv<[
   CCIfCC<"CallingConv::X86_ThisCall", CCDelegateTo<CC_X86_32_ThisCall>>,
   CCIfCC<"CallingConv::Fast", CCDelegateTo<CC_X86_32_FastCC>>,
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_32_GHC>>,
+  CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_32_HiPE>>,
 
   // Otherwise, drop to normal X86-32 CC
   CCDelegateTo<CC_X86_32_C>
@@ -440,6 +488,7 @@ def CC_X86_32 : CallingConv<[
 // This is the root argument convention for the X86-64 backend.
 def CC_X86_64 : CallingConv<[
   CCIfCC<"CallingConv::GHC", CCDelegateTo<CC_X86_64_GHC>>,
+  CCIfCC<"CallingConv::HiPE", CCDelegateTo<CC_X86_64_HiPE>>,
 
   // Mingw64 and native Win64 use Win64 CC
   CCIfSubtarget<"isTargetWin64()", CCDelegateTo<CC_X86_Win64_C>>,

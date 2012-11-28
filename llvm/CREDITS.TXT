@@ -60,9 +60,11 @@ D: Loop unrolling with run-time trip counts.
 
 N: Chandler Carruth
 E: chandlerc@gmail.com
+E: chandlerc@google.com
 D: Hashing algorithms and interfaces
 D: Inline cost analysis
 D: Machine block placement pass
+D: SROA
 
 N: Casey Carter
 E: ccarter@uiuc.edu
@@ -361,8 +363,8 @@ D: ARM fast-isel improvements
 D: Performance monitoring
 
 N: Nadav Rotem
-E: nadav.rotem@intel.com
-D: Vector code generation improvements.
+E: nrotem@apple.com
+D: X86 code generation improvements, Loop Vectorizer.
 
 N: Roman Samoilov
 E: roman@codedgers.com
@@ -401,6 +403,10 @@ N: Reid Spencer
 E: rspencer@reidspencer.com
 W: http://reidspencer.com/
 D: Lots of stuff, see: http://wiki.llvm.org/index.php/User:Reid
+
+N: Craig Topper
+E: craig.topper@gmail.com
+D: X86 codegen and disassembler improvements. AVX2 support.
 
 N: Edwin Torok
 E: edwintorok@gmail.com

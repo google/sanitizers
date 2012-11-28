@@ -89,7 +89,6 @@ void CompilerInstance::setASTConsumer(ASTConsumer *Value) {
 
 void CompilerInstance::setCodeCompletionConsumer(CodeCompleteConsumer *Value) {
   CompletionConsumer.reset(Value);
-  getFrontendOpts().SkipFunctionBodies = Value != 0;
 }
 
 // Diagnostics
@@ -309,14 +308,12 @@ void CompilerInstance::createASTContext() {
 
 void CompilerInstance::createPCHExternalASTSource(StringRef Path,
                                                   bool DisablePCHValidation,
-                                                  bool DisableStatCache,
                                                 bool AllowPCHWithCompilerErrors,
                                                  void *DeserializationListener){
   OwningPtr<ExternalASTSource> Source;
   bool Preamble = getPreprocessorOpts().PrecompiledPreambleBytes.first != 0;
   Source.reset(createPCHExternalASTSource(Path, getHeaderSearchOpts().Sysroot,
                                           DisablePCHValidation,
-                                          DisableStatCache,
                                           AllowPCHWithCompilerErrors,
                                           getPreprocessor(), getASTContext(),
                                           DeserializationListener,
@@ -329,7 +326,6 @@ ExternalASTSource *
 CompilerInstance::createPCHExternalASTSource(StringRef Path,
                                              const std::string &Sysroot,
                                              bool DisablePCHValidation,
-                                             bool DisableStatCache,
                                              bool AllowPCHWithCompilerErrors,
                                              Preprocessor &PP,
                                              ASTContext &Context,
@@ -338,7 +334,7 @@ CompilerInstance::createPCHExternalASTSource(StringRef Path,
   OwningPtr<ASTReader> Reader;
   Reader.reset(new ASTReader(PP, Context,
                              Sysroot.empty() ? "" : Sysroot.c_str(),
-                             DisablePCHValidation, DisableStatCache,
+                             DisablePCHValidation,
                              AllowPCHWithCompilerErrors));
 
   Reader->setDeserializationListener(
@@ -346,6 +342,7 @@ CompilerInstance::createPCHExternalASTSource(StringRef Path,
   switch (Reader->ReadAST(Path,
                           Preamble ? serialization::MK_Preamble
                                    : serialization::MK_PCH,
+                          SourceLocation(),
                           ASTReader::ARR_None)) {
   case ASTReader::Success:
     // Set the predefines buffer as suggested by the PCH reader. Typically, the
@@ -593,19 +590,29 @@ CompilerInstance::createOutputFile(StringRef OutputPath,
 
 // Initialization Utilities
 
-bool CompilerInstance::InitializeSourceManager(StringRef InputFile,
-                                               SrcMgr::CharacteristicKind Kind){
-  return InitializeSourceManager(InputFile, Kind, getDiagnostics(), 
+bool CompilerInstance::InitializeSourceManager(const FrontendInputFile &Input){
+  return InitializeSourceManager(Input, getDiagnostics(),
                                  getFileManager(), getSourceManager(), 
                                  getFrontendOpts());
 }
 
-bool CompilerInstance::InitializeSourceManager(StringRef InputFile,
-                                               SrcMgr::CharacteristicKind Kind,
+bool CompilerInstance::InitializeSourceManager(const FrontendInputFile &Input,
                                                DiagnosticsEngine &Diags,
                                                FileManager &FileMgr,
                                                SourceManager &SourceMgr,
                                                const FrontendOptions &Opts) {
+  SrcMgr::CharacteristicKind
+    Kind = Input.isSystem() ? SrcMgr::C_System : SrcMgr::C_User;
+
+  if (Input.isBuffer()) {
+    SourceMgr.createMainFileIDForMemBuffer(Input.getBuffer(), Kind);
+    assert(!SourceMgr.getMainFileID().isInvalid() &&
+           "Couldn't establish MainFileID!");
+    return true;
+  }
+
+  StringRef InputFile = Input.getFile();
+
   // Figure out where to get and map in the main file.
   if (InputFile != "-") {
     const FileEntry *File = FileMgr.getFile(InputFile);
@@ -613,6 +620,23 @@ bool CompilerInstance::InitializeSourceManager(StringRef InputFile,
       Diags.Report(diag::err_fe_error_reading) << InputFile;
       return false;
     }
+
+    // The natural SourceManager infrastructure can't currently handle named
+    // pipes, but we would at least like to accept them for the main
+    // file. Detect them here, read them with the more generic MemoryBuffer
+    // function, and simply override their contents as we do for STDIN.
+    if (File->isNamedPipe()) {
+      OwningPtr<llvm::MemoryBuffer> MB;
+      if (llvm::error_code ec = llvm::MemoryBuffer::getFile(InputFile, MB)) {
+        Diags.Report(diag::err_cannot_open_file) << InputFile << ec.message();
+        return false;
+      }
+
+      // Create a new virtual file that will have the correct size.
+      File = FileMgr.getVirtualFile(InputFile, MB->getBufferSize(), 0);
+      SourceMgr.overrideFileContents(File, MB.take());
+    }
+
     SourceMgr.createMainFileID(File, Kind);
   } else {
     OwningPtr<llvm::MemoryBuffer> SB;
@@ -644,7 +668,7 @@ bool CompilerInstance::ExecuteAction(FrontendAction &Act) {
   raw_ostream &OS = llvm::errs();
 
   // Create the target instance.
-  setTarget(TargetInfo::CreateTargetInfo(getDiagnostics(), getTargetOpts()));
+  setTarget(TargetInfo::CreateTargetInfo(getDiagnostics(), &getTargetOpts()));
   if (!hasTarget())
     return false;
 
@@ -753,7 +777,7 @@ static void compileModule(CompilerInstance &ImportingInstance,
     // Someone else is responsible for building the module. Wait for them to
     // finish.
     Locked.waitForUnlock();
-    break;
+    return;
   }
 
   ModuleMap &ModMap 
@@ -947,8 +971,7 @@ Module *CompilerInstance::loadModule(SourceLocation ImportLoc,
       const PreprocessorOptions &PPOpts = getPreprocessorOpts();
       ModuleManager = new ASTReader(getPreprocessor(), *Context,
                                     Sysroot.empty() ? "" : Sysroot.c_str(),
-                                    PPOpts.DisablePCHValidation,
-                                    PPOpts.DisableStatCache);
+                                    PPOpts.DisablePCHValidation);
       if (hasASTConsumer()) {
         ModuleManager->setDeserializationListener(
           getASTConsumer().GetASTDeserializationListener());
@@ -967,13 +990,36 @@ Module *CompilerInstance::loadModule(SourceLocation ImportLoc,
     }
 
     // Try to load the module we found.
+    unsigned ARRFlags = ASTReader::ARR_None;
+    if (Module)
+      ARRFlags |= ASTReader::ARR_OutOfDate;
     switch (ModuleManager->ReadAST(ModuleFile->getName(),
-                                   serialization::MK_Module,
-                                   ASTReader::ARR_None)) {
+                                   serialization::MK_Module, ImportLoc,
+                                   ARRFlags)) {
     case ASTReader::Success:
       break;
 
-    case ASTReader::OutOfDate:
+    case ASTReader::OutOfDate: {
+      // The module file is out-of-date. Rebuild it.
+      getFileManager().invalidateCache(ModuleFile);
+      bool Existed;
+      llvm::sys::fs::remove(ModuleFileName, Existed);
+      compileModule(*this, Module, ModuleFileName);
+
+      // Try loading the module again.
+      ModuleFile = FileMgr->getFile(ModuleFileName);
+      if (!ModuleFile ||
+          ModuleManager->ReadAST(ModuleFileName,
+                                 serialization::MK_Module, ImportLoc,
+                                 ASTReader::ARR_None) != ASTReader::Success) {
+        KnownModules[Path[0].first] = 0;
+        return 0;
+      }
+
+      // Okay, we've rebuilt and now loaded the module.
+      break;
+    }
+
     case ASTReader::VersionMismatch:
     case ASTReader::ConfigurationMismatch:
     case ASTReader::HadErrors:

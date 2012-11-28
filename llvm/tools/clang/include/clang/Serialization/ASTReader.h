@@ -85,6 +85,7 @@ class TypeLocReader;
 struct HeaderFileInfo;
 class VersionTuple;
 class TargetOptions;
+class ASTUnresolvedSet;
 
 /// \brief Abstract interface for callback invocations by the ASTReader.
 ///
@@ -690,9 +691,6 @@ private:
   /// headers when they are loaded.
   bool DisableValidation;
 
-  /// \brief Whether to disable the use of stat caches in AST files.
-  bool DisableStatCache;
-
   /// \brief Whether to accept an AST file with compiler errors.
   bool AllowASTWithCompilerErrors;
 
@@ -708,10 +706,6 @@ private:
   SwitchCaseMapTy SwitchCaseStmts;
 
   SwitchCaseMapTy *CurrSwitchCaseStmts;
-
-  /// \brief The number of stat() calls that hit/missed the stat
-  /// cache.
-  unsigned NumStatHits, NumStatMisses;
 
   /// \brief The number of source location entries de-serialized from
   /// the PCH file.
@@ -902,12 +896,23 @@ private:
 
   void MaybeAddSystemRootToFilename(ModuleFile &M, std::string &Filename);
 
+  struct ImportedModule {
+    ModuleFile *Mod;
+    ModuleFile *ImportedBy;
+    SourceLocation ImportLoc;
+
+    ImportedModule(ModuleFile *Mod,
+                   ModuleFile *ImportedBy,
+                   SourceLocation ImportLoc)
+      : Mod(Mod), ImportedBy(ImportedBy), ImportLoc(ImportLoc) { }
+  };
+
   ASTReadResult ReadASTCore(StringRef FileName, ModuleKind Type,
-                            ModuleFile *ImportedBy,
-                            llvm::SmallVectorImpl<ModuleFile *> &Loaded,
+                            SourceLocation ImportLoc, ModuleFile *ImportedBy,
+                            llvm::SmallVectorImpl<ImportedModule> &Loaded,
                             unsigned ClientLoadCapabilities);
   ASTReadResult ReadControlBlock(ModuleFile &F,
-                                 llvm::SmallVectorImpl<ModuleFile *> &Loaded,
+                                 llvm::SmallVectorImpl<ImportedModule> &Loaded,
                                  unsigned ClientLoadCapabilities);
   bool ReadASTBlock(ModuleFile &F);
   bool ParseLineTable(ModuleFile &F, SmallVectorImpl<uint64_t> &Record);
@@ -1069,17 +1074,11 @@ public:
   /// of its regular consistency checking, allowing the use of precompiled
   /// headers that cannot be determined to be compatible.
   ///
-  /// \param DisableStatCache If true, the AST reader will ignore the
-  /// stat cache in the AST files. This performance pessimization can
-  /// help when an AST file is being used in cases where the
-  /// underlying files in the file system may have changed, but
-  /// parsing should still continue.
-  ///
   /// \param AllowASTWithCompilerErrors If true, the AST reader will accept an
   /// AST file the was created out of an AST with compiler errors,
   /// otherwise it will reject it.
   ASTReader(Preprocessor &PP, ASTContext &Context, StringRef isysroot = "",
-            bool DisableValidation = false, bool DisableStatCache = false,
+            bool DisableValidation = false,
             bool AllowASTWithCompilerErrors = false);
 
   ~ASTReader();
@@ -1113,10 +1112,14 @@ public:
   /// \param Type The kind of AST being loaded, e.g., PCH, module, main file,
   /// or preamble.
   ///
+  /// \param ImportLoc the location where the module file will be considered as
+  /// imported from. For non-module AST types it should be invalid.
+  ///
   /// \param ClientLoadCapabilities The set of client load-failure
   /// capabilities, represented as a bitset of the enumerators of
   /// LoadFailureCapabilities.
   ASTReadResult ReadAST(const std::string &FileName, ModuleKind Type,
+                        SourceLocation ImportLoc,
                         unsigned ClientLoadCapabilities);
 
   /// \brief Make the entities in the given module and any of its (non-explicit)
@@ -1172,6 +1175,13 @@ public:
   static std::string getOriginalSourceFile(const std::string &ASTFileName,
                                            FileManager &FileMgr,
                                            DiagnosticsEngine &Diags);
+
+  /// \brief Read the control block for the named AST file.
+  ///
+  /// \returns true if an error occurred, false otherwise.
+  static bool readASTFileControlBlock(StringRef Filename,
+                                      FileManager &FileMgr,
+                                      ASTReaderListener &Listener);
 
   /// \brief Determine whether the given AST file is acceptable to load into a
   /// translation unit with the given language and target options.
@@ -1603,7 +1613,7 @@ public:
                            unsigned &Idx);
 
   /// \brief Read a UnresolvedSet structure.
-  void ReadUnresolvedSet(ModuleFile &F, UnresolvedSetImpl &Set,
+  void ReadUnresolvedSet(ModuleFile &F, ASTUnresolvedSet &Set,
                          const RecordData &Record, unsigned &Idx);
 
   /// \brief Read a C++ base specifier.

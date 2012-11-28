@@ -46,8 +46,11 @@ Value *llvm::EmitStrLen(Value *Ptr, IRBuilder<> &B, const DataLayout *TD,
   AWI[1] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    ArrayRef<Attributes::AttrVal>(AVs, 2));
 
-  Constant *StrLen = M->getOrInsertFunction("strlen", AttrListPtr::get(AWI),
-                                            TD->getIntPtrType(Ptr->getType()),
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
+  Constant *StrLen = M->getOrInsertFunction("strlen",
+                                            AttrListPtr::get(M->getContext(),
+                                                             AWI),
+                                            TD->getIntPtrType(Context),
                                             B.getInt8PtrTy(),
                                             NULL);
   CallInst *CI = B.CreateCall(StrLen, CastToCStr(Ptr, B), "strlen");
@@ -72,10 +75,13 @@ Value *llvm::EmitStrNLen(Value *Ptr, Value *MaxLen, IRBuilder<> &B,
   AWI[1] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    ArrayRef<Attributes::AttrVal>(AVs, 2));
 
-  Constant *StrNLen = M->getOrInsertFunction("strnlen", AttrListPtr::get(AWI),
-                                             TD->getIntPtrType(Ptr->getType()),
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
+  Constant *StrNLen = M->getOrInsertFunction("strnlen",
+                                             AttrListPtr::get(M->getContext(),
+                                                              AWI),
+                                             TD->getIntPtrType(Context),
                                              B.getInt8PtrTy(),
-                                             TD->getIntPtrType(Ptr->getType()),
+                                             TD->getIntPtrType(Context),
                                              NULL);
   CallInst *CI = B.CreateCall2(StrNLen, CastToCStr(Ptr, B), MaxLen, "strnlen");
   if (const Function *F = dyn_cast<Function>(StrNLen->stripPointerCasts()))
@@ -100,7 +106,9 @@ Value *llvm::EmitStrChr(Value *Ptr, char C, IRBuilder<> &B,
 
   Type *I8Ptr = B.getInt8PtrTy();
   Type *I32Ty = B.getInt32Ty();
-  Constant *StrChr = M->getOrInsertFunction("strchr", AttrListPtr::get(AWI),
+  Constant *StrChr = M->getOrInsertFunction("strchr",
+                                            AttrListPtr::get(M->getContext(),
+                                                             AWI),
                                             I8Ptr, I8Ptr, I32Ty, NULL);
   CallInst *CI = B.CreateCall2(StrChr, CastToCStr(Ptr, B),
                                ConstantInt::get(I32Ty, C), "strchr");
@@ -124,12 +132,14 @@ Value *llvm::EmitStrNCmp(Value *Ptr1, Value *Ptr2, Value *Len,
   AWI[2] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    ArrayRef<Attributes::AttrVal>(AVs, 2));
 
-  Value *StrNCmp = M->getOrInsertFunction("strncmp", AttrListPtr::get(AWI),
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
+  Value *StrNCmp = M->getOrInsertFunction("strncmp",
+                                          AttrListPtr::get(M->getContext(),
+                                                           AWI),
                                           B.getInt32Ty(),
                                           B.getInt8PtrTy(),
                                           B.getInt8PtrTy(),
-                                          TD->getIntPtrType(Ptr1->getType()),
-                                          NULL);
+                                          TD->getIntPtrType(Context), NULL);
   CallInst *CI = B.CreateCall3(StrNCmp, CastToCStr(Ptr1, B),
                                CastToCStr(Ptr2, B), Len, "strncmp");
 
@@ -153,7 +163,8 @@ Value *llvm::EmitStrCpy(Value *Dst, Value *Src, IRBuilder<> &B,
   AWI[1] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    Attributes::NoUnwind);
   Type *I8Ptr = B.getInt8PtrTy();
-  Value *StrCpy = M->getOrInsertFunction(Name, AttrListPtr::get(AWI),
+  Value *StrCpy = M->getOrInsertFunction(Name,
+                                         AttrListPtr::get(M->getContext(), AWI),
                                          I8Ptr, I8Ptr, I8Ptr, NULL);
   CallInst *CI = B.CreateCall2(StrCpy, CastToCStr(Dst, B), CastToCStr(Src, B),
                                Name);
@@ -176,7 +187,9 @@ Value *llvm::EmitStrNCpy(Value *Dst, Value *Src, Value *Len,
   AWI[1] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    Attributes::NoUnwind);
   Type *I8Ptr = B.getInt8PtrTy();
-  Value *StrNCpy = M->getOrInsertFunction(Name, AttrListPtr::get(AWI),
+  Value *StrNCpy = M->getOrInsertFunction(Name,
+                                          AttrListPtr::get(M->getContext(),
+                                                           AWI),
                                           I8Ptr, I8Ptr, I8Ptr,
                                           Len->getType(), NULL);
   CallInst *CI = B.CreateCall3(StrNCpy, CastToCStr(Dst, B), CastToCStr(Src, B),
@@ -199,14 +212,14 @@ Value *llvm::EmitMemCpyChk(Value *Dst, Value *Src, Value *Len, Value *ObjSize,
   AttributeWithIndex AWI;
   AWI = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                 Attributes::NoUnwind);
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
   Value *MemCpy = M->getOrInsertFunction("__memcpy_chk",
-                                         AttrListPtr::get(AWI),
+                                         AttrListPtr::get(M->getContext(), AWI),
                                          B.getInt8PtrTy(),
                                          B.getInt8PtrTy(),
                                          B.getInt8PtrTy(),
-                                         TD->getIntPtrType(Dst->getType()),
-                                         TD->getIntPtrType(Src->getType()),
-                                         NULL);
+                                         TD->getIntPtrType(Context),
+                                         TD->getIntPtrType(Context), NULL);
   Dst = CastToCStr(Dst, B);
   Src = CastToCStr(Src, B);
   CallInst *CI = B.CreateCall4(MemCpy, Dst, Src, Len, ObjSize);
@@ -228,11 +241,13 @@ Value *llvm::EmitMemChr(Value *Ptr, Value *Val,
   Attributes::AttrVal AVs[2] = { Attributes::ReadOnly, Attributes::NoUnwind };
   AWI = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                 ArrayRef<Attributes::AttrVal>(AVs, 2));
-  Value *MemChr = M->getOrInsertFunction("memchr", AttrListPtr::get(AWI),
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
+  Value *MemChr = M->getOrInsertFunction("memchr",
+                                         AttrListPtr::get(M->getContext(), AWI),
                                          B.getInt8PtrTy(),
                                          B.getInt8PtrTy(),
                                          B.getInt32Ty(),
-                                         TD->getIntPtrType(Ptr->getType()),
+                                         TD->getIntPtrType(Context),
                                          NULL);
   CallInst *CI = B.CreateCall3(MemChr, CastToCStr(Ptr, B), Val, Len, "memchr");
 
@@ -257,12 +272,13 @@ Value *llvm::EmitMemCmp(Value *Ptr1, Value *Ptr2,
   AWI[2] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    ArrayRef<Attributes::AttrVal>(AVs, 2));
 
-  Value *MemCmp = M->getOrInsertFunction("memcmp", AttrListPtr::get(AWI),
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
+  Value *MemCmp = M->getOrInsertFunction("memcmp",
+                                         AttrListPtr::get(M->getContext(), AWI),
                                          B.getInt32Ty(),
                                          B.getInt8PtrTy(),
                                          B.getInt8PtrTy(),
-                                         TD->getIntPtrType(Ptr1->getType()),
-                                         NULL);
+                                         TD->getIntPtrType(Context), NULL);
   CallInst *CI = B.CreateCall3(MemCmp, CastToCStr(Ptr1, B), CastToCStr(Ptr2, B),
                                Len, "memcmp");
 
@@ -335,7 +351,8 @@ Value *llvm::EmitPutS(Value *Str, IRBuilder<> &B, const DataLayout *TD,
   AWI[1] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    Attributes::NoUnwind);
 
-  Value *PutS = M->getOrInsertFunction("puts", AttrListPtr::get(AWI),
+  Value *PutS = M->getOrInsertFunction("puts",
+                                       AttrListPtr::get(M->getContext(), AWI),
                                        B.getInt32Ty(),
                                        B.getInt8PtrTy(),
                                        NULL);
@@ -359,7 +376,8 @@ Value *llvm::EmitFPutC(Value *Char, Value *File, IRBuilder<> &B,
                                    Attributes::NoUnwind);
   Constant *F;
   if (File->getType()->isPointerTy())
-    F = M->getOrInsertFunction("fputc", AttrListPtr::get(AWI),
+    F = M->getOrInsertFunction("fputc",
+                               AttrListPtr::get(M->getContext(), AWI),
                                B.getInt32Ty(),
                                B.getInt32Ty(), File->getType(),
                                NULL);
@@ -393,7 +411,8 @@ Value *llvm::EmitFPutS(Value *Str, Value *File, IRBuilder<> &B,
   StringRef FPutsName = TLI->getName(LibFunc::fputs);
   Constant *F;
   if (File->getType()->isPointerTy())
-    F = M->getOrInsertFunction(FPutsName, AttrListPtr::get(AWI),
+    F = M->getOrInsertFunction(FPutsName,
+                               AttrListPtr::get(M->getContext(), AWI),
                                B.getInt32Ty(),
                                B.getInt8PtrTy(),
                                File->getType(), NULL);
@@ -422,24 +441,25 @@ Value *llvm::EmitFWrite(Value *Ptr, Value *Size, Value *File,
   AWI[1] = AttributeWithIndex::get(M->getContext(), 4, Attributes::NoCapture);
   AWI[2] = AttributeWithIndex::get(M->getContext(), AttrListPtr::FunctionIndex,
                                    Attributes::NoUnwind);
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
   StringRef FWriteName = TLI->getName(LibFunc::fwrite);
   Constant *F;
-  Type *PtrTy = Ptr->getType();
   if (File->getType()->isPointerTy())
-    F = M->getOrInsertFunction(FWriteName, AttrListPtr::get(AWI),
-                               TD->getIntPtrType(PtrTy),
+    F = M->getOrInsertFunction(FWriteName,
+                               AttrListPtr::get(M->getContext(), AWI),
+                               TD->getIntPtrType(Context),
                                B.getInt8PtrTy(),
-                               TD->getIntPtrType(PtrTy),
-                               TD->getIntPtrType(PtrTy),
+                               TD->getIntPtrType(Context),
+                               TD->getIntPtrType(Context),
                                File->getType(), NULL);
   else
-    F = M->getOrInsertFunction(FWriteName, TD->getIntPtrType(PtrTy),
+    F = M->getOrInsertFunction(FWriteName, TD->getIntPtrType(Context),
                                B.getInt8PtrTy(),
-                               TD->getIntPtrType(PtrTy),
-                               TD->getIntPtrType(PtrTy),
+                               TD->getIntPtrType(Context),
+                               TD->getIntPtrType(Context),
                                File->getType(), NULL);
   CallInst *CI = B.CreateCall4(F, CastToCStr(Ptr, B), Size,
-                        ConstantInt::get(TD->getIntPtrType(PtrTy), 1), File);
+                        ConstantInt::get(TD->getIntPtrType(Context), 1), File);
 
   if (const Function *Fn = dyn_cast<Function>(F->stripPointerCasts()))
     CI->setCallingConv(Fn->getCallingConv());
@@ -461,13 +481,12 @@ bool SimplifyFortifiedLibCalls::fold(CallInst *CI, const DataLayout *TD,
   IRBuilder<> B(CI);
 
   if (Name == "__memcpy_chk") {
-    Type *PT = FT->getParamType(0);
     // Check if this has the right signature.
     if (FT->getNumParams() != 4 || FT->getReturnType() != FT->getParamType(0) ||
         !FT->getParamType(0)->isPointerTy() ||
         !FT->getParamType(1)->isPointerTy() ||
-        FT->getParamType(2) != TD->getIntPtrType(PT) ||
-        FT->getParamType(3) != TD->getIntPtrType(PT))
+        FT->getParamType(2) != TD->getIntPtrType(Context) ||
+        FT->getParamType(3) != TD->getIntPtrType(Context))
       return false;
 
     if (isFoldable(3, 2, false)) {
@@ -486,12 +505,11 @@ bool SimplifyFortifiedLibCalls::fold(CallInst *CI, const DataLayout *TD,
 
   if (Name == "__memmove_chk") {
     // Check if this has the right signature.
-    Type *PT = FT->getParamType(0);
     if (FT->getNumParams() != 4 || FT->getReturnType() != FT->getParamType(0) ||
         !FT->getParamType(0)->isPointerTy() ||
         !FT->getParamType(1)->isPointerTy() ||
-        FT->getParamType(2) != TD->getIntPtrType(PT) ||
-        FT->getParamType(3) != TD->getIntPtrType(PT))
+        FT->getParamType(2) != TD->getIntPtrType(Context) ||
+        FT->getParamType(3) != TD->getIntPtrType(Context))
       return false;
 
     if (isFoldable(3, 2, false)) {
@@ -505,12 +523,11 @@ bool SimplifyFortifiedLibCalls::fold(CallInst *CI, const DataLayout *TD,
 
   if (Name == "__memset_chk") {
     // Check if this has the right signature.
-    Type *PT = FT->getParamType(0);
     if (FT->getNumParams() != 4 || FT->getReturnType() != FT->getParamType(0) ||
         !FT->getParamType(0)->isPointerTy() ||
         !FT->getParamType(1)->isIntegerTy() ||
-        FT->getParamType(2) != TD->getIntPtrType(PT) ||
-        FT->getParamType(3) != TD->getIntPtrType(PT))
+        FT->getParamType(2) != TD->getIntPtrType(Context) ||
+        FT->getParamType(3) != TD->getIntPtrType(Context))
       return false;
 
     if (isFoldable(3, 2, false)) {
@@ -525,12 +542,11 @@ bool SimplifyFortifiedLibCalls::fold(CallInst *CI, const DataLayout *TD,
 
   if (Name == "__strcpy_chk" || Name == "__stpcpy_chk") {
     // Check if this has the right signature.
-    Type *PT = FT->getParamType(0);
     if (FT->getNumParams() != 3 ||
         FT->getReturnType() != FT->getParamType(0) ||
         FT->getParamType(0) != FT->getParamType(1) ||
         FT->getParamType(0) != Type::getInt8PtrTy(Context) ||
-        FT->getParamType(2) != TD->getIntPtrType(PT))
+        FT->getParamType(2) != TD->getIntPtrType(Context))
       return 0;
     
     
@@ -552,12 +568,11 @@ bool SimplifyFortifiedLibCalls::fold(CallInst *CI, const DataLayout *TD,
 
   if (Name == "__strncpy_chk" || Name == "__stpncpy_chk") {
     // Check if this has the right signature.
-    Type *PT = FT->getParamType(0);
     if (FT->getNumParams() != 4 || FT->getReturnType() != FT->getParamType(0) ||
         FT->getParamType(0) != FT->getParamType(1) ||
         FT->getParamType(0) != Type::getInt8PtrTy(Context) ||
         !FT->getParamType(2)->isIntegerTy() ||
-        FT->getParamType(3) != TD->getIntPtrType(PT))
+        FT->getParamType(3) != TD->getIntPtrType(Context))
       return false;
 
     if (isFoldable(3, 2, false)) {

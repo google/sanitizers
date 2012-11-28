@@ -60,7 +60,7 @@ bool ScalarTargetTransformImpl::shouldBuildLookupTables() const {
 // Calls used by the vectorizers.
 //
 //===----------------------------------------------------------------------===//
-static int InstructionOpcodeToISD(unsigned Opcode) {
+int VectorTargetTransformImpl::InstructionOpcodeToISD(unsigned Opcode) const {
   enum InstructionOpcodes {
 #define HANDLE_INST(NUM, OPCODE, CLASS) OPCODE = NUM,
 #define LAST_OTHER_INST(NUM) InstructionOpcodesCount = NUM
@@ -101,7 +101,7 @@ static int InstructionOpcodeToISD(unsigned Opcode) {
   case AtomicRMW:      return 0;
   case Trunc:          return ISD::TRUNCATE;
   case ZExt:           return ISD::ZERO_EXTEND;
-  case SExt:           return ISD::SEXTLOAD;
+  case SExt:           return ISD::SIGN_EXTEND;
   case FPToUI:         return ISD::FP_TO_UINT;
   case FPToSI:         return ISD::FP_TO_SINT;
   case UIToFP:         return ISD::UINT_TO_FP;
@@ -130,24 +130,28 @@ static int InstructionOpcodeToISD(unsigned Opcode) {
   llvm_unreachable("Unknown instruction type encountered!");
 }
 
-std::pair<unsigned, EVT>
-VectorTargetTransformImpl::getTypeLegalizationCost(LLVMContext &C,
-                                                   EVT Ty) const {
+std::pair<unsigned, MVT>
+VectorTargetTransformImpl::getTypeLegalizationCost(Type *Ty) const {
+
+  LLVMContext &C = Ty->getContext();
+  EVT MTy = TLI->getValueType(Ty);
+
   unsigned Cost = 1;
   // We keep legalizing the type until we find a legal kind. We assume that
   // the only operation that costs anything is the split. After splitting
   // we need to handle two types.
   while (true) {
-    TargetLowering::LegalizeKind LK = TLI->getTypeConversion(C, Ty);
+    TargetLowering::LegalizeKind LK = TLI->getTypeConversion(C, MTy);
 
     if (LK.first == TargetLowering::TypeLegal)
-      return std::make_pair(Cost, Ty);
+      return std::make_pair(Cost, MTy.getSimpleVT());
 
-    if (LK.first == TargetLowering::TypeSplitVector)
+    if (LK.first == TargetLowering::TypeSplitVector ||
+        LK.first == TargetLowering::TypeExpandInteger)
       Cost *= 2;
 
     // Keep legalizing the type.
-    Ty = LK.second;
+    MTy = LK.second;
   }
 }
 
@@ -174,8 +178,7 @@ unsigned VectorTargetTransformImpl::getArithmeticInstrCost(unsigned Opcode,
   int ISD = InstructionOpcodeToISD(Opcode);
   assert(ISD && "Invalid opcode");
 
-  std::pair<unsigned, EVT> LT =
-  getTypeLegalizationCost(Ty->getContext(), TLI->getValueType(Ty));
+  std::pair<unsigned, MVT> LT = getTypeLegalizationCost(Ty);
 
   if (!TLI->isOperationExpand(ISD, LT.second)) {
     // The operation is legal. Assume it costs 1. Multiply
@@ -205,46 +208,79 @@ unsigned VectorTargetTransformImpl::getCastInstrCost(unsigned Opcode, Type *Dst,
   int ISD = InstructionOpcodeToISD(Opcode);
   assert(ISD && "Invalid opcode");
 
-  std::pair<unsigned, EVT> SrcLT =
-  getTypeLegalizationCost(Src->getContext(), TLI->getValueType(Src));
+  std::pair<unsigned, MVT> SrcLT = getTypeLegalizationCost(Src);
+  std::pair<unsigned, MVT> DstLT = getTypeLegalizationCost(Dst);
 
-  std::pair<unsigned, EVT> DstLT =
-  getTypeLegalizationCost(Dst->getContext(), TLI->getValueType(Dst));
+  // Handle scalar conversions.
+  if (!Src->isVectorTy() && !Dst->isVectorTy()) {
 
-  // If the cast is between same-sized registers, then the check is simple.
-  if (SrcLT.first == DstLT.first &&
-      SrcLT.second.getSizeInBits() == DstLT.second.getSizeInBits()) {
-    // Just check the op cost:
-    if (!TLI->isOperationExpand(ISD, DstLT.second)) {
-      // The operation is legal. Assume it costs 1. Multiply
-      // by the type-legalization overhead.
-      return SrcLT.first * 1;
+    // Scalar bitcasts are usually free.
+    if (Opcode == Instruction::BitCast)
+      return 0;
+
+    if (Opcode == Instruction::Trunc &&
+        TLI->isTruncateFree(SrcLT.second, DstLT.second))
+      return 0;
+
+    if (Opcode == Instruction::ZExt &&
+        TLI->isZExtFree(SrcLT.second, DstLT.second))
+      return 0;
+
+    // Just check the op cost. If the operation is legal then assume it costs 1.
+    if (!TLI->isOperationExpand(ISD, DstLT.second))
+      return  1;
+
+    // Assume that illegal scalar instruction are expensive.
+    return 4;
+  }
+
+  // Check vector-to-vector casts.
+  if (Dst->isVectorTy() && Src->isVectorTy()) {
+
+    // If the cast is between same-sized registers, then the check is simple.
+    if (SrcLT.first == DstLT.first &&
+        SrcLT.second.getSizeInBits() == DstLT.second.getSizeInBits()) {
+
+      // Bitcast between types that are legalized to the same type are free.
+      if (Opcode == Instruction::BitCast || Opcode == Instruction::Trunc)
+        return 0;
+
+      // Assume that Zext is done using AND.
+      if (Opcode == Instruction::ZExt)
+        return 1;
+
+      // Assume that sext is done using SHL and SRA.
+      if (Opcode == Instruction::SExt)
+        return 2;
+
+      // Just check the op cost. If the operation is legal then assume it costs
+      // 1 and multiply by the type-legalization overhead.
+      if (!TLI->isOperationExpand(ISD, DstLT.second))
+        return SrcLT.first * 1;
     }
-  }
 
-  unsigned ScalarizationCost = 1;
-
-  // Otherwise, assume that the cast is scalarized.
-  if (Dst->isVectorTy()) {
+    // If we are converting vectors and the operation is illegal, or
+    // if the vectors are legalized to different types, estimate the
+    // scalarization costs.
     unsigned Num = Dst->getVectorNumElements();
-    unsigned Cost = getCastInstrCost(Opcode, Src->getScalarType(),
-                                     Dst->getScalarType());
-    // return the cost of multiple scalar invocation plus the cost of inserting
-    // and extracting the values.
-    ScalarizationCost *= getScalarizationOverhead(Dst, true, true) + Num * Cost;
-  }
-
-  if (Src->isVectorTy()) {
-    unsigned Num = Src->getVectorNumElements();
     unsigned Cost = getCastInstrCost(Opcode, Dst->getScalarType(),
                                      Src->getScalarType());
-    // return the cost of multiple scalar invocation plus the cost of inserting
-    // and extracting the values.
-    ScalarizationCost *= getScalarizationOverhead(Src, true, true) + Num * Cost;
+
+    // Return the cost of multiple scalar invocation plus the cost of
+    // inserting and extracting the values.
+    return getScalarizationOverhead(Dst, true, true) + Num * Cost;
   }
 
-  return ScalarizationCost;
-}
+  // We already handled vector-to-vector and scalar-to-scalar conversions. This 
+  // is where we handle bitcast between vectors and scalars. We need to assume
+  //  that the conversion is scalarized in one way or another.
+  if (Opcode == Instruction::BitCast)
+    // Illegal bitcasts are done by storing and loading from a stack slot.
+    return (Src->isVectorTy()? getScalarizationOverhead(Src, false, true):0) +
+           (Dst->isVectorTy()? getScalarizationOverhead(Dst, true, false):0);
+
+  llvm_unreachable("Unhandled cast");
+ }
 
 unsigned VectorTargetTransformImpl::getCFInstrCost(unsigned Opcode) const {
   return 1;
@@ -263,8 +299,7 @@ unsigned VectorTargetTransformImpl::getCmpSelInstrCost(unsigned Opcode,
       ISD = ISD::VSELECT;
   }
 
-  std::pair<unsigned, EVT> LT =
-  getTypeLegalizationCost(ValTy->getContext(), TLI->getValueType(ValTy));
+  std::pair<unsigned, MVT> LT = getTypeLegalizationCost(ValTy);
 
   if (!TLI->isOperationExpand(ISD, LT.second)) {
     // The operation is legal. Assume it costs 1. Multiply
@@ -280,7 +315,7 @@ unsigned VectorTargetTransformImpl::getCmpSelInstrCost(unsigned Opcode,
     unsigned Cost = getCmpSelInstrCost(Opcode, ValTy->getScalarType(),
                                        CondTy);
 
-    // return the cost of multiple scalar invocation plus the cost of inserting
+    // Return the cost of multiple scalar invocation plus the cost of inserting
     // and extracting the values.
     return getScalarizationOverhead(ValTy, true, false) + Num * Cost;
   }
@@ -289,7 +324,6 @@ unsigned VectorTargetTransformImpl::getCmpSelInstrCost(unsigned Opcode,
   return 1;
 }
 
-/// Returns the expected cost of Vector Insert and Extract.
 unsigned VectorTargetTransformImpl::getVectorInstrCost(unsigned Opcode,
                                                        Type *Val,
                                                        unsigned Index) const {
@@ -306,8 +340,7 @@ unsigned
 VectorTargetTransformImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
                                            unsigned Alignment,
                                            unsigned AddressSpace) const {
-  std::pair<unsigned, EVT> LT =
-  getTypeLegalizationCost(Src->getContext(), TLI->getValueType(Src));
+  std::pair<unsigned, MVT> LT = getTypeLegalizationCost(Src);
 
   // Assume that all loads of legal types cost 1.
   return LT.first;
@@ -315,7 +348,6 @@ VectorTargetTransformImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
 
 unsigned
 VectorTargetTransformImpl::getNumberOfParts(Type *Tp) const {
-  std::pair<unsigned, EVT> LT =
-    getTypeLegalizationCost(Tp->getContext(), TLI->getValueType(Tp));
+  std::pair<unsigned, MVT> LT = getTypeLegalizationCost(Tp);
   return LT.first;
 }

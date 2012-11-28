@@ -22,6 +22,18 @@ namespace {
 #pragma warning(disable:4584)
 #endif
 
+// Suppress direct base '{anonymous}::S1' inaccessible in '{anonymous}::D9'
+// due to ambiguity warning.
+//
+// Pragma based warning suppression was introduced in GGC 4.2.  Additionally
+// this warning is "enabled by default".  The warning still appears if -Wall is
+// suppressed.  Apparently GCC suppresses it when -w is specifed, which is odd.
+// At any rate, clang on the other hand gripes about -Wunknown-pragma, so
+// leaving it out of this.
+#if ((__GNUC__ * 100) + __GNUC_MINOR__) >= 402 && !defined(__clang__)
+#pragma GCC diagnostic warning "-w"
+#endif
+
 // Define some fixed alignment types to use in these tests.
 #if __has_feature(cxx_alignas)
 struct alignas(1) A1 { };
@@ -65,6 +77,17 @@ struct V5 : V4, V3 { double z; virtual ~V5(); };
 struct V6 : S1 { virtual ~V6(); };
 struct V7 : virtual V2, virtual V6 { virtual ~V7(); };
 struct V8 : V5, virtual V6, V7 { double zz; virtual ~V8(); };
+
+double S6::f() { return 0.0; }
+float D2::g() { return 0.0f; }
+V1::~V1() {}
+V2::~V2() {}
+V3::~V3() {}
+V4::~V4() {}
+V5::~V5() {}
+V6::~V6() {}
+V7::~V7() {}
+V8::~V8() {}
 
 // Ensure alignment is a compile-time constant.
 char LLVM_ATTRIBUTE_UNUSED test_arr1

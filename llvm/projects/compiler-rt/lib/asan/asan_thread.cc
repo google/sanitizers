@@ -28,15 +28,16 @@ AsanThread::AsanThread(LinkerInitialized x)
 
 AsanThread *AsanThread::Create(u32 parent_tid, thread_callback_t start_routine,
                                void *arg, StackTrace *stack) {
-  uptr size = RoundUpTo(sizeof(AsanThread), kPageSize);
+  uptr PageSize = GetPageSizeCached();
+  uptr size = RoundUpTo(sizeof(AsanThread), PageSize);
   AsanThread *thread = (AsanThread*)MmapOrDie(size, __FUNCTION__);
   thread->start_routine_ = start_routine;
   thread->arg_ = arg;
 
-  const uptr kSummaryAllocSize = kPageSize;
+  const uptr kSummaryAllocSize = PageSize;
   CHECK_LE(sizeof(AsanThreadSummary), kSummaryAllocSize);
   AsanThreadSummary *summary =
-      (AsanThreadSummary*)MmapOrDie(kPageSize, "AsanThreadSummary");
+      (AsanThreadSummary*)MmapOrDie(PageSize, "AsanThreadSummary");
   summary->Init(parent_tid, stack);
   summary->set_thread(thread);
   thread->set_summary(summary);
@@ -66,7 +67,7 @@ void AsanThread::Destroy() {
   // and we don't want it to have any poisoned stack.
   ClearShadowForThreadStack();
   fake_stack().Cleanup();
-  uptr size = RoundUpTo(sizeof(AsanThread), kPageSize);
+  uptr size = RoundUpTo(sizeof(AsanThread), GetPageSizeCached());
   UnmapOrDie(this, size);
 }
 
@@ -118,25 +119,25 @@ void AsanThread::ClearShadowForThreadStack() {
 
 const char *AsanThread::GetFrameNameByAddr(uptr addr, uptr *offset) {
   uptr bottom = 0;
-  bool is_fake_stack = false;
   if (AddrIsInStack(addr)) {
     bottom = stack_bottom();
   } else {
     bottom = fake_stack().AddrIsInFakeStack(addr);
     CHECK(bottom);
-    is_fake_stack = true;
+    *offset = addr - bottom;
+    return  (const char *)((uptr*)bottom)[1];
   }
-  uptr aligned_addr = addr & ~(__WORDSIZE/8 - 1);  // align addr.
+  uptr aligned_addr = addr & ~(SANITIZER_WORDSIZE/8 - 1);  // align addr.
   u8 *shadow_ptr = (u8*)MemToShadow(aligned_addr);
   u8 *shadow_bottom = (u8*)MemToShadow(bottom);
 
   while (shadow_ptr >= shadow_bottom &&
-      *shadow_ptr != kAsanStackLeftRedzoneMagic) {
+         *shadow_ptr != kAsanStackLeftRedzoneMagic) {
     shadow_ptr--;
   }
 
   while (shadow_ptr >= shadow_bottom &&
-      *shadow_ptr == kAsanStackLeftRedzoneMagic) {
+         *shadow_ptr == kAsanStackLeftRedzoneMagic) {
     shadow_ptr--;
   }
 
@@ -146,8 +147,7 @@ const char *AsanThread::GetFrameNameByAddr(uptr addr, uptr *offset) {
   }
 
   uptr* ptr = (uptr*)SHADOW_TO_MEM((uptr)(shadow_ptr + 1));
-  CHECK((ptr[0] == kCurrentStackFrameMagic) ||
-      (is_fake_stack && ptr[0] == kRetiredStackFrameMagic));
+  CHECK(ptr[0] == kCurrentStackFrameMagic);
   *offset = addr - (uptr)ptr;
   return (const char*)ptr[1];
 }

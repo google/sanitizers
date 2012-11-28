@@ -47,16 +47,16 @@ class MipsFunctionInfo : public MachineFunctionInfo {
   /// VarArgsFrameIndex - FrameIndex for start of varargs area.
   int VarArgsFrameIndex;
 
-  // Formal argument information obtained during call to LowerFormalArguments.
-  unsigned NextStackOffset;
+  /// True if function has a byval argument.
   bool HasByvalArg;
 
-  bool EmitNOAT;
+  /// Size of incoming argument area.
+  unsigned IncomingArgSize;
 
 public:
   MipsFunctionInfo(MachineFunction& MF)
    : MF(MF), SRetReturnReg(0), GlobalBaseReg(0), Mips16SPAliasReg(0),
-     VarArgsFrameIndex(0), EmitNOAT(false)
+     VarArgsFrameIndex(0)
   {}
 
   unsigned getSRetReturnReg() const { return SRetReturnReg; }
@@ -71,15 +71,13 @@ public:
   int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
   void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
 
-  unsigned nextStackOffset() const { return NextStackOffset; }
   bool hasByvalArg() const { return HasByvalArg; }
-  void setFormalArgInfo(unsigned Offset, bool HasByval) {
-    NextStackOffset = Offset;
+  void setFormalArgInfo(unsigned Size, bool HasByval) {
+    IncomingArgSize = Size;
     HasByvalArg = HasByval;
   }
 
-  bool getEmitNOAT() const { return EmitNOAT; }
-  void setEmitNOAT() { EmitNOAT = true; }
+  unsigned getIncomingArgSize() const { return IncomingArgSize; }
 };
 
 } // end of namespace llvm

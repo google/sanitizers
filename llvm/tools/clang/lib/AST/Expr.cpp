@@ -81,7 +81,7 @@ Expr::skipRValueSubobjectAdjustments(
       }
     } else if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
       if (BO->isPtrMemOp()) {
-        assert(BO->getLHS()->isRValue());
+        assert(BO->getRHS()->isRValue());
         E = BO->getLHS();
         const MemberPointerType *MPT =
           BO->getRHS()->getType()->getAs<MemberPointerType>();
@@ -1327,9 +1327,12 @@ SourceLocation MemberExpr::getLocStart() const {
   return MemberLoc;
 }
 SourceLocation MemberExpr::getLocEnd() const {
+  SourceLocation EndLoc = getMemberNameInfo().getEndLoc();
   if (hasExplicitTemplateArgs())
-    return getRAngleLoc();
-  return getMemberNameInfo().getEndLoc();
+    EndLoc = getRAngleLoc();
+  else if (EndLoc.isInvalid())
+    EndLoc = getBase()->getLocEnd();
+  return EndLoc;
 }
 
 void CastExpr::CheckCastConsistency() const {
@@ -1745,7 +1748,7 @@ InitListExpr::InitListExpr(ASTContext &C, SourceLocation lbraceloc,
   : Expr(InitListExprClass, QualType(), VK_RValue, OK_Ordinary, false, false,
          false, false),
     InitExprs(C, initExprs.size()),
-    LBraceLoc(lbraceloc), RBraceLoc(rbraceloc), SyntacticForm(0)
+    LBraceLoc(lbraceloc), RBraceLoc(rbraceloc), AltForm(0, true)
 {
   sawArrayRangeDesignator(false);
   setInitializesStdInitializerList(false);
@@ -1805,7 +1808,7 @@ bool InitListExpr::isStringLiteralInit() const {
 }
 
 SourceRange InitListExpr::getSourceRange() const {
-  if (SyntacticForm)
+  if (InitListExpr *SyntacticForm = getSyntacticForm())
     return SyntacticForm->getSourceRange();
   SourceLocation Beg = LBraceLoc, End = RBraceLoc;
   if (Beg.isInvalid()) {
@@ -3442,32 +3445,28 @@ Selector ObjCMessageExpr::getSelector() const {
   return Selector(SelectorOrMethod); 
 }
 
-ObjCInterfaceDecl *ObjCMessageExpr::getReceiverInterface() const {
+QualType ObjCMessageExpr::getReceiverType() const {
   switch (getReceiverKind()) {
   case Instance:
-    if (const ObjCObjectPointerType *Ptr
-          = getInstanceReceiver()->getType()->getAs<ObjCObjectPointerType>())
-      return Ptr->getInterfaceDecl();
-    break;
-
+    return getInstanceReceiver()->getType();
   case Class:
-    if (const ObjCObjectType *Ty
-          = getClassReceiver()->getAs<ObjCObjectType>())
-      return Ty->getInterface();
-    break;
-
+    return getClassReceiver();
   case SuperInstance:
-    if (const ObjCObjectPointerType *Ptr
-          = getSuperType()->getAs<ObjCObjectPointerType>())
-      return Ptr->getInterfaceDecl();
-    break;
-
   case SuperClass:
-    if (const ObjCObjectType *Iface
-          = getSuperType()->getAs<ObjCObjectType>())
-      return Iface->getInterface();
-    break;
+    return getSuperType();
   }
+
+  llvm_unreachable("unexpected receiver kind");
+}
+
+ObjCInterfaceDecl *ObjCMessageExpr::getReceiverInterface() const {
+  QualType T = getReceiverType();
+
+  if (const ObjCObjectPointerType *Ptr = T->getAs<ObjCObjectPointerType>())
+    return Ptr->getInterfaceDecl();
+
+  if (const ObjCObjectType *Ty = T->getAs<ObjCObjectType>())
+    return Ty->getInterface();
 
   return 0;
 }

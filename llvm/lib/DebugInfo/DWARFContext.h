@@ -25,8 +25,6 @@ namespace llvm {
 /// information parsing. The actual data is supplied through pure virtual
 /// methods that a concrete implementation provides.
 class DWARFContext : public DIContext {
-  bool IsLittleEndian;
-
   SmallVector<DWARFCompileUnit, 1> CUs;
   OwningPtr<DWARFDebugAbbrev> Abbrev;
   OwningPtr<DWARFDebugAranges> Aranges;
@@ -37,10 +35,11 @@ class DWARFContext : public DIContext {
 
   /// Read compile units from the debug_info section and store them in CUs.
   void parseCompileUnits();
-protected:
-  DWARFContext(bool isLittleEndian) : IsLittleEndian(isLittleEndian) {}
+
 public:
+  DWARFContext() {}
   virtual void dump(raw_ostream &OS);
+
   /// Get the number of compile units in this context.
   unsigned getNumCompileUnits() {
     if (CUs.empty())
@@ -69,8 +68,8 @@ public:
   virtual DIInliningInfo getInliningInfoForAddress(uint64_t Address,
       DILineInfoSpecifier Specifier = DILineInfoSpecifier());
 
-  bool isLittleEndian() const { return IsLittleEndian; }
-
+  virtual bool isLittleEndian() const = 0;
+  virtual const RelocAddrMap &relocMap() const = 0;
   virtual StringRef getInfoSection() = 0;
   virtual StringRef getAbbrevSection() = 0;
   virtual StringRef getARangeSection() = 0;
@@ -95,6 +94,8 @@ private:
 /// pointers to it.
 class DWARFContextInMemory : public DWARFContext {
   virtual void anchor();
+  bool IsLittleEndian;
+  RelocAddrMap RelocMap;
   StringRef InfoSection;
   StringRef AbbrevSection;
   StringRef ARangeSection;
@@ -102,22 +103,9 @@ class DWARFContextInMemory : public DWARFContext {
   StringRef StringSection;
   StringRef RangeSection;
 public:
-  DWARFContextInMemory(bool isLittleEndian,
-                       StringRef infoSection,
-                       StringRef abbrevSection,
-                       StringRef aRangeSection,
-                       StringRef lineSection,
-                       StringRef stringSection,
-                       StringRef rangeSection)
-    : DWARFContext(isLittleEndian),
-      InfoSection(infoSection),
-      AbbrevSection(abbrevSection),
-      ARangeSection(aRangeSection),
-      LineSection(lineSection),
-      StringSection(stringSection),
-      RangeSection(rangeSection)
-    {}
-
+  DWARFContextInMemory(object::ObjectFile *);
+  virtual bool isLittleEndian() const { return IsLittleEndian; }
+  virtual const RelocAddrMap &relocMap() const { return RelocMap; }
   virtual StringRef getInfoSection() { return InfoSection; }
   virtual StringRef getAbbrevSection() { return AbbrevSection; }
   virtual StringRef getARangeSection() { return ARangeSection; }

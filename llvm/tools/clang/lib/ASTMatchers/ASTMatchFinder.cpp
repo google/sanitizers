@@ -58,6 +58,9 @@ private:
 
   bool shouldVisitTemplateInstantiations() const { return true; }
   bool shouldVisitImplicitCode() const { return true; }
+  // Disables data recursion. We intercept Traverse* methods in the RAV, which
+  // are not triggered during data recursion.
+  bool shouldUseDataRecursionFor(clang::Stmt *S) const { return false; }
 
   template <typename T>
   bool TraverseNode(T *Node, bool (VisitorBase::*traverse)(T*)) {
@@ -183,6 +186,8 @@ public:
   // We assume that the QualType and the contained type are on the same
   // hierarchy level. Thus, we try to match either of them.
   bool TraverseType(QualType TypeNode) {
+    if (TypeNode.isNull())
+      return true;
     ScopedIncrement ScopedDepth(&CurrentDepth);
     // Match the Type.
     if (!match(*TypeNode))
@@ -193,6 +198,8 @@ public:
   // We assume that the TypeLoc, contained QualType and contained Type all are
   // on the same hierarchy level. Thus, we try to match all of them.
   bool TraverseTypeLoc(TypeLoc TypeLocNode) {
+    if (TypeLocNode.isNull())
+      return true;
     ScopedIncrement ScopedDepth(&CurrentDepth);
     // Match the Type.
     if (!match(*TypeLocNode.getType()))
@@ -208,14 +215,19 @@ public:
     return (NNS == NULL) || traverse(*NNS);
   }
   bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS) {
+    if (!NNS)
+      return true;
     ScopedIncrement ScopedDepth(&CurrentDepth);
     if (!match(*NNS.getNestedNameSpecifier()))
       return false;
-    return !NNS || traverse(NNS);
+    return traverse(NNS);
   }
 
   bool shouldVisitTemplateInstantiations() const { return true; }
   bool shouldVisitImplicitCode() const { return true; }
+  // Disables data recursion. We intercept Traverse* methods in the RAV, which
+  // are not triggered during data recursion.
+  bool shouldUseDataRecursionFor(clang::Stmt *S) const { return false; }
 
 private:
   // Used for updating the depth during traversal.
@@ -313,6 +325,15 @@ public:
                                         MatchCallback*> > *MatcherCallbackPairs)
      : MatcherCallbackPairs(MatcherCallbackPairs),
        ActiveASTContext(NULL) {
+  }
+
+  void onStartOfTranslationUnit() {
+    for (std::vector<std::pair<const internal::DynTypedMatcher*,
+                               MatchCallback*> >::const_iterator
+             I = MatcherCallbackPairs->begin(), E = MatcherCallbackPairs->end();
+         I != E; ++I) {
+      I->second->onStartOfTranslationUnit();
+    }
   }
 
   void set_active_ast_context(ASTContext *NewActiveASTContext) {
@@ -456,6 +477,9 @@ public:
 
   bool shouldVisitTemplateInstantiations() const { return true; }
   bool shouldVisitImplicitCode() const { return true; }
+  // Disables data recursion. We intercept Traverse* methods in the RAV, which
+  // are not triggered during data recursion.
+  bool shouldUseDataRecursionFor(clang::Stmt *S) const { return false; }
 
 private:
   // Implements a BoundNodesTree::Visitor that calls a MatchCallback with
@@ -649,6 +673,7 @@ private:
       ParsingDone->run();
     }
     Visitor.set_active_ast_context(&Context);
+    Visitor.onStartOfTranslationUnit();
     Visitor.TraverseDecl(Context.getTranslationUnitDecl());
     Visitor.set_active_ast_context(NULL);
   }

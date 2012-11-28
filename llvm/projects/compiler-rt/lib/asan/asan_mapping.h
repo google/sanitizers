@@ -30,10 +30,14 @@ extern __attribute__((visibility("default"))) uptr __asan_mapping_offset;
 #  define SHADOW_OFFSET (0)
 # else
 #  define SHADOW_SCALE (3)
-#  if __WORDSIZE == 32
+#  if SANITIZER_WORDSIZE == 32
 #   define SHADOW_OFFSET (1 << 29)
 #  else
-#   define SHADOW_OFFSET (1ULL << 44)
+#   if defined(__powerpc64__)
+#    define SHADOW_OFFSET (1ULL << 41)
+#   else
+#    define SHADOW_OFFSET (1ULL << 44)
+#   endif
 #  endif
 # endif
 #endif  // ASAN_FLEXIBLE_MAPPING_AND_OFFSET
@@ -42,11 +46,15 @@ extern __attribute__((visibility("default"))) uptr __asan_mapping_offset;
 #define MEM_TO_SHADOW(mem) (((mem) >> SHADOW_SCALE) | (SHADOW_OFFSET))
 #define SHADOW_TO_MEM(shadow) (((shadow) - SHADOW_OFFSET) << SHADOW_SCALE)
 
-#if __WORDSIZE == 64
+#if SANITIZER_WORDSIZE == 64
+# if defined(__powerpc64__)
+  static const uptr kHighMemEnd = 0x00000fffffffffffUL;
+# else
   static const uptr kHighMemEnd = 0x00007fffffffffffUL;
-#else  // __WORDSIZE == 32
+# endif
+#else  // SANITIZER_WORDSIZE == 32
   static const uptr kHighMemEnd = 0xffffffff;
-#endif  // __WORDSIZE
+#endif  // SANITIZER_WORDSIZE
 
 
 #define kLowMemBeg      0
@@ -60,7 +68,12 @@ extern __attribute__((visibility("default"))) uptr __asan_mapping_offset;
 #define kHighShadowBeg  MEM_TO_SHADOW(kHighMemBeg)
 #define kHighShadowEnd  MEM_TO_SHADOW(kHighMemEnd)
 
-#define kShadowGapBeg   (kLowShadowEnd ? kLowShadowEnd + 1 : 16 * kPageSize)
+// With the zero shadow base we can not actually map pages starting from 0.
+// This constant is somewhat arbitrary.
+#define kZeroBaseShadowStart (1 << 18)
+
+#define kShadowGapBeg   (kLowShadowEnd ? kLowShadowEnd + 1 \
+                                       : kZeroBaseShadowStart)
 #define kShadowGapEnd   (kHighShadowBeg - 1)
 
 #define kGlobalAndStackRedzone \

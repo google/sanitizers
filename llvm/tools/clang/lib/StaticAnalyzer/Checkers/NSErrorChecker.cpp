@@ -163,23 +163,9 @@ public:
 };
 }
 
-namespace { struct NSErrorOut {}; }
-namespace { struct CFErrorOut {}; }
-
 typedef llvm::ImmutableMap<SymbolRef, unsigned> ErrorOutFlag;
-
-namespace clang {
-namespace ento {
-  template <>
-  struct ProgramStateTrait<NSErrorOut> : public ProgramStatePartialTrait<ErrorOutFlag> {  
-    static void *GDMIndex() { static int index = 0; return &index; }
-  };
-  template <>
-  struct ProgramStateTrait<CFErrorOut> : public ProgramStatePartialTrait<ErrorOutFlag> {  
-    static void *GDMIndex() { static int index = 0; return &index; }
-  };
-}
-}
+REGISTER_TRAIT_WITH_PROGRAMSTATE(NSErrorOut, ErrorOutFlag)
+REGISTER_TRAIT_WITH_PROGRAMSTATE(CFErrorOut, ErrorOutFlag)
 
 template <typename T>
 static bool hasFlag(SVal val, ProgramStateRef state) {
@@ -285,7 +271,7 @@ void NSOrCFErrorDerefChecker::checkEvent(ImplicitNullDerefEvent event) const {
     bug = new CFErrorDerefBug();
   BugReport *report = new BugReport(*bug, os.str(),
                                                     event.SinkNode);
-  BR.EmitReport(report);
+  BR.emitReport(report);
 }
 
 static bool IsNSError(QualType T, IdentifierInfo *II) {

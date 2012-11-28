@@ -272,18 +272,35 @@ void ExprEngine::removeDead(ExplodedNode *Pred, ExplodedNodeSet &Out,
                             const Stmt *DiagnosticStmt,
                             ProgramPoint::Kind K) {
   assert((K == ProgramPoint::PreStmtPurgeDeadSymbolsKind ||
-          ReferenceStmt == 0) && "PreStmt is not generally supported by "
-                                 "the SymbolReaper yet");
+          ReferenceStmt == 0 || isa<ReturnStmt>(ReferenceStmt))
+          && "PostStmt is not generally supported by the SymbolReaper yet");
+  assert(LC && "Must pass the current (or expiring) LocationContext");
+
+  if (!DiagnosticStmt) {
+    DiagnosticStmt = ReferenceStmt;
+    assert(DiagnosticStmt && "Required for clearing a LocationContext");
+  }
+
   NumRemoveDeadBindings++;
   CleanedState = Pred->getState();
-  SymbolReaper SymReaper(LC, ReferenceStmt, SymMgr, getStoreManager());
+
+  // LC is the location context being destroyed, but SymbolReaper wants a
+  // location context that is still live. (If this is the top-level stack
+  // frame, this will be null.)
+  if (!ReferenceStmt) {
+    assert(K == ProgramPoint::PostStmtPurgeDeadSymbolsKind &&
+           "Use PostStmtPurgeDeadSymbolsKind for clearing a LocationContext");
+    LC = LC->getParent();
+  }
+
+  const StackFrameContext *SFC = LC ? LC->getCurrentStackFrame() : 0;
+  SymbolReaper SymReaper(SFC, ReferenceStmt, SymMgr, getStoreManager());
 
   getCheckerManager().runCheckersForLiveSymbols(CleanedState, SymReaper);
 
   // Create a state in which dead bindings are removed from the environment
   // and the store. TODO: The function should just return new env and store,
   // not a new state.
-  const StackFrameContext *SFC = LC->getCurrentStackFrame();
   CleanedState = StateMgr.removeDeadBindings(CleanedState, SFC, SymReaper);
 
   // Process any special transfer function for dead symbols.
@@ -345,8 +362,7 @@ void ExprEngine::ProcessStmt(const CFGStmt S,
   EntryNode = Pred;
   ExplodedNodeSet CleanedStates;
   if (shouldRemoveDeadBindings(AMgr, S, Pred, EntryNode->getLocationContext())){
-    removeDead(EntryNode, CleanedStates, currStmt,
-               Pred->getLocationContext(), currStmt);
+    removeDead(EntryNode, CleanedStates, currStmt, Pred->getLocationContext());
   } else
     CleanedStates.Add(EntryNode);
 
@@ -1055,19 +1071,18 @@ bool ExprEngine::replayWithoutInlining(ExplodedNode *N,
 
 /// Block entrance.  (Update counters).
 void ExprEngine::processCFGBlockEntrance(const BlockEdge &L,
-                                         NodeBuilderWithSinks &nodeBuilder) {
+                                         NodeBuilderWithSinks &nodeBuilder, 
+                                         ExplodedNode *Pred) {
   
   // FIXME: Refactor this into a checker.
-  ExplodedNode *pred = nodeBuilder.getContext().getPred();
-  
   if (nodeBuilder.getContext().blockCount() >= AMgr.options.maxBlockVisitOnPath) {
     static SimpleProgramPointTag tag("ExprEngine : Block count exceeded");
     const ExplodedNode *Sink =
-                   nodeBuilder.generateSink(pred->getState(), pred, &tag);
+                   nodeBuilder.generateSink(Pred->getState(), Pred, &tag);
 
     // Check if we stopped at the top level function or not.
     // Root node should have the location context of the top most function.
-    const LocationContext *CalleeLC = pred->getLocation().getLocationContext();
+    const LocationContext *CalleeLC = Pred->getLocation().getLocationContext();
     const LocationContext *CalleeSF = CalleeLC->getCurrentStackFrame();
     const LocationContext *RootLC =
                         (*G.roots_begin())->getLocation().getLocationContext();
@@ -1079,7 +1094,7 @@ void ExprEngine::processCFGBlockEntrance(const BlockEdge &L,
       // the list. Replay should almost never fail. Use the stats to catch it
       // if it does.
       if ((!AMgr.options.NoRetryExhausted &&
-           replayWithoutInlining(pred, CalleeLC)))
+           replayWithoutInlining(Pred, CalleeLC)))
         return;
       NumMaxBlockCountReachedInInlined++;
     } else
@@ -1313,10 +1328,25 @@ void ExprEngine::processIndirectGoto(IndirectGotoNodeBuilder &builder) {
 
 /// ProcessEndPath - Called by CoreEngine.  Used to generate end-of-path
 ///  nodes when the control reaches the end of a function.
-void ExprEngine::processEndOfFunction(NodeBuilderContext& BC) {
-  StateMgr.EndPath(BC.Pred->getState());
+void ExprEngine::processEndOfFunction(NodeBuilderContext& BC,
+                                      ExplodedNode *Pred) {
+  StateMgr.EndPath(Pred->getState());
+
   ExplodedNodeSet Dst;
-  getCheckerManager().runCheckersForEndPath(BC, Dst, *this);
+  if (Pred->getLocationContext()->inTopFrame()) {
+    // Remove dead symbols.
+    ExplodedNodeSet AfterRemovedDead;
+    removeDeadOnEndOfFunction(BC, Pred, AfterRemovedDead);
+
+    // Notify checkers.
+    for (ExplodedNodeSet::iterator I = AfterRemovedDead.begin(),
+        E = AfterRemovedDead.end(); I != E; ++I) {
+      getCheckerManager().runCheckersForEndPath(BC, Dst, *I, *this);
+    }
+  } else {
+    getCheckerManager().runCheckersForEndPath(BC, Dst, Pred, *this);
+  }
+
   Engine.enqueueEndOfFunction(Dst);
 }
 

@@ -411,13 +411,12 @@ comments::FullComment *ASTContext::getCommentForDecl(
   const RawComment *RC = getRawCommentForAnyRedecl(D, &OriginalDecl);
   if (!RC) {
     if (isa<ObjCMethodDecl>(D) || isa<FunctionDecl>(D)) {
-      SmallVector<const NamedDecl*, 8> overridden;
+      SmallVector<const NamedDecl*, 8> Overridden;
       if (const ObjCMethodDecl *OMD = dyn_cast<ObjCMethodDecl>(D))
-        addRedeclaredMethods(OMD, overridden);
-      const_cast<ASTContext *>(this)->getOverriddenMethods(dyn_cast<NamedDecl>(D),
-                                                           overridden);
-      for (unsigned i = 0, e = overridden.size(); i < e; i++) {
-        if (comments::FullComment *FC = getCommentForDecl(overridden[i], PP)) {
+        addRedeclaredMethods(OMD, Overridden);
+      getOverriddenMethods(dyn_cast<NamedDecl>(D), Overridden);
+      for (unsigned i = 0, e = Overridden.size(); i < e; i++) {
+        if (comments::FullComment *FC = getCommentForDecl(Overridden[i], PP)) {
           comments::FullComment *CFC = cloneFullComment(FC, D);
           return CFC;
         }
@@ -1082,8 +1081,9 @@ void ASTContext::addOverriddenMethod(const CXXMethodDecl *Method,
   OverriddenMethods[Method].push_back(Overridden);
 }
 
-void ASTContext::getOverriddenMethods(const NamedDecl *D,
-                               SmallVectorImpl<const NamedDecl *> &Overridden) {
+void ASTContext::getOverriddenMethods(
+                      const NamedDecl *D,
+                      SmallVectorImpl<const NamedDecl *> &Overridden) const {
   assert(D);
 
   if (const CXXMethodDecl *CXXMethod = dyn_cast<CXXMethodDecl>(D)) {
@@ -3534,6 +3534,12 @@ QualType ASTContext::getPointerDiffType() const {
   return getFromTargetType(Target->getPtrDiffType(0));
 }
 
+/// \brief Return the unique type for "pid_t" defined in
+/// <sys/types.h>. We need this to compute the correct type for vfork().
+QualType ASTContext::getProcessIDType() const {
+  return getFromTargetType(Target->getProcessIDType());
+}
+
 //===----------------------------------------------------------------------===//
 //                              Type Operators
 //===----------------------------------------------------------------------===//
@@ -4153,8 +4159,8 @@ QualType ASTContext::getPromotedIntegerType(QualType Promotable) const {
   // At this point, we should have a signed or unsigned integer type.
   if (Promotable->isSignedIntegerType())
     return IntTy;
-  uint64_t PromotableSize = getTypeSize(Promotable);
-  uint64_t IntSize = getTypeSize(IntTy);
+  uint64_t PromotableSize = getIntWidth(Promotable);
+  uint64_t IntSize = getIntWidth(IntTy);
   assert(Promotable->isUnsignedIntegerType() && PromotableSize <= IntSize);
   return (PromotableSize != IntSize) ? IntTy : UnsignedIntTy;
 }
@@ -4368,6 +4374,29 @@ bool ASTContext::BlockRequiresCopying(QualType Ty) const {
   return false;
 }
 
+bool ASTContext::getByrefLifetime(QualType Ty,
+                              Qualifiers::ObjCLifetime &LifeTime,
+                              bool &HasByrefExtendedLayout) const {
+  
+  if (!getLangOpts().ObjC1 ||
+      getLangOpts().getGC() != LangOptions::NonGC)
+    return false;
+  
+  HasByrefExtendedLayout = false;
+  if (Ty->isAggregateType()) {
+    HasByrefExtendedLayout = true;
+    LifeTime = Qualifiers::OCL_None;
+  }
+  else if (getLangOpts().ObjCAutoRefCount)
+    LifeTime = Ty.getObjCLifetime();
+  // MRR.
+  else if (Ty->isObjCObjectPointerType() || Ty->isBlockPointerType())
+    LifeTime = Qualifiers::OCL_ExplicitNone;
+  else
+    LifeTime = Qualifiers::OCL_None;
+  return true;
+}
+
 QualType
 ASTContext::BuildByRefType(StringRef DeclName, QualType Ty) const {
   //  type = struct __Block_byref_1_X {
@@ -4377,10 +4406,13 @@ ASTContext::BuildByRefType(StringRef DeclName, QualType Ty) const {
   //    unsigned int __size;
   //    void *__copy_helper;            // as needed
   //    void *__destroy_help            // as needed
+  //    void *__byref_variable_layout;    // Extended layout info. for byref variable as needed
   //    int X;
   //  } *
 
   bool HasCopyAndDispose = BlockRequiresCopying(Ty);
+  bool HasByrefExtendedLayout;
+  Qualifiers::ObjCLifetime Lifetime;
 
   // FIXME: Move up
   SmallString<36> Name;
@@ -4398,6 +4430,7 @@ ASTContext::BuildByRefType(StringRef DeclName, QualType Ty) const {
     Int32Ty,
     getPointerType(VoidPtrTy),
     getPointerType(VoidPtrTy),
+    getPointerType(VoidPtrTy),
     Ty
   };
 
@@ -4408,11 +4441,14 @@ ASTContext::BuildByRefType(StringRef DeclName, QualType Ty) const {
     "__size",
     "__copy_helper",
     "__destroy_helper",
+    "__byref_variable_layout",
     DeclName,
   };
-
-  for (size_t i = 0; i < 7; ++i) {
+  bool ByrefKnownLifetime = getByrefLifetime(Ty, Lifetime, HasByrefExtendedLayout);
+  for (size_t i = 0; i < 8; ++i) {
     if (!HasCopyAndDispose && i >=4 && i <= 5)
+      continue;
+    if ((!ByrefKnownLifetime || !HasByrefExtendedLayout) && i == 6)
       continue;
     FieldDecl *Field = FieldDecl::Create(*this, T, SourceLocation(),
                                          SourceLocation(),
@@ -4481,7 +4517,13 @@ std::string ASTContext::getObjCEncodingForBlock(const BlockExpr *Expr) const {
   QualType BlockTy =
       Expr->getType()->getAs<BlockPointerType>()->getPointeeType();
   // Encode result type.
-  getObjCEncodingForType(BlockTy->getAs<FunctionType>()->getResultType(), S);
+  if (getLangOpts().EncodeExtendedBlockSig)
+    getObjCEncodingForMethodParameter(Decl::OBJC_TQ_None,
+                            BlockTy->getAs<FunctionType>()->getResultType(),
+                            S, true /*Extended*/);
+  else
+    getObjCEncodingForType(BlockTy->getAs<FunctionType>()->getResultType(),
+                           S);
   // Compute size of all parameters.
   // Start with computing size of a pointer in number of bytes.
   // FIXME: There might(should) be a better way of doing this computation!
@@ -4516,7 +4558,11 @@ std::string ASTContext::getObjCEncodingForBlock(const BlockExpr *Expr) const {
         PType = PVDecl->getType();
     } else if (PType->isFunctionType())
       PType = PVDecl->getType();
-    getObjCEncodingForType(PType, S);
+    if (getLangOpts().EncodeExtendedBlockSig)
+      getObjCEncodingForMethodParameter(Decl::OBJC_TQ_None, PType,
+                                      S, true /*Extended*/);
+    else
+      getObjCEncodingForType(PType, S);
     S += charUnitsToString(ParmOffset);
     ParmOffset += getObjCEncodingTypeSize(PType);
   }
@@ -7207,6 +7253,9 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
       return QualType();
     }
     break;
+  case 'p':
+    Type = Context.getProcessIDType();
+    break;
   }
 
   // If there are modifiers and if we're allowed to parse them, go for it.
@@ -7446,27 +7495,20 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
   if (VD->isThisDeclarationADefinition() == VarDecl::DeclarationOnly)
     return false;
 
-  // Structs that have non-trivial constructors or destructors are required.
-
-  // FIXME: Handle references.
-  // FIXME: Be more selective about which constructors we care about.
-  if (const RecordType *RT = VD->getType()->getAs<RecordType>()) {
-    if (const CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(RT->getDecl())) {
-      if (RD->hasDefinition() && !(RD->hasTrivialDefaultConstructor() &&
-                                   RD->hasTrivialCopyConstructor() &&
-                                   RD->hasTrivialMoveConstructor() &&
-                                   RD->hasTrivialDestructor()))
-        return true;
-    }
-  }
-
+  // Variables that can be needed in other TUs are required.
   GVALinkage L = GetGVALinkageForVariable(VD);
-  if (L == GVA_Internal || L == GVA_TemplateInstantiation) {
-    if (!(VD->getInit() && VD->getInit()->HasSideEffects(*this)))
-      return false;
-  }
+  if (L != GVA_Internal && L != GVA_TemplateInstantiation)
+    return true;
 
-  return true;
+  // Variables that have destruction with side-effects are required.
+  if (VD->getType().isDestructedType())
+    return true;
+
+  // Variables that have initialization with side-effects are required.
+  if (VD->getInit() && VD->getInit()->HasSideEffects(*this))
+    return true;
+
+  return false;
 }
 
 CallingConv ASTContext::getDefaultCXXMethodCallConv(bool isVariadic) {
@@ -7513,6 +7555,23 @@ size_t ASTContext::getSideTableAllocatedMemory() const {
     + llvm::capacity_in_bytes(Types)
     + llvm::capacity_in_bytes(VariableArrayTypes)
     + llvm::capacity_in_bytes(ClassScopeSpecializationPattern);
+}
+
+void ASTContext::addUnnamedTag(const TagDecl *Tag) {
+  // FIXME: This mangling should be applied to function local classes too
+  if (!Tag->getName().empty() || Tag->getTypedefNameForAnonDecl() ||
+      !isa<CXXRecordDecl>(Tag->getParent()) || Tag->getLinkage() != ExternalLinkage)
+    return;
+
+  std::pair<llvm::DenseMap<const DeclContext *, unsigned>::iterator, bool> P =
+    UnnamedMangleContexts.insert(std::make_pair(Tag->getParent(), 0));
+  UnnamedMangleNumbers.insert(std::make_pair(Tag, P.first->second++));
+}
+
+int ASTContext::getUnnamedTagManglingNumber(const TagDecl *Tag) const {
+  llvm::DenseMap<const TagDecl *, unsigned>::const_iterator I =
+    UnnamedMangleNumbers.find(Tag);
+  return I != UnnamedMangleNumbers.end() ? I->second : -1;
 }
 
 unsigned ASTContext::getLambdaManglingNumber(CXXMethodDecl *CallOperator) {

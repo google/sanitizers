@@ -515,6 +515,10 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
     setOperationAction(ISD::FLOG10, MVT::v4f32, Expand);
     setOperationAction(ISD::FEXP, MVT::v4f32, Expand);
     setOperationAction(ISD::FEXP2, MVT::v4f32, Expand);
+    setOperationAction(ISD::FCEIL, MVT::v4f32, Expand);
+    setOperationAction(ISD::FTRUNC, MVT::v4f32, Expand);
+    setOperationAction(ISD::FRINT, MVT::v4f32, Expand);
+    setOperationAction(ISD::FNEARBYINT, MVT::v4f32, Expand);
     setOperationAction(ISD::FFLOOR, MVT::v4f32, Expand);
 
     // Neon does not support some operations on v1i64 and v2i64 types.
@@ -538,6 +542,9 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
     setOperationAction(ISD::UINT_TO_FP, MVT::v4i16, Custom);
     setOperationAction(ISD::FP_TO_UINT, MVT::v4i16, Custom);
     setOperationAction(ISD::FP_TO_SINT, MVT::v4i16, Custom);
+
+    setOperationAction(ISD::FP_ROUND,   MVT::v2f32, Expand);
+    setOperationAction(ISD::FP_EXTEND,  MVT::v2f64, Expand);
 
     setTargetDAGCombine(ISD::INTRINSIC_VOID);
     setTargetDAGCombine(ISD::INTRINSIC_W_CHAIN);
@@ -1599,20 +1606,14 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (Subtarget->isThumb()) {
     if ((!isDirect || isARMFunc) && !Subtarget->hasV5TOps())
       CallOpc = ARMISD::CALL_NOLINK;
-    else if (doesNotRet && isDirect && !isARMFunc &&
-             Subtarget->hasRAS() && !Subtarget->isThumb1Only() &&
-	     // Emit regular call when code size is the priority
-	     !HasMinSizeAttr)
-      // "mov lr, pc; b _foo" to avoid confusing the RSP
-      CallOpc = ARMISD::CALL_NOLINK;
     else
       CallOpc = isARMFunc ? ARMISD::CALL : ARMISD::tCALL;
   } else {
-    if (!isDirect && !Subtarget->hasV5TOps()) {
+    if (!isDirect && !Subtarget->hasV5TOps())
       CallOpc = ARMISD::CALL_NOLINK;
-    } else if (doesNotRet && isDirect && Subtarget->hasRAS() &&
-	       // Emit regular call when code size is the priority
-	       !HasMinSizeAttr)
+    else if (doesNotRet && isDirect && Subtarget->hasRAS() &&
+               // Emit regular call when code size is the priority
+               !HasMinSizeAttr)
       // "mov lr, pc; b _foo" to avoid confusing the RSP
       CallOpc = ARMISD::CALL_NOLINK;
     else
@@ -3929,6 +3930,36 @@ SDValue ARMTargetLowering::LowerConstantFP(SDValue Op, SelectionDAG &DAG,
   return SDValue();
 }
 
+// check if an VEXT instruction can handle the shuffle mask when the
+// vector sources of the shuffle are the same.
+static bool isSingletonVEXTMask(ArrayRef<int> M, EVT VT, unsigned &Imm) {
+  unsigned NumElts = VT.getVectorNumElements();
+
+  // Assume that the first shuffle index is not UNDEF.  Fail if it is.
+  if (M[0] < 0)
+    return false;
+
+  Imm = M[0];
+
+  // If this is a VEXT shuffle, the immediate value is the index of the first
+  // element.  The other shuffle indices must be the successive elements after
+  // the first one.
+  unsigned ExpectedElt = Imm;
+  for (unsigned i = 1; i < NumElts; ++i) {
+    // Increment the expected index.  If it wraps around, just follow it
+    // back to index zero and keep going.
+    ++ExpectedElt;
+    if (ExpectedElt == NumElts)
+      ExpectedElt = 0;
+
+    if (M[i] < 0) continue; // ignore UNDEF indices
+    if (ExpectedElt != static_cast<unsigned>(M[i]))
+      return false;
+  }
+
+  return true;
+}
+
 
 static bool isVEXTMask(ArrayRef<int> M, EVT VT,
                        bool &ReverseVEXT, unsigned &Imm) {
@@ -4687,6 +4718,12 @@ static SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) {
       return DAG.getNode(ARMISD::VREV32, dl, VT, V1);
     if (isVREVMask(ShuffleMask, VT, 16))
       return DAG.getNode(ARMISD::VREV16, dl, VT, V1);
+
+    if (V2->getOpcode() == ISD::UNDEF &&
+        isSingletonVEXTMask(ShuffleMask, VT, Imm)) {
+      return DAG.getNode(ARMISD::VEXT, dl, VT, V1, V1,
+                         DAG.getConstant(Imm, MVT::i32));
+    }
 
     // Check for Neon shuffles that modify both input vectors in place.
     // If both results are used, i.e., if there are two shuffles with the same
@@ -5771,12 +5808,16 @@ ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
   // for ldrexd must be different.
   BB = loopMBB;
   // Load
+  unsigned GPRPair0 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+  unsigned GPRPair1 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+
   AddDefaultPred(BuildMI(BB, dl, TII->get(ldrOpc))
-                 .addReg(ARM::R2, RegState::Define)
-                 .addReg(ARM::R3, RegState::Define).addReg(ptr));
+                 .addReg(GPRPair0, RegState::Define).addReg(ptr));
   // Copy r2/r3 into dest.  (This copy will normally be coalesced.)
-  BuildMI(BB, dl, TII->get(TargetOpcode::COPY), destlo).addReg(ARM::R2);
-  BuildMI(BB, dl, TII->get(TargetOpcode::COPY), desthi).addReg(ARM::R3);
+  BuildMI(BB, dl, TII->get(TargetOpcode::COPY), destlo)
+    .addReg(GPRPair0, 0, ARM::gsub_0);
+  BuildMI(BB, dl, TII->get(TargetOpcode::COPY), desthi)
+    .addReg(GPRPair0, 0, ARM::gsub_1);
 
   if (IsCmpxchg) {
     // Add early exit
@@ -5795,24 +5836,56 @@ ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
     // Copy to physregs for strexd
     unsigned setlo = MI->getOperand(5).getReg();
     unsigned sethi = MI->getOperand(6).getReg();
-    BuildMI(BB, dl, TII->get(TargetOpcode::COPY), ARM::R0).addReg(setlo);
-    BuildMI(BB, dl, TII->get(TargetOpcode::COPY), ARM::R1).addReg(sethi);
+    unsigned undef = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    unsigned r1 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    BuildMI(BB, dl, TII->get(TargetOpcode::IMPLICIT_DEF), undef);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), r1)
+      .addReg(undef)
+      .addReg(setlo)
+      .addImm(ARM::gsub_0);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), GPRPair1)
+      .addReg(r1)
+      .addReg(sethi)
+      .addImm(ARM::gsub_1);
   } else if (Op1) {
     // Perform binary operation
-    AddDefaultPred(BuildMI(BB, dl, TII->get(Op1), ARM::R0)
+    unsigned tmpRegLo = MRI.createVirtualRegister(TRC);
+    AddDefaultPred(BuildMI(BB, dl, TII->get(Op1), tmpRegLo)
                    .addReg(destlo).addReg(vallo))
         .addReg(NeedsCarry ? ARM::CPSR : 0, getDefRegState(NeedsCarry));
-    AddDefaultPred(BuildMI(BB, dl, TII->get(Op2), ARM::R1)
+    unsigned tmpRegHi = MRI.createVirtualRegister(TRC);
+    AddDefaultPred(BuildMI(BB, dl, TII->get(Op2), tmpRegHi)
                    .addReg(desthi).addReg(valhi)).addReg(0);
+
+    unsigned UndefPair = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    BuildMI(BB, dl, TII->get(TargetOpcode::IMPLICIT_DEF), UndefPair);
+    unsigned r1 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), r1)
+      .addReg(UndefPair)
+      .addReg(tmpRegLo)
+      .addImm(ARM::gsub_0);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), GPRPair1)
+      .addReg(r1)
+      .addReg(tmpRegHi)
+      .addImm(ARM::gsub_1);
   } else {
     // Copy to physregs for strexd
-    BuildMI(BB, dl, TII->get(TargetOpcode::COPY), ARM::R0).addReg(vallo);
-    BuildMI(BB, dl, TII->get(TargetOpcode::COPY), ARM::R1).addReg(valhi);
+    unsigned UndefPair = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    unsigned r1 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    BuildMI(BB, dl, TII->get(TargetOpcode::IMPLICIT_DEF), UndefPair);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), r1)
+      .addReg(UndefPair)
+      .addReg(vallo)
+      .addImm(ARM::gsub_0);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), GPRPair1)
+      .addReg(r1)
+      .addReg(valhi)
+      .addImm(ARM::gsub_1);
   }
 
   // Store
   AddDefaultPred(BuildMI(BB, dl, TII->get(strOpc), storesuccess)
-                 .addReg(ARM::R0).addReg(ARM::R1).addReg(ptr));
+                 .addReg(GPRPair1).addReg(ptr));
   // Cmp+jump
   AddDefaultPred(BuildMI(BB, dl, TII->get(isThumb2 ? ARM::t2CMPri : ARM::CMPri))
                  .addReg(storesuccess).addImm(0));
@@ -6041,12 +6114,15 @@ EmitSjLjDispatchBlock(MachineInstr *MI, MachineBasicBlock *MBB) const {
                              MachineMemOperand::MOLoad |
                              MachineMemOperand::MOVolatile, 4, 4);
 
-  if (AFI->isThumb1OnlyFunction())
-    BuildMI(DispatchBB, dl, TII->get(ARM::tInt_eh_sjlj_dispatchsetup));
-  else if (!Subtarget->hasVFP2())
-    BuildMI(DispatchBB, dl, TII->get(ARM::Int_eh_sjlj_dispatchsetup_nofp));
-  else
-    BuildMI(DispatchBB, dl, TII->get(ARM::Int_eh_sjlj_dispatchsetup));
+  MachineInstrBuilder MIB;
+  MIB = BuildMI(DispatchBB, dl, TII->get(ARM::Int_eh_sjlj_dispatchsetup));
+
+  const ARMBaseInstrInfo *AII = static_cast<const ARMBaseInstrInfo*>(TII);
+  const ARMBaseRegisterInfo &RI = AII->getRegisterInfo();
+
+  // Add a register mask with no preserved registers.  This results in all
+  // registers being marked as clobbered.
+  MIB.addRegMask(RI.getNoPreservedMask());
 
   unsigned NumLPads = LPadList.size();
   if (Subtarget->isThumb2()) {
@@ -6265,8 +6341,6 @@ EmitSjLjDispatchBlock(MachineInstr *MI, MachineBasicBlock *MBB) const {
   }
 
   // N.B. the order the invoke BBs are processed in doesn't matter here.
-  const ARMBaseInstrInfo *AII = static_cast<const ARMBaseInstrInfo*>(TII);
-  const ARMBaseRegisterInfo &RI = AII->getRegisterInfo();
   const uint16_t *SavedRegs = RI.getCalleeSavedRegs(MF);
   SmallVector<MachineBasicBlock*, 64> MBBLPads;
   for (SmallPtrSet<MachineBasicBlock*, 64>::iterator

@@ -3922,7 +3922,11 @@ struct IntRange {
       unsigned NumPositive = Enum->getNumPositiveBits();
       unsigned NumNegative = Enum->getNumNegativeBits();
 
-      return IntRange(std::max(NumPositive, NumNegative), NumNegative == 0);
+      if (NumNegative == 0)
+        return IntRange(NumPositive, true/*NonNegative*/);
+      else
+        return IntRange(std::max(NumPositive + 1, NumNegative),
+                        false/*NonNegative*/);
     }
 
     const BuiltinType *BT = cast<BuiltinType>(T);
@@ -4328,38 +4332,96 @@ static void DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
                                          Expr *Constant, Expr *Other,
                                          llvm::APSInt Value,
                                          bool RhsConstant) {
+  // 0 values are handled later by CheckTrivialUnsignedComparison().
+  if (Value == 0)
+    return;
+
   BinaryOperatorKind op = E->getOpcode();
   QualType OtherT = Other->getType();
   QualType ConstantT = Constant->getType();
+  QualType CommonT = E->getLHS()->getType();
   if (S.Context.hasSameUnqualifiedType(OtherT, ConstantT))
     return;
   assert((OtherT->isIntegerType() && ConstantT->isIntegerType())
          && "comparison with non-integer type");
-  // FIXME. handle cases for signedness to catch (signed char)N == 200
+
+  bool ConstantSigned = ConstantT->isSignedIntegerType();
+  bool OtherSigned = OtherT->isSignedIntegerType();
+  bool CommonSigned = CommonT->isSignedIntegerType();
+
+  bool EqualityOnly = false;
+
+  // TODO: Investigate using GetExprRange() to get tighter bounds on
+  // on the bit ranges.
   IntRange OtherRange = IntRange::forValueOfType(S.Context, OtherT);
-  IntRange LitRange = GetValueRange(S.Context, Value, Value.getBitWidth());
-  if (OtherRange.Width >= LitRange.Width)
-    return;
+  unsigned OtherWidth = OtherRange.Width;
+  
+  if (CommonSigned) {
+    // The common type is signed, therefore no signed to unsigned conversion.
+    if (OtherSigned) {
+      // Check that the constant is representable in type OtherT.
+      if (ConstantSigned) {
+        if (OtherWidth >= Value.getMinSignedBits())
+          return;
+      } else { // !ConstantSigned
+        if (OtherWidth >= Value.getActiveBits() + 1)
+          return;
+      }
+    } else { // !OtherSigned
+      // Check that the constant is representable in type OtherT.
+      // Negative values are out of range.
+      if (ConstantSigned) {
+        if (Value.isNonNegative() && OtherWidth >= Value.getActiveBits())
+          return;
+      } else { // !ConstantSigned
+        if (OtherWidth >= Value.getActiveBits())
+          return;
+      }
+    }
+  } else {  // !CommonSigned
+    if (!OtherSigned) {
+      if (OtherWidth >= Value.getActiveBits())
+        return;
+    } else if (OtherSigned && !ConstantSigned) {
+      // Check to see if the constant is representable in OtherT.
+      if (OtherWidth > Value.getActiveBits())
+        return;
+      // Check to see if the constant is equivalent to a negative value
+      // cast to CommonT.
+      if (S.Context.getIntWidth(ConstantT) == S.Context.getIntWidth(CommonT) &&
+          Value.isNegative() && Value.getMinSignedBits() <= OtherWidth)
+        return;
+      // The constant value rests between values that OtherT can represent after
+      // conversion.  Relational comparison still works, but equality
+      // comparisons will be tautological.
+      EqualityOnly = true;
+    } else { // OtherSigned && ConstantSigned
+      assert(0 && "Two signed types converted to unsigned types.");
+    }
+  }
+
+  bool PositiveConstant = !ConstantSigned || Value.isNonNegative();
+
   bool IsTrue = true;
-  if (op == BO_EQ)
-    IsTrue = false;
-  else if (op == BO_NE)
-    IsTrue = true;
-  else if (RhsConstant) {
+  if (op == BO_EQ || op == BO_NE) {
+    IsTrue = op == BO_NE;
+  } else if (EqualityOnly) {
+    return;
+  } else if (RhsConstant) {
     if (op == BO_GT || op == BO_GE)
-      IsTrue = !LitRange.NonNegative;
+      IsTrue = !PositiveConstant;
     else // op == BO_LT || op == BO_LE
-      IsTrue = LitRange.NonNegative;
+      IsTrue = PositiveConstant;
   } else {
     if (op == BO_LT || op == BO_LE)
-      IsTrue = !LitRange.NonNegative;
+      IsTrue = !PositiveConstant;
     else // op == BO_GT || op == BO_GE
-      IsTrue = LitRange.NonNegative;
+      IsTrue = PositiveConstant;
   }
   SmallString<16> PrettySourceValue(Value.toString(10));
   S.Diag(E->getOperatorLoc(), diag::warn_out_of_range_compare)
-  << PrettySourceValue << OtherT << IsTrue
-  << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange();
+      << PrettySourceValue << OtherT << IsTrue
+      << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange();
 }
 
 /// Analyze the operands of the given comparison.  Implements the
@@ -4799,7 +4861,8 @@ void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
 
   if ((E->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNotNull)
            == Expr::NPCK_GNUNull) && !Target->isAnyPointerType()
-      && !Target->isBlockPointerType() && !Target->isMemberPointerType()) {
+      && !Target->isBlockPointerType() && !Target->isMemberPointerType()
+      && Target->isScalarType()) {
     SourceLocation Loc = E->getSourceRange().getBegin();
     if (Loc.isMacroID())
       Loc = S.SourceMgr.getImmediateExpansionRange(Loc).first;
@@ -4842,7 +4905,7 @@ void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
     // People want to build with -Wshorten-64-to-32 and not -Wconversion.
     if (S.SourceMgr.isInSystemMacro(CC))
       return;
-    
+
     if (TargetRange.Width == 32 && S.Context.getIntWidth(E->getType()) == 64)
       return DiagnoseImpCast(S, E, T, CC, diag::warn_impcast_integer_64_32,
                              /* pruneControlFlow */ true);
@@ -6189,7 +6252,8 @@ void Sema::CheckArgumentWithTypeTag(const ArgumentWithTypeTagAttr *Attr,
   if (IsPointerAttr) {
     // Skip implicit cast of pointer to `void *' (as a function argument).
     if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(ArgumentExpr))
-      if (ICE->getType()->isVoidPointerType())
+      if (ICE->getType()->isVoidPointerType() &&
+          ICE->getCastKind() == CK_BitCast)
         ArgumentExpr = ICE->getSubExpr();
   }
   QualType ArgumentType = ArgumentExpr->getType();

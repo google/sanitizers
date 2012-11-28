@@ -102,12 +102,11 @@ struct ReallocPair {
 typedef std::pair<const Stmt*, const MemRegion*> LeakInfo;
 
 class MallocChecker : public Checker<check::DeadSymbols,
-                                     check::EndPath,
                                      check::PreStmt<ReturnStmt>,
                                      check::PreStmt<CallExpr>,
                                      check::PostStmt<CallExpr>,
                                      check::PostStmt<BlockExpr>,
-                                     check::PreObjCMessage,
+                                     check::PostObjCMessage,
                                      check::Location,
                                      check::Bind,
                                      eval::Assume,
@@ -135,10 +134,9 @@ public:
 
   void checkPreStmt(const CallExpr *S, CheckerContext &C) const;
   void checkPostStmt(const CallExpr *CE, CheckerContext &C) const;
-  void checkPreObjCMessage(const ObjCMethodCall &Call, CheckerContext &C) const;
+  void checkPostObjCMessage(const ObjCMethodCall &Call, CheckerContext &C) const;
   void checkPostStmt(const BlockExpr *BE, CheckerContext &C) const;
   void checkDeadSymbols(SymbolReaper &SymReaper, CheckerContext &C) const;
-  void checkEndPath(CheckerContext &C) const;
   void checkPreStmt(const ReturnStmt *S, CheckerContext &C) const;
   ProgramStateRef evalAssume(ProgramStateRef state, SVal Cond,
                             bool Assumption) const;
@@ -193,12 +191,14 @@ private:
   ProgramStateRef FreeMemAux(CheckerContext &C, const CallExpr *CE,
                              ProgramStateRef state, unsigned Num,
                              bool Hold,
-                             bool &ReleasedAllocated) const;
+                             bool &ReleasedAllocated,
+                             bool ReturnsNullOnFailure = false) const;
   ProgramStateRef FreeMemAux(CheckerContext &C, const Expr *Arg,
                              const Expr *ParentExpr,
-                             ProgramStateRef state,
+                             ProgramStateRef State,
                              bool Hold,
-                             bool &ReleasedAllocated) const;
+                             bool &ReleasedAllocated,
+                             bool ReturnsNullOnFailure = false) const;
 
   ProgramStateRef ReallocMem(CheckerContext &C, const CallExpr *CE,
                              bool FreesMemOnFailure) const;
@@ -338,25 +338,12 @@ private:
 };
 } // end anonymous namespace
 
-typedef llvm::ImmutableMap<SymbolRef, RefState> RegionStateTy;
-typedef llvm::ImmutableMap<SymbolRef, ReallocPair > ReallocMap;
-class RegionState {};
-class ReallocPairs {};
-namespace clang {
-namespace ento {
-  template <>
-  struct ProgramStateTrait<RegionState> 
-    : public ProgramStatePartialTrait<RegionStateTy> {
-    static void *GDMIndex() { static int x; return &x; }
-  };
+REGISTER_MAP_WITH_PROGRAMSTATE(RegionState, SymbolRef, RefState)
+REGISTER_MAP_WITH_PROGRAMSTATE(ReallocPairs, SymbolRef, ReallocPair)
 
-  template <>
-  struct ProgramStateTrait<ReallocPairs>
-    : public ProgramStatePartialTrait<ReallocMap> {
-    static void *GDMIndex() { static int x; return &x; }
-  };
-}
-}
+// A map from the freed symbol to the symbol representing the return value of 
+// the free function.
+REGISTER_MAP_WITH_PROGRAMSTATE(FreeReturnValue, SymbolRef, SymbolRef)
 
 namespace {
 class StopTrackingCallback : public SymbolVisitor {
@@ -509,8 +496,8 @@ static bool isFreeWhenDoneSetToZero(const ObjCMethodCall &Call) {
   return false;
 }
 
-void MallocChecker::checkPreObjCMessage(const ObjCMethodCall &Call,
-                                        CheckerContext &C) const {
+void MallocChecker::checkPostObjCMessage(const ObjCMethodCall &Call,
+                                         CheckerContext &C) const {
   // If the first selector is dataWithBytesNoCopy, assume that the memory will
   // be released with 'free' by the new object.
   // Ex:  [NSData dataWithBytesNoCopy:bytes length:10];
@@ -523,9 +510,12 @@ void MallocChecker::checkPreObjCMessage(const ObjCMethodCall &Call,
        S.getNameForSlot(0) == "initWithCharactersNoCopy") &&
       !isFreeWhenDoneSetToZero(Call)){
     unsigned int argIdx  = 0;
-    C.addTransition(FreeMemAux(C, Call.getArgExpr(argIdx),
-                    Call.getOriginExpr(), C.getState(), true,
-                    ReleasedAllocatedMemory));
+    ProgramStateRef State = FreeMemAux(C, Call.getArgExpr(argIdx),
+                                       Call.getOriginExpr(), C.getState(), true,
+                                       ReleasedAllocatedMemory,
+                                       /* RetNullOnFailure*/ true);
+
+    C.addTransition(State);
   }
 }
 
@@ -626,21 +616,39 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
                                           ProgramStateRef state,
                                           unsigned Num,
                                           bool Hold,
-                                          bool &ReleasedAllocated) const {
+                                          bool &ReleasedAllocated,
+                                          bool ReturnsNullOnFailure) const {
   if (CE->getNumArgs() < (Num + 1))
     return 0;
 
-  return FreeMemAux(C, CE->getArg(Num), CE, state, Hold, ReleasedAllocated);
+  return FreeMemAux(C, CE->getArg(Num), CE, state, Hold,
+                    ReleasedAllocated, ReturnsNullOnFailure);
+}
+
+/// Checks if the previous call to free on the given symbol failed - if free
+/// failed, returns true. Also, returns the corresponding return value symbol.
+static bool didPreviousFreeFail(ProgramStateRef State,
+                                SymbolRef Sym, SymbolRef &RetStatusSymbol) {
+  const SymbolRef *Ret = State->get<FreeReturnValue>(Sym);
+  if (Ret) {
+    assert(*Ret && "We should not store the null return symbol");
+    ConstraintManager &CMgr = State->getConstraintManager();
+    ConditionTruthVal FreeFailed = CMgr.isNull(State, *Ret);
+    RetStatusSymbol = *Ret;
+    return FreeFailed.isConstrainedTrue();
+  }
+  return false;
 }
 
 ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
                                           const Expr *ArgExpr,
                                           const Expr *ParentExpr,
-                                          ProgramStateRef state,
+                                          ProgramStateRef State,
                                           bool Hold,
-                                          bool &ReleasedAllocated) const {
+                                          bool &ReleasedAllocated,
+                                          bool ReturnsNullOnFailure) const {
 
-  SVal ArgVal = state->getSVal(ArgExpr, C.getLocationContext());
+  SVal ArgVal = State->getSVal(ArgExpr, C.getLocationContext());
   if (!isa<DefinedOrUnknownSVal>(ArgVal))
     return 0;
   DefinedOrUnknownSVal location = cast<DefinedOrUnknownSVal>(ArgVal);
@@ -651,7 +659,7 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
 
   // The explicit NULL case, no operation is performed.
   ProgramStateRef notNullState, nullState;
-  llvm::tie(notNullState, nullState) = state->assume(location);
+  llvm::tie(notNullState, nullState) = State->assume(location);
   if (nullState && !notNullState)
     return 0;
 
@@ -700,10 +708,14 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
     return 0;
 
   SymbolRef Sym = SR->getSymbol();
-  const RefState *RS = state->get<RegionState>(Sym);
+  const RefState *RS = State->get<RegionState>(Sym);
+  SymbolRef PreviousRetStatusSymbol = 0;
 
   // Check double free.
-  if (RS && (RS->isReleased() || RS->isRelinquished())) {
+  if (RS &&
+      (RS->isReleased() || RS->isRelinquished()) &&
+      !didPreviousFreeFail(State, Sym, PreviousRetStatusSymbol)) {
+
     if (ExplodedNode *N = C.generateSink()) {
       if (!BT_DoubleFree)
         BT_DoubleFree.reset(
@@ -713,18 +725,34 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
                             "Attempt to free non-owned memory"), N);
       R->addRange(ArgExpr->getSourceRange());
       R->markInteresting(Sym);
+      if (PreviousRetStatusSymbol)
+        R->markInteresting(PreviousRetStatusSymbol);
       R->addVisitor(new MallocBugVisitor(Sym));
-      C.EmitReport(R);
+      C.emitReport(R);
     }
     return 0;
   }
 
   ReleasedAllocated = (RS != 0);
 
+  // Clean out the info on previous call to free return info.
+  State = State->remove<FreeReturnValue>(Sym);
+
+  // Keep track of the return value. If it is NULL, we will know that free 
+  // failed.
+  if (ReturnsNullOnFailure) {
+    SVal RetVal = C.getSVal(ParentExpr);
+    SymbolRef RetStatusSymbol = RetVal.getAsSymbol();
+    if (RetStatusSymbol) {
+      C.getSymbolManager().addSymbolDependency(Sym, RetStatusSymbol);
+      State = State->set<FreeReturnValue>(Sym, RetStatusSymbol);
+    }
+  }
+
   // Normal free.
   if (Hold)
-    return state->set<RegionState>(Sym, RefState::getRelinquished(ParentExpr));
-  return state->set<RegionState>(Sym, RefState::getReleased(ParentExpr));
+    return State->set<RegionState>(Sym, RefState::getRelinquished(ParentExpr));
+  return State->set<RegionState>(Sym, RefState::getReleased(ParentExpr));
 }
 
 bool MallocChecker::SummarizeValue(raw_ostream &os, SVal V) {
@@ -849,7 +877,7 @@ void MallocChecker::ReportBadFree(CheckerContext &C, SVal ArgVal,
     BugReport *R = new BugReport(*BT_BadFree, os.str(), N);
     R->markInteresting(MR);
     R->addRange(range);
-    C.EmitReport(R);
+    C.emitReport(R);
   }
 }
 
@@ -1048,7 +1076,7 @@ void MallocChecker::reportLeak(SymbolRef Sym, ExplodedNode *N,
   BugReport *R = new BugReport(*BT_Leak, os.str(), N, LocUsedForUniqueing);
   R->markInteresting(Sym);
   R->addVisitor(new MallocBugVisitor(Sym, true));
-  C.EmitReport(R);
+  C.emitReport(R);
 }
 
 void MallocChecker::checkDeadSymbols(SymbolReaper &SymReaper,
@@ -1073,11 +1101,20 @@ void MallocChecker::checkDeadSymbols(SymbolReaper &SymReaper,
   }
   
   // Cleanup the Realloc Pairs Map.
-  ReallocMap RP = state->get<ReallocPairs>();
-  for (ReallocMap::iterator I = RP.begin(), E = RP.end(); I != E; ++I) {
+  ReallocPairsTy RP = state->get<ReallocPairs>();
+  for (ReallocPairsTy::iterator I = RP.begin(), E = RP.end(); I != E; ++I) {
     if (SymReaper.isDead(I->first) ||
         SymReaper.isDead(I->second.ReallocatedSym)) {
       state = state->remove<ReallocPairs>(I->first);
+    }
+  }
+
+  // Cleanup the FreeReturnValue Map.
+  FreeReturnValueTy FR = state->get<FreeReturnValue>();
+  for (FreeReturnValueTy::iterator I = FR.begin(), E = FR.end(); I != E; ++I) {
+    if (SymReaper.isDead(I->first) ||
+        SymReaper.isDead(I->second)) {
+      state = state->remove<FreeReturnValue>(I->first);
     }
   }
 
@@ -1093,24 +1130,6 @@ void MallocChecker::checkDeadSymbols(SymbolReaper &SymReaper,
   }
 
   C.addTransition(state->set<RegionState>(RS), N);
-}
-
-void MallocChecker::checkEndPath(CheckerContext &C) const {
-  ProgramStateRef state = C.getState();
-  RegionStateTy M = state->get<RegionState>();
-
-  // If inside inlined call, skip it.
-  if (C.getLocationContext()->getParent() != 0)
-    return;
-
-  for (RegionStateTy::iterator I = M.begin(), E = M.end(); I != E; ++I) {
-    RefState RS = I->second;
-    if (RS.isAllocated()) {
-      ExplodedNode *N = C.addTransition(state);
-      if (N)
-        reportLeak(I->first, N, C);
-    }
-  }
 }
 
 void MallocChecker::checkPreStmt(const CallExpr *CE, CheckerContext &C) const {
@@ -1154,15 +1173,7 @@ void MallocChecker::checkPreStmt(const ReturnStmt *S, CheckerContext &C) const {
 
   // Check if we are returning freed memory.
   if (Sym)
-    if (checkUseAfterFree(Sym, C, E))
-      return;
-
-  // If this function body is not inlined, stop tracking any returned symbols.
-  if (C.getLocationContext()->getParent() == 0) {
-    State =
-      State->scanReachableSymbols<StopTrackingCallback>(RetVal).getState();
-    C.addTransition(State);
-  }
+    checkUseAfterFree(Sym, C, E);
 }
 
 // TODO: Blocks should be either inlined or should call invalidate regions
@@ -1224,7 +1235,7 @@ bool MallocChecker::checkUseAfterFree(SymbolRef Sym, CheckerContext &C,
         R->addRange(S->getSourceRange());
       R->markInteresting(Sym);
       R->addVisitor(new MallocBugVisitor(Sym));
-      C.EmitReport(R);
+      C.emitReport(R);
       return true;
     }
   }
@@ -1292,17 +1303,22 @@ ProgramStateRef MallocChecker::evalAssume(ProgramStateRef state,
   RegionStateTy RS = state->get<RegionState>();
   for (RegionStateTy::iterator I = RS.begin(), E = RS.end(); I != E; ++I) {
     // If the symbol is assumed to be NULL, remove it from consideration.
-    if (state->getConstraintManager().isNull(state, I.getKey()).isTrue())
+    ConstraintManager &CMgr = state->getConstraintManager();
+    ConditionTruthVal AllocFailed = CMgr.isNull(state, I.getKey());
+    if (AllocFailed.isConstrainedTrue())
       state = state->remove<RegionState>(I.getKey());
   }
 
   // Realloc returns 0 when reallocation fails, which means that we should
   // restore the state of the pointer being reallocated.
-  ReallocMap RP = state->get<ReallocPairs>();
-  for (ReallocMap::iterator I = RP.begin(), E = RP.end(); I != E; ++I) {
+  ReallocPairsTy RP = state->get<ReallocPairs>();
+  for (ReallocPairsTy::iterator I = RP.begin(), E = RP.end(); I != E; ++I) {
     // If the symbol is assumed to be NULL, remove it from consideration.
-    if (!state->getConstraintManager().isNull(state, I.getKey()).isTrue())
+    ConstraintManager &CMgr = state->getConstraintManager();
+    ConditionTruthVal AllocFailed = CMgr.isNull(state, I.getKey());
+    if (!AllocFailed.isConstrainedTrue())
       continue;
+
     SymbolRef ReallocSym = I.getData().ReallocatedSym;
     if (const RefState *RS = state->get<RegionState>(ReallocSym)) {
       if (RS->isReleased()) {
@@ -1508,10 +1524,10 @@ MallocChecker::checkRegionChanges(ProgramStateRef State,
 
 static SymbolRef findFailedReallocSymbol(ProgramStateRef currState,
                                          ProgramStateRef prevState) {
-  ReallocMap currMap = currState->get<ReallocPairs>();
-  ReallocMap prevMap = prevState->get<ReallocPairs>();
+  ReallocPairsTy currMap = currState->get<ReallocPairs>();
+  ReallocPairsTy prevMap = prevState->get<ReallocPairs>();
 
-  for (ReallocMap::iterator I = prevMap.begin(), E = prevMap.end();
+  for (ReallocPairsTy::iterator I = prevMap.begin(), E = prevMap.end();
        I != E; ++I) {
     SymbolRef sym = I.getKey();
     if (!currMap.lookup(sym))

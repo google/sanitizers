@@ -31,6 +31,26 @@ namespace clang {
 namespace ento {
   template <typename T> struct ProgramStatePartialTrait;
 
+  /// Declares a program state trait for type \p Type called \p Name, and
+  /// introduce a typedef named \c NameTy.
+  /// The macro should not be used inside namespaces, or for traits that must
+  /// be accessible from more than one translation unit.
+  #define REGISTER_TRAIT_WITH_PROGRAMSTATE(Name, Type) \
+    namespace { \
+      class Name {}; \
+      typedef Type Name ## Ty; \
+    } \
+    namespace clang { \
+    namespace ento { \
+      template <> \
+      struct ProgramStateTrait<Name> \
+        : public ProgramStatePartialTrait<Name ## Ty> { \
+        static void *GDMIndex() { static int Index; return &Index; } \
+      }; \
+    } \
+    }
+
+
   // Partial-specialization for ImmutableMap.
 
   template <typename Key, typename Data, typename Info>
@@ -70,6 +90,15 @@ namespace ento {
       delete (typename data_type::Factory*) Ctx;
     }
   };
+
+  /// Helper for registering a map trait.
+  ///
+  /// If the map type were written directly in the invocation of
+  /// REGISTER_TRAIT_WITH_PROGRAMSTATE, the comma in the template arguments
+  /// would be treated as a macro argument separator, which is wrong.
+  /// This allows the user to specify a map type in a way that the preprocessor
+  /// can deal with.
+  #define CLANG_ENTO_PROGRAMSTATE_MAP(Key, Value) llvm::ImmutableMap<Key, Value>
 
 
   // Partial-specialization for ImmutableSet.
@@ -113,6 +142,7 @@ namespace ento {
     }
   };
 
+
   // Partial-specialization for ImmutableList.
 
   template <typename T>
@@ -150,6 +180,7 @@ namespace ento {
       delete (typename data_type::Factory*) Ctx;
     }
   };
+
   
   // Partial specialization for bool.
   template <> struct ProgramStatePartialTrait<bool> {

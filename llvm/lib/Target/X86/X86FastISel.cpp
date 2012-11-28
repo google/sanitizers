@@ -45,9 +45,9 @@ class X86FastISel : public FastISel {
   /// make the right decision when generating code for different targets.
   const X86Subtarget *Subtarget;
 
-  /// StackPtr - Register used as the stack pointer.
+  /// RegInfo - X86 register info.
   ///
-  unsigned StackPtr;
+  const X86RegisterInfo *RegInfo;
 
   /// X86ScalarSSEf32, X86ScalarSSEf64 - Select between SSE or x87
   /// floating point ops.
@@ -61,9 +61,9 @@ public:
                        const TargetLibraryInfo *libInfo)
     : FastISel(funcInfo, libInfo) {
     Subtarget = &TM.getSubtarget<X86Subtarget>();
-    StackPtr = Subtarget->is64Bit() ? X86::RSP : X86::ESP;
     X86ScalarSSEf64 = Subtarget->hasSSE2();
     X86ScalarSSEf32 = Subtarget->hasSSE1();
+    RegInfo = static_cast<const X86RegisterInfo*>(TM.getRegisterInfo());
   }
 
   virtual bool TargetSelectInstruction(const Instruction *I);
@@ -282,9 +282,8 @@ X86FastISel::X86FastEmitStore(EVT VT, unsigned Val, const X86AddressMode &AM) {
 bool X86FastISel::X86FastEmitStore(EVT VT, const Value *Val,
                                    const X86AddressMode &AM) {
   // Handle 'null' like i32/i64 0.
-  if (isa<ConstantPointerNull>(Val)) {
-    Val = Constant::getNullValue(TD.getIntPtrType(Val->getType()));
-  }
+  if (isa<ConstantPointerNull>(Val))
+    Val = Constant::getNullValue(TD.getIntPtrType(Val->getContext()));
 
   // If this is a store of a simple constant, fold the constant into the store.
   if (const ConstantInt *CI = dyn_cast<ConstantInt>(Val)) {
@@ -298,7 +297,7 @@ bool X86FastISel::X86FastEmitStore(EVT VT, const Value *Val,
     case MVT::i32: Opc = X86::MOV32mi; break;
     case MVT::i64:
       // Must be a 32-bit sign extended value.
-      if ((int)CI->getSExtValue() == CI->getSExtValue())
+      if (isInt<32>(CI->getSExtValue()))
         Opc = X86::MOV64mi32;
       break;
     }
@@ -895,9 +894,8 @@ bool X86FastISel::X86FastEmitCompare(const Value *Op0, const Value *Op1,
   if (Op0Reg == 0) return false;
 
   // Handle 'null' like i32/i64 0.
-  if (isa<ConstantPointerNull>(Op1)) {
-    Op1 = Constant::getNullValue(TD.getIntPtrType(Op0->getType()));
-  }
+  if (isa<ConstantPointerNull>(Op1))
+    Op1 = Constant::getNullValue(TD.getIntPtrType(Op0->getContext()));
 
   // We have two options: compare with register or immediate.  If the RHS of
   // the compare is an immediate that we can fold into this compare, use
@@ -1787,7 +1785,7 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
     } else {
       unsigned LocMemOffset = VA.getLocMemOffset();
       X86AddressMode AM;
-      AM.Base.Reg = StackPtr;
+      AM.Base.Reg = RegInfo->getStackRegister();
       AM.Disp = LocMemOffset;
       const Value *ArgVal = ArgVals[VA.getValNo()];
       ISD::ArgFlagsTy Flags = ArgFlags[VA.getValNo()];
@@ -2156,13 +2154,13 @@ unsigned X86FastISel::TargetMaterializeAlloca(const AllocaInst *C) {
 unsigned X86FastISel::TargetMaterializeFloatZero(const ConstantFP *CF) {
   MVT VT;
   if (!isTypeLegal(CF->getType(), VT))
-    return false;
+    return 0;
 
   // Get opcode and regclass for the given zero.
   unsigned Opc = 0;
   const TargetRegisterClass *RC = NULL;
   switch (VT.SimpleTy) {
-  default: return false;
+  default: return 0;
   case MVT::f32:
     if (X86ScalarSSEf32) {
       Opc = X86::FsFLD0SS;
@@ -2183,7 +2181,7 @@ unsigned X86FastISel::TargetMaterializeFloatZero(const ConstantFP *CF) {
     break;
   case MVT::f80:
     // No f80 support yet.
-    return false;
+    return 0;
   }
 
   unsigned ResultReg = createResultReg(RC);

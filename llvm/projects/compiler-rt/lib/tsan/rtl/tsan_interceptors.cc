@@ -115,6 +115,7 @@ struct SignalDesc {
 };
 
 struct SignalContext {
+  int in_blocking_func;
   int int_signal_send;
   int pending_signal_count;
   SignalDesc pending_signals[kSigCount];
@@ -136,8 +137,6 @@ static SignalContext *SigCtx(ThreadState *thr) {
 
 static unsigned g_thread_finalize_key;
 
-static void process_pending_signals(ThreadState *thr);
-
 ScopedInterceptor::ScopedInterceptor(ThreadState *thr, const char *fname,
                                      uptr pc)
     : thr_(thr)
@@ -156,28 +155,43 @@ ScopedInterceptor::~ScopedInterceptor() {
   thr_->in_rtl--;
   if (thr_->in_rtl == 0) {
     FuncExit(thr_);
-    process_pending_signals(thr_);
+    ProcessPendingSignals(thr_);
   }
   CHECK_EQ(in_rtl_, thr_->in_rtl);
 }
 
+#define BLOCK_REAL(name) (BlockingCall(thr), REAL(name))
+
+struct BlockingCall {
+  explicit BlockingCall(ThreadState *thr)
+      : ctx(SigCtx(thr)) {
+    ctx->in_blocking_func++;
+  }
+
+  ~BlockingCall() {
+    ctx->in_blocking_func--;
+  }
+
+  SignalContext *ctx;
+};
+
 TSAN_INTERCEPTOR(unsigned, sleep, unsigned sec) {
   SCOPED_TSAN_INTERCEPTOR(sleep, sec);
-  unsigned res = sleep(sec);
+  unsigned res = BLOCK_REAL(sleep)(sec);
   AfterSleep(thr, pc);
   return res;
 }
 
 TSAN_INTERCEPTOR(int, usleep, long_t usec) {
   SCOPED_TSAN_INTERCEPTOR(usleep, usec);
-  int res = usleep(usec);
+  int res = BLOCK_REAL(usleep)(usec);
   AfterSleep(thr, pc);
   return res;
 }
 
 TSAN_INTERCEPTOR(int, nanosleep, void *req, void *rem) {
   SCOPED_TSAN_INTERCEPTOR(nanosleep, req, rem);
-  int res = nanosleep(req, rem);
+  int res = BLOCK_REAL(nanosleep)(req, rem);
   AfterSleep(thr, pc);
   return res;
 }
@@ -238,7 +252,6 @@ static void finalize(void *arg) {
   {
     ScopedInRtl in_rtl;
     DestroyAndFree(atexit_ctx);
-    REAL(usleep)(flags()->atexit_sleep_ms * 1000);
   }
   int status = Finalize(cur_thread());
   if (status)
@@ -253,13 +266,13 @@ TSAN_INTERCEPTOR(int, atexit, void (*f)()) {
 
 TSAN_INTERCEPTOR(void, longjmp, void *env, int val) {
   SCOPED_TSAN_INTERCEPTOR(longjmp, env, val);
-  TsanPrintf("ThreadSanitizer: longjmp() is not supported\n");
+  Printf("ThreadSanitizer: longjmp() is not supported\n");
   Die();
 }
 
 TSAN_INTERCEPTOR(void, siglongjmp, void *env, int val) {
   SCOPED_TSAN_INTERCEPTOR(siglongjmp, env, val);
-  TsanPrintf("ThreadSanitizer: siglongjmp() is not supported\n");
+  Printf("ThreadSanitizer: siglongjmp() is not supported\n");
   Die();
 }
 
@@ -553,13 +566,13 @@ TSAN_INTERCEPTOR(void*, memalign, uptr align, uptr sz) {
 
 TSAN_INTERCEPTOR(void*, valloc, uptr sz) {
   SCOPED_TSAN_INTERCEPTOR(valloc, sz);
-  return user_alloc(thr, pc, sz, kPageSize);
+  return user_alloc(thr, pc, sz, GetPageSizeCached());
 }
 
 TSAN_INTERCEPTOR(void*, pvalloc, uptr sz) {
   SCOPED_TSAN_INTERCEPTOR(pvalloc, sz);
-  sz = RoundUp(sz, kPageSize);
-  return user_alloc(thr, pc, sz, kPageSize);
+  sz = RoundUp(sz, GetPageSizeCached());
+  return user_alloc(thr, pc, sz, GetPageSizeCached());
 }
 
 TSAN_INTERCEPTOR(int, posix_memalign, void **memptr, uptr align, uptr sz) {
@@ -590,7 +603,7 @@ static void thread_finalize(void *v) {
   uptr iter = (uptr)v;
   if (iter > 1) {
     if (pthread_setspecific(g_thread_finalize_key, (void*)(iter - 1))) {
-      TsanPrintf("ThreadSanitizer: failed to set thread key\n");
+      Printf("ThreadSanitizer: failed to set thread key\n");
       Die();
     }
     return;
@@ -623,7 +636,7 @@ extern "C" void *__tsan_thread_start_func(void *arg) {
     ThreadState *thr = cur_thread();
     ScopedInRtl in_rtl;
     if (pthread_setspecific(g_thread_finalize_key, (void*)4)) {
-      TsanPrintf("ThreadSanitizer: failed to set thread key\n");
+      Printf("ThreadSanitizer: failed to set thread key\n");
       Die();
     }
     while ((tid = atomic_load(&p->tid, memory_order_acquire)) == 0)
@@ -678,7 +691,7 @@ TSAN_INTERCEPTOR(int, pthread_create,
 TSAN_INTERCEPTOR(int, pthread_join, void *th, void **ret) {
   SCOPED_TSAN_INTERCEPTOR(pthread_join, th, ret);
   int tid = ThreadTid(thr, pc, (uptr)th);
-  int res = REAL(pthread_join)(th, ret);
+  int res = BLOCK_REAL(pthread_join)(th, ret);
   if (res == 0) {
     ThreadJoin(thr, pc, tid);
   }
@@ -981,7 +994,7 @@ TSAN_INTERCEPTOR(int, sem_destroy, void *s) {
 
 TSAN_INTERCEPTOR(int, sem_wait, void *s) {
   SCOPED_TSAN_INTERCEPTOR(sem_wait, s);
-  int res = REAL(sem_wait)(s);
+  int res = BLOCK_REAL(sem_wait)(s);
   if (res == 0) {
     Acquire(thr, pc, (uptr)s);
   }
@@ -990,7 +1003,7 @@ TSAN_INTERCEPTOR(int, sem_wait, void *s) {
 
 TSAN_INTERCEPTOR(int, sem_trywait, void *s) {
   SCOPED_TSAN_INTERCEPTOR(sem_trywait, s);
-  int res = REAL(sem_trywait)(s);
+  int res = BLOCK_REAL(sem_trywait)(s);
   if (res == 0) {
     Acquire(thr, pc, (uptr)s);
   }
@@ -999,7 +1012,7 @@ TSAN_INTERCEPTOR(int, sem_trywait, void *s) {
 
 TSAN_INTERCEPTOR(int, sem_timedwait, void *s, void *abstime) {
   SCOPED_TSAN_INTERCEPTOR(sem_timedwait, s, abstime);
-  int res = REAL(sem_timedwait)(s, abstime);
+  int res = BLOCK_REAL(sem_timedwait)(s, abstime);
   if (res == 0) {
     Acquire(thr, pc, (uptr)s);
   }
@@ -1191,10 +1204,16 @@ TSAN_INTERCEPTOR(int, epoll_ctl, int epfd, int op, int fd, void *ev) {
 
 TSAN_INTERCEPTOR(int, epoll_wait, int epfd, void *ev, int cnt, int timeout) {
   SCOPED_TSAN_INTERCEPTOR(epoll_wait, epfd, ev, cnt, timeout);
-  int res = REAL(epoll_wait)(epfd, ev, cnt, timeout);
+  int res = BLOCK_REAL(epoll_wait)(epfd, ev, cnt, timeout);
   if (res > 0) {
     Acquire(thr, pc, epollfd2addr(epfd));
   }
+  return res;
+}
+
+TSAN_INTERCEPTOR(int, poll, void *fds, long_t nfds, int timeout) {
+  SCOPED_TSAN_INTERCEPTOR(poll, fds, nfds, timeout);
+  int res = BLOCK_REAL(poll)(fds, nfds, timeout);
   return res;
 }
 
@@ -1205,7 +1224,12 @@ static void ALWAYS_INLINE rtl_generic_sighandler(bool sigact, int sig,
   // Don't mess with synchronous signals.
   if (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL ||
       sig == SIGABRT || sig == SIGFPE || sig == SIGPIPE ||
-      (sctx && sig == sctx->int_signal_send)) {
+      // If we are sending signal to ourselves, we must process it now.
+      (sctx && sig == sctx->int_signal_send) ||
+      // If we are in blocking function, we can safely process it now
+      // (but check if we are in a recursive interceptor,
+      // i.e. pthread_join()->munmap()).
+      (sctx && sctx->in_blocking_func == 1 && thr->in_rtl == 1)) {
     CHECK(thr->in_rtl == 0 || thr->in_rtl == 1);
     int in_rtl = thr->in_rtl;
     thr->in_rtl = 0;
@@ -1319,7 +1343,15 @@ TSAN_INTERCEPTOR(int, pthread_kill, void *tid, int sig) {
   return res;
 }
 
-static void process_pending_signals(ThreadState *thr) {
+TSAN_INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
+  SCOPED_TSAN_INTERCEPTOR(gettimeofday, tv, tz);
+  // It's intercepted merely to process pending signals.
+  return REAL(gettimeofday)(tv, tz);
+}
+
+namespace __tsan {
+
+void ProcessPendingSignals(ThreadState *thr) {
   CHECK_EQ(thr->in_rtl, 0);
   SignalContext *sctx = SigCtx(thr);
   if (sctx == 0 || sctx->pending_signal_count == 0 || thr->in_signal_handler)
@@ -1344,7 +1376,7 @@ static void process_pending_signals(ThreadState *thr) {
           sigactions[sig].sa_sigaction(sig, &signal->siginfo, &signal->ctx);
         else
           sigactions[sig].sa_handler(sig);
-        if (errno != 0) {
+        if (flags()->report_bugs && errno != 0) {
           ScopedInRtl in_rtl;
           __tsan::StackTrace stack;
           uptr pc = signal->sigaction ?
@@ -1365,8 +1397,6 @@ static void process_pending_signals(ThreadState *thr) {
   CHECK_EQ(thr->in_signal_handler, true);
   thr->in_signal_handler = false;
 }
-
-namespace __tsan {
 
 void InitializeInterceptors() {
   CHECK_GT(cur_thread()->in_rtl, 0);
@@ -1484,6 +1514,7 @@ void InitializeInterceptors() {
 
   TSAN_INTERCEPT(epoll_ctl);
   TSAN_INTERCEPT(epoll_wait);
+  TSAN_INTERCEPT(poll);
 
   TSAN_INTERCEPT(sigaction);
   TSAN_INTERCEPT(signal);
@@ -1493,17 +1524,18 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(sleep);
   TSAN_INTERCEPT(usleep);
   TSAN_INTERCEPT(nanosleep);
+  TSAN_INTERCEPT(gettimeofday);
 
   atexit_ctx = new(internal_alloc(MBlockAtExit, sizeof(AtExitContext)))
       AtExitContext();
 
   if (__cxa_atexit(&finalize, 0, 0)) {
-    TsanPrintf("ThreadSanitizer: failed to setup atexit callback\n");
+    Printf("ThreadSanitizer: failed to setup atexit callback\n");
     Die();
   }
 
   if (pthread_key_create(&g_thread_finalize_key, &thread_finalize)) {
-    TsanPrintf("ThreadSanitizer: failed to create thread key\n");
+    Printf("ThreadSanitizer: failed to create thread key\n");
     Die();
   }
 }

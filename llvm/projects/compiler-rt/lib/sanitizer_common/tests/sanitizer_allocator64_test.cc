@@ -14,8 +14,8 @@
 #include <algorithm>
 #include <vector>
 
-static const uptr kAllocatorSpace = 0x600000000000ULL;
-static const uptr kAllocatorSize = 0x10000000000;  // 1T.
+static const uptr kAllocatorSpace = 0x700000000000ULL;
+static const uptr kAllocatorSize  = 0x010000000000ULL;  // 1T.
 
 typedef DefaultSizeClassMap SCMap;
 typedef
@@ -136,7 +136,7 @@ void FailInAssertionOnOOM() {
 
 TEST(SanitizerCommon, SizeClassAllocator64Overflow) {
   EXPECT_DEATH(FailInAssertionOnOOM(),
-               "allocated_user.*allocated_meta.*kRegionSize");
+               "Out of memory");
 }
 
 TEST(SanitizerCommon, LargeMmapAllocator) {
@@ -182,7 +182,7 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
 
   for (uptr alignment = 8; alignment <= (1<<28); alignment *= 2) {
     for (int i = 0; i < kNumAllocs; i++) {
-      uptr size = ((i % 10) + 1) * kPageSize;
+      uptr size = ((i % 10) + 1) * 4096;
       allocated[i] = a.Allocate(size, alignment);
       CHECK_EQ(0, (uptr)allocated[i] % alignment);
       char *p = (char*)allocated[i];

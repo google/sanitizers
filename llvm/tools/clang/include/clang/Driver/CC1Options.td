@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-let Flags = [CC1Option] in {
+let Flags = [CC1Option, NoDriverOption] in {
 
 //===----------------------------------------------------------------------===//
 // Target Options
@@ -197,8 +197,6 @@ def mrelocation_model : Separate<["-"], "mrelocation-model">,
   HelpText<"The relocation model to use">;
 def munwind_tables : Flag<["-"], "munwind-tables">,
   HelpText<"Generate unwinding tables for all functions">;
-def fuse_init_array : Flag<["-"], "fuse-init-array">,
-  HelpText<"Use .init_array instead of .ctors">;
 def mconstructor_aliases : Flag<["-"], "mconstructor-aliases">,
   HelpText<"Emit complete constructors and destructors as aliases when possible">;
 def mlink_bitcode_file : Separate<["-"], "mlink-bitcode-file">,
@@ -230,6 +228,8 @@ def fdiagnostics_format : Separate<["-"], "fdiagnostics-format">,
   HelpText<"Change diagnostic formatting to match IDE and command line tools">;
 def fdiagnostics_show_category : Separate<["-"], "fdiagnostics-show-category">,
   HelpText<"Print diagnostic category">;
+def fno_diagnostics_use_presumed_location : Flag<["-"], "fno-diagnostics-use-presumed-location">,
+  HelpText<"Ignore #line directives when displaying diagnostic locations">;
 def ftabstop : Separate<["-"], "ftabstop">, MetaVarName<"<N>">,
   HelpText<"Set the tab stop distance.">;
 def ferror_limit : Separate<["-"], "ferror-limit">, MetaVarName<"<N>">,
@@ -404,6 +404,8 @@ def fobjc_dispatch_method_EQ : Joined<["-"], "fobjc-dispatch-method=">,
   HelpText<"Objective-C dispatch method to use">;
 def fobjc_default_synthesize_properties : Flag<["-"], "fobjc-default-synthesize-properties">,
   HelpText<"enable the default synthesis of Objective-C properties">;
+def fencode_extended_block_signature : Flag<["-"], "fencode-extended-block-signature">,
+  HelpText<"enable extended encoding of block type signature">;
 def pic_level : Separate<["-"], "pic-level">,
   HelpText<"Value for __PIC__">;
 def pie_level : Separate<["-"], "pie-level">,

@@ -397,13 +397,8 @@ int main(int argc_, const char **argv_) {
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
   ProcessWarningOptions(Diags, *DiagOpts);
 
-#ifdef CLANG_IS_PRODUCTION
-  const bool IsProduction = true;
-#else
-  const bool IsProduction = false;
-#endif
   Driver TheDriver(Path.str(), llvm::sys::getDefaultTargetTriple(),
-                   "a.out", IsProduction, Diags);
+                   "a.out", Diags);
 
   // Attempt to find the original path used to invoke the driver, to determine
   // the installed path. We do this manually, because we want to support that
@@ -480,8 +475,9 @@ int main(int argc_, const char **argv_) {
      Res = -1;
 
   // If result status is < 0, then the driver command signalled an error.
-  // In this case, generate additional diagnostic information if possible.
-  if (Res < 0)
+  // If result status is 70, then the driver command reported a fatal error.
+  // In these cases, generate additional diagnostic information if possible.
+  if (Res < 0 || Res == 70)
     TheDriver.generateCompilationDiagnostics(*C, FailingCommand);
 
   // If any timers were active but haven't been destroyed yet, print their

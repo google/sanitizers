@@ -145,22 +145,20 @@ void DependenceAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
 
 
 // Used to test the dependence analyzer.
-// Looks through the function, noting the first store instruction
-// and the first load instruction
-// (which always follows the first load in our tests).
-// Calls depends() and prints out the result.
+// Looks through the function, noting loads and stores.
+// Calls depends() on every possible pair and prints out the result.
 // Ignores all other instructions.
 static
 void dumpExampleDependence(raw_ostream &OS, Function *F,
                            DependenceAnalysis *DA) {
   for (inst_iterator SrcI = inst_begin(F), SrcE = inst_end(F);
        SrcI != SrcE; ++SrcI) {
-    if (const StoreInst *Src = dyn_cast<StoreInst>(&*SrcI)) {
+    if (isa<StoreInst>(*SrcI) || isa<LoadInst>(*SrcI)) {
       for (inst_iterator DstI = SrcI, DstE = inst_end(F);
            DstI != DstE; ++DstI) {
-        if (const LoadInst *Dst = dyn_cast<LoadInst>(&*DstI)) {
+        if (isa<StoreInst>(*DstI) || isa<LoadInst>(*DstI)) {
           OS << "da analyze - ";
-          if (Dependence *D = DA->depends(Src, Dst, true)) {
+          if (Dependence *D = DA->depends(&*SrcI, &*DstI, true)) {
             D->dump(OS);
             for (unsigned Level = 1; Level <= D->getLevels(); Level++) {
               if (D->isSplitable(Level)) {
@@ -173,7 +171,6 @@ void dumpExampleDependence(raw_ostream &OS, Function *F,
           }
           else
             OS << "none!\n";
-          return;
         }
       }
     }
@@ -224,8 +221,8 @@ bool Dependence::isScalar(unsigned level) const {
 //===----------------------------------------------------------------------===//
 // FullDependence methods
 
-FullDependence::FullDependence(const Instruction *Source,
-                               const Instruction *Destination,
+FullDependence::FullDependence(Instruction *Source,
+                               Instruction *Destination,
                                bool PossiblyLoopIndependent,
                                unsigned CommonLevels) :
   Dependence(Source, Destination),
@@ -652,10 +649,10 @@ bool isLoadOrStore(const Instruction *I) {
 
 
 static
-const Value *getPointerOperand(const Instruction *I) {
-  if (const LoadInst *LI = dyn_cast<LoadInst>(I))
+Value *getPointerOperand(Instruction *I) {
+  if (LoadInst *LI = dyn_cast<LoadInst>(I))
     return LI->getPointerOperand();
-  if (const StoreInst *SI = dyn_cast<StoreInst>(I))
+  if (StoreInst *SI = dyn_cast<StoreInst>(I))
     return SI->getPointerOperand();
   llvm_unreachable("Value is not load or store instruction");
   return 0;
@@ -2221,7 +2218,7 @@ bool DependenceAnalysis::gcdMIVtest(const SCEV *Src,
                                     FullDependence &Result) const {
   DEBUG(dbgs() << "starting gcd\n");
   ++GCDapplications;
-  unsigned BitWidth = Src->getType()->getIntegerBitWidth();
+  unsigned BitWidth = SE->getTypeSizeInBits(Src->getType());
   APInt RunningGCD = APInt::getNullValue(BitWidth);
 
   // Examine Src coefficients.
@@ -3197,41 +3194,41 @@ static void dumpSmallBitVector(SmallBitVector &BV) {
 //            Goff, Kennedy, Tseng
 //            PLDI 1991
 //
-// Care is required to keep the code below up to date w.r.t. this routine.
-Dependence *DependenceAnalysis::depends(const Instruction *Src,
-                                        const Instruction *Dst,
+// Care is required to keep the routine below, getSplitIteration(),
+// up to date with respect to this routine.
+Dependence *DependenceAnalysis::depends(Instruction *Src,
+                                        Instruction *Dst,
                                         bool PossiblyLoopIndependent) {
+  if (Src == Dst)
+    PossiblyLoopIndependent = false;
+
   if ((!Src->mayReadFromMemory() && !Src->mayWriteToMemory()) ||
       (!Dst->mayReadFromMemory() && !Dst->mayWriteToMemory()))
     // if both instructions don't reference memory, there's no dependence
     return NULL;
 
-  if (!isLoadOrStore(Src) || !isLoadOrStore(Dst))
+  if (!isLoadOrStore(Src) || !isLoadOrStore(Dst)) {
     // can only analyze simple loads and stores, i.e., no calls, invokes, etc.
+    DEBUG(dbgs() << "can only handle simple loads and stores\n");
     return new Dependence(Src, Dst);
+  }
 
-  const Value *SrcPtr = getPointerOperand(Src);
-  const Value *DstPtr = getPointerOperand(Dst);
+  Value *SrcPtr = getPointerOperand(Src);
+  Value *DstPtr = getPointerOperand(Dst);
 
   switch (underlyingObjectsAlias(AA, DstPtr, SrcPtr)) {
   case AliasAnalysis::MayAlias:
   case AliasAnalysis::PartialAlias:
     // cannot analyse objects if we don't understand their aliasing.
+    DEBUG(dbgs() << "can't analyze may or partial alias\n");
     return new Dependence(Src, Dst);
   case AliasAnalysis::NoAlias:
     // If the objects noalias, they are distinct, accesses are independent.
+    DEBUG(dbgs() << "no alias\n");
     return NULL;
   case AliasAnalysis::MustAlias:
     break; // The underlying objects alias; test accesses for dependence.
   }
-
-  const GEPOperator *SrcGEP = dyn_cast<GEPOperator>(SrcPtr);
-  const GEPOperator *DstGEP = dyn_cast<GEPOperator>(DstPtr);
-  if (!SrcGEP || !DstGEP)
-    return new Dependence(Src, Dst); // missing GEP, assume dependence
-
-  if (SrcGEP->getPointerOperandType() != DstGEP->getPointerOperandType())
-    return new Dependence(Src, Dst); // different types, assume dependence
 
   // establish loop nesting levels
   establishNestingLevels(Src, Dst);
@@ -3241,36 +3238,62 @@ Dependence *DependenceAnalysis::depends(const Instruction *Src,
   FullDependence Result(Src, Dst, PossiblyLoopIndependent, CommonLevels);
   ++TotalArrayPairs;
 
-  // classify subscript pairs
-  unsigned Pairs = SrcGEP->idx_end() - SrcGEP->idx_begin();
-  SmallVector<Subscript, 4> Pair(Pairs);
-  for (unsigned SI = 0; SI < Pairs; ++SI) {
-    Pair[SI].Loops.resize(MaxLevels + 1);
-    Pair[SI].GroupLoops.resize(MaxLevels + 1);
-    Pair[SI].Group.resize(Pairs);
+  // See if there are GEPs we can use.
+  bool UsefulGEP = false;
+  GEPOperator *SrcGEP = dyn_cast<GEPOperator>(SrcPtr);
+  GEPOperator *DstGEP = dyn_cast<GEPOperator>(DstPtr);
+  if (SrcGEP && DstGEP &&
+      SrcGEP->getPointerOperandType() == DstGEP->getPointerOperandType()) {
+    const SCEV *SrcPtrSCEV = SE->getSCEV(SrcGEP->getPointerOperand());
+    const SCEV *DstPtrSCEV = SE->getSCEV(DstGEP->getPointerOperand());
+    DEBUG(dbgs() << "    SrcPtrSCEV = " << *SrcPtrSCEV << "\n");
+    DEBUG(dbgs() << "    DstPtrSCEV = " << *DstPtrSCEV << "\n");
+
+    UsefulGEP =
+      isLoopInvariant(SrcPtrSCEV, LI->getLoopFor(Src->getParent())) &&
+      isLoopInvariant(DstPtrSCEV, LI->getLoopFor(Dst->getParent()));
   }
-  Pairs = 0;
-  for (GEPOperator::const_op_iterator SrcIdx = SrcGEP->idx_begin(),
-         SrcEnd = SrcGEP->idx_end(),
-         DstIdx = DstGEP->idx_begin(),
-         DstEnd = DstGEP->idx_end();
-       SrcIdx != SrcEnd && DstIdx != DstEnd;
-       ++SrcIdx, ++DstIdx, ++Pairs) {
-    Pair[Pairs].Src = SE->getSCEV(*SrcIdx);
-    Pair[Pairs].Dst = SE->getSCEV(*DstIdx);
-    removeMatchingExtensions(&Pair[Pairs]);
-    Pair[Pairs].Classification =
-      classifyPair(Pair[Pairs].Src, LI->getLoopFor(Src->getParent()),
-                   Pair[Pairs].Dst, LI->getLoopFor(Dst->getParent()),
-                   Pair[Pairs].Loops);
-    Pair[Pairs].GroupLoops = Pair[Pairs].Loops;
-    Pair[Pairs].Group.set(Pairs);
-    DEBUG(dbgs() << "    subscript " << Pairs << "\n");
-    DEBUG(dbgs() << "\tsrc = " << *Pair[Pairs].Src << "\n");
-    DEBUG(dbgs() << "\tdst = " << *Pair[Pairs].Dst << "\n");
-    DEBUG(dbgs() << "\tclass = " << Pair[Pairs].Classification << "\n");
+  unsigned Pairs = UsefulGEP ? SrcGEP->idx_end() - SrcGEP->idx_begin() : 1;
+  SmallVector<Subscript, 4> Pair(Pairs);
+  if (UsefulGEP) {
+    DEBUG(dbgs() << "    using GEPs\n");
+    unsigned P = 0;
+    for (GEPOperator::const_op_iterator SrcIdx = SrcGEP->idx_begin(),
+           SrcEnd = SrcGEP->idx_end(),
+           DstIdx = DstGEP->idx_begin();
+         SrcIdx != SrcEnd;
+         ++SrcIdx, ++DstIdx, ++P) {
+      Pair[P].Src = SE->getSCEV(*SrcIdx);
+      Pair[P].Dst = SE->getSCEV(*DstIdx);
+    }
+  }
+  else {
+    DEBUG(dbgs() << "    ignoring GEPs\n");
+    const SCEV *SrcSCEV = SE->getSCEV(SrcPtr);
+    const SCEV *DstSCEV = SE->getSCEV(DstPtr);
+    DEBUG(dbgs() << "    SrcSCEV = " << *SrcSCEV << "\n");
+    DEBUG(dbgs() << "    DstSCEV = " << *DstSCEV << "\n");
+    Pair[0].Src = SrcSCEV;
+    Pair[0].Dst = DstSCEV;
+  }
+
+  for (unsigned P = 0; P < Pairs; ++P) {
+    Pair[P].Loops.resize(MaxLevels + 1);
+    Pair[P].GroupLoops.resize(MaxLevels + 1);
+    Pair[P].Group.resize(Pairs);
+    removeMatchingExtensions(&Pair[P]);
+    Pair[P].Classification =
+      classifyPair(Pair[P].Src, LI->getLoopFor(Src->getParent()),
+                   Pair[P].Dst, LI->getLoopFor(Dst->getParent()),
+                   Pair[P].Loops);
+    Pair[P].GroupLoops = Pair[P].Loops;
+    Pair[P].Group.set(P);
+    DEBUG(dbgs() << "    subscript " << P << "\n");
+    DEBUG(dbgs() << "\tsrc = " << *Pair[P].Src << "\n");
+    DEBUG(dbgs() << "\tdst = " << *Pair[P].Dst << "\n");
+    DEBUG(dbgs() << "\tclass = " << Pair[P].Classification << "\n");
     DEBUG(dbgs() << "\tloops = ");
-    DEBUG(dumpSmallBitVector(Pair[Pairs].Loops));
+    DEBUG(dumpSmallBitVector(Pair[P].Loops));
   }
 
   SmallBitVector Separable(Pairs);
@@ -3540,14 +3563,29 @@ Dependence *DependenceAnalysis::depends(const Instruction *Src,
     if (CompleteLoops[II])
       Result.DV[II - 1].Scalar = false;
 
-  // make sure loopIndepent flag is set correctly
   if (PossiblyLoopIndependent) {
+    // Make sure the LoopIndependent flag is set correctly.
+    // All directions must include equal, otherwise no
+    // loop-independent dependence is possible.
     for (unsigned II = 1; II <= CommonLevels; ++II) {
       if (!(Result.getDirection(II) & Dependence::DVEntry::EQ)) {
         Result.LoopIndependent = false;
         break;
       }
     }
+  }
+  else {
+    // On the other hand, if all directions are equal and there's no
+    // loop-independent dependence possible, then no dependence exists.
+    bool AllEqual = true;
+    for (unsigned II = 1; II <= CommonLevels; ++II) {
+      if (Result.getDirection(II) != Dependence::DVEntry::EQ) {
+	AllEqual = false;
+	break;
+      }
+    }
+    if (AllEqual)
+      return NULL;
   }
 
   FullDependence *Final = new FullDependence(Result);
@@ -3565,7 +3603,8 @@ Dependence *DependenceAnalysis::depends(const Instruction *Src,
 // though simplified since we know that the dependence exists.
 // It's tedious, since we must go through all propagations, etc.
 //
-// Care is required to keep this code up to date w.r.t. the code above.
+// Care is required to keep this code up to date with respect to the routine
+// above, depends().
 //
 // Generally, the dependence analyzer will be used to build
 // a dependence graph for a function (basically a map from instructions
@@ -3608,50 +3647,65 @@ const  SCEV *DependenceAnalysis::getSplitIteration(const Dependence *Dep,
   assert(Dep && "expected a pointer to a Dependence");
   assert(Dep->isSplitable(SplitLevel) &&
          "Dep should be splitable at SplitLevel");
-  const Instruction *Src = Dep->getSrc();
-  const Instruction *Dst = Dep->getDst();
+  Instruction *Src = Dep->getSrc();
+  Instruction *Dst = Dep->getDst();
   assert(Src->mayReadFromMemory() || Src->mayWriteToMemory());
   assert(Dst->mayReadFromMemory() || Dst->mayWriteToMemory());
   assert(isLoadOrStore(Src));
   assert(isLoadOrStore(Dst));
-  const Value *SrcPtr = getPointerOperand(Src);
-  const Value *DstPtr = getPointerOperand(Dst);
+  Value *SrcPtr = getPointerOperand(Src);
+  Value *DstPtr = getPointerOperand(Dst);
   assert(underlyingObjectsAlias(AA, DstPtr, SrcPtr) ==
          AliasAnalysis::MustAlias);
-  const GEPOperator *SrcGEP = dyn_cast<GEPOperator>(SrcPtr);
-  const GEPOperator *DstGEP = dyn_cast<GEPOperator>(DstPtr);
-  assert(SrcGEP);
-  assert(DstGEP);
-  assert(SrcGEP->getPointerOperandType() == DstGEP->getPointerOperandType());
 
   // establish loop nesting levels
   establishNestingLevels(Src, Dst);
 
   FullDependence Result(Src, Dst, false, CommonLevels);
 
-  // classify subscript pairs
-  unsigned Pairs = SrcGEP->idx_end() - SrcGEP->idx_begin();
-  SmallVector<Subscript, 4> Pair(Pairs);
-  for (unsigned SI = 0; SI < Pairs; ++SI) {
-    Pair[SI].Loops.resize(MaxLevels + 1);
-    Pair[SI].GroupLoops.resize(MaxLevels + 1);
-    Pair[SI].Group.resize(Pairs);
+  // See if there are GEPs we can use.
+  bool UsefulGEP = false;
+  GEPOperator *SrcGEP = dyn_cast<GEPOperator>(SrcPtr);
+  GEPOperator *DstGEP = dyn_cast<GEPOperator>(DstPtr);
+  if (SrcGEP && DstGEP &&
+      SrcGEP->getPointerOperandType() == DstGEP->getPointerOperandType()) {
+    const SCEV *SrcPtrSCEV = SE->getSCEV(SrcGEP->getPointerOperand());
+    const SCEV *DstPtrSCEV = SE->getSCEV(DstGEP->getPointerOperand());
+    UsefulGEP =
+      isLoopInvariant(SrcPtrSCEV, LI->getLoopFor(Src->getParent())) &&
+      isLoopInvariant(DstPtrSCEV, LI->getLoopFor(Dst->getParent()));
   }
-  Pairs = 0;
-  for (GEPOperator::const_op_iterator SrcIdx = SrcGEP->idx_begin(),
-         SrcEnd = SrcGEP->idx_end(),
-         DstIdx = DstGEP->idx_begin(),
-         DstEnd = DstGEP->idx_end();
-       SrcIdx != SrcEnd && DstIdx != DstEnd;
-       ++SrcIdx, ++DstIdx, ++Pairs) {
-    Pair[Pairs].Src = SE->getSCEV(*SrcIdx);
-    Pair[Pairs].Dst = SE->getSCEV(*DstIdx);
-    Pair[Pairs].Classification =
-      classifyPair(Pair[Pairs].Src, LI->getLoopFor(Src->getParent()),
-                   Pair[Pairs].Dst, LI->getLoopFor(Dst->getParent()),
-                   Pair[Pairs].Loops);
-    Pair[Pairs].GroupLoops = Pair[Pairs].Loops;
-    Pair[Pairs].Group.set(Pairs);
+  unsigned Pairs = UsefulGEP ? SrcGEP->idx_end() - SrcGEP->idx_begin() : 1;
+  SmallVector<Subscript, 4> Pair(Pairs);
+  if (UsefulGEP) {
+    unsigned P = 0;
+    for (GEPOperator::const_op_iterator SrcIdx = SrcGEP->idx_begin(),
+           SrcEnd = SrcGEP->idx_end(),
+           DstIdx = DstGEP->idx_begin();
+         SrcIdx != SrcEnd;
+         ++SrcIdx, ++DstIdx, ++P) {
+      Pair[P].Src = SE->getSCEV(*SrcIdx);
+      Pair[P].Dst = SE->getSCEV(*DstIdx);
+    }
+  }
+  else {
+    const SCEV *SrcSCEV = SE->getSCEV(SrcPtr);
+    const SCEV *DstSCEV = SE->getSCEV(DstPtr);
+    Pair[0].Src = SrcSCEV;
+    Pair[0].Dst = DstSCEV;
+  }
+
+  for (unsigned P = 0; P < Pairs; ++P) {
+    Pair[P].Loops.resize(MaxLevels + 1);
+    Pair[P].GroupLoops.resize(MaxLevels + 1);
+    Pair[P].Group.resize(Pairs);
+    removeMatchingExtensions(&Pair[P]);
+    Pair[P].Classification =
+      classifyPair(Pair[P].Src, LI->getLoopFor(Src->getParent()),
+                   Pair[P].Dst, LI->getLoopFor(Dst->getParent()),
+                   Pair[P].Loops);
+    Pair[P].GroupLoops = Pair[P].Loops;
+    Pair[P].Group.set(P);
   }
 
   SmallBitVector Separable(Pairs);

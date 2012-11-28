@@ -144,3 +144,31 @@ define i32 @sozefx_(i32 %x, i32 %y) {
   %t6 = add i32 %t4, %t5
   ret i32 %t6
 }
+
+define i32 @bar(i32 %arg, i32 %arg1, i32 %arg2) {
+  %tmp1 = mul i32 %arg1, 2
+  %tmp2 = mul i32 %tmp1, 3
+  %tmp3 = mul i32 %arg2, 2
+  %tmp4 = add i32 %tmp1, 1 ; dead code
+  %ret = add i32 %tmp2, %tmp3
+  ret i32 %ret
+}
+
+; PR14060
+define i8 @hang(i8 %p, i8 %p0, i8 %p1, i8 %p2, i8 %p3, i8 %p4, i8 %p5, i8 %p6, i8 %p7, i8 %p8, i8 %p9) {
+  %tmp = zext i1 false to i8
+  %tmp16 = or i8 %tmp, 1
+  %tmp22 = or i8 %p7, %p0
+  %tmp23 = or i8 %tmp16, %tmp22
+  %tmp28 = or i8 %p9, %p1
+  %tmp31 = or i8 %tmp23, %p2
+  %tmp32 = or i8 %tmp31, %tmp28
+  %tmp38 = or i8 %p8, %p3
+  %tmp39 = or i8 %tmp16, %tmp38
+  %tmp43 = or i8 %tmp39, %p4
+  %tmp44 = or i8 %tmp43, 1
+  %tmp47 = or i8 %tmp32, %p5
+  %tmp50 = or i8 %tmp47, %p6
+  %tmp51 = or i8 %tmp44, %tmp50
+  ret i8 %tmp51
+}

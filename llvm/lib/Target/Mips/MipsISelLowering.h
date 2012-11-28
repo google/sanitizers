@@ -272,6 +272,7 @@ namespace llvm {
     SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINTRINSIC_W_CHAIN(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerADD(SDValue Op, SelectionDAG &DAG) const;
 
     /// IsEligibleForTailCallOptimization - Check whether the call is eligible
     /// for tail call optimization.
@@ -355,6 +356,8 @@ namespace llvm {
                                               std::string &Constraint,
                                               std::vector<SDValue> &Ops,
                                               SelectionDAG &DAG) const;
+
+    virtual bool isLegalAddressingMode(const AddrMode &AM, Type *Ty) const;
 
     virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
 

@@ -57,9 +57,7 @@ struct StreamState {
 };
 
 class StreamChecker : public Checker<eval::Call,
-                                       check::DeadSymbols,
-                                       check::EndPath,
-                                       check::PreStmt<ReturnStmt> > {
+                                     check::DeadSymbols > {
   mutable IdentifierInfo *II_fopen, *II_tmpfile, *II_fclose, *II_fread,
                  *II_fwrite, 
                  *II_fseek, *II_ftell, *II_rewind, *II_fgetpos, *II_fsetpos,  
@@ -75,8 +73,6 @@ public:
 
   bool evalCall(const CallExpr *CE, CheckerContext &C) const;
   void checkDeadSymbols(SymbolReaper &SymReaper, CheckerContext &C) const;
-  void checkEndPath(CheckerContext &Ctx) const;
-  void checkPreStmt(const ReturnStmt *S, CheckerContext &C) const;
 
 private:
   void Fopen(CheckerContext &C, const CallExpr *CE) const;
@@ -104,15 +100,8 @@ private:
 
 } // end anonymous namespace
 
-namespace clang {
-namespace ento {
-  template <>
-  struct ProgramStateTrait<StreamState> 
-    : public ProgramStatePartialTrait<llvm::ImmutableMap<SymbolRef, StreamState> > {
-    static void *GDMIndex() { static int x; return &x; }
-  };
-}
-}
+REGISTER_MAP_WITH_PROGRAMSTATE(StreamMap, SymbolRef, StreamState)
+
 
 bool StreamChecker::evalCall(const CallExpr *CE, CheckerContext &C) const {
   const FunctionDecl *FD = C.getCalleeDecl(CE);
@@ -235,9 +224,9 @@ void StreamChecker::OpenFileAux(CheckerContext &C, const CallExpr *CE) const {
   if (SymbolRef Sym = RetVal.getAsSymbol()) {
     // if RetVal is not NULL, set the symbol's state to Opened.
     stateNotNull =
-      stateNotNull->set<StreamState>(Sym,StreamState::getOpened(CE));
+      stateNotNull->set<StreamMap>(Sym,StreamState::getOpened(CE));
     stateNull =
-      stateNull->set<StreamState>(Sym, StreamState::getOpenFailed(CE));
+      stateNull->set<StreamMap>(Sym, StreamState::getOpenFailed(CE));
 
     C.addTransition(stateNotNull);
     C.addTransition(stateNull);
@@ -287,7 +276,7 @@ void StreamChecker::Fseek(CheckerContext &C, const CallExpr *CE) const {
 					"SEEK_SET, SEEK_END, or SEEK_CUR."));
     BugReport *R = new BugReport(*BT_illegalwhence, 
 				 BT_illegalwhence->getDescription(), N);
-    C.EmitReport(R);
+    C.emitReport(R);
   }
 }
 
@@ -363,7 +352,7 @@ ProgramStateRef StreamChecker::CheckNullStream(SVal SV, ProgramStateRef state,
         BT_nullfp.reset(new BuiltinBug("NULL stream pointer",
                                      "Stream pointer might be NULL."));
       BugReport *R =new BugReport(*BT_nullfp, BT_nullfp->getDescription(), N);
-      C.EmitReport(R);
+      C.emitReport(R);
     }
     return 0;
   }
@@ -378,7 +367,7 @@ ProgramStateRef StreamChecker::CheckDoubleClose(const CallExpr *CE,
   if (!Sym)
     return state;
   
-  const StreamState *SS = state->get<StreamState>(Sym);
+  const StreamState *SS = state->get<StreamMap>(Sym);
 
   // If the file stream is not tracked, return.
   if (!SS)
@@ -395,13 +384,13 @@ ProgramStateRef StreamChecker::CheckDoubleClose(const CallExpr *CE,
                                         " closed. Cause undefined behaviour."));
       BugReport *R = new BugReport(*BT_doubleclose,
                                    BT_doubleclose->getDescription(), N);
-      C.EmitReport(R);
+      C.emitReport(R);
     }
     return NULL;
   }
   
   // Close the File Descriptor.
-  return state->set<StreamState>(Sym, StreamState::getClosed(CE));
+  return state->set<StreamMap>(Sym, StreamState::getClosed(CE));
 }
 
 void StreamChecker::checkDeadSymbols(SymbolReaper &SymReaper,
@@ -411,7 +400,7 @@ void StreamChecker::checkDeadSymbols(SymbolReaper &SymReaper,
          E = SymReaper.dead_end(); I != E; ++I) {
     SymbolRef Sym = *I;
     ProgramStateRef state = C.getState();
-    const StreamState *SS = state->get<StreamState>(Sym);
+    const StreamState *SS = state->get<StreamMap>(Sym);
     // TODO: Shouldn't we have a continue here?
     if (!SS)
       return;
@@ -424,52 +413,10 @@ void StreamChecker::checkDeadSymbols(SymbolReaper &SymReaper,
                          "Opened File never closed. Potential Resource leak."));
         BugReport *R = new BugReport(*BT_ResourceLeak, 
                                      BT_ResourceLeak->getDescription(), N);
-        C.EmitReport(R);
+        C.emitReport(R);
       }
     }
   }
-}
-
-void StreamChecker::checkEndPath(CheckerContext &Ctx) const {
-  ProgramStateRef state = Ctx.getState();
-  typedef llvm::ImmutableMap<SymbolRef, StreamState> SymMap;
-  SymMap M = state->get<StreamState>();
-  
-  for (SymMap::iterator I = M.begin(), E = M.end(); I != E; ++I) {
-    StreamState SS = I->second;
-    if (SS.isOpened()) {
-      ExplodedNode *N = Ctx.addTransition(state);
-      if (N) {
-        if (!BT_ResourceLeak)
-          BT_ResourceLeak.reset(new BuiltinBug("Resource Leak", 
-                         "Opened File never closed. Potential Resource leak."));
-        BugReport *R = new BugReport(*BT_ResourceLeak, 
-                                     BT_ResourceLeak->getDescription(), N);
-        Ctx.EmitReport(R);
-      }
-    }
-  }
-}
-
-void StreamChecker::checkPreStmt(const ReturnStmt *S, CheckerContext &C) const {
-  const Expr *RetE = S->getRetValue();
-  if (!RetE)
-    return;
-  
-  ProgramStateRef state = C.getState();
-  SymbolRef Sym = state->getSVal(RetE, C.getLocationContext()).getAsSymbol();
-  
-  if (!Sym)
-    return;
-  
-  const StreamState *SS = state->get<StreamState>(Sym);
-  if(!SS)
-    return;
-
-  if (SS->isOpened())
-    state = state->set<StreamState>(Sym, StreamState::getEscaped(S));
-
-  C.addTransition(state);
 }
 
 void ento::registerStreamChecker(CheckerManager &mgr) {

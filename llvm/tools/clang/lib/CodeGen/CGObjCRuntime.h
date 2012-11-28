@@ -263,6 +263,8 @@ public:
                                   const CodeGen::CGBlockInfo &blockInfo) = 0;
   virtual llvm::Constant *BuildRCBlockLayout(CodeGen::CodeGenModule &CGM,
                                   const CodeGen::CGBlockInfo &blockInfo) = 0;
+  virtual llvm::Constant *BuildByrefLayout(CodeGen::CodeGenModule &CGM,
+                                           QualType T) = 0;
   virtual llvm::GlobalVariable *GetClassGlobal(const std::string &Name) = 0;
 
   struct MessageSendInfo {
@@ -277,6 +279,12 @@ public:
   MessageSendInfo getMessageSendInfo(const ObjCMethodDecl *method,
                                      QualType resultType,
                                      CallArgList &callArgs);
+
+  // FIXME: This probably shouldn't be here, but the code to compute
+  // it is here.
+  unsigned ComputeBitfieldBitOffset(CodeGen::CodeGenModule &CGM,
+                                    const ObjCInterfaceDecl *ID,
+                                    const ObjCIvarDecl *Ivar);
 };
 
 /// Creates an instance of an Objective-C runtime class.

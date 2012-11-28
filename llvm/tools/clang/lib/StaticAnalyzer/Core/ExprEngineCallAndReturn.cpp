@@ -98,13 +98,16 @@ static std::pair<const Stmt*,
         break;
     }
 
+    if (Node->pred_empty())
+      return std::pair<const Stmt*, const CFGBlock*>((Stmt*)0, (CFGBlock*)0);
+
     Node = *Node->pred_begin();
   }
 
   const CFGBlock *Blk = 0;
   if (S) {
     // Now, get the enclosing basic block.
-    while (Node && Node->pred_size() >=1 ) {
+    while (Node) {
       const ProgramPoint &PP = Node->getLocation();
       if (isa<BlockEdge>(PP) &&
           (PP.getLocationContext()->getCurrentStackFrame() == SF)) {
@@ -112,6 +115,9 @@ static std::pair<const Stmt*,
         Blk = EPP.getDst();
         break;
       }
+      if (Node->pred_empty())
+        return std::pair<const Stmt*, const CFGBlock*>(S, (CFGBlock*)0);
+
       Node = *Node->pred_begin();
     }
   }
@@ -131,6 +137,8 @@ static SVal adjustReturnValue(SVal V, QualType ExpectedTy, QualType ActualTy,
     return V;
 
   // If the types already match, don't do any unnecessary work.
+  ExpectedTy = ExpectedTy.getCanonicalType();
+  ActualTy = ActualTy.getCanonicalType();
   if (ExpectedTy == ActualTy)
     return V;
 
@@ -155,6 +163,40 @@ static SVal adjustReturnValue(SVal V, QualType ExpectedTy, QualType ActualTy,
   // covariant return types, so we can't assert that that never happens.
   // Be safe and return UnknownVal().
   return UnknownVal();
+}
+
+void ExprEngine::removeDeadOnEndOfFunction(NodeBuilderContext& BC,
+                                           ExplodedNode *Pred,
+                                           ExplodedNodeSet &Dst) {
+  // Find the last statement in the function and the corresponding basic block.
+  const Stmt *LastSt = 0;
+  const CFGBlock *Blk = 0;
+  llvm::tie(LastSt, Blk) = getLastStmt(Pred);
+  if (!Blk || !LastSt) {
+    Dst.Add(Pred);
+    return;
+  }
+
+  // Here, we destroy the current location context. We use the current
+  // function's entire body as a diagnostic statement, with which the program
+  // point will be associated. However, we only want to use LastStmt as a
+  // reference for what to clean up if it's a ReturnStmt; otherwise, everything
+  // is dead.
+  SaveAndRestore<const NodeBuilderContext *> NodeContextRAII(currBldrCtx, &BC);
+  const LocationContext *LCtx = Pred->getLocationContext();
+  removeDead(Pred, Dst, dyn_cast<ReturnStmt>(LastSt), LCtx,
+             LCtx->getAnalysisDeclContext()->getBody(),
+             ProgramPoint::PostStmtPurgeDeadSymbolsKind);
+}
+
+static bool wasDifferentDeclUsedForInlining(CallEventRef<> Call,
+    const StackFrameContext *calleeCtx) {
+  const Decl *RuntimeCallee = calleeCtx->getDecl();
+  const Decl *StaticDecl = Call->getDecl();
+  assert(RuntimeCallee);
+  if (!StaticDecl)
+    return true;
+  return RuntimeCallee->getCanonicalDecl() != StaticDecl->getCanonicalDecl();
 }
 
 /// The call exit is simulated with a sequence of nodes, which occur between 
@@ -196,9 +238,10 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
       const LocationContext *LCtx = CEBNode->getLocationContext();
       SVal V = state->getSVal(RS, LCtx);
 
-      const Decl *Callee = calleeCtx->getDecl();
-      if (Callee != Call->getDecl()) {
-        QualType ReturnedTy = CallEvent::getDeclaredResultType(Callee);
+      // Ensure that the return type matches the type of the returned Expr.
+      if (wasDifferentDeclUsedForInlining(Call, calleeCtx)) {
+        QualType ReturnedTy =
+          CallEvent::getDeclaredResultType(calleeCtx->getDecl());
         if (!ReturnedTy.isNull()) {
           if (const Expr *Ex = dyn_cast<Expr>(CE)) {
             V = adjustReturnValue(V, Ex->getType(), ReturnedTy,
@@ -245,11 +288,12 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
 
     NodeBuilderContext Ctx(getCoreEngine(), Blk, BindedRetNode);
     currBldrCtx = &Ctx;
-    // Here, we call the Symbol Reaper with 0 statement and caller location
+    // Here, we call the Symbol Reaper with 0 statement and callee location
     // context, telling it to clean up everything in the callee's context
-    // (and it's children). We use LastStmt as a diagnostic statement, which
-    // which the PreStmtPurge Dead point will be associated.
-    removeDead(BindedRetNode, CleanedNodes, 0, callerCtx, LastSt,
+    // (and its children). We use the callee's function body as a diagnostic
+    // statement, with which the program point will be associated.
+    removeDead(BindedRetNode, CleanedNodes, 0, calleeCtx,
+               calleeCtx->getAnalysisDeclContext()->getBody(),
                ProgramPoint::PostStmtPurgeDeadSymbolsKind);
     currBldrCtx = 0;
   } else {
@@ -406,26 +450,21 @@ bool ExprEngine::shouldInlineDecl(const Decl *D, ExplodedNode *Pred) {
   return true;
 }
 
-/// The GDM component containing the dynamic dispatch bifurcation info. When
-/// the exact type of the receiver is not known, we want to explore both paths -
-/// one on which we do inline it and the other one on which we don't. This is
-/// done to ensure we do not drop coverage.
-/// This is the map from the receiver region to a bool, specifying either we
-/// consider this region's information precise or not along the given path.
-namespace clang {
-namespace ento {
-enum DynamicDispatchMode { DynamicDispatchModeInlined = 1,
-                           DynamicDispatchModeConservative };
-
-struct DynamicDispatchBifurcationMap {};
-typedef llvm::ImmutableMap<const MemRegion*,
-                           unsigned int> DynamicDispatchBifur;
-template<> struct ProgramStateTrait<DynamicDispatchBifurcationMap>
-    :  public ProgramStatePartialTrait<DynamicDispatchBifur> {
-  static void *GDMIndex() { static int index; return &index; }
-};
-
-}}
+// The GDM component containing the dynamic dispatch bifurcation info. When
+// the exact type of the receiver is not known, we want to explore both paths -
+// one on which we do inline it and the other one on which we don't. This is
+// done to ensure we do not drop coverage.
+// This is the map from the receiver region to a bool, specifying either we
+// consider this region's information precise or not along the given path.
+namespace {
+  enum DynamicDispatchMode {
+    DynamicDispatchModeInlined = 1,
+    DynamicDispatchModeConservative
+  };
+}
+REGISTER_TRAIT_WITH_PROGRAMSTATE(DynamicDispatchBifurcationMap,
+                                 CLANG_ENTO_PROGRAMSTATE_MAP(const MemRegion *,
+                                                             unsigned))
 
 bool ExprEngine::inlineCall(const CallEvent &Call, const Decl *D,
                             NodeBuilder &Bldr, ExplodedNode *Pred,
@@ -734,7 +773,7 @@ void ExprEngine::BifurcateCall(const MemRegion *BifurReg,
   // Check if we've performed the split already - note, we only want
   // to split the path once per memory region.
   ProgramStateRef State = Pred->getState();
-  const unsigned int *BState =
+  const unsigned *BState =
                         State->get<DynamicDispatchBifurcationMap>(BifurReg);
   if (BState) {
     // If we are on "inline path", keep inlining if possible.

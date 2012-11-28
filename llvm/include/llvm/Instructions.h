@@ -225,8 +225,9 @@ public:
   const Value *getPointerOperand() const { return getOperand(0); }
   static unsigned getPointerOperandIndex() { return 0U; }
 
+  /// \brief Returns the address space of the pointer operand.
   unsigned getPointerAddressSpace() const {
-    return cast<PointerType>(getPointerOperand()->getType())->getAddressSpace();
+    return getPointerOperand()->getType()->getPointerAddressSpace();
   }
 
 
@@ -347,17 +348,9 @@ public:
   const Value *getPointerOperand() const { return getOperand(1); }
   static unsigned getPointerOperandIndex() { return 1U; }
 
+  /// \brief Returns the address space of the pointer operand.
   unsigned getPointerAddressSpace() const {
-    if (getPointerOperand()->getType()->isPointerTy())
-      return cast<PointerType>(getPointerOperand()->getType())
-        ->getAddressSpace();
-    if (getPointerOperand()->getType()->isVectorTy()
-        && cast<VectorType>(getPointerOperand()->getType())->isPointerTy())
-      return cast<PointerType>(cast<VectorType>(
-            getPointerOperand()->getType())->getElementType())
-        ->getAddressSpace();
-    llvm_unreachable("Only a vector of pointers or pointers can be used!");
-    return 0;
+    return getPointerOperand()->getType()->getPointerAddressSpace();
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -526,8 +519,9 @@ public:
   Value *getNewValOperand() { return getOperand(2); }
   const Value *getNewValOperand() const { return getOperand(2); }
   
+  /// \brief Returns the address space of the pointer operand.
   unsigned getPointerAddressSpace() const {
-    return cast<PointerType>(getPointerOperand()->getType())->getAddressSpace();
+    return getPointerOperand()->getType()->getPointerAddressSpace();
   }
   
   // Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -669,8 +663,9 @@ public:
   Value *getValOperand() { return getOperand(1); }
   const Value *getValOperand() const { return getOperand(1); }
 
+  /// \brief Returns the address space of the pointer operand.
   unsigned getPointerAddressSpace() const {
-    return cast<PointerType>(getPointerOperand()->getType())->getAddressSpace();
+    return getPointerOperand()->getType()->getPointerAddressSpace();
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -771,6 +766,13 @@ public:
     return reinterpret_cast<PointerType*>(Instruction::getType());
   }
 
+  /// \brief Returns the address space of this instruction's pointer type.
+  unsigned getAddressSpace() const {
+    // Note that this is always the same as the pointer operand's address space
+    // and that is cheaper to compute, so cheat here.
+    return getPointerAddressSpace();
+  }
+
   /// getIndexedType - Returns the type of the element that would be loaded with
   /// a load instruction with the specified parameters.
   ///
@@ -780,10 +782,6 @@ public:
   static Type *getIndexedType(Type *Ptr, ArrayRef<Value *> IdxList);
   static Type *getIndexedType(Type *Ptr, ArrayRef<Constant *> IdxList);
   static Type *getIndexedType(Type *Ptr, ArrayRef<uint64_t> IdxList);
-
-  /// getAddressSpace - Returns the address space used by the GEP pointer.
-  ///
-  static unsigned getAddressSpace(Value *Ptr);
 
   inline op_iterator       idx_begin()       { return op_begin()+1; }
   inline const_op_iterator idx_begin() const { return op_begin()+1; }
@@ -800,14 +798,15 @@ public:
     return 0U;    // get index for modifying correct operand.
   }
 
-  unsigned getPointerAddressSpace() const {
-    return cast<PointerType>(getPointerOperandType())->getAddressSpace();
-  }
-
   /// getPointerOperandType - Method to return the pointer operand as a
   /// PointerType.
   Type *getPointerOperandType() const {
     return getPointerOperand()->getType();
+  }
+
+  /// \brief Returns the address space of the pointer operand.
+  unsigned getPointerAddressSpace() const {
+    return getPointerOperandType()->getPointerAddressSpace();
   }
 
   /// GetGEPReturnType - Returns the pointer type returned by the GEP
@@ -815,7 +814,7 @@ public:
   static Type *getGEPReturnType(Value *Ptr, ArrayRef<Value *> IdxList) {
     Type *PtrTy = PointerType::get(checkGEPType(
                                    getIndexedType(Ptr->getType(), IdxList)),
-                                   getAddressSpace(Ptr));
+                                   Ptr->getType()->getPointerAddressSpace());
     // Vector GEP
     if (Ptr->getType()->isVectorTy()) {
       unsigned NumElem = cast<VectorType>(Ptr->getType())->getNumElements();
@@ -899,13 +898,13 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(GetElementPtrInst, Value)
 /// This instruction compares its operands according to the predicate given
 /// to the constructor. It only operates on integers or pointers. The operands
 /// must be identical types.
-/// @brief Represent an integer comparison operator.
+/// \brief Represent an integer comparison operator.
 class ICmpInst: public CmpInst {
 protected:
-  /// @brief Clone an identical ICmpInst
+  /// \brief Clone an identical ICmpInst
   virtual ICmpInst *clone_impl() const;
 public:
-  /// @brief Constructor with insert-before-instruction semantics.
+  /// \brief Constructor with insert-before-instruction semantics.
   ICmpInst(
     Instruction *InsertBefore,  ///< Where to insert
     Predicate pred,  ///< The predicate to use for the comparison
@@ -926,7 +925,7 @@ public:
            "Invalid operand types for ICmp instruction");
   }
 
-  /// @brief Constructor with insert-at-end semantics.
+  /// \brief Constructor with insert-at-end semantics.
   ICmpInst(
     BasicBlock &InsertAtEnd, ///< Block to insert into.
     Predicate pred,  ///< The predicate to use for the comparison
@@ -947,7 +946,7 @@ public:
            "Invalid operand types for ICmp instruction");
   }
 
-  /// @brief Constructor with no-insertion semantics
+  /// \brief Constructor with no-insertion semantics
   ICmpInst(
     Predicate pred, ///< The predicate to use for the comparison
     Value *LHS,     ///< The left-hand-side of the expression
@@ -969,25 +968,25 @@ public:
   /// For example, EQ->EQ, SLE->SLE, UGT->SGT, etc.
   /// @returns the predicate that would be the result if the operand were
   /// regarded as signed.
-  /// @brief Return the signed version of the predicate
+  /// \brief Return the signed version of the predicate
   Predicate getSignedPredicate() const {
     return getSignedPredicate(getPredicate());
   }
 
   /// This is a static version that you can use without an instruction.
-  /// @brief Return the signed version of the predicate.
+  /// \brief Return the signed version of the predicate.
   static Predicate getSignedPredicate(Predicate pred);
 
   /// For example, EQ->EQ, SLE->ULE, UGT->UGT, etc.
   /// @returns the predicate that would be the result if the operand were
   /// regarded as unsigned.
-  /// @brief Return the unsigned version of the predicate
+  /// \brief Return the unsigned version of the predicate
   Predicate getUnsignedPredicate() const {
     return getUnsignedPredicate(getPredicate());
   }
 
   /// This is a static version that you can use without an instruction.
-  /// @brief Return the unsigned version of the predicate.
+  /// \brief Return the unsigned version of the predicate.
   static Predicate getUnsignedPredicate(Predicate pred);
 
   /// isEquality - Return true if this predicate is either EQ or NE.  This also
@@ -1003,7 +1002,7 @@ public:
   }
 
   /// @returns true if the predicate of this ICmpInst is commutative
-  /// @brief Determine if this relation is commutative.
+  /// \brief Determine if this relation is commutative.
   bool isCommutative() const { return isEquality(); }
 
   /// isRelational - Return true if the predicate is relational (not EQ or NE).
@@ -1019,14 +1018,14 @@ public:
   }
 
   /// Initialize a set of values that all satisfy the predicate with C.
-  /// @brief Make a ConstantRange for a relation with a constant value.
+  /// \brief Make a ConstantRange for a relation with a constant value.
   static ConstantRange makeConstantRange(Predicate pred, const APInt &C);
 
   /// Exchange the two operands to this instruction in such a way that it does
   /// not modify the semantics of the instruction. The predicate value may be
   /// changed to retain the same result if the predicate is order dependent
   /// (e.g. ult).
-  /// @brief Swap operands and adjust predicate.
+  /// \brief Swap operands and adjust predicate.
   void swapOperands() {
     setPredicate(getSwappedPredicate());
     Op<0>().swap(Op<1>());
@@ -1049,13 +1048,13 @@ public:
 /// This instruction compares its operands according to the predicate given
 /// to the constructor. It only operates on floating point values or packed
 /// vectors of floating point values. The operands must be identical types.
-/// @brief Represents a floating point comparison operator.
+/// \brief Represents a floating point comparison operator.
 class FCmpInst: public CmpInst {
 protected:
-  /// @brief Clone an identical FCmpInst
+  /// \brief Clone an identical FCmpInst
   virtual FCmpInst *clone_impl() const;
 public:
-  /// @brief Constructor with insert-before-instruction semantics.
+  /// \brief Constructor with insert-before-instruction semantics.
   FCmpInst(
     Instruction *InsertBefore, ///< Where to insert
     Predicate pred,  ///< The predicate to use for the comparison
@@ -1074,7 +1073,7 @@ public:
            "Invalid operand types for FCmp instruction");
   }
 
-  /// @brief Constructor with insert-at-end semantics.
+  /// \brief Constructor with insert-at-end semantics.
   FCmpInst(
     BasicBlock &InsertAtEnd, ///< Block to insert into.
     Predicate pred,  ///< The predicate to use for the comparison
@@ -1093,7 +1092,7 @@ public:
            "Invalid operand types for FCmp instruction");
   }
 
-  /// @brief Constructor with no-insertion semantics
+  /// \brief Constructor with no-insertion semantics
   FCmpInst(
     Predicate pred, ///< The predicate to use for the comparison
     Value *LHS,     ///< The left-hand-side of the expression
@@ -1111,14 +1110,14 @@ public:
   }
 
   /// @returns true if the predicate of this instruction is EQ or NE.
-  /// @brief Determine if this is an equality predicate.
+  /// \brief Determine if this is an equality predicate.
   bool isEquality() const {
     return getPredicate() == FCMP_OEQ || getPredicate() == FCMP_ONE ||
            getPredicate() == FCMP_UEQ || getPredicate() == FCMP_UNE;
   }
 
   /// @returns true if the predicate of this instruction is commutative.
-  /// @brief Determine if this is a commutative predicate.
+  /// \brief Determine if this is a commutative predicate.
   bool isCommutative() const {
     return isEquality() ||
            getPredicate() == FCMP_FALSE ||
@@ -1128,20 +1127,20 @@ public:
   }
 
   /// @returns true if the predicate is relational (not EQ or NE).
-  /// @brief Determine if this a relational predicate.
+  /// \brief Determine if this a relational predicate.
   bool isRelational() const { return !isEquality(); }
 
   /// Exchange the two operands to this instruction in such a way that it does
   /// not modify the semantics of the instruction. The predicate value may be
   /// changed to retain the same result if the predicate is order dependent
   /// (e.g. ult).
-  /// @brief Swap operands and adjust predicate.
+  /// \brief Swap operands and adjust predicate.
   void swapOperands() {
     setPredicate(getSwappedPredicate());
     Op<0>().swap(Op<1>());
   }
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == Instruction::FCmp;
   }
@@ -1163,12 +1162,12 @@ class CallInst : public Instruction {
   void init(Value *Func, const Twine &NameStr);
 
   /// Construct a CallInst given a range of arguments.
-  /// @brief Construct a CallInst from a range of arguments
+  /// \brief Construct a CallInst from a range of arguments
   inline CallInst(Value *Func, ArrayRef<Value *> Args,
                   const Twine &NameStr, Instruction *InsertBefore);
 
   /// Construct a CallInst given a range of arguments.
-  /// @brief Construct a CallInst from a range of arguments
+  /// \brief Construct a CallInst from a range of arguments
   inline CallInst(Value *Func, ArrayRef<Value *> Args,
                   const Twine &NameStr, BasicBlock *InsertAtEnd);
 
@@ -1267,25 +1266,25 @@ public:
   /// removeAttribute - removes the attribute from the list of attributes.
   void removeAttribute(unsigned i, Attributes attr);
 
-  /// @brief Determine whether this call has the given attribute.
+  /// \brief Determine whether this call has the given attribute.
   bool hasFnAttr(Attributes::AttrVal A) const;
 
-  /// @brief Determine whether the call or the callee has the given attributes.
+  /// \brief Determine whether the call or the callee has the given attributes.
   bool paramHasAttr(unsigned i, Attributes::AttrVal A) const;
 
-  /// @brief Extract the alignment for a call or parameter (0=unknown).
+  /// \brief Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned i) const {
     return AttributeList.getParamAlignment(i);
   }
 
-  /// @brief Return true if the call should not be inlined.
+  /// \brief Return true if the call should not be inlined.
   bool isNoInline() const { return hasFnAttr(Attributes::NoInline); }
   void setIsNoInline() {
     addAttribute(AttrListPtr::FunctionIndex,
                  Attributes::get(getContext(), Attributes::NoInline));
   }
 
-  /// @brief Return true if the call can return twice
+  /// \brief Return true if the call can return twice
   bool canReturnTwice() const {
     return hasFnAttr(Attributes::ReturnsTwice);
   }
@@ -1294,7 +1293,7 @@ public:
                  Attributes::get(getContext(), Attributes::ReturnsTwice));
   }
 
-  /// @brief Determine if the call does not access memory.
+  /// \brief Determine if the call does not access memory.
   bool doesNotAccessMemory() const {
     return hasFnAttr(Attributes::ReadNone);
   }
@@ -1303,7 +1302,7 @@ public:
                  Attributes::get(getContext(), Attributes::ReadNone));
   }
 
-  /// @brief Determine if the call does not access or only reads memory.
+  /// \brief Determine if the call does not access or only reads memory.
   bool onlyReadsMemory() const {
     return doesNotAccessMemory() || hasFnAttr(Attributes::ReadOnly);
   }
@@ -1312,28 +1311,28 @@ public:
                  Attributes::get(getContext(), Attributes::ReadOnly));
   }
 
-  /// @brief Determine if the call cannot return.
+  /// \brief Determine if the call cannot return.
   bool doesNotReturn() const { return hasFnAttr(Attributes::NoReturn); }
   void setDoesNotReturn() {
     addAttribute(AttrListPtr::FunctionIndex,
                  Attributes::get(getContext(), Attributes::NoReturn));
   }
 
-  /// @brief Determine if the call cannot unwind.
+  /// \brief Determine if the call cannot unwind.
   bool doesNotThrow() const { return hasFnAttr(Attributes::NoUnwind); }
   void setDoesNotThrow() {
     addAttribute(AttrListPtr::FunctionIndex,
                  Attributes::get(getContext(), Attributes::NoUnwind));
   }
 
-  /// @brief Determine if the call returns a structure through first
+  /// \brief Determine if the call returns a structure through first
   /// pointer argument.
   bool hasStructRetAttr() const {
     // Be friendly and also check the callee.
     return paramHasAttr(1, Attributes::StructRet);
   }
 
-  /// @brief Determine if any call argument is an aggregate passed by value.
+  /// \brief Determine if any call argument is an aggregate passed by value.
   bool hasByValArgument() const {
     for (unsigned I = 0, E = AttributeList.getNumAttrs(); I != E; ++I)
       if (AttributeList.getAttributesAtIndex(I).hasAttribute(Attributes::ByVal))
@@ -2950,14 +2949,14 @@ class InvokeInst : public TerminatorInst {
 
   /// Construct an InvokeInst given a range of arguments.
   ///
-  /// @brief Construct an InvokeInst from a range of arguments
+  /// \brief Construct an InvokeInst from a range of arguments
   inline InvokeInst(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
                     ArrayRef<Value *> Args, unsigned Values,
                     const Twine &NameStr, Instruction *InsertBefore);
 
   /// Construct an InvokeInst given a range of arguments.
   ///
-  /// @brief Construct an InvokeInst from a range of arguments
+  /// \brief Construct an InvokeInst from a range of arguments
   inline InvokeInst(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
                     ArrayRef<Value *> Args, unsigned Values,
                     const Twine &NameStr, BasicBlock *InsertAtEnd);
@@ -3016,25 +3015,25 @@ public:
   /// removeAttribute - removes the attribute from the list of attributes.
   void removeAttribute(unsigned i, Attributes attr);
 
-  /// @brief Determine whether this call has the NoAlias attribute.
+  /// \brief Determine whether this call has the NoAlias attribute.
   bool hasFnAttr(Attributes::AttrVal A) const;
 
-  /// @brief Determine whether the call or the callee has the given attributes.
+  /// \brief Determine whether the call or the callee has the given attributes.
   bool paramHasAttr(unsigned i, Attributes::AttrVal A) const;
 
-  /// @brief Extract the alignment for a call or parameter (0=unknown).
+  /// \brief Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned i) const {
     return AttributeList.getParamAlignment(i);
   }
 
-  /// @brief Return true if the call should not be inlined.
+  /// \brief Return true if the call should not be inlined.
   bool isNoInline() const { return hasFnAttr(Attributes::NoInline); }
   void setIsNoInline() {
     addAttribute(AttrListPtr::FunctionIndex,
                  Attributes::get(getContext(), Attributes::NoInline));
   }
 
-  /// @brief Determine if the call does not access memory.
+  /// \brief Determine if the call does not access memory.
   bool doesNotAccessMemory() const {
     return hasFnAttr(Attributes::ReadNone);
   }
@@ -3043,7 +3042,7 @@ public:
                  Attributes::get(getContext(), Attributes::ReadNone));
   }
 
-  /// @brief Determine if the call does not access or only reads memory.
+  /// \brief Determine if the call does not access or only reads memory.
   bool onlyReadsMemory() const {
     return doesNotAccessMemory() || hasFnAttr(Attributes::ReadOnly);
   }
@@ -3052,28 +3051,28 @@ public:
                  Attributes::get(getContext(), Attributes::ReadOnly));
   }
 
-  /// @brief Determine if the call cannot return.
+  /// \brief Determine if the call cannot return.
   bool doesNotReturn() const { return hasFnAttr(Attributes::NoReturn); }
   void setDoesNotReturn() {
     addAttribute(AttrListPtr::FunctionIndex,
                  Attributes::get(getContext(), Attributes::NoReturn));
   }
 
-  /// @brief Determine if the call cannot unwind.
+  /// \brief Determine if the call cannot unwind.
   bool doesNotThrow() const { return hasFnAttr(Attributes::NoUnwind); }
   void setDoesNotThrow() {
     addAttribute(AttrListPtr::FunctionIndex,
                  Attributes::get(getContext(), Attributes::NoUnwind));
   }
 
-  /// @brief Determine if the call returns a structure through first
+  /// \brief Determine if the call returns a structure through first
   /// pointer argument.
   bool hasStructRetAttr() const {
     // Be friendly and also check the callee.
     return paramHasAttr(1, Attributes::StructRet);
   }
 
-  /// @brief Determine if any call argument is an aggregate passed by value.
+  /// \brief Determine if any call argument is an aggregate passed by value.
   bool hasByValArgument() const {
     for (unsigned I = 0, E = AttributeList.getNumAttrs(); I != E; ++I)
       if (AttributeList.getAttributesAtIndex(I).hasAttribute(Attributes::ByVal))
@@ -3268,14 +3267,14 @@ private:
 //                                 TruncInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a truncation of integer types.
+/// \brief This class represents a truncation of integer types.
 class TruncInst : public CastInst {
 protected:
-  /// @brief Clone an identical TruncInst
+  /// \brief Clone an identical TruncInst
   virtual TruncInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   TruncInst(
     Value *S,                     ///< The value to be truncated
     Type *Ty,               ///< The (smaller) type to truncate to
@@ -3283,7 +3282,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   TruncInst(
     Value *S,                     ///< The value to be truncated
     Type *Ty,               ///< The (smaller) type to truncate to
@@ -3291,7 +3290,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == Trunc;
   }
@@ -3304,14 +3303,14 @@ public:
 //                                 ZExtInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents zero extension of integer types.
+/// \brief This class represents zero extension of integer types.
 class ZExtInst : public CastInst {
 protected:
-  /// @brief Clone an identical ZExtInst
+  /// \brief Clone an identical ZExtInst
   virtual ZExtInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   ZExtInst(
     Value *S,                     ///< The value to be zero extended
     Type *Ty,               ///< The type to zero extend to
@@ -3319,7 +3318,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end semantics.
+  /// \brief Constructor with insert-at-end semantics.
   ZExtInst(
     Value *S,                     ///< The value to be zero extended
     Type *Ty,               ///< The type to zero extend to
@@ -3327,7 +3326,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == ZExt;
   }
@@ -3340,14 +3339,14 @@ public:
 //                                 SExtInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a sign extension of integer types.
+/// \brief This class represents a sign extension of integer types.
 class SExtInst : public CastInst {
 protected:
-  /// @brief Clone an identical SExtInst
+  /// \brief Clone an identical SExtInst
   virtual SExtInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   SExtInst(
     Value *S,                     ///< The value to be sign extended
     Type *Ty,               ///< The type to sign extend to
@@ -3355,7 +3354,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   SExtInst(
     Value *S,                     ///< The value to be sign extended
     Type *Ty,               ///< The type to sign extend to
@@ -3363,7 +3362,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == SExt;
   }
@@ -3376,14 +3375,14 @@ public:
 //                                 FPTruncInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a truncation of floating point types.
+/// \brief This class represents a truncation of floating point types.
 class FPTruncInst : public CastInst {
 protected:
-  /// @brief Clone an identical FPTruncInst
+  /// \brief Clone an identical FPTruncInst
   virtual FPTruncInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   FPTruncInst(
     Value *S,                     ///< The value to be truncated
     Type *Ty,               ///< The type to truncate to
@@ -3391,7 +3390,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   FPTruncInst(
     Value *S,                     ///< The value to be truncated
     Type *Ty,               ///< The type to truncate to
@@ -3399,7 +3398,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == FPTrunc;
   }
@@ -3412,14 +3411,14 @@ public:
 //                                 FPExtInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents an extension of floating point types.
+/// \brief This class represents an extension of floating point types.
 class FPExtInst : public CastInst {
 protected:
-  /// @brief Clone an identical FPExtInst
+  /// \brief Clone an identical FPExtInst
   virtual FPExtInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   FPExtInst(
     Value *S,                     ///< The value to be extended
     Type *Ty,               ///< The type to extend to
@@ -3427,7 +3426,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   FPExtInst(
     Value *S,                     ///< The value to be extended
     Type *Ty,               ///< The type to extend to
@@ -3435,7 +3434,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == FPExt;
   }
@@ -3448,14 +3447,14 @@ public:
 //                                 UIToFPInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a cast unsigned integer to floating point.
+/// \brief This class represents a cast unsigned integer to floating point.
 class UIToFPInst : public CastInst {
 protected:
-  /// @brief Clone an identical UIToFPInst
+  /// \brief Clone an identical UIToFPInst
   virtual UIToFPInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   UIToFPInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3463,7 +3462,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   UIToFPInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3471,7 +3470,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == UIToFP;
   }
@@ -3484,14 +3483,14 @@ public:
 //                                 SIToFPInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a cast from signed integer to floating point.
+/// \brief This class represents a cast from signed integer to floating point.
 class SIToFPInst : public CastInst {
 protected:
-  /// @brief Clone an identical SIToFPInst
+  /// \brief Clone an identical SIToFPInst
   virtual SIToFPInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   SIToFPInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3499,7 +3498,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   SIToFPInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3507,7 +3506,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == SIToFP;
   }
@@ -3520,14 +3519,14 @@ public:
 //                                 FPToUIInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a cast from floating point to unsigned integer
+/// \brief This class represents a cast from floating point to unsigned integer
 class FPToUIInst  : public CastInst {
 protected:
-  /// @brief Clone an identical FPToUIInst
+  /// \brief Clone an identical FPToUIInst
   virtual FPToUIInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   FPToUIInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3535,7 +3534,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   FPToUIInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3543,7 +3542,7 @@ public:
     BasicBlock *InsertAtEnd       ///< Where to insert the new instruction
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == FPToUI;
   }
@@ -3556,14 +3555,14 @@ public:
 //                                 FPToSIInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a cast from floating point to signed integer.
+/// \brief This class represents a cast from floating point to signed integer.
 class FPToSIInst  : public CastInst {
 protected:
-  /// @brief Clone an identical FPToSIInst
+  /// \brief Clone an identical FPToSIInst
   virtual FPToSIInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   FPToSIInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3571,7 +3570,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   FPToSIInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3579,7 +3578,7 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Methods for support type inquiry through isa, cast, and dyn_cast:
+  /// \brief Methods for support type inquiry through isa, cast, and dyn_cast:
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == FPToSI;
   }
@@ -3592,10 +3591,10 @@ public:
 //                                 IntToPtrInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a cast from an integer to a pointer.
+/// \brief This class represents a cast from an integer to a pointer.
 class IntToPtrInst : public CastInst {
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   IntToPtrInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3603,7 +3602,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   IntToPtrInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3611,20 +3610,12 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief Clone an identical IntToPtrInst
+  /// \brief Clone an identical IntToPtrInst
   virtual IntToPtrInst *clone_impl() const;
 
-  /// @brief return the address space of the pointer.
+  /// \brief Returns the address space of this instruction's pointer type.
   unsigned getAddressSpace() const {
-    if (getType()->isPointerTy()) 
-      return cast<PointerType>(getType())->getAddressSpace();
-    if (getType()->isVectorTy() &&
-        cast<VectorType>(getType())->getElementType()->isPointerTy())
-      return cast<PointerType>(
-          cast<VectorType>(getType())->getElementType())
-        ->getAddressSpace();
-    llvm_unreachable("Must be a pointer or a vector of pointers.");
-    return 0;
+    return getType()->getPointerAddressSpace();
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -3640,14 +3631,14 @@ public:
 //                                 PtrToIntInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a cast from a pointer to an integer
+/// \brief This class represents a cast from a pointer to an integer
 class PtrToIntInst : public CastInst {
 protected:
-  /// @brief Clone an identical PtrToIntInst
+  /// \brief Clone an identical PtrToIntInst
   virtual PtrToIntInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   PtrToIntInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3655,7 +3646,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   PtrToIntInst(
     Value *S,                     ///< The value to be converted
     Type *Ty,               ///< The type to convert to
@@ -3663,18 +3654,16 @@ public:
     BasicBlock *InsertAtEnd       ///< The block to insert the instruction into
   );
 
-  /// @brief return the address space of the pointer.
+  /// \brief Gets the pointer operand.
+  Value *getPointerOperand() { return getOperand(0); }
+  /// \brief Gets the pointer operand.
+  const Value *getPointerOperand() const { return getOperand(0); }
+  /// \brief Gets the operand index of the pointer operand.
+  static unsigned getPointerOperandIndex() { return 0U; }
+
+  /// \brief Returns the address space of the pointer operand.
   unsigned getPointerAddressSpace() const {
-    Type *Ty = getOperand(0)->getType();
-    if (Ty->isPointerTy())
-      return cast<PointerType>(Ty)->getAddressSpace();
-    if (Ty->isVectorTy()
-        && cast<VectorType>(Ty)->getElementType()->isPointerTy())
-      return cast<PointerType>(
-          cast<VectorType>(Ty)->getElementType())
-        ->getAddressSpace();
-    llvm_unreachable("Must be a pointer or a vector of pointers.");
-    return 0;
+    return getPointerOperand()->getType()->getPointerAddressSpace();
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
@@ -3690,14 +3679,14 @@ public:
 //                             BitCastInst Class
 //===----------------------------------------------------------------------===//
 
-/// @brief This class represents a no-op cast from one type to another.
+/// \brief This class represents a no-op cast from one type to another.
 class BitCastInst : public CastInst {
 protected:
-  /// @brief Clone an identical BitCastInst
+  /// \brief Clone an identical BitCastInst
   virtual BitCastInst *clone_impl() const;
 
 public:
-  /// @brief Constructor with insert-before-instruction semantics
+  /// \brief Constructor with insert-before-instruction semantics
   BitCastInst(
     Value *S,                     ///< The value to be casted
     Type *Ty,               ///< The type to casted to
@@ -3705,7 +3694,7 @@ public:
     Instruction *InsertBefore = 0 ///< Where to insert the new instruction
   );
 
-  /// @brief Constructor with insert-at-end-of-block semantics
+  /// \brief Constructor with insert-at-end-of-block semantics
   BitCastInst(
     Value *S,                     ///< The value to be casted
     Type *Ty,               ///< The type to casted to
