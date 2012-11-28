@@ -625,9 +625,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           }
           DEBUG(dbgs() << "  ARG:    "  << *AI << " ==> " <<
                 **ShadowPtr << "\n");
-          if (ClTrackOrigins)
-            setOrigin(A, EntryIRB.CreateLoad(
-              getOriginPtrForArgument(AI, EntryIRB, ArgOffset)));
+          if (ClTrackOrigins) {
+            Value* OriginPtr = getOriginPtrForArgument(AI, EntryIRB, ArgOffset);
+            setOrigin(A, EntryIRB.CreateLoad(OriginPtr));
+          }
         }
         ArgOffset += DataLayout::RoundUpAlignment(Size, 8);
       }
@@ -1057,7 +1058,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
             " Shadow: " << *ArgShadow << "\n");
       if (CS.paramHasAttr(i + 1, Attributes::ByVal)) {
         assert(A->getType()->isPointerTy() &&
-            "ByVal argument is not a pointer!");
+               "ByVal argument is not a pointer!");
         Size = MS.TD->getTypeAllocSize(A->getType()->getPointerElementType());
         unsigned Alignment = CS.getParamAlignment(i + 1);
         Store = IRB.CreateMemCpy(ArgShadowBase,
@@ -1103,7 +1104,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       }
       NextInsn = NormalDest->getFirstInsertionPt();
       assert(NextInsn &&
-          "Could not find insertion point for retval shadow load");
+             "Could not find insertion point for retval shadow load");
     }
     IRBuilder<> IRBAfter(NextInsn);
     setShadow(&I, IRBAfter.CreateLoad(getShadowPtrForRetval(&I, IRBAfter),
@@ -1398,7 +1399,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
 };
 
 VarArgHelper* CreateVarArgHelper(Function &Func, MemorySanitizer &Msan,
-    MemorySanitizerVisitor &Visitor) {
+                                 MemorySanitizerVisitor &Visitor) {
   return new VarArgAMD64Helper(Func, Msan, Visitor);
 }
 
@@ -1412,7 +1413,7 @@ bool MemorySanitizer::runOnFunction(Function &F) {
   B.addAttribute(Attributes::ReadOnly)
     .addAttribute(Attributes::ReadNone);
   F.removeAttribute(AttrListPtr::FunctionIndex,
-    Attributes::get(F.getContext(), B));
+                    Attributes::get(F.getContext(), B));
 
   return Visitor.runOnFunction();
 }
