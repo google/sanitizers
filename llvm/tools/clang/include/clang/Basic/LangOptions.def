@@ -53,10 +53,12 @@ LANGOPT(ObjC1             , 1, 0, "Objective-C 1")
 LANGOPT(ObjC2             , 1, 0, "Objective-C 2")
 BENIGN_LANGOPT(ObjCDefaultSynthProperties , 1, 0, 
                "Objective-C auto-synthesized properties")
+BENIGN_LANGOPT(EncodeExtendedBlockSig , 1, 0, 
+               "Encoding extended block type signature")
 BENIGN_LANGOPT(ObjCInferRelatedResultType , 1, 1, 
                "Objective-C related result type inference")
 LANGOPT(Trigraphs         , 1, 0,"trigraphs")
-LANGOPT(BCPLComment       , 1, 0, "BCPL-style '//' comments")
+LANGOPT(LineComment       , 1, 0, "'//' comments")
 LANGOPT(Bool              , 1, 0, "bool, true, and false keywords")
 LANGOPT(WChar             , 1, CPlusPlus, "wchar_t keyword")
 BENIGN_LANGOPT(DollarIdents   , 1, 1, "'$' in identifiers")
@@ -117,7 +119,6 @@ LANGOPT(CUDA              , 1, 0, "CUDA")
 
 LANGOPT(AssumeSaneOperatorNew , 1, 1, "implicit __attribute__((malloc)) for C++'s new operators")
 BENIGN_LANGOPT(ElideConstructors , 1, 1, "C++ copy constructor elision")
-BENIGN_LANGOPT(CatchUndefined    , 1, 0, "catching undefined behavior at run time")
 BENIGN_LANGOPT(DumpRecordLayouts , 1, 0, "dumping the layout of IRgen'd records")
 BENIGN_LANGOPT(DumpRecordLayoutsSimple , 1, 0, "dumping the layout of IRgen'd records in a simple form")
 BENIGN_LANGOPT(DumpVTableLayouts , 1, 0, "dumping the layouts of emitted vtables")
@@ -127,9 +128,6 @@ BENIGN_LANGOPT(ParseUnknownAnytype, 1, 0, "__unknown_anytype")
 BENIGN_LANGOPT(DebuggerSupport , 1, 0, "debugger support")
 BENIGN_LANGOPT(DebuggerCastResultToId, 1, 0, "for 'po' in the debugger, cast the result to id if it is of unknown type")
 BENIGN_LANGOPT(DebuggerObjCLiteral , 1, 0, "debugger Objective-C literals and subscripting support")
-BENIGN_LANGOPT(AddressSanitizer , 1, 0, "AddressSanitizer enabled")
-BENIGN_LANGOPT(MemorySanitizer , 1, 0, "MemorySanitizer enabled")
-BENIGN_LANGOPT(ThreadSanitizer , 1, 0, "ThreadSanitizer enabled")
 
 BENIGN_LANGOPT(SpellChecking , 1, 1, "spell-checking")
 LANGOPT(SinglePrecisionConstants , 1, 0, "treating double-precision floating point constants as single precision constants")
@@ -152,7 +150,6 @@ ENUM_LANGOPT(StackProtector, StackProtectorMode, 2, SSPOff,
              "stack protector mode")
 ENUM_LANGOPT(SignedOverflowBehavior, SignedOverflowBehaviorTy, 2, SOB_Undefined,
              "signed integer overflow handling")
-ENUM_LANGOPT(FPContractMode, FPContractModeKind, 2, FPC_On, "FP_CONTRACT mode")
 
 BENIGN_LANGOPT(InstantiationDepth, 32, 512, 
                "maximum template instantiation depth")
@@ -170,6 +167,11 @@ BENIGN_LANGOPT(EmitMicrosoftInlineAsm , 1, 0,
 
 
 BENIGN_LANGOPT(RetainCommentsFromSystemHeaders, 1, 0, "retain documentation comments from system headers in the AST")
+
+/// Runtime sanitizers.
+#define SANITIZER(NAME, ID) \
+BENIGN_LANGOPT(Sanitize##ID, 1, 0, NAME " sanitizer")
+#include "clang/Basic/Sanitizers.def"
 
 #undef LANGOPT
 #undef VALUE_LANGOPT

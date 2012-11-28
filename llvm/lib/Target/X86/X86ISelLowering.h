@@ -19,6 +19,7 @@
 #include "X86RegisterInfo.h"
 #include "X86MachineFunctionInfo.h"
 #include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetTransformImpl.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -870,21 +871,6 @@ namespace llvm {
                    const SmallVectorImpl<ISD::OutputArg> &Outs,
                    LLVMContext &Context) const;
 
-    /// Utility function to emit string processing sse4.2 instructions
-    /// that return in xmm0.
-    /// This takes the instruction to expand, the associated machine basic
-    /// block, the number of args, and whether or not the second arg is
-    /// in memory or not.
-    MachineBasicBlock *EmitPCMP(MachineInstr *BInstr, MachineBasicBlock *BB,
-                                unsigned argNum, bool inMem) const;
-
-    /// Utility functions to emit monitor and mwait instructions. These
-    /// need to make sure that the arguments to the intrinsic are in the
-    /// correct registers.
-    MachineBasicBlock *EmitMonitor(MachineInstr *MI,
-                                   MachineBasicBlock *BB) const;
-    MachineBasicBlock *EmitMwait(MachineInstr *MI, MachineBasicBlock *BB) const;
-
     /// Utility function to emit atomic-load-arith operations (and, or, xor,
     /// nand, max, min, umax, umin). It takes the corresponding instruction to
     /// expand, the associated machine basic block, and the associated X86
@@ -946,6 +932,23 @@ namespace llvm {
     FastISel *createFastISel(FunctionLoweringInfo &funcInfo,
                              const TargetLibraryInfo *libInfo);
   }
+
+  class X86VectorTargetTransformInfo : public VectorTargetTransformImpl {
+  public:
+    explicit X86VectorTargetTransformInfo(const TargetLowering *TL) :
+    VectorTargetTransformImpl(TL) {}
+
+    virtual unsigned getArithmeticInstrCost(unsigned Opcode, Type *Ty) const;
+
+    virtual unsigned getVectorInstrCost(unsigned Opcode, Type *Val,
+                                        unsigned Index) const;
+
+    unsigned getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
+                                Type *CondTy) const;
+
+    virtual unsigned getCastInstrCost(unsigned Opcode, Type *Dst,
+                                      Type *Src) const;
+  };
 }
 
 #endif    // X86ISELLOWERING_H

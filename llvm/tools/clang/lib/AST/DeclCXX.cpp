@@ -55,9 +55,14 @@ CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
     UserProvidedDefaultConstructor(false), DeclaredDefaultConstructor(false),
     DeclaredCopyConstructor(false), DeclaredMoveConstructor(false),
     DeclaredCopyAssignment(false), DeclaredMoveAssignment(false),
-    DeclaredDestructor(false), FailedImplicitMoveConstructor(false),
-    FailedImplicitMoveAssignment(false), IsLambda(false), NumBases(0),
-    NumVBases(0), Bases(), VBases(), Definition(D), FirstFriend(0) {
+    DeclaredDestructor(false),
+    ImplicitCopyConstructorHasConstParam(true),
+    ImplicitCopyAssignmentHasConstParam(true),
+    HasDeclaredCopyConstructorWithConstParam(false),
+    HasDeclaredCopyAssignmentWithConstParam(false),
+    FailedImplicitMoveConstructor(false), FailedImplicitMoveAssignment(false),
+    IsLambda(false), NumBases(0), NumVBases(0), Bases(), VBases(),
+    Definition(D), FirstFriend(0) {
 }
 
 CXXBaseSpecifier *CXXRecordDecl::DefinitionData::getBasesSlowCase() const {
@@ -184,15 +189,25 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
           BaseClassDecl->vbases_begin(),
          E = BaseClassDecl->vbases_end(); VBase != E; ++VBase) {
       // Add this base if it's not already in the list.
-      if (SeenVBaseTypes.insert(C.getCanonicalType(VBase->getType())))
+      if (SeenVBaseTypes.insert(C.getCanonicalType(VBase->getType()))) {
         VBases.push_back(VBase);
+
+        // C++11 [class.copy]p8:
+        //   The implicitly-declared copy constructor for a class X will have
+        //   the form 'X::X(const X&)' if each [...] virtual base class B of X
+        //   has a copy constructor whose first parameter is of type
+        //   'const B&' or 'const volatile B&' [...]
+        if (CXXRecordDecl *VBaseDecl = VBase->getType()->getAsCXXRecordDecl())
+          if (!VBaseDecl->hasCopyConstructorWithConstParam())
+            data().ImplicitCopyConstructorHasConstParam = false;
+      }
     }
 
     if (Base->isVirtual()) {
       // Add this base if it's not already in the list.
       if (SeenVBaseTypes.insert(C.getCanonicalType(BaseType)))
-          VBases.push_back(Base);
-      
+        VBases.push_back(Base);
+
       // C++0x [meta.unary.prop] is_empty:
       //    T is a class type, but not a union type, with ... no virtual base
       //    classes
@@ -240,7 +255,8 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
       //    -- the constructor selected to copy/move each direct base class
       //       subobject is trivial, and
       // FIXME: C++0x: We need to only consider the selected constructor
-      // instead of all of them.
+      // instead of all of them. For now, we treat a move constructor as being
+      // non-trivial if it calls anything other than a trivial move constructor.
       if (!BaseClassDecl->hasTrivialCopyConstructor())
         data().HasTrivialCopyConstructor = false;
       if (!BaseClassDecl->hasTrivialMoveConstructor())
@@ -274,6 +290,22 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
 
     if (!BaseClassDecl->hasIrrelevantDestructor())
       data().HasIrrelevantDestructor = false;
+
+    // C++11 [class.copy]p18:
+    //   The implicitly-declared copy assignment oeprator for a class X will
+    //   have the form 'X& X::operator=(const X&)' if each direct base class B
+    //   of X has a copy assignment operator whose parameter is of type 'const
+    //   B&', 'const volatile B&', or 'B' [...]
+    if (!BaseClassDecl->hasCopyAssignmentWithConstParam())
+      data().ImplicitCopyAssignmentHasConstParam = false;
+
+    // C++11 [class.copy]p8:
+    //   The implicitly-declared copy constructor for a class X will have
+    //   the form 'X::X(const X&)' if each direct [...] base class B of X
+    //   has a copy constructor whose first parameter is of type
+    //   'const B&' or 'const volatile B&' [...]
+    if (!BaseClassDecl->hasCopyConstructorWithConstParam())
+      data().ImplicitCopyConstructorHasConstParam = false;
 
     // A class has an Objective-C object member if... or any of its bases
     // has an Objective-C object member.
@@ -316,13 +348,13 @@ bool CXXRecordDecl::isTriviallyCopyable() const {
   // C++0x [class]p5:
   //   A trivially copyable class is a class that:
   //   -- has no non-trivial copy constructors,
-  if (!hasTrivialCopyConstructor()) return false;
+  if (hasNonTrivialCopyConstructor()) return false;
   //   -- has no non-trivial move constructors,
-  if (!hasTrivialMoveConstructor()) return false;
+  if (hasNonTrivialMoveConstructor()) return false;
   //   -- has no non-trivial copy assignment operators,
-  if (!hasTrivialCopyAssignment()) return false;
+  if (hasNonTrivialCopyAssignment()) return false;
   //   -- has no non-trivial move assignment operators, and
-  if (!hasTrivialMoveAssignment()) return false;
+  if (hasNonTrivialMoveAssignment()) return false;
   //   -- has a trivial destructor.
   if (!hasTrivialDestructor()) return false;
 
@@ -521,51 +553,25 @@ void CXXRecordDecl::addedMember(Decl *D) {
       data().IsStandardLayout = false;
     }
   }
-  
-  if (D->isImplicit()) {
-    // Notify that an implicit member was added after the definition
-    // was completed.
-    if (!isBeingDefined())
-      if (ASTMutationListener *L = getASTMutationListener())
-        L->AddedCXXImplicitMember(data().Definition, D);
 
-    // If this is a special member function, note that it was added and then
-    // return early.
-    if (CXXConstructorDecl *Constructor = dyn_cast<CXXConstructorDecl>(D)) {
-      if (Constructor->isDefaultConstructor()) {
-        data().DeclaredDefaultConstructor = true;
-        if (Constructor->isConstexpr()) {
-          data().HasConstexprDefaultConstructor = true;
-          data().HasConstexprNonCopyMoveConstructor = true;
-        }
-      } else if (Constructor->isCopyConstructor()) {
-        data().DeclaredCopyConstructor = true;
-      } else if (Constructor->isMoveConstructor()) {
-        data().DeclaredMoveConstructor = true;
-      } else
-        goto NotASpecialMember;
-      return;
-    } else if (isa<CXXDestructorDecl>(D)) {
-      data().DeclaredDestructor = true;
-      return;
-    } else if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D)) {
-      if (Method->isCopyAssignmentOperator())
-        data().DeclaredCopyAssignment = true;
-      else if (Method->isMoveAssignmentOperator())
-        data().DeclaredMoveAssignment = true;
-      else
-        goto NotASpecialMember;
-      return;
-    }
+  // Notify the listener if an implicit member was added after the definition
+  // was completed.
+  if (!isBeingDefined() && D->isImplicit())
+    if (ASTMutationListener *L = getASTMutationListener())
+      L->AddedCXXImplicitMember(data().Definition, D);
 
-NotASpecialMember:;
-    // Any other implicit declarations are handled like normal declarations.
-  }
-  
-  // Handle (user-declared) constructors.
+  // Handle constructors.
   if (CXXConstructorDecl *Constructor = dyn_cast<CXXConstructorDecl>(D)) {
-    // Note that we have a user-declared constructor.
-    data().UserDeclaredConstructor = true;
+    if (!Constructor->isImplicit()) {
+      // Note that we have a user-declared constructor.
+      data().UserDeclaredConstructor = true;
+
+      // C++ [class]p4:
+      //   A POD-struct is an aggregate class [...]
+      // Since the POD bit is meant to be C++03 POD-ness, clear it even if the
+      // type is technically an aggregate in C++0x since it wouldn't be in 03.
+      data().PlainOldData = false;
+    }
 
     // Technically, "user-provided" is only defined for special member
     // functions, but the intent of the standard is clearly that it should apply
@@ -580,17 +586,17 @@ NotASpecialMember:;
         data().HasTrivialDefaultConstructor = false;
         data().UserProvidedDefaultConstructor = true;
       }
-      if (Constructor->isConstexpr()) {
+      if (Constructor->isConstexpr())
         data().HasConstexprDefaultConstructor = true;
-        data().HasConstexprNonCopyMoveConstructor = true;
-      }
     }
 
     // Note when we have a user-declared copy or move constructor, which will
     // suppress the implicit declaration of those constructors.
     if (!FunTmpl) {
-      if (Constructor->isCopyConstructor()) {
-        data().UserDeclaredCopyConstructor = true;
+      unsigned Quals;
+      if (Constructor->isCopyConstructor(Quals)) {
+        if (!Constructor->isImplicit())
+          data().UserDeclaredCopyConstructor = true;
         data().DeclaredCopyConstructor = true;
 
         // C++0x [class.copy]p13:
@@ -598,8 +604,12 @@ NotASpecialMember:;
         //   user-provided [...]
         if (UserProvided)
           data().HasTrivialCopyConstructor = false;
+
+        if (Quals & Qualifiers::Const)
+          data().HasDeclaredCopyConstructorWithConstParam = true;
       } else if (Constructor->isMoveConstructor()) {
-        data().UserDeclaredMoveConstructor = true;
+        if (!Constructor->isImplicit())
+          data().UserDeclaredMoveConstructor = true;
         data().DeclaredMoveConstructor = true;
 
         // C++0x [class.copy]p13:
@@ -609,11 +619,11 @@ NotASpecialMember:;
           data().HasTrivialMoveConstructor = false;
       }
     }
-    if (Constructor->isConstexpr() && !Constructor->isCopyOrMoveConstructor()) {
-      // Record if we see any constexpr constructors which are neither copy
-      // nor move constructors.
+
+    // Record if we see any constexpr constructors which are neither copy
+    // nor move constructors.
+    if (Constructor->isConstexpr() && !Constructor->isCopyOrMoveConstructor())
       data().HasConstexprNonCopyMoveConstructor = true;
-    }
 
     // C++ [dcl.init.aggr]p1:
     //   An aggregate is an array or a class with no user-declared
@@ -621,31 +631,29 @@ NotASpecialMember:;
     // C++0x [dcl.init.aggr]p1:
     //   An aggregate is an array or a class with no user-provided
     //   constructors [...].
-    if (!getASTContext().getLangOpts().CPlusPlus0x || UserProvided)
+    if (getASTContext().getLangOpts().CPlusPlus0x
+          ? UserProvided : !Constructor->isImplicit())
       data().Aggregate = false;
-
-    // C++ [class]p4:
-    //   A POD-struct is an aggregate class [...]
-    // Since the POD bit is meant to be C++03 POD-ness, clear it even if the
-    // type is technically an aggregate in C++0x since it wouldn't be in 03.
-    data().PlainOldData = false;
 
     return;
   }
 
-  // Handle (user-declared) destructors.
+  // Handle destructors.
   if (CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(D)) {
     data().DeclaredDestructor = true;
-    data().UserDeclaredDestructor = true;
-    data().HasIrrelevantDestructor = false;
 
-    // C++ [class]p4: 
-    //   A POD-struct is an aggregate class that has [...] no user-defined 
-    //   destructor.
-    // This bit is the C++03 POD bit, not the 0x one.
-    data().PlainOldData = false;
-    
-    // C++11 [class.dtor]p5: 
+    if (!DD->isImplicit()) {
+      data().UserDeclaredDestructor = true;
+      data().HasIrrelevantDestructor = false;
+
+      // C++ [class]p4:
+      //   A POD-struct is an aggregate class that has [...] no user-defined
+      //   destructor.
+      // This bit is the C++03 POD bit, not the 0x one.
+      data().PlainOldData = false;
+    }
+
+    // C++11 [class.dtor]p5:
     //   A destructor is trivial if it is not user-provided and if
     //    -- the destructor is not virtual.
     if (DD->isUserProvided() || DD->isVirtual())
@@ -653,45 +661,53 @@ NotASpecialMember:;
 
     return;
   }
-  
-  // Handle (user-declared) member functions.
+
+  // Handle member functions.
   if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(D)) {
     if (Method->isCopyAssignmentOperator()) {
-      // C++ [class]p4:
-      //   A POD-struct is an aggregate class that [...] has no user-defined
-      //   copy assignment operator [...].
-      // This is the C++03 bit only.
-      data().PlainOldData = false;
-
-      // This is a copy assignment operator.
-
       // Suppress the implicit declaration of a copy constructor.
-      data().UserDeclaredCopyAssignment = true;
       data().DeclaredCopyAssignment = true;
 
-      // C++0x [class.copy]p27:
-      //   A copy/move assignment operator for class X is trivial if it is
-      //   neither user-provided nor deleted [...]
-      if (Method->isUserProvided())
-        data().HasTrivialCopyAssignment = false;
+      if (!Method->isImplicit()) {
+        data().UserDeclaredCopyAssignment = true;
 
-      return;
+        // C++ [class]p4:
+        //   A POD-struct is an aggregate class that [...] has no user-defined
+        //   copy assignment operator [...].
+        // This is the C++03 bit only.
+        data().PlainOldData = false;
+
+        // C++11 [class.copy]p25:
+        //   A copy/move assignment operator for class X is trivial if it is
+        //   not user-provided [...]
+        // FIXME: This is bogus. Having one user-provided copy assignment
+        // doesn't stop another one from being trivial.
+        if (Method->isUserProvided())
+          data().HasTrivialCopyAssignment = false;
+      }
+
+      const ReferenceType *ParamTy =
+        Method->getParamDecl(0)->getType()->getAs<ReferenceType>();
+      if (!ParamTy || ParamTy->getPointeeType().isConstQualified())
+        data().HasDeclaredCopyAssignmentWithConstParam = true;
     }
-    
-    if (Method->isMoveAssignmentOperator()) {
-      // This is an extension in C++03 mode, but we'll keep consistency by
-      // taking a move assignment operator to induce non-POD-ness
-      data().PlainOldData = false;
 
-      // This is a move assignment operator.
-      data().UserDeclaredMoveAssignment = true;
+    if (Method->isMoveAssignmentOperator()) {
       data().DeclaredMoveAssignment = true;
 
-      // C++0x [class.copy]p27:
-      //   A copy/move assignment operator for class X is trivial if it is
-      //   neither user-provided nor deleted [...]
-      if (Method->isUserProvided())
-        data().HasTrivialMoveAssignment = false;
+      if (!Method->isImplicit()) {
+        data().UserDeclaredMoveAssignment = true;
+
+        // This is an extension in C++03 mode, but we'll keep consistency by
+        // taking a move assignment operator to induce non-POD-ness
+        data().PlainOldData = false;
+
+        // C++0x [class.copy]p27:
+        //   A copy/move assignment operator for class X is trivial if it is
+        //   neither user-provided nor deleted [...]
+        if (Method->isUserProvided())
+          data().HasTrivialMoveAssignment = false;
+      }
     }
 
     // Keep the list of conversion functions up-to-date.
@@ -699,7 +715,7 @@ NotASpecialMember:;
       // We don't record specializations.
       if (Conversion->getPrimaryTemplate())
         return;
-      
+
       // FIXME: We intentionally don't use the decl's access here because it
       // hasn't been set yet.  That's really just a misdesign in Sema.
 
@@ -708,16 +724,16 @@ NotASpecialMember:;
           data().Conversions.replace(FunTmpl->getPreviousDecl(),
                                      FunTmpl);
         else
-          data().Conversions.addDecl(FunTmpl);
+          data().Conversions.addDecl(getASTContext(), FunTmpl);
       } else {
         if (Conversion->getPreviousDecl())
           data().Conversions.replace(Conversion->getPreviousDecl(),
                                      Conversion);
         else
-          data().Conversions.addDecl(Conversion);        
+          data().Conversions.addDecl(getASTContext(), Conversion);
       }
     }
-    
+
     return;
   }
   
@@ -901,6 +917,24 @@ NotASpecialMember:;
           // The standard requires any in-class initializer to be a constant
           // expression. We consider this to be a defect.
           data().DefaultedDefaultConstructorIsConstexpr = false;
+
+        // C++11 [class.copy]p8:
+        //   The implicitly-declared copy constructor for a class X will have
+        //   the form 'X::X(const X&)' if [...] for all the non-static data
+        //   members of X that are of a class type M (or array thereof), each
+        //   such class type has a copy constructor whose first parameter is
+        //   of type 'const M&' or 'const volatile M&'.
+        if (!FieldRec->hasCopyConstructorWithConstParam())
+          data().ImplicitCopyConstructorHasConstParam = false;
+
+        // C++11 [class.copy]p18:
+        //   The implicitly-declared copy assignment oeprator for a class X will
+        //   have the form 'X& X::operator=(const X&)' if [...] for all the
+        //   non-static data members of X that are of a class type M (or array
+        //   thereof), each such class type has a copy assignment operator whose
+        //   parameter is of type 'const M&', 'const volatile M&' or 'M'.
+        if (!FieldRec->hasCopyAssignmentWithConstParam())
+          data().ImplicitCopyAssignmentHasConstParam = false;
       }
     } else {
       // Base element type of field is a non-class type.
@@ -934,7 +968,7 @@ NotASpecialMember:;
   if (UsingShadowDecl *Shadow = dyn_cast<UsingShadowDecl>(D))
     if (Shadow->getDeclName().getNameKind()
           == DeclarationName::CXXConversionFunctionName)
-      data().Conversions.addDecl(Shadow, Shadow->getAccess());
+      data().Conversions.addDecl(getASTContext(), Shadow, Shadow->getAccess());
 }
 
 bool CXXRecordDecl::isCLike() const {
@@ -995,7 +1029,7 @@ static void CollectVisibleConversions(ASTContext &Context,
                                       bool InVirtual,
                                       AccessSpecifier Access,
                   const llvm::SmallPtrSet<CanQualType, 8> &ParentHiddenTypes,
-                                      UnresolvedSetImpl &Output,
+                                      ASTUnresolvedSet &Output,
                                       UnresolvedSetImpl &VOutput,
                            llvm::SmallPtrSet<NamedDecl*, 8> &HiddenVBaseCs) {
   // The set of types which have conversions in this class or its
@@ -1006,12 +1040,13 @@ static void CollectVisibleConversions(ASTContext &Context,
 
   // Collect the direct conversions and figure out which conversions
   // will be hidden in the subclasses.
-  UnresolvedSetImpl &Cs = *Record->getConversionFunctions();
-  if (!Cs.empty()) {
+  CXXRecordDecl::conversion_iterator ConvI = Record->conversion_begin();
+  CXXRecordDecl::conversion_iterator ConvE = Record->conversion_end();
+  if (ConvI != ConvE) {
     HiddenTypesBuffer = ParentHiddenTypes;
     HiddenTypes = &HiddenTypesBuffer;
 
-    for (UnresolvedSetIterator I = Cs.begin(), E = Cs.end(); I != E; ++I) {
+    for (CXXRecordDecl::conversion_iterator I = ConvI; I != ConvE; ++I) {
       CanQualType ConvType(GetConversionType(Context, I.getDecl()));
       bool Hidden = ParentHiddenTypes.count(ConvType);
       if (!Hidden)
@@ -1030,7 +1065,7 @@ static void CollectVisibleConversions(ASTContext &Context,
         if (InVirtual)
           VOutput.addDecl(I.getDecl(), IAccess);
         else
-          Output.addDecl(I.getDecl(), IAccess);
+          Output.addDecl(Context, I.getDecl(), IAccess);
       }
     }
   }
@@ -1057,7 +1092,7 @@ static void CollectVisibleConversions(ASTContext &Context,
 /// bases.  It might be worth special-casing that, really.
 static void CollectVisibleConversions(ASTContext &Context,
                                       CXXRecordDecl *Record,
-                                      UnresolvedSetImpl &Output) {
+                                      ASTUnresolvedSet &Output) {
   // The collection of all conversions in virtual bases that we've
   // found.  These will be added to the output as long as they don't
   // appear in the hidden-conversions set.
@@ -1072,10 +1107,11 @@ static void CollectVisibleConversions(ASTContext &Context,
 
   // Go ahead and collect the direct conversions and add them to the
   // hidden-types set.
-  UnresolvedSetImpl &Cs = *Record->getConversionFunctions();
-  Output.append(Cs.begin(), Cs.end());
-  for (UnresolvedSetIterator I = Cs.begin(), E = Cs.end(); I != E; ++I)
-    HiddenTypes.insert(GetConversionType(Context, I.getDecl()));
+  CXXRecordDecl::conversion_iterator ConvI = Record->conversion_begin();
+  CXXRecordDecl::conversion_iterator ConvE = Record->conversion_end();
+  Output.append(Context, ConvI, ConvE);
+  for (; ConvI != ConvE; ++ConvI)
+    HiddenTypes.insert(GetConversionType(Context, ConvI.getDecl()));
 
   // Recursively collect conversions from base classes.
   for (CXXRecordDecl::base_class_iterator
@@ -1092,22 +1128,24 @@ static void CollectVisibleConversions(ASTContext &Context,
   for (UnresolvedSetIterator I = VBaseCs.begin(), E = VBaseCs.end();
          I != E; ++I) {
     if (!HiddenVBaseCs.count(cast<NamedDecl>(I.getDecl()->getCanonicalDecl())))
-      Output.addDecl(I.getDecl(), I.getAccess());
+      Output.addDecl(Context, I.getDecl(), I.getAccess());
   }
 }
 
 /// getVisibleConversionFunctions - get all conversion functions visible
 /// in current class; including conversion function templates.
-const UnresolvedSetImpl *CXXRecordDecl::getVisibleConversionFunctions() {
+std::pair<CXXRecordDecl::conversion_iterator,CXXRecordDecl::conversion_iterator>
+CXXRecordDecl::getVisibleConversionFunctions() {
   // If root class, all conversions are visible.
   if (bases_begin() == bases_end())
-    return &data().Conversions;
+    return std::make_pair(data().Conversions.begin(), data().Conversions.end());
   // If visible conversion list is already evaluated, return it.
-  if (data().ComputedVisibleConversions)
-    return &data().VisibleConversions;
-  CollectVisibleConversions(getASTContext(), this, data().VisibleConversions);
-  data().ComputedVisibleConversions = true;
-  return &data().VisibleConversions;
+  if (!data().ComputedVisibleConversions) {
+    CollectVisibleConversions(getASTContext(), this, data().VisibleConversions);
+    data().ComputedVisibleConversions = true;
+  }
+  return std::make_pair(data().VisibleConversions.begin(),
+                        data().VisibleConversions.end());
 }
 
 void CXXRecordDecl::removeConversion(const NamedDecl *ConvDecl) {
@@ -1122,7 +1160,7 @@ void CXXRecordDecl::removeConversion(const NamedDecl *ConvDecl) {
   // with sufficiently large numbers of directly-declared conversions
   // that asymptotic behavior matters.
 
-  UnresolvedSetImpl &Convs = *getConversionFunctions();
+  ASTUnresolvedSet &Convs = data().Conversions;
   for (unsigned I = 0, E = Convs.size(); I != E; ++I) {
     if (Convs[I].getDecl() == ConvDecl) {
       Convs.erase(I);
@@ -1261,7 +1299,7 @@ void CXXRecordDecl::completeDefinition(CXXFinalOverriderMap *FinalOverriders) {
   for (UnresolvedSetIterator I = data().Conversions.begin(), 
                              E = data().Conversions.end(); 
        I != E; ++I)
-    data().Conversions.setAccess(I, (*I)->getAccess());
+    I.setAccess((*I)->getAccess());
 }
 
 bool CXXRecordDecl::mayBeAbstract() const {

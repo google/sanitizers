@@ -38,17 +38,14 @@ StringRef CheckerContext::getCalleeName(const FunctionDecl *FunDecl) const {
 
 bool CheckerContext::isCLibraryFunction(const FunctionDecl *FD,
                                         StringRef Name) {
-  return isCLibraryFunction(FD, Name, getASTContext());
-}
-
-bool CheckerContext::isCLibraryFunction(const FunctionDecl *FD,
-                                        StringRef Name, ASTContext &Context) {
   // To avoid false positives (Ex: finding user defined functions with
   // similar names), only perform fuzzy name matching when it's a builtin.
   // Using a string compare is slow, we might want to switch on BuiltinID here.
   unsigned BId = FD->getBuiltinID();
   if (BId != 0) {
-    StringRef BName = Context.BuiltinInfo.GetName(BId);
+    if (Name.empty())
+      return true;
+    StringRef BName = FD->getASTContext().BuiltinInfo.GetName(BId);
     if (BName.find(Name) != StringRef::npos)
       return true;
   }
@@ -58,6 +55,24 @@ bool CheckerContext::isCLibraryFunction(const FunctionDecl *FD,
   // C library function.
   if (!II)
     return false;
+
+  // Look through 'extern "C"' and anything similar invented in the future.
+  const DeclContext *DC = FD->getDeclContext();
+  while (DC->isTransparentContext())
+    DC = DC->getParent();
+
+  // If this function is in a namespace, it is not a C library function.
+  if (!DC->isTranslationUnit())
+    return false;
+
+  // If this function is not externally visible, it is not a C library function.
+  // Note that we make an exception for inline functions, which may be
+  // declared in header files without external linkage.
+  if (!FD->isInlined() && FD->getLinkage() != ExternalLinkage)
+    return false;
+
+  if (Name.empty())
+    return true;
 
   StringRef FName = II->getName();
   if (FName.equals(Name))

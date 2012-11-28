@@ -111,7 +111,7 @@ namespace {
     EdgeBundles *Bundles;
 
     // Return a bitmask of FP registers in block's live-in list.
-    unsigned calcLiveInMask(MachineBasicBlock *MBB) {
+    static unsigned calcLiveInMask(MachineBasicBlock *MBB) {
       unsigned Mask = 0;
       for (MachineBasicBlock::livein_iterator I = MBB->livein_begin(),
            E = MBB->livein_end(); I != E; ++I) {
@@ -198,7 +198,7 @@ namespace {
     }
 
     /// getScratchReg - Return an FP register that is not currently in use.
-    unsigned getScratchReg() {
+    unsigned getScratchReg() const {
       for (int i = NumFPRegs - 1; i >= 8; --i)
         if (!isLive(i))
           return i;
@@ -206,7 +206,7 @@ namespace {
     }
 
     /// isScratchReg - Returns trus if RegNo is a scratch FP register.
-    bool isScratchReg(unsigned RegNo) {
+    static bool isScratchReg(unsigned RegNo) {
       return RegNo > 8 && RegNo < NumFPRegs;
     }
 
@@ -311,7 +311,7 @@ namespace {
     void handleSpecialFP(MachineBasicBlock::iterator &I);
 
     // Check if a COPY instruction is using FP registers.
-    bool isFPCopy(MachineInstr *MI) {
+    static bool isFPCopy(MachineInstr *MI) {
       unsigned DstReg = MI->getOperand(0).getReg();
       unsigned SrcReg = MI->getOperand(1).getReg();
 

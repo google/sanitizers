@@ -49,6 +49,8 @@ namespace llvm {
       cxa_guard_release,
       /// void *__memcpy_chk(void *s1, const void *s2, size_t n, size_t s1size);
       memcpy_chk,
+      /// int abs(int j);
+      abs,
       /// double acos(double x);
       acos,
       /// float acosf(float x);
@@ -153,6 +155,12 @@ namespace llvm {
       fabsf,
       /// long double fabsl(long double x);
       fabsl,
+      /// int ffs(int i);
+      ffs,
+      /// int ffsl(long int i);
+      ffsl,
+      /// int ffsll(long long int i);
+      ffsll,
       /// int fiprintf(FILE *stream, const char *format, ...);
       fiprintf,
       /// double floor(double x);
@@ -167,6 +175,8 @@ namespace llvm {
       fmodf,
       /// long double fmodl(long double x, long double y);
       fmodl,
+      /// int fprintf(FILE *stream, const char *format, ...);
+      fprintf,
       /// int fputc(int c, FILE *stream);
       fputc,
       /// int fputs(const char *s, FILE *stream);
@@ -178,6 +188,14 @@ namespace llvm {
       fwrite,
       /// int iprintf(const char *format, ...);
       iprintf,
+      /// int isascii(int c);
+      isascii,
+      /// int isdigit(int c);
+      isdigit,
+      /// long int labs(long int j);
+      labs,
+      /// long long int llabs(long long int j);
+      llabs,
       /// double log(double x);
       log,
       /// double log10(double x);
@@ -236,6 +254,8 @@ namespace llvm {
       powf,
       /// long double powl(long double x, long double y);
       powl,
+      /// int printf(const char *format, ...);
+      printf,
       /// int putchar(int c);
       putchar,
       /// int puts(const char *s);
@@ -270,18 +290,26 @@ namespace llvm {
       sinl,
       /// int siprintf(char *str, const char *format, ...);
       siprintf,
+      /// int sprintf(char *str, const char *format, ...);
+      sprintf,
       /// double sqrt(double x);
       sqrt,
       /// float sqrtf(float x);
       sqrtf,
       /// long double sqrtl(long double x);
       sqrtl,
+      /// char *stpcpy(char *s1, const char *s2);
+      stpcpy,
       /// char *strcat(char *s1, const char *s2);
       strcat,
       /// char *strchr(const char *s, int c);
       strchr,
+      /// int strcmp(const char *s1, const char *s2);
+      strcmp,
       /// char *strcpy(char *s1, const char *s2);
       strcpy,
+      /// size_t strcspn(const char *s1, const char *s2);
+      strcspn,
       /// char *strdup(const char *s1);
       strdup,
       /// size_t strlen(const char *s);
@@ -296,6 +324,29 @@ namespace llvm {
       strndup,
       /// size_t strnlen(const char *s, size_t maxlen);
       strnlen,
+      /// char *strpbrk(const char *s1, const char *s2);
+      strpbrk,
+      /// char *strrchr(const char *s, int c);
+      strrchr,
+      /// size_t strspn(const char *s1, const char *s2);
+      strspn,
+      /// char *strstr(const char *s1, const char *s2);
+      strstr,
+      /// double strtod(const char *nptr, char **endptr);
+      strtod,
+      /// float strtof(const char *nptr, char **endptr);
+      strtof,
+      /// long int strtol(const char *nptr, char **endptr, int base);
+      strtol,
+      /// long double strtold(const char *nptr, char **endptr);
+      strtold,
+      /// long long int strtoll(const char *nptr, char **endptr, int base);
+      strtoll,
+      /// unsigned long int strtoul(const char *nptr, char **endptr, int base);
+      strtoul,
+      /// unsigned long long int strtoull(const char *nptr, char **endptr,
+      ///                                 int base);
+      strtoull,
       /// double tan(double x);
       tan,
       /// float tanf(float x);
@@ -308,6 +359,8 @@ namespace llvm {
       tanhl,
       /// long double tanl(long double x);
       tanl,
+      /// int toascii(int c);
+      toascii,
       /// double trunc(double x);
       trunc,
       /// float truncf(float x);

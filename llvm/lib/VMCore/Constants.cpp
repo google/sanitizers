@@ -245,6 +245,33 @@ bool Constant::canTrap() const {
   }
 }
 
+/// isThreadDependent - Return true if the value can vary between threads.
+bool Constant::isThreadDependent() const {
+  SmallPtrSet<const Constant*, 64> Visited;
+  SmallVector<const Constant*, 64> WorkList;
+  WorkList.push_back(this);
+  Visited.insert(this);
+
+  while (!WorkList.empty()) {
+    const Constant *C = WorkList.pop_back_val();
+
+    if (const GlobalVariable *GV = dyn_cast<GlobalVariable>(C)) {
+      if (GV->isThreadLocal())
+        return true;
+    }
+
+    for (unsigned I = 0, E = C->getNumOperands(); I != E; ++I) {
+      const Constant *D = dyn_cast<Constant>(C->getOperand(I));
+      if (!D)
+        continue;
+      if (Visited.insert(D))
+        WorkList.push_back(D);
+    }
+  }
+
+  return false;
+}
+
 /// isConstantUsed - Return true if the constant has users other than constant
 /// exprs and other dangling things.
 bool Constant::isConstantUsed() const {
@@ -1213,6 +1240,19 @@ void ConstantVector::destroyConstant() {
   destroyConstantImpl();
 }
 
+/// getSplatValue - If this is a splat vector constant, meaning that all of
+/// the elements have the same value, return that value. Otherwise return 0.
+Constant *Constant::getSplatValue() const {
+  assert(this->getType()->isVectorTy() && "Only valid for vectors!");
+  if (isa<ConstantAggregateZero>(this))
+    return getNullValue(this->getType()->getVectorElementType());
+  if (const ConstantDataVector *CV = dyn_cast<ConstantDataVector>(this))
+    return CV->getSplatValue();
+  if (const ConstantVector *CV = dyn_cast<ConstantVector>(this))
+    return CV->getSplatValue();
+  return 0;
+}
+
 /// getSplatValue - If this is a splat constant, where all of the
 /// elements have the same value, return that value. Otherwise return null.
 Constant *ConstantVector::getSplatValue() const {
@@ -1224,6 +1264,18 @@ Constant *ConstantVector::getSplatValue() const {
       return 0;
   return Elt;
 }
+
+/// If C is a constant integer then return its value, otherwise C must be a
+/// vector of constant integers, all equal, and the common value is returned.
+const APInt &Constant::getUniqueInteger() const {
+  if (const ConstantInt *CI = dyn_cast<ConstantInt>(this))
+    return CI->getValue();
+  assert(this->getSplatValue() && "Doesn't contain a unique integer!");
+  const Constant *C = this->getAggregateElement(0U);
+  assert(C && isa<ConstantInt>(C) && "Not a vector of numbers!");
+  return cast<ConstantInt>(C)->getValue();
+}
+
 
 //---- ConstantPointerNull::get() implementation.
 //
@@ -1739,6 +1791,9 @@ Constant *ConstantExpr::getSelect(Constant *C, Constant *V1, Constant *V2) {
 
 Constant *ConstantExpr::getGetElementPtr(Constant *C, ArrayRef<Value *> Idxs,
                                          bool InBounds) {
+  assert(C->getType()->isPtrOrPtrVectorTy() &&
+         "Non-pointer type for constant GetElementPtr expression");
+
   if (Constant *FC = ConstantFoldGetElementPtr(C, InBounds, Idxs))
     return FC;          // Fold a few common cases.
 
@@ -1747,15 +1802,22 @@ Constant *ConstantExpr::getGetElementPtr(Constant *C, ArrayRef<Value *> Idxs,
   assert(Ty && "GEP indices invalid!");
   unsigned AS = C->getType()->getPointerAddressSpace();
   Type *ReqTy = Ty->getPointerTo(AS);
+  if (VectorType *VecTy = dyn_cast<VectorType>(C->getType()))
+    ReqTy = VectorType::get(ReqTy, VecTy->getNumElements());
 
-  assert(C->getType()->isPointerTy() &&
-         "Non-pointer type for constant GetElementPtr expression");
   // Look up the constant in the table first to ensure uniqueness
   std::vector<Constant*> ArgVec;
   ArgVec.reserve(1 + Idxs.size());
   ArgVec.push_back(C);
-  for (unsigned i = 0, e = Idxs.size(); i != e; ++i)
+  for (unsigned i = 0, e = Idxs.size(); i != e; ++i) {
+    assert(Idxs[i]->getType()->isVectorTy() == ReqTy->isVectorTy() &&
+           "getelementptr index type missmatch");
+    assert((!Idxs[i]->getType()->isVectorTy() ||
+            ReqTy->getVectorNumElements() ==
+            Idxs[i]->getType()->getVectorNumElements()) &&
+           "getelementptr index type missmatch");
     ArgVec.push_back(cast<Constant>(Idxs[i]));
+  }
   const ExprMapKeyType Key(Instruction::GetElementPtr, ArgVec, 0,
                            InBounds ? GEPOperator::IsInBounds : 0);
 
@@ -2641,4 +2703,67 @@ void ConstantExpr::replaceUsesOfWithOnConstant(Value *From, Value *ToV,
 
   // Delete the old constant!
   destroyConstant();
+}
+
+Instruction *ConstantExpr::getAsInstruction() {
+  SmallVector<Value*,4> ValueOperands;
+  for (op_iterator I = op_begin(), E = op_end(); I != E; ++I)
+    ValueOperands.push_back(cast<Value>(I));
+
+  ArrayRef<Value*> Ops(ValueOperands);
+
+  switch (getOpcode()) {
+  case Instruction::Trunc:
+  case Instruction::ZExt:
+  case Instruction::SExt:
+  case Instruction::FPTrunc:
+  case Instruction::FPExt:
+  case Instruction::UIToFP:
+  case Instruction::SIToFP:
+  case Instruction::FPToUI:
+  case Instruction::FPToSI:
+  case Instruction::PtrToInt:
+  case Instruction::IntToPtr:
+  case Instruction::BitCast:
+    return CastInst::Create((Instruction::CastOps)getOpcode(),
+                            Ops[0], getType());
+  case Instruction::Select:
+    return SelectInst::Create(Ops[0], Ops[1], Ops[2]);
+  case Instruction::InsertElement:
+    return InsertElementInst::Create(Ops[0], Ops[1], Ops[2]);
+  case Instruction::ExtractElement:
+    return ExtractElementInst::Create(Ops[0], Ops[1]);
+  case Instruction::InsertValue:
+    return InsertValueInst::Create(Ops[0], Ops[1], getIndices());
+  case Instruction::ExtractValue:
+    return ExtractValueInst::Create(Ops[0], getIndices());
+  case Instruction::ShuffleVector:
+    return new ShuffleVectorInst(Ops[0], Ops[1], Ops[2]);
+
+  case Instruction::GetElementPtr:
+    if (cast<GEPOperator>(this)->isInBounds())
+      return GetElementPtrInst::CreateInBounds(Ops[0], Ops.slice(1));
+    else
+      return GetElementPtrInst::Create(Ops[0], Ops.slice(1));
+
+  case Instruction::ICmp:
+  case Instruction::FCmp:
+    return CmpInst::Create((Instruction::OtherOps)getOpcode(),
+                           getPredicate(), Ops[0], Ops[1]);
+
+  default:
+    assert(getNumOperands() == 2 && "Must be binary operator?");
+    BinaryOperator *BO =
+      BinaryOperator::Create((Instruction::BinaryOps)getOpcode(),
+                             Ops[0], Ops[1]);
+    if (isa<OverflowingBinaryOperator>(BO)) {
+      BO->setHasNoUnsignedWrap(SubclassOptionalData &
+                               OverflowingBinaryOperator::NoUnsignedWrap);
+      BO->setHasNoSignedWrap(SubclassOptionalData &
+                             OverflowingBinaryOperator::NoSignedWrap);
+    }
+    if (isa<PossiblyExactOperator>(BO))
+      BO->setIsExact(SubclassOptionalData & PossiblyExactOperator::IsExact);
+    return BO;
+  }
 }

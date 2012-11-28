@@ -392,6 +392,10 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
   DwarfMacroInfoSection =
     Ctx->getELFSection(".debug_macinfo", ELF::SHT_PROGBITS, 0,
                        SectionKind::getMetadata());
+
+  // DWARF5 Experimental Debug Info
+
+  // Accelerator Tables
   DwarfAccelNamesSection =
     Ctx->getELFSection(".apple_names", ELF::SHT_PROGBITS, 0,
                        SectionKind::getMetadata());
@@ -403,6 +407,11 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
                        SectionKind::getMetadata());
   DwarfAccelTypesSection =
     Ctx->getELFSection(".apple_types", ELF::SHT_PROGBITS, 0,
+                       SectionKind::getMetadata());
+
+  // Fission Sections
+  DwarfInfoDWOSection =
+    Ctx->getELFSection(".debug_info.dwo", ELF::SHT_PROGBITS, 0,
                        SectionKind::getMetadata());
 }
 

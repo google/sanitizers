@@ -309,6 +309,14 @@ public:
   /// whether any of the passes modifies the module, and if so, return true.
   bool runOnModule(Module &M);
 
+  /// doInitialization - Run all of the initializers for the module passes.
+  ///
+  bool doInitialization();
+
+  /// doFinalization - Run all of the finalizers for the module passes.
+  ///
+  bool doFinalization();
+
   /// Pass Manager itself does not invalidate any analysis info.
   void getAnalysisUsage(AnalysisUsage &Info) const {
     Info.setPreservesAll();
@@ -393,6 +401,14 @@ public:
   /// run - Execute all of the passes scheduled for execution.  Keep track of
   /// whether any of the passes modifies the module, and if so, return true.
   bool run(Module &M);
+
+  /// doInitialization - Run all of the initializers for the module passes.
+  ///
+  bool doInitialization();
+
+  /// doFinalization - Run all of the finalizers for the module passes.
+  ///
+  bool doFinalization();
 
   /// Pass Manager itself does not invalidate any analysis info.
   void getAnalysisUsage(AnalysisUsage &Info) const {
@@ -1594,6 +1610,29 @@ MPPassManager::runOnModule(Module &M) {
     FPP->releaseMemoryOnTheFly();
     Changed |= FPP->doFinalization(M);
   }
+
+  return Changed;
+}
+
+/// Run all of the initializers for the module passes.
+///
+bool MPPassManager::doInitialization() {
+  bool Changed = false;
+
+  for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index)
+    Changed |= getContainedPass(Index)->doInitialization();
+
+  return Changed;
+}
+
+/// Run all of the finalizers for the module passes.
+///
+bool MPPassManager::doFinalization() {
+  bool Changed = false;
+
+  for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index)
+    Changed |= getContainedPass(Index)->doFinalization();
+
   return Changed;
 }
 
@@ -1615,6 +1654,18 @@ void MPPassManager::addLowerLevelRequiredPass(Pass *P, Pass *RequiredPass) {
 
     OnTheFlyManagers[P] = FPP;
   }
+
+  // If RequiredPass is an analysis pass and it is available then do not
+  // generate the analysis again. Stale analysis info should not be
+  // available at this point.
+  const PassInfo *PI =
+    PassRegistry::getPassRegistry()->getPassInfo(RequiredPass->getPassID());
+  if (PI && PI->isAnalysis() && 
+      FPP->getTopLevelManager()->findAnalysisPass(RequiredPass->getPassID())) {
+    delete RequiredPass;
+    return;
+  }
+
   FPP->add(RequiredPass);
 
   // Register P as the last user of RequiredPass.
@@ -1640,6 +1691,25 @@ Pass* MPPassManager::getOnTheFlyPass(Pass *MP, AnalysisID PI, Function &F){
 
 //===----------------------------------------------------------------------===//
 // PassManagerImpl implementation
+
+bool PassManagerImpl::doInitialization() {
+  bool Changed = false;
+
+  for (unsigned Index = 0; Index < getNumContainedManagers(); ++Index)
+    Changed |= getContainedManager(Index)->doInitialization();
+
+  return Changed;
+}
+
+bool PassManagerImpl::doFinalization() {
+  bool Changed = false;
+
+  for (unsigned Index = 0; Index < getNumContainedManagers(); ++Index)
+    Changed |= getContainedManager(Index)->doFinalization();
+
+  return Changed;
+}
+
 //
 /// run - Execute all of the passes scheduled for execution.  Keep track of
 /// whether any of the passes modifies the module, and if so, return true.
@@ -1682,6 +1752,18 @@ void PassManager::add(Pass *P) {
 /// whether any of the passes modifies the module, and if so, return true.
 bool PassManager::run(Module &M) {
   return PM->run(M);
+}
+
+/// doInitialization - Run all of the initializers for the module passes.
+///
+bool PassManager::doInitialization() {
+  return PM->doInitialization();
+}
+
+/// doFinalization - Run all of the finalizers for the module passes.
+///
+bool PassManager::doFinalization() {
+  return PM->doFinalization();
 }
 
 //===----------------------------------------------------------------------===//

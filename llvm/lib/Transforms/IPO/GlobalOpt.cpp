@@ -225,6 +225,7 @@ static bool AnalyzeGlobal(const Value *V, GlobalStatus &GS,
 
         // Don't hack on volatile stores.
         if (SI->isVolatile()) return true;
+
         GS.Ordering = StrongerOrdering(GS.Ordering, SI->getOrdering());
 
         // If this is a direct store to the global (i.e., the global is a scalar
@@ -234,6 +235,14 @@ static bool AnalyzeGlobal(const Value *V, GlobalStatus &GS,
           if (const GlobalVariable *GV = dyn_cast<GlobalVariable>(
                                                            SI->getOperand(1))) {
             Value *StoredVal = SI->getOperand(0);
+
+            if (Constant *C = dyn_cast<Constant>(StoredVal)) {
+              if (C->isThreadDependent()) {
+                // The stored value changes between threads; don't track it.
+                return true;
+              }
+            }
+
             if (StoredVal == GV->getInitializer()) {
               if (GS.StoredType < GlobalStatus::isInitializerStored)
                 GS.StoredType = GlobalStatus::isInitializerStored;
@@ -1500,7 +1509,7 @@ static GlobalVariable *PerformHeapAllocSRoA(GlobalVariable *GV, CallInst *CI,
     unsigned TypeSize = TD->getTypeAllocSize(FieldTy);
     if (StructType *ST = dyn_cast<StructType>(FieldTy))
       TypeSize = TD->getStructLayout(ST)->getSizeInBytes();
-    Type *IntPtrTy = TD->getIntPtrType(GV->getType());
+    Type *IntPtrTy = TD->getIntPtrType(CI->getContext());
     Value *NMI = CallInst::CreateMalloc(CI, IntPtrTy, FieldTy,
                                         ConstantInt::get(IntPtrTy, TypeSize),
                                         NElems, 0,
@@ -1730,7 +1739,7 @@ static bool TryToOptimizeStoreOfMallocToGlobal(GlobalVariable *GV,
     // If this is a fixed size array, transform the Malloc to be an alloc of
     // structs.  malloc [100 x struct],1 -> malloc struct, 100
     if (ArrayType *AT = dyn_cast<ArrayType>(getMallocAllocatedType(CI, TLI))) {
-      Type *IntPtrTy = TD->getIntPtrType(GV->getType());
+      Type *IntPtrTy = TD->getIntPtrType(CI->getContext());
       unsigned TypeSize = TD->getStructLayout(AllocSTy)->getSizeInBytes();
       Value *AllocSize = ConstantInt::get(IntPtrTy, TypeSize);
       Value *NumElements = ConstantInt::get(IntPtrTy, AT->getNumElements());

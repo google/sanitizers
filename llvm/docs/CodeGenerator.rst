@@ -224,7 +224,7 @@ The ``DataLayout`` class
 ------------------------
 
 The ``DataLayout`` class is the only required target description class, and it
-is the only class that is not extensible (you cannot derived a new class from
+is the only class that is not extensible (you cannot derive a new class from
 it).  ``DataLayout`` specifies information about how the target lays out memory
 for structures, the alignment requirements for various data types, the size of
 pointers in the target, and whether the target is little-endian or
@@ -248,7 +248,7 @@ operations.  Among other things, this class indicates:
 * the type to use for shift amounts, and
 
 * various high-level characteristics, like whether it is profitable to turn
-  division by a constant into a multiplication sequence
+  division by a constant into a multiplication sequence.
 
 The ``TargetRegisterInfo`` class
 --------------------------------
@@ -256,10 +256,10 @@ The ``TargetRegisterInfo`` class
 The ``TargetRegisterInfo`` class is used to describe the register file of the
 target and any interactions between the registers.
 
-Registers in the code generator are represented in the code generator by
-unsigned integers.  Physical registers (those that actually exist in the target
-description) are unique small numbers, and virtual registers are generally
-large.  Note that register ``#0`` is reserved as a flag value.
+Registers are represented in the code generator by unsigned integers.  Physical
+registers (those that actually exist in the target description) are unique
+small numbers, and virtual registers are generally large.  Note that
+register ``#0`` is reserved as a flag value.
 
 Each register in the processor description has an associated
 ``TargetRegisterDesc`` entry, which provides a textual name for the register
@@ -838,8 +838,7 @@ Initial SelectionDAG Construction
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The initial SelectionDAG is na\ :raw-html:`&iuml;`\ vely peephole expanded from
-the LLVM input by the ``SelectionDAGLowering`` class in the
-``lib/CodeGen/SelectionDAG/SelectionDAGISel.cpp`` file.  The intent of this pass
+the LLVM input by the ``SelectionDAGBuilder`` class.  The intent of this pass
 is to expose as much low-level, target-specific details to the SelectionDAG as
 possible.  This pass is mostly hard-coded (e.g. an LLVM ``add`` turns into an
 ``SDNode add`` while a ``getelementptr`` is expanded into the obvious
@@ -969,7 +968,8 @@ The ``FADDS`` instruction is a simple binary single-precision add instruction.
 To perform this pattern match, the PowerPC backend includes the following
 instruction definitions:
 
-::
+.. code-block:: text
+  :emphasize-lines: 4-5,9
 
   def FMADDS : AForm_1<59, 29,
                       (ops F4RC:$FRT, F4RC:$FRA, F4RC:$FRC, F4RC:$FRB),
@@ -981,10 +981,10 @@ instruction definitions:
                       "fadds $FRT, $FRA, $FRB",
                       [(set F4RC:$FRT, (fadd F4RC:$FRA, F4RC:$FRB))]>;
 
-The portion of the instruction definition in bold indicates the pattern used to
-match the instruction.  The DAG operators (like ``fmul``/``fadd``) are defined
-in the ``include/llvm/Target/TargetSelectionDAG.td`` file.  " ``F4RC``" is the
-register class of the input and result values.
+The highlighted portion of the instruction definitions indicates the pattern
+used to match the instructions. The DAG operators (like ``fmul``/``fadd``)
+are defined in the ``include/llvm/Target/TargetSelectionDAG.td`` file.
+"``F4RC``" is the register class of the input and result values.
 
 The TableGen DAG instruction selector generator reads the instruction patterns
 in the ``.td`` file and automatically builds parts of the pattern matching code
@@ -1763,7 +1763,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<th>Feature</th>`
 :raw-html:`<th>ARM</th>`
-:raw-html:`<th>CellSPU</th>`
 :raw-html:`<th>Hexagon</th>`
 :raw-html:`<th>MBlaze</th>`
 :raw-html:`<th>MSP430</th>`
@@ -1778,7 +1777,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_reliable">is generally reliable</a></td>`
 :raw-html:`<td class="yes"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="yes"></td> <!-- Hexagon -->`
 :raw-html:`<td class="no"></td> <!-- MBlaze -->`
 :raw-html:`<td class="unknown"></td> <!-- MSP430 -->`
@@ -1793,7 +1791,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_asmparser">assembly parser</a></td>`
 :raw-html:`<td class="no"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="no"></td> <!-- Hexagon -->`
 :raw-html:`<td class="yes"></td> <!-- MBlaze -->`
 :raw-html:`<td class="no"></td> <!-- MSP430 -->`
@@ -1808,7 +1805,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_disassembler">disassembler</a></td>`
 :raw-html:`<td class="yes"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="no"></td> <!-- Hexagon -->`
 :raw-html:`<td class="yes"></td> <!-- MBlaze -->`
 :raw-html:`<td class="no"></td> <!-- MSP430 -->`
@@ -1823,7 +1819,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_inlineasm">inline asm</a></td>`
 :raw-html:`<td class="yes"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="yes"></td> <!-- Hexagon -->`
 :raw-html:`<td class="yes"></td> <!-- MBlaze -->`
 :raw-html:`<td class="unknown"></td> <!-- MSP430 -->`
@@ -1838,7 +1833,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_jit">jit</a></td>`
 :raw-html:`<td class="partial"><a href="#feat_jit_arm">*</a></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="no"></td> <!-- Hexagon -->`
 :raw-html:`<td class="no"></td> <!-- MBlaze -->`
 :raw-html:`<td class="unknown"></td> <!-- MSP430 -->`
@@ -1853,7 +1847,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_objectwrite">.o&nbsp;file writing</a></td>`
 :raw-html:`<td class="no"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="no"></td> <!-- Hexagon -->`
 :raw-html:`<td class="yes"></td> <!-- MBlaze -->`
 :raw-html:`<td class="no"></td> <!-- MSP430 -->`
@@ -1868,7 +1861,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a hr:raw-html:`ef="#feat_tailcall">tail calls</a></td>`
 :raw-html:`<td class="yes"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="yes"></td> <!-- Hexagon -->`
 :raw-html:`<td class="no"></td> <!-- MBlaze -->`
 :raw-html:`<td class="unknown"></td> <!-- MSP430 -->`
@@ -1883,7 +1875,6 @@ Here is the table:
 :raw-html:`<tr>`
 :raw-html:`<td><a href="#feat_segstacks">segmented stacks</a></td>`
 :raw-html:`<td class="no"></td> <!-- ARM -->`
-:raw-html:`<td class="no"></td> <!-- CellSPU -->`
 :raw-html:`<td class="no"></td> <!-- Hexagon -->`
 :raw-html:`<td class="no"></td> <!-- MBlaze -->`
 :raw-html:`<td class="no"></td> <!-- MSP430 -->`
@@ -1992,8 +1983,8 @@ Tail call optimization
 Tail call optimization, callee reusing the stack of the caller, is currently
 supported on x86/x86-64 and PowerPC. It is performed if:
 
-* Caller and callee have the calling convention ``fastcc`` or ``cc 10`` (GHC
-  call convention).
+* Caller and callee have the calling convention ``fastcc``, ``cc 10`` (GHC
+  calling convention) or ``cc 11`` (HiPE calling convention).
 
 * The call is a tail call - in tail position (ret immediately follows call and
   ret uses value of call or is void).

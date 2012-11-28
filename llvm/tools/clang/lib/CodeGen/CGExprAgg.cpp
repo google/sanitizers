@@ -213,7 +213,7 @@ bool AggExprEmitter::TypeRequiresGCollection(QualType T) {
   // Don't mess with non-trivial C++ types.
   RecordDecl *Record = RecordTy->getDecl();
   if (isa<CXXRecordDecl>(Record) &&
-      (!cast<CXXRecordDecl>(Record)->hasTrivialCopyConstructor() ||
+      (cast<CXXRecordDecl>(Record)->hasNonTrivialCopyConstructor() ||
        !cast<CXXRecordDecl>(Record)->hasTrivialDestructor()))
     return false;
 
@@ -1208,7 +1208,7 @@ static void CheckAggExprForMemSetUse(AggValueSlot &Slot, const Expr *E,
   if (Slot.isZeroed() || Slot.isVolatile() || Slot.getAddr() == 0) return;
 
   // C++ objects with a user-declared constructor don't need zero'ing.
-  if (CGF.getContext().getLangOpts().CPlusPlus)
+  if (CGF.getLangOpts().CPlusPlus)
     if (const RecordType *RT = CGF.getContext()
                        .getBaseElementType(E->getType())->getAs<RecordType>()) {
       const CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
@@ -1278,14 +1278,14 @@ void CodeGenFunction::EmitAggregateCopy(llvm::Value *DestPtr,
                                         bool isAssignment) {
   assert(!Ty->isAnyComplexType() && "Shouldn't happen for complex");
 
-  if (getContext().getLangOpts().CPlusPlus) {
+  if (getLangOpts().CPlusPlus) {
     if (const RecordType *RT = Ty->getAs<RecordType>()) {
       CXXRecordDecl *Record = cast<CXXRecordDecl>(RT->getDecl());
       assert((Record->hasTrivialCopyConstructor() || 
               Record->hasTrivialCopyAssignment() ||
               Record->hasTrivialMoveConstructor() ||
               Record->hasTrivialMoveAssignment()) &&
-             "Trying to aggregate-copy a type without a trivial copy "
+             "Trying to aggregate-copy a type without a trivial copy/move "
              "constructor or assignment operator");
       // Ignore empty classes in C++.
       if (Record->isEmpty())

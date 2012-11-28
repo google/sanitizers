@@ -31,11 +31,17 @@ add_subdirectory(llvm-objdump)
 add_subdirectory(llvm-readobj)
 add_subdirectory(llvm-rtdyld)
 add_subdirectory(llvm-dwarfdump)
+if( LLVM_USE_INTEL_JITEVENTS )
+  add_subdirectory(llvm-jitlistener)
+endif( LLVM_USE_INTEL_JITEVENTS )
 
 add_subdirectory(bugpoint)
 add_subdirectory(bugpoint-passes)
 add_subdirectory(llvm-bcanalyzer)
 add_subdirectory(llvm-stress)
+add_subdirectory(llvm-mcmarkup)
+
+add_subdirectory(llvm-symbolizer)
 
 if( NOT WIN32 )
   add_subdirectory(lto)

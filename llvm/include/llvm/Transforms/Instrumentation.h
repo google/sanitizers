@@ -34,8 +34,9 @@ ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
                                    bool UseExtraChecksum = false);
 
 // Insert AddressSanitizer (address sanity checking) instrumentation
-FunctionPass *createAddressSanitizerPass();
-// Insert MemorySanitizer instrumentation (detection of uninitialized reads).
+FunctionPass *createAddressSanitizerFunctionPass();
+ModulePass *createAddressSanitizerModulePass();
+// Insert MemorySanitizer instrumentation (detection of uninitialized reads)
 FunctionPass *createMemorySanitizerPass();
 // Insert ThreadSanitizer (race detection) instrumentation
 FunctionPass *createThreadSanitizerPass();
@@ -43,9 +44,7 @@ FunctionPass *createThreadSanitizerPass();
 
 // BoundsChecking - This pass instruments the code to perform run-time bounds
 // checking on loads, stores, and other memory intrinsics.
-// Penalty is the maximum run-time that is acceptable for the user.
-//
-FunctionPass *createBoundsCheckingPass(unsigned Penalty = 5);
+FunctionPass *createBoundsCheckingPass();
 
 } // End llvm namespace
 

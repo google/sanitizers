@@ -674,9 +674,10 @@ public:
   ///
   /// One example of when this would be used is when the main source is read
   /// from STDIN.
-  FileID createMainFileIDForMemBuffer(const llvm::MemoryBuffer *Buffer) {
+  FileID createMainFileIDForMemBuffer(const llvm::MemoryBuffer *Buffer,
+                             SrcMgr::CharacteristicKind Kind = SrcMgr::C_User) {
     assert(MainFileID.isInvalid() && "MainFileID already set!");
-    MainFileID = createFileIDForMemBuffer(Buffer);
+    MainFileID = createFileIDForMemBuffer(Buffer, Kind);
     return MainFileID;
   }
 
@@ -733,10 +734,11 @@ public:
   /// This does no caching of the buffer and takes ownership of the
   /// MemoryBuffer, so only pass a MemoryBuffer to this once.
   FileID createFileIDForMemBuffer(const llvm::MemoryBuffer *Buffer,
+                      SrcMgr::CharacteristicKind FileCharacter = SrcMgr::C_User,
                                   int LoadedID = 0, unsigned LoadedOffset = 0,
                                  SourceLocation IncludeLoc = SourceLocation()) {
     return createFileID(createMemBufferContentCache(Buffer), IncludeLoc,
-                        SrcMgr::C_User, LoadedID, LoadedOffset);
+                        FileCharacter, LoadedID, LoadedOffset);
   }
 
   /// \brief Return a new SourceLocation that encodes the
@@ -1185,7 +1187,8 @@ public:
   /// presumed location cannot be calculate (e.g., because \p Loc is invalid
   /// or the file containing \p Loc has changed on disk), returns an invalid
   /// presumed location.
-  PresumedLoc getPresumedLoc(SourceLocation Loc) const;
+  PresumedLoc getPresumedLoc(SourceLocation Loc,
+                             bool UseLineDirectives = true) const;
 
   /// \brief Returns true if both SourceLocations correspond to the same file.
   bool isFromSameFile(SourceLocation Loc1, SourceLocation Loc2) const {
@@ -1421,7 +1424,8 @@ public:
 
   /// Get a presumed location suitable for displaying in a diagnostic message,
   /// taking into account macro arguments and expansions.
-  PresumedLoc getPresumedLocForDisplay(SourceLocation Loc) const {
+  PresumedLoc getPresumedLocForDisplay(SourceLocation Loc,
+                                       bool UseLineDirectives = true) const{
     // This is a condensed form of the algorithm used by emitCaretDiagnostic to
     // walk to the top of the macro call stack.
     while (Loc.isMacroID()) {
@@ -1429,7 +1433,7 @@ public:
       Loc = getImmediateMacroCallerLoc(Loc);
     }
 
-    return getPresumedLoc(Loc);
+    return getPresumedLoc(Loc, UseLineDirectives);
   }
 
   /// Look through spelling locations for a macro argument expansion, and if

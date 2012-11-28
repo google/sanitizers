@@ -54,8 +54,8 @@ structure.  This structure consists of the following concepts:
 
 * Abbreviations, which specify compression optimizations for the file.
 
-Note that the `llvm-bcanalyzer <CommandGuide/html/llvm-bcanalyzer.html>`_ tool
-can be used to dump and inspect arbitrary bitstreams, which is very useful for
+Note that the :doc:`llvm-bcanalyzer <CommandGuide/llvm-bcanalyzer>` tool can be
+used to dump and inspect arbitrary bitstreams, which is very useful for
 understanding the encoding.
 
 .. _magic number:

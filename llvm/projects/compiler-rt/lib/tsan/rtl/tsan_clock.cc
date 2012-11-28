@@ -105,13 +105,6 @@ void ThreadClock::acq_rel(SyncClock *dst) {
   release(dst);
 }
 
-void ThreadClock::Disable(unsigned tid) {
-  u64 c0 = clk_[tid];
-  for (uptr i = 0; i < kMaxTidInClock; i++)
-    clk_[i] = (u64)-1;
-  clk_[tid] = c0;
-}
-
 SyncClock::SyncClock()
   : clk_(MBlockClock) {
 }

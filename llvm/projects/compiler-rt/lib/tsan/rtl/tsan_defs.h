@@ -24,6 +24,12 @@
 
 namespace __tsan {
 
+#ifdef TSAN_GO
+const char *const kTsanOptionsEnv = "GORACE";
+#else
+const char *const kTsanOptionsEnv = "TSAN_OPTIONS";
+#endif
+
 const int kTidBits = 13;
 const unsigned kMaxTid = 1 << kTidBits;
 const unsigned kMaxTidInClock = kMaxTid * 2;  // This includes msb 'freed' bit.
@@ -36,20 +42,23 @@ const int kTraceStackSize = 256;
 #ifdef TSAN_SHADOW_COUNT
 # if TSAN_SHADOW_COUNT == 2 \
   || TSAN_SHADOW_COUNT == 4 || TSAN_SHADOW_COUNT == 8
-const unsigned kShadowCnt = TSAN_SHADOW_COUNT;
+const uptr kShadowCnt = TSAN_SHADOW_COUNT;
 # else
 #   error "TSAN_SHADOW_COUNT must be one of 2,4,8"
 # endif
 #else
 // Count of shadow values in a shadow cell.
-const unsigned kShadowCnt = 8;
+const uptr kShadowCnt = 4;
 #endif
 
 // That many user bytes are mapped onto a single shadow cell.
-const unsigned kShadowCell = 8;
+const uptr kShadowCell = 8;
 
 // Size of a single shadow value (u64).
-const unsigned kShadowSize = 8;
+const uptr kShadowSize = 8;
+
+// Shadow memory is kShadowMultiplier times larger than user memory.
+const uptr kShadowMultiplier = kShadowSize * kShadowCnt / kShadowCell;
 
 #if defined(TSAN_COLLECT_STATS) && TSAN_COLLECT_STATS
 const bool kCollectStats = true;

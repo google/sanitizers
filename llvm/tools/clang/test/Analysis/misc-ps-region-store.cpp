@@ -628,3 +628,69 @@ void test_inline() {
   a.bar();
 }
 
+void test_alloca_in_a_recursive_function(int p1) {
+    __builtin_alloca (p1);
+    test_alloca_in_a_recursive_function(1);
+    test_alloca_in_a_recursive_function(2);
+}
+
+//===---------------------------------------------------------------------===//
+// Random tests.
+//===---------------------------------------------------------------------===//
+
+// Tests assigning using a C-style initializer to a struct
+// variable whose sub-field is also a struct.  This currently
+// results in a CXXTempObjectRegion being created, but not
+// properly handled.  For now, we just ignore that value
+// to avoid a crash (<rdar://problem/12753384>).
+struct RDar12753384_ClassA {
+  unsigned z;
+};
+struct  RDar12753384_ClassB {
+  unsigned x;
+  RDar12753384_ClassA y[ 8 ] ;
+};
+unsigned RDar12753384() {
+  RDar12753384_ClassB w = { 0x00 };
+  RDar12753384_ClassA y[8];
+  return w.x;
+}
+
+// This testcase tests whether we treat the anonymous union and union
+// the same way.  This previously resulted in a "return of stack address"
+// warning because the anonymous union resulting in a temporary object
+// getting put into the initializer.  We still aren't handling this correctly,
+// but now if a temporary object appears in an initializer we just ignore it.
+// Fixes <rdar://problem/12755044>.
+
+struct Rdar12755044_foo
+{
+    struct Rdar12755044_bar
+    {
+        union baz
+        {
+            int   i;
+        };
+    } aBar;
+};
+
+struct Rdar12755044_foo_anon
+{
+    struct Rdar12755044_bar
+    {
+        union
+        {
+            int   i;
+        };
+    } aBar;
+};
+
+const Rdar12755044_foo_anon *radar12755044_anon() {
+  static const Rdar12755044_foo_anon Rdar12755044_foo_list[] = { { { } } };
+  return Rdar12755044_foo_list; // no-warning
+}
+
+const Rdar12755044_foo *radar12755044() {
+  static const Rdar12755044_foo Rdar12755044_foo_list[] = { { { } } };
+  return Rdar12755044_foo_list; // no-warning
+}

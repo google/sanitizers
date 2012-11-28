@@ -44,14 +44,15 @@ def RawFrmImm16 : Format<44>;
 def MRM_D0 : Format<45>;
 def MRM_D1 : Format<46>;
 def MRM_D4 : Format<47>;
-def MRM_D8 : Format<48>;
-def MRM_D9 : Format<49>;
-def MRM_DA : Format<50>;
-def MRM_DB : Format<51>;
-def MRM_DC : Format<52>;
-def MRM_DD : Format<53>;
-def MRM_DE : Format<54>;
-def MRM_DF : Format<55>;
+def MRM_D5 : Format<48>;
+def MRM_D8 : Format<49>;
+def MRM_D9 : Format<50>;
+def MRM_DA : Format<51>;
+def MRM_DB : Format<52>;
+def MRM_DC : Format<53>;
+def MRM_DD : Format<54>;
+def MRM_DE : Format<55>;
+def MRM_DF : Format<56>;
 
 // ImmType - This specifies the immediate type used by an instruction. This is
 // part of the ad-hoc solution used to emit machine instruction encodings by our
@@ -569,7 +570,7 @@ class FMA3<bits<8> o, Format F, dag outs, dag ins, string asm,
 // FMA4 Instruction Templates
 class FMA4<bits<8> o, Format F, dag outs, dag ins, string asm,
            list<dag>pattern, InstrItinClass itin = IIC_DEFAULT>
-      : I<o, F, outs, ins, asm, pattern, itin, SSEPackedInt>, TA,
+      : I<o, F, outs, ins, asm, pattern, itin>, TA,
         OpSize, VEX_4V, VEX_I8IMM, Requires<[HasFMA4]>;
 
 // XOP 2, 3 and 4 Operand Instruction Template

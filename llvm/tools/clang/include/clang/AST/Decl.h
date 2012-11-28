@@ -213,8 +213,8 @@ public:
   bool isCXXInstanceMember() const;
 
   class LinkageInfo {
-    uint8_t linkage_    : 4;
-    uint8_t visibility_ : 3;
+    uint8_t linkage_    : 2;
+    uint8_t visibility_ : 2;
     uint8_t explicit_   : 1;
 
     void setVisibility(Visibility V, bool E) { visibility_ = V; explicit_ = E; }
@@ -3299,10 +3299,10 @@ void Redeclarable<decl_type>::setPreviousDeclaration(decl_type *PrevDecl) {
     // Point to previous. Make sure that this is actually the most recent
     // redeclaration, or we can build invalid chains. If the most recent
     // redeclaration is invalid, it won't be PrevDecl, but we want it anyway.
-    RedeclLink = PreviousDeclLink(
-                   llvm::cast<decl_type>(PrevDecl->getMostRecentDecl()));
     First = PrevDecl->getFirstDeclaration();
     assert(First->RedeclLink.NextIsLatest() && "Expected first");
+    decl_type *MostRecent = First->RedeclLink.getNext();
+    RedeclLink = PreviousDeclLink(llvm::cast<decl_type>(MostRecent));
   } else {
     // Make this first.
     First = static_cast<decl_type*>(this);

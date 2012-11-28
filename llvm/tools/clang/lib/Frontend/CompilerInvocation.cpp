@@ -11,6 +11,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/Version.h"
 #include "clang/Basic/FileManager.h"
+#include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Driver/Arg.h"
 #include "clang/Driver/ArgList.h"
 #include "clang/Driver/Options.h"
@@ -20,6 +21,7 @@
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/LangStandard.h"
 #include "clang/Serialization/ASTReader.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
@@ -49,916 +51,7 @@ CompilerInvocationBase::CompilerInvocationBase(const CompilerInvocationBase &X)
     PreprocessorOpts(new PreprocessorOptions(X.getPreprocessorOpts())) {}
 
 //===----------------------------------------------------------------------===//
-// Utility functions.
-//===----------------------------------------------------------------------===//
-
-static const char *getAnalysisStoreName(AnalysisStores Kind) {
-  switch (Kind) {
-  default:
-    llvm_unreachable("Unknown analysis store!");
-#define ANALYSIS_STORE(NAME, CMDFLAG, DESC, CREATFN) \
-  case NAME##Model: return CMDFLAG;
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-  }
-}
-
-static const char *getAnalysisConstraintName(AnalysisConstraints Kind) {
-  switch (Kind) {
-  default:
-    llvm_unreachable("Unknown analysis constraints!");
-#define ANALYSIS_CONSTRAINTS(NAME, CMDFLAG, DESC, CREATFN) \
-  case NAME##Model: return CMDFLAG;
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-  }
-}
-
-static const char *getAnalysisDiagClientName(AnalysisDiagClients Kind) {
-  switch (Kind) {
-  default:
-    llvm_unreachable("Unknown analysis client!");
-#define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATFN, AUTOCREATE) \
-  case PD_##NAME: return CMDFLAG;
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-  }
-}
-
-static const char *getAnalysisPurgeModeName(AnalysisPurgeMode Kind) {
-  switch (Kind) {
-  default:
-    llvm_unreachable("Unknown analysis purge mode!");
-#define ANALYSIS_PURGE(NAME, CMDFLAG, DESC) \
-  case NAME: return CMDFLAG;
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-  }
-}
-
-static const char *getAnalysisIPAModeName(AnalysisIPAMode Kind) {
-  switch (Kind) {
-  default:
-    llvm_unreachable("Unknown analysis ipa mode!");
-#define ANALYSIS_IPA(NAME, CMDFLAG, DESC) \
-  case NAME: return CMDFLAG;
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-  }
-}
-
-static const char *
-  getAnalysisInliningModeName(AnalysisInliningMode Kind) {
-  switch (Kind) {
-  default:
-    llvm_unreachable("Unknown analysis inlining mode!");
-#define ANALYSIS_INLINE_SELECTION(NAME, CMDFLAG, DESC) \
-  case NAME: return CMDFLAG;
-#include "clang/StaticAnalyzer/Core/Analyses.def"
-  }
-}
-
-//===----------------------------------------------------------------------===//
-// Serialization (to args)
-//===----------------------------------------------------------------------===//
-
-namespace {
-  /// ToArgsList - Helper class to create a list of std::strings.
-  class ToArgsList {
-    std::vector<std::string> &Res;
-  public:
-    explicit ToArgsList(std::vector<std::string> &Res) : Res(Res) {}
-
-    void push_back(StringRef Str) {
-      // Avoid creating a temporary string.
-      Res.push_back(std::string());
-      Res.back().assign(Str.data(), Str.size());
-    }
-
-    void push_back(StringRef Str1, StringRef Str2) {
-      push_back(Str1);
-      push_back(Str2);
-    }
-  };
-}
-
-static void AnalyzerOptsToArgs(const AnalyzerOptions &Opts, ToArgsList &Res) {
-  if (Opts.ShowCheckerHelp)
-    Res.push_back("-analyzer-checker-help");
-  if (Opts.AnalysisStoreOpt != RegionStoreModel)
-    Res.push_back("-analyzer-store",
-                  getAnalysisStoreName(Opts.AnalysisStoreOpt));
-  if (Opts.AnalysisConstraintsOpt != RangeConstraintsModel)
-    Res.push_back("-analyzer-constraints",
-                  getAnalysisConstraintName(Opts.AnalysisConstraintsOpt));
-  if (Opts.AnalysisDiagOpt != PD_HTML)
-    Res.push_back("-analyzer-output",
-                  getAnalysisDiagClientName(Opts.AnalysisDiagOpt));
-  if (Opts.AnalysisPurgeOpt != PurgeStmt)
-    Res.push_back("-analyzer-purge",
-                  getAnalysisPurgeModeName(Opts.AnalysisPurgeOpt));
-  if (!Opts.AnalyzeSpecificFunction.empty())
-    Res.push_back("-analyze-function", Opts.AnalyzeSpecificFunction);
-  if (Opts.IPAMode != DynamicDispatchBifurcate)
-    Res.push_back("-analyzer-ipa", getAnalysisIPAModeName(Opts.IPAMode));
-  if (Opts.InliningMode != NoRedundancy)
-    Res.push_back("-analyzer-inlining-mode",
-                  getAnalysisInliningModeName(Opts.InliningMode));
-
-  if (Opts.AnalyzeAll)
-    Res.push_back("-analyzer-opt-analyze-headers");
-  if (Opts.AnalyzerDisplayProgress)
-    Res.push_back("-analyzer-display-progress");
-  if (Opts.AnalyzeNestedBlocks)
-    Res.push_back("-analyzer-opt-analyze-nested-blocks");
-  if (Opts.eagerlyAssumeBinOpBifurcation)
-    Res.push_back("-analyzer-eagerly-assume");
-  if (Opts.TrimGraph)
-    Res.push_back("-trim-egraph");
-  if (Opts.visualizeExplodedGraphWithGraphViz)
-    Res.push_back("-analyzer-viz-egraph-graphviz");
-  if (Opts.visualizeExplodedGraphWithUbiGraph)
-    Res.push_back("-analyzer-viz-egraph-ubigraph");
-  if (Opts.NoRetryExhausted)
-    Res.push_back("-analyzer-disable-retry-exhausted");
-
-  for (unsigned i = 0, e = Opts.CheckersControlList.size(); i != e; ++i) {
-    const std::pair<std::string, bool> &opt = Opts.CheckersControlList[i];
-    if (opt.second)
-      Res.push_back("-analyzer-disable-checker");
-    else
-      Res.push_back("-analyzer-checker");
-    Res.push_back(opt.first);
-  }
-}
-
-static void CodeGenOptsToArgs(const CodeGenOptions &Opts, ToArgsList &Res) {
-  switch (Opts.getDebugInfo()) {
-    case CodeGenOptions::NoDebugInfo:
-      break;
-    case CodeGenOptions::DebugLineTablesOnly:
-      Res.push_back("-gline-tables-only");
-      break;
-    case CodeGenOptions::LimitedDebugInfo:
-      Res.push_back("-g");
-      Res.push_back("-flimit-debug-info");
-      break;
-    case CodeGenOptions::FullDebugInfo:
-      Res.push_back("-g");
-      Res.push_back("-fno-limit-debug-info");
-      break;
-  }
-  if (Opts.DebugColumnInfo)
-    Res.push_back("-gcolumn-info");
-  if (Opts.DisableLLVMOpts)
-    Res.push_back("-disable-llvm-optzns");
-  if (Opts.DisableRedZone)
-    Res.push_back("-disable-red-zone");
-  if (Opts.DisableTailCalls)
-    Res.push_back("-mdisable-tail-calls");
-  if (!Opts.DebugCompilationDir.empty())
-    Res.push_back("-fdebug-compilation-dir", Opts.DebugCompilationDir);
-  if (!Opts.DwarfDebugFlags.empty())
-    Res.push_back("-dwarf-debug-flags", Opts.DwarfDebugFlags);
-  if (Opts.EmitGcovArcs)
-    Res.push_back("-femit-coverage-data");
-  if (Opts.EmitGcovNotes)
-    Res.push_back("-femit-coverage-notes");
-  if (Opts.EmitOpenCLArgMetadata)
-    Res.push_back("-cl-kernel-arg-info");
-  if (!Opts.MergeAllConstants)
-    Res.push_back("-fno-merge-all-constants");
-  if (Opts.NoCommon)
-    Res.push_back("-fno-common");
-  if (Opts.ForbidGuardVariables)
-    Res.push_back("-fforbid-guard-variables");
-  if (Opts.UseRegisterSizedBitfieldAccess)
-    Res.push_back("-fuse-register-sized-bitfield-access");
-  if (Opts.NoImplicitFloat)
-    Res.push_back("-no-implicit-float");
-  if (Opts.OmitLeafFramePointer)
-    Res.push_back("-momit-leaf-frame-pointer");
-  if (Opts.OptimizeSize) {
-    assert(Opts.OptimizationLevel == 2 && "Invalid options!");
-    Opts.OptimizeSize == 1 ? Res.push_back("-Os") : Res.push_back("-Oz");
-  } else if (Opts.OptimizationLevel != 0)
-    Res.push_back("-O" + llvm::utostr(Opts.OptimizationLevel));
-  if (!Opts.MainFileName.empty())
-    Res.push_back("-main-file-name", Opts.MainFileName);
-  if (Opts.NoInfsFPMath)
-    Res.push_back("-menable-no-infinities");
-  if (Opts.NoNaNsFPMath)
-    Res.push_back("-menable-no-nans");
-  // SimplifyLibCalls is only derived.
-  // TimePasses is only derived.
-  // UnitAtATime is unused.
-  // Inlining is only derived.
-
-  // UnrollLoops is derived, but also accepts an option, no
-  // harm in pushing it back here.
-  if (Opts.UnrollLoops)
-    Res.push_back("-funroll-loops");
-  if (Opts.DataSections)
-    Res.push_back("-fdata-sections");
-  if (Opts.FunctionSections)
-    Res.push_back("-ffunction-sections");
-  if (Opts.AsmVerbose)
-    Res.push_back("-masm-verbose");
-  if (!Opts.CodeModel.empty())
-    Res.push_back("-mcode-model", Opts.CodeModel);
-  if (Opts.CUDAIsDevice)
-    Res.push_back("-fcuda-is-device");
-  if (!Opts.CXAAtExit)
-    Res.push_back("-fno-use-cxa-atexit");
-  if (Opts.CXXCtorDtorAliases)
-    Res.push_back("-mconstructor-aliases");
-  if (Opts.ObjCAutoRefCountExceptions)
-    Res.push_back("-fobjc-arc-eh");
-  if (!Opts.DebugPass.empty()) {
-    Res.push_back("-mdebug-pass", Opts.DebugPass);
-  }
-  if (Opts.DisableFPElim)
-    Res.push_back("-mdisable-fp-elim");
-  if (!Opts.FloatABI.empty())
-    Res.push_back("-mfloat-abi", Opts.FloatABI);
-  if (!Opts.LimitFloatPrecision.empty())
-    Res.push_back("-mlimit-float-precision", Opts.LimitFloatPrecision);
-  if (Opts.NoZeroInitializedInBSS)
-    Res.push_back("-mno-zero-initialized-bss");
-  switch (Opts.getObjCDispatchMethod()) {
-  case CodeGenOptions::Legacy:
-    break;
-  case CodeGenOptions::Mixed:
-    Res.push_back("-fobjc-dispatch-method=mixed");
-    break;
-  case CodeGenOptions::NonLegacy:
-    Res.push_back("-fobjc-dispatch-method=non-legacy");
-    break;
-  }
-  if (Opts.BoundsChecking > 0)
-    Res.push_back("-fbounds-checking=" + llvm::utostr(Opts.BoundsChecking));
-  if (Opts.NumRegisterParameters)
-    Res.push_back("-mregparm", llvm::utostr(Opts.NumRegisterParameters));
-  if (Opts.NoGlobalMerge)
-    Res.push_back("-mno-global-merge");
-  if (Opts.NoExecStack)
-    Res.push_back("-mnoexecstack");
-  if (Opts.RelaxAll)
-    Res.push_back("-mrelax-all");
-  if (Opts.SaveTempLabels)
-    Res.push_back("-msave-temp-labels");
-  if (Opts.NoDwarf2CFIAsm)
-    Res.push_back("-fno-dwarf2-cfi-asm");
-  if (Opts.NoDwarfDirectoryAsm)
-    Res.push_back("-fno-dwarf-directory-asm");
-  if (Opts.SoftFloat)
-    Res.push_back("-msoft-float");
-  if (Opts.StrictEnums)
-    Res.push_back("-fstrict-enums");
-  if (Opts.UnwindTables)
-    Res.push_back("-munwind-tables");
-  if (Opts.RelocationModel != "pic")
-    Res.push_back("-mrelocation-model", Opts.RelocationModel);
-  if (!Opts.VerifyModule)
-    Res.push_back("-disable-llvm-verifier");
-  for (unsigned i = 0, e = Opts.BackendOptions.size(); i != e; ++i)
-    Res.push_back("-backend-option", Opts.BackendOptions[i]);
-
-  switch (Opts.getDefaultTLSModel()) {
-  case CodeGenOptions::GeneralDynamicTLSModel:
-    break;
-  case CodeGenOptions::LocalDynamicTLSModel:
-    Res.push_back("-ftls-model=local-dynamic");
-    break;
-  case CodeGenOptions::InitialExecTLSModel:
-    Res.push_back("-ftls-model=initial-exec");
-    break;
-  case CodeGenOptions::LocalExecTLSModel:
-    Res.push_back("-ftls-model=local-exec");
-    break;
-  }
-}
-
-static void DependencyOutputOptsToArgs(const DependencyOutputOptions &Opts,
-                                       ToArgsList &Res) {
-  if (Opts.IncludeSystemHeaders)
-    Res.push_back("-sys-header-deps");
-  if (Opts.ShowHeaderIncludes)
-    Res.push_back("-H");
-  if (!Opts.HeaderIncludeOutputFile.empty())
-    Res.push_back("-header-include-file", Opts.HeaderIncludeOutputFile);
-  if (Opts.UsePhonyTargets)
-    Res.push_back("-MP");
-  if (!Opts.OutputFile.empty())
-    Res.push_back("-dependency-file", Opts.OutputFile);
-  for (unsigned i = 0, e = Opts.Targets.size(); i != e; ++i)
-    Res.push_back("-MT", Opts.Targets[i]);
-}
-
-static void DiagnosticOptsToArgs(const DiagnosticOptions &Opts,
-                                 ToArgsList &Res) {
-  if (Opts.IgnoreWarnings)
-    Res.push_back("-w");
-  if (Opts.NoRewriteMacros)
-    Res.push_back("-Wno-rewrite-macros");
-  if (Opts.Pedantic)
-    Res.push_back("-pedantic");
-  if (Opts.PedanticErrors)
-    Res.push_back("-pedantic-errors");
-  if (!Opts.ShowColumn)
-    Res.push_back("-fno-show-column");
-  if (!Opts.ShowLocation)
-    Res.push_back("-fno-show-source-location");
-  if (!Opts.ShowCarets)
-    Res.push_back("-fno-caret-diagnostics");
-  if (!Opts.ShowFixits)
-    Res.push_back("-fno-diagnostics-fixit-info");
-  if (Opts.ShowSourceRanges)
-    Res.push_back("-fdiagnostics-print-source-range-info");
-  if (Opts.ShowParseableFixits)
-    Res.push_back("-fdiagnostics-parseable-fixits");
-  if (Opts.ShowColors)
-    Res.push_back("-fcolor-diagnostics");
-  if (Opts.VerifyDiagnostics)
-    Res.push_back("-verify");
-  if (Opts.ShowOptionNames)
-    Res.push_back("-fdiagnostics-show-option");
-  if (Opts.ShowCategories == 1)
-    Res.push_back("-fdiagnostics-show-category=id");
-  else if (Opts.ShowCategories == 2)
-    Res.push_back("-fdiagnostics-show-category=name");
-  switch (Opts.getFormat()) {
-  case DiagnosticOptions::Clang: 
-    Res.push_back("-fdiagnostics-format=clang"); break;
-  case DiagnosticOptions::Msvc:  
-    Res.push_back("-fdiagnostics-format=msvc");  break;
-  case DiagnosticOptions::Vi:    
-    Res.push_back("-fdiagnostics-format=vi");    break;
-  }
-  if (Opts.ErrorLimit)
-    Res.push_back("-ferror-limit", llvm::utostr(Opts.ErrorLimit));
-  if (!Opts.DiagnosticLogFile.empty())
-    Res.push_back("-diagnostic-log-file", Opts.DiagnosticLogFile);
-  if (Opts.MacroBacktraceLimit
-                        != DiagnosticOptions::DefaultMacroBacktraceLimit)
-    Res.push_back("-fmacro-backtrace-limit",
-                  llvm::utostr(Opts.MacroBacktraceLimit));
-  if (Opts.TemplateBacktraceLimit
-                        != DiagnosticOptions::DefaultTemplateBacktraceLimit)
-    Res.push_back("-ftemplate-backtrace-limit",
-                  llvm::utostr(Opts.TemplateBacktraceLimit));
-  if (Opts.ConstexprBacktraceLimit
-                        != DiagnosticOptions::DefaultConstexprBacktraceLimit)
-    Res.push_back("-fconstexpr-backtrace-limit",
-                  llvm::utostr(Opts.ConstexprBacktraceLimit));
-
-  if (Opts.TabStop != DiagnosticOptions::DefaultTabStop)
-    Res.push_back("-ftabstop", llvm::utostr(Opts.TabStop));
-  if (Opts.MessageLength)
-    Res.push_back("-fmessage-length", llvm::utostr(Opts.MessageLength));
-  if (!Opts.DumpBuildInformation.empty())
-    Res.push_back("-dump-build-information", Opts.DumpBuildInformation);
-  for (unsigned i = 0, e = Opts.Warnings.size(); i != e; ++i)
-    Res.push_back("-W" + Opts.Warnings[i]);
-}
-
-static const char *getInputKindName(InputKind Kind) {
-  switch (Kind) {
-  case IK_None:              break;
-  case IK_AST:               return "ast";
-  case IK_Asm:               return "assembler-with-cpp";
-  case IK_C:                 return "c";
-  case IK_CXX:               return "c++";
-  case IK_LLVM_IR:           return "ir";
-  case IK_ObjC:              return "objective-c";
-  case IK_ObjCXX:            return "objective-c++";
-  case IK_OpenCL:            return "cl";
-  case IK_CUDA:              return "cuda";
-  case IK_PreprocessedC:     return "cpp-output";
-  case IK_PreprocessedCXX:   return "c++-cpp-output";
-  case IK_PreprocessedObjC:  return "objective-c-cpp-output";
-  case IK_PreprocessedObjCXX:return "objective-c++-cpp-output";
-  }
-
-  llvm_unreachable("Unexpected language kind!");
-}
-
-static const char *getActionName(frontend::ActionKind Kind) {
-  switch (Kind) {
-  case frontend::PluginAction:
-    llvm_unreachable("Invalid kind!");
-
-  case frontend::ASTDeclList:            return "-ast-list";
-  case frontend::ASTDump:                return "-ast-dump";
-  case frontend::ASTDumpXML:             return "-ast-dump-xml";
-  case frontend::ASTPrint:               return "-ast-print";
-  case frontend::ASTView:                return "-ast-view";
-  case frontend::DumpRawTokens:          return "-dump-raw-tokens";
-  case frontend::DumpTokens:             return "-dump-tokens";
-  case frontend::EmitAssembly:           return "-S";
-  case frontend::EmitBC:                 return "-emit-llvm-bc";
-  case frontend::EmitHTML:               return "-emit-html";
-  case frontend::EmitLLVM:               return "-emit-llvm";
-  case frontend::EmitLLVMOnly:           return "-emit-llvm-only";
-  case frontend::EmitCodeGenOnly:        return "-emit-codegen-only";
-  case frontend::EmitObj:                return "-emit-obj";
-  case frontend::FixIt:                  return "-fixit";
-  case frontend::GenerateModule:         return "-emit-module";
-  case frontend::GeneratePCH:            return "-emit-pch";
-  case frontend::GeneratePTH:            return "-emit-pth";
-  case frontend::InitOnly:               return "-init-only";
-  case frontend::ParseSyntaxOnly:        return "-fsyntax-only";
-  case frontend::PrintDeclContext:       return "-print-decl-contexts";
-  case frontend::PrintPreamble:          return "-print-preamble";
-  case frontend::PrintPreprocessedInput: return "-E";
-  case frontend::RewriteMacros:          return "-rewrite-macros";
-  case frontend::RewriteObjC:            return "-rewrite-objc";
-  case frontend::RewriteTest:            return "-rewrite-test";
-  case frontend::RunAnalysis:            return "-analyze";
-  case frontend::MigrateSource:          return "-migrate";
-  case frontend::RunPreprocessorOnly:    return "-Eonly";
-  }
-
-  llvm_unreachable("Unexpected language kind!");
-}
-
-static void FileSystemOptsToArgs(const FileSystemOptions &Opts, ToArgsList &Res){
-  if (!Opts.WorkingDir.empty())
-    Res.push_back("-working-directory", Opts.WorkingDir);
-}
-
-static void CodeCompleteOptionsToArgs(const CodeCompleteOptions &Opts,
-                                      ToArgsList &Res) {
-  if (Opts.IncludeMacros)
-    Res.push_back("-code-completion-macros");
-  if (Opts.IncludeCodePatterns)
-    Res.push_back("-code-completion-patterns");
-  if (!Opts.IncludeGlobals)
-    Res.push_back("-no-code-completion-globals");
-  if (Opts.IncludeBriefComments)
-    Res.push_back("-code-completion-brief-comments");
-}
-
-static void FrontendOptsToArgs(const FrontendOptions &Opts, ToArgsList &Res) {
-  if (Opts.DisableFree)
-    Res.push_back("-disable-free");
-  if (Opts.RelocatablePCH)
-    Res.push_back("-relocatable-pch");
-  if (Opts.ShowHelp)
-    Res.push_back("-help");
-  if (Opts.ShowStats)
-    Res.push_back("-print-stats");
-  if (Opts.ShowTimers)
-    Res.push_back("-ftime-report");
-  if (Opts.ShowVersion)
-    Res.push_back("-version");
-  if (Opts.FixWhatYouCan)
-    Res.push_back("-fix-what-you-can");
-  if (Opts.FixOnlyWarnings)
-    Res.push_back("-fix-only-warnings");
-  if (Opts.FixAndRecompile)
-    Res.push_back("-fixit-recompile");
-  if (Opts.FixToTemporaries)
-    Res.push_back("-fixit-to-temporary");
-  switch (Opts.ARCMTAction) {
-  case FrontendOptions::ARCMT_None:
-    break;
-  case FrontendOptions::ARCMT_Check:
-    Res.push_back("-arcmt-check");
-    break;
-  case FrontendOptions::ARCMT_Modify:
-    Res.push_back("-arcmt-modify");
-    break;
-  case FrontendOptions::ARCMT_Migrate:
-    Res.push_back("-arcmt-migrate");
-    break;
-  }
-  CodeCompleteOptionsToArgs(Opts.CodeCompleteOpts, Res);
-  if (!Opts.MTMigrateDir.empty())
-    Res.push_back("-mt-migrate-directory", Opts.MTMigrateDir);
-  if (!Opts.ARCMTMigrateReportOut.empty())
-    Res.push_back("-arcmt-migrate-report-output", Opts.ARCMTMigrateReportOut);
-  if (Opts.ARCMTMigrateEmitARCErrors)
-    Res.push_back("-arcmt-migrate-emit-errors");
-
-  if (Opts.ObjCMTAction & ~FrontendOptions::ObjCMT_Literals)
-    Res.push_back("-objcmt-migrate-literals");
-  if (Opts.ObjCMTAction & ~FrontendOptions::ObjCMT_Subscripting)
-    Res.push_back("-objcmt-migrate-subscripting");
-
-  bool NeedLang = false;
-  for (unsigned i = 0, e = Opts.Inputs.size(); i != e; ++i)
-    if (FrontendOptions::getInputKindForExtension(Opts.Inputs[i].File) !=
-        Opts.Inputs[i].Kind)
-      NeedLang = true;
-  if (NeedLang)
-    Res.push_back("-x", getInputKindName(Opts.Inputs[0].Kind));
-  for (unsigned i = 0, e = Opts.Inputs.size(); i != e; ++i) {
-    assert((!NeedLang || Opts.Inputs[i].Kind == Opts.Inputs[0].Kind) &&
-           "Unable to represent this input vector!");
-    Res.push_back(Opts.Inputs[i].File);
-  }
-
-  if (!Opts.OutputFile.empty())
-    Res.push_back("-o", Opts.OutputFile);
-  if (!Opts.CodeCompletionAt.FileName.empty())
-    Res.push_back("-code-completion-at",
-                  Opts.CodeCompletionAt.FileName + ":" +
-                  llvm::utostr(Opts.CodeCompletionAt.Line) + ":" +
-                  llvm::utostr(Opts.CodeCompletionAt.Column));
-  if (Opts.ProgramAction != frontend::PluginAction)
-    Res.push_back(getActionName(Opts.ProgramAction));
-  if (!Opts.ActionName.empty()) {
-    Res.push_back("-plugin", Opts.ActionName);
-    for(unsigned i = 0, e = Opts.PluginArgs.size(); i != e; ++i)
-      Res.push_back("-plugin-arg-" + Opts.ActionName, Opts.PluginArgs[i]);
-  }
-  if (!Opts.ASTDumpFilter.empty())
-    Res.push_back("-ast-dump-filter", Opts.ASTDumpFilter);
-  for (unsigned i = 0, e = Opts.Plugins.size(); i != e; ++i)
-    Res.push_back("-load", Opts.Plugins[i]);
-  for (unsigned i = 0, e = Opts.AddPluginActions.size(); i != e; ++i) {
-    Res.push_back("-add-plugin", Opts.AddPluginActions[i]);
-    for(unsigned ai = 0, ae = Opts.AddPluginArgs.size(); ai != ae; ++ai)
-      Res.push_back("-plugin-arg-" + Opts.AddPluginActions[i],
-                    Opts.AddPluginArgs[i][ai]);
-  }
-  for (unsigned i = 0, e = Opts.ASTMergeFiles.size(); i != e; ++i)
-    Res.push_back("-ast-merge", Opts.ASTMergeFiles[i]);
-  for (unsigned i = 0, e = Opts.LLVMArgs.size(); i != e; ++i)
-    Res.push_back("-mllvm", Opts.LLVMArgs[i]);
-  if (!Opts.OverrideRecordLayoutsFile.empty())
-    Res.push_back("-foverride-record-layout=" + Opts.OverrideRecordLayoutsFile);
-}
-
-static void HeaderSearchOptsToArgs(const HeaderSearchOptions &Opts,
-                                   ToArgsList &Res) {
-  if (Opts.Sysroot != "/") {
-    Res.push_back("-isysroot");
-    Res.push_back(Opts.Sysroot);
-  }
-
-  /// User specified include entries.
-  for (unsigned i = 0, e = Opts.UserEntries.size(); i != e; ++i) {
-    const HeaderSearchOptions::Entry &E = Opts.UserEntries[i];
-    if (E.IsFramework && (E.Group != frontend::Angled || !E.IsUserSupplied))
-      llvm::report_fatal_error("Invalid option set!");
-    if (E.IsUserSupplied) {
-      switch (E.Group) {
-      case frontend::After:
-        Res.push_back("-idirafter");
-        break;
-        
-      case frontend::Quoted:
-        Res.push_back("-iquote");
-        break;
-        
-      case frontend::System:
-        Res.push_back("-isystem");
-        break;
-        
-      case frontend::IndexHeaderMap:
-        Res.push_back("-index-header-map");
-        Res.push_back(E.IsFramework? "-F" : "-I");
-        break;
-        
-      case frontend::CSystem:
-        Res.push_back("-c-isystem");
-        break;
-
-      case frontend::CXXSystem:
-        Res.push_back("-cxx-isystem");
-        break;
-
-      case frontend::ObjCSystem:
-        Res.push_back("-objc-isystem");
-        break;
-
-      case frontend::ObjCXXSystem:
-        Res.push_back("-objcxx-isystem");
-        break;
-        
-      case frontend::Angled:
-        Res.push_back(E.IsFramework ? "-F" : "-I");
-        break;
-      }
-    } else {
-      if (E.IsInternal) {
-        assert(E.Group == frontend::System && "Unexpected header search group");
-        if (E.ImplicitExternC)
-          Res.push_back("-internal-externc-isystem");
-        else
-          Res.push_back("-internal-isystem");
-      } else {
-        if (E.Group != frontend::Angled && E.Group != frontend::System)
-          llvm::report_fatal_error("Invalid option set!");
-        Res.push_back(E.Group == frontend::Angled ? "-iwithprefixbefore" :
-                      "-iwithprefix");
-      }
-    }
-    Res.push_back(E.Path);
-  }
-
-  /// User-specified system header prefixes.
-  for (unsigned i = 0, e = Opts.SystemHeaderPrefixes.size(); i != e; ++i) {
-    if (Opts.SystemHeaderPrefixes[i].IsSystemHeader)
-      Res.push_back("-isystem-prefix");
-    else
-      Res.push_back("-ino-system-prefix");
-
-    Res.push_back(Opts.SystemHeaderPrefixes[i].Prefix);
-  }
-
-  if (!Opts.ResourceDir.empty())
-    Res.push_back("-resource-dir", Opts.ResourceDir);
-  if (!Opts.ModuleCachePath.empty())
-    Res.push_back("-fmodule-cache-path", Opts.ModuleCachePath);
-  if (!Opts.UseStandardSystemIncludes)
-    Res.push_back("-nostdsysteminc");
-  if (!Opts.UseStandardCXXIncludes)
-    Res.push_back("-nostdinc++");
-  if (Opts.UseLibcxx)
-    Res.push_back("-stdlib=libc++");
-  if (Opts.Verbose)
-    Res.push_back("-v");
-}
-
-static void LangOptsToArgs(const LangOptions &Opts, ToArgsList &Res) {
-  LangOptions DefaultLangOpts;
-
-  // FIXME: Need to set -std to get all the implicit options.
-
-  // FIXME: We want to only pass options relative to the defaults, which
-  // requires constructing a target. :(
-  //
-  // It would be better to push the all target specific choices into the driver,
-  // so that everything below that was more uniform.
-
-  if (Opts.Trigraphs)
-    Res.push_back("-trigraphs");
-  // Implicit based on the input kind:
-  //   AsmPreprocessor, CPlusPlus, ObjC1, ObjC2, OpenCL
-  // Implicit based on the input language standard:
-  //   BCPLComment, C99, CPlusPlus0x, Digraphs, GNUInline, ImplicitInt, GNUMode
-  if (Opts.DollarIdents)
-    Res.push_back("-fdollars-in-identifiers");
-  if (Opts.GNUMode && !Opts.GNUKeywords)
-    Res.push_back("-fno-gnu-keywords");
-  if (!Opts.GNUMode && Opts.GNUKeywords)
-    Res.push_back("-fgnu-keywords");
-  if (Opts.MicrosoftExt)
-    Res.push_back("-fms-extensions");
-  if (Opts.MicrosoftMode)
-    Res.push_back("-fms-compatibility");
-  if (Opts.MSCVersion != 0)
-    Res.push_back("-fmsc-version=" + llvm::utostr(Opts.MSCVersion));
-  if (Opts.Borland)
-    Res.push_back("-fborland-extensions");
-  if (Opts.ObjCDefaultSynthProperties)
-    Res.push_back("-fobjc-default-synthesize-properties");
-  // NoInline is implicit.
-  if (!Opts.CXXOperatorNames)
-    Res.push_back("-fno-operator-names");
-  if (Opts.PascalStrings)
-    Res.push_back("-fpascal-strings");
-  if (Opts.CatchUndefined)
-    Res.push_back("-fcatch-undefined-behavior");
-  if (Opts.AddressSanitizer)
-    Res.push_back("-faddress-sanitizer");
-  if (Opts.MemorySanitizer)
-    Res.push_back("-fmemory-sanitizer");
-  if (Opts.ThreadSanitizer)
-    Res.push_back("-fthread-sanitizer");
-  if (Opts.WritableStrings)
-    Res.push_back("-fwritable-strings");
-  if (Opts.ConstStrings)
-    Res.push_back("-fconst-strings");
-  if (!Opts.LaxVectorConversions)
-    Res.push_back("-fno-lax-vector-conversions");
-  if (Opts.AltiVec)
-    Res.push_back("-faltivec");
-  if (Opts.Exceptions)
-    Res.push_back("-fexceptions");
-  if (Opts.ObjCExceptions)
-    Res.push_back("-fobjc-exceptions");
-  if (Opts.CXXExceptions)
-    Res.push_back("-fcxx-exceptions");
-  if (Opts.SjLjExceptions)
-    Res.push_back("-fsjlj-exceptions");
-  if (Opts.TraditionalCPP)
-    Res.push_back("-traditional-cpp");
-  if (!Opts.RTTI)
-    Res.push_back("-fno-rtti");
-  if (Opts.MSBitfields)
-    Res.push_back("-mms-bitfields");
-  if (Opts.Freestanding)
-    Res.push_back("-ffreestanding");
-  if (Opts.NoBuiltin)
-    Res.push_back("-fno-builtin");
-  if (!Opts.AssumeSaneOperatorNew)
-    Res.push_back("-fno-assume-sane-operator-new");
-  if (!Opts.ThreadsafeStatics)
-    Res.push_back("-fno-threadsafe-statics");
-  if (Opts.POSIXThreads)
-    Res.push_back("-pthread");
-  if (Opts.Blocks)
-    Res.push_back("-fblocks");
-  if (Opts.BlocksRuntimeOptional)
-    Res.push_back("-fblocks-runtime-optional");
-  if (Opts.Modules)
-    Res.push_back("-fmodules");
-  if (Opts.EmitAllDecls)
-    Res.push_back("-femit-all-decls");
-  if (Opts.MathErrno)
-    Res.push_back("-fmath-errno");
-  switch (Opts.getSignedOverflowBehavior()) {
-  case LangOptions::SOB_Undefined: break;
-  case LangOptions::SOB_Defined:   Res.push_back("-fwrapv"); break;
-  case LangOptions::SOB_Trapping:
-    Res.push_back("-ftrapv");
-    if (!Opts.OverflowHandler.empty())
-      Res.push_back("-ftrapv-handler", Opts.OverflowHandler);
-    break;
-  }
-  switch (Opts.getFPContractMode()) {
-  case LangOptions::FPC_Off:  Res.push_back("-ffp-contract=off"); break;
-  case LangOptions::FPC_On:   Res.push_back("-ffp-contract=on"); break;
-  case LangOptions::FPC_Fast: Res.push_back("-ffp-contract=fast"); break;
-  }
-  if (Opts.HeinousExtensions)
-    Res.push_back("-fheinous-gnu-extensions");
-  // Optimize is implicit.
-  // OptimizeSize is implicit.
-  if (Opts.FastMath)
-    Res.push_back("-ffast-math");
-  if (Opts.Static)
-    Res.push_back("-static-define");
-  if (Opts.DumpRecordLayoutsSimple)
-    Res.push_back("-fdump-record-layouts-simple");
-  else if (Opts.DumpRecordLayouts)
-    Res.push_back("-fdump-record-layouts");
-  if (Opts.DumpVTableLayouts)
-    Res.push_back("-fdump-vtable-layouts");
-  if (Opts.NoBitFieldTypeAlign)
-    Res.push_back("-fno-bitfield-type-alignment");
-  if (Opts.PICLevel)
-    Res.push_back("-pic-level", llvm::utostr(Opts.PICLevel));
-  if (Opts.PIELevel)
-    Res.push_back("-pie-level", llvm::utostr(Opts.PIELevel));
-  if (Opts.ObjCGCBitmapPrint)
-    Res.push_back("-print-ivar-layout");
-  if (Opts.NoConstantCFStrings)
-    Res.push_back("-fno-constant-cfstrings");
-  if (!Opts.AccessControl)
-    Res.push_back("-fno-access-control");
-  if (!Opts.CharIsSigned)
-    Res.push_back("-fno-signed-char");
-  if (Opts.CPlusPlus && !Opts.WChar)
-    Res.push_back("-fno-wchar");
-  if (Opts.ShortWChar)
-    Res.push_back("-fshort-wchar");
-  if (!Opts.ElideConstructors)
-    Res.push_back("-fno-elide-constructors");
-  if (Opts.getGC() != LangOptions::NonGC) {
-    if (Opts.getGC() == LangOptions::HybridGC) {
-      Res.push_back("-fobjc-gc");
-    } else {
-      assert(Opts.getGC() == LangOptions::GCOnly && "Invalid GC mode!");
-      Res.push_back("-fobjc-gc-only");
-    }
-  }
-  Res.push_back("-fobjc-runtime=" + Opts.ObjCRuntime.getAsString());
-  if (Opts.ObjCAutoRefCount)
-    Res.push_back("-fobjc-arc");
-  if (Opts.ObjCARCWeak)
-    Res.push_back("-fobjc-runtime-has-weak");
-  if (!Opts.ObjCInferRelatedResultType)
-    Res.push_back("-fno-objc-infer-related-result-type");
-  
-  if (Opts.AppleKext)
-    Res.push_back("-fapple-kext");
-
-  if (Opts.getVisibilityMode() != DefaultVisibility) {
-    Res.push_back("-fvisibility");
-    if (Opts.getVisibilityMode() == HiddenVisibility) {
-      Res.push_back("hidden");
-    } else {
-      assert(Opts.getVisibilityMode() == ProtectedVisibility &&
-             "Invalid visibility!");
-      Res.push_back("protected");
-    }
-  }
-  if (Opts.InlineVisibilityHidden)
-    Res.push_back("-fvisibility-inlines-hidden");
-
-  if (Opts.getStackProtector() != 0)
-    Res.push_back("-stack-protector", llvm::utostr(Opts.getStackProtector()));
-  if (Opts.InstantiationDepth != DefaultLangOpts.InstantiationDepth)
-    Res.push_back("-ftemplate-depth", llvm::utostr(Opts.InstantiationDepth));
-  if (Opts.ConstexprCallDepth != DefaultLangOpts.ConstexprCallDepth)
-    Res.push_back("-fconstexpr-depth", llvm::utostr(Opts.ConstexprCallDepth));
-  if (!Opts.ObjCConstantStringClass.empty())
-    Res.push_back("-fconstant-string-class", Opts.ObjCConstantStringClass);
-  if (Opts.FakeAddressSpaceMap)
-    Res.push_back("-ffake-address-space-map");
-  if (Opts.ParseUnknownAnytype)
-    Res.push_back("-funknown-anytype");
-  if (Opts.DebuggerSupport)
-    Res.push_back("-fdebugger-support");
-  if (Opts.DebuggerCastResultToId)
-    Res.push_back("-fdebugger-cast-result-to-id");
-  if (Opts.DebuggerObjCLiteral)
-    Res.push_back("-fdebugger-objc-literal");
-  if (Opts.DelayedTemplateParsing)
-    Res.push_back("-fdelayed-template-parsing");
-  if (Opts.Deprecated)
-    Res.push_back("-fdeprecated-macro");
-  if (Opts.ApplePragmaPack)
-    Res.push_back("-fapple-pragma-pack");
-  if (!Opts.CurrentModule.empty())
-    Res.push_back("-fmodule-name=" + Opts.CurrentModule);
-}
-
-static void PreprocessorOptsToArgs(const PreprocessorOptions &Opts,
-                                   ToArgsList &Res) {
-  for (unsigned i = 0, e = Opts.Macros.size(); i != e; ++i)
-    Res.push_back(std::string(Opts.Macros[i].second ? "-U" : "-D") +
-                  Opts.Macros[i].first);
-  for (unsigned i = 0, e = Opts.Includes.size(); i != e; ++i) {
-    // FIXME: We need to avoid reincluding the implicit PCH and PTH includes.
-    Res.push_back("-include", Opts.Includes[i]);
-  }
-  for (unsigned i = 0, e = Opts.MacroIncludes.size(); i != e; ++i)
-    Res.push_back("-imacros", Opts.MacroIncludes[i]);
-  if (!Opts.UsePredefines)
-    Res.push_back("-undef");
-  if (Opts.DetailedRecord)
-    Res.push_back("-detailed-preprocessing-record");
-  if (!Opts.ImplicitPCHInclude.empty())
-    Res.push_back("-include-pch", Opts.ImplicitPCHInclude);
-  if (!Opts.ImplicitPTHInclude.empty())
-    Res.push_back("-include-pth", Opts.ImplicitPTHInclude);
-  if (!Opts.TokenCache.empty()) {
-    if (Opts.ImplicitPTHInclude.empty())
-      Res.push_back("-token-cache", Opts.TokenCache);
-    else
-      assert(Opts.ImplicitPTHInclude == Opts.TokenCache &&
-             "Unsupported option combination!");
-  }
-  for (unsigned i = 0, e = Opts.ChainedIncludes.size(); i != e; ++i)
-    Res.push_back("-chain-include", Opts.ChainedIncludes[i]);
-  for (unsigned i = 0, e = Opts.RemappedFiles.size(); i != e; ++i) {
-    Res.push_back("-remap-file", Opts.RemappedFiles[i].first + ";" +
-                                 Opts.RemappedFiles[i].second);
-  }
-}
-
-static void PreprocessorOutputOptsToArgs(const PreprocessorOutputOptions &Opts,
-                                         ToArgsList &Res) {
-  if (!Opts.ShowCPP && !Opts.ShowMacros)
-    llvm::report_fatal_error("Invalid option combination!");
-
-  if (Opts.ShowCPP && Opts.ShowMacros)
-    Res.push_back("-dD");
-  else if (!Opts.ShowCPP && Opts.ShowMacros)
-    Res.push_back("-dM");
-
-  if (!Opts.ShowLineMarkers)
-    Res.push_back("-P");
-  if (Opts.ShowComments)
-    Res.push_back("-C");
-  if (Opts.ShowMacroComments)
-    Res.push_back("-CC");
-}
-
-static void TargetOptsToArgs(const TargetOptions &Opts,
-                             ToArgsList &Res) {
-  Res.push_back("-triple");
-  Res.push_back(Opts.Triple);
-  if (!Opts.CPU.empty())
-    Res.push_back("-target-cpu", Opts.CPU);
-  if (!Opts.ABI.empty())
-    Res.push_back("-target-abi", Opts.ABI);
-  if (!Opts.LinkerVersion.empty())
-    Res.push_back("-target-linker-version", Opts.LinkerVersion);
-  if (!Opts.CXXABI.empty())
-    Res.push_back("-cxx-abi", Opts.CXXABI);
-  for (unsigned i = 0, e = Opts.FeaturesAsWritten.size(); i != e; ++i)
-    Res.push_back("-target-feature", Opts.FeaturesAsWritten[i]);
-}
-
-void CompilerInvocation::toArgs(std::vector<std::string> &Res) const {
-  ToArgsList List(Res);
-  AnalyzerOptsToArgs(*getAnalyzerOpts(), List);
-  CodeGenOptsToArgs(getCodeGenOpts(), List);
-  DependencyOutputOptsToArgs(getDependencyOutputOpts(), List);
-  DiagnosticOptsToArgs(getDiagnosticOpts(), List);
-  FileSystemOptsToArgs(getFileSystemOpts(), List);
-  FrontendOptsToArgs(getFrontendOpts(), List);
-  HeaderSearchOptsToArgs(getHeaderSearchOpts(), List);
-  LangOptsToArgs(*getLangOpts(), List);
-  PreprocessorOptsToArgs(getPreprocessorOpts(), List);
-  PreprocessorOutputOptsToArgs(getPreprocessorOutputOpts(), List);
-  TargetOptsToArgs(getTargetOpts(), List);
-}
-
-//===----------------------------------------------------------------------===//
-// Deserialization (to args)
+// Deserialization (from args)
 //===----------------------------------------------------------------------===//
 
 using namespace clang::driver;
@@ -978,7 +71,7 @@ static unsigned getOptimizationLevel(ArgList &Args, InputKind IK,
 
     assert (A->getOption().matches(options::OPT_O));
 
-    llvm::StringRef S(A->getValue(Args));
+    llvm::StringRef S(A->getValue());
     if (S == "s" || S == "z" || S.empty())
       return 2;
 
@@ -992,7 +85,7 @@ static unsigned getOptimizationLevelSize(ArgList &Args, InputKind IK,
                                          DiagnosticsEngine &Diags) {
   if (Arg *A = Args.getLastArg(options::OPT_O_Group)) {
     if (A->getOption().matches(options::OPT_O)) {
-      switch (A->getValue(Args)[0]) {
+      switch (A->getValue()[0]) {
       default:
         return 0;
       case 's':
@@ -1016,7 +109,7 @@ static void addWarningArgs(ArgList &Args, std::vector<std::string> &Warnings) {
     } else {
       for (unsigned Idx = 0, End = A->getNumValues();
            Idx < End; ++Idx) {
-        StringRef V = A->getValue(Args, Idx);
+        StringRef V = A->getValue(Idx);
         // "-Wl," and such are not warning options.
         // FIXME: Should be handled by putting these in separate flags.
         if (V.startswith("l,") || V.startswith("a,") || V.startswith("p,"))
@@ -1033,7 +126,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   using namespace options;
   bool Success = true;
   if (Arg *A = Args.getLastArg(OPT_analyzer_store)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     AnalysisStores Value = llvm::StringSwitch<AnalysisStores>(Name)
 #define ANALYSIS_STORE(NAME, CMDFLAG, DESC, CREATFN) \
       .Case(CMDFLAG, NAME##Model)
@@ -1049,7 +142,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   }
 
   if (Arg *A = Args.getLastArg(OPT_analyzer_constraints)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     AnalysisConstraints Value = llvm::StringSwitch<AnalysisConstraints>(Name)
 #define ANALYSIS_CONSTRAINTS(NAME, CMDFLAG, DESC, CREATFN) \
       .Case(CMDFLAG, NAME##Model)
@@ -1065,7 +158,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   }
 
   if (Arg *A = Args.getLastArg(OPT_analyzer_output)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     AnalysisDiagClients Value = llvm::StringSwitch<AnalysisDiagClients>(Name)
 #define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATFN, AUTOCREAT) \
       .Case(CMDFLAG, PD_##NAME)
@@ -1081,7 +174,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   }
 
   if (Arg *A = Args.getLastArg(OPT_analyzer_purge)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     AnalysisPurgeMode Value = llvm::StringSwitch<AnalysisPurgeMode>(Name)
 #define ANALYSIS_PURGE(NAME, CMDFLAG, DESC) \
       .Case(CMDFLAG, NAME)
@@ -1097,7 +190,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   }
 
   if (Arg *A = Args.getLastArg(OPT_analyzer_ipa)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     AnalysisIPAMode Value = llvm::StringSwitch<AnalysisIPAMode>(Name)
 #define ANALYSIS_IPA(NAME, CMDFLAG, DESC) \
       .Case(CMDFLAG, NAME)
@@ -1113,7 +206,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   }
 
   if (Arg *A = Args.getLastArg(OPT_analyzer_inlining_mode)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     AnalysisInliningMode Value = llvm::StringSwitch<AnalysisInliningMode>(Name)
 #define ANALYSIS_INLINING_MODE(NAME, CMDFLAG, DESC) \
       .Case(CMDFLAG, NAME)
@@ -1161,7 +254,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     bool enable = (A->getOption().getID() == OPT_analyzer_checker);
     // We can have a list of comma separated checker names, e.g:
     // '-analyzer-checker=cocoa,unix'
-    StringRef checkerList = A->getValue(Args);
+    StringRef checkerList = A->getValue();
     SmallVector<StringRef, 4> checkers;
     checkerList.split(checkers, ",");
     for (unsigned i = 0, e = checkers.size(); i != e; ++i)
@@ -1175,7 +268,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
     A->claim();
     // We can have a list of comma separated config names, e.g:
     // '-analyzer-config key1=val1,key2=val2'
-    StringRef configList = A->getValue(Args);
+    StringRef configList = A->getValue();
     SmallVector<StringRef, 4> configVals;
     configList.split(configVals, ",");
     for (unsigned i = 0, e = configVals.size(); i != e; ++i) {
@@ -1293,8 +386,6 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.UnwindTables = Args.hasArg(OPT_munwind_tables);
   Opts.RelocationModel = Args.getLastArgValue(OPT_mrelocation_model, "pic");
   Opts.TrapFuncName = Args.getLastArgValue(OPT_ftrap_function_EQ);
-  Opts.BoundsChecking = Args.getLastArgIntValue(OPT_fbounds_checking_EQ, 0,
-                                                Diags);
   Opts.UseInitArray = Args.hasArg(OPT_fuse_init_array);
 
   Opts.FunctionSections = Args.hasArg(OPT_ffunction_sections);
@@ -1315,14 +406,14 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
     Args.getLastArgIntValue(OPT_stack_protector_buffer_size, 8, Diags);
   Opts.StackRealignment = Args.hasArg(OPT_mstackrealign);
   if (Arg *A = Args.getLastArg(OPT_mstack_alignment)) {
-    StringRef Val = A->getValue(Args);
+    StringRef Val = A->getValue();
     unsigned StackAlignment = Opts.StackAlignment;
     Val.getAsInteger(10, StackAlignment);
     Opts.StackAlignment = StackAlignment;
   }
 
   if (Arg *A = Args.getLastArg(OPT_fobjc_dispatch_method_EQ)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     unsigned Method = llvm::StringSwitch<unsigned>(Name)
       .Case("legacy", CodeGenOptions::Legacy)
       .Case("non-legacy", CodeGenOptions::NonLegacy)
@@ -1338,7 +429,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   }
 
   if (Arg *A = Args.getLastArg(OPT_ftlsmodel_EQ)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     unsigned Model = llvm::StringSwitch<unsigned>(Name)
         .Case("global-dynamic", CodeGenOptions::GeneralDynamicTLSModel)
         .Case("local-dynamic", CodeGenOptions::LocalDynamicTLSModel)
@@ -1351,6 +442,18 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
     } else {
       Opts.setDefaultTLSModel(static_cast<CodeGenOptions::TLSModel>(Model));
     }
+  }
+
+  if (Arg *A = Args.getLastArg(OPT_ffp_contract)) {
+    StringRef Val = A->getValue();
+    if (Val == "fast")
+      Opts.setFPContractMode(CodeGenOptions::FPC_Fast);
+    else if (Val == "on")
+      Opts.setFPContractMode(CodeGenOptions::FPC_On);
+    else if (Val == "off")
+      Opts.setFPContractMode(CodeGenOptions::FPC_Off);
+    else
+      Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Val;
   }
 
   return Success;
@@ -1445,6 +548,7 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   
   Opts.ShowSourceRanges = Args.hasArg(OPT_fdiagnostics_print_source_range_info);
   Opts.ShowParseableFixits = Args.hasArg(OPT_fdiagnostics_parseable_fixits);
+  Opts.ShowPresumedLoc = !Args.hasArg(OPT_fno_diagnostics_use_presumed_location);
   Opts.VerifyDiagnostics = Args.hasArg(OPT_verify);
   Opts.ElideType = !Args.hasArg(OPT_fno_elide_type);
   Opts.ShowTemplateTree = Args.hasArg(OPT_fdiagnostics_show_template_tree);
@@ -1516,7 +620,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     case OPT_emit_obj:
       Opts.ProgramAction = frontend::EmitObj; break;
     case OPT_fixit_EQ:
-      Opts.FixItSuffix = A->getValue(Args);
+      Opts.FixItSuffix = A->getValue();
       // fall-through!
     case OPT_fixit:
       Opts.ProgramAction = frontend::FixIt; break;
@@ -1552,14 +656,14 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
   }
 
   if (const Arg* A = Args.getLastArg(OPT_plugin)) {
-    Opts.Plugins.push_back(A->getValue(Args,0));
+    Opts.Plugins.push_back(A->getValue(0));
     Opts.ProgramAction = frontend::PluginAction;
-    Opts.ActionName = A->getValue(Args);
+    Opts.ActionName = A->getValue();
 
     for (arg_iterator it = Args.filtered_begin(OPT_plugin_arg),
            end = Args.filtered_end(); it != end; ++it) {
-      if ((*it)->getValue(Args, 0) == Opts.ActionName)
-        Opts.PluginArgs.push_back((*it)->getValue(Args, 1));
+      if ((*it)->getValue(0) == Opts.ActionName)
+        Opts.PluginArgs.push_back((*it)->getValue(1));
     }
   }
 
@@ -1568,17 +672,17 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
   for (int i = 0, e = Opts.AddPluginActions.size(); i != e; ++i) {
     for (arg_iterator it = Args.filtered_begin(OPT_plugin_arg),
            end = Args.filtered_end(); it != end; ++it) {
-      if ((*it)->getValue(Args, 0) == Opts.AddPluginActions[i])
-        Opts.AddPluginArgs[i].push_back((*it)->getValue(Args, 1));
+      if ((*it)->getValue(0) == Opts.AddPluginActions[i])
+        Opts.AddPluginArgs[i].push_back((*it)->getValue(1));
     }
   }
 
   if (const Arg *A = Args.getLastArg(OPT_code_completion_at)) {
     Opts.CodeCompletionAt =
-      ParsedSourceLocation::FromString(A->getValue(Args));
+      ParsedSourceLocation::FromString(A->getValue());
     if (Opts.CodeCompletionAt.FileName.empty())
       Diags.Report(diag::err_drv_invalid_value)
-        << A->getAsString(Args) << A->getValue(Args);
+        << A->getAsString(Args) << A->getValue();
   }
   Opts.DisableFree = Args.hasArg(OPT_disable_free);
 
@@ -1644,7 +748,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
 
   InputKind DashX = IK_None;
   if (const Arg *A = Args.getLastArg(OPT_x)) {
-    DashX = llvm::StringSwitch<InputKind>(A->getValue(Args))
+    DashX = llvm::StringSwitch<InputKind>(A->getValue())
       .Case("c", IK_C)
       .Case("cl", IK_OpenCL)
       .Case("cuda", IK_CUDA)
@@ -1668,7 +772,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
       .Default(IK_None);
     if (DashX == IK_None)
       Diags.Report(diag::err_drv_invalid_value)
-        << A->getAsString(Args) << A->getValue(Args);
+        << A->getAsString(Args) << A->getValue();
   }
 
   // '-' is the default input if none is given.
@@ -1716,7 +820,7 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
   Opts.UseStandardSystemIncludes = !Args.hasArg(OPT_nostdsysteminc);
   Opts.UseStandardCXXIncludes = !Args.hasArg(OPT_nostdincxx);
   if (const Arg *A = Args.getLastArg(OPT_stdlib_EQ))
-    Opts.UseLibcxx = (strcmp(A->getValue(Args), "libc++") == 0);
+    Opts.UseLibcxx = (strcmp(A->getValue(), "libc++") == 0);
   Opts.ResourceDir = Args.getLastArgValue(OPT_resource_dir);
   Opts.ModuleCachePath = Args.getLastArgValue(OPT_fmodule_cache_path);
   Opts.DisableModuleHash = Args.hasArg(OPT_fdisable_module_hash);
@@ -1735,7 +839,7 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
     frontend::IncludeDirGroup Group 
       = IsIndexHeaderMap? frontend::IndexHeaderMap : frontend::Angled;
     
-    Opts.AddPath((*it)->getValue(Args), Group, true,
+    Opts.AddPath((*it)->getValue(), Group, true,
                  /*IsFramework=*/ (*it)->getOption().matches(OPT_F), false);
     IsIndexHeaderMap = false;
   }
@@ -1747,43 +851,43 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
          ie = Args.filtered_end(); it != ie; ++it) {
     const Arg *A = *it;
     if (A->getOption().matches(OPT_iprefix))
-      Prefix = A->getValue(Args);
+      Prefix = A->getValue();
     else if (A->getOption().matches(OPT_iwithprefix))
-      Opts.AddPath(Prefix.str() + A->getValue(Args),
+      Opts.AddPath(Prefix.str() + A->getValue(),
                    frontend::System, false, false, false);
     else
-      Opts.AddPath(Prefix.str() + A->getValue(Args),
+      Opts.AddPath(Prefix.str() + A->getValue(),
                    frontend::Angled, false, false, false);
   }
 
   for (arg_iterator it = Args.filtered_begin(OPT_idirafter),
          ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::After, true, false, false);
+    Opts.AddPath((*it)->getValue(), frontend::After, true, false, false);
   for (arg_iterator it = Args.filtered_begin(OPT_iquote),
          ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::Quoted, true, false, false);
+    Opts.AddPath((*it)->getValue(), frontend::Quoted, true, false, false);
   for (arg_iterator it = Args.filtered_begin(OPT_isystem,
          OPT_iwithsysroot), ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::System, true, false,
+    Opts.AddPath((*it)->getValue(), frontend::System, true, false,
                  !(*it)->getOption().matches(OPT_iwithsysroot));
   for (arg_iterator it = Args.filtered_begin(OPT_iframework),
          ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::System, true, true,
+    Opts.AddPath((*it)->getValue(), frontend::System, true, true,
                  true);
 
   // Add the paths for the various language specific isystem flags.
   for (arg_iterator it = Args.filtered_begin(OPT_c_isystem),
        ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::CSystem, true, false, true);
+    Opts.AddPath((*it)->getValue(), frontend::CSystem, true, false, true);
   for (arg_iterator it = Args.filtered_begin(OPT_cxx_isystem),
        ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::CXXSystem, true, false, true);
+    Opts.AddPath((*it)->getValue(), frontend::CXXSystem, true, false, true);
   for (arg_iterator it = Args.filtered_begin(OPT_objc_isystem),
        ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::ObjCSystem, true, false,true);
+    Opts.AddPath((*it)->getValue(), frontend::ObjCSystem, true, false,true);
   for (arg_iterator it = Args.filtered_begin(OPT_objcxx_isystem),
        ie = Args.filtered_end(); it != ie; ++it)
-    Opts.AddPath((*it)->getValue(Args), frontend::ObjCXXSystem, true, false,
+    Opts.AddPath((*it)->getValue(), frontend::ObjCXXSystem, true, false,
                  true);
 
   // Add the internal paths from a driver that detects standard include paths.
@@ -1791,7 +895,7 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
                                             OPT_internal_externc_isystem),
                     E = Args.filtered_end();
        I != E; ++I)
-    Opts.AddPath((*I)->getValue(Args), frontend::System,
+    Opts.AddPath((*I)->getValue(), frontend::System,
                  false, false, /*IgnoreSysRoot=*/true, /*IsInternal=*/true,
                  (*I)->getOption().matches(OPT_internal_externc_isystem));
 
@@ -1800,7 +904,7 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
                                             OPT_ino_system_prefix),
                     E = Args.filtered_end();
        I != E; ++I)
-    Opts.AddSystemHeaderPrefix((*I)->getValue(Args),
+    Opts.AddSystemHeaderPrefix((*I)->getValue(),
                                (*I)->getOption().matches(OPT_isystem_prefix));
 }
 
@@ -1848,7 +952,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   }
 
   const LangStandard &Std = LangStandard::getLangStandardForKind(LangStd);
-  Opts.BCPLComment = Std.hasBCPLComments();
+  Opts.LineComment = Std.hasLineComments();
   Opts.C99 = Std.isC99();
   Opts.C11 = Std.isC11();
   Opts.CPlusPlus = Std.isCPlusPlus();
@@ -1906,14 +1010,14 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // FIXME: Cleanup per-file based stuff.
   LangStandard::Kind LangStd = LangStandard::lang_unspecified;
   if (const Arg *A = Args.getLastArg(OPT_std_EQ)) {
-    LangStd = llvm::StringSwitch<LangStandard::Kind>(A->getValue(Args))
+    LangStd = llvm::StringSwitch<LangStandard::Kind>(A->getValue())
 #define LANGSTANDARD(id, name, desc, features) \
       .Case(name, LangStandard::lang_##id)
 #include "clang/Frontend/LangStandards.def"
       .Default(LangStandard::lang_unspecified);
     if (LangStd == LangStandard::lang_unspecified)
       Diags.Report(diag::err_drv_invalid_value)
-        << A->getAsString(Args) << A->getValue(Args);
+        << A->getAsString(Args) << A->getValue();
     else {
       // Valid standard, check to make sure language and standard are compatable.    
       const LangStandard &Std = LangStandard::getLangStandardForKind(LangStd);
@@ -1954,7 +1058,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   // Override the -std option in this case.
   if (const Arg *A = Args.getLastArg(OPT_cl_std_EQ)) {
     LangStandard::Kind OpenCLLangStd
-    = llvm::StringSwitch<LangStandard::Kind>(A->getValue(Args))
+    = llvm::StringSwitch<LangStandard::Kind>(A->getValue())
     .Case("CL", LangStandard::lang_opencl)
     .Case("CL1.1", LangStandard::lang_opencl11)
     .Case("CL1.2", LangStandard::lang_opencl12)
@@ -1962,7 +1066,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     
     if (OpenCLLangStd == LangStandard::lang_unspecified) {
       Diags.Report(diag::err_drv_invalid_value)
-      << A->getAsString(Args) << A->getValue(Args);
+      << A->getAsString(Args) << A->getValue();
     }
     else
       LangStd = OpenCLLangStd;
@@ -1983,7 +1087,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
   if (Opts.ObjC1) {
     if (Arg *arg = Args.getLastArg(OPT_fobjc_runtime_EQ)) {
-      StringRef value = arg->getValue(Args);
+      StringRef value = arg->getValue();
       if (Opts.ObjCRuntime.tryParse(value))
         Diags.Report(diag::err_drv_unknown_objc_runtime) << value;
     }
@@ -2043,18 +1147,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   else
     Diags.Report(diag::err_drv_invalid_value)
       << Args.getLastArg(OPT_fvisibility)->getAsString(Args) << Vis;
-
-  if (Arg *A = Args.getLastArg(OPT_ffp_contract)) {
-    StringRef Val = A->getValue(Args);
-    if (Val == "fast")
-      Opts.setFPContractMode(LangOptions::FPC_Fast);
-    else if (Val == "on")
-      Opts.setFPContractMode(LangOptions::FPC_On);
-    else if (Val == "off")
-      Opts.setFPContractMode(LangOptions::FPC_Off);
-    else
-      Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Val;
-  }
 
   if (Args.hasArg(OPT_fvisibility_inlines_hidden))
     Opts.InlineVisibilityHidden = 1;
@@ -2120,7 +1212,8 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
     Args.getLastArgValue(OPT_fconstant_string_class);
   Opts.ObjCDefaultSynthProperties =
     Args.hasArg(OPT_fobjc_default_synthesize_properties);
-  Opts.CatchUndefined = Args.hasArg(OPT_fcatch_undefined_behavior);
+  Opts.EncodeExtendedBlockSig =
+    Args.hasArg(OPT_fencode_extended_block_signature);
   Opts.EmitAllDecls = Args.hasArg(OPT_femit_all_decls);
   Opts.PackStruct = Args.getLastArgIntValue(OPT_fpack_struct_EQ, 0, Diags);
   Opts.PICLevel = Args.getLastArgIntValue(OPT_pic_level, 0, Diags);
@@ -2141,9 +1234,6 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.DebuggerSupport = Args.hasArg(OPT_fdebugger_support);
   Opts.DebuggerCastResultToId = Args.hasArg(OPT_fdebugger_cast_result_to_id);
   Opts.DebuggerObjCLiteral = Args.hasArg(OPT_fdebugger_objc_literal);
-  Opts.AddressSanitizer = Args.hasArg(OPT_faddress_sanitizer);
-  Opts.MemorySanitizer = Args.hasArg(OPT_fmemory_sanitizer);
-  Opts.ThreadSanitizer = Args.hasArg(OPT_fthread_sanitizer);
   Opts.ApplePragmaPack = Args.hasArg(OPT_fapple_pragma_pack);
   Opts.CurrentModule = Args.getLastArgValue(OPT_fmodule_name);
 
@@ -2181,6 +1271,37 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   case 1: Opts.setStackProtector(LangOptions::SSPOn);  break;
   case 2: Opts.setStackProtector(LangOptions::SSPReq); break;
   }
+
+  // Parse -fsanitize= arguments.
+  std::vector<std::string> Sanitizers = Args.getAllArgValues(OPT_fsanitize_EQ);
+  for (unsigned I = 0, N = Sanitizers.size(); I != N; ++I) {
+    // Since the Opts.Sanitize* values are bitfields, it's a little tricky to
+    // efficiently map string values to them. Perform the mapping indirectly:
+    // convert strings to enumerated values, then switch over the enum to set
+    // the right bitfield value.
+    enum Sanitizer {
+#define SANITIZER(NAME, ID) \
+      ID,
+#include "clang/Basic/Sanitizers.def"
+      Unknown
+    };
+    switch (llvm::StringSwitch<unsigned>(Sanitizers[I])
+#define SANITIZER(NAME, ID) \
+              .Case(NAME, ID)
+#include "clang/Basic/Sanitizers.def"
+              .Default(Unknown)) {
+#define SANITIZER(NAME, ID) \
+    case ID: \
+      Opts.Sanitize##ID = true; \
+      break;
+#include "clang/Basic/Sanitizers.def"
+
+    case Unknown:
+      Diags.Report(diag::err_drv_invalid_value)
+        << "-fsanitize=" << Sanitizers[I];
+      break;
+    }
+  }
 }
 
 static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
@@ -2190,7 +1311,7 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
   Opts.ImplicitPCHInclude = Args.getLastArgValue(OPT_include_pch);
   Opts.ImplicitPTHInclude = Args.getLastArgValue(OPT_include_pth);
   if (const Arg *A = Args.getLastArg(OPT_token_cache))
-      Opts.TokenCache = A->getValue(Args);
+      Opts.TokenCache = A->getValue();
   else
     Opts.TokenCache = Opts.ImplicitPTHInclude;
   Opts.UsePredefines = !Args.hasArg(OPT_undef);
@@ -2201,11 +1322,11 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
   for (arg_iterator it = Args.filtered_begin(OPT_error_on_deserialized_pch_decl),
          ie = Args.filtered_end(); it != ie; ++it) {
     const Arg *A = *it;
-    Opts.DeserializedPCHDeclsToErrorOn.insert(A->getValue(Args));
+    Opts.DeserializedPCHDeclsToErrorOn.insert(A->getValue());
   }
 
   if (const Arg *A = Args.getLastArg(OPT_preamble_bytes_EQ)) {
-    StringRef Value(A->getValue(Args));
+    StringRef Value(A->getValue());
     size_t Comma = Value.find(',');
     unsigned Bytes = 0;
     unsigned EndOfLine = 0;
@@ -2224,9 +1345,9 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
   for (arg_iterator it = Args.filtered_begin(OPT_D, OPT_U),
          ie = Args.filtered_end(); it != ie; ++it) {
     if ((*it)->getOption().matches(OPT_D))
-      Opts.addMacroDef((*it)->getValue(Args));
+      Opts.addMacroDef((*it)->getValue());
     else
-      Opts.addMacroUndef((*it)->getValue(Args));
+      Opts.addMacroUndef((*it)->getValue());
   }
 
   Opts.MacroIncludes = Args.getAllArgValues(OPT_imacros);
@@ -2236,13 +1357,13 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
                                              OPT_include_pth),
          ie = Args.filtered_end(); it != ie; ++it) {
     const Arg *A = *it;
-    Opts.Includes.push_back(A->getValue(Args));
+    Opts.Includes.push_back(A->getValue());
   }
 
   for (arg_iterator it = Args.filtered_begin(OPT_chain_include),
          ie = Args.filtered_end(); it != ie; ++it) {
     const Arg *A = *it;
-    Opts.ChainedIncludes.push_back(A->getValue(Args));
+    Opts.ChainedIncludes.push_back(A->getValue());
   }
 
   // Include 'altivec.h' if -faltivec option present
@@ -2253,7 +1374,7 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
          ie = Args.filtered_end(); it != ie; ++it) {
     const Arg *A = *it;
     std::pair<StringRef,StringRef> Split =
-      StringRef(A->getValue(Args)).split(';');
+      StringRef(A->getValue()).split(';');
 
     if (Split.second.empty()) {
       Diags.Report(diag::err_drv_invalid_remap_file) << A->getAsString(Args);
@@ -2264,7 +1385,7 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
   }
   
   if (Arg *A = Args.getLastArg(OPT_fobjc_arc_cxxlib_EQ)) {
-    StringRef Name = A->getValue(Args);
+    StringRef Name = A->getValue();
     unsigned Library = llvm::StringSwitch<unsigned>(Name)
       .Case("libc++", ARCXX_libcxx)
       .Case("libstdc++", ARCXX_libstdcxx)
@@ -2421,54 +1542,49 @@ llvm::APInt ModuleSignature::getAsInteger() const {
 }
 
 std::string CompilerInvocation::getModuleHash() const {
-  ModuleSignature Signature;
-  
+  using llvm::hash_code;
+  using llvm::hash_value;
+  using llvm::hash_combine;
+
   // Start the signature with the compiler version.
-  // FIXME: The full version string can be quite long.  Omit it from the
-  // module hash for now to avoid failures where the path name becomes too
-  // long.  An MD5 or similar checksum would work well here.
-  // Signature.add(getClangFullRepositoryVersion());
-  
+  // FIXME: We'd rather use something more cryptographically sound than
+  // CityHash, but this will do for now.
+  hash_code code = hash_value(getClangFullRepositoryVersion());
+
   // Extend the signature with the language options
 #define LANGOPT(Name, Bits, Default, Description) \
-  Signature.add(LangOpts->Name, Bits);
+   code = hash_combine(code, LangOpts->Name);
 #define ENUM_LANGOPT(Name, Type, Bits, Default, Description) \
-  Signature.add(static_cast<unsigned>(LangOpts->get##Name()), Bits);
+  code = hash_combine(code, static_cast<unsigned>(LangOpts->get##Name()));
 #define BENIGN_LANGOPT(Name, Bits, Default, Description)
 #define BENIGN_ENUM_LANGOPT(Name, Type, Bits, Default, Description)
 #include "clang/Basic/LangOptions.def"
   
-  // Extend the signature with the target triple
-  // FIXME: Add target options.
-  llvm::Triple T(TargetOpts->Triple);
-  Signature.add((unsigned)T.getArch(), 5);
-  Signature.add((unsigned)T.getVendor(), 4);
-  Signature.add((unsigned)T.getOS(), 5);
-  Signature.add((unsigned)T.getEnvironment(), 4);
+  // Extend the signature with the target options.
+  code = hash_combine(code, TargetOpts->Triple, TargetOpts->CPU,
+                      TargetOpts->ABI, TargetOpts->CXXABI,
+                      TargetOpts->LinkerVersion);
+  for (unsigned i = 0, n = TargetOpts->FeaturesAsWritten.size(); i != n; ++i)
+    code = hash_combine(code, TargetOpts->FeaturesAsWritten[i]);
 
   // Extend the signature with preprocessor options.
-  Signature.add(getPreprocessorOpts().UsePredefines, 1);
-  Signature.add(getPreprocessorOpts().DetailedRecord, 1);
-  
-  // Hash the preprocessor defines.
-  // FIXME: This is terrible. Use an MD5 sum of the preprocessor defines.
+  const PreprocessorOptions &ppOpts = getPreprocessorOpts();
+  code = hash_combine(code, ppOpts.UsePredefines, ppOpts.DetailedRecord);
+
   std::vector<StringRef> MacroDefs;
   for (std::vector<std::pair<std::string, bool/*isUndef*/> >::const_iterator 
             I = getPreprocessorOpts().Macros.begin(),
          IEnd = getPreprocessorOpts().Macros.end();
        I != IEnd; ++I) {
-    if (!I->second)
-      MacroDefs.push_back(I->first);
+    code = hash_combine(code, I->first, I->second);
   }
-  llvm::array_pod_sort(MacroDefs.begin(), MacroDefs.end());
-       
-  unsigned PPHashResult = 0;
-  for (unsigned I = 0, N = MacroDefs.size(); I != N; ++I)
-    PPHashResult = llvm::HashString(MacroDefs[I], PPHashResult);
-  Signature.add(PPHashResult, 32);
-  
-  // We've generated the signature. Treat it as one large APInt that we'll
-  // encode in base-36 and return.
-  Signature.flush();
-  return Signature.getAsInteger().toString(36, /*Signed=*/false);
+
+  // Extend the signature with the sysroot.
+  const HeaderSearchOptions &hsOpts = getHeaderSearchOpts();
+  code = hash_combine(code, hsOpts.Sysroot, hsOpts.UseBuiltinIncludes,
+                      hsOpts.UseStandardSystemIncludes,
+                      hsOpts.UseStandardCXXIncludes,
+                      hsOpts.UseLibcxx);
+
+  return llvm::APInt(64, code).toString(36, /*Signed=*/false);
 }

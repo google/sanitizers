@@ -1117,7 +1117,16 @@ void CXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
         break;
       }
     }
-        
+
+    int UnnamedMangle = Context.getASTContext().getUnnamedTagManglingNumber(TD);
+    if (UnnamedMangle != -1) {
+      Out << "Ut";
+      if (UnnamedMangle != 0)
+        Out << llvm::utostr(UnnamedMangle - 1);
+      Out << '_';
+      break;
+    }
+
     // Get a unique id for the anonymous struct.
     uint64_t AnonStructId = Context.getAnonymousStructId(TD);
 

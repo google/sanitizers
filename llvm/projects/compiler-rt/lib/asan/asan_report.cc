@@ -44,7 +44,7 @@ void AppendToErrorMessageBuffer(const char *buffer) {
 
 static void PrintBytes(const char *before, uptr *a) {
   u8 *bytes = (u8*)a;
-  uptr byte_num = (__WORDSIZE) / 8;
+  uptr byte_num = (SANITIZER_WORDSIZE) / 8;
   Printf("%s%p:", before, (void*)a);
   for (uptr i = 0; i < byte_num; i++) {
     Printf(" %x%x", bytes[i] >> 4, bytes[i] & 15);
@@ -180,7 +180,7 @@ bool DescribeAddressIfStack(uptr addr, uptr access_size) {
     Printf("    [%zu, %zu) '%s'\n", beg, beg + size, buf);
   }
   Printf("HINT: this may be a false positive if your program uses "
-             "some custom stack unwind mechanism\n"
+             "some custom stack unwind mechanism or swapcontext\n"
              "      (longjmp and C++ exceptions *are* supported)\n");
   DescribeThread(t->summary());
   return true;
@@ -289,7 +289,9 @@ class ScopedInErrorReport {
         // an error report will finish doing it.
         SleepForSeconds(Max(100, flags()->sleep_before_dying + 1));
       }
-      Die();
+      // If we're still not dead for some reason, use raw Exit() instead of
+      // Die() to bypass any additional checks.
+      Exit(flags()->exitcode);
     }
     __asan_on_error();
     reporting_thread_tid = asanThreadRegistry().GetCurrentTidOrInvalid();

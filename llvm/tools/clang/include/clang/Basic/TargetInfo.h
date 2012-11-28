@@ -109,7 +109,7 @@ public:
   /// modify the options to canonicalize the target feature information to match
   /// what the backend expects.
   static TargetInfo* CreateTargetInfo(DiagnosticsEngine &Diags,
-                                      TargetOptions &Opts);
+                                      TargetOptions *Opts);
 
   virtual ~TargetInfo();
 
@@ -119,8 +119,8 @@ public:
     return *TargetOpts; 
   }
 
-  void setTargetOpts(TargetOptions &TargetOpts) {
-    this->TargetOpts = &TargetOpts;
+  void setTargetOpts(TargetOptions *TargetOpts) {
+    this->TargetOpts = TargetOpts;
   }
 
   ///===---- Target Data Type Query Methods -------------------------------===//
@@ -172,7 +172,8 @@ public:
 
 protected:
   IntType SizeType, IntMaxType, UIntMaxType, PtrDiffType, IntPtrType, WCharType,
-          WIntType, Char16Type, Char32Type, Int64Type, SigAtomicType;
+          WIntType, Char16Type, Char32Type, Int64Type, SigAtomicType,
+          ProcessIDType;
 
   /// \brief Whether Objective-C's built-in boolean type should be signed char.
   ///
@@ -213,7 +214,7 @@ public:
   IntType getChar32Type() const { return Char32Type; }
   IntType getInt64Type() const { return Int64Type; }
   IntType getSigAtomicType() const { return SigAtomicType; }
-
+  IntType getProcessIDType() const { return ProcessIDType; }
 
   /// \brief Return the width (in bits) of the specified integer type enum.
   ///
@@ -517,6 +518,10 @@ public:
   bool validateInputConstraint(ConstraintInfo *OutputConstraints,
                                unsigned NumOutputs,
                                ConstraintInfo &info) const;
+  virtual bool validateInputSize(StringRef /*Constraint*/,
+                                 unsigned /*Size*/) const {
+    return true;
+  }
   virtual bool validateConstraintModifier(StringRef /*Constraint*/,
                                           const char /*Modifier*/,
                                           unsigned /*Size*/) const {

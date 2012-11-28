@@ -457,7 +457,9 @@ enum {
   R_PPC_REL14                 = 11,
   R_PPC_REL14_BRTAKEN         = 12,
   R_PPC_REL14_BRNTAKEN        = 13,
-  R_PPC_REL32                 = 26
+  R_PPC_REL32                 = 26,
+  R_PPC_TPREL16_LO            = 70,
+  R_PPC_TPREL16_HA            = 72
 };
 
 // ELF Relocation types for PPC64
@@ -470,8 +472,11 @@ enum {
   R_PPC64_ADDR16_HIGHER       = 39,
   R_PPC64_ADDR16_HIGHEST      = 41,
   R_PPC64_TOC16               = 47,
+  R_PPC64_TOC16_LO            = 48,
+  R_PPC64_TOC16_HA            = 50,
   R_PPC64_TOC                 = 51,
-  R_PPC64_TOC16_DS            = 63
+  R_PPC64_TOC16_DS            = 63,
+  R_PPC64_TOC16_LO_DS         = 64
 };
 
 // ARM Specific e_flags

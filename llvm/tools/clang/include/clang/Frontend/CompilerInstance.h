@@ -531,7 +531,6 @@ public:
   /// context.
   void createPCHExternalASTSource(StringRef Path,
                                   bool DisablePCHValidation,
-                                  bool DisableStatCache,
                                   bool AllowPCHWithCompilerErrors,
                                   void *DeserializationListener);
 
@@ -541,7 +540,6 @@ public:
   static ExternalASTSource *
   createPCHExternalASTSource(StringRef Path, const std::string &Sysroot,
                              bool DisablePCHValidation,
-                             bool DisableStatCache,
                              bool AllowPCHWithCompilerErrors,
                              Preprocessor &PP, ASTContext &Context,
                              void *DeserializationListener, bool Preamble);
@@ -633,15 +631,13 @@ public:
   /// as the main file.
   ///
   /// \return True on success.
-  bool InitializeSourceManager(StringRef InputFile,
-         SrcMgr::CharacteristicKind Kind = SrcMgr::C_User);
+  bool InitializeSourceManager(const FrontendInputFile &Input);
 
   /// InitializeSourceManager - Initialize the source manager to set InputFile
   /// as the main file.
   ///
   /// \return True on success.
-  static bool InitializeSourceManager(StringRef InputFile,
-                SrcMgr::CharacteristicKind Kind,
+  static bool InitializeSourceManager(const FrontendInputFile &Input,
                 DiagnosticsEngine &Diags,
                 FileManager &FileMgr,
                 SourceManager &SourceMgr,

@@ -40,11 +40,11 @@ LDFLAGS=-pie
 ORIGINS=0
 MSAN_ORIGINS=-mllvm -msan-track-origins=$(ORIGINS)
 MSAN_EXTRA_OPT=-mllvm -msan-keep-going=1
-MSAN_OPT=-fmemory-sanitizer $(MSAN_EXTRA_OPT) $(MSAN_ORIGINS) \
+MSAN_OPT=-fsanitize=memory $(MSAN_EXTRA_OPT) $(MSAN_ORIGINS) \
          -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer
 
 # MSAN_DEBUG=-mllvm -debug-only=msan
-CLANG_VERSION=3.2
+CLANG_VERSION=3.3
 ARCH=x86_64
 OS=$(shell uname | tr '[A-Z]' '[a-z]')
 LIBMSAN_INST_DIR=$(CLANG_BUILD)/lib/clang/$(CLANG_VERSION)/lib/$(OS)

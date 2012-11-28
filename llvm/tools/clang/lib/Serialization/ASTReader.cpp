@@ -769,104 +769,6 @@ bool ASTReader::ParseLineTable(ModuleFile &F,
   return false;
 }
 
-namespace {
-
-class ASTStatData {
-public:
-  const ino_t ino;
-  const dev_t dev;
-  const mode_t mode;
-  const time_t mtime;
-  const off_t size;
-
-  ASTStatData(ino_t i, dev_t d, mode_t mo, time_t m, off_t s)
-    : ino(i), dev(d), mode(mo), mtime(m), size(s) {}
-};
-
-class ASTStatLookupTrait {
- public:
-  typedef const char *external_key_type;
-  typedef const char *internal_key_type;
-
-  typedef ASTStatData data_type;
-
-  static unsigned ComputeHash(const char *path) {
-    return llvm::HashString(path);
-  }
-
-  static internal_key_type GetInternalKey(const char *path) { return path; }
-
-  static bool EqualKey(internal_key_type a, internal_key_type b) {
-    return strcmp(a, b) == 0;
-  }
-
-  static std::pair<unsigned, unsigned>
-  ReadKeyDataLength(const unsigned char*& d) {
-    unsigned KeyLen = (unsigned) clang::io::ReadUnalignedLE16(d);
-    unsigned DataLen = (unsigned) *d++;
-    return std::make_pair(KeyLen + 1, DataLen);
-  }
-
-  static internal_key_type ReadKey(const unsigned char *d, unsigned) {
-    return (const char *)d;
-  }
-
-  static data_type ReadData(const internal_key_type, const unsigned char *d,
-                            unsigned /*DataLen*/) {
-    using namespace clang::io;
-
-    ino_t ino = (ino_t) ReadUnalignedLE32(d);
-    dev_t dev = (dev_t) ReadUnalignedLE32(d);
-    mode_t mode = (mode_t) ReadUnalignedLE16(d);
-    time_t mtime = (time_t) ReadUnalignedLE64(d);
-    off_t size = (off_t) ReadUnalignedLE64(d);
-    return data_type(ino, dev, mode, mtime, size);
-  }
-};
-
-/// \brief stat() cache for precompiled headers.
-///
-/// This cache is very similar to the stat cache used by pretokenized
-/// headers.
-class ASTStatCache : public FileSystemStatCache {
-  typedef OnDiskChainedHashTable<ASTStatLookupTrait> CacheTy;
-  CacheTy *Cache;
-
-  unsigned &NumStatHits, &NumStatMisses;
-public:
-  ASTStatCache(const unsigned char *Buckets, const unsigned char *Base,
-               unsigned &NumStatHits, unsigned &NumStatMisses)
-    : Cache(0), NumStatHits(NumStatHits), NumStatMisses(NumStatMisses) {
-    Cache = CacheTy::Create(Buckets, Base);
-  }
-
-  ~ASTStatCache() { delete Cache; }
-
-  LookupResult getStat(const char *Path, struct stat &StatBuf,
-                       int *FileDescriptor) {
-    // Do the lookup for the file's data in the AST file.
-    CacheTy::iterator I = Cache->find(Path);
-
-    // If we don't get a hit in the AST file just forward to 'stat'.
-    if (I == Cache->end()) {
-      ++NumStatMisses;
-      return statChained(Path, StatBuf, FileDescriptor);
-    }
-
-    ++NumStatHits;
-    ASTStatData Data = *I;
-
-    StatBuf.st_ino = Data.ino;
-    StatBuf.st_dev = Data.dev;
-    StatBuf.st_mtime = Data.mtime;
-    StatBuf.st_mode = Data.mode;
-    StatBuf.st_size = Data.size;
-    return CacheExists;
-  }
-};
-} // end anonymous namespace
-
-
 /// \brief Read a source manager block
 bool ASTReader::ReadSourceManagerBlock(ModuleFile &F) {
   using namespace SrcMgr;
@@ -1059,6 +961,12 @@ bool ASTReader::ReadSLocEntry(int ID) {
   case SM_SLOC_BUFFER_ENTRY: {
     const char *Name = BlobStart;
     unsigned Offset = Record[0];
+    SrcMgr::CharacteristicKind
+      FileCharacter = (SrcMgr::CharacteristicKind)Record[2];
+    SourceLocation IncludeLoc = ReadSourceLocation(*F, Record[1]);
+    if (IncludeLoc.isInvalid() && F->Kind == MK_Module) {
+      IncludeLoc = getImportLocation(F);
+    }
     unsigned Code = SLocEntryCursor.ReadCode();
     Record.clear();
     unsigned RecCode
@@ -1072,7 +980,8 @@ bool ASTReader::ReadSLocEntry(int ID) {
     llvm::MemoryBuffer *Buffer
       = llvm::MemoryBuffer::getMemBuffer(StringRef(BlobStart, BlobLen - 1),
                                          Name);
-    SourceMgr.createFileIDForMemBuffer(Buffer, ID, BaseOffset + Offset);
+    SourceMgr.createFileIDForMemBuffer(Buffer, FileCharacter, ID,
+                                       BaseOffset + Offset, IncludeLoc);
     break;
   }
 
@@ -1235,6 +1144,7 @@ void ASTReader::ReadMacroRecord(ModuleFile &F, uint64_t Offset,
         // Decode function-like macro info.
         bool isC99VarArgs = Record[NextIndex++];
         bool isGNUVarArgs = Record[NextIndex++];
+        bool hasCommaPasting = Record[NextIndex++];
         MacroArgs.clear();
         unsigned NumArgs = Record[NextIndex++];
         for (unsigned i = 0; i != NumArgs; ++i)
@@ -1244,6 +1154,7 @@ void ASTReader::ReadMacroRecord(ModuleFile &F, uint64_t Offset,
         MI->setIsFunctionLike();
         if (isC99VarArgs) MI->setIsC99Varargs();
         if (isGNUVarArgs) MI->setIsGNUVarargs();
+        if (hasCommaPasting) MI->setHasCommaPasting();
         MI->setArgumentList(MacroArgs.data(), MacroArgs.size(),
                             PP.getPreprocessorAllocator());
       }
@@ -1703,7 +1614,7 @@ void ASTReader::MaybeAddSystemRootToFilename(ModuleFile &M,
 
 ASTReader::ASTReadResult
 ASTReader::ReadControlBlock(ModuleFile &F,
-                            llvm::SmallVectorImpl<ModuleFile *> &Loaded,
+                            llvm::SmallVectorImpl<ImportedModule> &Loaded,
                             unsigned ClientLoadCapabilities) {
   llvm::BitstreamCursor &Stream = F.Stream;
 
@@ -1798,13 +1709,18 @@ ASTReader::ReadControlBlock(ModuleFile &F,
       while (Idx < N) {
         // Read information about the AST file.
         ModuleKind ImportedKind = (ModuleKind)Record[Idx++];
+        // The import location will be the local one for now; we will adjust
+        // all import locations of module imports after the global source
+        // location info are setup.
+        SourceLocation ImportLoc =
+            SourceLocation::getFromRawEncoding(Record[Idx++]);
         unsigned Length = Record[Idx++];
         SmallString<128> ImportedFile(Record.begin() + Idx,
                                       Record.begin() + Idx + Length);
         Idx += Length;
 
         // Load the AST file.
-        switch(ReadASTCore(ImportedFile, ImportedKind, &F, Loaded,
+        switch(ReadASTCore(ImportedFile, ImportedKind, ImportLoc, &F, Loaded,
                            ClientLoadCapabilities)) {
         case Failure: return Failure;
           // If we have to ignore the dependency, we'll have to ignore this too.
@@ -1878,6 +1794,10 @@ ASTReader::ReadControlBlock(ModuleFile &F,
       F.ActualOriginalSourceFileName.assign(BlobStart, BlobLen);
       F.OriginalSourceFileName = F.ActualOriginalSourceFileName;
       MaybeAddSystemRootToFilename(F, F.OriginalSourceFileName);
+      break;
+
+    case ORIGINAL_FILE_ID:
+      F.OriginalSourceFileID = FileID::get(Record[0]);
       break;
 
     case ORIGINAL_PCH_DIR:
@@ -2362,18 +2282,6 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
       break;
     }
 
-    case STAT_CACHE: {
-      if (!DisableStatCache) {
-        ASTStatCache *MyStatCache =
-          new ASTStatCache((const unsigned char *)BlobStart + Record[0],
-                           (const unsigned char *)BlobStart,
-                           NumStatHits, NumStatMisses);
-        FileMgr.addStatCache(MyStatCache);
-        F.StatCache = MyStatCache;
-      }
-      break;
-    }
-
     case EXT_VECTOR_DECLS:
       for (unsigned I = 0, N = Record.size(); I != N; ++I)
         ExtVectorDecls.push_back(getGlobalDeclID(F, Record[I]));
@@ -2779,29 +2687,35 @@ void ASTReader::makeModuleVisible(Module *Mod,
 
 ASTReader::ASTReadResult ASTReader::ReadAST(const std::string &FileName,
                                             ModuleKind Type,
+                                            SourceLocation ImportLoc,
                                             unsigned ClientLoadCapabilities) {
   // Bump the generation number.
   unsigned PreviousGeneration = CurrentGeneration++;
 
-  // Load the core of the AST files.
-  llvm::SmallVector<ModuleFile *, 4> Loaded;
-  switch(ReadASTCore(FileName, Type, /*ImportedBy=*/0, Loaded,
-                     ClientLoadCapabilities)) {
-  case Failure: return Failure;
-  case OutOfDate: return OutOfDate;
-  case VersionMismatch: return VersionMismatch;
-  case ConfigurationMismatch: return ConfigurationMismatch;
-  case HadErrors: return HadErrors;
-  case Success: break;
+  unsigned NumModules = ModuleMgr.size();
+  llvm::SmallVector<ImportedModule, 4> Loaded;
+  switch(ASTReadResult ReadResult = ReadASTCore(FileName, Type, ImportLoc,
+                                                /*ImportedBy=*/0, Loaded,
+                                                ClientLoadCapabilities)) {
+  case Failure:
+  case OutOfDate:
+  case VersionMismatch:
+  case ConfigurationMismatch:
+  case HadErrors:
+    ModuleMgr.removeModules(ModuleMgr.begin() + NumModules, ModuleMgr.end());
+    return ReadResult;
+
+  case Success:
+    break;
   }
 
   // Here comes stuff that we only do once the entire chain is loaded.
 
   // Load the AST blocks of all of the modules that we loaded.
-  for (llvm::SmallVectorImpl<ModuleFile *>::iterator M = Loaded.begin(),
+  for (llvm::SmallVectorImpl<ImportedModule>::iterator M = Loaded.begin(),
                                                   MEnd = Loaded.end();
        M != MEnd; ++M) {
-    ModuleFile &F = **M;
+    ModuleFile &F = *M->Mod;
 
     // Read the AST block.
     if (ReadASTBlock(F))
@@ -2822,6 +2736,18 @@ ASTReader::ASTReadResult ASTReader::ReadAST(const std::string &FileName,
       // SourceManager.
       SourceMgr.getLoadedSLocEntryByID(Index);
     }
+  }
+
+  // Setup the import locations.
+  for (llvm::SmallVectorImpl<ImportedModule>::iterator M = Loaded.begin(),
+                                                    MEnd = Loaded.end();
+       M != MEnd; ++M) {
+    ModuleFile &F = *M->Mod;
+    if (!M->ImportedBy)
+      F.ImportLoc = M->ImportLoc;
+    else
+      F.ImportLoc = ReadSourceLocation(*M->ImportedBy,
+                                       M->ImportLoc.getRawEncoding());
   }
 
   // Mark all of the identifiers in the identifier table as being out of date,
@@ -2885,8 +2811,9 @@ ASTReader::ASTReadResult ASTReader::ReadAST(const std::string &FileName,
 ASTReader::ASTReadResult
 ASTReader::ReadASTCore(StringRef FileName,
                        ModuleKind Type,
+                       SourceLocation ImportLoc,
                        ModuleFile *ImportedBy,
-                       llvm::SmallVectorImpl<ModuleFile *> &Loaded,
+                       llvm::SmallVectorImpl<ImportedModule> &Loaded,
                        unsigned ClientLoadCapabilities) {
   ModuleFile *M;
   bool NewModule;
@@ -2960,7 +2887,7 @@ ASTReader::ReadASTCore(StringRef FileName,
       break;
     case AST_BLOCK_ID:
       // Record that we've loaded this module.
-      Loaded.push_back(M);
+      Loaded.push_back(ImportedModule(M, ImportedBy, ImportLoc));
       return Success;
 
     default:
@@ -3235,17 +3162,15 @@ namespace {
   };
 }
 
-bool ASTReader::isAcceptableASTFile(StringRef Filename,
-                                    FileManager &FileMgr,
-                                    const LangOptions &LangOpts,
-                                    const TargetOptions &TargetOpts,
-                                    const PreprocessorOptions &PPOpts) {
+bool ASTReader::readASTFileControlBlock(StringRef Filename,
+                                        FileManager &FileMgr,
+                                        ASTReaderListener &Listener) {
   // Open the AST file.
   std::string ErrStr;
   OwningPtr<llvm::MemoryBuffer> Buffer;
   Buffer.reset(FileMgr.getBufferForFile(Filename, &ErrStr));
   if (!Buffer) {
-    return false;
+    return true;
   }
 
   // Initialize the stream
@@ -3260,10 +3185,9 @@ bool ASTReader::isAcceptableASTFile(StringRef Filename,
       Stream.Read(8) != 'P' ||
       Stream.Read(8) != 'C' ||
       Stream.Read(8) != 'H') {
-    return false;
+    return true;
   }
 
-  SimplePCHValidator Validator(LangOpts, TargetOpts, PPOpts, FileMgr);
   RecordData Record;
   bool InControlBlock = false;
   while (!Stream.AtEndOfStream()) {
@@ -3276,7 +3200,7 @@ bool ASTReader::isAcceptableASTFile(StringRef Filename,
       switch (BlockID) {
       case CONTROL_BLOCK_ID:
         if (Stream.EnterSubBlock(CONTROL_BLOCK_ID)) {
-          return false;
+          return true;
         } else {
           InControlBlock = true;
         }
@@ -3284,7 +3208,7 @@ bool ASTReader::isAcceptableASTFile(StringRef Filename,
 
       default:
         if (Stream.SkipBlock())
-          return false;
+          return true;
         break;
       }
       continue;
@@ -3292,8 +3216,9 @@ bool ASTReader::isAcceptableASTFile(StringRef Filename,
 
     if (Code == llvm::bitc::END_BLOCK) {
       if (Stream.ReadBlockEnd()) {
-        return false;
+        return true;
       }
+
       InControlBlock = false;
       continue;
     }
@@ -3311,46 +3236,46 @@ bool ASTReader::isAcceptableASTFile(StringRef Filename,
       switch ((ControlRecordTypes)RecCode) {
       case METADATA: {
         if (Record[0] != VERSION_MAJOR) {
-          return false;
+          return true;
         }
 
         const std::string &CurBranch = getClangFullRepositoryVersion();
         StringRef ASTBranch(BlobStart, BlobLen);
         if (StringRef(CurBranch) != ASTBranch)
-          return false;
+          return true;
 
         break;
       }
       case LANGUAGE_OPTIONS:
-        if (ParseLanguageOptions(Record, false, Validator))
-          return false;
+        if (ParseLanguageOptions(Record, false, Listener))
+          return true;
         break;
 
       case TARGET_OPTIONS:
-        if (ParseTargetOptions(Record, false, Validator))
-          return false;
+        if (ParseTargetOptions(Record, false, Listener))
+          return true;
         break;
 
       case DIAGNOSTIC_OPTIONS:
-        if (ParseDiagnosticOptions(Record, false, Validator))
-          return false;
+        if (ParseDiagnosticOptions(Record, false, Listener))
+          return true;
         break;
 
       case FILE_SYSTEM_OPTIONS:
-        if (ParseFileSystemOptions(Record, false, Validator))
-          return false;
+        if (ParseFileSystemOptions(Record, false, Listener))
+          return true;
         break;
 
       case HEADER_SEARCH_OPTIONS:
-        if (ParseHeaderSearchOptions(Record, false, Validator))
-          return false;
+        if (ParseHeaderSearchOptions(Record, false, Listener))
+          return true;
         break;
 
       case PREPROCESSOR_OPTIONS: {
         std::string IgnoredSuggestedPredefines;
-        if (ParsePreprocessorOptions(Record, false, Validator,
+        if (ParsePreprocessorOptions(Record, false, Listener,
                                      IgnoredSuggestedPredefines))
-          return false;
+          return true;
         break;
       }
 
@@ -3361,7 +3286,17 @@ bool ASTReader::isAcceptableASTFile(StringRef Filename,
     }
   }
   
-  return true;
+  return false;
+}
+
+
+bool ASTReader::isAcceptableASTFile(StringRef Filename,
+                                    FileManager &FileMgr,
+                                    const LangOptions &LangOpts,
+                                    const TargetOptions &TargetOpts,
+                                    const PreprocessorOptions &PPOpts) {
+  SimplePCHValidator validator(LangOpts, TargetOpts, PPOpts, FileMgr);
+  return !readASTFileControlBlock(Filename, FileMgr, validator);
 }
 
 bool ASTReader::ReadSubmoduleBlock(ModuleFile &F) {
@@ -3932,7 +3867,7 @@ PreprocessedEntityID ASTReader::findNextPreprocessedEntity(
          EndI = GlobalSLocOffsetMap.end(); SLocMapI != EndI; ++SLocMapI) {
     ModuleFile &M = *SLocMapI->second;
     if (M.NumPreprocessedEntities)
-      return getGlobalPreprocessedEntityID(M, M.BasePreprocessedEntityID);
+      return M.BasePreprocessedEntityID;
   }
 
   return getTotalNumPreprocessedEntities();
@@ -4015,8 +3950,7 @@ ASTReader::findBeginPreprocessedEntity(SourceLocation BLoc) const {
   if (PPI == pp_end)
     return findNextPreprocessedEntity(SLocMapI);
 
-  return getGlobalPreprocessedEntityID(M,
-                                 M.BasePreprocessedEntityID + (PPI - pp_begin));
+  return M.BasePreprocessedEntityID + (PPI - pp_begin);
 }
 
 /// \brief Returns the first preprocessed entity ID that begins after \arg ELoc.
@@ -4045,8 +3979,7 @@ ASTReader::findEndPreprocessedEntity(SourceLocation ELoc) const {
   if (PPI == pp_end)
     return findNextPreprocessedEntity(SLocMapI);
 
-  return getGlobalPreprocessedEntityID(M,
-                                 M.BasePreprocessedEntityID + (PPI - pp_begin));
+  return M.BasePreprocessedEntityID + (PPI - pp_begin);
 }
 
 /// \brief Returns a pair of [Begin, End) indices of preallocated
@@ -5624,8 +5557,6 @@ void ASTReader::PrintStats() {
                                           SelectorsLoaded.end(),
                                           Selector());
 
-  std::fprintf(stderr, "  %u stat cache hits\n", NumStatHits);
-  std::fprintf(stderr, "  %u stat cache misses\n", NumStatMisses);
   if (unsigned TotalNumSLocEntries = getTotalNumSLocs())
     std::fprintf(stderr, "  %u/%u source location entries read (%f%%)\n",
                  NumSLocEntriesRead, TotalNumSLocEntries,
@@ -6517,13 +6448,14 @@ ReadTemplateArgumentList(SmallVector<TemplateArgument, 8> &TemplArgs,
 }
 
 /// \brief Read a UnresolvedSet structure.
-void ASTReader::ReadUnresolvedSet(ModuleFile &F, UnresolvedSetImpl &Set,
+void ASTReader::ReadUnresolvedSet(ModuleFile &F, ASTUnresolvedSet &Set,
                                   const RecordData &Record, unsigned &Idx) {
   unsigned NumDecls = Record[Idx++];
+  Set.reserve(Context, NumDecls);
   while (NumDecls--) {
     NamedDecl *D = ReadDeclAs<NamedDecl>(F, Record, Idx);
     AccessSpecifier AS = (AccessSpecifier)Record[Idx++];
-    Set.addDecl(D, AS);
+    Set.addDecl(Context, D, AS);
   }
 }
 
@@ -7005,16 +6937,14 @@ void ASTReader::FinishedDeserializing() {
 
 ASTReader::ASTReader(Preprocessor &PP, ASTContext &Context,
                      StringRef isysroot, bool DisableValidation,
-                     bool DisableStatCache, bool AllowASTWithCompilerErrors)
+                     bool AllowASTWithCompilerErrors)
   : Listener(new PCHValidator(PP, *this)), DeserializationListener(0),
     SourceMgr(PP.getSourceManager()), FileMgr(PP.getFileManager()),
     Diags(PP.getDiagnostics()), SemaObj(0), PP(PP), Context(Context),
     Consumer(0), ModuleMgr(PP.getFileManager()),
     isysroot(isysroot), DisableValidation(DisableValidation),
-    DisableStatCache(DisableStatCache),
     AllowASTWithCompilerErrors(AllowASTWithCompilerErrors), 
     CurrentGeneration(0), CurrSwitchCaseStmts(&SwitchCaseStmts),
-    NumStatHits(0), NumStatMisses(0), 
     NumSLocEntriesRead(0), TotalNumSLocEntries(0), 
     NumStatementsRead(0), TotalNumStatements(0), NumMacrosRead(0), 
     TotalNumMacros(0), NumSelectorsRead(0), NumMethodPoolEntriesRead(0), 

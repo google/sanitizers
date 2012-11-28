@@ -35,6 +35,7 @@
 #include "tsan_trace.h"
 #include "tsan_vector.h"
 #include "tsan_report.h"
+#include "tsan_platform.h"
 
 namespace __tsan {
 
@@ -67,21 +68,20 @@ Allocator *allocator();
 
 void TsanCheckFailed(const char *file, int line, const char *cond,
                      u64 v1, u64 v2);
-void TsanPrintf(const char *format, ...);
 
 // FastState (from most significant bit):
-//   unused          : 1
+//   ignore          : 1
 //   tid             : kTidBits
 //   epoch           : kClkBits
 //   unused          : -
-//   ignore_bit      : 1
 class FastState {
  public:
   FastState(u64 tid, u64 epoch) {
     x_ = tid << kTidShift;
     x_ |= epoch << kClkShift;
-    DCHECK(tid == this->tid());
-    DCHECK(epoch == this->epoch());
+    DCHECK_EQ(tid, this->tid());
+    DCHECK_EQ(epoch, this->epoch());
+    DCHECK_EQ(GetIgnoreBit(), false);
   }
 
   explicit FastState(u64 x)
@@ -111,13 +111,13 @@ class FastState {
 
   void SetIgnoreBit() { x_ |= kIgnoreBit; }
   void ClearIgnoreBit() { x_ &= ~kIgnoreBit; }
-  bool GetIgnoreBit() const { return x_ & kIgnoreBit; }
+  bool GetIgnoreBit() const { return (s64)x_ < 0; }
 
  private:
   friend class Shadow;
   static const int kTidShift = 64 - kTidBits - 1;
   static const int kClkShift = kTidShift - kClkBits;
-  static const u64 kIgnoreBit = 1ull;
+  static const u64 kIgnoreBit = 1ull << 63;
   static const u64 kFreedBit = 1ull << 63;
   u64 x_;
 };
@@ -231,10 +231,6 @@ class Shadow : public FastState {
     return false;
   }
 };
-
-// Freed memory.
-// As if 8-byte write by thread 0xff..f at epoch 0xff..f, races with everything.
-const u64 kShadowFreed = 0xfffffffffffffff8ull;
 
 struct SignalContext;
 
@@ -440,6 +436,7 @@ void ALWAYS_INLINE INLINE StatInc(ThreadState *thr, StatType typ, u64 n = 1) {
     thr->stat[typ] += n;
 }
 
+void MapShadow(uptr addr, uptr size);
 void InitializeShadowMemory();
 void InitializeInterceptors();
 void InitializeDynamicAnnotations();
@@ -454,13 +451,13 @@ bool IsFiredSuppression(Context *ctx,
 bool IsExpectedReport(uptr addr, uptr size);
 
 #if defined(TSAN_DEBUG_OUTPUT) && TSAN_DEBUG_OUTPUT >= 1
-# define DPrintf TsanPrintf
+# define DPrintf Printf
 #else
 # define DPrintf(...)
 #endif
 
 #if defined(TSAN_DEBUG_OUTPUT) && TSAN_DEBUG_OUTPUT >= 2
-# define DPrintf2 TsanPrintf
+# define DPrintf2 Printf
 #else
 # define DPrintf2(...)
 #endif
@@ -474,7 +471,7 @@ int Finalize(ThreadState *thr);
 void MemoryAccess(ThreadState *thr, uptr pc, uptr addr,
     int kAccessSizeLog, bool kAccessIsWrite);
 void MemoryAccessImpl(ThreadState *thr, uptr addr,
-    int kAccessSizeLog, bool kAccessIsWrite, FastState fast_state,
+    int kAccessSizeLog, bool kAccessIsWrite,
     u64 *shadow_mem, Shadow cur);
 void MemoryRead1Byte(ThreadState *thr, uptr pc, uptr addr);
 void MemoryWrite1Byte(ThreadState *thr, uptr pc, uptr addr);
@@ -497,7 +494,8 @@ int ThreadTid(ThreadState *thr, uptr pc, uptr uid);
 void ThreadJoin(ThreadState *thr, uptr pc, int tid);
 void ThreadDetach(ThreadState *thr, uptr pc, int tid);
 void ThreadFinalize(ThreadState *thr);
-void ThreadFinalizerGoroutine(ThreadState *thr);
+int ThreadCount(ThreadState *thr);
+void ProcessPendingSignals(ThreadState *thr);
 
 void MutexCreate(ThreadState *thr, uptr pc, uptr addr,
                  bool rw, bool recursive, bool linker_init);
@@ -509,6 +507,7 @@ void MutexReadUnlock(ThreadState *thr, uptr pc, uptr addr);
 void MutexReadOrWriteUnlock(ThreadState *thr, uptr pc, uptr addr);
 
 void Acquire(ThreadState *thr, uptr pc, uptr addr);
+void AcquireGlobal(ThreadState *thr, uptr pc);
 void Release(ThreadState *thr, uptr pc, uptr addr);
 void ReleaseStore(ThreadState *thr, uptr pc, uptr addr);
 void AfterSleep(ThreadState *thr, uptr pc);
@@ -525,6 +524,7 @@ void AfterSleep(ThreadState *thr, uptr pc);
 #define HACKY_CALL(f) \
   __asm__ __volatile__("sub $1024, %%rsp;" \
                        "/*.cfi_adjust_cfa_offset 1024;*/" \
+                       ".hidden " #f "_thunk;" \
                        "call " #f "_thunk;" \
                        "add $1024, %%rsp;" \
                        "/*.cfi_adjust_cfa_offset -1024;*/" \
@@ -534,11 +534,13 @@ void AfterSleep(ThreadState *thr, uptr pc);
 #endif
 
 void TraceSwitch(ThreadState *thr);
+uptr TraceTopPC(ThreadState *thr);
 
 extern "C" void __tsan_trace_switch();
-void ALWAYS_INLINE INLINE TraceAddEvent(ThreadState *thr, u64 epoch,
+void ALWAYS_INLINE INLINE TraceAddEvent(ThreadState *thr, FastState fs,
                                         EventType typ, uptr addr) {
   StatInc(thr, StatEvents);
+  u64 epoch = fs.epoch();
   if (UNLIKELY((epoch % kTracePartSize) == 0)) {
 #ifndef TSAN_GO
     HACKY_CALL(__tsan_trace_switch);
@@ -546,7 +548,8 @@ void ALWAYS_INLINE INLINE TraceAddEvent(ThreadState *thr, u64 epoch,
     TraceSwitch(thr);
 #endif
   }
-  Event *evp = &thr->trace.events[epoch % kTraceSize];
+  Event *trace = (Event*)GetThreadTrace(fs.tid());
+  Event *evp = &trace[epoch % kTraceSize];
   Event ev = (u64)addr | ((u64)typ << 61);
   *evp = ev;
 }

@@ -23,8 +23,16 @@
 #include "clang-c/Platform.h"
 #include "clang-c/CXString.h"
 
+/**
+ * \brief The version constants for the libclang API.
+ * CINDEX_VERSION_MINOR should increase when there are API additions.
+ * CINDEX_VERSION_MAJOR is intended for "major" source/ABI breaking changes.
+ *
+ * The policy about the libclang API was always to keep it source and ABI
+ * compatible, thus CINDEX_VERSION_MAJOR is expected to remain stable.
+ */
 #define CINDEX_VERSION_MAJOR 0
-#define CINDEX_VERSION_MINOR 5
+#define CINDEX_VERSION_MINOR 6
 
 #define CINDEX_VERSION_ENCODE(major, minor) ( \
       ((major) * 10000)                       \
@@ -3195,6 +3203,12 @@ CINDEX_LINKAGE int clang_Cursor_getObjCSelectorIndex(CXCursor);
  * method/message, it will return zero.
  */
 CINDEX_LINKAGE int clang_Cursor_isDynamicCall(CXCursor C);
+
+/**
+ * \brief Given a cursor pointing to an ObjC message, returns the CXType of the
+ * receiver.
+ */
+CINDEX_LINKAGE CXType clang_Cursor_getReceiverType(CXCursor C);
 
 /**
  * \brief Given a cursor that represents a declaration, return the associated

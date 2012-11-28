@@ -50,7 +50,6 @@ class FPOptions;
 class HeaderSearch;
 class IdentifierResolver;
 class MacroDefinition;
-class MemorizeStatCalls;
 class OpaqueValueExpr;
 class OpenCLOptions;
 class ASTReader;
@@ -64,6 +63,7 @@ class SourceManager;
 class SwitchCase;
 class TargetInfo;
 class VersionTuple;
+class ASTUnresolvedSet;
 
 namespace SrcMgr { class SLocEntry; }
 
@@ -417,7 +417,6 @@ private:
   void WriteControlBlock(Preprocessor &PP, ASTContext &Context,
                          StringRef isysroot, const std::string &OutputFile);
   void WriteInputFiles(SourceManager &SourceMgr, StringRef isysroot);
-  void WriteStatCache(MemorizeStatCalls &StatCalls);
   void WriteSourceManagerBlock(SourceManager &SourceMgr,
                                const Preprocessor &PP,
                                StringRef isysroot);
@@ -467,7 +466,7 @@ private:
   void WriteDeclsBlockAbbrevs();
   void WriteDecl(ASTContext &Context, Decl *D);
 
-  void WriteASTCore(Sema &SemaRef, MemorizeStatCalls *StatCalls,
+  void WriteASTCore(Sema &SemaRef,
                     StringRef isysroot, const std::string &OutputFile,
                     Module *WritingModule);
 
@@ -482,15 +481,12 @@ public:
   /// \param SemaRef a reference to the semantic analysis object that processed
   /// the AST to be written into the precompiled header.
   ///
-  /// \param StatCalls the object that cached all of the stat() calls made while
-  /// searching for source files and headers.
-  ///
   /// \param WritingModule The module that we are writing. If null, we are
   /// writing a precompiled header.
   ///
   /// \param isysroot if non-empty, write a relocatable file whose headers
   /// are relative to the given system root.
-  void WriteAST(Sema &SemaRef, MemorizeStatCalls *StatCalls,
+  void WriteAST(Sema &SemaRef,
                 const std::string &OutputFile,
                 Module *WritingModule, StringRef isysroot,
                 bool hasErrors = false);
@@ -608,7 +604,7 @@ public:
                                 RecordDataImpl &Record);
 
   /// \brief Emit a UnresolvedSet structure.
-  void AddUnresolvedSet(const UnresolvedSetImpl &Set, RecordDataImpl &Record);
+  void AddUnresolvedSet(const ASTUnresolvedSet &Set, RecordDataImpl &Record);
 
   /// \brief Emit a C++ base specifier.
   void AddCXXBaseSpecifier(const CXXBaseSpecifier &Base,
@@ -733,7 +729,6 @@ class PCHGenerator : public SemaConsumer {
   std::string isysroot;
   raw_ostream *Out;
   Sema *SemaPtr;
-  MemorizeStatCalls *StatCalls; // owned by the FileManager
   llvm::SmallVector<char, 128> Buffer;
   llvm::BitstreamWriter Stream;
   ASTWriter Writer;

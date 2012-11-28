@@ -226,16 +226,25 @@ Release Notes</a>.</h1>
 <div>
 
 <p><a href="http://polly.llvm.org/">Polly</a> is an <em>experimental</em>
-  optimizer for data locality and parallelism. It currently provides high-level
-  loop optimizations and automatic parallelisation (using the OpenMP run time).
-  Work in the area of automatic SIMD and accelerator code generation was
-  started.</p>
+  optimizer for data locality and parallelism. It provides high-level
+  loop optimizations and automatic parallelisation.</p>
 
 <p>Within the LLVM 3.2 time-frame there were the following highlights:</p>
 
 <ul>
-  <li>...</li>
+  <li>isl, the integer set library used by Polly, was relicensed to the MIT
+license</li>
+  <li>isl based code generation<br />
+        <ul>
+<li>MIT licensed replacement for CLooG (LGPLv2) </li>
+<li>Fine grained option handling (separation of
+core and border computations, control overhead vs. code size) </li>
+</li>
 </ul>
+<li>Support for FORTRAN and dragonegg</li>
+<li>OpenMP code generation fixes</li>
+</ul>
+
 
 </div>
 
@@ -473,18 +482,38 @@ Release Notes</a>.</h1>
     <b>-mllvm -force-vector-width=4</b>.
     The default value is <b>0</b> which means auto-select.
     <br/>
-    We can now vectorize this code:
+    We can now vectorize this function:
 
     <pre class="doc_code">
-    for (i=0; i&lt;n; i++) {
-      a[i] = b[i+1] + c[i+3] + i;
-      sum += d[i];
+    unsigned sum_arrays(int *A, int *B, int start, int end) {
+      unsigned sum = 0;
+      for (int i = start; i &lt; end; ++i)
+        sum += A[i] + B[i] + i;
+
+      return sum;
     }
     </pre>
 
- </p>
+    We vectorize under the following loops:
+    <ul>
+    <li>The inner most loops must have a single basic block.</li>
+    <li>The number of iterations are known before the loop starts to execute.</li>
+    <li>The loop counter needs to be incremented by one.</li>
+    <li>The loop trip count <b>can</b> be a variable.</li>
+    <li>Loops do <b>not</b> need to start at zero.</li>
+    <li>The induction variable can be used inside the loop.</li>
+    <li>Loop reductions are supported.</li>
+    <li>Arrays with affine access pattern do <b>not</b> need to be marked as 'noalias' and are checked at runtime.</li>
+    <li>...</li>
+    </ul>
+
+</p>
+
+<p>SROA - We've re-written SROA to be significantly more powerful.
+<!-- FIXME: Add more text here... --></p>
 
 <ul>
+  <li>Branch weight metadata is preseved through more of the optimizer.</li>
   <li>...</li>
 </ul>
 
@@ -627,6 +656,46 @@ Release Notes</a>.</h1>
 
 <!--=========================================================================-->
 <h3>
+<a name="PowerPC">PowerPC Target Improvements</a>
+</h3>
+
+<div>
+
+<ul>
+<p>Many fixes and changes across LLVM (and Clang) for better compliance with
+   the 64-bit PowerPC ELF Application Binary Interface, interoperability with
+   GCC, and overall 64-bit PowerPC support.   Some highlights include:</p>
+<ul>
+  <li>  MCJIT support added.</li>
+  <li>  PPC64 relocation support and (small code model) TOC handling
+        added.</li>
+  <li>  Parameter passing and return value fixes (alignment issues,
+        padding, varargs support, proper register usage, odd-sized
+        structure support, float support, extension of return values
+        for i32 return values).</li>
+  <li>  Fixes in spill and reload code for vector registers.</li>
+  <li>  C++ exception handling enabled.</li>
+  <li>  Changes to remediate double-rounding compatibility issues with
+        respect to GCC behavior.</li>
+  <li>  Refactoring to disentangle ppc64-elf-linux ABI from Darwin
+        ppc64 ABI support.</li>
+  <li>  Assorted new test cases and test case fixes (endian and word
+        size issues).</li>
+  <li>  Fixes for big-endian codegen bugs, instruction encodings, and
+        instruction constraints.</li>
+  <li>  Implemented -integrated-as support.</li>
+  <li>  Additional support for Altivec compare operations.</li>
+  <li>  IBM long double support.</li>
+</ul>
+<p>There have also been code generation improvements for both 32- and 64-bit
+   code. Instruction scheduling support for the Freescale e500mc and e5500
+   cores has been added.</p>
+</ul>
+
+</div>
+
+<!--=========================================================================-->
+<h3>
 <a name="OtherTS">Other Target Specific Improvements</a>
 </h3>
 
@@ -650,6 +719,8 @@ Release Notes</a>.</h1>
    from the previous release.</p>
 
 <ul>
+  <li>The CellSPU port has been removed. It can still be found in older
+      versions.</li>
   <li>...</li>
 </ul>
 
@@ -776,7 +847,7 @@ to remove a dependency on Target. </p>
   src="http://www.w3.org/Icons/valid-html401-blue" alt="Valid HTML 4.01"></a>
 
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-10-30 01:49:46 +0400 (Tue, 30 Oct 2012) $
+  Last modified: $Date: 2012-11-20 08:20:31 +0400 (Tue, 20 Nov 2012) $
 </address>
 
 </body>

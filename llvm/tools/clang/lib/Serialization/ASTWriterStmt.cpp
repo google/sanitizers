@@ -606,6 +606,8 @@ void ASTStmtWriter::VisitExtVectorElementExpr(ExtVectorElementExpr *E) {
 
 void ASTStmtWriter::VisitInitListExpr(InitListExpr *E) {
   VisitExpr(E);
+  // NOTE: only add the (possibly null) syntactic form.
+  // No need to serialize the isSemanticForm flag and the semantic form.
   Writer.AddStmt(E->getSyntacticForm());
   Writer.AddSourceLocation(E->getLBraceLoc(), Record);
   Writer.AddSourceLocation(E->getRBraceLoc(), Record);
@@ -1236,7 +1238,7 @@ void ASTStmtWriter::VisitCXXNewExpr(CXXNewExpr *E) {
   Writer.AddDeclRef(E->getOperatorDelete(), Record);
   Writer.AddTypeSourceInfo(E->getAllocatedTypeSourceInfo(), Record);
   Writer.AddSourceRange(E->getTypeIdParens(), Record);
-  Writer.AddSourceLocation(E->getStartLoc(), Record);
+  Writer.AddSourceRange(E->getSourceRange(), Record);
   Writer.AddSourceRange(E->getDirectInitRange(), Record);
   for (CXXNewExpr::arg_iterator I = E->raw_arg_begin(), e = E->raw_arg_end();
        I != e; ++I)

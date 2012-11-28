@@ -555,11 +555,8 @@ public:
   void setPredefines(const char *P) { Predefines = P; }
   void setPredefines(const std::string &P) { Predefines = P; }
 
-  /// getIdentifierInfo - Return information about the specified preprocessor
-  /// identifier token.  The version of this method that takes two character
-  /// pointers is preferred unless the identifier is already available as a
-  /// string (this avoids allocation and copying of memory to construct an
-  /// std::string).
+  /// Return information about the specified preprocessor
+  /// identifier token.
   IdentifierInfo *getIdentifierInfo(StringRef Name) const {
     return &Identifiers.get(Name);
   }
@@ -698,6 +695,25 @@ public:
   }
 
   void LexAfterModuleImport(Token &Result);
+
+  /// \brief Lex a string literal, which may be the concatenation of multiple
+  /// string literals and may even come from macro expansion.
+  /// \returns true on success, false if a error diagnostic has been generated.
+  bool LexStringLiteral(Token &Result, std::string &String,
+                        const char *DiagnosticTag, bool AllowMacroExpansion) {
+    if (AllowMacroExpansion)
+      Lex(Result);
+    else
+      LexUnexpandedToken(Result);
+    return FinishLexStringLiteral(Result, String, DiagnosticTag,
+                                  AllowMacroExpansion);
+  }
+
+  /// \brief Complete the lexing of a string literal where the first token has
+  /// already been lexed (see LexStringLiteral).
+  bool FinishLexStringLiteral(Token &Result, std::string &String,
+                              const char *DiagnosticTag,
+                              bool AllowMacroExpansion);
 
   /// LexNonComment - Lex a token.  If it's a comment, keep lexing until we get
   /// something not a comment.  This is useful in -E -C mode where comments

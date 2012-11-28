@@ -154,22 +154,33 @@ public:
   const ExplodedGraph& getGraph() const { return G; }
 
   /// \brief Run the analyzer's garbage collection - remove dead symbols and
-  /// bindings.
+  /// bindings from the state.
   ///
-  /// \param Node - The predecessor node, from which the processing should 
-  /// start.
-  /// \param Out - The returned set of output nodes.
-  /// \param ReferenceStmt - Run garbage collection using the symbols, 
-  /// which are live before the given statement.
-  /// \param LC - The location context of the ReferenceStmt.
-  /// \param DiagnosticStmt - the statement used to associate the diagnostic 
-  /// message, if any warnings should occur while removing the dead (leaks 
-  /// are usually reported here).
-  /// \param K - In some cases it is possible to use PreStmt kind. (Do 
-  /// not use it unless you know what you are doing.) 
+  /// Checkers can participate in this process with two callbacks:
+  /// \c checkLiveSymbols and \c checkDeadSymbols. See the CheckerDocumentation
+  /// class for more information.
+  ///
+  /// \param Node The predecessor node, from which the processing should start.
+  /// \param Out The returned set of output nodes.
+  /// \param ReferenceStmt The statement which is about to be processed.
+  ///        Everything needed for this statement should be considered live.
+  ///        A null statement means that everything in child LocationContexts
+  ///        is dead.
+  /// \param LC The location context of the \p ReferenceStmt. A null location
+  ///        context means that we have reached the end of analysis and that
+  ///        all statements and local variables should be considered dead.
+  /// \param DiagnosticStmt Used as a location for any warnings that should
+  ///        occur while removing the dead (e.g. leaks). By default, the
+  ///        \p ReferenceStmt is used.
+  /// \param K Denotes whether this is a pre- or post-statement purge. This
+  ///        must only be ProgramPoint::PostStmtPurgeDeadSymbolsKind if an
+  ///        entire location context is being cleared, in which case the
+  ///        \p ReferenceStmt must either be a ReturnStmt or \c NULL. Otherwise,
+  ///        it must be ProgramPoint::PreStmtPurgeDeadSymbolsKind (the default)
+  ///        and \p ReferenceStmt must be valid (non-null).
   void removeDead(ExplodedNode *Node, ExplodedNodeSet &Out,
             const Stmt *ReferenceStmt, const LocationContext *LC,
-            const Stmt *DiagnosticStmt,
+            const Stmt *DiagnosticStmt = 0,
             ProgramPoint::Kind K = ProgramPoint::PreStmtPurgeDeadSymbolsKind);
 
   /// processCFGElement - Called by CoreEngine. Used to generate new successor
@@ -194,7 +205,8 @@ public:
 
   /// Called by CoreEngine when processing the entrance of a CFGBlock.
   virtual void processCFGBlockEntrance(const BlockEdge &L,
-                                       NodeBuilderWithSinks &nodeBuilder);
+                                       NodeBuilderWithSinks &nodeBuilder,
+                                       ExplodedNode *Pred);
   
   /// ProcessBranch - Called by CoreEngine.  Used to generate successor
   ///  nodes by processing the 'effects' of a branch condition.
@@ -215,7 +227,13 @@ public:
 
   /// ProcessEndPath - Called by CoreEngine.  Used to generate end-of-path
   ///  nodes when the control reaches the end of a function.
-  void processEndOfFunction(NodeBuilderContext& BC);
+  void processEndOfFunction(NodeBuilderContext& BC,
+                            ExplodedNode *Pred);
+
+  /// Remove dead bindings/symbols before exiting a function.
+  void removeDeadOnEndOfFunction(NodeBuilderContext& BC,
+                                 ExplodedNode *Pred,
+                                 ExplodedNodeSet &Dst);
 
   /// Generate the entry node of the callee.
   void processCallEnter(CallEnter CE, ExplodedNode *Pred);
@@ -515,6 +533,8 @@ private:
 
 /// Traits for storing the call processing policy inside GDM.
 /// The GDM stores the corresponding CallExpr pointer.
+// FIXME: This does not use the nice trait macros because it must be accessible
+// from multiple translation units.
 struct ReplayWithoutInlining{};
 template <>
 struct ProgramStateTrait<ReplayWithoutInlining> :

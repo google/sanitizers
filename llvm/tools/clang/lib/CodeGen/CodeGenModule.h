@@ -296,11 +296,18 @@ class CodeGenModule : public CodeGenTypeCache {
   /// order.
   llvm::DenseMap<const Decl*, unsigned> DelayedCXXInitPosition;
   
+  typedef std::pair<OrderGlobalInits, llvm::Function*> GlobalInitData;
+
+  struct GlobalInitPriorityCmp {
+    bool operator()(const GlobalInitData &LHS,
+                    const GlobalInitData &RHS) const {
+      return LHS.first.priority < RHS.first.priority;
+    }
+  };
+
   /// - Global variables with initializers whose order of initialization
   /// is set by init_priority attribute.
-  
-  SmallVector<std::pair<OrderGlobalInits, llvm::Function*>, 8> 
-    PrioritizedCXXGlobalInits;
+  SmallVector<GlobalInitData, 8> PrioritizedCXXGlobalInits;
 
   /// CXXGlobalDtors - Global destructor functions and arguments that need to
   /// run on termination.
@@ -976,11 +983,11 @@ private:
 
   /// EmitDeferred - Emit any needed decls for which code generation
   /// was deferred.
-  void EmitDeferred(void);
+  void EmitDeferred();
 
   /// EmitLLVMUsed - Emit the llvm.used metadata used to force
   /// references to global which may otherwise be optimized out.
-  void EmitLLVMUsed(void);
+  void EmitLLVMUsed();
 
   void EmitDeclMetadata();
 

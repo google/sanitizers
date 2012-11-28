@@ -1353,16 +1353,7 @@ GetElementPtrInst::GetElementPtrInst(const GetElementPtrInst &GEPI)
 ///
 template <typename IndexTy>
 static Type *getIndexedTypeInternal(Type *Ptr, ArrayRef<IndexTy> IdxList) {
-  if (Ptr->isVectorTy()) {
-    assert(IdxList.size() == 1 &&
-      "GEP with vector pointers must have a single index");
-    PointerType *PTy = dyn_cast<PointerType>(
-        cast<VectorType>(Ptr)->getElementType());
-    assert(PTy && "Gep with invalid vector pointer found");
-    return PTy->getElementType();
-  }
-
-  PointerType *PTy = dyn_cast<PointerType>(Ptr);
+  PointerType *PTy = dyn_cast<PointerType>(Ptr->getScalarType());
   if (!PTy) return 0;   // Type isn't a pointer type!
   Type *Agg = PTy->getElementType();
 
@@ -1397,18 +1388,6 @@ Type *GetElementPtrInst::getIndexedType(Type *Ptr,
 
 Type *GetElementPtrInst::getIndexedType(Type *Ptr, ArrayRef<uint64_t> IdxList) {
   return getIndexedTypeInternal(Ptr, IdxList);
-}
-
-unsigned GetElementPtrInst::getAddressSpace(Value *Ptr) {
-  Type *Ty = Ptr->getType();
-
-  if (VectorType *VTy = dyn_cast<VectorType>(Ty))
-    Ty = VTy->getElementType();
-
-  if (PointerType *PTy = dyn_cast<PointerType>(Ty))
-    return PTy->getAddressSpace();
-
-  llvm_unreachable("Invalid GEP pointer type");
 }
 
 /// hasAllZeroIndices - Return true if all of the indices of this GEP are
@@ -2117,17 +2096,6 @@ bool CastInst::isNoopCast(Instruction::CastOps Opcode,
 
 /// @brief Determine if a cast is a no-op.
 bool CastInst::isNoopCast(Type *IntPtrTy) const {
-  return isNoopCast(getOpcode(), getOperand(0)->getType(), getType(), IntPtrTy);
-}
-
-/// @brief Determine if a cast is a no-op
-bool CastInst::isNoopCast(const DataLayout &DL) const {
-  unsigned AS = 0;
-  if (getOpcode() == Instruction::PtrToInt)
-    AS = getOperand(0)->getType()->getPointerAddressSpace();
-  else if (getOpcode() == Instruction::IntToPtr)
-    AS = getType()->getPointerAddressSpace();
-  Type *IntPtrTy = DL.getIntPtrType(getContext(), AS);
   return isNoopCast(getOpcode(), getOperand(0)->getType(), getType(), IntPtrTy);
 }
 

@@ -76,7 +76,8 @@ RuntimeDirs += darwin
 RuntimeLibrary.darwin.Configs := \
 	eprintf.a 10.4.a osx.a ios.a cc_kext.a cc_kext_ios5.a \
 	asan_osx.a asan_osx_dynamic.dylib \
-	profile_osx.a profile_ios.a
+	profile_osx.a profile_ios.a \
+	ubsan_osx.a
 endif
 
 # On Linux, include a library which has all the runtime functions.
@@ -98,19 +99,20 @@ TryCompile = \
 # We currently only try to generate runtime libraries on x86.
 ifeq ($(ARCH),x86)
 RuntimeLibrary.linux.Configs += \
-	full-i386.a profile-i386.a asan-i386.a
+	full-i386.a profile-i386.a asan-i386.a ubsan-i386.a
 endif
 
 ifeq ($(ARCH),x86_64)
 RuntimeLibrary.linux.Configs += \
-	full-x86_64.a profile-x86_64.a asan-x86_64.a tsan-x86_64.a
-# We need to build 32-bit ASan library on 64-bit platform, and add it to the
-# list of runtime libraries to make "clang -faddress-sanitizer -m32" work.
+	full-x86_64.a profile-x86_64.a asan-x86_64.a tsan-x86_64.a ubsan-x86_64.a
+# We need to build 32-bit ASan/UBsan libraries on 64-bit platform, and add them
+# to the list of runtime libraries to make
+# "clang -fsanitize=(address|undefined) -m32" work.
 # We check that Clang can produce working 32-bit binaries by compiling a simple
 # executable.
 test_source = $(LLVM_SRC_ROOT)/tools/clang/runtime/compiler-rt/clang_linux_test_input.c
 ifeq ($(call TryCompile,$(ToolDir)/clang,$(test_source),-m32),0)
-RuntimeLibrary.linux.Configs += asan-i386.a
+RuntimeLibrary.linux.Configs += asan-i386.a ubsan-i386.a
 endif
 ifneq ($(LLVM_ANDROID_TOOLCHAIN_DIR),)
 RuntimeLibrary.linux.Configs += asan-arm-android.so

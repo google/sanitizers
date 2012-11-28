@@ -154,6 +154,7 @@ private:
   StringRef CppHashFilename;
   int64_t CppHashLineNumber;
   SMLoc CppHashLoc;
+  int CppHashBuf;
 
   /// AssemblerDialect. ~OU means unset value and use value provided by MAI.
   unsigned AssemblerDialect;
@@ -395,6 +396,10 @@ public:
       &GenericAsmParser::ParseDirectiveCFIEscape>(".cfi_escape");
     AddDirectiveHandler<
       &GenericAsmParser::ParseDirectiveCFISignalFrame>(".cfi_signal_frame");
+    AddDirectiveHandler<
+      &GenericAsmParser::ParseDirectiveCFIUndefined>(".cfi_undefined");
+    AddDirectiveHandler<
+      &GenericAsmParser::ParseDirectiveCFIRegister>(".cfi_register");
 
     // Macro directives.
     AddDirectiveHandler<&GenericAsmParser::ParseDirectiveMacrosOnOff>(
@@ -432,6 +437,8 @@ public:
   bool ParseDirectiveCFIRestore(StringRef, SMLoc DirectiveLoc);
   bool ParseDirectiveCFIEscape(StringRef, SMLoc DirectiveLoc);
   bool ParseDirectiveCFISignalFrame(StringRef, SMLoc DirectiveLoc);
+  bool ParseDirectiveCFIUndefined(StringRef, SMLoc DirectiveLoc);
+  bool ParseDirectiveCFIRegister(StringRef, SMLoc DirectiveLoc);
 
   bool ParseDirectiveMacrosOnOff(StringRef, SMLoc DirectiveLoc);
   bool ParseDirectiveMacro(StringRef, SMLoc DirectiveLoc);
@@ -1389,9 +1396,26 @@ bool AsmParser::ParseStatement(ParseStatementInfo &Info) {
   // the instruction.
   if (!HadError && getContext().getGenDwarfForAssembly() &&
       getContext().getGenDwarfSection() == getStreamer().getCurrentSection() ) {
+
+     unsigned Line = SrcMgr.FindLineNumber(IDLoc, CurBuffer);
+
+     // If we previously parsed a cpp hash file line comment then make sure the
+     // current Dwarf File is for the CppHashFilename if not then emit the
+     // Dwarf File table for it and adjust the line number for the .loc.
+     const std::vector<MCDwarfFile *> &MCDwarfFiles =
+       getContext().getMCDwarfFiles();
+     if (CppHashFilename.size() != 0) {
+       if(MCDwarfFiles[getContext().getGenDwarfFileNumber()]->getName() !=
+          CppHashFilename)
+	 getStreamer().EmitDwarfFileDirective(
+	   getContext().nextGenDwarfFileNumber(), StringRef(), CppHashFilename);
+
+       unsigned CppHashLocLineNo = SrcMgr.FindLineNumber(CppHashLoc,CppHashBuf);
+       Line = CppHashLineNumber - 1 + (Line - CppHashLocLineNo);
+     }
+
     getStreamer().EmitDwarfLocDirective(getContext().getGenDwarfFileNumber(),
-                                        SrcMgr.FindLineNumber(IDLoc, CurBuffer),
-                                        0, DWARF2_LINE_DEFAULT_IS_STMT ?
+                                        Line, 0, DWARF2_LINE_DEFAULT_IS_STMT ?
                                         DWARF2_FLAG_IS_STMT : 0, 0, 0,
                                         StringRef());
   }
@@ -1448,6 +1472,7 @@ bool AsmParser::ParseCppHashLineFilenameComment(const SMLoc &L) {
   CppHashLoc = L;
   CppHashFilename = Filename;
   CppHashLineNumber = LineNumber;
+  CppHashBuf = CurBuffer;
 
   // Ignore any trailing characters, they're just comment.
   EatToEndOfLine();
@@ -3223,6 +3248,43 @@ bool GenericAsmParser::ParseDirectiveCFISignalFrame(StringRef Directive,
                  "unexpected token in '" + Directive + "' directive");
 
   getStreamer().EmitCFISignalFrame();
+
+  return false;
+}
+
+/// ParseDirectiveCFIUndefined
+/// ::= .cfi_undefined register
+bool GenericAsmParser::ParseDirectiveCFIUndefined(StringRef Directive,
+                                                  SMLoc DirectiveLoc) {
+  int64_t Register = 0;
+
+  if (ParseRegisterOrRegisterNumber(Register, DirectiveLoc))
+    return true;
+
+  getStreamer().EmitCFIUndefined(Register);
+
+  return false;
+}
+
+/// ParseDirectiveCFIRegister
+/// ::= .cfi_register register, register
+bool GenericAsmParser::ParseDirectiveCFIRegister(StringRef Directive,
+                                                 SMLoc DirectiveLoc) {
+  int64_t Register1 = 0;
+
+  if (ParseRegisterOrRegisterNumber(Register1, DirectiveLoc))
+    return true;
+
+  if (getLexer().isNot(AsmToken::Comma))
+    return TokError("unexpected token in directive");
+  Lex();
+
+  int64_t Register2 = 0;
+
+  if (ParseRegisterOrRegisterNumber(Register2, DirectiveLoc))
+    return true;
+
+  getStreamer().EmitCFIRegister(Register1, Register2);
 
   return false;
 }

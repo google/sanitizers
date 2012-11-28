@@ -51,6 +51,9 @@
 #   define _LIBCPP_LITTLE_ENDIAN 0
 #   define _LIBCPP_BIG_ENDIAN    1
 # endif  // _BYTE_ORDER == _LITTLE_ENDIAN
+# ifndef __LONG_LONG_SUPPORTED
+#  define _LIBCPP_HAS_NO_LONG_LONG
+# endif  // __LONG_LONG_SUPPORTED
 #endif  // __FreeBSD__
 
 #ifdef _WIN32
@@ -426,6 +429,10 @@ template <unsigned> struct __static_assert_check {};
 #define _LIBCPP_DECLARE_STRONG_ENUM(x) enum class _LIBCPP_VISIBLE x
 #define _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(x)
 #endif  // _LIBCPP_HAS_NO_STRONG_ENUMS
+
+#ifndef _LIBCPP_EXTERN_TEMPLATE
+#define _LIBCPP_EXTERN_TEMPLATE(...) extern template __VA_ARGS__;
+#endif
 
 #if __APPLE__ || __FreeBSD__ || _WIN32 || __sun__
 #define _LIBCPP_LOCALE__L_EXTENSIONS 1

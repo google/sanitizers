@@ -77,6 +77,7 @@ enum StatType {
   StatAtomicFetchAnd,
   StatAtomicFetchOr,
   StatAtomicFetchXor,
+  StatAtomicFetchNand,
   StatAtomicCAS,
   StatAtomicFence,
   StatAtomicRelaxed,
@@ -89,6 +90,7 @@ enum StatType {
   StatAtomic2,
   StatAtomic4,
   StatAtomic8,
+  StatAtomic16,
 
   // Interceptors.
   StatInterceptor,
@@ -195,6 +197,7 @@ enum StatType {
   StatInt_opendir,
   StatInt_epoll_ctl,
   StatInt_epoll_wait,
+  StatInt_poll,
   StatInt_sigaction,
   StatInt_signal,
   StatInt_raise,
@@ -203,6 +206,7 @@ enum StatType {
   StatInt_sleep,
   StatInt_usleep,
   StatInt_nanosleep,
+  StatInt_gettimeofday,
 
   // Dynamic annotations.
   StatAnnotation,

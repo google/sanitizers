@@ -278,6 +278,9 @@ namespace {
     // Syntactic Rewriting.
     void RewriteRecordBody(RecordDecl *RD);
     void RewriteInclude();
+    void RewriteLineDirective(const Decl *D);
+    void ConvertSourceLocationToLineDirective(SourceLocation Loc,
+                                              std::string &LineString);
     void RewriteForwardClassDecl(DeclGroupRef D);
     void RewriteForwardClassDecl(const llvm::SmallVector<Decl*, 8> &DG);
     void RewriteForwardClassEpilogue(ObjCInterfaceDecl *ClassDecl, 
@@ -1602,6 +1605,19 @@ Stmt *RewriteModernObjC::RewriteBreakStmt(BreakStmt *S) {
   return 0;
 }
 
+void RewriteModernObjC::ConvertSourceLocationToLineDirective(
+                                          SourceLocation Loc,
+                                          std::string &LineString) {
+  if (Loc.isFileID()) {
+    LineString += "\n#line ";
+    PresumedLoc PLoc = SM->getPresumedLoc(Loc);
+    LineString += utostr(PLoc.getLine());
+    LineString += " \"";
+    LineString += Lexer::Stringify(PLoc.getFilename());
+    LineString += "\"\n";
+  }
+}
+
 /// RewriteContinueStmt - Rewrite for a continue-stmt inside an ObjC2's foreach
 /// statement to continue with its inner synthesized loop.
 ///
@@ -1664,7 +1680,10 @@ Stmt *RewriteModernObjC::RewriteObjCForCollectionStmt(ObjCForCollectionStmt *S,
   StringRef elementName;
   std::string elementTypeAsString;
   std::string buf;
-  buf = "\n{\n\t";
+  // line directive first.
+  SourceLocation ForEachLoc = S->getForLoc();
+  ConvertSourceLocationToLineDirective(ForEachLoc, buf);
+  buf += "{\n\t";
   if (DeclStmt *DS = dyn_cast<DeclStmt>(S->getElement())) {
     // type elem;
     NamedDecl* D = cast<NamedDecl>(DS->getSingleDecl());
@@ -1836,7 +1855,9 @@ Stmt *RewriteModernObjC::RewriteObjCSynchronizedStmt(ObjCAtSynchronizedStmt *S) 
   assert((*startBuf == '@') && "bogus @synchronized location");
 
   std::string buf;
-  buf = "{ id _rethrow = 0; id _sync_obj = ";
+  SourceLocation SynchLoc = S->getAtSynchronizedLoc();
+  ConvertSourceLocationToLineDirective(SynchLoc, buf);
+  buf += "{ id _rethrow = 0; id _sync_obj = ";
   
   const char *lparenBuf = startBuf;
   while (*lparenBuf != '(') lparenBuf++;
@@ -1902,12 +1923,14 @@ Stmt *RewriteModernObjC::RewriteObjCTryStmt(ObjCAtTryStmt *S) {
   ObjCAtFinallyStmt *finalStmt = S->getFinallyStmt();
   bool noCatch = S->getNumCatchStmts() == 0;
   std::string buf;
+  SourceLocation TryLocation = S->getAtTryLoc();
+  ConvertSourceLocationToLineDirective(TryLocation, buf);
   
   if (finalStmt) {
     if (noCatch)
-      buf = "{ id volatile _rethrow = 0;\n";
+      buf += "{ id volatile _rethrow = 0;\n";
     else {
-      buf = "{ id volatile _rethrow = 0;\ntry {\n";
+      buf += "{ id volatile _rethrow = 0;\ntry {\n";
     }
   }
   // Get the start location and compute the semi location.
@@ -1934,13 +1957,15 @@ Stmt *RewriteModernObjC::RewriteObjCTryStmt(ObjCAtTryStmt *S) {
         ObjCInterfaceDecl *IDecl = Ptr->getObjectType()->getInterface();
         if (IDecl) {
           std::string Result;
+          ConvertSourceLocationToLineDirective(Catch->getLocStart(), Result);
+          
           startBuf = SM->getCharacterData(startLoc);
           assert((*startBuf == '@') && "bogus @catch location");
           SourceLocation rParenLoc = Catch->getRParenLoc();
           const char *rParenBuf = SM->getCharacterData(rParenLoc);
           
           // _objc_exc_Foo *_e as argument to catch.
-          Result = "catch (_objc_exc_"; Result += IDecl->getNameAsString();
+          Result += "catch (_objc_exc_"; Result += IDecl->getNameAsString();
           Result += " *_"; Result += catchDecl->getNameAsString();
           Result += ")";
           ReplaceText(startLoc, rParenBuf-startBuf+1, Result);
@@ -1966,11 +1991,18 @@ Stmt *RewriteModernObjC::RewriteObjCTryStmt(ObjCAtTryStmt *S) {
   }
   if (finalStmt) {
     buf.clear();
-    if (noCatch)
-      buf = "catch (id e) {_rethrow = e;}\n";
-    else 
-      buf = "}\ncatch (id e) {_rethrow = e;}\n";
-
+    SourceLocation FinallyLoc = finalStmt->getLocStart();
+    
+    if (noCatch) {
+      ConvertSourceLocationToLineDirective(FinallyLoc, buf);
+      buf += "catch (id e) {_rethrow = e;}\n";
+    }
+    else {
+      buf += "}\n";
+      ConvertSourceLocationToLineDirective(FinallyLoc, buf);
+      buf += "catch (id e) {_rethrow = e;}\n";
+    }
+    
     SourceLocation startFinalLoc = finalStmt->getLocStart();
     ReplaceText(startFinalLoc, 8, buf);
     Stmt *body = finalStmt->getFinallyBody();
@@ -3075,6 +3107,34 @@ static SourceLocation getFunctionSourceLocation (RewriteModernObjC &R,
   return FD->getTypeSpecStartLoc();
 }
 
+void RewriteModernObjC::RewriteLineDirective(const Decl *D) {
+  
+  SourceLocation Location = D->getLocation();
+  
+  if (Location.isFileID()) {
+    std::string LineString("\n#line ");
+    PresumedLoc PLoc = SM->getPresumedLoc(Location);
+    LineString += utostr(PLoc.getLine());
+    LineString += " \"";
+    LineString += Lexer::Stringify(PLoc.getFilename());
+    if (isa<ObjCMethodDecl>(D))
+      LineString += "\"";
+    else LineString += "\"\n";
+    
+    Location = D->getLocStart();
+    if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
+      if (FD->isExternC()  && !FD->isMain()) {
+        const DeclContext *DC = FD->getDeclContext();
+        if (const LinkageSpecDecl *LSD = dyn_cast<LinkageSpecDecl>(DC))
+          // if it is extern "C" {...}, return function decl's own location.
+          if (!LSD->getRBraceLoc().isValid())
+            Location = LSD->getExternLoc();
+      }
+    }
+    InsertText(Location, LineString);
+  }
+}
+
 /// SynthMsgSendStretCallExpr - This routine translates message expression
 /// into a call to objc_msgSend_stret() entry point. Tricky part is that
 /// nil check on receiver must be performed before calling objc_msgSend_stret.
@@ -3967,8 +4027,12 @@ std::string RewriteModernObjC::SynthesizeBlockFunc(BlockExpr *CE, int i,
   const FunctionType *AFT = CE->getFunctionType();
   QualType RT = AFT->getResultType();
   std::string StructRef = "struct " + Tag;
-  std::string S = "static " + RT.getAsString(Context->getPrintingPolicy()) + " __" +
-                  funcName.str() + "_block_func_" + utostr(i);
+  SourceLocation BlockLoc = CE->getExprLoc();
+  std::string S;
+  ConvertSourceLocationToLineDirective(BlockLoc, S);
+  
+  S += "static " + RT.getAsString(Context->getPrintingPolicy()) + " __" +
+         funcName.str() + "_block_func_" + utostr(i);
 
   BlockDecl *BD = CE->getBlockDecl();
 
@@ -5664,6 +5728,7 @@ void RewriteModernObjC::HandleDeclInMainFile(Decl *D) {
         // This synthesizes and inserts the block "impl" struct, invoke function,
         // and any copy/dispose helper functions.
         InsertBlockLiteralsWithinFunction(FD);
+        RewriteLineDirective(D);
         CurFunctionDef = 0;
       }
       break;
@@ -5682,6 +5747,7 @@ void RewriteModernObjC::HandleDeclInMainFile(Decl *D) {
           PropParentMap = 0;
         }
         InsertBlockLiteralsWithinMethod(MD);
+        RewriteLineDirective(D);
         CurMethodDef = 0;
       }
       break;

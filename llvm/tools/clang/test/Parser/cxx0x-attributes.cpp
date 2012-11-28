@@ -62,6 +62,29 @@ struct MemberFnOrder {
 struct [[]] struct_attr;
 class [[]] class_attr {};
 union [[]] union_attr;
+
+// Checks attributes placed at wrong syntactic locations of class specifiers.
+// FIXME: provide fix-it hint.
+class [[]] [[]]
+  attr_after_class_name_decl [[]] [[]]; // expected-error {{an attribute list cannot appear here}}
+
+class [[]] [[]]
+ attr_after_class_name_definition [[]] [[]] [[]]{}; // expected-error {{an attribute list cannot appear here}}
+
+class [[]] c {};
+class c [[]] [[]] x;
+class c [[]] [[]] y [[]] [[]];
+class c final [(int){0}];
+
+class base {};
+class [[]] [[]] final_class 
+  alignas(float) [[]] final // expected-error {{an attribute list cannot appear here}}
+  alignas(float) [[]] [[]] alignas(float): base{}; // expected-error {{an attribute list cannot appear here}}
+
+class [[]] [[]] final_class_another 
+  [[]] [[]] alignas(16) final // expected-error {{an attribute list cannot appear here}}
+  [[]] [[]] alignas(16) [[]]{}; // expected-error {{an attribute list cannot appear here}}
+
 [[]] struct with_init_declarators {} init_declarator;
 [[]] struct no_init_declarators; // expected-error {{an attribute list cannot appear here}}
 [[]];
@@ -223,3 +246,10 @@ namespace arguments {
   void f(const char*, ...) [[gnu::format(printf, 1, 2)]]; // expected-warning {{unknown attribute 'format' ignored}}
   void g() [[unknown::foo(currently arguments of attributes from unknown namespace other than 'gnu' namespace are ignored... blah...)]]; // expected-warning {{unknown attribute 'foo' ignored}}
 }
+
+// forbid attributes on decl specifiers
+unsigned [[gnu::used]] static int [[gnu::unused]] v1; // expected-warning {{attribute 'unused' ignored, because it is not attached to a declaration}} \
+           expected-error {{an attribute list cannot appear here}}
+typedef [[gnu::used]] unsigned long [[gnu::unused]] v2; // expected-warning {{attribute 'unused' ignored, because it is not attached to a declaration}} \
+          expected-error {{an attribute list cannot appear here}}
+int [[carries_dependency]] foo(int [[carries_dependency]] x); // expected-warning 2{{attribute 'carries_dependency' ignored, because it is not attached to a declaration}}

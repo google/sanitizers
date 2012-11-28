@@ -69,24 +69,69 @@ void ARMException::EndFunction() {
     Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("eh_func_end",
                                                   Asm->getFunctionNumber()));
 
-    // Emit references to personality.
-    if (const Function * Personality =
-        MMI->getPersonalities()[MMI->getPersonalityIndex()]) {
-      MCSymbol *PerSym = Asm->Mang->getSymbol(Personality);
-      Asm->OutStreamer.EmitSymbolAttribute(PerSym, MCSA_Global);
-      Asm->OutStreamer.EmitPersonality(PerSym);
-    }
-
     if (EnableARMEHABIDescriptors) {
       // Map all labels and get rid of any dead landing pads.
       MMI->TidyLandingPads();
 
-      Asm->OutStreamer.EmitHandlerData();
+      if (!MMI->getLandingPads().empty()) {
+        // Emit references to personality.
+        if (const Function * Personality =
+            MMI->getPersonalities()[MMI->getPersonalityIndex()]) {
+          MCSymbol *PerSym = Asm->Mang->getSymbol(Personality);
+          Asm->OutStreamer.EmitSymbolAttribute(PerSym, MCSA_Global);
+          Asm->OutStreamer.EmitPersonality(PerSym);
+        }
 
-      // Emit actual exception table
-      EmitExceptionTable();
+        // Emit .handlerdata directive.
+        Asm->OutStreamer.EmitHandlerData();
+
+        // Emit actual exception table
+        EmitExceptionTable();
+      }
     }
   }
 
   Asm->OutStreamer.EmitFnEnd();
+}
+
+void ARMException::EmitTypeInfos(unsigned TTypeEncoding) {
+  const std::vector<const GlobalVariable *> &TypeInfos = MMI->getTypeInfos();
+  const std::vector<unsigned> &FilterIds = MMI->getFilterIds();
+
+  bool VerboseAsm = Asm->OutStreamer.isVerboseAsm();
+
+  int Entry = 0;
+  // Emit the Catch TypeInfos.
+  if (VerboseAsm && !TypeInfos.empty()) {
+    Asm->OutStreamer.AddComment(">> Catch TypeInfos <<");
+    Asm->OutStreamer.AddBlankLine();
+    Entry = TypeInfos.size();
+  }
+
+  for (std::vector<const GlobalVariable *>::const_reverse_iterator
+         I = TypeInfos.rbegin(), E = TypeInfos.rend(); I != E; ++I) {
+    const GlobalVariable *GV = *I;
+    if (VerboseAsm)
+      Asm->OutStreamer.AddComment("TypeInfo " + Twine(Entry--));
+    Asm->EmitTTypeReference(GV, TTypeEncoding);
+  }
+
+  // Emit the Exception Specifications.
+  if (VerboseAsm && !FilterIds.empty()) {
+    Asm->OutStreamer.AddComment(">> Filter TypeInfos <<");
+    Asm->OutStreamer.AddBlankLine();
+    Entry = 0;
+  }
+  for (std::vector<unsigned>::const_iterator
+         I = FilterIds.begin(), E = FilterIds.end(); I < E; ++I) {
+    unsigned TypeID = *I;
+    if (VerboseAsm) {
+      --Entry;
+      if (TypeID != 0)
+        Asm->OutStreamer.AddComment("FilterInfo " + Twine(Entry));
+    }
+
+    Asm->EmitTTypeReference((TypeID == 0 ? 0 : TypeInfos[TypeID - 1]),
+                            TTypeEncoding);
+  }
 }

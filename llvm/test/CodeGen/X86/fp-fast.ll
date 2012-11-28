@@ -1,4 +1,4 @@
-; RUN: llc -march=x86-64 -mattr=-fma4 -mtriple=x86_64-apple-darwin -enable-unsafe-fp-math < %s | FileCheck %s
+; RUN: llc -march=x86-64 -mattr=+avx,-fma4 -mtriple=x86_64-apple-darwin -enable-unsafe-fp-math < %s | FileCheck %s
 
 ; CHECK: test1
 define float @test1(float %a) {
@@ -35,3 +35,23 @@ define float @test3(float %a) {
   ret float %r
 }
 
+; CHECK: test4
+define float @test4(float %a) {
+; CHECK-NOT: fma
+; CHECK-NOT mul
+; CHECK-NOT: add
+; CHECK: ret
+  %t1 = fmul float %a, 0.0
+  %t2 = fadd float %a, %t1
+  ret float %t2
+}
+
+; CHECK: test5
+define float @test5(float %a) {
+; CHECK-NOT: add
+; CHECK: vxorps
+; CHECK: ret
+  %t1 = fsub float -0.0, %a
+  %t2 = fadd float %a, %t1
+  ret float %t2
+}

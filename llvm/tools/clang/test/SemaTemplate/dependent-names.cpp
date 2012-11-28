@@ -319,8 +319,44 @@ namespace PR11421 {
 template < unsigned > struct X {
   static const unsigned dimension = 3;
   template<unsigned dim=dimension> 
-  struct Y: Y<dim> { }; // expected-error {{incomplete type}} expected-note {{is not complete until the closing}}
+  struct Y: Y<dim> { }; // expected-error{{circular inheritance between 'Y<dim>' and 'Y<dim>'}}
 };
 typedef X<3> X3;
-X3::Y<>::iterator it; // expected-note {{requested here}}
+X3::Y<>::iterator it; // expected-error {{no type named 'iterator' in 'PR11421::X<3>::Y<3>'}}
+}
+
+namespace rdar12629723 {
+  template<class T>
+  struct X {
+    struct C : public C { }; // expected-error{{circular inheritance between 'rdar12629723::X::C' and 'rdar12629723::X::C'}}
+
+    struct B;
+
+    struct A : public B {  // expected-note{{'rdar12629723::X::A' declared here}}
+      virtual void foo() { }
+    };
+    struct B;
+
+    struct D : T::foo { };
+    struct E : D { };
+  };
+
+  template<class T>
+  struct X<T>::B : public A {  // expected-error{{circular inheritance between 'rdar12629723::X::A' and 'rdar12629723::X::B'}}
+    virtual void foo() { }
+  };
+}
+
+namespace test_reserved_identifiers {
+  template<typename A, typename B> void tempf(A a, B b) {
+    a + b;  // expected-error{{call to function 'operator+' that is neither visible in the template definition nor found by argument-dependent lookup}}
+  }
+  namespace __gnu_cxx { struct X {}; }
+  namespace ns { struct Y {}; }
+  void operator+(__gnu_cxx::X, ns::Y);  // expected-note{{or in namespace 'test_reserved_identifiers::ns'}}
+  void test() {
+    __gnu_cxx::X x;
+    ns::Y y;
+    tempf(x, y);  // expected-note{{in instantiation of}}
+  }
 }

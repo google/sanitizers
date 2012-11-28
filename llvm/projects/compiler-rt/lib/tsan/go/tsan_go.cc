@@ -108,6 +108,10 @@ void __tsan_fini() {
   exit(res);
 }
 
+void __tsan_map_shadow(uptr addr, uptr size) {
+  MapShadow(addr, size);
+}
+
 void __tsan_read(int goid, void *addr, void *pc) {
   ThreadState *thr = goroutines[goid];
   MemoryAccess(thr, (uptr)pc, (uptr)addr, 0, false);
@@ -116,6 +120,18 @@ void __tsan_read(int goid, void *addr, void *pc) {
 void __tsan_write(int goid, void *addr, void *pc) {
   ThreadState *thr = goroutines[goid];
   MemoryAccess(thr, (uptr)pc, (uptr)addr, 0, true);
+}
+
+void __tsan_read_range(int goid, void *addr, uptr size, uptr step, void *pc) {
+  ThreadState *thr = goroutines[goid];
+  for (uptr i = 0; i < size; i += step)
+	  MemoryAccess(thr, (uptr)pc, (uptr)addr + i, 0, false);
+}
+
+void __tsan_write_range(int goid, void *addr, uptr size, uptr step, void *pc) {
+  ThreadState *thr = goroutines[goid];
+  for (uptr i = 0; i < size; i += step)
+	  MemoryAccess(thr, (uptr)pc, (uptr)addr + i, 0, true);
 }
 
 void __tsan_func_enter(int goid, void *pc) {
@@ -133,8 +149,7 @@ void __tsan_malloc(int goid, void *p, uptr sz, void *pc) {
   if (thr == 0)  // probably before __tsan_init()
     return;
   thr->in_rtl++;
-  MemoryResetRange(thr, (uptr)pc, (uptr)p, sz);
-  MemoryAccessRange(thr, (uptr)pc, (uptr)p, sz, true);
+  MemoryRangeImitateWrite(thr, (uptr)pc, (uptr)p, sz);
   thr->in_rtl--;
 }
 
@@ -188,8 +203,42 @@ void __tsan_release_merge(int goid, void *addr) {
 
 void __tsan_finalizer_goroutine(int goid) {
   ThreadState *thr = goroutines[goid];
-  ThreadFinalizerGoroutine(thr);
+  AcquireGlobal(thr, 0);
 }
+
+#ifdef _WIN32
+// MinGW gcc emits calls to the function.
+void ___chkstk_ms(void) {
+// The implementation must be along the lines of:
+// .code64
+// PUBLIC ___chkstk_ms
+//     //cfi_startproc()
+// ___chkstk_ms:
+//     push rcx
+//     //cfi_push(%rcx)
+//     push rax
+//     //cfi_push(%rax)
+//     cmp rax, PAGE_SIZE
+//     lea rcx, [rsp + 24]
+//     jb l_LessThanAPage
+// .l_MoreThanAPage:
+//     sub rcx, PAGE_SIZE
+//     or rcx, 0
+//     sub rax, PAGE_SIZE
+//     cmp rax, PAGE_SIZE
+//     ja l_MoreThanAPage
+// .l_LessThanAPage:
+//     sub rcx, rax
+//     or [rcx], 0
+//     pop rax
+//     //cfi_pop(%rax)
+//     pop rcx
+//     //cfi_pop(%rcx)
+//     ret
+//     //cfi_endproc()
+// END
+}
+#endif
 
 }  // extern "C"
 }  // namespace __tsan
