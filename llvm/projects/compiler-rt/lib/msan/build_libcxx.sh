@@ -20,7 +20,7 @@ make_include() {
 make_lib() {
   TO=$1
   cd lib
-  CXXFLAGS="-fmemory-sanitizer -mllvm -msan-track-origins=$TO -I$LIBCXX/include -fPIE -fPIC -w -c -g -Os  -std=c++0x -fstrict-aliasing -nostdinc++ -fno-omit-frame-pointer   -mno-omit-leaf-frame-pointer "
+  CXXFLAGS="-fsanitize=memory -mllvm -msan-track-origins=$TO -I$LIBCXX/include -fPIE -fPIC -w -c -g -Os  -std=c++0x -fstrict-aliasing -nostdinc++ -fno-omit-frame-pointer   -mno-omit-leaf-frame-pointer "
 
   for f in $LIBCXX/src/*.cpp; do $CXX $CXXFLAGS $f & done; wait
 
