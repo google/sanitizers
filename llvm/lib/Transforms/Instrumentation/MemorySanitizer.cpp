@@ -451,7 +451,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       if (ClTrackOrigins) {
         Instruction *Origin = InstrumentationList[i].Origin;
         IRB.CreateStore(Origin ? (Value*)Origin : (Value*)IRB.getInt32(0),
-            MS.OriginTLS);
+                        MS.OriginTLS);
       }
       CallInst *Call = IRB.CreateCall(MS.WarningFn);
       Call->setDebugLoc(OrigIns->getDebugLoc());
