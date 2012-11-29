@@ -19,7 +19,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/TypeLoc.h"
-#include "clang/AST/UnresolvedSet.h"
+#include "clang/AST/ASTUnresolvedSet.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -494,6 +494,22 @@ class CXXRecordDecl : public RecordDecl {
     /// \brief Whether we have already declared a destructor within the class.
     bool DeclaredDestructor : 1;
 
+    /// \brief Whether an implicit copy constructor would have a const-qualified
+    /// parameter.
+    bool ImplicitCopyConstructorHasConstParam : 1;
+
+    /// \brief Whether an implicit copy assignment operator would have a
+    /// const-qualified parameter.
+    bool ImplicitCopyAssignmentHasConstParam : 1;
+
+    /// \brief Whether any declared copy constructor has a const-qualified
+    /// parameter.
+    bool HasDeclaredCopyConstructorWithConstParam : 1;
+
+    /// \brief Whether any declared copy assignment operator has either a
+    /// const-qualified reference parameter or a non-reference parameter.
+    bool HasDeclaredCopyAssignmentWithConstParam : 1;
+
     /// \brief Whether an implicit move constructor was attempted to be declared
     /// but would have been deleted.
     bool FailedImplicitMoveConstructor : 1;
@@ -522,14 +538,14 @@ class CXXRecordDecl : public RecordDecl {
     /// of this C++ class (but not its inherited conversion
     /// functions). Each of the entries in this overload set is a
     /// CXXConversionDecl.
-    UnresolvedSet<4> Conversions;
+    ASTUnresolvedSet Conversions;
 
     /// VisibleConversions - Overload set containing the conversion
     /// functions of this C++ class and all those inherited conversion
     /// functions that are visible in this class. Each of the entries
     /// in this overload set is a CXXConversionDecl or a
     /// FunctionTemplateDecl.
-    UnresolvedSet<4> VisibleConversions;
+    ASTUnresolvedSet VisibleConversions;
 
     /// Definition - The declaration which defines this record.
     CXXRecordDecl *Definition;
@@ -765,7 +781,8 @@ public:
     return reverse_base_class_const_iterator(vbases_begin());
  }
 
-  /// \brief Determine whether this class has any dependent base classes.
+  /// \brief Determine whether this class has any dependent base classes which
+  /// are not the current instantiation.
   bool hasAnyDependentBases() const;
 
   /// Iterator access to method members.  The method iterator visits
@@ -805,6 +822,12 @@ public:
     return data().FirstFriend != 0;
   }
 
+  /// \brief Determine whether this class has any default constructors.
+  bool hasDefaultConstructor() const {
+    return !data().UserDeclaredConstructor ||
+           data().DeclaredDefaultConstructor;
+  }
+
   /// \brief Determine if we need to declare a default constructor for
   /// this class.
   ///
@@ -814,8 +837,8 @@ public:
            !data().DeclaredDefaultConstructor;
   }
 
-  /// hasDeclaredDefaultConstructor - Whether this class's default constructor
-  /// has been declared (either explicitly or implicitly).
+  /// \brief Determine whether any default constructors have been declared for
+  /// this class (either explicitly or implicitly).
   bool hasDeclaredDefaultConstructor() const {
     return data().DeclaredDefaultConstructor;
   }
@@ -872,6 +895,20 @@ public:
   /// This value is used for lazy creation of copy constructors.
   bool hasDeclaredCopyConstructor() const {
     return data().DeclaredCopyConstructor;
+  }
+
+  /// \brief Determine whether an implicit copy constructor for this type
+  /// would have a parameter with a const-qualified reference type.
+  bool implicitCopyConstructorHasConstParam() const {
+    return data().ImplicitCopyConstructorHasConstParam;
+  }
+
+  /// \brief Determine whether this class has a copy constructor with
+  /// a parameter type which is a reference to a const-qualified type.
+  bool hasCopyConstructorWithConstParam() const {
+    return data().HasDeclaredCopyConstructorWithConstParam ||
+           (!hasDeclaredCopyConstructor() &&
+            implicitCopyConstructorHasConstParam());
   }
 
   /// hasUserDeclaredMoveOperation - Whether this class has a user-
@@ -934,6 +971,21 @@ public:
   /// This value is used for lazy creation of copy assignment operators.
   bool hasDeclaredCopyAssignment() const {
     return data().DeclaredCopyAssignment;
+  }
+
+  /// \brief Determine whether an implicit copy assignment operator for this
+  /// type would have a parameter with a const-qualified reference type.
+  bool implicitCopyAssignmentHasConstParam() const {
+    return data().ImplicitCopyAssignmentHasConstParam;
+  }
+
+  /// \brief Determine whether this class has a copy assignment operator with
+  /// a parameter type which is a reference to a const-qualified type or is not
+  /// a reference..
+  bool hasCopyAssignmentWithConstParam() const {
+    return data().HasDeclaredCopyAssignmentWithConstParam ||
+           (!hasDeclaredCopyAssignment() &&
+            implicitCopyAssignmentHasConstParam());
   }
 
   /// \brief Determine whether this class has had a move assignment
@@ -1011,21 +1063,12 @@ public:
     return isLambda() ? captures_begin() + getLambdaData().NumCaptures : NULL;
   }
 
-  /// getConversions - Retrieve the overload set containing all of the
-  /// conversion functions in this class.
-  UnresolvedSetImpl *getConversionFunctions() {
-    return &data().Conversions;
-  }
-  const UnresolvedSetImpl *getConversionFunctions() const {
-    return &data().Conversions;
-  }
-
-  typedef UnresolvedSetImpl::iterator conversion_iterator;
+  typedef UnresolvedSetIterator conversion_iterator;
   conversion_iterator conversion_begin() const {
-    return getConversionFunctions()->begin();
+    return data().Conversions.begin();
   }
   conversion_iterator conversion_end() const {
-    return getConversionFunctions()->end();
+    return data().Conversions.end();
   }
 
   /// Removes a conversion function from this class.  The conversion
@@ -1035,7 +1078,8 @@ public:
 
   /// getVisibleConversionFunctions - get all conversion functions visible
   /// in current class; including conversion function templates.
-  const UnresolvedSetImpl *getVisibleConversionFunctions();
+  std::pair<conversion_iterator, conversion_iterator>
+    getVisibleConversionFunctions();
 
   /// isAggregate - Whether this class is an aggregate (C++
   /// [dcl.init.aggr]), which is a class with no user-declared
@@ -1079,64 +1123,110 @@ public:
   /// mutable field.
   bool hasMutableFields() const { return data().HasMutableFields; }
 
-  /// hasTrivialDefaultConstructor - Whether this class has a trivial default
-  /// constructor (C++11 [class.ctor]p5).
+  /// \brief Determine whether this class has a trivial default constructor
+  /// (C++11 [class.ctor]p5).
+  /// FIXME: This can be wrong when the class has multiple default constructors.
   bool hasTrivialDefaultConstructor() const {
-    return data().HasTrivialDefaultConstructor &&
-           (!data().UserDeclaredConstructor ||
-             data().DeclaredDefaultConstructor);
+    return hasDefaultConstructor() && data().HasTrivialDefaultConstructor;
   }
 
-  /// hasConstexprNonCopyMoveConstructor - Whether this class has at least one
-  /// constexpr constructor other than the copy or move constructors.
+  /// \brief Determine whether this class has a non-trivial default constructor
+  /// (C++11 [class.ctor]p5).
+  bool hasNonTrivialDefaultConstructor() const {
+    return hasDefaultConstructor() && !data().HasTrivialDefaultConstructor;
+  }
+
+  /// \brief Determine whether this class has at least one constexpr constructor
+  /// other than the copy or move constructors.
   bool hasConstexprNonCopyMoveConstructor() const {
     return data().HasConstexprNonCopyMoveConstructor ||
            (!hasUserDeclaredConstructor() &&
             defaultedDefaultConstructorIsConstexpr());
   }
 
-  /// defaultedDefaultConstructorIsConstexpr - Whether a defaulted default
-  /// constructor for this class would be constexpr.
+  /// \brief Determine whether a defaulted default constructor for this class
+  /// would be constexpr.
   bool defaultedDefaultConstructorIsConstexpr() const {
     return data().DefaultedDefaultConstructorIsConstexpr &&
            (!isUnion() || hasInClassInitializer());
   }
 
-  /// hasConstexprDefaultConstructor - Whether this class has a constexpr
-  /// default constructor.
+  /// \brief Determine whether this class has a constexpr default constructor.
   bool hasConstexprDefaultConstructor() const {
     return data().HasConstexprDefaultConstructor ||
            (!data().UserDeclaredConstructor &&
             defaultedDefaultConstructorIsConstexpr());
   }
 
-  // hasTrivialCopyConstructor - Whether this class has a trivial copy
-  // constructor (C++ [class.copy]p6, C++0x [class.copy]p13)
+  /// \brief Determine whether this class has a trivial copy constructor
+  /// (C++ [class.copy]p6, C++11 [class.copy]p12)
+  /// FIXME: This can be wrong if the class has multiple copy constructors.
   bool hasTrivialCopyConstructor() const {
     return data().HasTrivialCopyConstructor;
   }
 
-  // hasTrivialMoveConstructor - Whether this class has a trivial move
-  // constructor (C++0x [class.copy]p13)
-  bool hasTrivialMoveConstructor() const {
-    return data().HasTrivialMoveConstructor;
+  /// \brief Determine whether this class has a non-trivial copy constructor
+  /// (C++ [class.copy]p6, C++11 [class.copy]p12)
+  bool hasNonTrivialCopyConstructor() const {
+    return !data().HasTrivialCopyConstructor;
   }
 
-  // hasTrivialCopyAssignment - Whether this class has a trivial copy
-  // assignment operator (C++ [class.copy]p11, C++0x [class.copy]p27)
+  /// \brief Determine whether this class has a trivial move constructor
+  /// (C++11 [class.copy]p12)
+  /// FIXME: This can be wrong if the class has multiple move constructors,
+  /// or if the implicit move constructor would be deleted.
+  bool hasTrivialMoveConstructor() const {
+    return data().HasTrivialMoveConstructor &&
+           (hasDeclaredMoveConstructor() || needsImplicitMoveConstructor());
+  }
+
+  /// \brief Determine whether this class has a non-trivial move constructor
+  /// (C++11 [class.copy]p12)
+  /// FIXME: This can be wrong if the implicit move constructor would be
+  /// deleted.
+  bool hasNonTrivialMoveConstructor() const {
+    return !data().HasTrivialMoveConstructor &&
+           (hasDeclaredMoveConstructor() || needsImplicitMoveConstructor());
+  }
+
+  /// \brief Determine whether this class has a trivial copy assignment operator
+  /// (C++ [class.copy]p11, C++11 [class.copy]p25)
+  /// FIXME: This can be wrong if the class has multiple copy assignment
+  /// operators.
   bool hasTrivialCopyAssignment() const {
     return data().HasTrivialCopyAssignment;
   }
 
-  // hasTrivialMoveAssignment - Whether this class has a trivial move
-  // assignment operator (C++0x [class.copy]p27)
-  bool hasTrivialMoveAssignment() const {
-    return data().HasTrivialMoveAssignment;
+  /// \brief Determine whether this class has a non-trivial copy assignment
+  /// operator (C++ [class.copy]p11, C++11 [class.copy]p25)
+  bool hasNonTrivialCopyAssignment() const {
+    return !data().HasTrivialCopyAssignment;
   }
 
-  // hasTrivialDestructor - Whether this class has a trivial destructor
-  // (C++ [class.dtor]p3)
+  /// \brief Determine whether this class has a trivial move assignment operator
+  /// (C++11 [class.copy]p25)
+  /// FIXME: This can be wrong if the class has multiple move assignment
+  /// operators, or if the implicit move assignment operator would be deleted.
+  bool hasTrivialMoveAssignment() const {
+    return data().HasTrivialMoveAssignment &&
+           (hasDeclaredMoveAssignment() || needsImplicitMoveAssignment());
+  }
+
+  /// \brief Determine whether this class has a non-trivial move assignment
+  /// operator (C++11 [class.copy]p25)
+  /// FIXME: This can be wrong if the implicit move assignment would be deleted.
+  bool hasNonTrivialMoveAssignment() const {
+    return !data().HasTrivialMoveAssignment &&
+           (hasDeclaredMoveAssignment() || needsImplicitMoveAssignment());
+  }
+
+  /// \brief Determine whether this class has a trivial destructor
+  /// (C++ [class.dtor]p3)
   bool hasTrivialDestructor() const { return data().HasTrivialDestructor; }
+
+  /// \brief Determine whether this class has a non-trivial destructor
+  /// (C++ [class.dtor]p3)
+  bool hasNonTrivialDestructor() const { return !data().HasTrivialDestructor; }
 
   // hasIrrelevantDestructor - Whether this class has a destructor which has no
   // semantic effect. Any such destructor will be trivial, public, defaulted
@@ -1255,6 +1345,10 @@ public:
 
     return dyn_cast<FunctionDecl>(getDeclContext());
   }
+
+  /// \brief Determine whether this dependent class is a current instantiation,
+  /// when viewed from within the given context.
+  bool isCurrentInstantiation(const DeclContext *CurContext) const;
 
   /// \brief Determine whether this class is derived from the class \p Base.
   ///
@@ -2077,7 +2171,7 @@ public:
   /// constructor (C++ [class.copy]p2, which can be used to copy the
   /// class. @p TypeQuals will be set to the qualifiers on the
   /// argument type. For example, @p TypeQuals would be set to @c
-  /// QualType::Const for the following copy constructor:
+  /// Qualifiers::Const for the following copy constructor:
   ///
   /// @code
   /// class X {

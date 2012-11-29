@@ -947,6 +947,25 @@ TEST(Matcher, HasOperatorNameForOverloadedOperatorCall) {
               OpCallLessLess));
 }
 
+TEST(Matcher, NestedOverloadedOperatorCalls) {
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+        "class Y { }; "
+        "Y& operator&&(Y& x, Y& y) { return x; }; "
+        "Y a; Y b; Y c; Y d = a && b && c;",
+        operatorCallExpr(hasOverloadedOperatorName("&&")).bind("x"),
+        new VerifyIdIsBoundTo<CXXOperatorCallExpr>("x", 2)));
+  EXPECT_TRUE(matches(
+        "class Y { }; "
+        "Y& operator&&(Y& x, Y& y) { return x; }; "
+        "Y a; Y b; Y c; Y d = a && b && c;",
+        operatorCallExpr(hasParent(operatorCallExpr()))));
+  EXPECT_TRUE(matches(
+        "class Y { }; "
+        "Y& operator&&(Y& x, Y& y) { return x; }; "
+        "Y a; Y b; Y c; Y d = a && b && c;",
+        operatorCallExpr(hasDescendant(operatorCallExpr()))));
+}
+
 TEST(Matcher, ThisPointerType) {
   StatementMatcher MethodOnY =
     memberCallExpr(thisPointerType(recordDecl(hasName("Y"))));
@@ -2758,6 +2777,22 @@ TEST(ForEachDescendant, BindsOneNode) {
       new VerifyIdIsBoundTo<FieldDecl>("x", 1)));
 }
 
+TEST(ForEachDescendant, NestedForEachDescendant) {
+  DeclarationMatcher m = recordDecl(
+      isDefinition(), decl().bind("x"), hasName("C"));
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+    "class A { class B { class C {}; }; };",
+    recordDecl(hasName("A"), anyOf(m, forEachDescendant(m))),
+    new VerifyIdIsBoundTo<Decl>("x", "C")));
+
+  // FIXME: This is not really a useful matcher, but the result is still
+  // surprising (currently binds "A").
+  //EXPECT_TRUE(matchAndVerifyResultTrue(
+  //  "class A { class B { class C {}; }; };",
+  //  recordDecl(hasName("A"), allOf(hasDescendant(m), anyOf(m, anything()))),
+  //  new VerifyIdIsBoundTo<Decl>("x", "C")));
+}
+
 TEST(ForEachDescendant, BindsMultipleNodes) {
   EXPECT_TRUE(matchAndVerifyResultTrue(
       "class C { class D { int x; int y; }; "
@@ -2773,6 +2808,17 @@ TEST(ForEachDescendant, BindsRecursiveCombinations) {
       recordDecl(hasName("C"), forEachDescendant(recordDecl(
           forEachDescendant(fieldDecl().bind("f"))))),
       new VerifyIdIsBoundTo<FieldDecl>("f", 8)));
+}
+
+TEST(ForEachDescendant, BindsCorrectNodes) {
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "class C { void f(); int i; };",
+      recordDecl(hasName("C"), forEachDescendant(decl().bind("decl"))),
+      new VerifyIdIsBoundTo<FieldDecl>("decl", 1)));
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "class C { void f() {} int i; };",
+      recordDecl(hasName("C"), forEachDescendant(decl().bind("decl"))),
+      new VerifyIdIsBoundTo<FunctionDecl>("decl", 1)));
 }
 
 
@@ -3364,6 +3410,27 @@ TEST(MatchFinder, CanMatchStatementsRecursively) {
   EXPECT_TRUE(matchAndVerifyResultFalse("void f() { if (1) { for (;;) { } } }",
     ifStmt().bind("if"),
     new VerifyRecursiveMatch<clang::Stmt>("if", declStmt())));
+}
+
+class VerifyStartOfTranslationUnit : public MatchFinder::MatchCallback {
+public:
+  VerifyStartOfTranslationUnit() : Called(false) {}
+  virtual void run(const MatchFinder::MatchResult &Result) {
+    EXPECT_TRUE(Called);
+  }
+  virtual void onStartOfTranslationUnit() {
+    Called = true;
+  }
+  bool Called;
+};
+
+TEST(MatchFinder, InterceptsStartOfTranslationUnit) {
+  MatchFinder Finder;
+  VerifyStartOfTranslationUnit VerifyCallback;
+  Finder.addMatcher(decl(), &VerifyCallback);
+  OwningPtr<FrontendActionFactory> Factory(newFrontendActionFactory(&Finder));
+  ASSERT_TRUE(tooling::runToolOnCode(Factory->create(), "int x;"));
+  EXPECT_TRUE(VerifyCallback.Called);
 }
 
 } // end namespace ast_matchers

@@ -90,9 +90,6 @@ static unsigned getGVAlignmentLog2(const GlobalValue *GV, const DataLayout &TD,
   return NumBits;
 }
 
-
-
-
 AsmPrinter::AsmPrinter(TargetMachine &tm, MCStreamer &Streamer)
   : MachineFunctionPass(ID),
     TM(tm), MAI(tm.getMCAsmInfo()),
@@ -129,7 +126,6 @@ unsigned AsmPrinter::getFunctionNumber() const {
 const TargetLoweringObjectFile &AsmPrinter::getObjFileLowering() const {
   return TM.getTargetLowering()->getObjFileLowering();
 }
-
 
 /// getDataLayout - Return information about data layout.
 const DataLayout &AsmPrinter::getDataLayout() const {
@@ -312,8 +308,13 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
       return;
     }
 
-    if (Align == 1 ||
-        MAI->getLCOMMDirectiveAlignmentType() != LCOMM::NoAlignment) {
+    // Use .lcomm only if it supports user-specified alignment.
+    // Otherwise, while it would still be correct to use .lcomm in some
+    // cases (e.g. when Align == 1), the external assembler might enfore
+    // some -unknown- default alignment behavior, which could cause
+    // spurious differences between external and integrated assembler.
+    // Prefer to simply fall back to .local / .comm in this case.
+    if (MAI->getLCOMMDirectiveAlignmentType() != LCOMM::NoAlignment) {
       // .lcomm _foo, 42
       OutStreamer.EmitLocalCommonSymbol(GVSym, Size, Align);
       return;
@@ -385,8 +386,7 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
     //   - __tlv_bootstrap - used to make sure support exists
     //   - spare pointer, used when mapped by the runtime
     //   - pointer to mangled symbol above with initializer
-    assert(GV->getType()->isPointerTy() && "GV must be a pointer type!");
-    unsigned PtrSize = TD->getTypeSizeInBits(GV->getType())/8;
+    unsigned PtrSize = TD->getPointerSizeInBits()/8;
     OutStreamer.EmitSymbolValue(GetExternalSymbolSymbol("_tlv_bootstrap"),
                           PtrSize, 0);
     OutStreamer.EmitIntValue(0, PtrSize, 0);
@@ -1300,7 +1300,7 @@ void AsmPrinter::EmitXXStructorList(const Constant *List, bool isCtor) {
 
   // Emit the function pointers in the target-specific order
   const DataLayout *TD = TM.getDataLayout();
-  unsigned Align = Log2_32(TD->getPointerPrefAlignment(0));
+  unsigned Align = Log2_32(TD->getPointerPrefAlignment());
   std::stable_sort(Structors.begin(), Structors.end(), priority_order);
   for (unsigned i = 0, e = Structors.size(); i != e; ++i) {
     const MCSection *OutputSection =
@@ -1481,9 +1481,8 @@ static const MCExpr *lowerConstant(const Constant *CV, AsmPrinter &AP) {
     if (Offset == 0)
       return Base;
 
-    assert(CE->getType()->isPointerTy() && "We must have a pointer type!");
     // Truncate/sext the offset to the pointer size.
-    unsigned Width = TD.getTypeSizeInBits(CE->getType());
+    unsigned Width = TD.getPointerSizeInBits();
     if (Width < 64)
       Offset = SignExtend64(Offset, Width);
 
@@ -1505,7 +1504,7 @@ static const MCExpr *lowerConstant(const Constant *CV, AsmPrinter &AP) {
     // Handle casts to pointers by changing them into casts to the appropriate
     // integer type.  This promotes constant folding and simplifies this code.
     Constant *Op = CE->getOperand(0);
-    Op = ConstantExpr::getIntegerCast(Op, TD.getIntPtrType(CE->getType()),
+    Op = ConstantExpr::getIntegerCast(Op, TD.getIntPtrType(CV->getContext()),
                                       false/*ZExt*/);
     return lowerConstant(Op, AP);
   }
@@ -1616,7 +1615,7 @@ static int isRepeatedByteSequence(const Value *V, TargetMachine &TM) {
     }
     return Byte;
   }
-  
+
   if (const ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(V))
     return isRepeatedByteSequence(CDS);
 
@@ -1625,7 +1624,7 @@ static int isRepeatedByteSequence(const Value *V, TargetMachine &TM) {
 
 static void emitGlobalConstantDataSequential(const ConstantDataSequential *CDS,
                                              unsigned AddrSpace,AsmPrinter &AP){
-  
+
   // See if we can aggregate this into a .fill, if so, emit it as such.
   int Value = isRepeatedByteSequence(CDS, AP.TM);
   if (Value != -1) {
@@ -1634,7 +1633,7 @@ static void emitGlobalConstantDataSequential(const ConstantDataSequential *CDS,
     if (Bytes > 1)
       return AP.OutStreamer.EmitFill(Bytes, Value, AddrSpace);
   }
-  
+
   // If this can be emitted with .ascii/.asciz, emit it as such.
   if (CDS->isString())
     return AP.OutStreamer.EmitBytes(CDS->getAsString(), AddrSpace);
@@ -1658,7 +1657,7 @@ static void emitGlobalConstantDataSequential(const ConstantDataSequential *CDS,
         float F;
         uint32_t I;
       };
-      
+
       F = CDS->getElementAsFloat(i);
       if (AP.isVerbose())
         AP.OutStreamer.GetCommentOS() << "float " << F << '\n';
@@ -1671,7 +1670,7 @@ static void emitGlobalConstantDataSequential(const ConstantDataSequential *CDS,
         double F;
         uint64_t I;
       };
-      
+
       F = CDS->getElementAsDouble(i);
       if (AP.isVerbose())
         AP.OutStreamer.GetCommentOS() << "double " << F << '\n';
@@ -1880,7 +1879,7 @@ static void emitGlobalConstantImpl(const Constant *CV, unsigned AddrSpace,
 
   if (const ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(CV))
     return emitGlobalConstantDataSequential(CDS, AddrSpace, AP);
-  
+
   if (const ConstantArray *CVA = dyn_cast<ConstantArray>(CV))
     return emitGlobalConstantArray(CVA, AddrSpace, AP);
 
@@ -1902,10 +1901,10 @@ static void emitGlobalConstantImpl(const Constant *CV, unsigned AddrSpace,
         return emitGlobalConstantImpl(New, AddrSpace, AP);
     }
   }
-  
+
   if (const ConstantVector *V = dyn_cast<ConstantVector>(CV))
     return emitGlobalConstantVector(V, AddrSpace, AP);
-    
+
   // Otherwise, it must be a ConstantExpr.  Lower it to an MCExpr, then emit it
   // thread the streamer with EmitValue.
   AP.OutStreamer.EmitValue(lowerConstant(CV, AP), Size, AddrSpace);

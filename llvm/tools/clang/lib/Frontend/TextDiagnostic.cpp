@@ -298,7 +298,7 @@ struct SourceColumnMap {
   /// \brief Map from a byte index to the previous byte which starts a column.
   int startOfPreviousColumn(int N) const {
     assert(0 < N && N < static_cast<int>(m_columnToByte.size()));
-    while (byteToColumn(N--) == -1) {}
+    while (byteToColumn(--N) == -1) {}
     return N;
   }
 
@@ -418,7 +418,7 @@ static void selectInterestingSourceRegion(std::string &SourceLine,
     bool ExpandedRegion = false;
 
     if (SourceStart>0) {
-      unsigned NewStart = SourceStart-1;
+      unsigned NewStart = map.startOfPreviousColumn(SourceStart);
 
       // Skip over any whitespace we see here; we're looking for
       // another bit of interesting text.
@@ -445,7 +445,7 @@ static void selectInterestingSourceRegion(std::string &SourceLine,
     }
 
     if (SourceEnd<SourceLine.size()) {
-      unsigned NewEnd = SourceEnd+1;
+      unsigned NewEnd = map.startOfNextColumn(SourceEnd);
 
       // Skip over any whitespace we see here; we're looking for
       // another bit of interesting text.
@@ -494,7 +494,7 @@ static void selectInterestingSourceRegion(std::string &SourceLine,
 
   // The line needs some trunctiona, and we'd prefer to keep the front
   //  if possible, so remove the back
-  if (BackColumnsRemoved)
+  if (BackColumnsRemoved > strlen(back_ellipse))
     SourceLine.replace(SourceEnd, std::string::npos, back_ellipse);
 
   // If that's enough then we're done
@@ -502,7 +502,7 @@ static void selectInterestingSourceRegion(std::string &SourceLine,
     return;
 
   // Otherwise remove the front as well
-  if (FrontColumnsRemoved) {
+  if (FrontColumnsRemoved > strlen(front_ellipse)) {
     SourceLine.replace(0, SourceStart, front_ellipse);
     CaretLine.replace(0, CaretStart, front_space);
     if (!FixItInsertionLine.empty())
@@ -1049,16 +1049,8 @@ void TextDiagnostic::highlightRange(const CharSourceRange &R,
                                     const SourceManager &SM) {
   if (!R.isValid()) return;
 
-  SourceLocation Begin = SM.getExpansionLoc(R.getBegin());
-  SourceLocation End = SM.getExpansionLoc(R.getEnd());
-
-  // If the End location and the start location are the same and are a macro
-  // location, then the range was something that came from a macro expansion
-  // or _Pragma.  If this is an object-like macro, the best we can do is to
-  // highlight the range.  If this is a function-like macro, we'd also like to
-  // highlight the arguments.
-  if (Begin == End && R.getEnd().isMacroID())
-    End = SM.getExpansionRange(R.getEnd()).second;
+  SourceLocation Begin = R.getBegin();
+  SourceLocation End = R.getEnd();
 
   unsigned StartLineNo = SM.getExpansionLineNumber(Begin);
   if (StartLineNo > LineNo || SM.getFileID(Begin) != FID)

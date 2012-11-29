@@ -383,26 +383,37 @@ for.end:                                          ; preds = %for.inc
 
 }
 
-@p = common global [1024 x i8] zeroinitializer, align 16
+define void @PR14241(i32* %s, i64 %size) {
+; Ensure that we don't form a memcpy for strided loops. Briefly, when we taught
+; LoopIdiom about memmove and strided loops, this got miscompiled into a memcpy
+; instead of a memmove. If we get the memmove transform back, this will catch
+; regressions.
+;
+; CHECK: @PR14241
 
-define void @test15(i32 %n) nounwind {
 entry:
-  %cmp6 = icmp eq i32 %n, 0
-  br i1 %cmp6, label %for.end, label %for.body
+  %end.idx = add i64 %size, -1
+  %end.ptr = getelementptr inbounds i32* %s, i64 %end.idx
+  br label %while.body
+; CHECK-NOT: memcpy
+;
+; FIXME: When we regain the ability to form a memmove here, this test should be
+; reversed and turned into a positive assertion.
+; CHECK-NOT: memmove
 
-for.body:                                         ; preds = %entry, %for.body
-  %indvars.iv = phi i64 [ %indvars.iv.next, %for.body ], [ 0, %entry ]
-  %indvars.iv.next = add i64 %indvars.iv, 1
-  %arrayidx = getelementptr inbounds [1024 x i8]* @p, i64 0, i64 %indvars.iv.next
-  %0 = load i8* %arrayidx, align 1
-  %arrayidx2 = getelementptr inbounds [1024 x i8]* @p, i64 0, i64 %indvars.iv
-  store i8 %0, i8* %arrayidx2, align 1
-  %lftr.wideiv = trunc i64 %indvars.iv.next to i32
-  %exitcond = icmp eq i32 %lftr.wideiv, %n
-  br i1 %exitcond, label %for.end, label %for.body
+while.body:
+  %phi.ptr = phi i32* [ %s, %entry ], [ %next.ptr, %while.body ]
+  %src.ptr = getelementptr inbounds i32* %phi.ptr, i64 1
+  %val = load i32* %src.ptr, align 4
+; CHECK: load
+  %dst.ptr = getelementptr inbounds i32* %phi.ptr, i64 0
+  store i32 %val, i32* %dst.ptr, align 4
+; CHECK: store
+  %next.ptr = getelementptr inbounds i32* %phi.ptr, i64 1
+  %cmp = icmp eq i32* %next.ptr, %end.ptr
+  br i1 %cmp, label %exit, label %while.body
 
-for.end:                                          ; preds = %for.body, %entry
+exit:
   ret void
-; CHECK: @test15
-; CHECK: call void @llvm.memmove.p0i8.p0i8.i64(i8* getelementptr inbounds ([1024 x i8]* @p, i32 0, i32 0), i8* getelementptr inbounds ([1024 x i8]* @p, i64 0, i64 1),
+; CHECK: ret void
 }

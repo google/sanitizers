@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -verify -std=c++11 %s
 
 int f() __attribute__((warn_unused_result));
 
@@ -41,4 +41,40 @@ void bah() {
   X x, *x2;
   x.foo(); // expected-warning {{ignoring return value}}
   x2->foo(); // expected-warning {{ignoring return value}}
+}
+
+namespace warn_unused_CXX11 {
+struct [[clang::warn_unused_result]] Status {
+  bool ok() const;
+  Status& operator=(const Status& x);
+  inline void Update(const Status& new_status) {
+    if (ok()) {
+      *this = new_status; //no-warning
+    }
+  }
+};
+Status DoSomething();
+Status& DoSomethingElse();
+Status* DoAnotherThing();
+Status** DoYetAnotherThing();
+void lazy() {
+  Status s = DoSomething();
+  if (!s.ok()) return;
+  Status &rs = DoSomethingElse();
+  if (!rs.ok()) return;
+  Status *ps = DoAnotherThing();
+  if (!ps->ok()) return;
+  Status **pps = DoYetAnotherThing();
+  if (!(*pps)->ok()) return;
+
+  (void)DoSomething();
+  (void)DoSomethingElse();
+  (void)DoAnotherThing();
+  (void)DoYetAnotherThing();
+
+  DoSomething(); // expected-warning {{ignoring return value}}
+  DoSomethingElse(); // expected-warning {{ignoring return value}}
+  DoAnotherThing(); // expected-warning {{ignoring return value}}
+  DoYetAnotherThing();
+}
 }

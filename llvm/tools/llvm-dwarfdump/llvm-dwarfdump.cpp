@@ -15,6 +15,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Object/RelocVisitor.h"
 #include "llvm/DebugInfo/DIContext.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -28,6 +29,9 @@
 #include "llvm/Support/system_error.h"
 #include <algorithm>
 #include <cstring>
+#include <list>
+#include <string>
+
 using namespace llvm;
 using namespace object;
 
@@ -65,47 +69,8 @@ static void DumpInput(const StringRef &Filename) {
   }
 
   OwningPtr<ObjectFile> Obj(ObjectFile::createObjectFile(Buff.take()));
+  OwningPtr<DIContext> dictx(DIContext::getDWARFContext(Obj.get()));
 
-  StringRef DebugInfoSection;
-  StringRef DebugAbbrevSection;
-  StringRef DebugLineSection;
-  StringRef DebugArangesSection;
-  StringRef DebugStringSection;
-  StringRef DebugRangesSection;
-
-  error_code ec;
-  for (section_iterator i = Obj->begin_sections(),
-                        e = Obj->end_sections();
-                        i != e; i.increment(ec)) {
-    StringRef name;
-    i->getName(name);
-    StringRef data;
-    i->getContents(data);
-
-    if (name.startswith("__DWARF,"))
-      name = name.substr(8); // Skip "__DWARF," prefix.
-    name = name.substr(name.find_first_not_of("._")); // Skip . and _ prefixes.
-    if (name == "debug_info")
-      DebugInfoSection = data;
-    else if (name == "debug_abbrev")
-      DebugAbbrevSection = data;
-    else if (name == "debug_line")
-      DebugLineSection = data;
-    else if (name == "debug_aranges")
-      DebugArangesSection = data;
-    else if (name == "debug_str")
-      DebugStringSection = data;
-    else if (name == "debug_ranges")
-      DebugRangesSection = data;
-  }
-
-  OwningPtr<DIContext> dictx(DIContext::getDWARFContext(/*FIXME*/true,
-                                                        DebugInfoSection,
-                                                        DebugAbbrevSection,
-                                                        DebugArangesSection,
-                                                        DebugLineSection,
-                                                        DebugStringSection,
-                                                        DebugRangesSection));
   if (Address == -1ULL) {
     outs() << Filename
            << ":\tfile format " << Obj->getFileFormatName() << "\n\n";

@@ -118,13 +118,14 @@ public:
     Base->endFunctionBody(F, FunctionStart, FunctionEnd);
   }
   virtual uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
-                                       unsigned SectionID) {
-    return Base->allocateDataSection(Size, Alignment, SectionID);
+                                       unsigned SectionID, bool IsReadOnly) {
+    return Base->allocateDataSection(Size, Alignment, SectionID, IsReadOnly);
   }
   virtual uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
                                        unsigned SectionID) {
     return Base->allocateCodeSection(Size, Alignment, SectionID);
   }
+  virtual bool applyPermissions(std::string *ErrMsg) { return false; }
   virtual uint8_t *allocateSpace(intptr_t Size, unsigned Alignment) {
     return Base->allocateSpace(Size, Alignment);
   }
@@ -224,8 +225,8 @@ class JITTest : public testing::Test {
   OwningPtr<ExecutionEngine> TheJIT;
 };
 
-// Tests on ARM disabled as we're running the old jit
-#if !defined(__arm__)
+// Tests on ARM and PowerPC disabled as we're running the old jit
+#if !defined(__arm__) && !defined(__powerpc__)
 
 // Regression test for a bug.  The JIT used to allocate globals inside the same
 // memory block used for the function, and when the function code was freed,
@@ -295,14 +296,14 @@ TEST(JIT, GlobalInFunction) {
   EXPECT_EQ(3, *GPtr);
 }
 
-#endif // !defined(__arm__)
+#endif // !defined(__arm__) && !defined(__powerpc__)
 
 int PlusOne(int arg) {
   return arg + 1;
 }
 
-// ARM tests disabled pending fix for PR10783.
-#if !defined(__arm__)
+// ARM and PowerPC tests disabled pending fix for PR10783.
+#if !defined(__arm__) && !defined(__powerpc__)
 TEST_F(JITTest, FarCallToKnownFunction) {
   // x86-64 can only make direct calls to functions within 32 bits of
   // the current PC.  To call anything farther away, we have to load
@@ -480,7 +481,7 @@ TEST_F(JITTest, ModuleDeletion) {
   EXPECT_EQ(RJMM->startExceptionTableCalls.size(),
             NumTablesDeallocated);
 }
-#endif // !defined(__arm__)
+#endif // !defined(__arm__) && !defined(__powerpc__)
 
 // ARM, MIPS and PPC still emit stubs for calls since the target may be
 // too far away to call directly.  This #if can probably be removed when
@@ -526,8 +527,8 @@ TEST_F(JITTest, NoStubs) {
 }
 #endif  // !ARM && !PPC
 
-// Tests on ARM disabled as we're running the old jit
-#if !defined(__arm__)
+// Tests on ARM and PowerPC disabled as we're running the old jit
+#if !defined(__arm__) && !defined(__powerpc__)
 
 TEST_F(JITTest, FunctionPointersOutliveTheirCreator) {
   TheJIT->DisableLazyCompilation(true);
@@ -563,12 +564,13 @@ TEST_F(JITTest, FunctionPointersOutliveTheirCreator) {
 #endif
 }
 
-#endif //!defined(__arm__)
+#endif //!defined(__arm__) && !defined(__powerpc__)
 
-// ARM does not have an implementation
+// Tests on ARM and PowerPC disabled as we're running the old jit
+// In addition, ARM does not have an implementation
 // of replaceMachineCodeForFunction(), so recompileAndRelinkFunction
 // doesn't work.
-#if !defined(__arm__)
+#if !defined(__arm__) && !defined(__powerpc__)
 TEST_F(JITTest, FunctionIsRecompiledAndRelinked) {
   Function *F = Function::Create(TypeBuilder<int(void), false>::get(Context),
                                  GlobalValue::ExternalLinkage, "test", M);
@@ -599,7 +601,7 @@ TEST_F(JITTest, FunctionIsRecompiledAndRelinked) {
   EXPECT_EQ(2, OrigFPtr())
     << "The old pointer's target should now jump to the new version";
 }
-#endif  // !defined(__arm__)
+#endif  // !defined(__arm__) && !defined(__powerpc__)
 
 }  // anonymous namespace
 // This variable is intentionally defined differently in the statically-compiled
@@ -609,8 +611,8 @@ extern "C" int32_t JITTest_AvailableExternallyGlobal;
 int32_t JITTest_AvailableExternallyGlobal LLVM_ATTRIBUTE_USED = 42;
 namespace {
 
-// Tests on ARM disabled as we're running the old jit
-#if !defined(__arm__)
+// Tests on ARM and PowerPC disabled as we're running the old jit
+#if !defined(__arm__) && !defined(__powerpc__)
 
 TEST_F(JITTest, AvailableExternallyGlobalIsntEmitted) {
   TheJIT->DisableLazyCompilation(true);
@@ -628,7 +630,7 @@ TEST_F(JITTest, AvailableExternallyGlobalIsntEmitted) {
   EXPECT_EQ(42, loader()) << "func should return 42 from the external global,"
                           << " not 7 from the IR version.";
 }
-#endif //!defined(__arm__)
+#endif //!defined(__arm__) && !defined(__powerpc__)
 }  // anonymous namespace
 // This function is intentionally defined differently in the statically-compiled
 // program from the IR input to the JIT to assert that the JIT doesn't use its
@@ -639,8 +641,8 @@ extern "C" int32_t JITTest_AvailableExternallyFunction() {
 }
 namespace {
 
-// ARM tests disabled pending fix for PR10783.
-#if !defined(__arm__)
+// ARM and PowerPC tests disabled pending fix for PR10783.
+#if !defined(__arm__) && !defined(__powerpc__)
 TEST_F(JITTest, AvailableExternallyFunctionIsntCompiled) {
   TheJIT->DisableLazyCompilation(true);
   LoadAssembly("define available_externally i32 "
@@ -796,7 +798,7 @@ TEST(LazyLoadedJITTest, EagerCompiledRecursionThroughGhost) {
     (intptr_t)TheJIT->getPointerToFunction(recur1IR));
   EXPECT_EQ(3, recur1(4));
 }
-#endif // !defined(__arm__)
+#endif // !defined(__arm__) && !defined(__powerpc__)
 
 // This code is copied from JITEventListenerTest, but it only runs once for all
 // the tests in this directory.  Everything seems fine, but that's strange

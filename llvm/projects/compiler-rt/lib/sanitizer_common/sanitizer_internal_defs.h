@@ -24,8 +24,7 @@ using namespace __sanitizer;  // NOLINT
 #define WEAK SANITIZER_WEAK_ATTRIBUTE
 
 // Platform-specific defs.
-#if defined(_WIN32)
-typedef unsigned long    DWORD;  // NOLINT
+#if defined(_MSC_VER)
 # define ALWAYS_INLINE __declspec(forceinline)
 // FIXME(timurrrr): do we need this on Windows?
 # define ALIAS(x)
@@ -35,7 +34,11 @@ typedef unsigned long    DWORD;  // NOLINT
 # define NORETURN __declspec(noreturn)
 # define THREADLOCAL   __declspec(thread)
 # define NOTHROW
-#else  // _WIN32
+# define LIKELY(x) (x)
+# define UNLIKELY(x) (x)
+# define UNUSED
+# define USED
+#else  // _MSC_VER
 # define ALWAYS_INLINE __attribute__((always_inline))
 # define ALIAS(x) __attribute__((alias(x)))
 # define ALIGNED(x) __attribute__((aligned(x)))
@@ -43,22 +46,15 @@ typedef unsigned long    DWORD;  // NOLINT
 # define NOINLINE __attribute__((noinline))
 # define NORETURN  __attribute__((noreturn))
 # define THREADLOCAL   __thread
-# ifdef __cplusplus
-#   define NOTHROW throw()
-# else
-#   define NOTHROW __attribute__((__nothrow__))
-#endif
-#endif  // _WIN32
-
-// We have no equivalent of these on Windows.
-#ifndef _WIN32
+# define NOTHROW throw()
 # define LIKELY(x)     __builtin_expect(!!(x), 1)
 # define UNLIKELY(x)   __builtin_expect(!!(x), 0)
 # define UNUSED __attribute__((unused))
 # define USED __attribute__((used))
-#endif
+#endif  // _MSC_VER
 
 #if defined(_WIN32)
+typedef unsigned long DWORD;  // NOLINT
 typedef DWORD thread_return_t;
 # define THREAD_CALLING_CONV __stdcall
 #else  // _WIN32
@@ -67,15 +63,11 @@ typedef void* thread_return_t;
 #endif  // _WIN32
 typedef thread_return_t (THREAD_CALLING_CONV *thread_callback_t)(void* arg);
 
-// If __WORDSIZE was undefined by the platform, define it in terms of the
-// compiler built-ins __LP64__ and _WIN64.
-#ifndef __WORDSIZE
-# if __LP64__ || defined(_WIN64)
-#  define __WORDSIZE 64
-# else
-#  define __WORDSIZE 32
-#  endif
-#endif  // __WORDSIZE
+#if __LP64__ || defined(_WIN64)
+#  define SANITIZER_WORDSIZE 64
+#else
+#  define SANITIZER_WORDSIZE 32
+#endif
 
 // NOTE: Functions below must be defined in each run-time.
 namespace __sanitizer {
@@ -149,13 +141,13 @@ void NORETURN CheckFailed(const char *file, int line, const char *cond,
 // have stdint.h (like in Visual Studio 9).
 #undef __INT64_C
 #undef __UINT64_C
-#if __WORDSIZE == 64
+#if SANITIZER_WORDSIZE == 64
 # define __INT64_C(c)  c ## L
 # define __UINT64_C(c) c ## UL
 #else
 # define __INT64_C(c)  c ## LL
 # define __UINT64_C(c) c ## ULL
-#endif  // __WORDSIZE == 64
+#endif  // SANITIZER_WORDSIZE == 64
 #undef INT32_MIN
 #define INT32_MIN              (-2147483647-1)
 #undef INT32_MAX

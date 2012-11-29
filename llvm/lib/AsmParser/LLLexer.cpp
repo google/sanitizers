@@ -402,7 +402,7 @@ lltok::Kind LLLexer::LexExclaim() {
   }
   return lltok::exclaim;
 }
-  
+
 /// LexIdentifier: Handle several related productions:
 ///    Label           [-a-zA-Z$._0-9]+:
 ///    IntegerType     i[0-9]+
@@ -486,7 +486,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(target);
   KEYWORD(triple);
   KEYWORD(unwind);
-  KEYWORD(deplibs);
+  KEYWORD(deplibs);             // FIXME: Remove in 4.0.
   KEYWORD(datalayout);
   KEYWORD(volatile);
   KEYWORD(atomic);
@@ -498,6 +498,11 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(seq_cst);
   KEYWORD(singlethread);
 
+  KEYWORD(nnan)
+  KEYWORD(ninf)
+  KEYWORD(nsz)
+  KEYWORD(arcp)
+  KEYWORD(fast)
   KEYWORD(nuw);
   KEYWORD(nsw);
   KEYWORD(exact);
@@ -744,7 +749,7 @@ lltok::Kind LLLexer::Lex0x() {
 ///    HexFP128Constant  0xL[0-9A-Fa-f]+
 ///    HexPPC128Constant 0xM[0-9A-Fa-f]+
 lltok::Kind LLLexer::LexDigitOrNegative() {
-  // If the letter after the negative is a number, this is probably a label.
+  // If the letter after the negative is not a number, this is probably a label.
   if (!isdigit(TokStart[0]) && !isdigit(CurPtr[0])) {
     // Okay, this is not a number after the -, it's probably a label.
     if (const char *End = isLabelTail(CurPtr)) {

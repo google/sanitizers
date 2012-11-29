@@ -33,6 +33,21 @@ const Driver &ToolChain::getDriver() const {
  return D;
 }
 
+std::string ToolChain::getDefaultUniversalArchName() const {
+  // In universal driver terms, the arch name accepted by -arch isn't exactly
+  // the same as the ones that appear in the triple. Roughly speaking, this is
+  // an inverse of the darwin::getArchTypeForDarwinArchName() function, but the
+  // only interesting special case is powerpc.
+  switch (Triple.getArch()) {
+  case llvm::Triple::ppc:
+    return "ppc";
+  case llvm::Triple::ppc64:
+    return "ppc64";
+  default:
+    return Triple.getArchName();
+  }
+}
+
 bool ToolChain::IsUnwindTablesDefault() const {
   return false;
 }
@@ -71,13 +86,13 @@ static const char *getARMTargetCPU(const ArgList &Args,
     // FIXME: Warn on inconsistent use of -mcpu and -march.
     // If we have -mcpu=, use that.
     if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
-      return A->getValue(Args);
+      return A->getValue();
   }
 
   StringRef MArch;
   if (Arg *A = Args.getLastArg(options::OPT_march_EQ)) {
     // Otherwise, if we have -march= choose the base CPU for that arch.
-    MArch = A->getValue(Args);
+    MArch = A->getValue();
   } else {
     // Otherwise, use the Arch from the triple.
     MArch = Triple.getArchName();
@@ -182,14 +197,15 @@ void ToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   // Each toolchain should provide the appropriate include flags.
 }
 
-void ToolChain::addClangTargetOptions(ArgStringList &CC1Args) const {
+void ToolChain::addClangTargetOptions(const ArgList &DriverArgs,
+                                      ArgStringList &CC1Args) const {
 }
 
 ToolChain::RuntimeLibType ToolChain::GetRuntimeLibType(
   const ArgList &Args) const
 {
   if (Arg *A = Args.getLastArg(options::OPT_rtlib_EQ)) {
-    StringRef Value = A->getValue(Args);
+    StringRef Value = A->getValue();
     if (Value == "compiler-rt")
       return ToolChain::RLT_CompilerRT;
     if (Value == "libgcc")
@@ -203,7 +219,7 @@ ToolChain::RuntimeLibType ToolChain::GetRuntimeLibType(
 
 ToolChain::CXXStdlibType ToolChain::GetCXXStdlibType(const ArgList &Args) const{
   if (Arg *A = Args.getLastArg(options::OPT_stdlib_EQ)) {
-    StringRef Value = A->getValue(Args);
+    StringRef Value = A->getValue();
     if (Value == "libc++")
       return ToolChain::CST_Libcxx;
     if (Value == "libstdc++")

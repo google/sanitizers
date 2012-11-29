@@ -148,9 +148,9 @@ private:
     return &align != &InvalidPointerElem;
   }
 
-  /// Initialise a DataLayout object with default values, ensure that the
-  /// target data pass is registered.
-  void init();
+  /// Parses a target data specification string. Returns an error message
+  /// if the string is malformed, or the empty string on success.
+  std::string parseSpecifier(StringRef LayoutDescription);
 
 public:
   /// Default ctor.
@@ -162,16 +162,8 @@ public:
   /// Constructs a DataLayout from a specification string. See init().
   explicit DataLayout(StringRef LayoutDescription)
     : ImmutablePass(ID) {
-    std::string errMsg = parseSpecifier(LayoutDescription, this);
-    assert(errMsg == "" && "Invalid target data layout string.");
-    (void)errMsg;
+    init(LayoutDescription);
   }
-
-  /// Parses a target data specification string. Returns an error message
-  /// if the string is malformed, or the empty string on success. Optionally
-  /// initialises a DataLayout object if passed a non-null pointer.
-  static std::string parseSpecifier(StringRef LayoutDescription,
-                                    DataLayout* td = 0);
 
   /// Initialize target data from properties stored in the module.
   explicit DataLayout(const Module *M);
@@ -186,6 +178,10 @@ public:
   { }
 
   ~DataLayout();  // Not virtual, do not subclass this class
+
+  /// Parse a data layout string (with fallback to default values). Ensure that
+  /// the data layout pass is registered.
+  void init(StringRef LayoutDescription);
 
   /// Layout endianness...
   bool isLittleEndian() const { return LittleEndian; }
@@ -231,7 +227,9 @@ public:
   }
 
   /// Layout pointer alignment
-  unsigned getPointerABIAlignment(unsigned AS)  const {
+  /// FIXME: The defaults need to be removed once all of
+  /// the backends/clients are updated.
+  unsigned getPointerABIAlignment(unsigned AS = 0)  const {
     DenseMap<unsigned, PointerAlignElem>::const_iterator val = Pointers.find(AS);
     if (val == Pointers.end()) {
       val = Pointers.find(0);
@@ -239,7 +237,9 @@ public:
     return val->second.ABIAlign;
   }
   /// Return target's alignment for stack-based pointers
-  unsigned getPointerPrefAlignment(unsigned AS) const {
+  /// FIXME: The defaults need to be removed once all of
+  /// the backends/clients are updated.
+  unsigned getPointerPrefAlignment(unsigned AS = 0) const {
     DenseMap<unsigned, PointerAlignElem>::const_iterator val = Pointers.find(AS);
     if (val == Pointers.end()) {
       val = Pointers.find(0);
@@ -247,7 +247,9 @@ public:
     return val->second.PrefAlign;
   }
   /// Layout pointer size
-  unsigned getPointerSize(unsigned AS)          const {
+  /// FIXME: The defaults need to be removed once all of
+  /// the backends/clients are updated.
+  unsigned getPointerSize(unsigned AS = 0)          const {
     DenseMap<unsigned, PointerAlignElem>::const_iterator val = Pointers.find(AS);
     if (val == Pointers.end()) {
       val = Pointers.find(0);
@@ -255,17 +257,11 @@ public:
     return val->second.TypeBitWidth;
   }
   /// Layout pointer size, in bits
-  unsigned getPointerSizeInBits(unsigned AS)    const {
+  /// FIXME: The defaults need to be removed once all of
+  /// the backends/clients are updated.
+  unsigned getPointerSizeInBits(unsigned AS = 0)    const {
     return getPointerSize(AS) * 8;
   }
-  /// Layout pointer size, in bits, based on the type.
-  /// If this function is called with a pointer type, then
-  /// the type size of the pointer is returned.
-  /// If this function is called with a vector of pointers,
-  /// then the type size of the pointer is returned.
-  /// Otherwise the type sizeo f a default pointer is returned.
-  unsigned getPointerTypeSizeInBits(Type* Ty)    const;
-
   /// Size examples:
   ///
   /// Type        SizeInBits  StoreSizeInBits  AllocSizeInBits[*]
@@ -285,6 +281,7 @@ public:
 
   /// getTypeSizeInBits - Return the number of bits necessary to hold the
   /// specified type.  For example, returns 36 for i36 and 80 for x86_fp80.
+  /// The type passed must have a size (Type::isSized() must return true).
   uint64_t getTypeSizeInBits(Type* Ty) const;
 
   /// getTypeStoreSize - Return the maximum number of bytes that may be
@@ -343,7 +340,7 @@ public:
 
   /// getIntPtrType - Return an integer type with size at least as big as that
   /// of a pointer in the given address space.
-  IntegerType *getIntPtrType(LLVMContext &C, unsigned AddressSpace) const;
+  IntegerType *getIntPtrType(LLVMContext &C, unsigned AddressSpace = 0) const;
 
   /// getIntPtrType - Return an integer (vector of integer) type with size at
   /// least as big as that of a pointer of the given pointer (vector of pointer)

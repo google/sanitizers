@@ -25,6 +25,7 @@ namespace llvm {
   class DominatorTree;
   class Instruction;
   class DataLayout;
+  struct FastMathFlags;
   class TargetLibraryInfo;
   class Type;
   class Value;
@@ -43,6 +44,14 @@ namespace llvm {
                          const TargetLibraryInfo *TLI = 0,
                          const DominatorTree *DT = 0);
 
+  /// Given operands for an FMul, see if we can fold the result.  If not, this
+  /// returns null.
+  Value *SimplifyFMulInst(Value *LHS, Value *RHS,
+                          FastMathFlags FMF,
+                          const DataLayout *TD = 0,
+                          const TargetLibraryInfo *TLI = 0,
+                          const DominatorTree *DT = 0);
+
   /// SimplifyMulInst - Given operands for a Mul, see if we can
   /// fold the result.  If not, this returns null.
   Value *SimplifyMulInst(Value *LHS, Value *RHS, const DataLayout *TD = 0,
@@ -57,7 +66,7 @@ namespace llvm {
 
   /// SimplifyUDivInst - Given operands for a UDiv, see if we can
   /// fold the result.  If not, this returns null.
-  Value *SimplifyUDivInst(Value *LHS, Value *RHS, const DataLayout *TD = 0, 
+  Value *SimplifyUDivInst(Value *LHS, Value *RHS, const DataLayout *TD = 0,
                           const TargetLibraryInfo *TLI = 0,
                           const DominatorTree *DT = 0);
 
@@ -69,7 +78,7 @@ namespace llvm {
 
   /// SimplifySRemInst - Given operands for an SRem, see if we can
   /// fold the result.  If not, this returns null.
-  Value *SimplifySRemInst(Value *LHS, Value *RHS, const DataLayout *TD = 0, 
+  Value *SimplifySRemInst(Value *LHS, Value *RHS, const DataLayout *TD = 0,
                           const TargetLibraryInfo *TLI = 0,
                           const DominatorTree *DT = 0);
 
@@ -88,7 +97,7 @@ namespace llvm {
   /// SimplifyShlInst - Given operands for a Shl, see if we can
   /// fold the result.  If not, this returns null.
   Value *SimplifyShlInst(Value *Op0, Value *Op1, bool isNSW, bool isNUW,
-                         const DataLayout *TD = 0, 
+                         const DataLayout *TD = 0,
                          const TargetLibraryInfo *TLI = 0,
                          const DominatorTree *DT = 0);
 
@@ -127,14 +136,14 @@ namespace llvm {
   /// SimplifyICmpInst - Given operands for an ICmpInst, see if we can
   /// fold the result.  If not, this returns null.
   Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
-                          const DataLayout *TD = 0, 
+                          const DataLayout *TD = 0,
                           const TargetLibraryInfo *TLI = 0,
                           const DominatorTree *DT = 0);
 
   /// SimplifyFCmpInst - Given operands for an FCmpInst, see if we can
   /// fold the result.  If not, this returns null.
   Value *SimplifyFCmpInst(unsigned Predicate, Value *LHS, Value *RHS,
-                          const DataLayout *TD = 0, 
+                          const DataLayout *TD = 0,
                           const TargetLibraryInfo *TLI = 0,
                           const DominatorTree *DT = 0);
 
@@ -178,7 +187,7 @@ namespace llvm {
   /// SimplifyBinOp - Given operands for a BinaryOperator, see if we can
   /// fold the result.  If not, this returns null.
   Value *SimplifyBinOp(unsigned Opcode, Value *LHS, Value *RHS,
-                       const DataLayout *TD = 0, 
+                       const DataLayout *TD = 0,
                        const TargetLibraryInfo *TLI = 0,
                        const DominatorTree *DT = 0);
 

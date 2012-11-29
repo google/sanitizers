@@ -36,6 +36,9 @@
 #include <sys/uio.h>
 #else
 #include <io.h>
+#ifndef S_ISFIFO
+#define S_ISFIFO(x) (0)
+#endif
 #endif
 using namespace clang;
 
@@ -55,6 +58,10 @@ FileEntry::~FileEntry() {
   // If this FileEntry owns an open file descriptor that never got used, close
   // it.
   if (FD != -1) ::close(FD);
+}
+
+bool FileEntry::isNamedPipe() const {
+  return S_ISFIFO(FileMode);
 }
 
 //===----------------------------------------------------------------------===//

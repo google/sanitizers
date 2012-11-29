@@ -256,10 +256,17 @@
           <li><a href="#int_cos">'<tt>llvm.cos.*</tt>' Intrinsic</a></li>
           <li><a href="#int_pow">'<tt>llvm.pow.*</tt>' Intrinsic</a></li>
           <li><a href="#int_exp">'<tt>llvm.exp.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_exp2">'<tt>llvm.exp2.*</tt>' Intrinsic</a></li>
           <li><a href="#int_log">'<tt>llvm.log.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_log10">'<tt>llvm.log10.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_log2">'<tt>llvm.log2.*</tt>' Intrinsic</a></li>
           <li><a href="#int_fma">'<tt>llvm.fma.*</tt>' Intrinsic</a></li>
           <li><a href="#int_fabs">'<tt>llvm.fabs.*</tt>' Intrinsic</a></li>
           <li><a href="#int_floor">'<tt>llvm.floor.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_ceil">'<tt>llvm.ceil.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_trunc">'<tt>llvm.trunc.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_rint">'<tt>llvm.rint.*</tt>' Intrinsic</a></li>
+          <li><a href="#int_nearbyint">'<tt>llvm.nearbyint.*</tt>' Intrinsic</a></li>
         </ol>
       </li>
       <li><a href="#int_manip">Bit Manipulation Intrinsics</a>
@@ -535,7 +542,7 @@ define i32 @main() {   <i>; i32()* </i>&nbsp;
 <p>This example is made up of a <a href="#globalvars">global variable</a> named
    "<tt>.str</tt>", an external declaration of the "<tt>puts</tt>" function,
    a <a href="#functionstructure">function definition</a> for
-   "<tt>main</tt>" and <a href="#namedmetadatastructure">named metadata</a> 
+   "<tt>main</tt>" and <a href="#namedmetadatastructure">named metadata</a>
    "<tt>foo</tt>".</p>
 
 <p>In general, a module is made up of a list of global values (where both
@@ -722,10 +729,10 @@ define i32 @main() {   <i>; i32()* </i>&nbsp;
       target to use whatever tricks it wants to produce fast code for the
       target, without having to conform to an externally specified ABI
       (Application Binary Interface).
-      <a href="CodeGenerator.html#tailcallopt">Tail calls can only be optimized
-      when this or the GHC convention is used.</a>  This calling convention
-      does not support varargs and requires the prototype of all callees to
-      exactly match the prototype of the function definition.</dd>
+      <a href="CodeGenerator.html#id80">Tail calls can only be optimized
+      when this, the GHC or the HiPE convention is used.</a> This calling
+      convention does not support varargs and requires the prototype of all
+      callees to exactly match the prototype of the function definition.</dd>
 
   <dt><b>"<tt>coldcc</tt>" - The cold calling convention</b>:</dt>
   <dd>This calling convention attempts to make code in the caller as efficient
@@ -742,7 +749,7 @@ define i32 @main() {   <i>; i32()* </i>&nbsp;
       disabling callee save registers. This calling convention should not be
       used lightly but only for specific situations such as an alternative to
       the <em>register pinning</em> performance technique often used when
-      implementing functional programming languages.At the moment only X86
+      implementing functional programming languages. At the moment only X86
       supports this convention and it has the following limitations:
       <ul>
         <li>On <em>X86-32</em> only supports up to 4 bit type parameters. No
@@ -751,9 +758,24 @@ define i32 @main() {   <i>; i32()* </i>&nbsp;
             6 floating point parameters.</li>
       </ul>
       This calling convention supports
-      <a href="CodeGenerator.html#tailcallopt">tail call optimization</a> but
+      <a href="CodeGenerator.html#id80">tail call optimization</a> but
       requires both the caller and callee are using it.
   </dd>
+
+  <dt><b>"<tt>cc <em>11</em></tt>" - The HiPE calling convention</b>:</dt>
+  <dd>This calling convention has been implemented specifically for use by the
+      <a href="http://www.it.uu.se/research/group/hipe/">High-Performance Erlang
+      (HiPE)</a> compiler, <em>the</em> native code compiler of the
+      <a href="http://www.erlang.org/download.shtml">Ericsson's Open Source
+      Erlang/OTP system</a>. It uses more registers for argument passing than
+      the ordinary C calling convention and defines no callee-saved registers.
+      The calling convention properly supports
+      <a href="CodeGenerator.html#id80">tail call optimization</a> but requires
+      that both the caller and the callee use it. It uses a <em>register
+      pinning</em> mechanism, similar to GHC's convention, for keeping
+      frequently accessed runtime components pinned to specific hardware
+      registers. At the moment only X86 supports this convention (both 32 and 64
+      bit).</dd>
 
   <dt><b>"<tt>cc &lt;<em>n</em>&gt;</tt>" - Numbered convention</b>:</dt>
   <dd>Any calling convention may be specified by number, allowing
@@ -1096,7 +1118,7 @@ declare signext i8 @returns_signed_char()
       <tt><a href="#readonly">readonly</a></tt> functions should not write to
       <tt>byval</tt> parameters). This is not a valid attribute for return
       values.</p>
-      
+
       <p>The byval attribute also supports specifying an alignment with
       the align attribute.  It indicates the alignment of the stack slot to
       form and the known alignment of the pointer specified to the call site. If
@@ -1175,7 +1197,7 @@ define void @f() gc "name" { ... }
 
 <p>Function attributes are set to communicate additional information about a
    function. Function attributes are considered to be part of the function, not
-   of the function type, so functions with different parameter attributes can
+   of the function type, so functions with different function attributes can
    have the same function type.</p>
 
 <p>Function attributes are simple keywords that follow the type specified. If
@@ -1454,12 +1476,12 @@ target datalayout = "<i>layout specification</i>"
    this is not a specification from the frontend of what alignment the code
    generator should use.</p>
 
-<p>Instead, if specified, the target data layout is required to match what the 
-   ultimate <em>code generator</em> expects.  This string is used by the 
+<p>Instead, if specified, the target data layout is required to match what the
+   ultimate <em>code generator</em> expects.  This string is used by the
    mid-level optimizers to
-   improve code, and this only works if it matches what the ultimate code 
+   improve code, and this only works if it matches what the ultimate code
    generator uses.  If you would like to generate IR that does not embed this
-   target-specific detail into the IR, then you don't have to specify the 
+   target-specific detail into the IR, then you don't have to specify the
    string.  This will disable some optimizations that require precise layout
    information, but this also prevents those optimizations from introducing
    target specificity into the IR.</p>
@@ -1607,7 +1629,7 @@ any write to the same byte, except:</p>
       addresses which do not behave like normal memory.  It does not generally
       provide cross-thread synchronization.)
   <li>Otherwise, if there is no write to the same byte that happens before
-    <var>R<sub>byte</sub></var>, <var>R<sub>byte</sub></var> returns 
+    <var>R<sub>byte</sub></var>, <var>R<sub>byte</sub></var> returns
     <tt>undef</tt> for that byte.
   <li>Otherwise, if <var>R<sub>byte</sub></var> may see exactly one write,
       <var>R<sub>byte</sub></var> returns the value written by that
@@ -2106,8 +2128,8 @@ in signal handlers).</p>
    Structures in registers are accessed using the
    '<tt><a href="#i_extractvalue">extractvalue</a></tt>' and
    '<tt><a href="#i_insertvalue">insertvalue</a></tt>' instructions.</p>
-  
-<p>Structures may optionally be "packed" structures, which indicate that the 
+
+<p>Structures may optionally be "packed" structures, which indicate that the
   alignment of the struct is one byte, and that there is no padding between
   the elements.  In non-packed structs, padding between field types is inserted
   as defined by the DataLayout string in the module, which is required to match
@@ -2120,13 +2142,13 @@ in signal handlers).</p>
   no way to write one.  Identified types can be recursive, can be opaqued, and are
   never uniqued.
 </p>
-  
+
 <h5>Syntax:</h5>
 <pre>
   %T1 = type { &lt;type list&gt; }     <i>; Identified normal struct type</i>
   %T2 = type &lt;{ &lt;type list&gt; }&gt;   <i>; Identified packed struct type</i>
 </pre>
-  
+
 <h5>Examples:</h5>
 <table class="layout">
   <tr class="layout">
@@ -2147,7 +2169,7 @@ in signal handlers).</p>
 </table>
 
 </div>
-  
+
 <!-- _______________________________________________________________________ -->
 <h4>
   <a name="t_opaque">Opaque Structure Types</a>
@@ -2188,7 +2210,7 @@ in signal handlers).</p>
 <h5>Overview:</h5>
 <p>The pointer type is used to specify memory locations.
    Pointers are commonly used to reference objects in memory.</p>
-   
+
 <p>Pointer types may have an optional address space attribute defining the
    numbered address space where the pointed-to object resides. The default
    address space is number zero. The semantics of non-zero address
@@ -2980,7 +3002,7 @@ call void asm sideeffect "something bad", ""()<b>, !srcloc !42</b>
 </pre>
 </div>
 
-<p>A <a href="#namedmetadatastructure">named metadata</a> is a collection of 
+<p>A <a href="#namedmetadatastructure">named metadata</a> is a collection of
    metadata nodes, which can be looked up in the module symbol table. For
    example:</p>
 
@@ -2990,7 +3012,7 @@ call void asm sideeffect "something bad", ""()<b>, !srcloc !42</b>
 </pre>
 </div>
 
-<p>Metadata can be used as function arguments. Here <tt>llvm.dbg.value</tt> 
+<p>Metadata can be used as function arguments. Here <tt>llvm.dbg.value</tt>
    function is using two metadata arguments:</p>
 
 <div class="doc_code">
@@ -3099,7 +3121,7 @@ are padding and what the TBAA tags of the struct are.</p>
 <h4>
   <a name="fpmath">'<tt>fpmath</tt>' Metadata</a>
 </h4>
- 
+
 <div>
 
 <p><tt>fpmath</tt> metadata may be attached to any instruction of floating point
@@ -3515,13 +3537,13 @@ cast formed of bitcast or getelementptr.  For example, a legal use of it is:</p>
    control flow, not values (the one exception being the
    '<a href="#i_invoke"><tt>invoke</tt></a>' instruction).</p>
 
-<p>The terminator instructions are: 
-   '<a href="#i_ret"><tt>ret</tt></a>', 
+<p>The terminator instructions are:
+   '<a href="#i_ret"><tt>ret</tt></a>',
    '<a href="#i_br"><tt>br</tt></a>',
-   '<a href="#i_switch"><tt>switch</tt></a>', 
+   '<a href="#i_switch"><tt>switch</tt></a>',
    '<a href="#i_indirectbr"><tt>indirectbr</tt></a>',
-   '<a href="#i_invoke"><tt>invoke</tt></a>', 
-   '<a href="#i_resume"><tt>resume</tt></a>', and 
+   '<a href="#i_invoke"><tt>invoke</tt></a>',
+   '<a href="#i_resume"><tt>resume</tt></a>', and
    '<a href="#i_unreachable"><tt>unreachable</tt></a>'.</p>
 
 <!-- _______________________________________________________________________ -->
@@ -3820,7 +3842,7 @@ IfUnequal:
 </div>
 
  <!-- _______________________________________________________________________ -->
- 
+
 <h4>
   <a name="i_resume">'<tt>resume</tt>' Instruction</a>
 </h4>
@@ -3948,7 +3970,7 @@ IfUnequal:
 
 <h5>Syntax:</h5>
 <pre>
-  &lt;result&gt; = fadd &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
+  &lt;result&gt; = fadd [fast-math flags]* &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
 </pre>
 
 <h5>Overview:</h5>
@@ -3960,7 +3982,28 @@ IfUnequal:
    floating point values. Both arguments must have identical types.</p>
 
 <h5>Semantics:</h5>
-<p>The value produced is the floating point sum of the two operands.</p>
+<p>The value produced is the floating point sum of the two operands. This
+  instruction can also take any number of fast-math flags, which are
+  optimization hints to enable otherwise unsafe floating point
+  optimizations:</p>
+<ol>
+
+  <li><tt>nnan</tt>: No NaNs - Allow optimizations to assume the arguments and
+  result are not NaN. Such optimizations are required to retain defined behavior
+  over NaNs, but the value of the result is undefined.</li>
+
+  <li><tt>ninf</tt>: No Inf - Allow optimizations to assume the arguments and
+  result are not +/-Inf. Such optimizations are required to retain defined
+  behavior over +/-Inf, but the value of the result is undefined.</li>
+
+  <li><tt>nsz</tt>: No Signed Zeros: Allow optimizations to treat the
+  sign of a zero argument or result as insignificant. </li>
+
+  <li><tt>fast</tt>: Allow algebraically equivalent transformations that may
+  dramatically change results in floating point (e.g. reassociate). This flag
+  implies all the others.</li>
+
+</ol>
 
 <h5>Example:</h5>
 <pre>
@@ -4030,7 +4073,7 @@ IfUnequal:
 
 <h5>Syntax:</h5>
 <pre>
-  &lt;result&gt; = fsub &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
+  &lt;result&gt; = fsub [fast-math flags]* &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
 </pre>
 
 <h5>Overview:</h5>
@@ -4047,7 +4090,28 @@ IfUnequal:
    floating point values.  Both arguments must have identical types.</p>
 
 <h5>Semantics:</h5>
-<p>The value produced is the floating point difference of the two operands.</p>
+<p>The value produced is the floating point difference of the two operands.  This
+  instruction can also take any number of fast-math flags, which are
+  optimization hints to enable otherwise unsafe floating point
+  optimizations:</p>
+<ol>
+
+  <li><tt>nnan</tt>: No NaNs - Allow optimizations to assume the arguments and
+  result are not NaN. Such optimizations are required to retain defined behavior
+  over NaNs, but the value of the result is undefined.</li>
+
+  <li><tt>ninf</tt>: No Inf - Allow optimizations to assume the arguments and
+  result are not +/-Inf. Such optimizations are required to retain defined
+  behavior over +/-Inf, but the value of the result is undefined.</li>
+
+  <li><tt>nsz</tt>: No Signed Zeros: Allow optimizations to treat the
+  sign of a zero argument or result as insignificant. </li>
+
+  <li><tt>fast</tt>: Allow algebraically equivalent transformations that may
+  dramatically change results in floating point (e.g. reassociate). This flag
+  implies all the others.</li>
+
+</ol>
 
 <h5>Example:</h5>
 <pre>
@@ -4116,7 +4180,7 @@ IfUnequal:
 
 <h5>Syntax:</h5>
 <pre>
-  &lt;result&gt; = fmul &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
+  &lt;result&gt; = fmul [fast-math flags]* &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
 </pre>
 
 <h5>Overview:</h5>
@@ -4128,7 +4192,28 @@ IfUnequal:
    floating point values.  Both arguments must have identical types.</p>
 
 <h5>Semantics:</h5>
-<p>The value produced is the floating point product of the two operands.</p>
+<p>The value produced is the floating point product of the two operands.  This
+  instruction can also take any number of fast-math flags, which are
+  optimization hints to enable otherwise unsafe floating point
+  optimizations:</p>
+<ol>
+
+  <li><tt>nnan</tt>: No NaNs - Allow optimizations to assume the arguments and
+  result are not NaN. Such optimizations are required to retain defined behavior
+  over NaNs, but the value of the result is undefined.</li>
+
+  <li><tt>ninf</tt>: No Inf - Allow optimizations to assume the arguments and
+  result are not +/-Inf. Such optimizations are required to retain defined
+  behavior over +/-Inf, but the value of the result is undefined.</li>
+
+  <li><tt>nsz</tt>: No Signed Zeros: Allow optimizations to treat the
+  sign of a zero argument or result as insignificant. </li>
+
+  <li><tt>fast</tt>: Allow algebraically equivalent transformations that may
+  dramatically change results in floating point (e.g. reassociate). This flag
+  implies all the others.</li>
+
+</ol>
 
 <h5>Example:</h5>
 <pre>
@@ -4230,7 +4315,7 @@ IfUnequal:
 
 <h5>Syntax:</h5>
 <pre>
-  &lt;result&gt; = fdiv &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
+  &lt;result&gt; = fdiv [fast-math flags]* &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
 </pre>
 
 <h5>Overview:</h5>
@@ -4242,7 +4327,32 @@ IfUnequal:
    floating point values.  Both arguments must have identical types.</p>
 
 <h5>Semantics:</h5>
-<p>The value produced is the floating point quotient of the two operands.</p>
+<p>The value produced is the floating point quotient of the two operands. This
+  instruction can also take any number of fast-math flags, which are
+  optimization hints to enable otherwise unsafe floating point
+  optimizations:</p>
+<ol>
+
+  <li><tt>nnan</tt>: No NaNs - Allow optimizations to assume the arguments and
+  result are not NaN. Such optimizations are required to retain defined behavior
+  over NaNs, but the value of the result is undefined.</li>
+
+  <li><tt>ninf</tt>: No Inf - Allow optimizations to assume the arguments and
+  result are not +/-Inf. Such optimizations are required to retain defined
+  behavior over +/-Inf, but the value of the result is undefined.</li>
+
+  <li><tt>nsz</tt>: No Signed Zeros: Allow optimizations to treat the
+  sign of a zero argument or result as insignificant. </li>
+
+  <li><tt>arcp</tt>: Allow Reciprocal: Allow optimizations to use the reciprocal
+  of an argument rather than perform division. </li>
+
+  <li><tt>fast</tt>: Allow algebraically equivalent transformations that may
+  dramatically change results in floating point (e.g. reassociate). This flag
+  implies all the others.</li>
+
+</ol>
+</p>
 
 <h5>Example:</h5>
 <pre>
@@ -4349,7 +4459,7 @@ IfUnequal:
 
 <h5>Syntax:</h5>
 <pre>
-  &lt;result&gt; = frem &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
+  &lt;result&gt; = frem [fast-math flags]* &lt;ty&gt; &lt;op1&gt;, &lt;op2&gt;   <i>; yields {ty}:result</i>
 </pre>
 
 <h5>Overview:</h5>
@@ -4362,8 +4472,32 @@ IfUnequal:
    floating point values.  Both arguments must have identical types.</p>
 
 <h5>Semantics:</h5>
-<p>This instruction returns the <i>remainder</i> of a division.  The remainder
-   has the same sign as the dividend.</p>
+  <p>This instruction returns the <i>remainder</i> of a division.  The remainder
+   has the same sign as the dividend.  This instruction can also take any number
+   of fast-math flags, which are optimization hints to enable otherwise unsafe
+   floating point optimizations:</p>
+
+<ol>
+
+  <li><tt>nnan</tt>: No NaNs - Allow optimizations to assume the arguments and
+  result are not NaN. Such optimizations are required to retain defined behavior
+  over NaNs, but the value of the result is undefined.</li>
+
+  <li><tt>ninf</tt>: No Inf - Allow optimizations to assume the arguments and
+  result are not +/-Inf. Such optimizations are required to retain defined
+  behavior over +/-Inf, but the value of the result is undefined.</li>
+
+  <li><tt>nsz</tt>: No Signed Zeros: Allow optimizations to treat the
+  sign of a zero argument or result as insignificant. </li>
+
+  <li><tt>arcp</tt>: Allow Reciprocal: Allow optimizations to use the reciprocal
+  of an argument rather than perform division. </li>
+
+  <li><tt>fast</tt>: Allow algebraically equivalent transformations that may
+  dramatically change results in floating point (e.g. reassociate). This flag
+  implies all the others.</li>
+
+</ol>
 
 <h5>Example:</h5>
 <pre>
@@ -4419,7 +4553,7 @@ IfUnequal:
    vectors, each vector element of <tt>op1</tt> is shifted by the corresponding
    shift amount in <tt>op2</tt>.</p>
 
-<p>If the <tt>nuw</tt> keyword is present, then the shift produces a 
+<p>If the <tt>nuw</tt> keyword is present, then the shift produces a
    <a href="#poisonvalues">poison value</a> if it shifts out any non-zero bits.  If
    the <tt>nsw</tt> keyword is present, then the shift produces a
    <a href="#poisonvalues">poison value</a> if it shifts out any bits that disagree
@@ -5052,7 +5186,7 @@ IfUnequal:
    href="#memorymodel">defined</a> results when they may see multiple atomic
    stores.  The type of the pointee must be an integer type whose bit width
    is a power of two greater than or equal to eight and less than or equal
-   to a target-specific size limit. <code>align</code> must be explicitly 
+   to a target-specific size limit. <code>align</code> must be explicitly
    specified on atomic loads, and the load has undefined behavior if the
    alignment is not set to a value which is at least the size in bytes of
    the pointee. <code>!nontemporal</code> does not have any defined semantics
@@ -5133,7 +5267,7 @@ IfUnequal:
    href="#memorymodel">defined</a> results when they may see multiple atomic
    stores. The type of the pointee must be an integer type whose bit width
    is a power of two greater than or equal to eight and less than or equal
-   to a target-specific size limit. <code>align</code> must be explicitly 
+   to a target-specific size limit. <code>align</code> must be explicitly
    specified on atomic stores, and the store has undefined behavior if the
    alignment is not set to a value which is at least the size in bytes of
    the pointee. <code>!nontemporal</code> does not have any defined semantics
@@ -5395,7 +5529,7 @@ specified by the <var>operation</var> argument:</p>
 <pre>
   &lt;result&gt; = getelementptr &lt;pty&gt;* &lt;ptrval&gt;{, &lt;ty&gt; &lt;idx&gt;}*
   &lt;result&gt; = getelementptr inbounds &lt;pty&gt;* &lt;ptrval&gt;{, &lt;ty&gt; &lt;idx&gt;}*
-  &lt;result&gt; = getelementptr &lt;ptr vector&gt; ptrval, &lt;vector index type&gt; idx 
+  &lt;result&gt; = getelementptr &lt;ptr vector&gt; ptrval, &lt;vector index type&gt; idx
 </pre>
 
 <h5>Overview:</h5>
@@ -5419,9 +5553,11 @@ specified by the <var>operation</var> argument:</p>
 
 <p>The type of each index argument depends on the type it is indexing into.
    When indexing into a (optionally packed) structure, only <tt>i32</tt>
-   integer <b>constants</b> are allowed.  When indexing into an array, pointer
-   or vector, integers of any width are allowed, and they are not required to be
-   constant.  These integers are treated as signed values where relevant.</p>
+   integer <b>constants</b> are allowed (when using a vector of indices they
+   must all be the <b>same</b> <tt>i32</tt> integer constant).  When indexing
+   into an array, pointer or vector, integers of any width are allowed, and
+   they are not required to be constant.  These integers are treated as signed
+   values where relevant.</p>
 
 <p>For example, let's consider a C code fragment and how it gets compiled to
    LLVM:</p>
@@ -5520,9 +5656,8 @@ define i32* @foo(%struct.ST* %s) {
     %iptr = getelementptr [10 x i32]* @arr, i16 0, i16 0
 </pre>
 
-<p>In cases where the pointer argument is a vector of pointers, only a
-   single index may be used, and the number of vector elements has to be
-   the same.  For example: </p>
+<p>In cases where the pointer argument is a vector of pointers, each index must
+   be a vector with the same number of elements.  For example: </p>
 <pre class="doc_code">
  %A = getelementptr <4 x i8*> %ptrs, <4 x i64> %offsets,
 </pre>
@@ -7500,6 +7635,39 @@ LLVM</a>.</p>
 
 <!-- _______________________________________________________________________ -->
 <h4>
+  <a name="int_exp2">'<tt>llvm.exp2.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.exp2</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.exp2.f32(float  %Val)
+  declare double    @llvm.exp2.f64(double %Val)
+  declare x86_fp80  @llvm.exp2.f80(x86_fp80  %Val)
+  declare fp128     @llvm.exp2.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.exp2.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.exp2.*</tt>' intrinsics perform the exp2 function.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>exp2</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
   <a name="int_log">'<tt>llvm.log.*</tt>' Intrinsic</a>
 </h4>
 
@@ -7527,6 +7695,72 @@ LLVM</a>.</p>
 
 <h5>Semantics:</h5>
 <p>This function returns the same values as the libm <tt>log</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_log10">'<tt>llvm.log10.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.log10</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.log10.f32(float  %Val)
+  declare double    @llvm.log10.f64(double %Val)
+  declare x86_fp80  @llvm.log10.f80(x86_fp80  %Val)
+  declare fp128     @llvm.log10.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.log10.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.log10.*</tt>' intrinsics perform the log10 function.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>log10</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_log2">'<tt>llvm.log2.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.log2</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.log2.f32(float  %Val)
+  declare double    @llvm.log2.f64(double %Val)
+  declare x86_fp80  @llvm.log2.f80(x86_fp80  %Val)
+  declare fp128     @llvm.log2.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.log2.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.log2.*</tt>' intrinsics perform the log2 function.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>log2</tt> functions
    would, and handles error conditions in the same way.</p>
 
 </div>
@@ -7630,6 +7864,143 @@ LLVM</a>.</p>
 <h5>Semantics:</h5>
 <p>This function returns the same values as the libm <tt>floor</tt> functions
    would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_ceil">'<tt>llvm.ceil.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.ceil</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.ceil.f32(float  %Val)
+  declare double    @llvm.ceil.f64(double %Val)
+  declare x86_fp80  @llvm.ceil.f80(x86_fp80  %Val)
+  declare fp128     @llvm.ceil.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.ceil.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.ceil.*</tt>' intrinsics return the ceiling of
+   the operand.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>ceil</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_trunc">'<tt>llvm.trunc.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.trunc</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.trunc.f32(float  %Val)
+  declare double    @llvm.trunc.f64(double %Val)
+  declare x86_fp80  @llvm.trunc.f80(x86_fp80  %Val)
+  declare fp128     @llvm.trunc.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.trunc.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.trunc.*</tt>' intrinsics returns the operand rounded to the
+   nearest integer not larger in magnitude than the operand.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>trunc</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_rint">'<tt>llvm.rint.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.rint</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.rint.f32(float  %Val)
+  declare double    @llvm.rint.f64(double %Val)
+  declare x86_fp80  @llvm.rint.f80(x86_fp80  %Val)
+  declare fp128     @llvm.rint.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.rint.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.rint.*</tt>' intrinsics returns the operand rounded to the
+   nearest integer. It may raise an inexact floating-point exception if the
+   operand isn't an integer.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>rint</tt> functions
+   would, and handles error conditions in the same way.</p>
+
+</div>
+
+<!-- _______________________________________________________________________ -->
+<h4>
+  <a name="int_nearbyint">'<tt>llvm.nearbyint.*</tt>' Intrinsic</a>
+</h4>
+
+<div>
+
+<h5>Syntax:</h5>
+<p>This is an overloaded intrinsic. You can use <tt>llvm.nearbyint</tt> on any
+   floating point or vector of floating point type. Not all targets support all
+   types however.</p>
+
+<pre>
+  declare float     @llvm.nearbyint.f32(float  %Val)
+  declare double    @llvm.nearbyint.f64(double %Val)
+  declare x86_fp80  @llvm.nearbyint.f80(x86_fp80  %Val)
+  declare fp128     @llvm.nearbyint.f128(fp128 %Val)
+  declare ppc_fp128 @llvm.nearbyint.ppcf128(ppc_fp128  %Val)
+</pre>
+
+<h5>Overview:</h5>
+<p>The '<tt>llvm.nearbyint.*</tt>' intrinsics returns the operand rounded to the
+   nearest integer.</p>
+
+<h5>Arguments:</h5>
+<p>The argument and return value are floating point numbers of the same
+   type.</p>
+
+<h5>Semantics:</h5>
+<p>This function returns the same values as the libm <tt>nearbyint</tt>
+   functions would, and handles error conditions in the same way.</p>
 
 </div>
 
@@ -8164,7 +8535,7 @@ intrinsic function should be used instead.</p>
    format. This means that it is
    a dense encoding (in memory) but does not support computation in the
    format.</p>
-   
+
 <p>This means that code must first load the half-precision floating point
    value as an i16, then convert it to float with <a
    href="#int_convert_from_fp16"><tt>llvm.convert.from.fp16</tt></a>.
@@ -8698,7 +9069,7 @@ intrinsic function should be used instead.</p>
    is a boolean and determines whether <tt>llvm.objectsize</tt> returns 0 (if
    true) or -1 (if false) when the object size is unknown.
    The second argument only accepts constants.</p>
-   
+
 <h5>Semantics:</h5>
 <p>The <tt>llvm.objectsize</tt> intrinsic is lowered to a constant representing
    the size of the object concerned. If the size cannot be determined at compile
@@ -8769,7 +9140,7 @@ codegen.</p>
 
   <a href="mailto:sabre@nondot.org">Chris Lattner</a><br>
   <a href="http://llvm.org/">The LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-10-29 18:12:44 +0400 (Mon, 29 Oct 2012) $
+  Last modified: $Date: 2012-11-27 04:48:29 +0400 (Tue, 27 Nov 2012) $
 </address>
 
 </body>

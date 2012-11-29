@@ -20,6 +20,7 @@ set(files
   nmmintrin.h
   pmmintrin.h
   popcntintrin.h
+  rtmintrin.h
   smmintrin.h
   stdalign.h
   stdarg.h
@@ -30,6 +31,8 @@ set(files
   tmmintrin.h
   varargs.h
   wmmintrin.h
+  __wmmintrin_aes.h
+  __wmmintrin_pclmul.h
   x86intrin.h
   xmmintrin.h
   xopintrin.h

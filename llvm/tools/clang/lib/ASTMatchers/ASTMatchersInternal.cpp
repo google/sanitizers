@@ -27,8 +27,11 @@ void BoundNodesMap::copyTo(BoundNodesTreeBuilder *Builder) const {
 }
 
 void BoundNodesMap::copyTo(BoundNodesMap *Other) const {
-  copy(NodeMap.begin(), NodeMap.end(),
-       inserter(Other->NodeMap, Other->NodeMap.begin()));
+  for (IDToNodeMap::const_iterator I = NodeMap.begin(),
+                                   E = NodeMap.end();
+       I != E; ++I) {
+    Other->NodeMap[I->first] = I->second;
+  }
 }
 
 BoundNodesTree::BoundNodesTree() {}
@@ -51,19 +54,20 @@ void BoundNodesTree::copyTo(BoundNodesTreeBuilder* Builder) const {
 
 void BoundNodesTree::visitMatches(Visitor* ResultVisitor) {
   BoundNodesMap AggregatedBindings;
-  visitMatchesRecursively(ResultVisitor, &AggregatedBindings);
+  visitMatchesRecursively(ResultVisitor, AggregatedBindings);
 }
 
 void BoundNodesTree::
 visitMatchesRecursively(Visitor* ResultVisitor,
-                        BoundNodesMap* AggregatedBindings) {
-  Bindings.copyTo(AggregatedBindings);
+                        const BoundNodesMap& AggregatedBindings) {
+  BoundNodesMap CombinedBindings(AggregatedBindings);
+  Bindings.copyTo(&CombinedBindings);
   if (RecursiveBindings.empty()) {
-    ResultVisitor->visitMatch(BoundNodes(*AggregatedBindings));
+    ResultVisitor->visitMatch(BoundNodes(CombinedBindings));
   } else {
     for (unsigned I = 0; I < RecursiveBindings.size(); ++I) {
       RecursiveBindings[I].visitMatchesRecursively(ResultVisitor,
-                                                   AggregatedBindings);
+                                                   CombinedBindings);
     }
   }
 }

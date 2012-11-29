@@ -65,6 +65,9 @@ public:
   /// true for things like constant expressions that could divide by zero.
   bool canTrap() const;
 
+  /// isThreadDependent - Return true if the value can vary between threads.
+  bool isThreadDependent() const;
+
   /// isConstantUsed - Return true if the constant has users other than constant
   /// exprs and other dangling things.
   bool isConstantUsed() const;
@@ -97,7 +100,15 @@ public:
   /// 'this' is a constant expr.
   Constant *getAggregateElement(unsigned Elt) const;
   Constant *getAggregateElement(Constant *Elt) const;
-  
+
+  /// getSplatValue - If this is a splat vector constant, meaning that all of
+  /// the elements have the same value, return that value. Otherwise return 0.
+  Constant *getSplatValue() const;
+
+  /// If C is a constant integer then return its value, otherwise C must be a
+  /// vector of constant integers, all equal, and the common value is returned.
+  const APInt &getUniqueInteger() const;
+
   /// destroyConstant - Called if some element of this constant is no longer
   /// valid.  At this point only other constants may be on the use_list for this
   /// constant.  Any constants on our Use list must also be destroy'd.  The

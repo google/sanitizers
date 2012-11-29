@@ -113,7 +113,7 @@ bool types::isCXX(ID Id) {
     return false;
 
   case TY_CXX: case TY_PP_CXX:
-  case TY_ObjCXX: case TY_PP_ObjCXX:
+  case TY_ObjCXX: case TY_PP_ObjCXX: case TY_PP_ObjCXX_Alias:
   case TY_CXXHeader: case TY_PP_CXXHeader:
   case TY_ObjCXXHeader: case TY_PP_ObjCXXHeader:
   case TY_CUDA:
@@ -229,7 +229,7 @@ ID types::lookupCXXTypeForCType(ID Id) {
   switch (Id) {
   default:
     return Id;
-    
+
   case types::TY_C:
     return types::TY_CXX;
   case types::TY_PP_C:

@@ -518,7 +518,7 @@ void CppWriter::printAttributes(const AttrListPtr &PAL,
       Out << "Attrs.push_back(PAWI);";
       nl(Out);
     }
-    Out << name << "_PAL = AttrListPtr::get(Attrs);";
+    Out << name << "_PAL = AttrListPtr::get(mod->getContext(), Attrs);";
     nl(Out);
     out(); nl(Out);
     Out << '}'; nl(Out);
@@ -1941,14 +1941,6 @@ void CppWriter::printModule(const std::string& fname,
   }
   nl(Out);
 
-  // Loop over the dependent libraries and emit them.
-  Module::lib_iterator LI = TheModule->lib_begin();
-  Module::lib_iterator LE = TheModule->lib_end();
-  while (LI != LE) {
-    Out << "mod->addLibrary(\"" << *LI << "\");";
-    nl(Out);
-    ++LI;
-  }
   printModuleBody();
   nl(Out) << "return mod;";
   nl(Out,-1) << "}";

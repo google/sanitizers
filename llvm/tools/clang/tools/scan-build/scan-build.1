@@ -1,6 +1,6 @@
 .\" This file is distributed under the University of Illinois Open Source
 .\" License. See LICENSE.TXT for details.
-.\" $Id: scan-build.1 166482 2012-10-23 16:35:44Z silvas $
+.\" $Id: scan-build.1 167537 2012-11-07 17:12:37Z jrose $
 .Dd May 25, 2012
 .Dt SCAN-BUILD 1
 .Os "clang" "3.1"
@@ -270,9 +270,10 @@ Check for proper uses of
 .Fn CFNumberCreate .
 .It osx.coreFoundation.CFRetainRelease
 Check for null arguments to
-.Fn CFRetain
+.Fn CFRetain ,
+.Fn CFRelease ,
 and
-.Fn CFRelease .
+.Fn CFMakeCollectable .
 .It osx.coreFoundation.containers.OutOfBounds
 Checks for index out-of-bounds when using the
 .Vt CFArray

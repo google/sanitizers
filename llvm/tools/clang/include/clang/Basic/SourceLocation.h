@@ -21,6 +21,7 @@
 #include <utility>
 #include <functional>
 #include <cassert>
+#include <string>
 
 namespace llvm {
   class MemoryBuffer;
@@ -171,6 +172,7 @@ public:
   }
 
   void print(raw_ostream &OS, const SourceManager &SM) const;
+  LLVM_ATTRIBUTE_USED std::string printToString(const SourceManager &SM) const;
   void dump(const SourceManager &SM) const;
 };
 

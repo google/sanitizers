@@ -51,6 +51,12 @@ using __sanitizer::uptr;
 # define ASAN_INTERCEPT_STRNLEN 0
 #endif
 
+#if defined(__linux__) && !defined(ANDROID)
+# define ASAN_INTERCEPT_SWAPCONTEXT 1
+#else
+# define ASAN_INTERCEPT_SWAPCONTEXT 0
+#endif
+
 #if !defined(ANDROID) && !defined(_WIN32)
 # define ASAN_INTERCEPT_SIGNAL_AND_SIGACTION 1
 #else

@@ -170,15 +170,15 @@ static Constant *FoldBitCast(Constant *C, Type *DestTy,
         Constant *Src =dyn_cast<ConstantInt>(C->getAggregateElement(SrcElt++));
         if (!Src)  // Reject constantexpr elements.
           return ConstantExpr::getBitCast(C, DestTy);
-  
+
         // Zero extend the element to the right size.
         Src = ConstantExpr::getZExt(Src, Elt->getType());
-  
+
         // Shift it to the right place, depending on endianness.
         Src = ConstantExpr::getShl(Src,
                                    ConstantInt::get(Src->getType(), ShiftAmt));
         ShiftAmt += isLittleEndian ? SrcBitSize : -SrcBitSize;
-  
+
         // Mix it in.
         Elt = ConstantExpr::getOr(Elt, Src);
       }
@@ -292,7 +292,10 @@ static bool ReadDataFromGlobal(Constant *C, uint64_t ByteOffset,
     unsigned IntBytes = unsigned(CI->getBitWidth()/8);
 
     for (unsigned i = 0; i != BytesLeft && ByteOffset != IntBytes; ++i) {
-      CurPtr[i] = (unsigned char)(Val >> (ByteOffset * 8));
+      int n = ByteOffset;
+      if (!TD.isLittleEndian())
+        n = IntBytes - n - 1;
+      CurPtr[i] = (unsigned char)(Val >> (n * 8));
       ++ByteOffset;
     }
     return true;
@@ -378,8 +381,8 @@ static bool ReadDataFromGlobal(Constant *C, uint64_t ByteOffset,
 
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C)) {
     if (CE->getOpcode() == Instruction::IntToPtr &&
-        CE->getOperand(0)->getType() == TD.getIntPtrType(CE->getType()))
-        return ReadDataFromGlobal(CE->getOperand(0), ByteOffset, CurPtr,
+        CE->getOperand(0)->getType() == TD.getIntPtrType(CE->getContext()))
+      return ReadDataFromGlobal(CE->getOperand(0), ByteOffset, CurPtr,
                                 BytesLeft, TD);
   }
 
@@ -442,10 +445,19 @@ static Constant *FoldReinterpretLoadFromConstPtr(Constant *C,
                           BytesLoaded, TD))
     return 0;
 
-  APInt ResultVal = APInt(IntType->getBitWidth(), RawBytes[BytesLoaded-1]);
-  for (unsigned i = 1; i != BytesLoaded; ++i) {
-    ResultVal <<= 8;
-    ResultVal |= RawBytes[BytesLoaded-1-i];
+  APInt ResultVal = APInt(IntType->getBitWidth(), 0);
+  if (TD.isLittleEndian()) {
+    ResultVal = RawBytes[BytesLoaded - 1];
+    for (unsigned i = 1; i != BytesLoaded; ++i) {
+      ResultVal <<= 8;
+      ResultVal |= RawBytes[BytesLoaded-1-i];
+    }
+  } else {
+    ResultVal = RawBytes[0];
+    for (unsigned i = 1; i != BytesLoaded; ++i) {
+      ResultVal <<= 8;
+      ResultVal |= RawBytes[i];
+    }
   }
 
   return ConstantInt::get(IntType->getContext(), ResultVal);
@@ -521,10 +533,8 @@ Constant *llvm::ConstantFoldLoadFromConstPtr(Constant *C,
     }
   }
 
-  // Try hard to fold loads from bitcasted strange and non-type-safe things.  We
-  // currently don't do any of this for big endian systems.  It can be
-  // generalized in the future if someone is interested.
-  if (TD && TD->isLittleEndian())
+  // Try hard to fold loads from bitcasted strange and non-type-safe things.
+  if (TD)
     return FoldReinterpretLoadFromConstPtr(CE, *TD);
   return 0;
 }
@@ -575,7 +585,7 @@ static Constant *CastGEPIndices(ArrayRef<Constant *> Ops,
                                 Type *ResultTy, const DataLayout *TD,
                                 const TargetLibraryInfo *TLI) {
   if (!TD) return 0;
-  Type *IntPtrTy = TD->getIntPtrType(ResultTy);
+  Type *IntPtrTy = TD->getIntPtrType(ResultTy->getContext());
 
   bool Any = false;
   SmallVector<Constant*, 32> NewIdxs;
@@ -629,8 +639,7 @@ static Constant *SymbolicallyEvaluateGEP(ArrayRef<Constant *> Ops,
       !Ptr->getType()->isPointerTy())
     return 0;
 
-  unsigned AS = cast<PointerType>(Ptr->getType())->getAddressSpace();
-  Type *IntPtrTy = TD->getIntPtrType(Ptr->getContext(), AS);
+  Type *IntPtrTy = TD->getIntPtrType(Ptr->getContext());
 
   // If this is a constant expr gep that is effectively computing an
   // "offsetof", fold it into 'cast int Size to T*' instead of 'gep 0, 0, 12'
@@ -703,8 +712,6 @@ static Constant *SymbolicallyEvaluateGEP(ArrayRef<Constant *> Ops,
   // Also, this helps GlobalOpt do SROA on GlobalVariables.
   Type *Ty = Ptr->getType();
   assert(Ty->isPointerTy() && "Forming regular GEP of non-pointer type");
-  assert(Ty->getPointerAddressSpace() == AS
-      && "Operand and result of GEP should be in the same address space.");
   SmallVector<Constant*, 32> NewIdxs;
   do {
     if (SequentialType *ATy = dyn_cast<SequentialType>(Ty)) {
@@ -720,7 +727,7 @@ static Constant *SymbolicallyEvaluateGEP(ArrayRef<Constant *> Ops,
 
       // Determine which element of the array the offset points into.
       APInt ElemSize(BitWidth, TD->getTypeAllocSize(ATy->getElementType()));
-      IntegerType *IntPtrTy = TD->getIntPtrType(Ty->getContext(), AS);
+      IntegerType *IntPtrTy = TD->getIntPtrType(Ty->getContext());
       if (ElemSize == 0)
         // The element size is 0. This may be [0 x Ty]*, so just use a zero
         // index for this level and proceed to the next level to see if it can
@@ -893,7 +900,7 @@ Constant *llvm::ConstantFoldConstantExpression(const ConstantExpr *CE,
 Constant *llvm::ConstantFoldInstOperands(unsigned Opcode, Type *DestTy,
                                          ArrayRef<Constant *> Ops,
                                          const DataLayout *TD,
-                                         const TargetLibraryInfo *TLI) {                                   
+                                         const TargetLibraryInfo *TLI) {
   // Handle easy binops first.
   if (Instruction::isBinaryOp(Opcode)) {
     if (isa<ConstantExpr>(Ops[0]) || isa<ConstantExpr>(Ops[1]))
@@ -919,11 +926,10 @@ Constant *llvm::ConstantFoldInstOperands(unsigned Opcode, Type *DestTy,
       if (TD && CE->getOpcode() == Instruction::IntToPtr) {
         Constant *Input = CE->getOperand(0);
         unsigned InWidth = Input->getType()->getScalarSizeInBits();
-        unsigned AS = cast<PointerType>(CE->getType())->getAddressSpace();
-        if (TD->getPointerSizeInBits(AS) < InWidth) {
+        if (TD->getPointerSizeInBits() < InWidth) {
           Constant *Mask =
             ConstantInt::get(CE->getContext(), APInt::getLowBitsSet(InWidth,
-                                                  TD->getPointerSizeInBits(AS)));
+                                                  TD->getPointerSizeInBits()));
           Input = ConstantExpr::getAnd(Input, Mask);
         }
         // Do a zext or trunc to get to the dest size.
@@ -936,9 +942,9 @@ Constant *llvm::ConstantFoldInstOperands(unsigned Opcode, Type *DestTy,
     // the int size is >= the ptr size.  This requires knowing the width of a
     // pointer, so it can't be done in ConstantExpr::getCast.
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Ops[0]))
-      if (TD && CE->getOpcode() == Instruction::PtrToInt &&
-          TD->getTypeSizeInBits(CE->getOperand(0)->getType())
-          <= CE->getType()->getScalarSizeInBits())
+      if (TD &&
+          TD->getPointerSizeInBits() <= CE->getType()->getScalarSizeInBits() &&
+          CE->getOpcode() == Instruction::PtrToInt)
         return FoldBitCast(CE->getOperand(0), DestTy, *TD);
 
     return ConstantExpr::getCast(Opcode, Ops[0], DestTy);
@@ -990,10 +996,9 @@ Constant *llvm::ConstantFoldCompareInstOperands(unsigned Predicate,
   // ConstantExpr::getCompare cannot do this, because it doesn't have TD
   // around to know if bit truncation is happening.
   if (ConstantExpr *CE0 = dyn_cast<ConstantExpr>(Ops0)) {
-    Type *IntPtrTy = NULL;
     if (TD && Ops1->isNullValue()) {
+      Type *IntPtrTy = TD->getIntPtrType(CE0->getContext());
       if (CE0->getOpcode() == Instruction::IntToPtr) {
-        IntPtrTy = TD->getIntPtrType(CE0->getType());
         // Convert the integer value to the right size to ensure we get the
         // proper extension or truncation.
         Constant *C = ConstantExpr::getIntegerCast(CE0->getOperand(0),
@@ -1004,21 +1009,19 @@ Constant *llvm::ConstantFoldCompareInstOperands(unsigned Predicate,
 
       // Only do this transformation if the int is intptrty in size, otherwise
       // there is a truncation or extension that we aren't modeling.
-      if (CE0->getOpcode() == Instruction::PtrToInt) {
-        IntPtrTy = TD->getIntPtrType(CE0->getOperand(0)->getType());
-        if (CE0->getType() == IntPtrTy) {
-          Constant *C = CE0->getOperand(0);
-          Constant *Null = Constant::getNullValue(C->getType());
-          return ConstantFoldCompareInstOperands(Predicate, C, Null, TD, TLI);
-        }
+      if (CE0->getOpcode() == Instruction::PtrToInt &&
+          CE0->getType() == IntPtrTy) {
+        Constant *C = CE0->getOperand(0);
+        Constant *Null = Constant::getNullValue(C->getType());
+        return ConstantFoldCompareInstOperands(Predicate, C, Null, TD, TLI);
       }
     }
 
     if (ConstantExpr *CE1 = dyn_cast<ConstantExpr>(Ops1)) {
       if (TD && CE0->getOpcode() == CE1->getOpcode()) {
+        Type *IntPtrTy = TD->getIntPtrType(CE0->getContext());
 
         if (CE0->getOpcode() == Instruction::IntToPtr) {
-          Type *IntPtrTy = TD->getIntPtrType(CE0->getType());
           // Convert the integer value to the right size to ensure we get the
           // proper extension or truncation.
           Constant *C0 = ConstantExpr::getIntegerCast(CE0->getOperand(0),
@@ -1027,16 +1030,14 @@ Constant *llvm::ConstantFoldCompareInstOperands(unsigned Predicate,
                                                       IntPtrTy, false);
           return ConstantFoldCompareInstOperands(Predicate, C0, C1, TD, TLI);
         }
-      }
 
-      // Only do this transformation if the int is intptrty in size, otherwise
-      // there is a truncation or extension that we aren't modeling.
-      if (CE0->getOpcode() == Instruction::PtrToInt) {
-        IntPtrTy = TD->getIntPtrType(CE0->getOperand(0)->getType());
-        if (CE0->getType() == IntPtrTy &&
-            CE0->getOperand(0)->getType() == CE1->getOperand(0)->getType())
+        // Only do this transformation if the int is intptrty in size, otherwise
+        // there is a truncation or extension that we aren't modeling.
+        if ((CE0->getOpcode() == Instruction::PtrToInt &&
+             CE0->getType() == IntPtrTy &&
+             CE0->getOperand(0)->getType() == CE1->getOperand(0)->getType()))
           return ConstantFoldCompareInstOperands(Predicate, CE0->getOperand(0),
-              CE1->getOperand(0), TD, TLI);
+                                                 CE1->getOperand(0), TD, TLI);
       }
     }
 

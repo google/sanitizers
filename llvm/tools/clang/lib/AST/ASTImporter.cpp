@@ -122,6 +122,7 @@ namespace clang {
     bool IsStructuralMatch(RecordDecl *FromRecord, RecordDecl *ToRecord,
                            bool Complain = true);
     bool IsStructuralMatch(EnumDecl *FromEnum, EnumDecl *ToRecord);
+    bool IsStructuralMatch(EnumConstantDecl *FromEC, EnumConstantDecl *ToEC);
     bool IsStructuralMatch(ClassTemplateDecl *From, ClassTemplateDecl *To);
     Decl *VisitDecl(Decl *D);
     Decl *VisitTranslationUnitDecl(TranslationUnitDecl *D);
@@ -1949,6 +1950,14 @@ bool ASTNodeImporter::ImportDefinition(RecordDecl *From, RecordDecl *To,
     ToData.DeclaredCopyAssignment = FromData.DeclaredCopyAssignment;
     ToData.DeclaredMoveAssignment = FromData.DeclaredMoveAssignment;
     ToData.DeclaredDestructor = FromData.DeclaredDestructor;
+    ToData.ImplicitCopyConstructorHasConstParam
+      = FromData.ImplicitCopyConstructorHasConstParam;
+    ToData.ImplicitCopyAssignmentHasConstParam
+      = FromData.ImplicitCopyAssignmentHasConstParam;
+    ToData.HasDeclaredCopyConstructorWithConstParam
+      = FromData.HasDeclaredCopyConstructorWithConstParam;
+    ToData.HasDeclaredCopyAssignmentWithConstParam
+      = FromData.HasDeclaredCopyAssignmentWithConstParam;
     ToData.FailedImplicitMoveConstructor
       = FromData.FailedImplicitMoveConstructor;
     ToData.FailedImplicitMoveAssignment = FromData.FailedImplicitMoveAssignment;
@@ -2143,7 +2152,18 @@ bool ASTNodeImporter::IsStructuralMatch(EnumDecl *FromEnum, EnumDecl *ToEnum) {
   return Ctx.IsStructurallyEquivalent(FromEnum, ToEnum);
 }
 
-bool ASTNodeImporter::IsStructuralMatch(ClassTemplateDecl *From, 
+bool ASTNodeImporter::IsStructuralMatch(EnumConstantDecl *FromEC,
+                                        EnumConstantDecl *ToEC)
+{
+  const llvm::APSInt &FromVal = FromEC->getInitVal();
+  const llvm::APSInt &ToVal = ToEC->getInitVal();
+
+  return FromVal.isSigned() == ToVal.isSigned() &&
+         FromVal.getBitWidth() == ToVal.getBitWidth() &&
+         FromVal == ToVal;
+}
+
+bool ASTNodeImporter::IsStructuralMatch(ClassTemplateDecl *From,
                                         ClassTemplateDecl *To) {
   StructuralEquivalenceContext Ctx(Importer.getFromContext(),
                                    Importer.getToContext(),
@@ -2526,7 +2546,13 @@ Decl *ASTNodeImporter::VisitEnumConstantDecl(EnumConstantDecl *D) {
     for (unsigned I = 0, N = FoundDecls.size(); I != N; ++I) {
       if (!FoundDecls[I]->isInIdentifierNamespace(IDNS))
         continue;
-      
+
+      if (EnumConstantDecl *FoundEnumConstant
+            = dyn_cast<EnumConstantDecl>(FoundDecls[I])) {
+        if (IsStructuralMatch(D, FoundEnumConstant))
+          return Importer.Imported(D, FoundEnumConstant);
+      }
+
       ConflictingDecls.push_back(FoundDecls[I]);
     }
     
@@ -4662,7 +4688,8 @@ FileID ASTImporter::Import(FileID FromID) {
     llvm::MemoryBuffer *ToBuf
       = llvm::MemoryBuffer::getMemBufferCopy(FromBuf->getBuffer(),
                                              FromBuf->getBufferIdentifier());
-    ToID = ToSM.createFileIDForMemBuffer(ToBuf);
+    ToID = ToSM.createFileIDForMemBuffer(ToBuf,
+                                    FromSLoc.getFile().getFileCharacteristic());
   }
   
   

@@ -94,7 +94,7 @@ Here's the short story for getting up and running quickly with LLVM:
      running ``svn update``.
 
    * It is also possible to use CMake instead of the makefiles. With CMake it is
-     also possible to generate project files for several IDEs: Eclipse CDT4,
+     possible to generate project files for several IDEs: Xcode, Eclipse CDT4,
      CodeBlocks, Qt-Creator (use the CodeBlocks generator), KDevelop3.
 
    * If you get an "internal compiler error (ICE)" or test failures, see
@@ -583,7 +583,7 @@ git-imap-send. Here is an example to generate the patchset in Gmail's [Drafts].
 
 Then, your .git/config should have [imap] sections.
 
-.. code-block:: bash
+.. code-block:: ini
 
   [imap]
         host = imaps://imap.gmail.com
@@ -842,12 +842,39 @@ any subdirectories that it contains.  Entering any directory inside the LLVM
 object tree and typing ``gmake`` should rebuild anything in or below that
 directory that is out of date.
 
+This does not apply to building the documentation.
+LLVM's (non-Doxygen) documentation is produced with the
+`Sphinx <http://sphinx-doc.org/>`_ documentation generation system.
+There are some HTML documents that have not yet been converted to the new
+system (which uses the easy-to-read and easy-to-write
+`reStructuredText <http://sphinx-doc.org/rest.html>`_ plaintext markup
+language).
+The generated documentation is built in the ``SRC_ROOT/docs`` directory using
+a special makefile.
+For instructions on how to install Sphinx, see
+`Sphinx Introduction for LLVM Developers
+<http://lld.llvm.org/sphinx_intro.html>`_.
+After following the instructions there for installing Sphinx, build the LLVM
+HTML documentation by doing the following:
+
+.. code-block:: bash
+
+  $ cd SRC_ROOT/docs
+  $ make -f Makefile.sphinx
+
+This creates a ``_build/html`` sub-directory with all of the HTML files, not
+just the generated ones.
+This directory corresponds to ``llvm.org/docs``.
+For example, ``_build/html/SphinxQuickstartTemplate.html`` corresponds to
+``llvm.org/docs/SphinxQuickstartTemplate.html``.
+The :doc:`SphinxQuickstartTemplate` is useful when creating a new document.
+
 Cross-Compiling LLVM
 --------------------
 
 It is possible to cross-compile LLVM itself. That is, you can create LLVM
 executables and libraries to be hosted on a platform different from the platform
-where they are build (a Canadian Cross build). To configure a cross-compile,
+where they are built (a Canadian Cross build). To configure a cross-compile,
 supply the configure script with ``--build`` and ``--host`` options that are
 different. The values of these options must be legal target triples that your
 GCC compiler supports.
@@ -1073,8 +1100,8 @@ module that must be checked out (usually to ``projects/test-suite``).  This
 module contains a comprehensive correctness, performance, and benchmarking test
 suite for LLVM. It is a separate Subversion module because not every LLVM user
 is interested in downloading or building such a comprehensive test suite. For
-further details on this test suite, please see the `Testing
-Guide <TestingGuide.html>`_ document.
+further details on this test suite, please see the :doc:`Testing Guide
+<TestingGuide>` document.
 
 .. _tools:
 
@@ -1250,8 +1277,8 @@ Example with clang
 
      % lli hello.bc
 
-   The second examples shows how to invoke the LLVM JIT, `lli
-   <CommandGuide/html/lli.html>`_.
+   The second examples shows how to invoke the LLVM JIT, :doc:`lli
+   <CommandGuide/lli>`.
 
 #. Use the ``llvm-dis`` utility to take a look at the LLVM assembly code:
 

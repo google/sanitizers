@@ -484,7 +484,8 @@ static void EmitGenDwarfAbbrev(MCStreamer *MCOS) {
 // .debug_aranges section.  Which contains a header and a table of pairs of
 // PointerSize'ed values for the address and size of section(s) with line table
 // entries (just the default .text in our case) and a terminating pair of zeros.
-static void EmitGenDwarfAranges(MCStreamer *MCOS) {
+static void EmitGenDwarfAranges(MCStreamer *MCOS,
+                                const MCSymbol *InfoSectionSymbol) {
   MCContext &context = MCOS->getContext();
 
   // Create a symbol at the end of the section that we are creating the dwarf
@@ -523,8 +524,11 @@ static void EmitGenDwarfAranges(MCStreamer *MCOS) {
   // The 2 byte version, which is 2.
   MCOS->EmitIntValue(2, 2);
   // The 4 byte offset to the compile unit in the .debug_info from the start
-  // of the .debug_info, it is at the start of that section so this is zero.
-  MCOS->EmitIntValue(0, 4);
+  // of the .debug_info.
+  if (InfoSectionSymbol)
+    MCOS->EmitSymbolValue(InfoSectionSymbol, 4);
+  else
+    MCOS->EmitIntValue(0, 4);
   // The 1 byte size of an address.
   MCOS->EmitIntValue(AddrSize, 1);
   // The 1 byte size of a segment descriptor, we use a value of zero.
@@ -705,15 +709,21 @@ void MCGenDwarfInfo::Emit(MCStreamer *MCOS, const MCSymbol *LineSectionSymbol) {
   // Create the dwarf sections in this order (.debug_line already created).
   MCContext &context = MCOS->getContext();
   const MCAsmInfo &AsmInfo = context.getAsmInfo();
+  bool CreateDwarfSectionSymbols =
+      AsmInfo.doesDwarfUseRelocationsAcrossSections();
+  if (!CreateDwarfSectionSymbols)
+    LineSectionSymbol = NULL;
+  MCSymbol *AbbrevSectionSymbol = NULL;
+  MCSymbol *InfoSectionSymbol = NULL;
   MCOS->SwitchSection(context.getObjectFileInfo()->getDwarfInfoSection());
+  if (CreateDwarfSectionSymbols) {
+    InfoSectionSymbol = context.CreateTempSymbol();
+    MCOS->EmitLabel(InfoSectionSymbol);
+  }
   MCOS->SwitchSection(context.getObjectFileInfo()->getDwarfAbbrevSection());
-  MCSymbol *AbbrevSectionSymbol;
-  if (AsmInfo.doesDwarfUseRelocationsAcrossSections()) {
+  if (CreateDwarfSectionSymbols) {
     AbbrevSectionSymbol = context.CreateTempSymbol();
     MCOS->EmitLabel(AbbrevSectionSymbol);
-  } else {
-    AbbrevSectionSymbol = NULL;
-    LineSectionSymbol = NULL;
   }
   MCOS->SwitchSection(context.getObjectFileInfo()->getDwarfARangesSection());
 
@@ -722,7 +732,7 @@ void MCGenDwarfInfo::Emit(MCStreamer *MCOS, const MCSymbol *LineSectionSymbol) {
     return;
 
   // Output the data for .debug_aranges section.
-  EmitGenDwarfAranges(MCOS);
+  EmitGenDwarfAranges(MCOS, InfoSectionSymbol);
 
   // Output the data for .debug_abbrev section.
   EmitGenDwarfAbbrev(MCOS);
@@ -928,46 +938,86 @@ void FrameEmitterImpl::EmitCFIInstruction(MCStreamer &Streamer,
   bool VerboseAsm = Streamer.isVerboseAsm();
 
   switch (Instr.getOperation()) {
-  case MCCFIInstruction::Move:
-  case MCCFIInstruction::RelMove: {
-    const MachineLocation &Dst = Instr.getDestination();
-    const MachineLocation &Src = Instr.getSource();
-    const bool IsRelative = Instr.getOperation() == MCCFIInstruction::RelMove;
-
-    // If advancing cfa.
-    if (Dst.isReg() && Dst.getReg() == MachineLocation::VirtualFP) {
-      if (Src.getReg() == MachineLocation::VirtualFP) {
-        if (VerboseAsm) Streamer.AddComment("DW_CFA_def_cfa_offset");
-        Streamer.EmitIntValue(dwarf::DW_CFA_def_cfa_offset, 1);
-      } else {
-        if (VerboseAsm) Streamer.AddComment("DW_CFA_def_cfa");
-        Streamer.EmitIntValue(dwarf::DW_CFA_def_cfa, 1);
-        if (VerboseAsm) Streamer.AddComment(Twine("Reg ") +
-                                            Twine(Src.getReg()));
-        Streamer.EmitULEB128IntValue(Src.getReg());
-      }
-
-      if (IsRelative)
-        CFAOffset += Src.getOffset();
-      else
-        CFAOffset = -Src.getOffset();
-
-      if (VerboseAsm) Streamer.AddComment(Twine("Offset " + Twine(CFAOffset)));
-      Streamer.EmitULEB128IntValue(CFAOffset);
-      return;
+  case MCCFIInstruction::OpRegister: {
+    unsigned Reg1 = Instr.getRegister();
+    unsigned Reg2 = Instr.getRegister2();
+    if (VerboseAsm) {
+      Streamer.AddComment("DW_CFA_register");
+      Streamer.AddComment(Twine("Reg1 ") + Twine(Reg1));
+      Streamer.AddComment(Twine("Reg2 ") + Twine(Reg2));
     }
-
-    if (Src.isReg() && Src.getReg() == MachineLocation::VirtualFP) {
-      assert(Dst.isReg() && "Machine move not supported yet.");
-      if (VerboseAsm) Streamer.AddComment("DW_CFA_def_cfa_register");
-      Streamer.EmitIntValue(dwarf::DW_CFA_def_cfa_register, 1);
-      if (VerboseAsm) Streamer.AddComment(Twine("Reg ") + Twine(Dst.getReg()));
-      Streamer.EmitULEB128IntValue(Dst.getReg());
-      return;
+    Streamer.EmitIntValue(dwarf::DW_CFA_register, 1);
+    Streamer.EmitULEB128IntValue(Reg1);
+    Streamer.EmitULEB128IntValue(Reg2);
+    return;
+  }
+  case MCCFIInstruction::OpUndefined: {
+    unsigned Reg = Instr.getRegister();
+    if (VerboseAsm) {
+      Streamer.AddComment("DW_CFA_undefined");
+      Streamer.AddComment(Twine("Reg ") + Twine(Reg));
     }
+    Streamer.EmitIntValue(dwarf::DW_CFA_undefined, 1);
+    Streamer.EmitULEB128IntValue(Reg);
+    return;
+  }
+  case MCCFIInstruction::OpAdjustCfaOffset:
+  case MCCFIInstruction::OpDefCfaOffset: {
+    const bool IsRelative =
+      Instr.getOperation() == MCCFIInstruction::OpAdjustCfaOffset;
 
-    unsigned Reg = Src.getReg();
-    int Offset = Dst.getOffset();
+    if (VerboseAsm)
+      Streamer.AddComment("DW_CFA_def_cfa_offset");
+    Streamer.EmitIntValue(dwarf::DW_CFA_def_cfa_offset, 1);
+
+    if (IsRelative)
+      CFAOffset += Instr.getOffset();
+    else
+      CFAOffset = -Instr.getOffset();
+
+    if (VerboseAsm)
+      Streamer.AddComment(Twine("Offset " + Twine(CFAOffset)));
+    Streamer.EmitULEB128IntValue(CFAOffset);
+
+    return;
+  }
+  case MCCFIInstruction::OpDefCfa: {
+    if (VerboseAsm)
+      Streamer.AddComment("DW_CFA_def_cfa");
+    Streamer.EmitIntValue(dwarf::DW_CFA_def_cfa, 1);
+
+    if (VerboseAsm)
+      Streamer.AddComment(Twine("Reg ") + Twine(Instr.getRegister()));
+    Streamer.EmitULEB128IntValue(Instr.getRegister());
+
+    CFAOffset = -Instr.getOffset();
+
+    if (VerboseAsm)
+      Streamer.AddComment(Twine("Offset " + Twine(CFAOffset)));
+    Streamer.EmitULEB128IntValue(CFAOffset);
+
+    return;
+  }
+
+  case MCCFIInstruction::OpDefCfaRegister: {
+    if (VerboseAsm)
+      Streamer.AddComment("DW_CFA_def_cfa_register");
+    Streamer.EmitIntValue(dwarf::DW_CFA_def_cfa_register, 1);
+
+    if (VerboseAsm)
+      Streamer.AddComment(Twine("Reg ") + Twine(Instr.getRegister()));
+    Streamer.EmitULEB128IntValue(Instr.getRegister());
+
+    return;
+  }
+
+  case MCCFIInstruction::OpOffset:
+  case MCCFIInstruction::OpRelOffset: {
+    const bool IsRelative =
+      Instr.getOperation() == MCCFIInstruction::OpRelOffset;
+
+    unsigned Reg = Instr.getRegister();
+    int Offset = Instr.getOffset();
     if (IsRelative)
       Offset -= CFAOffset;
     Offset = Offset / dataAlignmentFactor;
@@ -995,24 +1045,24 @@ void FrameEmitterImpl::EmitCFIInstruction(MCStreamer &Streamer,
     }
     return;
   }
-  case MCCFIInstruction::RememberState:
+  case MCCFIInstruction::OpRememberState:
     if (VerboseAsm) Streamer.AddComment("DW_CFA_remember_state");
     Streamer.EmitIntValue(dwarf::DW_CFA_remember_state, 1);
     return;
-  case MCCFIInstruction::RestoreState:
+  case MCCFIInstruction::OpRestoreState:
     if (VerboseAsm) Streamer.AddComment("DW_CFA_restore_state");
     Streamer.EmitIntValue(dwarf::DW_CFA_restore_state, 1);
     return;
-  case MCCFIInstruction::SameValue: {
-    unsigned Reg = Instr.getDestination().getReg();
+  case MCCFIInstruction::OpSameValue: {
+    unsigned Reg = Instr.getRegister();
     if (VerboseAsm) Streamer.AddComment("DW_CFA_same_value");
     Streamer.EmitIntValue(dwarf::DW_CFA_same_value, 1);
     if (VerboseAsm) Streamer.AddComment(Twine("Reg ") + Twine(Reg));
     Streamer.EmitULEB128IntValue(Reg);
     return;
   }
-  case MCCFIInstruction::Restore: {
-    unsigned Reg = Instr.getDestination().getReg();
+  case MCCFIInstruction::OpRestore: {
+    unsigned Reg = Instr.getRegister();
     if (VerboseAsm) {
       Streamer.AddComment("DW_CFA_restore");
       Streamer.AddComment(Twine("Reg ") + Twine(Reg));
@@ -1020,7 +1070,7 @@ void FrameEmitterImpl::EmitCFIInstruction(MCStreamer &Streamer,
     Streamer.EmitIntValue(dwarf::DW_CFA_restore | Reg, 1);
     return;
   }
-  case MCCFIInstruction::Escape:
+  case MCCFIInstruction::OpEscape:
     if (VerboseAsm) Streamer.AddComment("Escape bytes");
     Streamer.EmitBytes(Instr.getValues(), 0);
     return;
@@ -1244,8 +1294,21 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(MCStreamer &streamer,
       TranslateMachineLocation(MRI, Moves[i].getDestination());
     const MachineLocation &Src =
       TranslateMachineLocation(MRI, Moves[i].getSource());
-    MCCFIInstruction Inst(Label, Dst, Src);
-    Instructions.push_back(Inst);
+
+    if (Dst.isReg()) {
+      assert(Dst.getReg() == MachineLocation::VirtualFP);
+      assert(!Src.isReg());
+      MCCFIInstruction Inst =
+        MCCFIInstruction::createDefCfa(Label, Src.getReg(), -Src.getOffset());
+      Instructions.push_back(Inst);
+    } else {
+      assert(Src.isReg());
+      unsigned Reg = Src.getReg();
+      int Offset = Dst.getOffset();
+      MCCFIInstruction Inst =
+        MCCFIInstruction::createOffset(Label, Reg, Offset);
+      Instructions.push_back(Inst);
+    }
   }
 
   EmitCFIInstructions(streamer, Instructions, NULL);

@@ -96,7 +96,7 @@ private:
   void mangleExtraDimensions(QualType T);
   void mangleFunctionClass(const FunctionDecl *FD);
   void mangleCallingConvention(const FunctionType *T, bool IsInstMethod = false);
-  void mangleIntegerLiteral(QualType T, const llvm::APSInt &Number);
+  void mangleIntegerLiteral(const llvm::APSInt &Number, bool IsBoolean);
   void mangleExpression(const Expr *E);
   void mangleThrowSpecification(const FunctionProtoType *T);
 
@@ -307,39 +307,23 @@ void MicrosoftCXXNameMangler::mangleName(const NamedDecl *ND) {
 }
 
 void MicrosoftCXXNameMangler::mangleNumber(int64_t Number) {
-  // <number> ::= [?] <decimal digit> # 1 <= Number <= 10
-  //          ::= [?] <hex digit>+ @ # 0 or > 9; A = 0, B = 1, etc...
-  //          ::= [?] @ # 0 (alternate mangling, not emitted by VC)
-  if (Number < 0) {
-    Out << '?';
-    Number = -Number;
-  }
-  // There's a special shorter mangling for 0, but Microsoft
-  // chose not to use it. Instead, 0 gets mangled as "A@". Oh well...
-  if (Number >= 1 && Number <= 10)
-    Out << Number-1;
-  else {
-    // We have to build up the encoding in reverse order, so it will come
-    // out right when we write it out.
-    char Encoding[16];
-    char *EndPtr = Encoding+sizeof(Encoding);
-    char *CurPtr = EndPtr;
-    do {
-      *--CurPtr = 'A' + (Number % 16);
-      Number /= 16;
-    } while (Number);
-    Out.write(CurPtr, EndPtr-CurPtr);
-    Out << '@';
-  }
+  llvm::APSInt APSNumber(/*BitWidth=*/64, /*isUnsigned=*/false);
+  APSNumber = Number;
+  mangleNumber(APSNumber);
 }
 
 void MicrosoftCXXNameMangler::mangleNumber(const llvm::APSInt &Value) {
+  // <number> ::= [?] <decimal digit> # 1 <= Number <= 10
+  //          ::= [?] <hex digit>+ @ # 0 or > 9; A = 0, B = 1, etc...
+  //          ::= [?] @ # 0 (alternate mangling, not emitted by VC)
   if (Value.isSigned() && Value.isNegative()) {
     Out << '?';
     mangleNumber(llvm::APSInt(Value.abs()));
     return;
   }
   llvm::APSInt Temp(Value);
+  // There's a special shorter mangling for 0, but Microsoft
+  // chose not to use it. Instead, 0 gets mangled as "A@". Oh well...
   if (Value.uge(1) && Value.ule(10)) {
     --Temp;
     Temp.print(Out, false);
@@ -351,10 +335,10 @@ void MicrosoftCXXNameMangler::mangleNumber(const llvm::APSInt &Value) {
     char *CurPtr = EndPtr;
     llvm::APSInt NibbleMask(Value.getBitWidth(), Value.isUnsigned());
     NibbleMask = 0xf;
-    for (int i = 0, e = (Value.getActiveBits() + 3) / 4; i != e; ++i) {
+    do {
       *--CurPtr = 'A' + Temp.And(NibbleMask).getLimitedValue(0xf);
       Temp = Temp.lshr(4);
-    }
+    } while (Temp != 0);
     Out.write(CurPtr, EndPtr-CurPtr);
     Out << '@';
   }
@@ -389,7 +373,7 @@ isTemplate(const NamedDecl *ND,
       dyn_cast<ClassTemplateSpecializationDecl>(ND)) {
     TypeSourceInfo *TSI = Spec->getTypeAsWritten();
     if (TSI) {
-      TemplateSpecializationTypeLoc &TSTL =
+      TemplateSpecializationTypeLoc TSTL =
         cast<TemplateSpecializationTypeLoc>(TSI->getTypeLoc());
       TemplateArgumentListInfo LI(TSTL.getLAngleLoc(), TSTL.getRAngleLoc());
       for (unsigned i = 0, e = TSTL.getNumArgs(); i != e; ++i)
@@ -469,7 +453,7 @@ MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
       
       if (const NamespaceDecl *NS = dyn_cast<NamespaceDecl>(ND)) {
         if (NS->isAnonymousNamespace()) {
-          Out << "?A";
+          Out << "?A@";
           break;
         }
       }
@@ -775,13 +759,13 @@ MicrosoftCXXNameMangler::mangleUnscopedTemplateName(const TemplateDecl *TD) {
 }
 
 void
-MicrosoftCXXNameMangler::mangleIntegerLiteral(QualType T,
-                                              const llvm::APSInt &Value) {
+MicrosoftCXXNameMangler::mangleIntegerLiteral(const llvm::APSInt &Value,
+                                              bool IsBoolean) {
   // <integer-literal> ::= $0 <number>
   Out << "$0";
   // Make sure booleans are encoded as 0/1.
-  if (T->isBooleanType())
-    Out << (Value.getBoolValue() ? "0" : "A@");
+  if (IsBoolean && Value.getBoolValue())
+    mangleNumber(1);
   else
     mangleNumber(Value);
 }
@@ -791,7 +775,7 @@ MicrosoftCXXNameMangler::mangleExpression(const Expr *E) {
   // See if this is a constant expression.
   llvm::APSInt Value;
   if (E->isIntegerConstantExpr(Value, Context.getASTContext())) {
-    mangleIntegerLiteral(E->getType(), Value);
+    mangleIntegerLiteral(Value, E->getType()->isBooleanType());
     return;
   }
 
@@ -818,7 +802,8 @@ MicrosoftCXXNameMangler::mangleTemplateArgs(
       mangleType(TA.getAsType(), TAL.getSourceRange());
       break;
     case TemplateArgument::Integral:
-      mangleIntegerLiteral(TA.getIntegralType(), TA.getAsIntegral());
+      mangleIntegerLiteral(TA.getAsIntegral(),
+                           TA.getIntegralType()->isBooleanType());
       break;
     case TemplateArgument::Expression:
       mangleExpression(TA.getAsExpr());

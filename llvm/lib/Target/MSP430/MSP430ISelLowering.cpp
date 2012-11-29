@@ -164,6 +164,12 @@ MSP430TargetLowering::MSP430TargetLowering(MSP430TargetMachine &tm) :
   setOperationAction(ISD::SDIVREM,          MVT::i16,   Expand);
   setOperationAction(ISD::SREM,             MVT::i16,   Expand);
 
+  // varargs support
+  setOperationAction(ISD::VASTART,          MVT::Other, Custom);
+  setOperationAction(ISD::VAARG,            MVT::Other, Expand);
+  setOperationAction(ISD::VAEND,            MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY,           MVT::Other, Expand);
+
   // Libcalls names.
   if (HWMultMode == HWMultIntr) {
     setLibcallName(RTLIB::MUL_I8,  "__mulqi3hw");
@@ -192,6 +198,7 @@ SDValue MSP430TargetLowering::LowerOperation(SDValue Op,
   case ISD::SIGN_EXTEND:      return LowerSIGN_EXTEND(Op, DAG);
   case ISD::RETURNADDR:       return LowerRETURNADDR(Op, DAG);
   case ISD::FRAMEADDR:        return LowerFRAMEADDR(Op, DAG);
+  case ISD::VASTART:          return LowerVASTART(Op, DAG);
   default:
     llvm_unreachable("unimplemented operand");
   }
@@ -297,7 +304,6 @@ MSP430TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 /// LowerCCCArguments - transform physical registers into virtual registers and
 /// generate load operations for arguments places on the stack.
 // FIXME: struct return stuff
-// FIXME: varargs
 SDValue
 MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
                                         CallingConv::ID CallConv,
@@ -311,6 +317,7 @@ MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
+  MSP430MachineFunctionInfo *FuncInfo = MF.getInfo<MSP430MachineFunctionInfo>();
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
@@ -318,7 +325,11 @@ MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
                  getTargetMachine(), ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeFormalArguments(Ins, CC_MSP430);
 
-  assert(!isVarArg && "Varargs not supported yet");
+  // Create frame index for the start of the first vararg value
+  if (isVarArg) {
+    unsigned Offset = CCInfo.getNextStackOffset();
+    FuncInfo->setVarArgsFrameIndex(MFI->CreateFixedObject(1, Offset, true));
+  }
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign &VA = ArgLocs[i];
@@ -357,22 +368,34 @@ MSP430TargetLowering::LowerCCCArguments(SDValue Chain,
     } else {
       // Sanity check
       assert(VA.isMemLoc());
-      // Load the argument to a virtual register
-      unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
-      if (ObjSize > 2) {
-        errs() << "LowerFormalArguments Unhandled argument type: "
-             << EVT(VA.getLocVT()).getEVTString()
-             << "\n";
-      }
-      // Create the frame index object for this incoming parameter...
-      int FI = MFI->CreateFixedObject(ObjSize, VA.getLocMemOffset(), true);
 
-      // Create the SelectionDAG nodes corresponding to a load
-      //from this parameter
-      SDValue FIN = DAG.getFrameIndex(FI, MVT::i16);
-      InVals.push_back(DAG.getLoad(VA.getLocVT(), dl, Chain, FIN,
-                                   MachinePointerInfo::getFixedStack(FI),
-                                   false, false, false, 0));
+      SDValue InVal;
+      ISD::ArgFlagsTy Flags = Ins[i].Flags;
+
+      if (Flags.isByVal()) {
+        int FI = MFI->CreateFixedObject(Flags.getByValSize(),
+                                        VA.getLocMemOffset(), true);
+        InVal = DAG.getFrameIndex(FI, getPointerTy());
+      } else {
+        // Load the argument to a virtual register
+        unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
+        if (ObjSize > 2) {
+            errs() << "LowerFormalArguments Unhandled argument type: "
+                << EVT(VA.getLocVT()).getEVTString()
+                << "\n";
+        }
+        // Create the frame index object for this incoming parameter...
+        int FI = MFI->CreateFixedObject(ObjSize, VA.getLocMemOffset(), true);
+
+        // Create the SelectionDAG nodes corresponding to a load
+        //from this parameter
+        SDValue FIN = DAG.getFrameIndex(FI, MVT::i16);
+        InVal = DAG.getLoad(VA.getLocVT(), dl, Chain, FIN,
+                            MachinePointerInfo::getFixedStack(FI),
+                            false, false, false, 0);
+      }
+
+      InVals.push_back(InVal);
     }
   }
 
@@ -498,9 +521,23 @@ MSP430TargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
                                    StackPtr,
                                    DAG.getIntPtrConstant(VA.getLocMemOffset()));
 
+      SDValue MemOp;
+      ISD::ArgFlagsTy Flags = Outs[i].Flags;
 
-      MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
-                                         MachinePointerInfo(),false, false, 0));
+      if (Flags.isByVal()) {
+        SDValue SizeNode = DAG.getConstant(Flags.getByValSize(), MVT::i16);
+        MemOp = DAG.getMemcpy(Chain, dl, PtrOff, Arg, SizeNode,
+                              Flags.getByValAlign(),
+                              /*isVolatile*/false,
+                              /*AlwaysInline=*/true,
+                              MachinePointerInfo(),
+                              MachinePointerInfo());
+      } else {
+        MemOp = DAG.getStore(Chain, dl, Arg, PtrOff, MachinePointerInfo(),
+                             false, false, 0);
+      }
+
+      MemOpChains.push_back(MemOp);
     }
   }
 
@@ -881,7 +918,7 @@ MSP430TargetLowering::getReturnAddressFrameIndex(SelectionDAG &DAG) const {
 
   if (ReturnAddrIndex == 0) {
     // Set up a frame object for the return address.
-    uint64_t SlotSize = TD->getPointerSize(0);
+    uint64_t SlotSize = TD->getPointerSize();
     ReturnAddrIndex = MF.getFrameInfo()->CreateFixedObject(SlotSize, -SlotSize,
                                                            true);
     FuncInfo->setRAIndex(ReturnAddrIndex);
@@ -901,7 +938,7 @@ SDValue MSP430TargetLowering::LowerRETURNADDR(SDValue Op,
   if (Depth > 0) {
     SDValue FrameAddr = LowerFRAMEADDR(Op, DAG);
     SDValue Offset =
-      DAG.getConstant(TD->getPointerSize(0), MVT::i16);
+      DAG.getConstant(TD->getPointerSize(), MVT::i16);
     return DAG.getLoad(getPointerTy(), dl, DAG.getEntryNode(),
                        DAG.getNode(ISD::ADD, dl, getPointerTy(),
                                    FrameAddr, Offset),
@@ -929,6 +966,22 @@ SDValue MSP430TargetLowering::LowerFRAMEADDR(SDValue Op,
                             MachinePointerInfo(),
                             false, false, false, 0);
   return FrameAddr;
+}
+
+SDValue MSP430TargetLowering::LowerVASTART(SDValue Op,
+                                           SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MSP430MachineFunctionInfo *FuncInfo = MF.getInfo<MSP430MachineFunctionInfo>();
+
+  // Frame index of first vararg argument
+  SDValue FrameIndex = DAG.getFrameIndex(FuncInfo->getVarArgsFrameIndex(),
+                                         getPointerTy());
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+
+  // Create a store of the frame index to the location operand
+  return DAG.getStore(Op.getOperand(0), Op.getDebugLoc(), FrameIndex,
+                      Op.getOperand(1), MachinePointerInfo(SV),
+                      false, false, 0);
 }
 
 /// getPostIndexedAddressParts - returns true by value, base pointer and

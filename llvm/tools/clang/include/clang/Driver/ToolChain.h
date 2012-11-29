@@ -85,6 +85,10 @@ public:
   StringRef getPlatform() const { return Triple.getVendorName(); }
   StringRef getOS() const { return Triple.getOSName(); }
 
+  /// \brief Provide the default architecture name (as expected by -arch) for
+  /// this toolchain. Note t
+  std::string getDefaultUniversalArchName() const;
+
   std::string getTripleString() const {
     return Triple.getTriple();
   }
@@ -144,6 +148,10 @@ public:
   /// IsObjCDefaultSynthPropertiesDefault - Does this tool chain enable
   /// -fobjc-default-synthesize-properties by default.
   virtual bool IsObjCDefaultSynthPropertiesDefault() const { return false; }
+  
+  /// IsEncodeExtendedBlockSignatureDefault - Does this tool chain enable
+  /// -fencode-extended-block-signature by default.
+  virtual bool IsEncodeExtendedBlockSignatureDefault() const { return false; }
 
   /// IsObjCNonFragileABIDefault - Does this tool chain set
   /// -fobjc-nonfragile-abi by default.
@@ -168,14 +176,13 @@ public:
   /// by default.
   virtual bool IsUnwindTablesDefault() const;
 
-  /// GetDefaultRelocationModel - Return the LLVM name of the default
-  /// relocation model for this tool chain.
-  virtual const char *GetDefaultRelocationModel() const = 0;
+  /// \brief Test whether this toolchain defaults to PIC.
+  virtual bool isPICDefault() const = 0;
 
-  /// GetForcedPicModel - Return the LLVM name of the forced PIC model
-  /// for this tool chain, or 0 if this tool chain does not force a
-  /// particular PIC mode.
-  virtual const char *GetForcedPicModel() const = 0;
+  /// \brief Tests whether this toolchain forces its default for PIC or non-PIC.
+  /// If this returns true, any PIC related flags should be ignored and instead
+  /// the result of \c isPICDefault() is used exclusively.
+  virtual bool isPICDefaultForced() const = 0;
 
   /// SupportsProfiling - Does this tool chain support -pg.
   virtual bool SupportsProfiling() const { return true; }
@@ -226,9 +233,9 @@ public:
   virtual void AddClangSystemIncludeArgs(const ArgList &DriverArgs,
                                          ArgStringList &CC1Args) const;
 
-  // addClangTargetOptions - Add options that need to be passed to cc1 for
-  // this target.
-  virtual void addClangTargetOptions(ArgStringList &CC1Args) const;
+  /// \brief Add options that need to be passed to cc1 for this target.
+  virtual void addClangTargetOptions(const ArgList &DriverArgs,
+                                     ArgStringList &CC1Args) const;
 
   // GetRuntimeLibType - Determine the runtime library type to use with the
   // given compilation arguments.

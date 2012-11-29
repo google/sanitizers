@@ -5729,6 +5729,18 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
                        DAG.getNode(ISD::FADD, N->getDebugLoc(), VT,
                                    N0.getOperand(1), N1));
 
+  // If allow, fold (fadd (fneg x), x) -> 0.0
+  if (DAG.getTarget().Options.UnsafeFPMath &&
+      N0.getOpcode() == ISD::FNEG && N0.getOperand(0) == N1) {
+    return DAG.getConstantFP(0.0, VT);
+  }
+
+    // If allow, fold (fadd x, (fneg x)) -> 0.0
+  if (DAG.getTarget().Options.UnsafeFPMath &&
+      N1.getOpcode() == ISD::FNEG && N1.getOperand(0) == N0) {
+    return DAG.getConstantFP(0.0, VT);
+  }
+
   // In unsafe math mode, we can fold chains of FADD's of the same value
   // into multiplications.  This transform is not safe in general because
   // we are reducing the number of rounding steps.
@@ -6038,6 +6050,12 @@ SDValue DAGCombiner::visitFMA(SDNode *N) {
   EVT VT = N->getValueType(0);
   DebugLoc dl = N->getDebugLoc();
 
+  if (DAG.getTarget().Options.UnsafeFPMath) {
+    if (N0CFP && N0CFP->isZero())
+      return N2;
+    if (N1CFP && N1CFP->isZero())
+      return N2;
+  }
   if (N0CFP && N0CFP->isExactlyValue(1.0))
     return DAG.getNode(ISD::FADD, N->getDebugLoc(), VT, N1, N2);
   if (N1CFP && N1CFP->isExactlyValue(1.0))
@@ -7710,7 +7728,18 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
       if (StoreNodes[i].MemNode == EarliestOp)
         continue;
       StoreSDNode *St = cast<StoreSDNode>(StoreNodes[i].MemNode);
-      DAG.ReplaceAllUsesOfValueWith(SDValue(St, 0), St->getChain());
+      // ReplaceAllUsesWith will replace all uses that existed when it was
+      // called, but graph optimizations may cause new ones to appear. For
+      // example, the case in pr14333 looks like
+      //
+      //  St's chain -> St -> another store -> X
+      //
+      // And the only difference from St to the other store is the chain.
+      // When we change it's chain to be St's chain they become identical,
+      // get CSEed and the net result is that X is now a use of St.
+      // Since we know that St is redundant, just iterate.
+      while (!St->use_empty())
+        DAG.ReplaceAllUsesWith(SDValue(St, 0), St->getChain());
       removeFromWorkList(St);
       DAG.DeleteNode(St);
     }
@@ -9394,34 +9423,38 @@ SDValue DAGCombiner::SimplifySelectCC(DebugLoc DL, SDValue N0, SDValue N1,
       return SDValue();
 
     // Get a SetCC of the condition
-    // FIXME: Should probably make sure that setcc is legal if we ever have a
-    // target where it isn't.
-    SDValue Temp, SCC;
-    // cast from setcc result type to select result type
-    if (LegalTypes) {
-      SCC  = DAG.getSetCC(DL, TLI.getSetCCResultType(N0.getValueType()),
-                          N0, N1, CC);
-      if (N2.getValueType().bitsLT(SCC.getValueType()))
-        Temp = DAG.getZeroExtendInReg(SCC, N2.getDebugLoc(), N2.getValueType());
-      else
+    // NOTE: Don't create a SETCC if it's not legal on this target.
+    if (!LegalOperations ||
+        TLI.isOperationLegal(ISD::SETCC,
+          LegalTypes ? TLI.getSetCCResultType(N0.getValueType()) : MVT::i1)) {
+      SDValue Temp, SCC;
+      // cast from setcc result type to select result type
+      if (LegalTypes) {
+        SCC  = DAG.getSetCC(DL, TLI.getSetCCResultType(N0.getValueType()),
+                            N0, N1, CC);
+        if (N2.getValueType().bitsLT(SCC.getValueType()))
+          Temp = DAG.getZeroExtendInReg(SCC, N2.getDebugLoc(),
+                                        N2.getValueType());
+        else
+          Temp = DAG.getNode(ISD::ZERO_EXTEND, N2.getDebugLoc(),
+                             N2.getValueType(), SCC);
+      } else {
+        SCC  = DAG.getSetCC(N0.getDebugLoc(), MVT::i1, N0, N1, CC);
         Temp = DAG.getNode(ISD::ZERO_EXTEND, N2.getDebugLoc(),
                            N2.getValueType(), SCC);
-    } else {
-      SCC  = DAG.getSetCC(N0.getDebugLoc(), MVT::i1, N0, N1, CC);
-      Temp = DAG.getNode(ISD::ZERO_EXTEND, N2.getDebugLoc(),
-                         N2.getValueType(), SCC);
+      }
+
+      AddToWorkList(SCC.getNode());
+      AddToWorkList(Temp.getNode());
+
+      if (N2C->getAPIntValue() == 1)
+        return Temp;
+
+      // shl setcc result by log2 n2c
+      return DAG.getNode(ISD::SHL, DL, N2.getValueType(), Temp,
+                         DAG.getConstant(N2C->getAPIntValue().logBase2(),
+                                         getShiftAmountTy(Temp.getValueType())));
     }
-
-    AddToWorkList(SCC.getNode());
-    AddToWorkList(Temp.getNode());
-
-    if (N2C->getAPIntValue() == 1)
-      return Temp;
-
-    // shl setcc result by log2 n2c
-    return DAG.getNode(ISD::SHL, DL, N2.getValueType(), Temp,
-                       DAG.getConstant(N2C->getAPIntValue().logBase2(),
-                                       getShiftAmountTy(Temp.getValueType())));
   }
 
   // Check to see if this is the equivalent of setcc

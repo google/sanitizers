@@ -31,48 +31,11 @@
 #else
 
 #ifdef __AES__
-
-static __inline__ __m128i __attribute__((__always_inline__, __nodebug__))
-_mm_aesenc_si128(__m128i __V, __m128i __R)
-{
-  return (__m128i)__builtin_ia32_aesenc128(__V, __R);
-}
-
-static __inline__ __m128i __attribute__((__always_inline__, __nodebug__))
-_mm_aesenclast_si128(__m128i __V, __m128i __R)
-{
-  return (__m128i)__builtin_ia32_aesenclast128(__V, __R);
-}
-
-static __inline__ __m128i __attribute__((__always_inline__, __nodebug__))
-_mm_aesdec_si128(__m128i __V, __m128i __R)
-{
-  return (__m128i)__builtin_ia32_aesdec128(__V, __R);
-}
-
-static __inline__ __m128i __attribute__((__always_inline__, __nodebug__))
-_mm_aesdeclast_si128(__m128i __V, __m128i __R)
-{
-  return (__m128i)__builtin_ia32_aesdeclast128(__V, __R);
-}
-
-static __inline__ __m128i __attribute__((__always_inline__, __nodebug__))
-_mm_aesimc_si128(__m128i __V)
-{
-  return (__m128i)__builtin_ia32_aesimc128(__V);
-}
-
-#define _mm_aeskeygenassist_si128(C, R) \
-  __builtin_ia32_aeskeygenassist128((C), (R))
-
+#include <__wmmintrin_aes.h>
 #endif /* __AES__ */
 
 #ifdef __PCLMUL__
-
-#define _mm_clmulepi64_si128(__X, __Y, __I) \
-  ((__m128i)__builtin_ia32_pclmulqdq128((__v2di)(__m128i)(__X), \
-                                        (__v2di)(__m128i)(__Y), (char)(__I)))
-
+#include <__wmmintrin_pclmul.h>
 #endif /* __PCLMUL__ */
 
 #endif /* __AES__ || __PCLMUL__ */

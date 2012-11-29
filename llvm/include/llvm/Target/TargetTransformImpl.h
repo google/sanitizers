@@ -51,16 +51,18 @@ public:
 };
 
 class VectorTargetTransformImpl : public VectorTargetTransformInfo {
-private:
+protected:
   const TargetLowering *TLI;
 
   /// Estimate the cost of type-legalization and the legalized type.
-  std::pair<unsigned, EVT>
-  getTypeLegalizationCost(LLVMContext &C, EVT Ty) const;
+  std::pair<unsigned, MVT> getTypeLegalizationCost(Type *Ty) const;
 
   /// Estimate the overhead of scalarizing an instruction. Insert and Extract
   /// are set if the result needs to be inserted and/or extracted from vectors.
   unsigned getScalarizationOverhead(Type *Ty, bool Insert, bool Extract) const;
+
+  // Get the ISD node that corresponds to the Instruction class opcode.
+  int InstructionOpcodeToISD(unsigned Opcode) const;
 
 public:
   explicit VectorTargetTransformImpl(const TargetLowering *TL) : TLI(TL) {}

@@ -84,15 +84,6 @@ protected:
   /// this is the section to emit them into.
   const MCSection *CompactUnwindSection;
 
-  /// DwarfAccelNamesSection, DwarfAccelObjCSection,
-  /// DwarfAccelNamespaceSection, DwarfAccelTypesSection -
-  /// If we use the DWARF accelerated hash tables then we want toe emit these
-  /// sections.
-  const MCSection *DwarfAccelNamesSection;
-  const MCSection *DwarfAccelObjCSection;
-  const MCSection *DwarfAccelNamespaceSection;
-  const MCSection *DwarfAccelTypesSection;
-
   // Dwarf sections for debug info.  If a target supports debug info, these must
   // be set.
   const MCSection *DwarfAbbrevSection;
@@ -106,6 +97,20 @@ protected:
   const MCSection *DwarfARangesSection;
   const MCSection *DwarfRangesSection;
   const MCSection *DwarfMacroInfoSection;
+
+  // DWARF5 Experimental Debug Info Sections
+  /// DwarfAccelNamesSection, DwarfAccelObjCSection,
+  /// DwarfAccelNamespaceSection, DwarfAccelTypesSection -
+  /// If we use the DWARF accelerated hash tables then we want to emit these
+  /// sections.
+  const MCSection *DwarfAccelNamesSection;
+  const MCSection *DwarfAccelObjCSection;
+  const MCSection *DwarfAccelNamespaceSection;
+  const MCSection *DwarfAccelTypesSection;
+
+  /// These are used for the Fission separate debug information files.
+  /// DwarfInfoDWOSection
+  const MCSection *DwarfInfoDWOSection;
 
   // Extra TLS Variable Data section.  If the target needs to put additional
   // information for a TLS variable, it'll go here.
@@ -195,18 +200,6 @@ public:
   const MCSection *getCompactUnwindSection() const{
     return CompactUnwindSection;
   }
-  const MCSection *getDwarfAccelNamesSection() const {
-    return DwarfAccelNamesSection;
-  }
-  const MCSection *getDwarfAccelObjCSection() const {
-    return DwarfAccelObjCSection;
-  }
-  const MCSection *getDwarfAccelNamespaceSection() const {
-    return DwarfAccelNamespaceSection;
-  }
-  const MCSection *getDwarfAccelTypesSection() const {
-    return DwarfAccelTypesSection;
-  }
   const MCSection *getDwarfAbbrevSection() const { return DwarfAbbrevSection; }
   const MCSection *getDwarfInfoSection() const { return DwarfInfoSection; }
   const MCSection *getDwarfLineSection() const { return DwarfLineSection; }
@@ -222,6 +215,24 @@ public:
   const MCSection *getDwarfMacroInfoSection() const {
     return DwarfMacroInfoSection;
   }
+
+  // DWARF5 Experimental Debug Info Sections
+  const MCSection *getDwarfAccelNamesSection() const {
+    return DwarfAccelNamesSection;
+  }
+  const MCSection *getDwarfAccelObjCSection() const {
+    return DwarfAccelObjCSection;
+  }
+  const MCSection *getDwarfAccelNamespaceSection() const {
+    return DwarfAccelNamespaceSection;
+  }
+  const MCSection *getDwarfAccelTypesSection() const {
+    return DwarfAccelTypesSection;
+  }
+  const MCSection *getDwarfInfoDWOSection() const {
+    return DwarfInfoDWOSection;
+  }
+
   const MCSection *getTLSExtraDataSection() const {
     return TLSExtraDataSection;
   }

@@ -21,7 +21,7 @@ target triple = "x86_64-apple-macosx10.8.0"
 
 ;CHECK: @example1
 ;CHECK: load <4 x i32>
-;CHECK: add <4 x i32>
+;CHECK: add nsw <4 x i32>
 ;CHECK: store <4 x i32>
 ;CHECK: ret void
 define void @example1() nounwind uwtable ssp {
@@ -227,6 +227,8 @@ define i32 @example9() nounwind uwtable readonly ssp {
 }
 
 ;CHECK: @example10a
+;CHECK: load <4 x i32>
+;CHECK: add nsw <4 x i32>
 ;CHECK: load <4 x i16>
 ;CHECK: add <4 x i16>
 ;CHECK: store <4 x i16>
@@ -389,9 +391,9 @@ define void @example13(i32** nocapture %A, i32** nocapture %B, i32* nocapture %o
   ret void
 }
 
-; Can't vectorize because of reductions.
+; Can vectorize.
 ;CHECK: @example14
-;CHECK-NOT: <4 x i32>
+;CHECK: <4 x i32>
 ;CHECK: ret void
 define void @example14(i32** nocapture %in, i32** nocapture %coeff, i32* nocapture %out) nounwind uwtable ssp {
 .preheader3:
@@ -563,9 +565,8 @@ define i32 @example21(i32* nocapture %b, i32 %n) nounwind uwtable readonly ssp {
   ret i32 %a.0.lcssa
 }
 
-; Can't vectorize because there are multiple PHIs.
 ;CHECK: @example23
-;CHECK-NOT: <4 x i32>
+;CHECK: <4 x i32>
 ;CHECK: ret void
 define void @example23(i16* nocapture %src, i32* nocapture %dst) nounwind uwtable ssp {
   br label %1

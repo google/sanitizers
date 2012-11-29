@@ -175,14 +175,12 @@ perl -e '$/ = undef; for (split(/\n/, <>)) { s:^ *///? ?::; print "  <p>\n" if !
 <tr><td><a href="#simplify-libcalls">-simplify-libcalls</a></td><td>Simplify well-known library calls</td></tr>
 <tr><td><a href="#simplifycfg">-simplifycfg</a></td><td>Simplify the CFG</td></tr>
 <tr><td><a href="#sink">-sink</a></td><td>Code sinking</td></tr>
-<tr><td><a href="#sretpromotion">-sretpromotion</a></td><td>Promote sret arguments to multiple ret values</td></tr>
 <tr><td><a href="#strip">-strip</a></td><td>Strip all symbols from a module</td></tr>
 <tr><td><a href="#strip-dead-debug-info">-strip-dead-debug-info</a></td><td>Strip debug info for unused symbols</td></tr>
 <tr><td><a href="#strip-dead-prototypes">-strip-dead-prototypes</a></td><td>Strip Unused Function Prototypes</td></tr>
 <tr><td><a href="#strip-debug-declare">-strip-debug-declare</a></td><td>Strip all llvm.dbg.declare intrinsics</td></tr>
 <tr><td><a href="#strip-nondebug">-strip-nondebug</a></td><td>Strip all symbols, except dbg symbols, from a module</td></tr>
 <tr><td><a href="#tailcallelim">-tailcallelim</a></td><td>Tail Call Elimination</td></tr>
-<tr><td><a href="#tailduplicate">-tailduplicate</a></td><td>Tail Duplication</td></tr>
 
 
 <tr><th colspan="2"><b>UTILITY PASSES</b></th></tr>
@@ -1716,29 +1714,6 @@ if (X &lt; 3) {</pre>
 
 <!-------------------------------------------------------------------------- -->
 <h3>
-  <a name="sretpromotion">-sretpromotion: Promote sret arguments to multiple ret values</a>
-</h3>
-<div>
-  <p>
-  This pass finds functions that return a struct (using a pointer to the struct
-  as the first argument of the function, marked with the '<tt>sret</tt>' attribute) and
-  replaces them with a new function that simply returns each of the elements of
-  that struct (using multiple return values).
-  </p>
-
-  <p>
-  This pass works under a number of conditions:
-  </p>
-
-  <ul>
-  <li>The returned struct must not contain other structs</li>
-  <li>The returned struct must only be used to load values from</li>
-  <li>The placeholder struct passed in is the result of an <tt>alloca</tt></li>
-  </ul>
-</div>
-
-<!-------------------------------------------------------------------------- -->
-<h3>
   <a name="strip">-strip: Strip all symbols from a module</a>
 </h3>
 <div>
@@ -1860,22 +1835,6 @@ if (X &lt; 3) {</pre>
       they are marked as eligible for tail call elimination (by the code
       generator).
   </ul>
-</div>
-
-<!-------------------------------------------------------------------------- -->
-<h3>
-  <a name="tailduplicate">-tailduplicate: Tail Duplication</a>
-</h3>
-<div>
-  <p>
-  This pass performs a limited form of tail duplication, intended to simplify
-  CFGs by removing some unconditional branches.  This pass is necessary to
-  straighten out loops created by the C front-end, but also is capable of
-  making other code nicer.  After this pass is run, the CFG simplify pass
-  should be run to clean up the mess.
-  </p>
-</div>
-
 </div>
 
 <!-- ======================================================================= -->
@@ -2059,7 +2018,7 @@ if (X &lt; 3) {</pre>
 
   <a href="mailto:rspencer@x10sys.com">Reid Spencer</a><br>
   <a href="http://llvm.org/">LLVM Compiler Infrastructure</a><br>
-  Last modified: $Date: 2012-10-27 00:25:01 +0400 (Sat, 27 Oct 2012) $
+  Last modified: $Date: 2012-11-22 15:17:08 +0400 (Thu, 22 Nov 2012) $
 </address>
 
 </body>

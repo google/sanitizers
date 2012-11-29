@@ -652,7 +652,7 @@ INTERCEPTOR(void *, mmap, void *addr, size_t length, int prot, int flags,
                    int fd, off_t offset) {
   void *res = REAL(mmap)(addr, length, prot, flags, fd, offset);
   if (res != (void*)-1)
-    __msan_unpoison(res, RoundUpTo(length, kPageSize));
+    __msan_unpoison(res, RoundUpTo(length, GetPageSize()));
   return res;
 }
 

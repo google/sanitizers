@@ -336,7 +336,7 @@ ExprResult Sema::BuildCXXTypeId(QualType TypeInfoType,
       if (RecordD->isPolymorphic() && E->isGLValue()) {
         // The subexpression is potentially evaluated; switch the context
         // and recheck the subexpression.
-        ExprResult Result = TranformToPotentiallyEvaluated(E);
+        ExprResult Result = TransformToPotentiallyEvaluated(E);
         if (Result.isInvalid()) return ExprError();
         E = Result.take();
 
@@ -987,7 +987,7 @@ Sema::ActOnCXXNew(SourceLocation StartLoc, bool UseGlobal,
   if (ParenListExpr *List = dyn_cast_or_null<ParenListExpr>(Initializer))
     DirectInitRange = List->getSourceRange();
 
-  return BuildCXXNew(StartLoc, UseGlobal,
+  return BuildCXXNew(SourceRange(StartLoc, D.getLocEnd()), UseGlobal,
                      PlacementLParen,
                      PlacementArgs,
                      PlacementRParen,
@@ -1020,7 +1020,7 @@ static bool isLegalArrayNewInitializer(CXXNewExpr::InitializationStyle Style,
 }
 
 ExprResult
-Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
+Sema::BuildCXXNew(SourceRange Range, bool UseGlobal,
                   SourceLocation PlacementLParen,
                   MultiExprArg PlacementArgs,
                   SourceLocation PlacementRParen,
@@ -1032,6 +1032,7 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
                   Expr *Initializer,
                   bool TypeMayContainAuto) {
   SourceRange TypeRange = AllocTypeInfo->getTypeLoc().getSourceRange();
+  SourceLocation StartLoc = Range.getBegin();
 
   CXXNewExpr::InitializationStyle initStyle;
   if (DirectInitRange.isValid()) {
@@ -1040,13 +1041,6 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
   } else if (Initializer && isa<InitListExpr>(Initializer))
     initStyle = CXXNewExpr::ListInit;
   else {
-    // In template instantiation, the initializer could be a CXXDefaultArgExpr
-    // unwrapped from a CXXConstructExpr that was implicitly built. There is no
-    // particularly sane way we can handle this (especially since it can even
-    // occur for array new), so we throw the initializer away and have it be
-    // rebuilt.
-    if (Initializer && isa<CXXDefaultArgExpr>(Initializer))
-      Initializer = 0;
     assert((!Initializer || isa<ImplicitValueInitExpr>(Initializer) ||
             isa<CXXConstructExpr>(Initializer)) &&
            "Initializer expression that cannot have been implicitly created.");
@@ -1055,19 +1049,19 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
 
   Expr **Inits = &Initializer;
   unsigned NumInits = Initializer ? 1 : 0;
-  if (initStyle == CXXNewExpr::CallInit) {
-    if (ParenListExpr *List = dyn_cast<ParenListExpr>(Initializer)) {
-      Inits = List->getExprs();
-      NumInits = List->getNumExprs();
-    } else if (CXXConstructExpr *CCE = dyn_cast<CXXConstructExpr>(Initializer)){
-      if (!isa<CXXTemporaryObjectExpr>(CCE)) {
-        // Can happen in template instantiation. Since this is just an implicit
-        // construction, we just take it apart and rebuild it.
-        Inits = CCE->getArgs();
-        NumInits = CCE->getNumArgs();
-      }
-    }
+  if (ParenListExpr *List = dyn_cast_or_null<ParenListExpr>(Initializer)) {
+    assert(initStyle == CXXNewExpr::CallInit && "paren init for non-call init");
+    Inits = List->getExprs();
+    NumInits = List->getNumExprs();
   }
+
+  // Determine whether we've already built the initializer.
+  bool HaveCompleteInit = false;
+  if (Initializer && isa<CXXConstructExpr>(Initializer) &&
+      !isa<CXXTemporaryObjectExpr>(Initializer))
+    HaveCompleteInit = true;
+  else if (Initializer && isa<ImplicitValueInitExpr>(Initializer))
+    HaveCompleteInit = true;
 
   // C++11 [decl.spec.auto]p6. Deduce the type which 'auto' stands in for.
   AutoType *AT = 0;
@@ -1340,9 +1334,12 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
     }
   }
 
+  // If we can perform the initialization, and we've not already done so,
+  // do it now.
   if (!AllocType->isDependentType() &&
       !Expr::hasAnyTypeDependentArguments(
-        llvm::makeArrayRef(Inits, NumInits))) {
+        llvm::makeArrayRef(Inits, NumInits)) &&
+      !HaveCompleteInit) {
     // C++11 [expr.new]p15:
     //   A new-expression that creates an object of type T initializes that
     //   object as follows:
@@ -1407,7 +1404,7 @@ Sema::BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
                                         TypeIdParens,
                                         ArraySize, initStyle, Initializer,
                                         ResultType, AllocTypeInfo,
-                                        StartLoc, DirectInitRange));
+                                        Range, DirectInitRange));
 }
 
 /// \brief Checks that a type is suitable as the allocated type
@@ -2040,9 +2037,11 @@ Sema::ActOnCXXDelete(SourceLocation StartLoc, bool UseGlobal,
       SmallVector<CXXConversionDecl*, 4> ObjectPtrConversions;
 
       CXXRecordDecl *RD = cast<CXXRecordDecl>(Record->getDecl());
-      const UnresolvedSetImpl *Conversions = RD->getVisibleConversionFunctions();
-      for (UnresolvedSetImpl::iterator I = Conversions->begin(),
-             E = Conversions->end(); I != E; ++I) {
+      std::pair<CXXRecordDecl::conversion_iterator,
+                CXXRecordDecl::conversion_iterator>
+        Conversions = RD->getVisibleConversionFunctions();
+      for (CXXRecordDecl::conversion_iterator
+             I = Conversions.first, E = Conversions.second; I != E; ++I) {
         NamedDecl *D = I.getDecl();
         if (isa<UsingShadowDecl>(D))
           D = cast<UsingShadowDecl>(D)->getTargetDecl();
@@ -4781,8 +4780,7 @@ Stmt *Sema::MaybeCreateStmtWithCleanups(Stmt *SubStmt) {
 /// are omitted for the 'topmost' call in the decltype expression. If the
 /// topmost call bound a temporary, strip that temporary off the expression.
 ExprResult Sema::ActOnDecltypeExpression(Expr *E) {
-  ExpressionEvaluationContextRecord &Rec = ExprEvalContexts.back();
-  assert(Rec.IsDecltype && "not in a decltype expression");
+  assert(ExprEvalContexts.back().IsDecltype && "not in a decltype expression");
 
   // C++11 [expr.call]p11:
   //   If a function call is a prvalue of object type,
@@ -4823,7 +4821,7 @@ ExprResult Sema::ActOnDecltypeExpression(Expr *E) {
     E = TopBind->getSubExpr();
 
   // Disable the special decltype handling now.
-  Rec.IsDecltype = false;
+  ExprEvalContexts.back().IsDecltype = false;
 
   // In MS mode, don't perform any extra checking of call return types within a
   // decltype expression.
@@ -4832,8 +4830,9 @@ ExprResult Sema::ActOnDecltypeExpression(Expr *E) {
 
   // Perform the semantic checks we delayed until this point.
   CallExpr *TopCall = dyn_cast<CallExpr>(E);
-  for (unsigned I = 0, N = Rec.DelayedDecltypeCalls.size(); I != N; ++I) {
-    CallExpr *Call = Rec.DelayedDecltypeCalls[I];
+  for (unsigned I = 0, N = ExprEvalContexts.back().DelayedDecltypeCalls.size();
+       I != N; ++I) {
+    CallExpr *Call = ExprEvalContexts.back().DelayedDecltypeCalls[I];
     if (Call == TopCall)
       continue;
 
@@ -4845,8 +4844,10 @@ ExprResult Sema::ActOnDecltypeExpression(Expr *E) {
 
   // Now all relevant types are complete, check the destructors are accessible
   // and non-deleted, and annotate them on the temporaries.
-  for (unsigned I = 0, N = Rec.DelayedDecltypeBinds.size(); I != N; ++I) {
-    CXXBindTemporaryExpr *Bind = Rec.DelayedDecltypeBinds[I];
+  for (unsigned I = 0, N = ExprEvalContexts.back().DelayedDecltypeBinds.size();
+       I != N; ++I) {
+    CXXBindTemporaryExpr *Bind =
+      ExprEvalContexts.back().DelayedDecltypeBinds[I];
     if (Bind == TopBind)
       continue;
 

@@ -22,7 +22,6 @@
 
 namespace llvm {
 
-class MachineLoopRange;
 class TargetRegisterInfo;
 
 #ifndef NDEBUG
@@ -172,10 +171,6 @@ public:
     const SmallVectorImpl<LiveInterval*> &interferingVRegs() const {
       return InterferingVRegs;
     }
-
-    /// checkLoopInterference - Return true if there is interference overlapping
-    /// Loop.
-    bool checkLoopInterference(MachineLoopRange*);
 
   private:
     Query(const Query&) LLVM_DELETED_FUNCTION;

@@ -786,7 +786,7 @@ Instruction *InstCombiner::tryOptimizeCall(CallInst *CI, const DataLayout *TD) {
   if (CI->getCalledFunction() == 0) return 0;
 
   if (Value *With = Simplifier->optimizeCall(CI))
-    return ReplaceInstUsesWith(*CI, With);
+    return CI->use_empty() ? CI : ReplaceInstUsesWith(*CI, With);
 
   return 0;
 }
@@ -996,9 +996,9 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
         // Conversion is ok if changing from one pointer type to another or from
         // a pointer to an integer of the same size.
         !((OldRetTy->isPointerTy() || !TD ||
-           OldRetTy == TD->getIntPtrType(NewRetTy)) &&
+           OldRetTy == TD->getIntPtrType(Caller->getContext())) &&
           (NewRetTy->isPointerTy() || !TD ||
-           NewRetTy == TD->getIntPtrType(OldRetTy))))
+           NewRetTy == TD->getIntPtrType(Caller->getContext()))))
       return false;   // Cannot transform this return value.
 
     if (!Caller->use_empty() &&
@@ -1057,13 +1057,11 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
 
     // Converting from one pointer type to another or between a pointer and an
     // integer of the same size is safe even if we do not have a body.
-    // FIXME: Not sure what to do here, so setting AS to 0.
-    // How can the AS for a function call be outside the default?
     bool isConvertible = ActTy == ParamTy ||
       (TD && ((ParamTy->isPointerTy() ||
-      ParamTy == TD->getIntPtrType(ActTy)) &&
+      ParamTy == TD->getIntPtrType(Caller->getContext())) &&
               (ActTy->isPointerTy() ||
-              ActTy == TD->getIntPtrType(ParamTy))));
+              ActTy == TD->getIntPtrType(Caller->getContext()))));
     if (Callee->isDeclaration() && !isConvertible) return false;
   }
 
@@ -1179,7 +1177,8 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
   if (NewRetTy->isVoidTy())
     Caller->setName("");   // Void type should not have a name.
 
-  const AttrListPtr &NewCallerPAL = AttrListPtr::get(attrVec);
+  const AttrListPtr &NewCallerPAL = AttrListPtr::get(Callee->getContext(),
+                                                     attrVec);
 
   Instruction *NC;
   if (InvokeInst *II = dyn_cast<InvokeInst>(Caller)) {
@@ -1357,7 +1356,7 @@ InstCombiner::transformCallThroughTrampoline(CallSite CS,
         NestF->getType() == PointerType::getUnqual(NewFTy) ?
         NestF : ConstantExpr::getBitCast(NestF,
                                          PointerType::getUnqual(NewFTy));
-      const AttrListPtr &NewPAL = AttrListPtr::get(NewAttrs);
+      const AttrListPtr &NewPAL = AttrListPtr::get(FTy->getContext(), NewAttrs);
 
       Instruction *NewCaller;
       if (InvokeInst *II = dyn_cast<InvokeInst>(Caller)) {

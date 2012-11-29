@@ -134,7 +134,7 @@ void InitializeFlags(Flags *f, const char *env) {
   f->unmap_shadow_on_exit = false;
   f->abort_on_error = false;
   f->atexit = false;
-  f->disable_core = (__WORDSIZE == 64);
+  f->disable_core = (SANITIZER_WORDSIZE == 64);
   f->strip_path_prefix = "";
   f->allow_reexec = true;
   f->print_full_thread_history = true;
@@ -165,8 +165,8 @@ void ShowStatsAndAbort() {
 // ---------------------- mmap -------------------- {{{1
 // Reserve memory range [beg, end].
 static void ReserveShadowMemoryRange(uptr beg, uptr end) {
-  CHECK((beg % kPageSize) == 0);
-  CHECK(((end + 1) % kPageSize) == 0);
+  CHECK((beg % GetPageSizeCached()) == 0);
+  CHECK(((end + 1) % GetPageSizeCached()) == 0);
   uptr size = end - beg + 1;
   void *res = MmapFixedNoReserve(beg, size);
   if (res != (void*)beg) {
@@ -271,8 +271,9 @@ void NOINLINE __asan_handle_no_return() {
   int local_stack;
   AsanThread *curr_thread = asanThreadRegistry().GetCurrent();
   CHECK(curr_thread);
+  uptr PageSize = GetPageSizeCached();
   uptr top = curr_thread->stack_top();
-  uptr bottom = ((uptr)&local_stack - kPageSize) & ~(kPageSize-1);
+  uptr bottom = ((uptr)&local_stack - PageSize) & ~(PageSize-1);
   PoisonShadow(bottom, top - bottom, 0);
 }
 
@@ -349,12 +350,13 @@ void __asan_init() {
   }
 
   uptr shadow_start = kLowShadowBeg;
-  if (kLowShadowBeg > 0) shadow_start -= kMmapGranularity;
+  if (kLowShadowBeg > 0) shadow_start -= GetMmapGranularity();
   uptr shadow_end = kHighShadowEnd;
   if (MemoryRangeIsAvailable(shadow_start, shadow_end)) {
     if (kLowShadowBeg != kLowShadowEnd) {
       // mmap the low shadow plus at least one page.
-      ReserveShadowMemoryRange(kLowShadowBeg - kMmapGranularity, kLowShadowEnd);
+      ReserveShadowMemoryRange(kLowShadowBeg - GetMmapGranularity(),
+                               kLowShadowEnd);
     }
     // mmap the high shadow.
     ReserveShadowMemoryRange(kHighShadowBeg, kHighShadowEnd);

@@ -303,3 +303,22 @@ namespace PR12581 {
   {
   }
 }
+
+namespace PR13758 {
+  template <typename T> struct move_from {
+    T invalid;
+  };
+  template <class K>
+  struct unordered_map {
+    explicit unordered_map(int n = 42);
+    unordered_map(move_from<K> other);
+  };
+  template<typename T>
+  void StripedHashTable() {
+    new unordered_map<void>();
+    new unordered_map<void>;
+  }
+  void tt() {
+    StripedHashTable<int>();
+  }
+}

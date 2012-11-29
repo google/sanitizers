@@ -25,6 +25,7 @@ using namespace ento;
 // All checkers should be placed into anonymous namespace.
 // We place the CheckerDocumentation inside ento namespace to make the
 // it visible in doxygen.
+namespace clang {
 namespace ento {
 
 /// This checker documents the callback functions checkers can use to implement
@@ -33,8 +34,8 @@ namespace ento {
 /// checking.
 ///
 /// \sa CheckerContext
-class CheckerDocumentation : public Checker< check::PreStmt<DeclStmt>,
-                                       check::PostStmt<CallExpr>,
+class CheckerDocumentation : public Checker< check::PreStmt<ReturnStmt>,
+                                       check::PostStmt<DeclStmt>,
                                        check::PreObjCMessage,
                                        check::PostObjCMessage,
                                        check::PreCall,
@@ -64,8 +65,8 @@ public:
   /// See checkBranchCondition() callback for performing custom processing of
   /// the branching statements.
   ///
-  /// check::PreStmt<DeclStmt>
-  void checkPreStmt(const DeclStmt *DS, CheckerContext &C) const {}
+  /// check::PreStmt<ReturnStmt>
+  void checkPreStmt(const ReturnStmt *DS, CheckerContext &C) const {}
 
   /// \brief Post-visit the Statement.
   ///
@@ -74,8 +75,8 @@ public:
   /// which does not include the control flow statements such as IfStmt. The
   /// callback can be specialized to be called with any subclass of Stmt.
   ///
-  /// check::PostStmt<CallExpr>
-  void checkPostStmt(const CallExpr *DS, CheckerContext &C) const;
+  /// check::PostStmt<DeclStmt>
+  void checkPostStmt(const DeclStmt *DS, CheckerContext &C) const;
 
   /// \brief Pre-visit the Objective C message.
   ///
@@ -98,8 +99,8 @@ public:
   /// behavior for functions and methods no matter how they are being invoked.
   ///
   /// Note that this includes ALL cross-body invocations, so if you want to
-  /// limit your checks to, say, function calls, you can either test for that
-  /// or fall back to the explicit callback (i.e. check::PreStmt).
+  /// limit your checks to, say, function calls, you should test for that at the
+  /// beginning of your callback function.
   ///
   /// check::PreCall
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const {}
@@ -151,9 +152,8 @@ public:
   /// check::DeadSymbols
   void checkDeadSymbols(SymbolReaper &SR, CheckerContext &C) const {}
 
-  /// \brief Called when an end of path is reached in the ExplodedGraph.
-  ///
-  /// This callback should be used to check if the allocated resources are freed.
+  /// \brief Called when the analyzer core reaches the end of the top-level
+  /// function being analyzed.
   ///
   /// check::EndPath
   void checkEndPath(CheckerContext &Ctx) const {}
@@ -213,21 +213,35 @@ public:
   /// check::LiveSymbols
   void checkLiveSymbols(ProgramStateRef State, SymbolReaper &SR) const {}
 
-
+  /// \brief Called to determine if the checker currently needs to know if when
+  /// contents of any regions change.
+  ///
+  /// Since it is not necessarily cheap to compute which regions are being
+  /// changed, this allows the analyzer core to skip the more expensive
+  /// #checkRegionChanges when no checkers are tracking any state.
   bool wantsRegionChangeUpdate(ProgramStateRef St) const { return true; }
   
-  /// \brief Allows tracking regions which get invalidated.
+  /// \brief Called when the contents of one or more regions change.
+  ///
+  /// This can occur in many different ways: an explicit bind, a blanket
+  /// invalidation of the region contents, or by passing a region to a function
+  /// call whose behavior the analyzer cannot model perfectly.
   ///
   /// \param State The current program state.
   /// \param Invalidated A set of all symbols potentially touched by the change.
   /// \param ExplicitRegions The regions explicitly requested for invalidation.
-  ///   For example, in the case of a function call, these would be arguments.
-  /// \param Regions The transitive closure of accessible regions,
-  ///   i.e. all regions that may have been touched by this change.
-  /// \param Call The call expression wrapper if the regions are invalidated
-  ///   by a call, 0 otherwise.
-  /// Note, in order to be notified, the checker should also implement the
-  /// wantsRegionChangeUpdate callback.
+  ///        For a function call, this would be the arguments. For a bind, this
+  ///        would be the region being bound to.
+  /// \param Regions The transitive closure of regions accessible from,
+  ///        \p ExplicitRegions, i.e. all regions that may have been touched
+  ///        by this change. For a simple bind, this list will be the same as
+  ///        \p ExplicitRegions, since a bind does not affect the contents of
+  ///        anything accessible through the base region.
+  /// \param Call The opaque call triggering this invalidation. Will be 0 if the
+  ///        change was not triggered by a call.
+  ///
+  /// Note that this callback will not be invoked unless
+  /// #wantsRegionChangeUpdate returns \c true.
   ///
   /// check::RegionChanges
   ProgramStateRef 
@@ -256,9 +270,10 @@ public:
 
 };
 
-void CheckerDocumentation::checkPostStmt(const CallExpr *DS,
+void CheckerDocumentation::checkPostStmt(const DeclStmt *DS,
                                          CheckerContext &C) const {
   return;
 }
 
-} // end namespace
+} // end namespace ento
+} // end namespace clang
