@@ -16,7 +16,6 @@
 #define DEBUG_TYPE "regalloc"
 #include "RegisterCoalescer.h"
 #include "LiveDebugVariables.h"
-#include "VirtRegMap.h"
 
 #include "llvm/Pass.h"
 #include "llvm/Value.h"
@@ -33,6 +32,7 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
+#include "llvm/CodeGen/VirtRegMap.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -887,8 +887,17 @@ void RegisterCoalescer::updateRegDefsUses(unsigned SrcReg,
   // Update LiveDebugVariables.
   LDV->renameRegister(SrcReg, DstReg, SubIdx);
 
+  SmallPtrSet<MachineInstr*, 8> Visited;
   for (MachineRegisterInfo::reg_iterator I = MRI->reg_begin(SrcReg);
        MachineInstr *UseMI = I.skipInstruction();) {
+    // Each instruction can only be rewritten once because sub-register
+    // composition is not always idempotent. When SrcReg != DstReg, rewriting
+    // the UseMI operands removes them from the SrcReg use-def chain, but when
+    // SrcReg is DstReg we could encounter UseMI twice if it has multiple
+    // operands mentioning the virtual register.
+    if (SrcReg == DstReg && !Visited.insert(UseMI))
+      continue;
+
     SmallVector<unsigned,8> Ops;
     bool Reads, Writes;
     tie(Reads, Writes) = UseMI->readsWritesVirtualRegister(SrcReg, &Ops);

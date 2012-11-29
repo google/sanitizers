@@ -892,6 +892,8 @@ def err_distant_exception_spec : Error<
 def err_incomplete_in_exception_spec : Error<
   "%select{|pointer to |reference to }0incomplete type %1 is not allowed "
   "in exception specification">;
+def err_rref_in_exception_spec : Error<
+  "rvalue reference type %0 is not allowed in exception specification">;
 def err_mismatched_exception_spec : Error<
   "exception specification in declaration does not match previous declaration">;
 def warn_mismatched_exception_spec : ExtWarn<
@@ -4180,7 +4182,7 @@ def err_property_not_found : Error<
 def err_invalid_property_name : Error<
   "%0 is not a valid property name (accessing an object of type %1)">;
 def err_getter_not_found : Error<
-  "expected getter method not found on object of type %0">;
+  "no getter method for read from property">;
 def err_objc_subscript_method_not_found : Error<
   "expected method to %select{read|write}1 %select{dictionary|array}2 element not "
   "found on object of type %0">;
@@ -5867,6 +5869,8 @@ def err_c99_array_usage_cxx : Error<
   "feature, not permitted in C++">;
 def err_double_requires_fp64 : Error<
   "use of type 'double' requires cl_khr_fp64 extension to be enabled">;
+def err_int128_unsupported : Error<
+  "__int128 is not supported on this target">;
 def err_nsconsumed_attribute_mismatch : Error<
   "overriding method has mismatched ns_consumed attribute on its"
   " parameter">;

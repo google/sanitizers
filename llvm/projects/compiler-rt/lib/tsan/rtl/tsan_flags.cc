@@ -48,7 +48,7 @@ void InitializeFlags(Flags *f, const char *env) {
   f->strip_path_prefix = "";
   f->suppressions = "";
   f->exitcode = 66;
-  f->log_fileno = kStderrFd;
+  f->log_path = "stderr";
   f->atexit_sleep_ms = 1000;
   f->verbosity = 0;
   f->profile_memory = "";
@@ -56,6 +56,7 @@ void InitializeFlags(Flags *f, const char *env) {
   f->stop_on_start = false;
   f->running_on_valgrind = false;
   f->external_symbolizer_path = "";
+  f->history_size = kGoMode ? 1 : 2;  // There are a lot of goroutines in Go.
 
   // Let a frontend override.
   OverrideFlags(f);
@@ -72,18 +73,25 @@ void InitializeFlags(Flags *f, const char *env) {
   ParseFlag(env, &f->strip_path_prefix, "strip_path_prefix");
   ParseFlag(env, &f->suppressions, "suppressions");
   ParseFlag(env, &f->exitcode, "exitcode");
-  ParseFlag(env, &f->log_fileno, "log_fileno");
+  ParseFlag(env, &f->log_path, "log_path");
   ParseFlag(env, &f->atexit_sleep_ms, "atexit_sleep_ms");
   ParseFlag(env, &f->verbosity, "verbosity");
   ParseFlag(env, &f->profile_memory, "profile_memory");
   ParseFlag(env, &f->flush_memory_ms, "flush_memory_ms");
   ParseFlag(env, &f->stop_on_start, "stop_on_start");
   ParseFlag(env, &f->external_symbolizer_path, "external_symbolizer_path");
+  ParseFlag(env, &f->history_size, "history_size");
 
   if (!f->report_bugs) {
     f->report_thread_leaks = false;
     f->report_destroy_locked = false;
     f->report_signal_unsafe = false;
+  }
+
+  if (f->history_size < 0 || f->history_size > 7) {
+    Printf("ThreadSanitizer: incorrect value for history_size"
+           " (must be [0..7])\n");
+    Die();
   }
 }
 
