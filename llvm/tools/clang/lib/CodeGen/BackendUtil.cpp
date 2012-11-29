@@ -163,14 +163,18 @@ static void addAddressSanitizerPass(const PassManagerBuilder &Builder,
   PM.add(createAddressSanitizerModulePass());
 }
 
-static cl::opt<bool> ClMSanMoreOpt("msan-more-opt",
-       cl::desc("add more optimization after MSan pass"),
-       cl::Hidden, cl::init(true));
+static cl::opt<bool> ClMSanMoreOpt(
+  "msan-more-opt",
+  cl::desc("add more general purpose optimizations after MemorySanitizer pass"),
+  cl::Hidden, cl::init(true));
 
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
-                                    PassManagerBase &PM) {
+                                   PassManagerBase &PM) {
   PM.add(createMemorySanitizerPass());
-  if (ClMSanMoreOpt) {
+
+  // MemorySanitizer pass generates complex instrumentation which can benefit
+  // from re-running common optimizations.
+  if (ClMSanMoreOpt && Builder.OptLevel > 0) {
     PM.add(createEarlyCSEPass());              // Catch trivial redundancies
     PM.add(createJumpThreadingPass());         // Thread jumps.
     PM.add(createCorrelatedValuePropagationPass()); // Propagate conditionals
@@ -187,7 +191,7 @@ static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
     PM.add(createLoopIdiomPass());             // Recognize idioms like memset.
     PM.add(createLoopDeletionPass());          // Delete dead loops
 
-    PM.add(createGVNPass());                 // Remove redundancies
+    PM.add(createGVNPass());                   // Remove redundancies
     PM.add(createMemCpyOptPass());             // Remove memcpy / form memset
     PM.add(createSCCPPass());                  // Constant prop with SCCP
 
