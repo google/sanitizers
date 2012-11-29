@@ -637,6 +637,17 @@ NOINLINE void LongJmpFunc1(jmp_buf buf) {
   longjmp(buf, 1);
 }
 
+NOINLINE void BuiltinLongJmpFunc1(jmp_buf buf) {
+  // create three red zones for these two stack objects.
+  int a;
+  int b;
+
+  int *A = Ident(&a);
+  int *B = Ident(&b);
+  *A = *B;
+  __builtin_longjmp((void**)buf, 1);
+}
+
 NOINLINE void UnderscopeLongJmpFunc1(jmp_buf buf) {
   // create three red zones for these two stack objects.
   int a;
@@ -672,6 +683,15 @@ TEST(AddressSanitizer, LongJmpTest) {
   static jmp_buf buf;
   if (!setjmp(buf)) {
     LongJmpFunc1(buf);
+  } else {
+    TouchStackFunc();
+  }
+}
+
+TEST(AddressSanitizer, BuiltinLongJmpTest) {
+  static jmp_buf buf;
+  if (!__builtin_setjmp((void**)buf)) {
+    BuiltinLongJmpFunc1(buf);
   } else {
     TouchStackFunc();
   }
