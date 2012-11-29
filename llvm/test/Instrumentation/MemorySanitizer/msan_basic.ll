@@ -25,6 +25,8 @@ declare void @foo(...)
 ; CHECK: = load
 ; CHECK: = load
 ; CHECK: call void @__msan_warning_noreturn()
+; CHECK-NEXT: call void asm sideeffect
+; CHECK-NEXT: unreachable
 ; CHECK: }
 
 ; Check that we store the shadow for the retval.
@@ -143,8 +145,7 @@ entry:
 declare void @llvm.memset.p0i8.i64(i8* nocapture, i8, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemSet
-; CHECK: call void @llvm.memset.p0i8.i64
-; CHECK: call void @llvm.memset.p0i8.i64
+; CHECK: call i8* @__msan_memset
 ; CHECK: }
 
 
@@ -158,8 +159,7 @@ entry:
 declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemCpy
-; CHECK: call void @llvm.memcpy.p0i8.p0i8.i64
-; CHECK: call void @llvm.memcpy.p0i8.p0i8.i64
+; CHECK: call i8* @__msan_memcpy
 ; CHECK: }
 
 
@@ -173,7 +173,7 @@ entry:
 declare void @llvm.memmove.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemMove
-; CHECK: call i8* @memmove
+; CHECK: call i8* @__msan_memmove
 ; CHECK: }
 
 
