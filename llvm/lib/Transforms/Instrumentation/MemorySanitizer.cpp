@@ -172,7 +172,7 @@ private:
   /// \brief Run-time helper that poisons stack on function entry.
   Value *MsanPoisonStackFn;
 
-  /// \brief The actual memmove, memcpy, memset functions.
+  /// \brief MSan runtime replacements for memmove, memcpy and memset.
   Value *MemmoveFn, *MemcpyFn, *MemsetFn;
 
   /// \brief Address mask used in application-to-shadow address calculation.
@@ -271,13 +271,13 @@ bool MemorySanitizer::doInitialization(Module &M) {
   MsanPoisonStackFn = M.getOrInsertFunction(
     "__msan_poison_stack", IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MemmoveFn = M.getOrInsertFunction(
-    "memmove", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
+    "__msan_memmove", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
     IntptrTy, NULL);
   MemcpyFn = M.getOrInsertFunction(
-    "memcpy", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
+    "__msan_memcpy", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
     IntptrTy, NULL);
   MemsetFn = M.getOrInsertFunction(
-    "memset", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt32Ty(),
+    "__msan_memset", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt32Ty(),
     IntptrTy, NULL);
 
   // Create globals.

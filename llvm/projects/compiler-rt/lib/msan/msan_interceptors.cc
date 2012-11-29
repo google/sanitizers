@@ -91,25 +91,15 @@ INTERCEPTOR(void *, readdir, void *a) {
 }
 
 INTERCEPTOR(void*, memcpy, void* dest, const void* src, size_t n) {
-  ENSURE_MSAN_INITED();
-  void* res = fast_memcpy(dest, src, n);
-  __msan_copy_poison(dest, src, n);
-  return res;
+  return __msan_memcpy(dest, src, n);
 }
 
 INTERCEPTOR(void*, memmove, void* dest, const void* src, size_t n) {
-  ENSURE_MSAN_INITED();
-  void* res = REAL(memmove)(dest, src, n);
-  __msan_move_poison(dest, src, n);
-  return res;
+  return __msan_memmove(dest, src, n);
 }
 
 INTERCEPTOR(void*, memset, void *s, int c, size_t n) {
-  ENSURE_MSAN_INITED();
-  void* res = fast_memset(s, c, n);
-  if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
-    __msan_unpoison(s, n);
-  return res;
+  return __msan_memset(s, c, n);
 }
 
 INTERCEPTOR(int, posix_memalign, void **memptr, size_t alignment, size_t size) {
@@ -660,7 +650,7 @@ INTERCEPTOR(void *, mmap64, void *addr, size_t length, int prot, int flags,
                    int fd, off64_t offset) {
   void *res = REAL(mmap64)(addr, length, prot, flags, fd, offset);
   if (res != (void*)-1)
-    __msan_unpoison(res, RoundUpTo(length, kPageSize));
+    __msan_unpoison(res, RoundUpTo(length, GetPageSize()));
   return res;
 }
 
@@ -755,8 +745,26 @@ void __msan_move_poison(void *dst, const void *src, uptr size) {
   __msan_copy_origin(dst, src, size);
 }
 
-void __msan_memcpy_with_poison(void *dst, const void *src, uptr size) {
-  memcpy(dst, src, size);  // Calls our interceptor.
+void* __msan_memcpy(void* dest, const void* src, size_t n) {
+  ENSURE_MSAN_INITED();
+  void* res = fast_memcpy(dest, src, n);
+  __msan_copy_poison(dest, src, n);
+  return res;
+}
+
+void* __msan_memset(void *s, int c, size_t n) {
+  ENSURE_MSAN_INITED();
+  void* res = fast_memset(s, c, n);
+  if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
+    __msan_unpoison(s, n);
+  return res;
+}
+
+void* __msan_memmove(void* dest, const void* src, size_t n) {
+  ENSURE_MSAN_INITED();
+  void* res = REAL(memmove)(dest, src, n);
+  __msan_move_poison(dest, src, n);
+  return res;
 }
 
 #undef IS_IN_SHADOW
