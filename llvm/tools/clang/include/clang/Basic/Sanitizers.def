@@ -41,11 +41,11 @@
 // AddressSanitizer
 SANITIZER("address", Address)
 
-// ThreadSanitizer
-SANITIZER("thread", Thread)
+// MemorySanitizer
+SANITIZER("memory", Memory)
 
 // ThreadSanitizer
-SANITIZER("memory", Memory)
+SANITIZER("thread", Thread)
 
 // UndefinedBehaviorSanitizer
 SANITIZER("alignment", Alignment)
