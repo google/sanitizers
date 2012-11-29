@@ -171,7 +171,6 @@ private:
   Value *MsanSetAllocaOriginFn;
   /// \brief Run-time helper that poisons stack on function entry.
   Value *MsanPoisonStackFn;
-
   /// \brief MSan runtime replacements for memmove, memcpy and memset.
   Value *MemmoveFn, *MemcpyFn, *MemsetFn;
 
@@ -190,8 +189,8 @@ private:
   /// \brief An empty volatile inline asm that prevents callback merge.
   InlineAsm *EmptyAsm;
 
-  friend class MemorySanitizerVisitor;
-  friend class VarArgAMD64Helper;
+  friend struct MemorySanitizerVisitor;
+  friend struct VarArgAMD64Helper;
 };
 }  // namespace
 
@@ -342,6 +341,8 @@ struct VarArgHelper {
   /// This method is called after visiting all interesting (see above)
   /// instructions in a function.
   virtual void finalizeInstrumentation() = 0;
+
+  virtual ~VarArgHelper() {}
 };
 
 struct MemorySanitizerVisitor;

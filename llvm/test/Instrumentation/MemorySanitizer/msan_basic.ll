@@ -145,7 +145,7 @@ entry:
 declare void @llvm.memset.p0i8.i64(i8* nocapture, i8, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemSet
-; CHECK: call i8* @memset
+; CHECK: call i8* @__msan_memset
 ; CHECK: }
 
 
@@ -159,7 +159,7 @@ entry:
 declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemCpy
-; CHECK: call i8* @memcpy
+; CHECK: call i8* @__msan_memcpy
 ; CHECK: }
 
 
@@ -173,7 +173,7 @@ entry:
 declare void @llvm.memmove.p0i8.p0i8.i64(i8* nocapture, i8* nocapture, i64, i32, i1) nounwind
 
 ; CHECK: define void @MemMove
-; CHECK: call i8* @memmove
+; CHECK: call i8* @__msan_memmove
 ; CHECK: }
 
 
