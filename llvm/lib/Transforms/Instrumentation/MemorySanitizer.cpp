@@ -1125,8 +1125,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// we will memove the shadow twice: which is bad in case
   /// of overlapping regions. So, we simply lower the intrinsic to a call.
   ///
-  /// Similar situation exists for memcpy and memset, but for those functions
-  /// calling instrumentation twice does not lead to incorrect results.
+  /// Similar situation exists for memcpy and memset.
   void visitMemMoveInst(MemMoveInst &I) {
     IRBuilder<> IRB(&I);
     IRB.CreateCall3(
@@ -1143,20 +1142,22 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // alignment.
   void visitMemCpyInst(MemCpyInst &I) {
     IRBuilder<> IRB(&I);
-    IRB.CreateCall3(MS.MemcpyFn,
-        IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
-        IRB.CreatePointerCast(I.getArgOperand(1), IRB.getInt8PtrTy()),
-        IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
+    IRB.CreateCall3(
+      MS.MemcpyFn,
+      IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
+      IRB.CreatePointerCast(I.getArgOperand(1), IRB.getInt8PtrTy()),
+      IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
     I.eraseFromParent();
   }
 
   // Same as memcpy.
   void visitMemSetInst(MemSetInst &I) {
     IRBuilder<> IRB(&I);
-    IRB.CreateCall3(MS.MemsetFn,
-        IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
-        IRB.CreateIntCast(I.getArgOperand(1), IRB.getInt32Ty(), false),
-        IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
+    IRB.CreateCall3(
+      MS.MemsetFn,
+      IRB.CreatePointerCast(I.getArgOperand(0), IRB.getInt8PtrTy()),
+      IRB.CreateIntCast(I.getArgOperand(1), IRB.getInt32Ty(), false),
+      IRB.CreateIntCast(I.getArgOperand(2), MS.IntptrTy, false));
     I.eraseFromParent();
   }
 
