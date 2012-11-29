@@ -191,7 +191,12 @@ void Initialize(ThreadState *thr) {
   ctx->dead_list_tail = 0;
   InitializeFlags(&ctx->flags, env);
   // Setup correct file descriptor for error reports.
-  __sanitizer_set_report_fd(flags()->log_fileno);
+  if (internal_strcmp(flags()->log_path, "stdout") == 0)
+    __sanitizer_set_report_fd(kStdoutFd);
+  else if (internal_strcmp(flags()->log_path, "stderr") == 0)
+    __sanitizer_set_report_fd(kStderrFd);
+  else
+    __sanitizer_set_report_path(flags()->log_path);
   InitializeSuppressions();
 #ifndef TSAN_GO
   // Initialize external symbolizer before internal threads are started.
@@ -290,9 +295,12 @@ void TraceSwitch(ThreadState *thr) {
 
 uptr TraceTopPC(ThreadState *thr) {
   Event *events = (Event*)GetThreadTrace(thr->tid);
-  uptr pc = events[thr->fast_state.epoch() % kTraceSize]
-      & ((1ull << 61) - 1);
+  uptr pc = events[thr->fast_state.GetTracePos()];
   return pc;
+}
+
+uptr TraceSize() {
+  return (uptr)(1ull << (kTracePartSizeBits + flags()->history_size + 1));
 }
 
 #ifndef TSAN_GO
