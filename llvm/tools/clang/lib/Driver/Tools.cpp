@@ -1513,7 +1513,7 @@ static void addTsanRTLinux(const ToolChain &TC, const ArgList &Args,
                            ArgStringList &CmdArgs) {
   if (!Args.hasArg(options::OPT_shared)) {
     if (!Args.hasArg(options::OPT_pie))
-      TC.getDriver().Diag(diag::err_drv_tsan_msan_require_pie);
+      TC.getDriver().Diag(diag::err_drv_tsan_requires_pie);
     // LibTsan is "libclang_rt.tsan-<ArchName>.a" in the Linux library
     // resource directory.
     SmallString<128> LibTsan(TC.getDriver().ResourceDir);
@@ -1533,7 +1533,7 @@ static void addMsanRTLinux(const ToolChain &TC, const ArgList &Args,
                            ArgStringList &CmdArgs) {
   if (!Args.hasArg(options::OPT_shared)) {
     if (!Args.hasArg(options::OPT_pie))
-      TC.getDriver().Diag(diag::err_drv_tsan_msan_require_pie);
+      TC.getDriver().Diag(diag::err_drv_msan_requires_pie);
     // LibMsan is "libclang_rt.msan-<ArchName>.a" in the Linux library
     // resource directory.
     SmallString<128> LibMsan(TC.getDriver().ResourceDir);

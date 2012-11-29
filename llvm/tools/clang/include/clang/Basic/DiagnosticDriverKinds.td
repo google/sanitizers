@@ -101,8 +101,10 @@ def err_drv_mg_requires_m_or_mm : Error<
   "option '-MG' requires '-M' or '-MM'">;
 def err_drv_asan_android_requires_pie : Error<
   "AddressSanitizer on Android requires '-pie'">;
-def err_drv_tsan_msan_require_pie : Error<
-  "ThreadSanitizer and MemorySanitizer require '-pie'">;
+def err_drv_tsan_requires_pie : Error<
+  "ThreadSanitizer requires '-pie'">;
+def err_drv_msan_requires_pie : Error<
+  "MemorySanitizer requires '-pie'">;
 def err_drv_unknown_objc_runtime : Error<
   "unknown or ill-formed Objective-C runtime '%0'">;
 
