@@ -4091,9 +4091,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   // -fsanitize=undefined, unresolved symbols may appear. Mark all
   // of them as dynamic_lookup. Linking executables is handled in
   // lib/Driver/ToolChains.cpp.
-  if (Sanitize.needsAsanRt() ||
-      Sanitize.needsMsanRt() ||
-      Sanitize.needsUbsanRt()) {
+  if (Sanitize.needsAsanRt() || Sanitize.needsUbsanRt()) {
     if (Args.hasArg(options::OPT_dynamiclib) ||
         Args.hasArg(options::OPT_bundle)) {
       CmdArgs.push_back("-undefined");
