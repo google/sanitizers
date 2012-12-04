@@ -18,22 +18,22 @@
 
 #define DEBUG_TYPE "dagcombine"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/DataLayout.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetOptions.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/DataLayout.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -8157,8 +8157,21 @@ SDValue DAGCombiner::visitSTORE(SDNode *N) {
 
   // Only perform this optimization before the types are legal, because we
   // don't want to perform this optimization on every DAGCombine invocation.
-  if (!LegalTypes && MergeConsecutiveStores(ST))
-    return SDValue(N, 0);
+  if (!LegalTypes) {
+    bool EverChanged = false;
+
+    do {
+      // There can be multiple store sequences on the same chain.
+      // Keep trying to merge store sequences until we are unable to do so
+      // or until we merge the last store on the chain.
+      bool Changed = MergeConsecutiveStores(ST);
+      EverChanged |= Changed;
+      if (!Changed) break;
+    } while (ST->getOpcode() != ISD::DELETED_NODE);
+
+    if (EverChanged)
+      return SDValue(N, 0);
+  }
 
   return ReduceLoadOpStoreWidth(N);
 }

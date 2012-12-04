@@ -3213,7 +3213,7 @@ public:
       .Cases("arm1176jz-s", "arm1176jzf-s", "6ZK")
       .Cases("arm1136jf-s", "mpcorenovfp", "mpcore", "6K")
       .Cases("arm1156t2-s", "arm1156t2f-s", "6T2")
-      .Cases("cortex-a8", "cortex-a9", "cortex-a15", "7A")
+      .Cases("cortex-a5", "cortex-a8", "cortex-a9", "cortex-a15", "7A")
       .Case("cortex-a9-mp", "7F")
       .Case("swift", "7S")
       .Cases("cortex-m3", "cortex-m4", "7M")
@@ -3364,6 +3364,9 @@ public:
   virtual bool validateConstraintModifier(StringRef Constraint,
                                           const char Modifier,
                                           unsigned Size) const {
+    bool isOutput = (Constraint[0] == '=');
+    bool isInOut = (Constraint[0] == '+');
+
     // Strip off constraint modifiers.
     while (Constraint[0] == '=' ||
            Constraint[0] == '+' ||
@@ -3375,7 +3378,8 @@ public:
     case 'r': {
       switch (Modifier) {
       default:
-        return Size == 32;
+        return isInOut || (isOutput && Size >= 32) ||
+          (!isOutput && !isInOut && Size <= 32);
       case 'q':
         // A register of size 32 cannot fit a vector type.
         return false;

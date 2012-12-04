@@ -15,15 +15,15 @@
 #ifndef X86ISELLOWERING_H
 #define X86ISELLOWERING_H
 
-#include "X86Subtarget.h"
-#include "X86RegisterInfo.h"
 #include "X86MachineFunctionInfo.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetTransformImpl.h"
-#include "llvm/Target/TargetOptions.h"
+#include "X86RegisterInfo.h"
+#include "X86Subtarget.h"
+#include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetOptions.h"
+#include "llvm/Target/TargetTransformImpl.h"
 
 namespace llvm {
   namespace X86ISD {
@@ -932,6 +932,14 @@ namespace llvm {
     FastISel *createFastISel(FunctionLoweringInfo &funcInfo,
                              const TargetLibraryInfo *libInfo);
   }
+
+  class X86ScalarTargetTransformImpl : public ScalarTargetTransformImpl {
+  public:
+    explicit X86ScalarTargetTransformImpl(const TargetLowering *TL) :
+      ScalarTargetTransformImpl(TL) {};
+
+    virtual PopcntHwSupport getPopcntHwSupport(unsigned TyWidth) const;
+  };
 
   class X86VectorTargetTransformInfo : public VectorTargetTransformImpl {
   public:

@@ -11,15 +11,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/AST/Stmt.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/AST/Stmt.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/Type.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/ASTDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/Token.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
@@ -44,6 +45,16 @@ static StmtClassNameTable &getStmtInfoTableEntry(Stmt::StmtClass E) {
 #include "clang/AST/StmtNodes.inc"
 
   return StmtClassInfo[E];
+}
+
+void *Stmt::operator new(size_t bytes, ASTContext& C,
+                         unsigned alignment) throw() {
+  return ::operator new(bytes, C, alignment);
+}
+
+void *Stmt::operator new(size_t bytes, ASTContext* C,
+                         unsigned alignment) throw() {
+  return ::operator new(bytes, *C, alignment);
 }
 
 const char *Stmt::getStmtClassName() const {

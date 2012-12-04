@@ -12,13 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Serialization/ASTReader.h"
-#include "clang/Serialization/ASTDeserializationListener.h"
-#include "clang/Serialization/ModuleManager.h"
-#include "clang/Serialization/SerializationDiagnostic.h"
 #include "ASTCommon.h"
 #include "ASTReaderInternals.h"
-#include "clang/Sema/Sema.h"
-#include "clang/Sema/Scope.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
@@ -27,32 +22,37 @@
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLocVisitor.h"
-#include "clang/Lex/MacroInfo.h"
-#include "clang/Lex/PreprocessingRecord.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/PreprocessorOptions.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/Basic/FileSystemStatCache.h"
 #include "clang/Basic/OnDiskHashTable.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/SourceManagerInternals.h"
-#include "clang/Basic/FileManager.h"
-#include "clang/Basic/FileSystemStatCache.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/Version.h"
 #include "clang/Basic/VersionTuple.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/PreprocessingRecord.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
+#include "clang/Sema/Scope.h"
+#include "clang/Sema/Sema.h"
+#include "clang/Serialization/ASTDeserializationListener.h"
+#include "clang/Serialization/ModuleManager.h"
+#include "clang/Serialization/SerializationDiagnostic.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/BitstreamReader.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/system_error.h"
 #include <algorithm>
-#include <iterator>
 #include <cstdio>
+#include <iterator>
 #include <sys/stat.h>
 
 using namespace clang;
@@ -1000,6 +1000,25 @@ bool ASTReader::ReadSLocEntry(int ID) {
   return false;
 }
 
+std::pair<SourceLocation, StringRef> ASTReader::getModuleImportLoc(int ID) {
+  if (ID == 0)
+    return std::make_pair(SourceLocation(), "");
+
+  if (unsigned(-ID) - 2 >= getTotalNumSLocs() || ID > 0) {
+    Error("source location entry ID out-of-range for AST file");
+    return std::make_pair(SourceLocation(), "");
+  }
+
+  // Find which module file this entry lands in.
+  ModuleFile *M = GlobalSLocEntryMap.find(-ID)->second;
+  if (M->Kind != MK_Module)
+    return std::make_pair(SourceLocation(), "");
+
+  // FIXME: Can we map this down to a particular submodule? That would be
+  // ideal.
+  return std::make_pair(M->ImportLoc, llvm::sys::path::stem(M->FileName));
+}
+
 /// \brief Find the location where the module F is imported.
 SourceLocation ASTReader::getImportLocation(ModuleFile *F) {
   if (F->ImportLoc.isValid())
@@ -1888,7 +1907,7 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
           = F.PreprocessorDetailCursor.GetCurrentBitNo();
           
         if (!PP.getPreprocessingRecord())
-          PP.createPreprocessingRecord(/*RecordConditionalDirectives=*/false);
+          PP.createPreprocessingRecord();
         if (!PP.getPreprocessingRecord()->getExternalSource())
           PP.getPreprocessingRecord()->SetExternalSource(*this);
         break;
@@ -2346,7 +2365,7 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
       
       unsigned StartingID;
       if (!PP.getPreprocessingRecord())
-        PP.createPreprocessingRecord(/*RecordConditionalDirectives=*/false);
+        PP.createPreprocessingRecord();
       if (!PP.getPreprocessingRecord()->getExternalSource())
         PP.getPreprocessingRecord()->SetExternalSource(*this);
       StartingID 
@@ -2818,8 +2837,9 @@ ASTReader::ReadASTCore(StringRef FileName,
   ModuleFile *M;
   bool NewModule;
   std::string ErrorStr;
-  llvm::tie(M, NewModule) = ModuleMgr.addModule(FileName, Type, ImportedBy,
-                                                CurrentGeneration, ErrorStr);
+  llvm::tie(M, NewModule) = ModuleMgr.addModule(FileName, Type, ImportLoc,
+                                                ImportedBy, CurrentGeneration,
+                                                ErrorStr);
 
   if (!M) {
     // We couldn't load the module.

@@ -7,16 +7,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IRBuilder.h"
+#include "llvm/ADT/OwningPtr.h"
 #include "llvm/BasicBlock.h"
 #include "llvm/DataLayout.h"
 #include "llvm/Function.h"
-#include "llvm/IRBuilder.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/MDBuilder.h"
 #include "llvm/Module.h"
-#include "llvm/ADT/OwningPtr.h"
-
 #include "gtest/gtest.h"
 
 using namespace llvm;
@@ -163,6 +162,15 @@ TEST_F(IRBuilderTest, FastMathFlags) {
   ASSERT_TRUE(isa<Instruction>(F));
   FDiv = cast<Instruction>(F);
   EXPECT_TRUE(FDiv->hasAllowReciprocal());
+
+  Builder.clearFastMathFlags();
+
+  F = Builder.CreateFDiv(F, F);
+  ASSERT_TRUE(isa<Instruction>(F));
+  FDiv = cast<Instruction>(F);
+  EXPECT_FALSE(FDiv->getFastMathFlags().any());
+  FDiv->copyFastMathFlags(FAdd);
+  EXPECT_TRUE(FDiv->hasNoNaNs());
 
 }
 

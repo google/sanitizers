@@ -14,12 +14,12 @@
 #ifndef LLVM_RUNTIME_DYLD_IMPL_H
 #define LLVM_RUNTIME_DYLD_IMPL_H
 
-#include "llvm/ExecutionEngine/RuntimeDyld.h"
-#include "llvm/ExecutionEngine/ObjectImage.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/ExecutionEngine/ObjectImage.h"
+#include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -168,7 +168,7 @@ protected:
   inline unsigned getMaxStubSize() {
     if (Arch == Triple::arm || Arch == Triple::thumb)
       return 8; // 32-bit instruction and 32-bit address
-    else if (Arch == Triple::mipsel)
+    else if (Arch == Triple::mipsel || Arch == Triple::mips)
       return 16;
     else if (Arch == Triple::ppc64)
       return 44;

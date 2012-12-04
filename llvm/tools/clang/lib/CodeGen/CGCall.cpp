@@ -13,20 +13,20 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGCall.h"
-#include "CGCXXABI.h"
 #include "ABIInfo.h"
+#include "CGCXXABI.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "TargetInfo.h"
-#include "clang/Basic/TargetInfo.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/Attributes.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/DataLayout.h"
 #include "llvm/InlineAsm.h"
+#include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace clang;
 using namespace CodeGen;
@@ -1232,7 +1232,15 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
 
         if (isPromoted)
           V = emitArgumentDemotion(*this, Arg, V);
-        
+
+        // Because of merging of function types from multiple decls it is
+        // possible for the type of an argument to not match the corresponding
+        // type in the function type. Since we are codegening the callee
+        // in here, add a cast to the argument type.
+        llvm::Type *LTy = ConvertType(Arg->getType());
+        if (V->getType() != LTy)
+          V = Builder.CreateBitCast(V, LTy);
+
         EmitParmDecl(*Arg, V, ArgNo);
         break;
       }

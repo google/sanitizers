@@ -14,11 +14,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
-#include "clang/Analysis/ProgramPoint.h"
 #include "clang/AST/ParentMap.h"
+#include "clang/Analysis/ProgramPoint.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace ento;

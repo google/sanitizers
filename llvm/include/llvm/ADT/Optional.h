@@ -19,7 +19,7 @@
 #include "llvm/Support/Compiler.h"
 #include <cassert>
 
-#if LLVM_USE_RVALUE_REFERENCES
+#if LLVM_HAS_RVALUE_REFERENCES
 #include <utility>
 #endif
 
@@ -33,7 +33,7 @@ public:
   explicit Optional() : x(), hasVal(false) {}
   Optional(const T &y) : x(y), hasVal(true) {}
 
-#if LLVM_USE_RVALUE_REFERENCES
+#if LLVM_HAS_RVALUE_REFERENCES
   Optional(T &&y) : x(std::forward<T>(y)), hasVal(true) {}
 #endif
 
@@ -48,12 +48,17 @@ public:
   }
   
   const T* getPointer() const { assert(hasVal); return &x; }
-  const T& getValue() const { assert(hasVal); return x; }
+  const T& getValue() const LLVM_LVALUE_FUNCTION { assert(hasVal); return x; }
 
   operator bool() const { return hasVal; }
   bool hasValue() const { return hasVal; }
   const T* operator->() const { return getPointer(); }
-  const T& operator*() const { assert(hasVal); return x; }
+  const T& operator*() const LLVM_LVALUE_FUNCTION { assert(hasVal); return x; }
+
+#if LLVM_HAS_RVALUE_REFERENCE_THIS
+  T&& getValue() && { assert(hasVal); return std::move(x); }
+  T&& operator*() && { assert(hasVal); return std::move(x); } 
+#endif
 };
 
 template<typename T> struct simplify_type;

@@ -15,9 +15,9 @@
 #ifndef LLVM_ANALYSIS_DIBUILDER_H
 #define LLVM_ANALYSIS_DIBUILDER_H
 
-#include "llvm/Support/DataTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/DataTypes.h"
 
 namespace llvm {
   class BasicBlock;
@@ -371,7 +371,7 @@ namespace llvm {
 
     /// getOrCreateSubrange - Create a descriptor for a value range.  This
     /// implicitly uniques the values returned.
-    DISubrange getOrCreateSubrange(int64_t Lo, int64_t Hi);
+    DISubrange getOrCreateSubrange(int64_t Lo, int64_t Hi, int64_t Count);
 
     /// createGlobalVariable - Create a new descriptor for the specified global.
     /// @param Name        Name of the variable.

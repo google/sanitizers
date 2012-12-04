@@ -12,22 +12,22 @@
 //
 //===---------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/Verifier.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/PassManager.h"
+#include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetOptions.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
-#include "llvm/Assembly/PrintModulePass.h"
+#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetOptions.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/Transforms/Scalar.h"
 
 using namespace llvm;
 
@@ -400,12 +400,16 @@ void TargetPassConfig::addPassesToHandleExceptions() {
   }
 }
 
+/// Add pass to prepare the LLVM IR for code generation. This should be done
+/// before exception handling preparation passes.
+void TargetPassConfig::addCodeGenPrepare() {
+  if (getOptLevel() != CodeGenOpt::None && !DisableCGP)
+    addPass(createCodeGenPreparePass(getTargetLowering()));
+}
+
 /// Add common passes that perform LLVM IR to IR transforms in preparation for
 /// instruction selection.
 void TargetPassConfig::addISelPrepare() {
-  if (getOptLevel() != CodeGenOpt::None && !DisableCGP)
-    addPass(createCodeGenPreparePass(getTargetLowering()));
-
   addPass(createStackProtectorPass(getTargetLowering()));
 
   addPreISel();

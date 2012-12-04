@@ -31,6 +31,9 @@ struct Flags {
   // Supress a race report if we've already output another race report
   // on the same address.
   bool suppress_equal_addresses;
+  // Suppress weird race reports that can be seen if JVM is embed
+  // into the process.
+  bool suppress_java;
   // Turns off bug reporting entirely (useful for benchmarking).
   bool report_bugs;
   // Report thread leaks at exit?
@@ -52,7 +55,7 @@ struct Flags {
   // Write logs to "log_path.pid".
   // The special values are "stdout" and "stderr".
   // The default is "stderr".
-  const char *log_path;  
+  const char *log_path;
   // Sleep in main thread before exiting for that many ms
   // (useful to catch "at exit" races).
   int atexit_sleep_ms;

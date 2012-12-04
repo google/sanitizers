@@ -19,19 +19,19 @@
 #ifndef LLVM_CLANG_GR_EXPLODEDGRAPH
 #define LLVM_CLANG_GR_EXPLODEDGRAPH
 
-#include "clang/Analysis/ProgramPoint.h"
-#include "clang/Analysis/AnalysisContext.h"
 #include "clang/AST/Decl.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/GraphTraits.h"
-#include "llvm/ADT/DepthFirstIterator.h"
-#include "llvm/Support/Casting.h"
+#include "clang/Analysis/AnalysisContext.h"
+#include "clang/Analysis/ProgramPoint.h"
 #include "clang/Analysis/Support/BumpVector.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState.h"
+#include "llvm/ADT/DepthFirstIterator.h"
+#include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/GraphTraits.h"
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/Casting.h"
 #include <vector>
 
 namespace clang {
@@ -155,7 +155,14 @@ public:
   ProgramStateRef getState() const { return State; }
 
   template <typename T>
-  const T* getLocationAs() const { return llvm::dyn_cast<T>(&Location); }
+  const T* getLocationAs() const LLVM_LVALUE_FUNCTION {
+    return dyn_cast<T>(&Location);
+  }
+
+#if LLVM_HAS_RVALUE_REFERENCE_THIS
+  template <typename T>
+  void getLocationAs() && LLVM_DELETED_FUNCTION;
+#endif
 
   static void Profile(llvm::FoldingSetNodeID &ID,
                       const ProgramPoint &Loc,

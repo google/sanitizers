@@ -1,6 +1,6 @@
 #include "clang-c/CXCompilationDatabase.h"
-#include "clang/Tooling/CompilationDatabase.h"
 #include "CXString.h"
+#include "clang/Tooling/CompilationDatabase.h"
 
 using namespace clang;
 using namespace clang::tooling;
@@ -59,6 +59,17 @@ clang_CompilationDatabase_getCompileCommands(CXCompilationDatabase CDb,
   return 0;
 }
 
+CXCompileCommands
+clang_CompilationDatabase_getAllCompileCommands(CXCompilationDatabase CDb) {
+  if (CompilationDatabase *db = static_cast<CompilationDatabase *>(CDb)) {
+    const std::vector<CompileCommand> CCmd(db->getAllCompileCommands());
+    if (!CCmd.empty())
+      return new AllocatedCXCompileCommands( CCmd );
+  }
+
+  return 0;
+}
+
 void
 clang_CompileCommands_dispose(CXCompileCommands Cmds)
 {
@@ -99,7 +110,7 @@ clang_CompileCommand_getDirectory(CXCompileCommand CCmd)
     return createCXString((const char*)NULL);
 
   CompileCommand *cmd = static_cast<CompileCommand *>(CCmd);
-  return createCXString(cmd->Directory);
+  return createCXString(cmd->Directory.c_str(), /*DupString=*/false);
 }
 
 unsigned
@@ -122,7 +133,7 @@ clang_CompileCommand_getArg(CXCompileCommand CCmd, unsigned Arg)
   if (Arg >= Cmd->CommandLine.size())
     return createCXString((const char*)NULL);
 
-  return createCXString(Cmd->CommandLine[Arg]);
+  return createCXString(Cmd->CommandLine[Arg].c_str(), /*DupString=*/false);
 }
 
 

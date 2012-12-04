@@ -13,28 +13,28 @@
 
 #define DEBUG_TYPE "jump-threading"
 #include "llvm/Transforms/Scalar.h"
-#include "llvm/IntrinsicInst.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/Pass.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LazyValueInfo.h"
 #include "llvm/Analysis/Loads.h"
-#include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/Transforms/Utils/Local.h"
-#include "llvm/Transforms/Utils/SSAUpdater.h"
 #include "llvm/DataLayout.h"
-#include "llvm/Target/TargetLibraryInfo.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallSet.h"
+#include "llvm/IntrinsicInst.h"
+#include "llvm/LLVMContext.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetLibraryInfo.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/SSAUpdater.h"
 using namespace llvm;
 
 STATISTIC(NumThreads, "Number of jumps threaded");
@@ -216,19 +216,24 @@ bool JumpThreading::runOnFunction(Function &F) {
 }
 
 /// getJumpThreadDuplicationCost - Return the cost of duplicating this block to
-/// thread across it.
-static unsigned getJumpThreadDuplicationCost(const BasicBlock *BB) {
+/// thread across it. Stop scanning the block when passing the threshold.
+static unsigned getJumpThreadDuplicationCost(const BasicBlock *BB,
+                                             unsigned Threshold) {
   /// Ignore PHI nodes, these will be flattened when duplication happens.
   BasicBlock::const_iterator I = BB->getFirstNonPHI();
 
   // FIXME: THREADING will delete values that are just used to compute the
   // branch, so they shouldn't count against the duplication cost.
 
-
   // Sum up the cost of each instruction until we get to the terminator.  Don't
   // include the terminator because the copy won't include it.
   unsigned Size = 0;
   for (; !isa<TerminatorInst>(I); ++I) {
+
+    // Stop scanning the block if we've reached the threshold.
+    if (Size > Threshold)
+      return Size;
+
     // Debugger intrinsics don't incur code size.
     if (isa<DbgInfoIntrinsic>(I)) continue;
 
@@ -1337,7 +1342,7 @@ bool JumpThreading::ThreadEdge(BasicBlock *BB,
     return false;
   }
 
-  unsigned JumpThreadCost = getJumpThreadDuplicationCost(BB);
+  unsigned JumpThreadCost = getJumpThreadDuplicationCost(BB, Threshold);
   if (JumpThreadCost > Threshold) {
     DEBUG(dbgs() << "  Not threading BB '" << BB->getName()
           << "' - Cost is too high: " << JumpThreadCost << "\n");
@@ -1481,7 +1486,7 @@ bool JumpThreading::DuplicateCondBranchOnPHIIntoPred(BasicBlock *BB,
     return false;
   }
 
-  unsigned DuplicationCost = getJumpThreadDuplicationCost(BB);
+  unsigned DuplicationCost = getJumpThreadDuplicationCost(BB, Threshold);
   if (DuplicationCost > Threshold) {
     DEBUG(dbgs() << "  Not duplicating BB '" << BB->getName()
           << "' - Cost is too high: " << DuplicationCost << "\n");

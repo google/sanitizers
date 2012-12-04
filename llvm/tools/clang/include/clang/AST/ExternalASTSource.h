@@ -14,8 +14,8 @@
 #ifndef LLVM_CLANG_AST_EXTERNAL_AST_SOURCE_H
 #define LLVM_CLANG_AST_EXTERNAL_AST_SOURCE_H
 
-#include "clang/AST/DeclBase.h"
 #include "clang/AST/CharUnits.h"
+#include "clang/AST/DeclBase.h"
 #include "llvm/ADT/DenseMap.h"
 
 namespace clang {
@@ -24,7 +24,9 @@ class ASTConsumer;
 class CXXBaseSpecifier;
 class DeclarationName;
 class ExternalSemaSource; // layering violation required for downcasting
+class FieldDecl;
 class NamedDecl;
+class RecordDecl;
 class Selector;
 class Stmt;
 class TagDecl;

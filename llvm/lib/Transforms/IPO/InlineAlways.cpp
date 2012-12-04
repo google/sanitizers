@@ -13,18 +13,18 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "inline"
+#include "llvm/Transforms/IPO.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/InlineCost.h"
 #include "llvm/CallingConv.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Module.h"
-#include "llvm/Type.h"
-#include "llvm/Analysis/CallGraph.h"
-#include "llvm/Analysis/InlineCost.h"
 #include "llvm/Support/CallSite.h"
-#include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/InlinerPass.h"
-#include "llvm/DataLayout.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Type.h"
 
 using namespace llvm;
 
@@ -44,6 +44,10 @@ namespace {
     }
     static char ID; // Pass identification, replacement for typeid
     virtual InlineCost getInlineCost(CallSite CS);
+
+    using llvm::Pass::doInitialization;
+    using llvm::Pass::doFinalization;
+
     virtual bool doFinalization(CallGraph &CG) {
       return removeDeadFunctions(CG, /*AlwaysInlineOnly=*/true);
     }

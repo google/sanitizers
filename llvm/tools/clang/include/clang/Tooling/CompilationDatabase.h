@@ -33,7 +33,6 @@
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
-
 #include <string>
 #include <vector>
 
@@ -106,6 +105,10 @@ public:
 
   /// \brief Returns the list of all files available in the compilation database.
   virtual std::vector<std::string> getAllFiles() const = 0;
+
+  /// \brief Returns all compile commands for all the files in the compilation
+  /// database.
+  virtual std::vector<CompileCommand> getAllCompileCommands() const = 0;
 };
 
 /// \brief Interface for compilation database plugins.
@@ -180,6 +183,12 @@ public:
   ///
   /// Note: This is always an empty list for the fixed compilation database.
   virtual std::vector<std::string> getAllFiles() const;
+
+  /// \brief Returns all compile commands for all the files in the compilation
+  /// database.
+  ///
+  /// Note: This is always an empty list for the fixed compilation database.
+  virtual std::vector<CompileCommand> getAllCompileCommands() const;
 
 private:
   /// This is built up to contain a single entry vector to be returned from

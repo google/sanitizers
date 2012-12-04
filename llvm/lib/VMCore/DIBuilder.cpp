@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/DIBuilder.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Constants.h"
 #include "llvm/DebugInfo.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Module.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Dwarf.h"
 
@@ -741,11 +741,13 @@ DIArray DIBuilder::getOrCreateArray(ArrayRef<Value *> Elements) {
 
 /// getOrCreateSubrange - Create a descriptor for a value range.  This
 /// implicitly uniques the values returned.
-DISubrange DIBuilder::getOrCreateSubrange(int64_t Lo, int64_t Hi) {
+DISubrange DIBuilder::getOrCreateSubrange(int64_t Lo, int64_t Hi,
+                                          int64_t Count) {
   Value *Elts[] = {
     GetTagConstant(VMContext, dwarf::DW_TAG_subrange_type),
     ConstantInt::get(Type::getInt64Ty(VMContext), Lo),
-    ConstantInt::get(Type::getInt64Ty(VMContext), Hi)
+    ConstantInt::get(Type::getInt64Ty(VMContext), Hi),
+    ConstantInt::get(Type::getInt64Ty(VMContext), Count)
   };
 
   return DISubrange(MDNode::get(VMContext, Elts));

@@ -18,12 +18,13 @@
 #ifndef LLVM_CLANG_AST_VECTOR
 #define LLVM_CLANG_AST_VECTOR
 
-#include "llvm/Support/type_traits.h"
-#include "llvm/Support/Allocator.h"
+#include "clang/AST/AttrIterator.h"
 #include "llvm/ADT/PointerIntPair.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/type_traits.h"
 #include <algorithm>
-#include <memory>
 #include <cstring>
+#include <memory>
 
 #ifdef _MSC_VER
 namespace std {
@@ -50,6 +51,7 @@ namespace std {
 #endif
 
 namespace clang {
+  class ASTContext;
 
 template<typename T>
 class ASTVector {

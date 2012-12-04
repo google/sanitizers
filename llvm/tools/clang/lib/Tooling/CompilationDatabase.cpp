@@ -12,13 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <sstream>
 #include "clang/Tooling/CompilationDatabase.h"
 #include "clang/Tooling/CompilationDatabasePluginRegistry.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/system_error.h"
+#include <sstream>
 
 namespace clang {
 namespace tooling {
@@ -130,6 +130,11 @@ FixedCompilationDatabase::getCompileCommands(StringRef FilePath) const {
 std::vector<std::string>
 FixedCompilationDatabase::getAllFiles() const {
   return std::vector<std::string>();
+}
+
+std::vector<CompileCommand>
+FixedCompilationDatabase::getAllCompileCommands() const {
+  return std::vector<CompileCommand>();
 }
 
 // This anchor is used to force the linker to link in the generated object file

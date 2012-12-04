@@ -13,28 +13,28 @@
 
 #define DEBUG_TYPE "dwarfdebug"
 
-#include "DwarfAccelTable.h"
 #include "DwarfCompileUnit.h"
+#include "DwarfAccelTable.h"
 #include "DwarfDebug.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/Constants.h"
 #include "llvm/DIBuilder.h"
+#include "llvm/DataLayout.h"
 #include "llvm/GlobalVariable.h"
 #include "llvm/Instructions.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/Mangler.h"
-#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
 
 /// CompileUnit - Compile unit constructor.
-CompileUnit::CompileUnit(unsigned I, unsigned L, DIE *D, AsmPrinter *A,
+CompileUnit::CompileUnit(unsigned UID, unsigned L, DIE *D, AsmPrinter *A,
                          DwarfDebug *DW)
-  : ID(I), Language(L), CUDie(D), Asm(A), DD(DW), IndexTyDie(0) {
+  : UniqueID(UID), Language(L), CUDie(D), Asm(A), DD(DW), IndexTyDie(0) {
   DIEIntegerOne = new (DIEValueAllocator) DIEInteger(1);
 }
 
@@ -1252,6 +1252,7 @@ void CompileUnit::constructSubrangeDIE(DIE &Buffer, DISubrange SR,
   addDIEEntry(DW_Subrange, dwarf::DW_AT_type, dwarf::DW_FORM_ref4, IndexTy);
   uint64_t L = SR.getLo();
   uint64_t H = SR.getHi();
+  int64_t Count = SR.getCount();
 
   // The L value defines the lower bounds which is typically zero for C/C++. The
   // H value is the upper bounds.  Values are 64 bit.  H - L + 1 is the size
@@ -1265,7 +1266,8 @@ void CompileUnit::constructSubrangeDIE(DIE &Buffer, DISubrange SR,
   }
   if (L)
     addUInt(DW_Subrange, dwarf::DW_AT_lower_bound, 0, L);
-  addUInt(DW_Subrange, dwarf::DW_AT_upper_bound, 0, H);
+  if (H > 0 || Count != 0)
+    addUInt(DW_Subrange, dwarf::DW_AT_upper_bound, 0, H);
   Buffer.addChild(DW_Subrange);
 }
 

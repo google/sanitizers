@@ -15,9 +15,9 @@
 #ifndef LLVM_INSTRUCTION_H
 #define LLVM_INSTRUCTION_H
 
-#include "llvm/User.h"
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/Support/DebugLoc.h"
+#include "llvm/User.h"
 
 namespace llvm {
 
@@ -226,6 +226,9 @@ public:
   /// operator which supports these flags. See LangRef.html for the meaning of
   /// these flats.
   FastMathFlags getFastMathFlags() const;
+
+  /// Copy I's fast-math flags
+  void copyFastMathFlags(const Instruction *I);
 
 private:
   /// hasMetadataHashEntry - Return true if we have an entry in the on-the-side

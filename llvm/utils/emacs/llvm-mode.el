@@ -5,7 +5,6 @@
 ;; Create mode-specific tables.
 (defvar llvm-mode-syntax-table nil
   "Syntax table used while in LLVM mode.")
-
 (defvar llvm-font-lock-keywords
   (list
    ;; Comments
@@ -31,12 +30,14 @@
                     "define" "global" "constant" "const" "internal" "linkonce" "linkonce_odr"
                     "weak" "weak_odr" "appending" "uninitialized" "implementation" "..."
                     "null" "undef" "to" "except" "not" "target" "endian" "little" "big"
-                    "pointersize" "deplibs" "volatile" "fastcc" "coldcc" "cc") 'words) . font-lock-keyword-face)
+                    "pointersize" "volatile" "fastcc" "coldcc" "cc") 'words) . font-lock-keyword-face)
    ;; Arithmetic and Logical Operators
    `(,(regexp-opt '("add" "sub" "mul" "div" "rem" "and" "or" "xor"
                     "setne" "seteq" "setlt" "setgt" "setle" "setge") 'words) . font-lock-keyword-face)
+   ;; Floating-point operators
+   `(,(regexp-opt '("fadd" "fsub" "fmul" "fdiv" "frem") 'words) . font-lock-keyword-face)
    ;; Special instructions
-   `(,(regexp-opt '("phi" "tail" "call" "cast" "select" "to" "shl" "shr" "vaarg" "vanext") 'words) . font-lock-keyword-face)
+   `(,(regexp-opt '("phi" "tail" "call" "cast" "select" "to" "shl" "shr" "fcmp" "icmp" "vaarg" "vanext") 'words) . font-lock-keyword-face)
    ;; Control instructions
    `(,(regexp-opt '("ret" "br" "switch" "invoke" "unwind" "unreachable") 'words) . font-lock-keyword-face)
    ;; Memory operators
@@ -111,7 +112,7 @@
   (interactive)
   (kill-all-local-variables)
   (use-local-map llvm-mode-map)         ; Provides the local keymap.
-  (setq major-mode 'llvm-mode)          
+  (setq major-mode 'llvm-mode)
 
   (make-local-variable 'font-lock-defaults)
   (setq major-mode 'llvm-mode           ; This is how describe-mode

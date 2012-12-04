@@ -15,21 +15,21 @@
 #ifndef LLVM_CLANG_AST_ASTCONTEXT_H
 #define LLVM_CLANG_AST_ASTCONTEXT_H
 
+#include "clang/AST/CanonicalType.h"
+#include "clang/AST/CommentCommandTraits.h"
+#include "clang/AST/Decl.h"
+#include "clang/AST/LambdaMangleContext.h"
+#include "clang/AST/NestedNameSpecifier.h"
+#include "clang/AST/PrettyPrinter.h"
+#include "clang/AST/RawCommentList.h"
+#include "clang/AST/TemplateName.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/VersionTuple.h"
-#include "clang/AST/Decl.h"
-#include "clang/AST/LambdaMangleContext.h"
-#include "clang/AST/NestedNameSpecifier.h"
-#include "clang/AST/PrettyPrinter.h"
-#include "clang/AST/TemplateName.h"
-#include "clang/AST/Type.h"
-#include "clang/AST/CanonicalType.h"
-#include "clang/AST/RawCommentList.h"
-#include "clang/AST/CommentCommandTraits.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -2143,8 +2143,8 @@ static inline Selector GetUnarySelector(StringRef name, ASTContext& Ctx) {
 /// This placement form of operator new uses the ASTContext's allocator for
 /// obtaining memory.
 ///
-/// IMPORTANT: These are also declared in clang/AST/Attr.h! Any changes here
-/// need to also be made there.
+/// IMPORTANT: These are also declared in clang/AST/AttrIterator.h! Any changes
+/// here need to also be made there.
 ///
 /// We intentionally avoid using a nothrow specification here so that the calls
 /// to this operator will not perform a null check on the result -- the

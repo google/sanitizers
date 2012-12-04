@@ -12,22 +12,22 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeGenFunction.h"
-#include "CodeGenModule.h"
-#include "CGCall.h"
 #include "CGCXXABI.h"
+#include "CGCall.h"
 #include "CGDebugInfo.h"
-#include "CGRecordLayout.h"
 #include "CGObjCRuntime.h"
+#include "CGRecordLayout.h"
+#include "CodeGenModule.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/Basic/ConvertUTF.h"
 #include "clang/Frontend/CodeGenOptions.h"
+#include "llvm/ADT/Hashing.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/MDBuilder.h"
-#include "llvm/DataLayout.h"
-#include "llvm/ADT/Hashing.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -533,7 +533,7 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
       llvm::ConstantInt::get(SizeTy, AlignVal),
       llvm::ConstantInt::get(Int8Ty, TCK)
     };
-    EmitCheck(Cond, "type_mismatch", StaticData, Address);
+    EmitCheck(Cond, "type_mismatch", StaticData, Address, CRK_Recoverable);
   }
 
   // If possible, check that the vptr indicates that there is a subobject of
@@ -586,7 +586,8 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
     };
     llvm::Value *DynamicData[] = { Address, Hash };
     EmitCheck(Builder.CreateICmpEQ(CacheVal, Hash),
-              "dynamic_type_cache_miss", StaticData, DynamicData, true);
+              "dynamic_type_cache_miss", StaticData, DynamicData,
+              CRK_AlwaysRecoverable);
   }
 }
 
@@ -1950,7 +1951,7 @@ llvm::Constant *CodeGenFunction::EmitCheckTypeDescriptor(QualType T) {
   if (T->isIntegerType()) {
     TypeKind = 0;
     TypeInfo = (llvm::Log2_32(getContext().getTypeSize(T)) << 1) |
-               T->isSignedIntegerType();
+               (T->isSignedIntegerType() ? 1 : 0);
   } else if (T->isFloatingType()) {
     TypeKind = 1;
     TypeInfo = getContext().getTypeSize(T);
@@ -2023,7 +2024,7 @@ llvm::Constant *CodeGenFunction::EmitCheckSourceLocation(SourceLocation Loc) {
 void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
                                 llvm::ArrayRef<llvm::Constant *> StaticArgs,
                                 llvm::ArrayRef<llvm::Value *> DynamicArgs,
-                                bool Recoverable) {
+                                CheckRecoverableKind RecoverKind) {
   llvm::BasicBlock *Cont = createBasicBlock("cont");
 
   llvm::BasicBlock *Handler = createBasicBlock("handler." + CheckName);
@@ -2051,20 +2052,29 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
     ArgTypes.push_back(IntPtrTy);
   }
 
+  bool Recover = (RecoverKind == CRK_AlwaysRecoverable) ||
+                 ((RecoverKind == CRK_Recoverable) &&
+                   CGM.getCodeGenOpts().SanitizeRecover);
+
   llvm::FunctionType *FnType =
     llvm::FunctionType::get(CGM.VoidTy, ArgTypes, false);
   llvm::AttrBuilder B;
-  if (!Recoverable) {
+  if (!Recover) {
     B.addAttribute(llvm::Attributes::NoReturn)
      .addAttribute(llvm::Attributes::NoUnwind);
   }
   B.addAttribute(llvm::Attributes::UWTable);
-  llvm::Value *Fn = CGM.CreateRuntimeFunction(FnType,
-                                          ("__ubsan_handle_" + CheckName).str(),
-                                         llvm::Attributes::get(getLLVMContext(),
-                                                               B));
+
+  // Checks that have two variants use a suffix to differentiate them
+  bool NeedsAbortSuffix = (RecoverKind != CRK_Unrecoverable) &&
+                           !CGM.getCodeGenOpts().SanitizeRecover;
+  std::string FunctionName = ("__ubsan_handle_" + CheckName +
+                              (NeedsAbortSuffix? "_abort" : "")).str();
+  llvm::Value *Fn =
+    CGM.CreateRuntimeFunction(FnType, FunctionName,
+                              llvm::Attributes::get(getLLVMContext(), B));
   llvm::CallInst *HandlerCall = Builder.CreateCall(Fn, Args);
-  if (Recoverable) {
+  if (Recover) {
     Builder.CreateBr(Cont);
   } else {
     HandlerCall->setDoesNotReturn();

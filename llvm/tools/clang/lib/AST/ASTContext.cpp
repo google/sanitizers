@@ -12,28 +12,29 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
+#include "CXXABI.h"
+#include "clang/AST/ASTMutationListener.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/CharUnits.h"
+#include "clang/AST/Comment.h"
 #include "clang/AST/CommentCommandTraits.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
-#include "clang/AST/TypeLoc.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExternalASTSource.h"
-#include "clang/AST/ASTMutationListener.h"
-#include "clang/AST/RecordLayout.h"
 #include "clang/AST/Mangle.h"
-#include "clang/AST/Comment.h"
+#include "clang/AST/RecordLayout.h"
+#include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/Capacity.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Capacity.h"
-#include "CXXABI.h"
 #include <map>
 
 using namespace clang;
@@ -6486,13 +6487,13 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
   if (lbaseInfo.getProducesResult() != rbaseInfo.getProducesResult())
     return QualType();
 
-  // functypes which return are preferred over those that do not.
-  if (lbaseInfo.getNoReturn() && !rbaseInfo.getNoReturn())
-    allLTypes = false;
-  else if (!lbaseInfo.getNoReturn() && rbaseInfo.getNoReturn())
-    allRTypes = false;
   // FIXME: some uses, e.g. conditional exprs, really want this to be 'both'.
   bool NoReturn = lbaseInfo.getNoReturn() || rbaseInfo.getNoReturn();
+
+  if (lbaseInfo.getNoReturn() != NoReturn)
+    allLTypes = false;
+  if (rbaseInfo.getNoReturn() != NoReturn)
+    allRTypes = false;
 
   FunctionType::ExtInfo einfo = lbaseInfo.withNoReturn(NoReturn);
 

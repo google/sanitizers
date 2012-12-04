@@ -21,11 +21,11 @@
 #ifndef LLVM_CONSTANTS_H
 #define LLVM_CONSTANTS_H
 
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Constant.h"
 #include "llvm/OperandTraits.h"
-#include "llvm/ADT/APInt.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/ArrayRef.h"
 
 namespace llvm {
 
@@ -1082,8 +1082,7 @@ public:
   /// A better approach to this could be to have a constructor for Instruction
   /// which would take a ConstantExpr parameter, but that would have spread 
   /// implementation details of ConstantExpr outside of Constants.cpp, which 
-  /// would make it harder to remove ConstantExprs altogether
-  /// (http://llvm.org/bugs/show_bug.cgi?id=10368).
+  /// would make it harder to remove ConstantExprs altogether.
   Instruction *getAsInstruction();
 
   virtual void destroyConstant();

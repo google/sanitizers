@@ -14,20 +14,19 @@
 
 #define DEBUG_TYPE "misched"
 
-#include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineScheduler.h"
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/PriorityQueue.h"
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
 #include "llvm/CodeGen/ScheduleDFS.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
-#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/PriorityQueue.h"
-
 #include <queue>
 
 using namespace llvm;
@@ -603,7 +602,11 @@ void ScheduleDAGMI::initQueues() {
 
   SchedImpl->registerRoots();
 
+  // Advance past initial DebugValues.
+  assert(TopRPTracker.getPos() == RegionBegin && "bad initial Top tracker");
   CurrentTop = nextIfDebug(RegionBegin, RegionEnd);
+  TopRPTracker.setPos(CurrentTop);
+
   CurrentBottom = RegionEnd;
 }
 
@@ -674,6 +677,8 @@ void ScheduleDAGMI::placeDebugValues() {
     std::pair<MachineInstr *, MachineInstr *> P = *prior(DI);
     MachineInstr *DbgValue = P.first;
     MachineBasicBlock::iterator OrigPrevMI = P.second;
+    if (&*RegionBegin == DbgValue)
+      ++RegionBegin;
     BB->splice(++OrigPrevMI, BB, DbgValue);
     if (OrigPrevMI == llvm::prior(RegionEnd))
       RegionEnd = DbgValue;
@@ -2117,6 +2122,8 @@ public:
   virtual void registerRoots() {
     DFSResult.compute(ReadyQ);
     ScheduledTrees.resize(DFSResult.getNumSubtrees());
+    // Restore the heap in ReadyQ with the updated DFS results.
+    std::make_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
   }
 
   /// Implement MachineSchedStrategy interface.

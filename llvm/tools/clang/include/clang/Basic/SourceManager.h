@@ -35,21 +35,22 @@
 #ifndef LLVM_CLANG_SOURCEMANAGER_H
 #define LLVM_CLANG_SOURCEMANAGER_H
 
-#include "clang/Basic/LLVM.h"
 #include "clang/Basic/FileManager.h"
+#include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/DataTypes.h"
-#include "llvm/ADT/PointerIntPair.h"
-#include "llvm/ADT/PointerUnion.h"
-#include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/PointerIntPair.h"
+#include "llvm/ADT/PointerUnion.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/DataTypes.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include <cassert>
 #include <map>
 #include <vector>
-#include <cassert>
 
 namespace clang {
 
@@ -429,6 +430,11 @@ public:
   /// \returns true if an error occurred that prevented the source-location
   /// entry from being loaded.
   virtual bool ReadSLocEntry(int ID) = 0;
+
+  /// \brief Retrieve the module import location and name for the given ID, if
+  /// in fact it was loaded from a module (rather than, say, a precompiled
+  /// header).
+  virtual std::pair<SourceLocation, StringRef> getModuleImportLoc(int ID) = 0;
 };
 
 
@@ -507,6 +513,11 @@ public:
   }
 
 };
+
+/// \brief The stack used when building modules on demand, which is used
+/// to provide a link between the source managers of the different compiler
+/// instances.
+typedef llvm::ArrayRef<std::pair<std::string, FullSourceLoc> > ModuleBuildStack;
 
 /// \brief This class handles loading and caching of source files into memory.
 ///
@@ -645,6 +656,15 @@ class SourceManager : public RefCountedBase<SourceManager> {
 
   mutable llvm::DenseMap<FileID, MacroArgsMap *> MacroArgsCacheMap;
 
+  /// \brief The stack of modules being built, which is used to detect
+  /// cycles in the module dependency graph as modules are being built, as
+  /// well as to describe why we're rebuilding a particular module.
+  ///
+  /// There is no way to set this value from the command line. If we ever need
+  /// to do so (e.g., if on-demand module construction moves out-of-process),
+  /// we can add a cc1-level option to do so.
+  SmallVector<std::pair<std::string, FullSourceLoc>, 2> StoredModuleBuildStack;
+
   // SourceManager doesn't support copy construction.
   explicit SourceManager(const SourceManager&) LLVM_DELETED_FUNCTION;
   void operator=(const SourceManager&) LLVM_DELETED_FUNCTION;
@@ -668,6 +688,22 @@ public:
   /// \brief True if non-system source files should be treated as volatile
   /// (likely to change while trying to use them).
   bool userFilesAreVolatile() const { return UserFilesAreVolatile; }
+
+  /// \brief Retrieve the module build stack.
+  ModuleBuildStack getModuleBuildStack() const {
+    return StoredModuleBuildStack;
+  }
+
+  /// \brief Set the module build stack.
+  void setModuleBuildStack(ModuleBuildStack stack) {
+    StoredModuleBuildStack.clear();
+    StoredModuleBuildStack.append(stack.begin(), stack.end());
+  }
+
+  /// \brief Push an entry to the module build stack.
+  void pushModuleBuildStack(StringRef moduleName, FullSourceLoc importLoc) {
+    StoredModuleBuildStack.push_back(std::make_pair(moduleName.str(),importLoc));
+  }
 
   /// \brief Create the FileID for a memory buffer that will represent the
   /// FileID for the main source.
@@ -957,6 +993,21 @@ public:
       return SourceLocation();
 
     return Entry.getFile().getIncludeLoc();
+  }
+
+  // \brief Returns the import location if the given source location is
+  // located within a module, or an invalid location if the source location
+  // is within the current translation unit.
+  std::pair<SourceLocation, StringRef>
+  getModuleImportLoc(SourceLocation Loc) const {
+    FileID FID = getFileID(Loc);
+
+    // Positive file IDs are in the current translation unit, and -1 is a
+    // placeholder.
+    if (FID.ID >= -1)
+      return std::make_pair(SourceLocation(), "");
+
+    return ExternalSLocEntries->getModuleImportLoc(FID.ID);
   }
 
   /// \brief Given a SourceLocation object \p Loc, return the expansion

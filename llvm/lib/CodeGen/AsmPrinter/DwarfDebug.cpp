@@ -16,34 +16,34 @@
 #include "DIE.h"
 #include "DwarfAccelTable.h"
 #include "DwarfCompileUnit.h"
-#include "llvm/Constants.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/DIBuilder.h"
-#include "llvm/Module.h"
-#include "llvm/Instructions.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/Constants.h"
+#include "llvm/DIBuilder.h"
+#include "llvm/DataLayout.h"
+#include "llvm/DebugInfo.h"
+#include "llvm/Instructions.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/DataLayout.h"
-#include "llvm/Target/TargetFrameLowering.h"
-#include "llvm/Target/TargetLoweringObjectFile.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetOptions.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/Triple.h"
+#include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/FormattedStream.h"
-#include "llvm/Support/Timer.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Timer.h"
+#include "llvm/Support/ValueHandle.h"
+#include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
+#include "llvm/Target/TargetRegisterInfo.h"
 using namespace llvm;
 
 static cl::opt<bool> DisableDebugInfoPrinting("disable-debug-info-print",
@@ -153,10 +153,10 @@ DIType DbgVariable::getType() const {
 } // end llvm namespace
 
 DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
-  : Asm(A), MMI(Asm->MMI), FirstCU(0),
+  : Asm(A), MMI(Asm->MMI), FirstCU(0), FissionCU(0),
     AbbreviationsSet(InitAbbreviationsSetSize),
     SourceIdMap(DIEValueAllocator), StringPool(DIEValueAllocator),
-    PrevLabel(NULL) {
+    PrevLabel(NULL), GlobalCUIndexCount(0) {
   NextStringPoolNumber = 0;
 
   DwarfInfoSectionSym = DwarfAbbrevSectionSym = 0;
@@ -615,11 +615,13 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
   DICompileUnit DIUnit(N);
   StringRef FN = DIUnit.getFilename();
   CompilationDir = DIUnit.getDirectory();
-  unsigned ID = getOrCreateSourceID(FN, CompilationDir);
+  // Call this to emit a .file directive if it wasn't emitted for the source
+  // file this CU comes from yet.
+  getOrCreateSourceID(FN, CompilationDir);
 
   DIE *Die = new DIE(dwarf::DW_TAG_compile_unit);
-  CompileUnit *NewCU = new CompileUnit(ID, DIUnit.getLanguage(), Die,
-                                       Asm, this);
+  CompileUnit *NewCU = new CompileUnit(GlobalCUIndexCount++,
+                                       DIUnit.getLanguage(), Die, Asm, this);
   NewCU->addString(Die, dwarf::DW_AT_producer, DIUnit.getProducer());
   NewCU->addUInt(Die, dwarf::DW_AT_language, dwarf::DW_FORM_data2,
                  DIUnit.getLanguage());
@@ -650,6 +652,9 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
 
   if (!FirstCU)
     FirstCU = NewCU;
+  if (useDwarfFission() && !FissionCU)
+    FissionCU = constructFissionCU(N);
+
   CUMap.insert(std::make_pair(N, NewCU));
   return NewCU;
 }
@@ -927,8 +932,9 @@ void DwarfDebug::endModule() {
     // TODO: Fill this in for Fission sections and separate
     // out information into new sections.
 
-    // Emit all the DIEs into a debug info section.
+    // Emit the debug info section and compile units.
     emitDebugInfo();
+    emitDebugInfoDWO();
 
     // Corresponding abbreviations into a abbrev section.
     emitAbbreviations();
@@ -975,7 +981,9 @@ void DwarfDebug::endModule() {
   for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
          E = CUMap.end(); I != E; ++I)
     delete I->second;
-  FirstCU = NULL;  // Reset for the next Module, if any.
+  // Reset these for the next Module if we have one.
+  FirstCU = NULL;
+  FissionCU = NULL;
 }
 
 // Find abstract variable, if any, associated with Var.
@@ -1665,6 +1673,15 @@ DwarfDebug::computeSizeAndOffset(DIE *Die, unsigned Offset) {
 
 // Compute the size and offset of all the DIEs.
 void DwarfDebug::computeSizeAndOffsets() {
+  if (FissionCU) {
+    unsigned Offset =
+      sizeof(int32_t) + // Length of Compilation Unit Info
+      sizeof(int16_t) + // DWARF version number
+      sizeof(int32_t) + // Offset Into Abbrev. Section
+      sizeof(int8_t);   // Pointer Size (in bytes)
+
+    computeSizeAndOffset(FissionCU->getCUDie(), Offset);
+  }
   for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
          E = CUMap.end(); I != E; ++I) {
     // Compute size of compile unit header.
@@ -1795,11 +1812,8 @@ void DwarfDebug::emitDIE(DIE *Die) {
   }
 }
 
-// Emit the debug info section.
-void DwarfDebug::emitDebugInfo() {
-  // Start debug info section.
-  Asm->OutStreamer.SwitchSection(
-                            Asm->getObjFileLowering().getDwarfInfoSection());
+void DwarfDebug::emitCompileUnits(const MCSection *Section) {
+  Asm->OutStreamer.SwitchSection(Section);
   for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
          E = CUMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
@@ -1807,7 +1821,7 @@ void DwarfDebug::emitDebugInfo() {
 
     // Emit the compile units header.
     Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("info_begin",
-                                                  TheCU->getID()));
+                                                  TheCU->getUniqueID()));
 
     // Emit size of content not including length itself
     unsigned ContentSize = Die->getSize() +
@@ -1826,8 +1840,17 @@ void DwarfDebug::emitDebugInfo() {
     Asm->EmitInt8(Asm->getDataLayout().getPointerSize());
 
     emitDIE(Die);
-    Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("info_end", TheCU->getID()));
+    Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("info_end",
+                                                  TheCU->getUniqueID()));
   }
+}
+
+// Emit the debug info section.
+void DwarfDebug::emitDebugInfo() {
+  if (!useDwarfFission())
+    emitCompileUnits(Asm->getObjFileLowering().getDwarfInfoSection());
+  else
+    emitFissionSkeletonCU(Asm->getObjFileLowering().getDwarfInfoSection());
 }
 
 // Emit the abbreviation section.
@@ -2011,22 +2034,25 @@ void DwarfDebug::emitDebugPubTypes() {
       Asm->getObjFileLowering().getDwarfPubTypesSection());
     Asm->OutStreamer.AddComment("Length of Public Types Info");
     Asm->EmitLabelDifference(
-      Asm->GetTempSymbol("pubtypes_end", TheCU->getID()),
-      Asm->GetTempSymbol("pubtypes_begin", TheCU->getID()), 4);
+      Asm->GetTempSymbol("pubtypes_end", TheCU->getUniqueID()),
+      Asm->GetTempSymbol("pubtypes_begin", TheCU->getUniqueID()), 4);
 
     Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("pubtypes_begin",
-                                                  TheCU->getID()));
+                                                  TheCU->getUniqueID()));
 
     if (Asm->isVerbose()) Asm->OutStreamer.AddComment("DWARF Version");
     Asm->EmitInt16(dwarf::DWARF_VERSION);
 
     Asm->OutStreamer.AddComment("Offset of Compilation Unit Info");
-    Asm->EmitSectionOffset(Asm->GetTempSymbol("info_begin", TheCU->getID()),
+    Asm->EmitSectionOffset(Asm->GetTempSymbol("info_begin",
+                                              TheCU->getUniqueID()),
                            DwarfInfoSectionSym);
 
     Asm->OutStreamer.AddComment("Compilation Unit Length");
-    Asm->EmitLabelDifference(Asm->GetTempSymbol("info_end", TheCU->getID()),
-                             Asm->GetTempSymbol("info_begin", TheCU->getID()),
+    Asm->EmitLabelDifference(Asm->GetTempSymbol("info_end",
+                                                TheCU->getUniqueID()),
+                             Asm->GetTempSymbol("info_begin",
+                                                TheCU->getUniqueID()),
                              4);
 
     const StringMap<DIE*> &Globals = TheCU->getGlobalTypes();
@@ -2046,7 +2072,7 @@ void DwarfDebug::emitDebugPubTypes() {
     Asm->OutStreamer.AddComment("End Mark");
     Asm->EmitInt32(0);
     Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("pubtypes_end",
-                                                  TheCU->getID()));
+                                                  TheCU->getUniqueID()));
   }
 }
 
@@ -2285,4 +2311,78 @@ void DwarfDebug::emitDebugInlineInfo() {
   }
 
   Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("debug_inlined_end", 1));
+}
+
+// DWARF5 Experimental Fission emitters.
+
+// This DIE has the following attributes: DW_AT_comp_dir, DW_AT_stmt_list,
+// DW_AT_low_pc, DW_AT_high_pc, DW_AT_ranges, DW_AT_dwo_name, DW_AT_dwo_id,
+// DW_AT_ranges_base, DW_AT_addr_base. If DW_AT_ranges is present,
+// DW_AT_low_pc and DW_AT_high_pc are not used, and vice versa.
+CompileUnit *DwarfDebug::constructFissionCU(const MDNode *N) {
+  DICompileUnit DIUnit(N);
+  StringRef FN = DIUnit.getFilename();
+  CompilationDir = DIUnit.getDirectory();
+
+  DIE *Die = new DIE(dwarf::DW_TAG_compile_unit);
+  CompileUnit *NewCU = new CompileUnit(GlobalCUIndexCount++,
+                                       DIUnit.getLanguage(), Die, Asm, this);
+  // FIXME: This should be the .dwo file.
+  NewCU->addString(Die, dwarf::DW_AT_GNU_dwo_name, FN);
+
+  // FIXME: We also need DW_AT_addr_base and DW_AT_dwo_id.
+
+  // 2.17.1 requires that we use DW_AT_low_pc for a single entry point
+  // into an entity.
+  NewCU->addUInt(Die, dwarf::DW_AT_low_pc, dwarf::DW_FORM_addr, 0);
+  // DW_AT_stmt_list is a offset of line number information for this
+  // compile unit in debug_line section.
+  if (Asm->MAI->doesDwarfUseRelocationsAcrossSections())
+    NewCU->addLabel(Die, dwarf::DW_AT_stmt_list, dwarf::DW_FORM_data4,
+                    Asm->GetTempSymbol("section_line"));
+  else
+    NewCU->addUInt(Die, dwarf::DW_AT_stmt_list, dwarf::DW_FORM_data4, 0);
+
+  if (!CompilationDir.empty())
+    NewCU->addString(Die, dwarf::DW_AT_comp_dir, CompilationDir);
+
+  return NewCU;
+}
+
+void DwarfDebug::emitFissionSkeletonCU(const MCSection *Section) {
+  Asm->OutStreamer.SwitchSection(Section);
+  DIE *Die = FissionCU->getCUDie();
+
+  // Emit the compile units header.
+  Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("skel_info_begin",
+                                                FissionCU->getUniqueID()));
+
+  // Emit size of content not including length itself
+  unsigned ContentSize = Die->getSize() +
+    sizeof(int16_t) + // DWARF version number
+    sizeof(int32_t) + // Offset Into Abbrev. Section
+    sizeof(int8_t);   // Pointer Size (in bytes)
+
+  Asm->OutStreamer.AddComment("Length of Compilation Unit Info");
+  Asm->EmitInt32(ContentSize);
+  Asm->OutStreamer.AddComment("DWARF version number");
+  Asm->EmitInt16(dwarf::DWARF_VERSION);
+  Asm->OutStreamer.AddComment("Offset Into Abbrev. Section");
+  Asm->EmitSectionOffset(Asm->GetTempSymbol("abbrev_begin"),
+                         DwarfAbbrevSectionSym);
+  Asm->OutStreamer.AddComment("Address Size (in bytes)");
+  Asm->EmitInt8(Asm->getDataLayout().getPointerSize());
+
+  emitDIE(Die);
+  Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("skel_info_end",
+                                                FissionCU->getUniqueID()));
+
+
+}
+
+// Emit the .debug_info.dwo section for fission. This contains the compile
+// units that would normally be in debug_info.
+void DwarfDebug::emitDebugInfoDWO() {
+  assert(useDwarfFission() && "Got fission?");
+  emitCompileUnits(Asm->getObjFileLowering().getDwarfInfoDWOSection());
 }

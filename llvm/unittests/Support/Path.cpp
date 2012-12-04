@@ -7,11 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/PathV2.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
-
 #include "gtest/gtest.h"
 
 using namespace llvm;
@@ -375,7 +374,7 @@ TEST_F(FileSystemTest, FileMapping) {
   
   // Unmap temp file
 
-#if LLVM_USE_RVALUE_REFERENCES
+#if LLVM_HAS_RVALUE_REFERENCES
   fs::mapped_file_region m(Twine(TempPath),
                              fs::mapped_file_region::readonly,
                              0,

@@ -26,8 +26,9 @@ namespace __ubsan {
   extern const char *TypeCheckKinds[];
 }
 
-void __ubsan::__ubsan_handle_dynamic_type_cache_miss(
-  DynamicTypeCacheMissData *Data, ValueHandle Pointer, ValueHandle Hash) {
+static void HandleDynamicTypeCacheMiss(
+  DynamicTypeCacheMissData *Data, ValueHandle Pointer, ValueHandle Hash,
+  bool abort) {
   if (checkDynamicType((void*)Pointer, Data->TypeInfo, Hash))
     // Just a cache miss. The type matches after all.
     return;
@@ -36,7 +37,7 @@ void __ubsan::__ubsan_handle_dynamic_type_cache_miss(
     << TypeCheckKinds[Data->TypeCheckKind] << (void*)Pointer << Data->Type;
   // FIXME: If possible, say what type it actually points to. Produce a note
   //        pointing out the vptr:
-  // lib/VMCore/Instructions.cpp:2020:10: fatal error: member call on address
+  // lib/VMCore/Instructions.cpp:2020:10: runtime error: member call on address
   //       0xb7a4440 which does not point to an object of type
   //       'llvm::OverflowingBinaryOperator'
   //   return cast<OverflowingBinaryOperator>(this)->hasNoSignedWrap();
@@ -45,5 +46,15 @@ void __ubsan::__ubsan_handle_dynamic_type_cache_miss(
   //   00 00 00 00  e0 f7 c5 09 00 00 00 00  20 00 00 00
   //                ^~~~~~~~~~~
   //                vptr for 'llvm::BinaryOperator'
-  Die();
+  if (abort)
+    Die();
+}
+
+void __ubsan::__ubsan_handle_dynamic_type_cache_miss(
+  DynamicTypeCacheMissData *Data, ValueHandle Pointer, ValueHandle Hash) {
+  HandleDynamicTypeCacheMiss(Data, Pointer, Hash, false);
+}
+void __ubsan::__ubsan_handle_dynamic_type_cache_miss_abort(
+  DynamicTypeCacheMissData *Data, ValueHandle Pointer, ValueHandle Hash) {
+  HandleDynamicTypeCacheMiss(Data, Pointer, Hash, true);
 }

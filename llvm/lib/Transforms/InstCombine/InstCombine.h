@@ -11,12 +11,12 @@
 #define INSTCOMBINE_INSTCOMBINE_H
 
 #include "InstCombineWorklist.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IRBuilder.h"
+#include "llvm/InstVisitor.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Operator.h"
 #include "llvm/Pass.h"
-#include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/TargetFolder.h"
 #include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 
@@ -327,6 +327,11 @@ private:
   bool SimplifyDemandedBits(Use &U, APInt DemandedMask, 
                             APInt& KnownZero, APInt& KnownOne,
                             unsigned Depth=0);
+  /// Helper routine of SimplifyDemandedUseBits. It tries to simplify demanded
+  /// bit for "r1 = shr x, c1; r2 = shl r1, c2" instruction sequence.
+  Value *SimplifyShrShlDemandedBits(Instruction *Lsr, Instruction *Sftl,
+                                    APInt DemandedMask, APInt &KnownZero,
+                                    APInt &KnownOne);
       
   /// SimplifyDemandedInstructionBits - Inst is an integer instruction that
   /// SimplifyDemandedBits knows about.  See if the instruction has any

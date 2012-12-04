@@ -21,13 +21,13 @@
 
 #define DEBUG_TYPE "scheduler"
 #include "llvm/CodeGen/ResourcePriorityQueue.h"
+#include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/CodeGen/MachineInstr.h"
-#include "llvm/CodeGen/SelectionDAGNodes.h"
-#include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetMachine.h"
 
 using namespace llvm;
 
@@ -604,10 +604,8 @@ SUnit *ResourcePriorityQueue::pop() {
   std::vector<SUnit *>::iterator Best = Queue.begin();
   if (!DisableDFASched) {
     signed BestCost = SUSchedulingCost(*Best);
-    for (std::vector<SUnit *>::iterator I = Queue.begin(),
+    for (std::vector<SUnit *>::iterator I = llvm::next(Queue.begin()),
            E = Queue.end(); I != E; ++I) {
-      if (*I == *Best)
-        continue;
 
       if (SUSchedulingCost(*I) > BestCost) {
         BestCost = SUSchedulingCost(*I);

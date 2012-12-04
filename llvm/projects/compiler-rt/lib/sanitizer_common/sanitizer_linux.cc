@@ -16,6 +16,7 @@
 #include "sanitizer_common.h"
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_libc.h"
+#include "sanitizer_mutex.h"
 #include "sanitizer_placement_new.h"
 #include "sanitizer_procmaps.h"
 
@@ -217,21 +218,55 @@ void ReExec() {
 }
 
 // ----------------- sanitizer_procmaps.h
+ProcSelfMapsBuff MemoryMappingLayout::cached_proc_self_maps_;  // Linker initialized.
+StaticSpinMutex MemoryMappingLayout::cache_lock_;  // Linker initialized.
+
 MemoryMappingLayout::MemoryMappingLayout() {
-  proc_self_maps_buff_len_ =
-      ReadFileToBuffer("/proc/self/maps", &proc_self_maps_buff_,
-                       &proc_self_maps_buff_mmaped_size_, 1 << 26);
-  CHECK_GT(proc_self_maps_buff_len_, 0);
-  // internal_write(2, proc_self_maps_buff_, proc_self_maps_buff_len_);
+  proc_self_maps_.len =
+      ReadFileToBuffer("/proc/self/maps", &proc_self_maps_.data,
+                       &proc_self_maps_.mmaped_size, 1 << 26);
+  if (proc_self_maps_.mmaped_size == 0) {
+    LoadFromCache();
+    CHECK_GT(proc_self_maps_.len, 0);
+  }
+  // internal_write(2, proc_self_maps_.data, proc_self_maps_.len);
   Reset();
+  // FIXME: in the future we may want to cache the mappings on demand only.
+  CacheMemoryMappings();
 }
 
 MemoryMappingLayout::~MemoryMappingLayout() {
-  UnmapOrDie(proc_self_maps_buff_, proc_self_maps_buff_mmaped_size_);
+  UnmapOrDie(proc_self_maps_.data, proc_self_maps_.mmaped_size);
 }
 
 void MemoryMappingLayout::Reset() {
-  current_ = proc_self_maps_buff_;
+  current_ = proc_self_maps_.data;
+}
+
+// static
+void MemoryMappingLayout::CacheMemoryMappings() {
+  SpinMutexLock l(&cache_lock_);
+  // Don't invalidate the cache if the mappings are unavailable.
+  ProcSelfMapsBuff old_proc_self_maps;
+  old_proc_self_maps = cached_proc_self_maps_;
+  cached_proc_self_maps_.len =
+      ReadFileToBuffer("/proc/self/maps", &cached_proc_self_maps_.data,
+                       &cached_proc_self_maps_.mmaped_size, 1 << 26);
+  if (cached_proc_self_maps_.mmaped_size == 0) {
+    cached_proc_self_maps_ = old_proc_self_maps;
+  } else {
+    if (old_proc_self_maps.mmaped_size) {
+      UnmapOrDie(old_proc_self_maps.data,
+                 old_proc_self_maps.mmaped_size);
+    }
+  }
+}
+
+void MemoryMappingLayout::LoadFromCache() {
+  SpinMutexLock l(&cache_lock_);
+  if (cached_proc_self_maps_.data) {
+    proc_self_maps_ = cached_proc_self_maps_;  
+  }
 }
 
 // Parse a hex value in str and update str.
@@ -265,7 +300,7 @@ static bool IsDecimal(char c) {
 
 bool MemoryMappingLayout::Next(uptr *start, uptr *end, uptr *offset,
                                char filename[], uptr filename_size) {
-  char *last = proc_self_maps_buff_ + proc_self_maps_buff_len_;
+  char *last = proc_self_maps_.data + proc_self_maps_.len;
   if (current_ >= last) return false;
   uptr dummy;
   if (!start) start = &dummy;

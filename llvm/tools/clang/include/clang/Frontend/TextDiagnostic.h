@@ -18,8 +18,6 @@
 
 #include "clang/Frontend/DiagnosticRenderer.h"
 
-struct SourceColumnMap;
-
 namespace clang {
 
 /// \brief Class to encapsulate the logic for formatting and printing a textual
@@ -103,6 +101,14 @@ protected:
   virtual void emitIncludeLocation(SourceLocation Loc, PresumedLoc PLoc,
                                    const SourceManager &SM);
 
+  virtual void emitImportLocation(SourceLocation Loc, PresumedLoc PLoc,
+                                  StringRef ModuleName,
+                                  const SourceManager &SM);
+
+  virtual void emitBuildingModuleLocation(SourceLocation Loc, PresumedLoc PLoc,
+                                          StringRef ModuleName,
+                                          const SourceManager &SM);
+
 private:
   void emitSnippetAndCaret(SourceLocation Loc, DiagnosticsEngine::Level Level,
                            SmallVectorImpl<CharSourceRange>& Ranges,
@@ -111,16 +117,6 @@ private:
 
   void emitSnippet(StringRef SourceLine);
 
-  void highlightRange(const CharSourceRange &R,
-                      unsigned LineNo, FileID FID,
-                      const SourceColumnMap &map,
-                      std::string &CaretLine,
-                      const SourceManager &SM);
-
-  std::string buildFixItInsertionLine(unsigned LineNo,
-                                      const SourceColumnMap &map,
-                                      ArrayRef<FixItHint> Hints,
-                                      const SourceManager &SM);
   void emitParseableFixits(ArrayRef<FixItHint> Hints, const SourceManager &SM);
 };
 

@@ -16,12 +16,12 @@
 #define LLVM_CLANG_SOURCELOCATION_H
 
 #include "clang/Basic/LLVM.h"
-#include "llvm/Support/PointerLikeTypeTraits.h"
 #include "llvm/Support/Compiler.h"
-#include <utility>
-#include <functional>
+#include "llvm/Support/PointerLikeTypeTraits.h"
 #include <cassert>
+#include <functional>
 #include <string>
+#include <utility>
 
 namespace llvm {
   class MemoryBuffer;
@@ -218,7 +218,7 @@ public:
 /// \brief Represents a character-granular source range.
 ///
 /// The underlying SourceRange can either specify the starting/ending character
-/// of the range, or it can specify the start or the range and the start of the
+/// of the range, or it can specify the start of the range and the start of the
 /// last token of the range (a "token range").  In the token range case, the
 /// size of the last token must be measured to determine the actual end of the
 /// range.

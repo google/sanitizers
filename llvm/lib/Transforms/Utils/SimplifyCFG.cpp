@@ -13,6 +13,14 @@
 
 #define DEBUG_TYPE "simplifycfg"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Constants.h"
 #include "llvm/DataLayout.h"
 #include "llvm/DerivedTypes.h"
@@ -25,15 +33,6 @@
 #include "llvm/Metadata.h"
 #include "llvm/Module.h"
 #include "llvm/Operator.h"
-#include "llvm/Type.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/Analysis/InstructionSimplify.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConstantRange.h"
@@ -42,9 +41,10 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetTransformInfo.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Type.h"
 #include <algorithm>
-#include <set>
 #include <map>
+#include <set>
 using namespace llvm;
 
 static cl::opt<unsigned>
@@ -3511,22 +3511,44 @@ bool SwitchLookupTable::WouldFitInRegister(const DataLayout *TD,
 static bool ShouldBuildLookupTable(SwitchInst *SI,
                                    uint64_t TableSize,
                                    const DataLayout *TD,
+                                   const TargetTransformInfo *TTI,
                             const SmallDenseMap<PHINode*, Type*>& ResultTypes) {
+  if (SI->getNumCases() > TableSize || TableSize >= UINT64_MAX / 10)
+    return false; // TableSize overflowed, or mul below might overflow.
+
+  bool AllTablesFitInRegister = true;
+  bool HasIllegalType = false;
+  for (SmallDenseMap<PHINode*, Type*>::const_iterator I = ResultTypes.begin(),
+       E = ResultTypes.end(); I != E; ++I) {
+    Type *Ty = I->second;
+
+    // Saturate this flag to true.
+    HasIllegalType = HasIllegalType ||
+      !TTI->getScalarTargetTransformInfo()->isTypeLegal(Ty);
+
+    // Saturate this flag to false.
+    AllTablesFitInRegister = AllTablesFitInRegister &&
+      SwitchLookupTable::WouldFitInRegister(TD, TableSize, Ty);
+
+    // If both flags saturate, we're done. NOTE: This *only* works with
+    // saturating flags, and all flags have to saturate first due to the
+    // non-deterministic behavior of iterating over a dense map.
+    if (HasIllegalType && !AllTablesFitInRegister)
+      break;
+  }
+
+  // If each table would fit in a register, we should build it anyway.
+  if (AllTablesFitInRegister)
+    return true;
+
+  // Don't build a table that doesn't fit in-register if it has illegal types.
+  if (HasIllegalType)
+    return false;
+
   // The table density should be at least 40%. This is the same criterion as for
   // jump tables, see SelectionDAGBuilder::handleJTSwitchCase.
   // FIXME: Find the best cut-off.
-  if (SI->getNumCases() > TableSize || TableSize >= UINT64_MAX / 10)
-    return false; // TableSize overflowed, or mul below might overflow.
-  if (SI->getNumCases() * 10 >= TableSize * 4)
-    return true;
-
-  // If each table would fit in a register, we should build it anyway.
-  for (SmallDenseMap<PHINode*, Type*>::const_iterator I = ResultTypes.begin(),
-       E = ResultTypes.end(); I != E; ++I) {
-    if (!SwitchLookupTable::WouldFitInRegister(TD, TableSize, I->second))
-      return false;
-  }
-  return true;
+  return SI->getNumCases() * 10 >= TableSize * 4;
 }
 
 /// SwitchToLookupTable - If the switch is only used to initialize one or more
@@ -3607,7 +3629,7 @@ static bool SwitchToLookupTable(SwitchInst *SI,
 
   APInt RangeSpread = MaxCaseVal->getValue() - MinCaseVal->getValue();
   uint64_t TableSize = RangeSpread.getLimitedValue() + 1;
-  if (!ShouldBuildLookupTable(SI, TableSize, TD, ResultTypes))
+  if (!ShouldBuildLookupTable(SI, TableSize, TD, TTI, ResultTypes))
     return false;
 
   // Create the BB that does the lookups.

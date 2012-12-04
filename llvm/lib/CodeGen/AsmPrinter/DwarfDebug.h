@@ -15,15 +15,15 @@
 #define CODEGEN_ASMPRINTER_DWARFDEBUG_H__
 
 #include "DIE.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/LexicalScopes.h"
-#include "llvm/MC/MachineLocation.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/LexicalScopes.h"
+#include "llvm/DebugInfo.h"
+#include "llvm/MC/MachineLocation.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/DebugLoc.h"
 
@@ -205,6 +205,9 @@ class DwarfDebug {
 
   CompileUnit *FirstCU;
 
+  // The CU left in the original object file for Fission debug info.
+  CompileUnit *FissionCU;
+
   // Maps MDNode with its corresponding CompileUnit.
   DenseMap <const MDNode *, CompileUnit *> CUMap;
 
@@ -312,6 +315,11 @@ class DwarfDebug {
   // Holders for the various debug information flags that we might need to
   // have exposed. See accessor functions below for description.
   bool IsDarwinGDBCompat;
+
+  // Counter for assigning globally unique IDs for CUs.
+  unsigned GlobalCUIndexCount;
+
+  // DWARF5 Experimental Options
   bool HasDwarfAccelTables;
   bool HasDwarfFission;
 private:
@@ -367,6 +375,9 @@ private:
   /// open.
   void endSections();
 
+  /// \brief Emit all of the compile units to the target section.
+  void emitCompileUnits(const MCSection *);
+
   /// \brief Emit the debug info section.
   void emitDebugInfo();
 
@@ -410,6 +421,17 @@ private:
 
   /// \brief Emit inline info using custom format.
   void emitDebugInlineInfo();
+
+  /// DWARF 5 Experimental Fission Emitters
+
+  /// \brief Construct the fission compile unit for the debug info section.
+  CompileUnit *constructFissionCU(const MDNode *);
+
+  /// \brief Emit the fission debug info section.
+  void emitFissionSkeletonCU(const MCSection *);
+
+  /// \brief Emit the debug info dwo section.
+  void emitDebugInfoDWO();
 
   /// \brief Create new CompileUnit for the given metadata node with tag
   /// DW_TAG_compile_unit.

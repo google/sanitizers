@@ -25,33 +25,33 @@
 
 #define DEBUG_TYPE "sroa"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/Dominators.h"
+#include "llvm/Analysis/Loads.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Constants.h"
 #include "llvm/DIBuilder.h"
+#include "llvm/DataLayout.h"
 #include "llvm/DebugInfo.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
 #include "llvm/IRBuilder.h"
+#include "llvm/InstVisitor.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/Module.h"
 #include "llvm/Operator.h"
 #include "llvm/Pass.h"
-#include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/Analysis/Dominators.h"
-#include "llvm/Analysis/Loads.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
-#include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/DataLayout.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
@@ -541,27 +541,15 @@ private:
 
   void insertUse(Instruction &I, int64_t Offset, uint64_t Size,
                  bool IsSplittable = false) {
-    // Completely skip uses which have a zero size or don't overlap the
-    // allocation.
-    if (Size == 0 ||
-        (Offset >= 0 && (uint64_t)Offset >= AllocSize) ||
-        (Offset < 0 && (uint64_t)-Offset >= Size)) {
+    // Completely skip uses which have a zero size or start either before or
+    // past the end of the allocation.
+    if (Size == 0 || Offset < 0 || (uint64_t)Offset >= AllocSize) {
       DEBUG(dbgs() << "WARNING: Ignoring " << Size << " byte use @" << Offset
-                   << " which starts past the end of the " << AllocSize
-                   << " byte alloca:\n"
+                   << " which has zero size or starts outside of the "
+                   << AllocSize << " byte alloca:\n"
                    << "    alloca: " << P.AI << "\n"
                    << "       use: " << I << "\n");
       return;
-    }
-
-    // Clamp the start to the beginning of the allocation.
-    if (Offset < 0) {
-      DEBUG(dbgs() << "WARNING: Clamping a " << Size << " byte use @" << Offset
-                   << " to start at the beginning of the alloca:\n"
-                   << "    alloca: " << P.AI << "\n"
-                   << "       use: " << I << "\n");
-      Size -= (uint64_t)-Offset;
-      Offset = 0;
     }
 
     uint64_t BeginOffset = Offset, EndOffset = BeginOffset + Size;
@@ -881,15 +869,8 @@ private:
   void insertUse(Instruction &User, int64_t Offset, uint64_t Size) {
     // If the use has a zero size or extends outside of the allocation, record
     // it as a dead use for elimination later.
-    if (Size == 0 || (uint64_t)Offset >= AllocSize ||
-        (Offset < 0 && (uint64_t)-Offset >= Size))
+    if (Size == 0 || Offset < 0 || (uint64_t)Offset >= AllocSize)
       return markAsDead(User);
-
-    // Clamp the start to the beginning of the allocation.
-    if (Offset < 0) {
-      Size -= (uint64_t)-Offset;
-      Offset = 0;
-    }
 
     uint64_t BeginOffset = Offset, EndOffset = BeginOffset + Size;
 
@@ -2164,6 +2145,9 @@ static bool isIntegerWideningViable(const DataLayout &TD,
                                     AllocaPartitioning::const_use_iterator I,
                                     AllocaPartitioning::const_use_iterator E) {
   uint64_t SizeInBits = TD.getTypeSizeInBits(AllocaTy);
+  // Don't create integer types larger than the maximum bitwidth.
+  if (SizeInBits > IntegerType::MAX_INT_BITS)
+    return false;
 
   // Don't try to handle allocas with bit-padding.
   if (SizeInBits != TD.getTypeStoreSizeInBits(AllocaTy))

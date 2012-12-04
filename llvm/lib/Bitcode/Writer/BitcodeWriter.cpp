@@ -12,22 +12,22 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "ValueEnumerator.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Bitcode/BitstreamWriter.h"
 #include "llvm/Bitcode/LLVMBitCodes.h"
-#include "ValueEnumerator.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/InlineAsm.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Operator.h"
-#include "llvm/ValueSymbolTable.h"
-#include "llvm/ADT/Triple.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/ValueSymbolTable.h"
 #include <cctype>
 #include <map>
 using namespace llvm;
@@ -709,7 +709,7 @@ static void WriteModuleMetadataStore(const Module *M, BitstreamWriter &Stream) {
 
   // Write metadata kinds
   // METADATA_KIND - [n x [id, name]]
-  SmallVector<StringRef, 4> Names;
+  SmallVector<StringRef, 8> Names;
   M->getMDKindNames(Names);
 
   if (Names.empty()) return;
@@ -1939,7 +1939,7 @@ static void EmitDarwinBCHeaderAndTrailer(SmallVectorImpl<char> &Buffer,
 /// WriteBitcodeToFile - Write the specified module to the specified output
 /// stream.
 void llvm::WriteBitcodeToFile(const Module *M, raw_ostream &Out) {
-  SmallVector<char, 1024> Buffer;
+  SmallVector<char, 0> Buffer;
   Buffer.reserve(256*1024);
 
   // If this is darwin or another generic macho target, reserve space for the
