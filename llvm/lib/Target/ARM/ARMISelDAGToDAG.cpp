@@ -17,23 +17,23 @@
 #include "ARMTargetMachine.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
 #include "llvm/CallingConv.h"
-#include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/Function.h"
-#include "llvm/Intrinsics.h"
-#include "llvm/LLVMContext.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetOptions.h"
+#include "llvm/Constants.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/Function.h"
+#include "llvm/Intrinsics.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetOptions.h"
 
 using namespace llvm;
 
@@ -3327,6 +3327,15 @@ SDNode *ARMDAGToDAGISel::Select(SDNode *N) {
     return SelectAtomic64(N, ARM::ATOMSWAP6432);
   case ARMISD::ATOMCMPXCHG64_DAG:
     return SelectAtomic64(N, ARM::ATOMCMPXCHG6432);
+
+  case ARMISD::ATOMMIN64_DAG:
+    return SelectAtomic64(N, ARM::ATOMMIN6432);
+  case ARMISD::ATOMUMIN64_DAG:
+    return SelectAtomic64(N, ARM::ATOMUMIN6432);
+  case ARMISD::ATOMMAX64_DAG:
+    return SelectAtomic64(N, ARM::ATOMMAX6432);
+  case ARMISD::ATOMUMAX64_DAG:
+    return SelectAtomic64(N, ARM::ATOMUMAX6432);
   }
 
   return SelectCode(N);

@@ -11,16 +11,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Sema/Designator.h"
 #include "clang/Sema/Initialization.h"
-#include "clang/Sema/Lookup.h"
-#include "clang/Sema/SemaInternal.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/TypeLoc.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/Designator.h"
+#include "clang/Sema/Lookup.h"
+#include "clang/Sema/SemaInternal.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -2865,9 +2865,7 @@ static void TryConstructorInitialization(Sema &S,
 
     // If the initializer list has no elements and T has a default constructor,
     // the first phase is omitted.
-    if (ILE->getNumInits() != 0 ||
-        (!DestRecordDecl->hasDeclaredDefaultConstructor() &&
-         !DestRecordDecl->needsImplicitDefaultConstructor()))
+    if (ILE->getNumInits() != 0 || !DestRecordDecl->hasDefaultConstructor())
       Result = ResolveConstructorOverload(S, Kind.getLocation(), Args, NumArgs,
                                           CandidateSet, Ctors, Best,
                                           CopyInitialization, AllowExplicit,
@@ -3077,8 +3075,7 @@ static void TryListInitialization(Sema &S,
         //     value-initialized.
         if (InitList->getNumInits() == 0) {
           CXXRecordDecl *RD = DestType->getAsCXXRecordDecl();
-          if (RD->hasDeclaredDefaultConstructor() ||
-              RD->needsImplicitDefaultConstructor()) {
+          if (RD->hasDefaultConstructor()) {
             TryValueInitialization(S, Entity, Kind, Sequence, InitList);
             return;
           }

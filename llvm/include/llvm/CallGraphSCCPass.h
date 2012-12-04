@@ -21,8 +21,8 @@
 #ifndef LLVM_CALL_GRAPH_SCC_PASS_H
 #define LLVM_CALL_GRAPH_SCC_PASS_H
 
-#include "llvm/Pass.h"
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Pass.h"
 
 namespace llvm {
 
@@ -38,6 +38,9 @@ public:
   /// createPrinterPass - Get a pass that prints the Module
   /// corresponding to a CallGraph.
   Pass *createPrinterPass(raw_ostream &O, const std::string &Banner) const;
+
+  using llvm::Pass::doInitialization;
+  using llvm::Pass::doFinalization;
 
   /// doInitialization - This method is called before the SCC's of the program
   /// has been processed, allowing the pass to do initialization as necessary.

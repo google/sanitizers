@@ -18,25 +18,26 @@
 #include "ARMMachineFunctionInfo.h"
 #include "ARMSubtarget.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
-#include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/Function.h"
-#include "llvm/LLVMContext.h"
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
+#include "llvm/CodeGen/VirtRegMap.h"
+#include "llvm/Constants.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/Function.h"
+#include "llvm/LLVMContext.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/CommandLine.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "ARMGenRegisterInfo.inc"
@@ -173,154 +174,62 @@ ARMBaseRegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
   }
 }
 
-/// getRawAllocationOrder - Returns the register allocation order for a
-/// specified register class with a target-dependent hint.
-ArrayRef<uint16_t>
-ARMBaseRegisterInfo::getRawAllocationOrder(const TargetRegisterClass *RC,
-                                           unsigned HintType, unsigned HintReg,
-                                           const MachineFunction &MF) const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-  // Alternative register allocation orders when favoring even / odd registers
-  // of register pairs.
-
-  // No FP, R9 is available.
-  static const uint16_t GPREven1[] = {
-    ARM::R0, ARM::R2, ARM::R4, ARM::R6, ARM::R8, ARM::R10,
-    ARM::R1, ARM::R3, ARM::R12,ARM::LR, ARM::R5, ARM::R7,
-    ARM::R9, ARM::R11
-  };
-  static const uint16_t GPROdd1[] = {
-    ARM::R1, ARM::R3, ARM::R5, ARM::R7, ARM::R9, ARM::R11,
-    ARM::R0, ARM::R2, ARM::R12,ARM::LR, ARM::R4, ARM::R6,
-    ARM::R8, ARM::R10
-  };
-
-  // FP is R7, R9 is available.
-  static const uint16_t GPREven2[] = {
-    ARM::R0, ARM::R2, ARM::R4,          ARM::R8, ARM::R10,
-    ARM::R1, ARM::R3, ARM::R12,ARM::LR, ARM::R5, ARM::R6,
-    ARM::R9, ARM::R11
-  };
-  static const uint16_t GPROdd2[] = {
-    ARM::R1, ARM::R3, ARM::R5,          ARM::R9, ARM::R11,
-    ARM::R0, ARM::R2, ARM::R12,ARM::LR, ARM::R4, ARM::R6,
-    ARM::R8, ARM::R10
-  };
-
-  // FP is R11, R9 is available.
-  static const uint16_t GPREven3[] = {
-    ARM::R0, ARM::R2, ARM::R4, ARM::R6, ARM::R8,
-    ARM::R1, ARM::R3, ARM::R10,ARM::R12,ARM::LR, ARM::R5, ARM::R7,
-    ARM::R9
-  };
-  static const uint16_t GPROdd3[] = {
-    ARM::R1, ARM::R3, ARM::R5, ARM::R6, ARM::R9,
-    ARM::R0, ARM::R2, ARM::R10,ARM::R12,ARM::LR, ARM::R4, ARM::R7,
-    ARM::R8
-  };
-
-  // No FP, R9 is not available.
-  static const uint16_t GPREven4[] = {
-    ARM::R0, ARM::R2, ARM::R4, ARM::R6,          ARM::R10,
-    ARM::R1, ARM::R3, ARM::R12,ARM::LR, ARM::R5, ARM::R7, ARM::R8,
-    ARM::R11
-  };
-  static const uint16_t GPROdd4[] = {
-    ARM::R1, ARM::R3, ARM::R5, ARM::R7,          ARM::R11,
-    ARM::R0, ARM::R2, ARM::R12,ARM::LR, ARM::R4, ARM::R6, ARM::R8,
-    ARM::R10
-  };
-
-  // FP is R7, R9 is not available.
-  static const uint16_t GPREven5[] = {
-    ARM::R0, ARM::R2, ARM::R4,                   ARM::R10,
-    ARM::R1, ARM::R3, ARM::R12,ARM::LR, ARM::R5, ARM::R6, ARM::R8,
-    ARM::R11
-  };
-  static const uint16_t GPROdd5[] = {
-    ARM::R1, ARM::R3, ARM::R5,                   ARM::R11,
-    ARM::R0, ARM::R2, ARM::R12,ARM::LR, ARM::R4, ARM::R6, ARM::R8,
-    ARM::R10
-  };
-
-  // FP is R11, R9 is not available.
-  static const uint16_t GPREven6[] = {
-    ARM::R0, ARM::R2, ARM::R4, ARM::R6,
-    ARM::R1, ARM::R3, ARM::R10,ARM::R12,ARM::LR, ARM::R5, ARM::R7, ARM::R8
-  };
-  static const uint16_t GPROdd6[] = {
-    ARM::R1, ARM::R3, ARM::R5, ARM::R7,
-    ARM::R0, ARM::R2, ARM::R10,ARM::R12,ARM::LR, ARM::R4, ARM::R6, ARM::R8
-  };
-
-  // We only support even/odd hints for GPR and rGPR.
-  if (RC != &ARM::GPRRegClass && RC != &ARM::rGPRRegClass)
-    return RC->getRawAllocationOrder(MF);
-
-  if (HintType == ARMRI::RegPairEven) {
-    if (isPhysicalRegister(HintReg) && getRegisterPairEven(HintReg, MF) == 0)
-      // It's no longer possible to fulfill this hint. Return the default
-      // allocation order.
-      return RC->getRawAllocationOrder(MF);
-
-    if (!TFI->hasFP(MF)) {
-      if (!STI.isR9Reserved())
-        return makeArrayRef(GPREven1);
-      else
-        return makeArrayRef(GPREven4);
-    } else if (FramePtr == ARM::R7) {
-      if (!STI.isR9Reserved())
-        return makeArrayRef(GPREven2);
-      else
-        return makeArrayRef(GPREven5);
-    } else { // FramePtr == ARM::R11
-      if (!STI.isR9Reserved())
-        return makeArrayRef(GPREven3);
-      else
-        return makeArrayRef(GPREven6);
-    }
-  } else if (HintType == ARMRI::RegPairOdd) {
-    if (isPhysicalRegister(HintReg) && getRegisterPairOdd(HintReg, MF) == 0)
-      // It's no longer possible to fulfill this hint. Return the default
-      // allocation order.
-      return RC->getRawAllocationOrder(MF);
-
-    if (!TFI->hasFP(MF)) {
-      if (!STI.isR9Reserved())
-        return makeArrayRef(GPROdd1);
-      else
-        return makeArrayRef(GPROdd4);
-    } else if (FramePtr == ARM::R7) {
-      if (!STI.isR9Reserved())
-        return makeArrayRef(GPROdd2);
-      else
-        return makeArrayRef(GPROdd5);
-    } else { // FramePtr == ARM::R11
-      if (!STI.isR9Reserved())
-        return makeArrayRef(GPROdd3);
-      else
-        return makeArrayRef(GPROdd6);
-    }
-  }
-  return RC->getRawAllocationOrder(MF);
+// Get the other register in a GPRPair.
+static unsigned getPairedGPR(unsigned Reg, bool Odd, const MCRegisterInfo *RI) {
+  for (MCSuperRegIterator Supers(Reg, RI); Supers.isValid(); ++Supers)
+    if (ARM::GPRPairRegClass.contains(*Supers))
+      return RI->getSubReg(*Supers, Odd ? ARM::gsub_1 : ARM::gsub_0);
+  return 0;
 }
 
-/// ResolveRegAllocHint - Resolves the specified register allocation hint
-/// to a physical register. Returns the physical register if it is successful.
-unsigned
-ARMBaseRegisterInfo::ResolveRegAllocHint(unsigned Type, unsigned Reg,
-                                         const MachineFunction &MF) const {
-  if (Reg == 0 || !isPhysicalRegister(Reg))
-    return 0;
-  if (Type == 0)
-    return Reg;
-  else if (Type == (unsigned)ARMRI::RegPairOdd)
-    // Odd register.
-    return getRegisterPairOdd(Reg, MF);
-  else if (Type == (unsigned)ARMRI::RegPairEven)
-    // Even register.
-    return getRegisterPairEven(Reg, MF);
-  return 0;
+// Resolve the RegPairEven / RegPairOdd register allocator hints.
+void
+ARMBaseRegisterInfo::getRegAllocationHints(unsigned VirtReg,
+                                           ArrayRef<MCPhysReg> Order,
+                                           SmallVectorImpl<MCPhysReg> &Hints,
+                                           const MachineFunction &MF,
+                                           const VirtRegMap *VRM) const {
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
+  std::pair<unsigned, unsigned> Hint = MRI.getRegAllocationHint(VirtReg);
+
+  unsigned Odd;
+  switch (Hint.first) {
+  case ARMRI::RegPairEven:
+    Odd = 0;
+    break;
+  case ARMRI::RegPairOdd:
+    Odd = 1;
+    break;
+  default:
+    TargetRegisterInfo::getRegAllocationHints(VirtReg, Order, Hints, MF, VRM);
+    return;
+  }
+
+  // This register should preferably be even (Odd == 0) or odd (Odd == 1).
+  // Check if the other part of the pair has already been assigned, and provide
+  // the paired register as the first hint.
+  unsigned PairedPhys = 0;
+  if (VRM && VRM->hasPhys(Hint.second)) {
+    PairedPhys = getPairedGPR(VRM->getPhys(Hint.second), Odd, this);
+    if (PairedPhys && MRI.isReserved(PairedPhys))
+      PairedPhys = 0;
+  }
+
+  // First prefer the paired physreg.
+  if (PairedPhys)
+    Hints.push_back(PairedPhys);
+
+  // Then prefer even or odd registers.
+  for (unsigned I = 0, E = Order.size(); I != E; ++I) {
+    unsigned Reg = Order[I];
+    if (Reg == PairedPhys || (getEncodingValue(Reg) & 1) != Odd)
+      continue;
+    // Don't provide hints that are paired to a reserved register.
+    unsigned Paired = getPairedGPR(Reg, !Odd, this);
+    if (!Paired || MRI.isReserved(Paired))
+      continue;
+    Hints.push_back(Reg);
+  }
 }
 
 void
@@ -462,114 +371,6 @@ unsigned ARMBaseRegisterInfo::getEHExceptionRegister() const {
 
 unsigned ARMBaseRegisterInfo::getEHHandlerRegister() const {
   llvm_unreachable("What is the exception handler register");
-}
-
-unsigned ARMBaseRegisterInfo::getRegisterPairEven(unsigned Reg,
-                                              const MachineFunction &MF) const {
-  const MachineRegisterInfo &MRI = MF.getRegInfo();
-  switch (Reg) {
-  default: break;
-  // Return 0 if either register of the pair is a special register.
-  // So no R12, etc.
-  case ARM::R1: return ARM::R0;
-  case ARM::R3: return ARM::R2;
-  case ARM::R5: return ARM::R4;
-  case ARM::R7:
-    return (MRI.isReserved(ARM::R7) || MRI.isReserved(ARM::R6))
-      ? 0 : ARM::R6;
-  case ARM::R9: return MRI.isReserved(ARM::R9)  ? 0 :ARM::R8;
-  case ARM::R11: return MRI.isReserved(ARM::R11) ? 0 : ARM::R10;
-
-  case ARM::S1: return ARM::S0;
-  case ARM::S3: return ARM::S2;
-  case ARM::S5: return ARM::S4;
-  case ARM::S7: return ARM::S6;
-  case ARM::S9: return ARM::S8;
-  case ARM::S11: return ARM::S10;
-  case ARM::S13: return ARM::S12;
-  case ARM::S15: return ARM::S14;
-  case ARM::S17: return ARM::S16;
-  case ARM::S19: return ARM::S18;
-  case ARM::S21: return ARM::S20;
-  case ARM::S23: return ARM::S22;
-  case ARM::S25: return ARM::S24;
-  case ARM::S27: return ARM::S26;
-  case ARM::S29: return ARM::S28;
-  case ARM::S31: return ARM::S30;
-
-  case ARM::D1: return ARM::D0;
-  case ARM::D3: return ARM::D2;
-  case ARM::D5: return ARM::D4;
-  case ARM::D7: return ARM::D6;
-  case ARM::D9: return ARM::D8;
-  case ARM::D11: return ARM::D10;
-  case ARM::D13: return ARM::D12;
-  case ARM::D15: return ARM::D14;
-  case ARM::D17: return ARM::D16;
-  case ARM::D19: return ARM::D18;
-  case ARM::D21: return ARM::D20;
-  case ARM::D23: return ARM::D22;
-  case ARM::D25: return ARM::D24;
-  case ARM::D27: return ARM::D26;
-  case ARM::D29: return ARM::D28;
-  case ARM::D31: return ARM::D30;
-  }
-
-  return 0;
-}
-
-unsigned ARMBaseRegisterInfo::getRegisterPairOdd(unsigned Reg,
-                                             const MachineFunction &MF) const {
-  const MachineRegisterInfo &MRI = MF.getRegInfo();
-  switch (Reg) {
-  default: break;
-  // Return 0 if either register of the pair is a special register.
-  // So no R12, etc.
-  case ARM::R0: return ARM::R1;
-  case ARM::R2: return ARM::R3;
-  case ARM::R4: return ARM::R5;
-  case ARM::R6:
-    return (MRI.isReserved(ARM::R7) || MRI.isReserved(ARM::R6))
-      ? 0 : ARM::R7;
-  case ARM::R8: return MRI.isReserved(ARM::R9)  ? 0 :ARM::R9;
-  case ARM::R10: return MRI.isReserved(ARM::R11) ? 0 : ARM::R11;
-
-  case ARM::S0: return ARM::S1;
-  case ARM::S2: return ARM::S3;
-  case ARM::S4: return ARM::S5;
-  case ARM::S6: return ARM::S7;
-  case ARM::S8: return ARM::S9;
-  case ARM::S10: return ARM::S11;
-  case ARM::S12: return ARM::S13;
-  case ARM::S14: return ARM::S15;
-  case ARM::S16: return ARM::S17;
-  case ARM::S18: return ARM::S19;
-  case ARM::S20: return ARM::S21;
-  case ARM::S22: return ARM::S23;
-  case ARM::S24: return ARM::S25;
-  case ARM::S26: return ARM::S27;
-  case ARM::S28: return ARM::S29;
-  case ARM::S30: return ARM::S31;
-
-  case ARM::D0: return ARM::D1;
-  case ARM::D2: return ARM::D3;
-  case ARM::D4: return ARM::D5;
-  case ARM::D6: return ARM::D7;
-  case ARM::D8: return ARM::D9;
-  case ARM::D10: return ARM::D11;
-  case ARM::D12: return ARM::D13;
-  case ARM::D14: return ARM::D15;
-  case ARM::D16: return ARM::D17;
-  case ARM::D18: return ARM::D19;
-  case ARM::D20: return ARM::D21;
-  case ARM::D22: return ARM::D23;
-  case ARM::D24: return ARM::D25;
-  case ARM::D26: return ARM::D27;
-  case ARM::D28: return ARM::D29;
-  case ARM::D30: return ARM::D31;
-  }
-
-  return 0;
 }
 
 /// emitLoadConstPool - Emits a load from constpool to materialize the

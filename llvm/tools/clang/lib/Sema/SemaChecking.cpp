@@ -12,32 +12,32 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Sema/Initialization.h"
-#include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaInternal.h"
-#include "clang/Sema/Initialization.h"
-#include "clang/Sema/Lookup.h"
-#include "clang/Sema/ScopeInfo.h"
-#include "clang/Analysis/Analyses/FormatString.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
+#include "clang/AST/DeclObjC.h"
+#include "clang/AST/EvaluatedExprVisitor.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
-#include "clang/AST/EvaluatedExprVisitor.h"
-#include "clang/AST/DeclObjC.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
-#include "clang/Lex/Preprocessor.h"
-#include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/raw_ostream.h"
+#include "clang/Analysis/Analyses/FormatString.h"
+#include "clang/Basic/ConvertUTF.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
-#include "clang/Basic/ConvertUTF.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/Initialization.h"
+#include "clang/Sema/Initialization.h"
+#include "clang/Sema/Lookup.h"
+#include "clang/Sema/ScopeInfo.h"
+#include "clang/Sema/Sema.h"
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 #include <limits>
 using namespace clang;
 using namespace sema;
@@ -4346,7 +4346,6 @@ static void DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
          && "comparison with non-integer type");
 
   bool ConstantSigned = ConstantT->isSignedIntegerType();
-  bool OtherSigned = OtherT->isSignedIntegerType();
   bool CommonSigned = CommonT->isSignedIntegerType();
 
   bool EqualityOnly = false;
@@ -4358,7 +4357,7 @@ static void DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
   
   if (CommonSigned) {
     // The common type is signed, therefore no signed to unsigned conversion.
-    if (OtherSigned) {
+    if (!OtherRange.NonNegative) {
       // Check that the constant is representable in type OtherT.
       if (ConstantSigned) {
         if (OtherWidth >= Value.getMinSignedBits())
@@ -4379,10 +4378,10 @@ static void DiagnoseOutOfRangeComparison(Sema &S, BinaryOperator *E,
       }
     }
   } else {  // !CommonSigned
-    if (!OtherSigned) {
+    if (OtherRange.NonNegative) {
       if (OtherWidth >= Value.getActiveBits())
         return;
-    } else if (OtherSigned && !ConstantSigned) {
+    } else if (!OtherRange.NonNegative && !ConstantSigned) {
       // Check to see if the constant is representable in OtherT.
       if (OtherWidth > Value.getActiveBits())
         return;

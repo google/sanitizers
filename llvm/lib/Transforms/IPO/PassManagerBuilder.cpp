@@ -14,21 +14,19 @@
 
 
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-
 #include "llvm-c/Transforms/PassManagerBuilder.h"
-
-#include "llvm/PassManager.h"
-#include "llvm/DefaultPasses.h"
-#include "llvm/PassManager.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/Verifier.h"
+#include "llvm/DefaultPasses.h"
+#include "llvm/PassManager.h"
+#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Target/TargetLibraryInfo.h"
+#include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Vectorize.h"
-#include "llvm/Transforms/IPO.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ManagedStatic.h"
 
 using namespace llvm;
 
@@ -190,10 +188,8 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
   MPM.add(createLoopIdiomPass());             // Recognize idioms like memset.
   MPM.add(createLoopDeletionPass());          // Delete dead loops
 
-  if (LoopVectorize) {
+  if (LoopVectorize)
     MPM.add(createLoopVectorizePass());
-    MPM.add(createLICMPass());
-  }
 
   if (!DisableUnrollLoops)
     MPM.add(createLoopUnrollPass());          // Unroll small loops

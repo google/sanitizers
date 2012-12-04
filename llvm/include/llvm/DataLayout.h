@@ -20,9 +20,9 @@
 #ifndef LLVM_DATALAYOUT_H
 #define LLVM_DATALAYOUT_H
 
-#include "llvm/Pass.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
@@ -148,9 +148,9 @@ private:
     return &align != &InvalidPointerElem;
   }
 
-  /// Parses a target data specification string. Returns an error message
-  /// if the string is malformed, or the empty string on success.
-  std::string parseSpecifier(StringRef LayoutDescription);
+  /// Parses a target data specification string. Assert if the string is
+  /// malformed.
+  void parseSpecifier(StringRef LayoutDescription);
 
 public:
   /// Default ctor.

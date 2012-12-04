@@ -12,13 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Sema/SemaInternal.h"
-#include "clang/Sema/DelayedDiagnostic.h"
-#include "clang/Sema/Initialization.h"
-#include "clang/Sema/Lookup.h"
-#include "clang/Sema/ScopeInfo.h"
-#include "clang/Sema/AnalysisBasedWarnings.h"
-#include "clang/AST/ASTContext.h"
+#include "TreeTransform.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclObjC.h"
@@ -34,14 +30,18 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/LiteralSupport.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/AnalysisBasedWarnings.h"
 #include "clang/Sema/DeclSpec.h"
+#include "clang/Sema/DelayedDiagnostic.h"
 #include "clang/Sema/Designator.h"
+#include "clang/Sema/Initialization.h"
+#include "clang/Sema/Lookup.h"
+#include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
-#include "clang/Sema/ParsedTemplate.h"
+#include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/SemaFixItUtils.h"
 #include "clang/Sema/Template.h"
-#include "TreeTransform.h"
 using namespace clang;
 using namespace sema;
 
@@ -3730,10 +3730,10 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc,
           (!Param || !Param->hasAttr<CFConsumedAttr>()))
         Arg = stripARCUnbridgedCast(Arg);
 
-      InitializedEntity Entity =
-        Param? InitializedEntity::InitializeParameter(Context, Param)
-             : InitializedEntity::InitializeParameter(Context, ProtoArgType,
-                                                      Proto->isArgConsumed(i));
+      InitializedEntity Entity = Param ?
+          InitializedEntity::InitializeParameter(Context, Param, ProtoArgType)
+        : InitializedEntity::InitializeParameter(Context, ProtoArgType,
+                                                 Proto->isArgConsumed(i));
       ExprResult ArgE = PerformCopyInitialization(Entity,
                                                   SourceLocation(),
                                                   Owned(Arg),
@@ -10832,13 +10832,14 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation Loc,
             // actually requires the destructor.
             if (isa<ParmVarDecl>(Var))
               FinalizeVarWithDestructor(Var, Record);
-            
+
             // According to the blocks spec, the capture of a variable from
             // the stack requires a const copy constructor.  This is not true
             // of the copy/move done to move a __block variable to the heap.
-            Expr *DeclRef = new (Context) DeclRefExpr(Var, false,
+            Expr *DeclRef = new (Context) DeclRefExpr(Var, Nested,
                                                       DeclRefType.withConst(), 
                                                       VK_LValue, Loc);
+            
             ExprResult Result
               = PerformCopyInitialization(
                   InitializedEntity::InitializeBlock(Var->getLocation(),
@@ -10923,7 +10924,7 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation Loc,
     if (BuildAndDiagnose) {
       ExprResult Result = captureInLambda(*this, LSI, Var, CaptureType,
                                           DeclRefType, Loc,
-                                          I == N-1);
+                                          Nested);
       if (!Result.isInvalid())
         CopyExpr = Result.take();
     }

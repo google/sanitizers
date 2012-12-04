@@ -4,57 +4,57 @@ FileCheck - Flexible pattern matching file verifier
 SYNOPSIS
 --------
 
-**FileCheck** *match-filename* [*--check-prefix=XXX*] [*--strict-whitespace*]
+:program:`FileCheck` *match-filename* [*--check-prefix=XXX*] [*--strict-whitespace*]
 
 DESCRIPTION
 -----------
 
-**FileCheck** reads two files (one from standard input, and one specified on the
-command line) and uses one to verify the other.  This behavior is particularly
-useful for the testsuite, which wants to verify that the output of some tool
-(e.g. llc) contains the expected information (for example, a movsd from esp or
-whatever is interesting).  This is similar to using grep, but it is optimized
-for matching multiple different inputs in one file in a specific order.
+:program:`FileCheck` reads two files (one from standard input, and one
+specified on the command line) and uses one to verify the other.  This
+behavior is particularly useful for the testsuite, which wants to verify that
+the output of some tool (e.g. :program:`llc`) contains the expected information
+(for example, a movsd from esp or whatever is interesting).  This is similar to
+using :program:`grep`, but it is optimized for matching multiple different
+inputs in one file in a specific order.
 
-The *match-filename* file specifies the file that contains the patterns to
+The ``match-filename`` file specifies the file that contains the patterns to
 match.  The file to verify is always read from standard input.
 
 OPTIONS
 -------
 
-**-help**
+.. option:: -help
 
  Print a summary of command line options.
 
-**--check-prefix** *prefix*
+.. option:: --check-prefix prefix
 
- FileCheck searches the contents of *match-filename* for patterns to match.  By
- default, these patterns are prefixed with "``CHECK:``".  If you'd like to use a
- different prefix (e.g. because the same input file is checking multiple
- different tool or options), the **--check-prefix** argument allows you to specify
- a specific prefix to match.
+ FileCheck searches the contents of ``match-filename`` for patterns to match.
+ By default, these patterns are prefixed with "``CHECK:``".  If you'd like to
+ use a different prefix (e.g. because the same input file is checking multiple
+ different tool or options), the :option:`--check-prefix` argument allows you
+ to specify a specific prefix to match.
 
-**--input-file** *filename*
+.. option:: --input-file filename
 
   File to check (defaults to stdin).
 
-**--strict-whitespace**
+.. option:: --strict-whitespace
 
  By default, FileCheck canonicalizes input horizontal whitespace (spaces and
  tabs) which causes it to ignore these differences (a space will match a tab).
- The **--strict-whitespace** argument disables this behavior.
+ The :option:`--strict-whitespace` argument disables this behavior.
 
-
-**-version**
+.. option:: -version
 
  Show the version number of this program.
 
 EXIT STATUS
 -----------
 
-If **FileCheck** verifies that the file matches the expected contents, it exits
-with 0.  Otherwise, if not, or if an error occurs, it will exit with a non-zero
-value.
+If :program:`FileCheck` verifies that the file matches the expected contents,
+it exits with 0.  Otherwise, if not, or if an error occurs, it will exit with a
+non-zero value.
 
 TUTORIAL
 --------
@@ -66,7 +66,6 @@ like this:
 .. code-block:: llvm
 
    ; RUN: llvm-as < %s | llc -march=x86-64 | FileCheck %s
-
 
 This syntax says to pipe the current file ("``%s``") into ``llvm-as``, pipe
 that into ``llc``, then pipe the output of ``llc`` into ``FileCheck``.  This
@@ -93,7 +92,6 @@ against the filename argument specified (the original ``.ll`` file specified by
            ret void
    }
 
-
 Here you can see some "``CHECK:``" lines specified in comments.  Now you can
 see how the file is piped into ``llvm-as``, then ``llc``, and the machine code
 output is what we are verifying.  FileCheck checks the machine code output to
@@ -114,9 +112,10 @@ exists anywhere in the file.
 The FileCheck -check-prefix option
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The FileCheck ``-check-prefix`` option allows multiple test configurations to be
-driven from one .ll file.  This is useful in many circumstances, for example,
-testing different architectural variants with llc.  Here's a simple example:
+The FileCheck :option:`-check-prefix` option allows multiple test
+configurations to be driven from one `.ll` file.  This is useful in many
+circumstances, for example, testing different architectural variants with
+:program:`llc`.  Here's a simple example:
 
 .. code-block:: llvm
 
@@ -194,7 +193,6 @@ can be used:
    ; CHECK: ret i8
    }
 
-
 FileCheck Pattern Matching Syntax
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -225,9 +223,9 @@ FileCheck Variables
 
 It is often useful to match a pattern and then verify that it occurs again
 later in the file.  For codegen tests, this can be useful to allow any register,
-but verify that that register is used consistently later.  To do this, FileCheck
-allows named variables to be defined and substituted into patterns.  Here is a
-simple example:
+but verify that that register is used consistently later.  To do this,
+:program:`FileCheck` allows named variables to be defined and substituted into
+patterns.  Here is a simple example:
 
 .. code-block:: llvm
 
@@ -237,31 +235,30 @@ simple example:
 
 The first check line matches a regex ``%[a-z]+`` and captures it into the
 variable ``REGISTER``.  The second line verifies that whatever is in
-``REGISTER`` occurs later in the file after an "``andw``".  FileCheck variable
-references are always contained in ``[[ ]]`` pairs, and their names can be
-formed with the regex ``[a-zA-Z][a-zA-Z0-9]*``.  If a colon follows the name,
+``REGISTER`` occurs later in the file after an "``andw``".  :program:`FileCheck`
+variable references are always contained in ``[[ ]]`` pairs, and their names can
+be formed with the regex ``[a-zA-Z][a-zA-Z0-9]*``.  If a colon follows the name,
 then it is a definition of the variable; otherwise, it is a use.
 
-FileCheck variables can be defined multiple times, and uses always get the
-latest value.  Note that variables are all read at the start of a "``CHECK``"
-line and are all defined at the end.  This means that if you have something
-like "``CHECK: [[XYZ:.*]]x[[XYZ]]``", the check line will read the previous
-value of the ``XYZ`` variable and define a new one after the match is
-performed.  If you need to do something like this you can probably take
-advantage of the fact that FileCheck is not actually line-oriented when it
-matches, this allows you to define two separate "``CHECK``" lines that match on
-the same line.
+:program:`FileCheck` variables can be defined multiple times, and uses always
+get the latest value.  Variables can also be used later on the same line they
+were defined on. For example:
 
+.. code-block:: llvm
+
+    ; CHECK: op [[REG:r[0-9]+]], [[REG]]
+
+Can be useful if you want the operands of ``op`` to be the same register,
+and don't care exactly which register it is.
 
 FileCheck Expressions
 ~~~~~~~~~~~~~~~~~~~~~
 
-
-Sometimes there's a need to verify output which refers line numbers of the match
-file, e.g. when testing compiler diagnostics. This introduces a certain
-fragility of the match file structure, as CHECK: lines contain absolute line
-numbers in the same file, which have to be updated whenever line numbers change
-due to text addition or deletion.
+Sometimes there's a need to verify output which refers line numbers of the
+match file, e.g. when testing compiler diagnostics.  This introduces a certain
+fragility of the match file structure, as "``CHECK:``" lines contain absolute
+line numbers in the same file, which have to be updated whenever line numbers
+change due to text addition or deletion.
 
 To support this case, FileCheck allows using ``[[@LINE]]``,
 ``[[@LINE+<offset>]]``, ``[[@LINE-<offset>]]`` expressions in patterns. These

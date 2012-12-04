@@ -15,16 +15,16 @@
 #include "RuntimeDyldELF.h"
 #include "JITRegistrar.h"
 #include "ObjectImageCommon.h"
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/IntervalMap.h"
-#include "llvm/Object/ObjectFile.h"
-#include "llvm/ExecutionEngine/ObjectImage.h"
-#include "llvm/ExecutionEngine/ObjectBuffer.h"
-#include "llvm/Support/ELF.h"
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/ExecutionEngine/ObjectBuffer.h"
+#include "llvm/ExecutionEngine/ObjectImage.h"
 #include "llvm/Object/ELF.h"
+#include "llvm/Object/ObjectFile.h"
+#include "llvm/Support/ELF.h"
 using namespace llvm;
 using namespace llvm::object;
 
@@ -677,7 +677,8 @@ void RuntimeDyldELF::processRelocationRef(const ObjRelocationInfo &Rel,
                         RelType, 0);
       Section.StubOffset += getMaxStubSize();
     }
-  } else if (Arch == Triple::mipsel && RelType == ELF::R_MIPS_26) {
+  } else if ((Arch == Triple::mipsel || Arch == Triple::mips) &&
+             RelType == ELF::R_MIPS_26) {
     // This is an Mips branch relocation, need to use a stub function.
     DEBUG(dbgs() << "\t\tThis is a Mips branch relocation.");
     SectionEntry &Section = Sections[Rel.SectionID];

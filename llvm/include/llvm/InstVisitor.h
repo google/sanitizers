@@ -1,4 +1,4 @@
-//===- llvm/Support/InstVisitor.h - Define instruction visitors -*- C++ -*-===//
+//===- llvm/InstVisitor.h - Instruction visitor templates -------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,13 +8,13 @@
 //===----------------------------------------------------------------------===//
 
 
-#ifndef LLVM_SUPPORT_INSTVISITOR_H
-#define LLVM_SUPPORT_INSTVISITOR_H
+#ifndef LLVM_INSTVISITOR_H
+#define LLVM_INSTVISITOR_H
 
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
-#include "llvm/Intrinsics.h"
 #include "llvm/IntrinsicInst.h"
+#include "llvm/Intrinsics.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/ErrorHandling.h"

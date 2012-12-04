@@ -59,22 +59,25 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "scalar-evolution"
-#include "llvm/Analysis/ScalarEvolutionExpressions.h"
-#include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/GlobalVariable.h"
-#include "llvm/GlobalAlias.h"
-#include "llvm/Instructions.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/Operator.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Assembly/Writer.h"
+#include "llvm/Constants.h"
 #include "llvm/DataLayout.h"
-#include "llvm/Target/TargetLibraryInfo.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/GlobalAlias.h"
+#include "llvm/GlobalVariable.h"
+#include "llvm/Instructions.h"
+#include "llvm/LLVMContext.h"
+#include "llvm/Operator.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConstantRange.h"
 #include "llvm/Support/Debug.h"
@@ -83,9 +86,7 @@
 #include "llvm/Support/InstIterator.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Target/TargetLibraryInfo.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -6120,8 +6121,8 @@ bool ScalarEvolution::isImpliedCond(ICmpInst::Predicate Pred,
       getTypeSizeInBits(ICI->getOperand(0)->getType()))
     return false;
 
-  // Now that we found a conditional branch that dominates the loop, check to
-  // see if it is the comparison we are looking for.
+  // Now that we found a conditional branch that dominates the loop or controls
+  // the loop latch. Check to see if it is the comparison we are looking for.
   ICmpInst::Predicate FoundPred;
   if (Inverse)
     FoundPred = ICI->getInversePredicate();
@@ -6149,10 +6150,9 @@ bool ScalarEvolution::isImpliedCond(ICmpInst::Predicate Pred,
   if (SimplifyICmpOperands(Pred, LHS, RHS))
     if (LHS == RHS)
       return CmpInst::isTrueWhenEqual(Pred);
-
-  // Canonicalize the found cond too.  We can't conclude a result from the
-  // simplified values.
-  SimplifyICmpOperands(FoundPred, FoundLHS, FoundRHS);
+  if (SimplifyICmpOperands(FoundPred, FoundLHS, FoundRHS))
+    if (FoundLHS == FoundRHS)
+      return CmpInst::isFalseWhenEqual(FoundPred);
 
   // Check to see if we can make the LHS or RHS match.
   if (LHS == FoundRHS || RHS == FoundLHS) {

@@ -47,31 +47,28 @@
 
 #define DEBUG_TYPE "msan"
 
+#include "llvm/Transforms/Instrumentation.h"
 #include "BlackList.h"
-#include "llvm/DataLayout.h"
-#include "llvm/Function.h"
-#include "llvm/InlineAsm.h"
-#include "llvm/IntrinsicInst.h"
-#include "llvm/IRBuilder.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/MDBuilder.h"
-#include "llvm/Module.h"
-#include "llvm/Type.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
-#include "llvm/Transforms/Instrumentation.h"
-#include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/DataLayout.h"
+#include "llvm/Function.h"
+#include "llvm/IRBuilder.h"
+#include "llvm/InlineAsm.h"
+#include "llvm/InstVisitor.h"
+#include "llvm/IntrinsicInst.h"
+#include "llvm/LLVMContext.h"
+#include "llvm/MDBuilder.h"
+#include "llvm/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/InstVisitor.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Type.h"
 
 using namespace llvm;
 
@@ -601,6 +598,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *Shadow = ShadowMap[V];
       if (!Shadow) {
         DEBUG(dbgs() << "No shadow: " << *V << "\n" << *(I->getParent()));
+        (void)I;
         assert(Shadow && "No shadow for a value");
       }
       return Shadow;
@@ -608,6 +606,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (UndefValue *U = dyn_cast<UndefValue>(V)) {
       Value *AllOnes = getPoisonedShadow(getShadowTy(V));
       DEBUG(dbgs() << "Undef: " << *U << " ==> " << *AllOnes << "\n");
+      (void)U;
       return AllOnes;
     }
     if (Argument *A = dyn_cast<Argument>(V)) {
@@ -636,6 +635,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
               getShadowPtr(V, EntryIRB.getInt8Ty(), EntryIRB),
               Base, Size, AI->getParamAlignment());
             DEBUG(dbgs() << "  ByValCpy: " << *Cpy << "\n");
+            (void)Cpy;
             *ShadowPtr = getCleanShadow(V);
           } else {
             *ShadowPtr = EntryIRB.CreateLoad(Base);
@@ -689,9 +689,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!InsertChecks) return;
     Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
     if (!Shadow) return;
+#ifndef NDEBUG
     Type *ShadowTy = Shadow->getType();
     assert((isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy)) &&
            "Can only insert checks for integer and vector shadow types");
+#endif
     Instruction *Origin = dyn_cast_or_null<Instruction>(getOrigin(Val));
     InstrumentationList.push_back(
       ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
@@ -704,19 +706,18 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// Loads the corresponding shadow and (optionally) origin.
   /// Optionally, checks that the load address is fully defined.
   void visitLoadInst(LoadInst &I) {
-    Type *LoadTy = I.getType();
-    assert(LoadTy->isSized() && "Load type must have size");
+    assert(I.getType()->isSized() && "Load type must have size");
     IRBuilder<> IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
     Value *Addr = I.getPointerOperand();
     Value *ShadowPtr = getShadowPtr(Addr, ShadowTy, IRB);
-    setShadow(&I, IRB.CreateLoad(ShadowPtr, "_msld"));
+    setShadow(&I, IRB.CreateAlignedLoad(ShadowPtr, I.getAlignment(), "_msld"));
 
     if (ClCheckAccessAddress)
       insertCheck(I.getPointerOperand(), &I);
 
     if (ClTrackOrigins)
-      setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
+      setOrigin(&I, IRB.CreateAlignedLoad(getOriginPtr(Addr, IRB), I.getAlignment()));
   }
 
   /// \brief Instrument StoreInst
@@ -731,8 +732,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Shadow = getShadow(Val);
     Value *ShadowPtr = getShadowPtr(Addr, Shadow->getType(), IRB);
 
-    StoreInst *NewSI = IRB.CreateStore(Shadow, ShadowPtr);
+    StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
     DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
+    (void)NewSI;
     // If the store is volatile, add a check.
     if (I.isVolatile())
       insertCheck(Val, &I);
@@ -740,7 +742,32 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       insertCheck(Addr, &I);
 
     if (ClTrackOrigins)
-      IRB.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRB));
+      IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
+  }
+
+  // Vector manipulation.
+  void visitExtractElementInst(ExtractElementInst &I) {
+    insertCheck(I.getOperand(1), &I);
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateExtractElement(getShadow(&I, 0), I.getOperand(1),
+              "_msprop"));
+    setOrigin(&I, getOrigin(&I, 0));
+  }
+
+  void visitInsertElementInst(InsertElementInst &I) {
+    insertCheck(I.getOperand(2), &I);
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateInsertElement(getShadow(&I, 0), getShadow(&I, 1),
+              I.getOperand(2), "_msprop"));
+    setOriginForNaryOp(I);
+  }
+
+  void visitShuffleVectorInst(ShuffleVectorInst &I) {
+    insertCheck(I.getOperand(2), &I);
+    IRBuilder<> IRB(&I);
+    setShadow(&I, IRB.CreateShuffleVector(getShadow(&I, 0), getShadow(&I, 1),
+              I.getOperand(2), "_msprop"));
+    setOriginForNaryOp(I);
   }
 
   // Casts.
@@ -842,15 +869,16 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///
   /// This is a general case of origin propagation. For an Nary operation,
   /// is set to the origin of an argument that is not entirely initialized.
+  /// If there is more than one such arguments, the rightmost of them is picked.
   /// It does not matter which one is picked if all arguments are initialized.
   void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
     Value *Origin = getOrigin(&I, 0);
     for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op) {
-      Value *S = convertToShadowTyNoVec(getShadow(&I, Op - 1), IRB);
+      Value *S = convertToShadowTyNoVec(getShadow(&I, Op), IRB);
       Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                Origin, getOrigin(&I, Op));
+                                getOrigin(&I, Op), Origin);
     }
     setOrigin(&I, Origin);
   }
@@ -949,9 +977,39 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  /// \brief Instrument signed relational comparisons.
+  ///
+  /// Handle (x<0) and (x>=0) comparisons (essentially, sign bit tests) by
+  /// propagating the highest bit of the shadow. Everything else is delegated
+  /// to handleShadowOr().
+  void handleSignedRelationalComparison(ICmpInst &I) {
+    Constant *constOp0 = dyn_cast<Constant>(I.getOperand(0));
+    Constant *constOp1 = dyn_cast<Constant>(I.getOperand(1));
+    Value* op = NULL;
+    CmpInst::Predicate pre = I.getPredicate();
+    if (constOp0 && constOp0->isNullValue() &&
+        (pre == CmpInst::ICMP_SGT || pre == CmpInst::ICMP_SLE)) {
+      op = I.getOperand(1);
+    } else if (constOp1 && constOp1->isNullValue() &&
+               (pre == CmpInst::ICMP_SLT || pre == CmpInst::ICMP_SGE)) {
+      op = I.getOperand(0);
+    }
+    if (op) {
+      IRBuilder<> IRB(&I);
+      Value* Shadow =
+        IRB.CreateICmpSLT(getShadow(op), getCleanShadow(op), "_msprop_icmpslt");
+      setShadow(&I, Shadow);
+      setOrigin(&I, getOrigin(op));
+    } else {
+      handleShadowOr(I);
+    }
+  }
+
   void visitICmpInst(ICmpInst &I) {
     if (ClHandleICmp && I.isEquality())
       handleEqualityComparison(I);
+    else if (ClHandleICmp && I.isSigned() && I.isRelational())
+      handleSignedRelationalComparison(I);
     else
       handleShadowOr(I);
   }
@@ -1035,10 +1093,19 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Instruction &I = *CS.getInstruction();
     assert((CS.isCall() || CS.isInvoke()) && "Unknown type of CallSite");
     if (CS.isCall()) {
+      CallInst *Call = cast<CallInst>(&I);
+
+      // For inline asm, do the usual thing: check argument shadow and mark all
+      // outputs as clean. Note that any side effects of the inline asm that are
+      // not immediately visible in its constraints are not handled.
+      if (Call->isInlineAsm()) {
+        visitInstruction(I);
+        return;
+      }
+
       // Allow only tail calls with the same types, otherwise
       // we may have a false positive: shadow for a non-void RetVal
       // will get propagated to a void RetVal.
-      CallInst *Call = cast<CallInst>(&I);
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
       if (isa<IntrinsicInst>(&I)) {

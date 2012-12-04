@@ -13,13 +13,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Lex/Pragma.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/LiteralSupport.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/MacroInfo.h"
-#include "clang/Lex/LexDiagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/LiteralSupport.h"
+#include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
@@ -470,7 +470,7 @@ void Preprocessor::HandlePragmaDependency(Token &DependencyTok) {
 ///
 /// The syntax is:
 /// \code
-///   \#pragma comment(linker, "foo")
+///   #pragma comment(linker, "foo")
 /// \endcode
 /// 'linker' is one of five identifiers: compiler, exestr, lib, linker, user.
 /// "foo" is a string, which is fully macro expanded, and permits string
@@ -532,11 +532,11 @@ void Preprocessor::HandlePragmaComment(Token &Tok) {
 /// HandlePragmaMessage - Handle the microsoft and gcc \#pragma message
 /// extension.  The syntax is:
 /// \code
-///   \#pragma message(string)
+///   #pragma message(string)
 /// \endcode
 /// OR, in GCC mode:
 /// \code
-///   \#pragma message string
+///   #pragma message string
 /// \endcode
 /// string is a string, which is fully macro expanded, and permits string
 /// concatenation, embedded escape characters, etc... See MSDN for more details.
@@ -640,7 +640,7 @@ IdentifierInfo *Preprocessor::ParsePragmaPushOrPopMacro(Token &Tok) {
 ///
 /// The syntax is:
 /// \code
-///   \#pragma push_macro("macro")
+///   #pragma push_macro("macro")
 /// \endcode
 void Preprocessor::HandlePragmaPushMacro(Token &PushMacroTok) {
   // Parse the pragma directive and get the macro IdentifierInfo*.
@@ -1203,6 +1203,29 @@ struct PragmaARCCFCodeAuditedHandler : public PragmaHandler {
   }
 };
 
+  /// \brief Handle "\#pragma region [...]"
+  ///
+  /// The syntax is
+  /// \code
+  ///   #pragma region [optional name]
+  ///   #pragma endregion [optional comment]
+  /// \endcode
+  /// 
+  /// \note This is 
+  /// <a href="http://msdn.microsoft.com/en-us/library/b6xkz944(v=vs.80).aspx">editor-only</a>
+  /// pragma, just skipped by compiler.
+  struct PragmaRegionHandler : public PragmaHandler {
+    PragmaRegionHandler(const char *pragma) : PragmaHandler(pragma) { }
+
+    virtual void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                              Token &NameTok) {
+      // #pragma region: endregion matches can be verified
+      // __pragma(region): no sense, but ignored by msvc
+      // _Pragma is not valid for MSVC, but there isn't any point
+      // to handle a _Pragma differently.
+    }
+  };
+
 }  // end anonymous namespace
 
 
@@ -1236,5 +1259,7 @@ void Preprocessor::RegisterBuiltinPragmas() {
   if (LangOpts.MicrosoftExt) {
     AddPragmaHandler(new PragmaCommentHandler());
     AddPragmaHandler(new PragmaIncludeAliasHandler());
+    AddPragmaHandler(new PragmaRegionHandler("region"));
+    AddPragmaHandler(new PragmaRegionHandler("endregion"));
   }
 }

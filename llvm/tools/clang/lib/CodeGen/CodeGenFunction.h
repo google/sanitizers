@@ -14,22 +14,22 @@
 #ifndef CLANG_CODEGEN_CODEGENFUNCTION_H
 #define CLANG_CODEGEN_CODEGENFUNCTION_H
 
-#include "clang/AST/Type.h"
-#include "clang/AST/ExprCXX.h"
-#include "clang/AST/ExprObjC.h"
-#include "clang/AST/CharUnits.h"
-#include "clang/Frontend/CodeGenOptions.h"
-#include "clang/Basic/ABI.h"
-#include "clang/Basic/TargetInfo.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ValueHandle.h"
-#include "llvm/Support/Debug.h"
-#include "CodeGenModule.h"
 #include "CGBuilder.h"
 #include "CGDebugInfo.h"
 #include "CGValue.h"
+#include "CodeGenModule.h"
+#include "clang/AST/CharUnits.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprObjC.h"
+#include "clang/AST/Type.h"
+#include "clang/Basic/ABI.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Frontend/CodeGenOptions.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
   class BasicBlock;
@@ -2575,13 +2575,23 @@ public:
   /// passing to a runtime sanitizer handler.
   llvm::Constant *EmitCheckSourceLocation(SourceLocation Loc);
 
+  /// \brief Specify under what conditions this check can be recovered
+  enum CheckRecoverableKind {
+    /// Always terminate program execution if this check fails
+    CRK_Unrecoverable,
+    /// Check supports recovering, allows user to specify which
+    CRK_Recoverable,
+    /// Runtime conditionally aborts, always need to support recovery.
+    CRK_AlwaysRecoverable
+  };
+
   /// \brief Create a basic block that will call a handler function in a
   /// sanitizer runtime with the provided arguments, and create a conditional
   /// branch to it.
   void EmitCheck(llvm::Value *Checked, StringRef CheckName,
                  llvm::ArrayRef<llvm::Constant *> StaticArgs,
                  llvm::ArrayRef<llvm::Value *> DynamicArgs,
-                 bool Recoverable = false);
+                 CheckRecoverableKind Recoverable);
 
   /// \brief Create a basic block that will call the trap intrinsic, and emit a
   /// conditional branch to it, for the -ftrapv checks.

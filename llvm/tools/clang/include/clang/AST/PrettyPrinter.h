@@ -14,14 +14,15 @@
 #ifndef LLVM_CLANG_AST_PRETTY_PRINTER_H
 #define LLVM_CLANG_AST_PRETTY_PRINTER_H
 
-#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/LLVM.h"
+#include "clang/Basic/LangOptions.h"
 
 namespace clang {
 
+class LangOptions;
+class SourceManager;
 class Stmt;
 class TagDecl;
-class LangOptions;
 
 class PrinterHelper {
 public:

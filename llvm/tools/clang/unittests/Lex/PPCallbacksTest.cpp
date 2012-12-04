@@ -7,6 +7,7 @@
 //
 //===--------------------------------------------------------------===//
 
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/LangOptions.h"
@@ -16,12 +17,9 @@
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/ModuleLoader.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
-
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/PathV2.h"
-
 #include "gtest/gtest.h"
 
 using namespace llvm;
@@ -32,10 +30,11 @@ namespace {
 
 // Stub out module loading.
 class VoidModuleLoader : public ModuleLoader {
-  virtual Module *loadModule(SourceLocation ImportLoc, ModuleIdPath Path,
-    Module::NameVisibilityKind Visibility,
-    bool IsInclusionDirective) {
-      return 0;
+  virtual ModuleLoadResult loadModule(SourceLocation ImportLoc, 
+                                      ModuleIdPath Path,
+                                      Module::NameVisibilityKind Visibility,
+                                      bool IsInclusionDirective) {
+    return ModuleLoadResult();
   }
 };
 

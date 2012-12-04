@@ -14,30 +14,30 @@
 #ifndef LLVM_CLANG_FRONTEND_ASTUNIT_H
 #define LLVM_CLANG_FRONTEND_ASTUNIT_H
 
-#include "clang/Serialization/ASTBitCodes.h"
-#include "clang/Sema/Sema.h"
-#include "clang/Sema/CodeCompleteConsumer.h"
-#include "clang/Lex/ModuleLoader.h"
-#include "clang/Lex/PreprocessingRecord.h"
-#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang-c/Index.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/Basic/LangOptions.h"
-#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/FileSystemOptions.h"
+#include "clang/Basic/LangOptions.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetOptions.h"
-#include "clang-c/Index.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/ModuleLoader.h"
+#include "clang/Lex/PreprocessingRecord.h"
+#include "clang/Sema/CodeCompleteConsumer.h"
+#include "clang/Sema/Sema.h"
+#include "clang/Serialization/ASTBitCodes.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Path.h"
+#include <cassert>
 #include <map>
 #include <string>
-#include <vector>
-#include <cassert>
-#include <utility>
 #include <sys/types.h>
+#include <utility>
+#include <vector>
 
 namespace llvm {
   class MemoryBuffer;
@@ -830,11 +830,12 @@ public:
   /// \returns True if an error occurred, false otherwise.
   bool serialize(raw_ostream &OS);
   
-  virtual Module *loadModule(SourceLocation ImportLoc, ModuleIdPath Path,
-                             Module::NameVisibilityKind Visibility,
-                             bool IsInclusionDirective) {
+  virtual ModuleLoadResult loadModule(SourceLocation ImportLoc,
+                                      ModuleIdPath Path,
+                                      Module::NameVisibilityKind Visibility,
+                                      bool IsInclusionDirective) {
     // ASTUnit doesn't know how to load modules (not that this matters).
-    return 0;
+    return ModuleLoadResult();
   }
 };
 

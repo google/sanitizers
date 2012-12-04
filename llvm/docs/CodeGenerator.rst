@@ -172,7 +172,7 @@ architecture.  These target descriptions often have a large amount of common
 information (e.g., an ``add`` instruction is almost identical to a ``sub``
 instruction).  In order to allow the maximum amount of commonality to be
 factored out, the LLVM code generator uses the
-`TableGen <TableGenFundamentals.html>`_ tool to describe big chunks of the
+:doc:`TableGen <TableGenFundamentals>` tool to describe big chunks of the
 target machine, which allows the use of domain-specific and target-specific
 abstractions to reduce the amount of repetition.
 
@@ -230,7 +230,7 @@ for structures, the alignment requirements for various data types, the size of
 pointers in the target, and whether the target is little-endian or
 big-endian.
 
-.. _targetlowering:
+.. _TargetLowering:
 
 The ``TargetLowering`` class
 ----------------------------
@@ -249,6 +249,8 @@ operations.  Among other things, this class indicates:
 
 * various high-level characteristics, like whether it is profitable to turn
   division by a constant into a multiplication sequence.
+
+.. _TargetRegisterInfo:
 
 The ``TargetRegisterInfo`` class
 --------------------------------
@@ -771,6 +773,8 @@ value of type i1, i8, i16, or i64 would be illegal, as would a DAG that uses a
 SREM or UREM operation.  The `legalize types`_ and `legalize operations`_ phases
 are responsible for turning an illegal DAG into a legal DAG.
 
+.. _SelectionDAG-Process:
+
 SelectionDAG Instruction Selection Process
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -874,7 +878,7 @@ found, the elements are converted to scalars ("scalarizing").
 
 A target implementation tells the legalizer which types are supported (and which
 register class to use for them) by calling the ``addRegisterClass`` method in
-its TargetLowering constructor.
+its ``TargetLowering`` constructor.
 
 .. _legalize operations:
 .. _Legalizer:

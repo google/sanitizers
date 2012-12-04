@@ -14,6 +14,8 @@
 #ifndef LLVM_TRANSFORMS_INSTRUMENTATION_H
 #define LLVM_TRANSFORMS_INSTRUMENTATION_H
 
+#include "llvm/ADT/StringRef.h"
+
 namespace llvm {
 
 class ModulePass;
@@ -34,8 +36,11 @@ ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
                                    bool UseExtraChecksum = false);
 
 // Insert AddressSanitizer (address sanity checking) instrumentation
-FunctionPass *createAddressSanitizerFunctionPass();
-ModulePass *createAddressSanitizerModulePass();
+FunctionPass *createAddressSanitizerFunctionPass(
+    bool CheckInitOrder = false, bool CheckUseAfterReturn = false,
+    bool CheckLifetime = false, StringRef BlacklistFile = StringRef());
+ModulePass *createAddressSanitizerModulePass(
+    bool CheckInitOrder = false, StringRef BlacklistFile = StringRef());
 // Insert MemorySanitizer instrumentation (detection of uninitialized reads)
 FunctionPass *createMemorySanitizerPass();
 // Insert ThreadSanitizer (race detection) instrumentation

@@ -11,24 +11,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Frontend/CodeGenOptions.h"
 #include "CodeGenFunction.h"
 #include "CGCXXABI.h"
+#include "CGDebugInfo.h"
 #include "CGObjCRuntime.h"
 #include "CodeGenModule.h"
-#include "CGDebugInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/Constants.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Function.h"
 #include "llvm/GlobalVariable.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/Module.h"
 #include "llvm/Support/CFG.h"
-#include "llvm/DataLayout.h"
 #include <cstdarg>
 
 using namespace clang;
@@ -645,7 +645,8 @@ void ScalarExprEmitter::EmitFloatConversionCheck(Value *OrigSrc,
     CGF.EmitCheckTypeDescriptor(OrigSrcType),
     CGF.EmitCheckTypeDescriptor(DstType)
   };
-  CGF.EmitCheck(Check, "float_cast_overflow", StaticArgs, OrigSrc);
+  CGF.EmitCheck(Check, "float_cast_overflow", StaticArgs, OrigSrc,
+                CodeGenFunction::CRK_Recoverable);
 }
 
 /// EmitScalarConversion - Emit a conversion from the specified type to the
@@ -850,7 +851,8 @@ void ScalarExprEmitter::EmitBinOpCheck(Value *Check, const BinOpInfo &Info) {
     DynamicData.push_back(Info.RHS);
   }
 
-  CGF.EmitCheck(Check, CheckName, StaticData, DynamicData);
+  CGF.EmitCheck(Check, CheckName, StaticData, DynamicData,
+                CodeGenFunction::CRK_Recoverable);
 }
 
 //===----------------------------------------------------------------------===//

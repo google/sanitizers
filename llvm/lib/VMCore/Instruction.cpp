@@ -12,13 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Instruction.h"
-#include "llvm/Type.h"
-#include "llvm/Instructions.h"
 #include "llvm/Constants.h"
+#include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Operator.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/LeakDetector.h"
+#include "llvm/Type.h"
 using namespace llvm;
 
 Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
@@ -176,6 +176,12 @@ FastMathFlags Instruction::getFastMathFlags() const {
   assert(isa<FPMathOperator>(this) && "setting fast-math flag on invalid op");
   return cast<FPMathOperator>(this)->getFastMathFlags();
 }
+
+/// Copy I's fast-math flags
+void Instruction::copyFastMathFlags(const Instruction *I) {
+  setFastMathFlags(I->getFastMathFlags());
+}
+
 
 const char *Instruction::getOpcodeName(unsigned OpCode) {
   switch (OpCode) {

@@ -14,20 +14,16 @@
 
 #define DEBUG_TYPE "x86-isel"
 #include "X86ISelLowering.h"
+#include "Utils/X86ShuffleDecode.h"
 #include "X86.h"
 #include "X86InstrBuilder.h"
 #include "X86TargetMachine.h"
 #include "X86TargetObjectFile.h"
-#include "Utils/X86ShuffleDecode.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/VariadicFunction.h"
 #include "llvm/CallingConv.h"
-#include "llvm/Constants.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/GlobalAlias.h"
-#include "llvm/GlobalVariable.h"
-#include "llvm/Function.h"
-#include "llvm/Instructions.h"
-#include "llvm/Intrinsics.h"
-#include "llvm/LLVMContext.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -35,14 +31,18 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/Constants.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/Function.h"
+#include "llvm/GlobalAlias.h"
+#include "llvm/GlobalVariable.h"
+#include "llvm/Instructions.h"
+#include "llvm/Intrinsics.h"
+#include "llvm/LLVMContext.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/VariadicFunction.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -17668,6 +17668,17 @@ FindInConvertTable(const X86TypeConversionCostTblEntry *Tbl, unsigned len,
 
   // Could not find an entry.
   return -1;
+}
+
+ScalarTargetTransformInfo::PopcntHwSupport
+X86ScalarTargetTransformImpl::getPopcntHwSupport(unsigned TyWidth) const {
+  assert(isPowerOf2_32(TyWidth) && "Ty width must be power of 2");
+  const X86Subtarget &ST = TLI->getTargetMachine().getSubtarget<X86Subtarget>();
+
+  // TODO: Currently the __builtin_popcount() implementation using SSE3
+  //   instructions is inefficient. Once the problem is fixed, we should
+  //   call ST.hasSSE3() instead of ST.hasSSE4().
+  return ST.hasSSE41() ? Fast : None;
 }
 
 unsigned

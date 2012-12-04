@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "InstCombine.h"
-#include "llvm/IntrinsicInst.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/IntrinsicInst.h"
 #include "llvm/Support/PatternMatch.h"
 using namespace llvm;
 using namespace PatternMatch;
@@ -252,6 +252,46 @@ Instruction *InstCombiner::visitMul(BinaryOperator &I) {
   return Changed ? &I : 0;
 }
 
+//
+// Detect pattern:
+//
+// log2(Y*0.5)
+//
+// And check for corresponding fast math flags
+//
+
+static void detectLog2OfHalf(Value *&Op, Value *&Y, IntrinsicInst *&Log2) {
+
+   if (!Op->hasOneUse())
+     return;
+
+   IntrinsicInst *II = dyn_cast<IntrinsicInst>(Op);
+   if (!II)
+     return;
+   if (II->getIntrinsicID() != Intrinsic::log2 || !II->hasUnsafeAlgebra())
+     return;
+   Log2 = II;
+
+   Value *OpLog2Of = II->getArgOperand(0);
+   if (!OpLog2Of->hasOneUse())
+     return;
+
+   Instruction *I = dyn_cast<Instruction>(OpLog2Of);
+   if (!I)
+     return;
+   if (I->getOpcode() != Instruction::FMul || !I->hasUnsafeAlgebra())
+     return;
+              
+   ConstantFP *CFP = dyn_cast<ConstantFP>(I->getOperand(0));
+   if (CFP && CFP->isExactlyValue(0.5)) {
+     Y = I->getOperand(1);
+     return;
+   }
+   CFP = dyn_cast<ConstantFP>(I->getOperand(1));
+   if (CFP && CFP->isExactlyValue(0.5))
+     Y = I->getOperand(0);
+} 
+
 Instruction *InstCombiner::visitFMul(BinaryOperator &I) {
   bool Changed = SimplifyAssociativeOrCommutative(I);
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
@@ -283,6 +323,33 @@ Instruction *InstCombiner::visitFMul(BinaryOperator &I) {
   if (Value *Op0v = dyn_castFNegVal(Op0))     // -X * -Y = X*Y
     if (Value *Op1v = dyn_castFNegVal(Op1))
       return BinaryOperator::CreateFMul(Op0v, Op1v);
+
+  // Under unsafe algebra do:
+  // X * log2(0.5*Y) = X*log2(Y) - X
+  if (I.hasUnsafeAlgebra()) {
+    Value *OpX = NULL;
+    Value *OpY = NULL;
+    IntrinsicInst *Log2;
+    detectLog2OfHalf(Op0, OpY, Log2);
+    if (OpY) {
+      OpX = Op1;
+    } else {
+      detectLog2OfHalf(Op1, OpY, Log2);
+      if (OpY) {
+        OpX = Op0;
+      }
+    }
+    // if pattern detected emit alternate sequence
+    if (OpX && OpY) {
+      Log2->setArgOperand(0, OpY);
+      Value *FMulVal = Builder->CreateFMul(OpX, Log2);
+      Instruction *FMul = cast<Instruction>(FMulVal);
+      FMul->copyFastMathFlags(Log2);
+      Instruction *FSub = BinaryOperator::CreateFSub(FMulVal, OpX);
+      FSub->copyFastMathFlags(Log2);
+      return FSub;
+    }
+  }
 
   return Changed ? &I : 0;
 }

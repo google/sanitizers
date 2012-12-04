@@ -8,12 +8,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/MC/MCObjectFileInfo.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionCOFF.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSectionMachO.h"
-#include "llvm/ADT/Triple.h"
 using namespace llvm;
 
 void MCObjectFileInfo::InitMachOMCObjectFileInfo(Triple T) {
@@ -412,6 +412,19 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
   // Fission Sections
   DwarfInfoDWOSection =
     Ctx->getELFSection(".debug_info.dwo", ELF::SHT_PROGBITS, 0,
+                       SectionKind::getMetadata());
+  DwarfAbbrevDWOSection =
+    Ctx->getELFSection(".debug_abbrev.dwo", ELF::SHT_PROGBITS, 0,
+                       SectionKind::getMetadata());
+  DwarfStrDWOSection =
+    Ctx->getELFSection(".debug_str.dwo", ELF::SHT_PROGBITS,
+                       ELF::SHF_MERGE | ELF::SHF_STRINGS,
+                       SectionKind::getMergeable1ByteCString());
+  DwarfLineDWOSection =
+    Ctx->getELFSection(".debug_line.dwo", ELF::SHT_PROGBITS, 0,
+                       SectionKind::getMetadata());
+  DwarfLocDWOSection =
+    Ctx->getELFSection(".debug_loc.dwo", ELF::SHT_PROGBITS, 0,
                        SectionKind::getMetadata());
 }
 

@@ -14,6 +14,7 @@
 
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/DeclVisitor.h"
+#include "clang/Sema/Sema.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cassert>
 #include <utility>

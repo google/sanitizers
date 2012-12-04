@@ -12,12 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "dyld"
+#include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "ObjectImageCommon.h"
-#include "RuntimeDyldImpl.h"
 #include "RuntimeDyldELF.h"
+#include "RuntimeDyldImpl.h"
 #include "RuntimeDyldMachO.h"
-#include "llvm/Support/Path.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/Path.h"
 
 using namespace llvm;
 using namespace llvm::object;
@@ -346,7 +347,7 @@ uint8_t *RuntimeDyldImpl::createStubFunction(uint8_t *Addr) {
     uint32_t *StubAddr = (uint32_t*)Addr;
     *StubAddr = 0xe51ff004; // ldr pc,<label>
     return (uint8_t*)++StubAddr;
-  } else if (Arch == Triple::mipsel) {
+  } else if (Arch == Triple::mipsel || Arch == Triple::mips) {
     uint32_t *StubAddr = (uint32_t*)Addr;
     // 0:   3c190000        lui     t9,%hi(addr).
     // 4:   27390000        addiu   t9,t9,%lo(addr).

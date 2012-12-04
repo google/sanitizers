@@ -16,11 +16,11 @@
 #ifndef LLVM_TARGET_TARGETREGISTERINFO_H
 #define LLVM_TARGET_TARGETREGISTERINFO_H
 
-#include "llvm/MC/MCRegisterInfo.h"
-#include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/CallingConv.h"
+#include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include <cassert>
 #include <functional>
 
@@ -30,6 +30,7 @@ class BitVector;
 class MachineFunction;
 class RegScavenger;
 template<class T> class SmallVectorImpl;
+class VirtRegMap;
 class raw_ostream;
 
 class TargetRegisterClass {
@@ -613,27 +614,25 @@ public:
   virtual const int *getRegClassPressureSets(
     const TargetRegisterClass *RC) const = 0;
 
-  /// getRawAllocationOrder - Returns the register allocation order for a
-  /// specified register class with a target-dependent hint. The returned list
-  /// may contain reserved registers that cannot be allocated.
+  /// Get a list of 'hint' registers that the register allocator should try
+  /// first when allocating a physical register for the virtual register
+  /// VirtReg. These registers are effectively moved to the front of the
+  /// allocation order.
   ///
-  /// Register allocators need only call this function to resolve
-  /// target-dependent hints, but it should work without hinting as well.
-  virtual ArrayRef<MCPhysReg>
-  getRawAllocationOrder(const TargetRegisterClass *RC,
-                        unsigned HintType, unsigned HintReg,
-                        const MachineFunction &MF) const {
-    return RC->getRawAllocationOrder(MF);
-  }
-
-  /// ResolveRegAllocHint - Resolves the specified register allocation hint
-  /// to a physical register. Returns the physical register if it is successful.
-  virtual unsigned ResolveRegAllocHint(unsigned Type, unsigned Reg,
-                                       const MachineFunction &MF) const {
-    if (Type == 0 && Reg && isPhysicalRegister(Reg))
-      return Reg;
-    return 0;
-  }
+  /// The Order argument is the allocation order for VirtReg's register class
+  /// as returned from RegisterClassInfo::getOrder(). The hint registers must
+  /// come from Order, and they must not be reserved.
+  ///
+  /// The default implementation of this function can resolve
+  /// target-independent hints provided to MRI::setRegAllocationHint with
+  /// HintType == 0. Targets that override this function should defer to the
+  /// default implementation if they have no reason to change the allocation
+  /// order for VirtReg. There may be target-independent hints.
+  virtual void getRegAllocationHints(unsigned VirtReg,
+                                     ArrayRef<MCPhysReg> Order,
+                                     SmallVectorImpl<MCPhysReg> &Hints,
+                                     const MachineFunction &MF,
+                                     const VirtRegMap *VRM = 0) const;
 
   /// avoidWriteAfterWrite - Return true if the register allocator should avoid
   /// writing a register from RC in two consecutive instructions.

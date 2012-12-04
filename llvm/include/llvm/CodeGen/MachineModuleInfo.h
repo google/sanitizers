@@ -31,19 +31,19 @@
 #ifndef LLVM_CODEGEN_MACHINEMODULEINFO_H
 #define LLVM_CODEGEN_MACHINEMODULEINFO_H
 
-#include "llvm/Pass.h"
-#include "llvm/GlobalValue.h"
-#include "llvm/Metadata.h"
-#include "llvm/MC/MachineLocation.h"
-#include "llvm/MC/MCContext.h"
-#include "llvm/Support/Dwarf.h"
-#include "llvm/Support/DebugLoc.h"
-#include "llvm/Support/ValueHandle.h"
-#include "llvm/Support/DataTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/GlobalValue.h"
+#include "llvm/MC/MCContext.h"
+#include "llvm/MC/MachineLocation.h"
+#include "llvm/Metadata.h"
+#include "llvm/Pass.h"
+#include "llvm/Support/DataTypes.h"
+#include "llvm/Support/DebugLoc.h"
+#include "llvm/Support/Dwarf.h"
+#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
 
@@ -179,9 +179,6 @@ public:
   MachineModuleInfo(const MCAsmInfo &MAI, const MCRegisterInfo &MRI,
                     const MCObjectFileInfo *MOFI);
   ~MachineModuleInfo();
-
-  bool doInitialization();
-  bool doFinalization();
 
   /// EndFunction - Discard function meta information.
   ///

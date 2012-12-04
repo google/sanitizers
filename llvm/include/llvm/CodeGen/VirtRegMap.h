@@ -17,9 +17,9 @@
 #ifndef LLVM_CODEGEN_VIRTREGMAP_H
 #define LLVM_CODEGEN_VIRTREGMAP_H
 
+#include "llvm/ADT/IndexedMap.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/ADT/IndexedMap.h"
 
 namespace llvm {
   class MachineInstr;
@@ -126,13 +126,13 @@ namespace llvm {
       grow();
     }
 
-    /// @brief returns the register allocation preference.
-    unsigned getRegAllocPref(unsigned virtReg);
-
     /// @brief returns true if VirtReg is assigned to its preferred physreg.
-    bool hasPreferredPhys(unsigned VirtReg) {
-      return getPhys(VirtReg) == getRegAllocPref(VirtReg);
-    }
+    bool hasPreferredPhys(unsigned VirtReg);
+
+    /// @brief returns true if VirtReg has a known preferred register.
+    /// This returns false if VirtReg has a preference that is a virtual
+    /// register that hasn't been assigned yet.
+    bool hasKnownPreference(unsigned VirtReg);
 
     /// @brief records virtReg is a split live interval from SReg.
     void setIsSplitFromReg(unsigned virtReg, unsigned SReg) {

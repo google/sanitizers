@@ -12,23 +12,23 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/ASTMutationListener.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/TypeLoc.h"
-#include "clang/AST/Stmt.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/PrettyPrinter.h"
-#include "clang/AST/ASTMutationListener.h"
+#include "clang/AST/Stmt.h"
+#include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/Module.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
-
 #include <algorithm>
 
 using namespace clang;
@@ -777,12 +777,10 @@ static LinkageInfo getLVForDecl(const NamedDecl *D, bool OnlyTemplate) {
         if (llvm::Optional<Visibility> Vis = Function->getExplicitVisibility())
           LV.mergeVisibility(*Vis, true);
       }
-      
-      if (const FunctionDecl *Prev = Function->getPreviousDecl()) {
-        LinkageInfo PrevLV = getLVForDecl(Prev, OnlyTemplate);
-        if (PrevLV.linkage()) LV.setLinkage(PrevLV.linkage());
-        LV.mergeVisibility(PrevLV);
-      }
+
+      // Note that Sema::MergeCompatibleFunctionDecls already takes care of
+      // merging storage classes and visibility attributes, so we don't have to
+      // look at previous decls in here.
 
       return LV;
     }
@@ -2845,6 +2843,14 @@ LabelDecl *LabelDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
 }
 
 void ValueDecl::anchor() { }
+
+bool ValueDecl::isWeak() const {
+  for (attr_iterator I = attr_begin(), E = attr_end(); I != E; ++I)
+    if (isa<WeakAttr>(*I) || isa<WeakRefAttr>(*I))
+      return true;
+
+  return isWeakImported();
+}
 
 void ImplicitParamDecl::anchor() { }
 

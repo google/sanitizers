@@ -261,7 +261,6 @@ static void finalize(void *arg) {
 TSAN_INTERCEPTOR(int, atexit, void (*f)()) {
   SCOPED_TSAN_INTERCEPTOR(atexit, f);
   return atexit_ctx->atexit(thr, pc, f);
-  return 0;
 }
 
 TSAN_INTERCEPTOR(void, longjmp, void *env, int val) {
@@ -308,6 +307,11 @@ TSAN_INTERCEPTOR(void*, malloc, uptr size) {
   }
   invoke_malloc_hook(p, size);
   return p;
+}
+
+TSAN_INTERCEPTOR(void*, __libc_memalign, uptr align, uptr sz) {
+  SCOPED_TSAN_INTERCEPTOR(__libc_memalign, align, sz);
+  return user_alloc(thr, pc, sz, align);
 }
 
 TSAN_INTERCEPTOR(void*, calloc, uptr size, uptr n) {
@@ -1349,6 +1353,35 @@ TSAN_INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
   return REAL(gettimeofday)(tv, tz);
 }
 
+// Linux kernel has a bug that leads to kernel deadlock if a process
+// maps TBs of memory and then calls mlock().
+static void MlockIsUnsupported() {
+  static atomic_uint8_t printed;
+  if (atomic_exchange(&printed, 1, memory_order_relaxed))
+    return;
+  Printf("INFO: ThreadSanitizer ignores mlock/mlockall/munlock/munlockall\n");
+}
+
+TSAN_INTERCEPTOR(int, mlock, const void *addr, uptr len) {
+  MlockIsUnsupported();
+  return 0;
+}
+
+TSAN_INTERCEPTOR(int, munlock, const void *addr, uptr len) {
+  MlockIsUnsupported();
+  return 0;
+}
+
+TSAN_INTERCEPTOR(int, mlockall, int flags) {
+  MlockIsUnsupported();
+  return 0;
+}
+
+TSAN_INTERCEPTOR(int, munlockall, void) {
+  MlockIsUnsupported();
+  return 0;
+}
+
 namespace __tsan {
 
 void ProcessPendingSignals(ThreadState *thr) {
@@ -1398,6 +1431,11 @@ void ProcessPendingSignals(ThreadState *thr) {
   thr->in_signal_handler = false;
 }
 
+static void unreachable() {
+  Printf("FATAL: ThreadSanitizer: unreachable called\n");
+  Die();
+}
+
 void InitializeInterceptors() {
   CHECK_GT(cur_thread()->in_rtl, 0);
 
@@ -1410,6 +1448,7 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(siglongjmp);
 
   TSAN_INTERCEPT(malloc);
+  TSAN_INTERCEPT(__libc_memalign);
   TSAN_INTERCEPT(calloc);
   TSAN_INTERCEPT(realloc);
   TSAN_INTERCEPT(free);
@@ -1526,6 +1565,14 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(nanosleep);
   TSAN_INTERCEPT(gettimeofday);
 
+  TSAN_INTERCEPT(mlock);
+  TSAN_INTERCEPT(munlock);
+  TSAN_INTERCEPT(mlockall);
+  TSAN_INTERCEPT(munlockall);
+
+  // Need to setup it, because interceptors check that the function is resolved.
+  // But atexit is emitted directly into the module, so can't be resolved.
+  REAL(atexit) = (int(*)(void(*)()))unreachable;
   atexit_ctx = new(internal_alloc(MBlockAtExit, sizeof(AtExitContext)))
       AtExitContext();
 

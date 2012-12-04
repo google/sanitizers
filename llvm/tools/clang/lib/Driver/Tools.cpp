@@ -8,33 +8,30 @@
 //===----------------------------------------------------------------------===//
 
 #include "Tools.h"
-
+#include "InputInfo.h"
+#include "SanitizerArgs.h"
+#include "ToolChains.h"
+#include "clang/Basic/ObjCRuntime.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Arg.h"
 #include "clang/Driver/ArgList.h"
+#include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
-#include "clang/Driver/Compilation.h"
 #include "clang/Driver/Job.h"
 #include "clang/Driver/Option.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/ToolChain.h"
 #include "clang/Driver/Util.h"
-#include "clang/Basic/ObjCRuntime.h"
-
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/ErrorHandling.h"
-
-#include "InputInfo.h"
-#include "SanitizerArgs.h"
-#include "ToolChains.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang::driver;
 using namespace clang::driver::tools;
@@ -471,7 +468,7 @@ static const char *getLLVMArchSuffixForARM(StringRef CPU) {
     .Cases("arm1136j-s",  "arm1136jf-s",  "arm1176jz-s", "v6")
     .Cases("arm1176jzf-s",  "mpcorenovfp",  "mpcore", "v6")
     .Cases("arm1156t2-s",  "arm1156t2f-s", "v6t2")
-    .Cases("cortex-a8", "cortex-a9", "cortex-a15", "v7")
+    .Cases("cortex-a5", "cortex-a8", "cortex-a9", "cortex-a15", "v7")
     .Case("cortex-m3", "v7m")
     .Case("cortex-m4", "v7m")
     .Case("cortex-m0", "v6m")
@@ -610,7 +607,7 @@ static void addFPMathArgs(const Driver &D, const Arg *A, const ArgList &Args,
     CmdArgs.push_back("+neonfp");
     
     if (CPU != "cortex-a8" && CPU != "cortex-a9" && CPU != "cortex-a9-mp" &&
-        CPU != "cortex-a15")
+        CPU != "cortex-a15" && CPU != "cortex-a5")
       D.Diag(diag::err_drv_invalid_feature) << "-mfpmath=neon" << CPU;
     
   } else if (FPMath == "vfp" || FPMath == "vfp2" || FPMath == "vfp3" ||
@@ -989,6 +986,13 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
   AddTargetFeature(Args, CmdArgs,
                    options::OPT_mdspr2, options::OPT_mno_dspr2,
                    "dspr2");
+
+  if (Arg *A = Args.getLastArg(options::OPT_mxgot, options::OPT_mno_xgot)) {
+    if (A->getOption().matches(options::OPT_mxgot)) {
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-mxgot");
+    }
+  }
 
   if (Arg *A = Args.getLastArg(options::OPT_G)) {
     StringRef v = A->getValue();
@@ -1466,14 +1470,32 @@ SanitizerArgs::SanitizerArgs(const Driver &D, const ArgList &Args) {
   }
 
   // Only one runtime library can be used at once.
-  // FIXME: Allow Ubsan to be combined with the other two.
   bool NeedsAsan = needsAsanRt();
   bool NeedsTsan = needsTsanRt();
-  bool NeedsUbsan = needsUbsanRt();
-  if (NeedsAsan + NeedsTsan + NeedsUbsan > 1)
+  if (NeedsAsan && NeedsTsan)
     D.Diag(diag::err_drv_argument_not_allowed_with)
-      << lastArgumentForKind(D, Args, NeedsAsan ? NeedsAsanRt : NeedsTsanRt)
-      << lastArgumentForKind(D, Args, NeedsUbsan ? NeedsUbsanRt : NeedsTsanRt);
+      << lastArgumentForKind(D, Args, NeedsAsanRt)
+      << lastArgumentForKind(D, Args, NeedsTsanRt);
+
+  // If -fsanitize contains extra features of ASan, it should also
+  // explicitly contain -fsanitize=address.
+  if (NeedsAsan && ((Kind & Address) == 0))
+    D.Diag(diag::err_drv_argument_only_allowed_with)
+      << lastArgumentForKind(D, Args, NeedsAsanRt)
+      << "-fsanitize=address";
+
+  // Parse -f(no-)sanitize-blacklist options.
+  if (Arg *BLArg = Args.getLastArg(options::OPT_fsanitize_blacklist,
+                                   options::OPT_fno_sanitize_blacklist)) {
+    if (BLArg->getOption().matches(options::OPT_fsanitize_blacklist)) {
+      std::string BLPath = BLArg->getValue();
+      bool BLExists = false;
+      if (!llvm::sys::fs::exists(BLPath, BLExists) && BLExists)
+        BlacklistFile = BLPath;
+      else
+        D.Diag(diag::err_drv_no_such_file) << BLPath;
+    }
+  }
 }
 
 /// If AddressSanitizer is enabled, add appropriate linker flags (Linux).
@@ -1512,6 +1534,9 @@ static void addAsanRTLinux(const ToolChain &TC, const ArgList &Args,
 static void addTsanRTLinux(const ToolChain &TC, const ArgList &Args,
                            ArgStringList &CmdArgs) {
   if (!Args.hasArg(options::OPT_shared)) {
+    if (!Args.hasArg(options::OPT_pie))
+      TC.getDriver().Diag(diag::err_drv_sanitizer_requires_pie) <<
+        /* Thread */ 0;
     // LibTsan is "libclang_rt.tsan-<ArchName>.a" in the Linux library
     // resource directory.
     SmallString<128> LibTsan(TC.getDriver().ResourceDir);
@@ -1519,6 +1544,27 @@ static void addTsanRTLinux(const ToolChain &TC, const ArgList &Args,
                             (Twine("libclang_rt.tsan-") +
                              TC.getArchName() + ".a"));
     CmdArgs.push_back(Args.MakeArgString(LibTsan));
+    CmdArgs.push_back("-lpthread");
+    CmdArgs.push_back("-ldl");
+    CmdArgs.push_back("-export-dynamic");
+  }
+}
+
+/// If MemorySanitizer is enabled, add appropriate linker flags (Linux).
+/// This needs to be called before we add the C run-time (malloc, etc).
+static void addMsanRTLinux(const ToolChain &TC, const ArgList &Args,
+                           ArgStringList &CmdArgs) {
+  if (!Args.hasArg(options::OPT_shared)) {
+    if (!Args.hasArg(options::OPT_pie))
+      TC.getDriver().Diag(diag::err_drv_sanitizer_requires_pie) <<
+        /* Memory */ 1;
+    // LibMsan is "libclang_rt.msan-<ArchName>.a" in the Linux library
+    // resource directory.
+    SmallString<128> LibMsan(TC.getDriver().ResourceDir);
+    llvm::sys::path::append(LibMsan, "lib", "linux",
+                            (Twine("libclang_rt.msan-") +
+                             TC.getArchName() + ".a"));
+    CmdArgs.push_back(Args.MakeArgString(LibMsan));
     CmdArgs.push_back("-lpthread");
     CmdArgs.push_back("-ldl");
     CmdArgs.push_back("-export-dynamic");
@@ -1538,6 +1584,7 @@ static void addUbsanRTLinux(const ToolChain &TC, const ArgList &Args,
                              TC.getArchName() + ".a"));
     CmdArgs.push_back(Args.MakeArgString(LibUbsan));
     CmdArgs.push_back("-lpthread");
+    CmdArgs.push_back("-export-dynamic");
   }
 }
 
@@ -5423,9 +5470,15 @@ void linuxtools::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   SanitizerArgs Sanitize(D, Args);
 
-  // Call this before we add the C++ ABI library.
+  // Call these before we add the C++ ABI library.
   if (Sanitize.needsUbsanRt())
     addUbsanRTLinux(getToolChain(), Args, CmdArgs);
+  if (Sanitize.needsAsanRt())
+    addAsanRTLinux(getToolChain(), Args, CmdArgs);
+  if (Sanitize.needsTsanRt())
+    addTsanRTLinux(getToolChain(), Args, CmdArgs);
+  if (Sanitize.needsMsanRt())
+    addMsanRTLinux(getToolChain(), Args, CmdArgs);
 
   if (D.CCCIsCXX &&
       !Args.hasArg(options::OPT_nostdlib) &&
@@ -5439,12 +5492,6 @@ void linuxtools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-Bdynamic");
     CmdArgs.push_back("-lm");
   }
-
-  // Call this before we add the C run-time.
-  if (Sanitize.needsAsanRt())
-    addAsanRTLinux(getToolChain(), Args, CmdArgs);
-  if (Sanitize.needsTsanRt())
-    addTsanRTLinux(getToolChain(), Args, CmdArgs);
 
   if (!Args.hasArg(options::OPT_nostdlib)) {
     if (!Args.hasArg(options::OPT_nodefaultlibs)) {

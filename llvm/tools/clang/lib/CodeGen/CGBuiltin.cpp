@@ -11,16 +11,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "TargetInfo.h"
 #include "CodeGenFunction.h"
-#include "CodeGenModule.h"
 #include "CGObjCRuntime.h"
-#include "clang/Basic/TargetInfo.h"
+#include "CodeGenModule.h"
+#include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/Basic/TargetBuiltins.h"
-#include "llvm/Intrinsics.h"
+#include "clang/Basic/TargetInfo.h"
 #include "llvm/DataLayout.h"
+#include "llvm/Intrinsics.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -409,7 +409,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     if (getLangOpts().SanitizeUnreachable)
       EmitCheck(Builder.getFalse(), "builtin_unreachable",
                 EmitCheckSourceLocation(E->getExprLoc()),
-                llvm::ArrayRef<llvm::Value *>());
+                llvm::ArrayRef<llvm::Value *>(), CRK_Unrecoverable);
     else
       Builder.CreateUnreachable();
 

@@ -17,18 +17,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Regex.h"
+#include "llvm/Support/Signals.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/system_error.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include <algorithm>
+#include <map>
+#include <string>
+#include <vector>
 using namespace llvm;
 
 static cl::opt<std::string>
@@ -73,16 +76,19 @@ class Pattern {
   /// value of bar at offset 3.
   std::vector<std::pair<StringRef, unsigned> > VariableUses;
 
-  /// VariableDefs - Entries in this vector map to definitions of a variable in
-  /// the pattern, e.g. "foo[[bar:.*]]baz".  In this case, the RegExStr will
-  /// contain "foo(.*)baz" and VariableDefs will contain the pair "bar",1.  The
-  /// index indicates what parenthesized value captures the variable value.
-  std::vector<std::pair<StringRef, unsigned> > VariableDefs;
+  /// VariableDefs - Maps definitions of variables to their parenthesized
+  /// capture numbers.
+  /// E.g. for the pattern "foo[[bar:.*]]baz", VariableDefs will map "bar" to 1.
+  std::map<StringRef, unsigned> VariableDefs;
 
 public:
 
   Pattern(bool matchEOF = false) : MatchEOF(matchEOF) { }
 
+  /// ParsePattern - Parse the given string into the Pattern.  SM provides the
+  /// SourceMgr used for error reports, and LineNumber is the line number in
+  /// the input file from which the pattern string was read.
+  /// Returns true in case of an error, false otherwise.
   bool ParsePattern(StringRef PatternStr, SourceMgr &SM, unsigned LineNumber);
 
   /// Match - Match the pattern string against the input buffer Buffer.  This
@@ -101,7 +107,8 @@ public:
 
 private:
   static void AddFixedStringToRegEx(StringRef FixedStr, std::string &TheStr);
-  bool AddRegExToRegEx(StringRef RegExStr, unsigned &CurParen, SourceMgr &SM);
+  bool AddRegExToRegEx(StringRef RS, unsigned &CurParen, SourceMgr &SM);
+  void AddBackrefToRegEx(unsigned BackrefNum);
 
   /// ComputeMatchDistance - Compute an arbitrary estimate for the quality of
   /// matching this pattern at the start of \arg Buffer; a distance of zero
@@ -112,6 +119,13 @@ private:
   /// \brief Evaluates expression and stores the result to \p Value.
   /// \return true on success. false when the expression has invalid syntax.
   bool EvaluateExpression(StringRef Expr, std::string &Value) const;
+
+  /// \brief Finds the closing sequence of a regex variable usage or
+  /// definition. Str has to point in the beginning of the definition
+  /// (right after the opening sequence).
+  /// \return offset of the closing sequence within Str, or npos if it was not
+  /// found.
+  size_t FindRegexVarEnd(StringRef Str);
 };
 
 
@@ -150,8 +164,7 @@ bool Pattern::ParsePattern(StringRef PatternStr, SourceMgr &SM,
   while (!PatternStr.empty()) {
     // RegEx matches.
     if (PatternStr.startswith("{{")) {
-
-      // Otherwise, this is the start of a regex match.  Scan for the }}.
+      // This is the start of a regex match.  Scan for the }}.
       size_t End = PatternStr.find("}}");
       if (End == StringRef::npos) {
         SM.PrintMessage(SMLoc::getFromPointer(PatternStr.data()),
@@ -181,8 +194,10 @@ bool Pattern::ParsePattern(StringRef PatternStr, SourceMgr &SM,
     // itself must be of the form "[a-zA-Z_][0-9a-zA-Z_]*", otherwise we reject
     // it.  This is to catch some common errors.
     if (PatternStr.startswith("[[")) {
-      // Verify that it is terminated properly.
-      size_t End = PatternStr.find("]]");
+      // Find the closing bracket pair ending the match.  End is going to be an
+      // offset relative to the beginning of the match string.
+      size_t End = FindRegexVarEnd(PatternStr.substr(2));
+
       if (End == StringRef::npos) {
         SM.PrintMessage(SMLoc::getFromPointer(PatternStr.data()),
                         SourceMgr::DK_Error,
@@ -190,8 +205,8 @@ bool Pattern::ParsePattern(StringRef PatternStr, SourceMgr &SM,
         return true;
       }
 
-      StringRef MatchStr = PatternStr.substr(2, End-2);
-      PatternStr = PatternStr.substr(End+2);
+      StringRef MatchStr = PatternStr.substr(2, End);
+      PatternStr = PatternStr.substr(End+4);
 
       // Get the regex name (e.g. "foo").
       size_t NameEnd = MatchStr.find(':');
@@ -235,12 +250,25 @@ bool Pattern::ParsePattern(StringRef PatternStr, SourceMgr &SM,
 
       // Handle [[foo]].
       if (NameEnd == StringRef::npos) {
-        VariableUses.push_back(std::make_pair(Name, RegExStr.size()));
+        // Handle variables that were defined earlier on the same line by
+        // emitting a backreference.
+        if (VariableDefs.find(Name) != VariableDefs.end()) {
+          unsigned VarParenNum = VariableDefs[Name];
+          if (VarParenNum < 1 || VarParenNum > 9) {
+            SM.PrintMessage(SMLoc::getFromPointer(Name.data()),
+                            SourceMgr::DK_Error,
+                            "Can't back-reference more than 9 variables");
+            return true;
+          }
+          AddBackrefToRegEx(VarParenNum);
+        } else {
+          VariableUses.push_back(std::make_pair(Name, RegExStr.size()));
+        }
         continue;
       }
 
       // Handle [[foo:.*]].
-      VariableDefs.push_back(std::make_pair(Name, CurParen));
+      VariableDefs[Name] = CurParen;
       RegExStr += '(';
       ++CurParen;
 
@@ -288,19 +316,26 @@ void Pattern::AddFixedStringToRegEx(StringRef FixedStr, std::string &TheStr) {
   }
 }
 
-bool Pattern::AddRegExToRegEx(StringRef RegexStr, unsigned &CurParen,
+bool Pattern::AddRegExToRegEx(StringRef RS, unsigned &CurParen,
                               SourceMgr &SM) {
-  Regex R(RegexStr);
+  Regex R(RS);
   std::string Error;
   if (!R.isValid(Error)) {
-    SM.PrintMessage(SMLoc::getFromPointer(RegexStr.data()), SourceMgr::DK_Error,
+    SM.PrintMessage(SMLoc::getFromPointer(RS.data()), SourceMgr::DK_Error,
                     "invalid regex: " + Error);
     return true;
   }
 
-  RegExStr += RegexStr.str();
+  RegExStr += RS.str();
   CurParen += R.getNumMatches();
   return false;
+}
+
+void Pattern::AddBackrefToRegEx(unsigned BackrefNum) {
+  assert(BackrefNum >= 1 && BackrefNum <= 9 && "Invalid backref number");
+  std::string Backref = std::string("\\") +
+                        std::string(1, '0' + BackrefNum);
+  RegExStr += Backref;
 }
 
 bool Pattern::EvaluateExpression(StringRef Expr, std::string &Value) const {
@@ -385,10 +420,11 @@ size_t Pattern::Match(StringRef Buffer, size_t &MatchLen,
   StringRef FullMatch = MatchInfo[0];
 
   // If this defines any variables, remember their values.
-  for (unsigned i = 0, e = VariableDefs.size(); i != e; ++i) {
-    assert(VariableDefs[i].second < MatchInfo.size() &&
-           "Internal paren error");
-    VariableTable[VariableDefs[i].first] = MatchInfo[VariableDefs[i].second];
+  for (std::map<StringRef, unsigned>::const_iterator I = VariableDefs.begin(),
+                                                     E = VariableDefs.end();
+       I != E; ++I) {
+    assert(I->second < MatchInfo.size() && "Internal paren error");
+    VariableTable[I->first] = MatchInfo[I->second];
   }
 
   MatchLen = FullMatch.size();
@@ -492,6 +528,40 @@ void Pattern::PrintFailureInfo(const SourceMgr &SM, StringRef Buffer,
   }
 }
 
+size_t Pattern::FindRegexVarEnd(StringRef Str) {
+  // Offset keeps track of the current offset within the input Str
+  size_t Offset = 0;
+  // [...] Nesting depth
+  size_t BracketDepth = 0;
+
+  while (!Str.empty()) {
+    if (Str.startswith("]]") && BracketDepth == 0)
+      return Offset;
+    if (Str[0] == '\\') {
+      // Backslash escapes the next char within regexes, so skip them both.
+      Str = Str.substr(2);
+      Offset += 2;
+    } else {
+      switch (Str[0]) {
+        default:
+          break;
+        case '[':
+          BracketDepth++;
+          break;
+        case ']':
+          assert(BracketDepth > 0 && "Invalid regex");
+          BracketDepth--;
+          break;
+      }
+      Str = Str.substr(1);
+      Offset++;
+    }
+  }
+
+  return StringRef::npos;
+}
+
+
 //===----------------------------------------------------------------------===//
 // Check Strings.
 //===----------------------------------------------------------------------===//
@@ -554,9 +624,9 @@ static MemoryBuffer *CanonicalizeInputFile(MemoryBuffer *MB) {
 
 /// ReadCheckFile - Read the check file, which specifies the sequence of
 /// expected strings.  The strings are added to the CheckStrings vector.
+/// Returns true in case of an error, false otherwise.
 static bool ReadCheckFile(SourceMgr &SM,
                           std::vector<CheckString> &CheckStrings) {
-  // Open the check file, and tell SourceMgr about it.
   OwningPtr<MemoryBuffer> File;
   if (error_code ec =
         MemoryBuffer::getFileOrSTDIN(CheckFilename.c_str(), File)) {
@@ -575,9 +645,10 @@ static bool ReadCheckFile(SourceMgr &SM,
 
   // Find all instances of CheckPrefix followed by : in the file.
   StringRef Buffer = F->getBuffer();
-
   std::vector<std::pair<SMLoc, Pattern> > NotMatches;
 
+  // LineNumber keeps track of the line on which CheckPrefix instances are
+  // found.
   unsigned LineNumber = 1;
 
   while (1) {
@@ -587,7 +658,6 @@ static bool ReadCheckFile(SourceMgr &SM,
     if (PrefixLoc == StringRef::npos)
       break;
 
-    // Recalculate line number.
     LineNumber += Buffer.substr(0, PrefixLoc).count('\n');
 
     Buffer = Buffer.substr(PrefixLoc);
@@ -631,7 +701,6 @@ static bool ReadCheckFile(SourceMgr &SM,
 
     Buffer = Buffer.substr(EOL);
 
-
     // Verify that CHECK-NEXT lines have at least one CHECK line before them.
     if (IsCheckNext && CheckStrings.empty()) {
       SM.PrintMessage(SMLoc::getFromPointer(CheckPrefixStart),
@@ -647,7 +716,6 @@ static bool ReadCheckFile(SourceMgr &SM,
                                           P));
       continue;
     }
-
 
     // Okay, add the string we captured to the output vector and move on.
     CheckStrings.push_back(CheckString(P,
@@ -729,13 +797,13 @@ int main(int argc, char **argv) {
         MemoryBuffer::getFileOrSTDIN(InputFilename.c_str(), File)) {
     errs() << "Could not open input file '" << InputFilename << "': "
            << ec.message() << '\n';
-    return true;
+    return 2;
   }
   MemoryBuffer *F = File.take();
 
   if (F->getBufferSize() == 0) {
     errs() << "FileCheck error: '" << InputFilename << "' is empty.\n";
-    return 1;
+    return 2;
   }
   
   // Remove duplicate spaces in the input file if requested.

@@ -13,10 +13,10 @@
 
 #include "clang/Lex/TokenLexer.h"
 #include "MacroArgs.h"
-#include "clang/Lex/MacroInfo.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/SmallString.h"
 using namespace clang;
 
@@ -647,6 +647,12 @@ bool TokenLexer::PasteTokens(Token &Tok) {
     StartLoc = getExpansionLocForMacroDefLoc(StartLoc);
   if (EndLoc.isFileID())
     EndLoc = getExpansionLocForMacroDefLoc(EndLoc);
+  FileID MacroFID = SM.getFileID(MacroExpansionStart);
+  while (SM.getFileID(StartLoc) != MacroFID)
+    StartLoc = SM.getImmediateExpansionRange(StartLoc).first;
+  while (SM.getFileID(EndLoc) != MacroFID)
+    EndLoc = SM.getImmediateExpansionRange(EndLoc).second;
+    
   Tok.setLocation(SM.createExpansionLoc(Tok.getLocation(), StartLoc, EndLoc,
                                         Tok.getLength()));
 

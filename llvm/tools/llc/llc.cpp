@@ -14,28 +14,28 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/LLVMContext.h"
-#include "llvm/DataLayout.h"
-#include "llvm/Module.h"
-#include "llvm/PassManager.h"
-#include "llvm/Pass.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Assembly/PrintModulePass.h"
-#include "llvm/Support/IRReader.h"
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/CodeGen/LinkAllAsmWriterComponents.h"
 #include "llvm/CodeGen/LinkAllCodegenComponents.h"
+#include "llvm/DataLayout.h"
 #include "llvm/MC/SubtargetFeature.h"
+#include "llvm/Module.h"
+#include "llvm/Pass.h"
+#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormattedStream.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/IRReader.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PluginLoader.h"
 #include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/Host.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include <memory>
@@ -50,6 +50,11 @@ InputFilename(cl::Positional, cl::desc("<input bitcode>"), cl::init("-"));
 
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Output filename"), cl::value_desc("filename"));
+
+static cl::opt<unsigned>
+TimeCompilations("time-compilations", cl::Hidden, cl::init(1u),
+                 cl::value_desc("N"),
+                 cl::desc("Repeat compilation N times for timing"));
 
 // Determine optimization level.
 static cl::opt<char>
@@ -70,6 +75,8 @@ cl::opt<bool>
 DisableSimplifyLibCalls("disable-simplify-libcalls",
                         cl::desc("Disable simplify-libcalls"),
                         cl::init(false));
+
+static int compileModule(char**, LLVMContext&);
 
 // GetFileNameRoot - Helper function to get the basename of a filename.
 static inline std::string
@@ -181,6 +188,15 @@ int main(int argc, char **argv) {
 
   cl::ParseCommandLineOptions(argc, argv, "llvm system compiler\n");
 
+  // Compile the module TimeCompilations times to give better compile time
+  // metrics.
+  for (unsigned I = TimeCompilations; I; --I)
+    if (int RetVal = compileModule(argv, Context))
+      return RetVal;
+  return 0;
+}
+
+static int compileModule(char **argv, LLVMContext &Context) {
   // Load the module to be compiled...
   SMDiagnostic Err;
   std::auto_ptr<Module> M;
@@ -359,9 +375,7 @@ int main(int argc, char **argv) {
     // Before executing passes, print the final values of the LLVM options.
     cl::PrintOptionValues();
 
-    PM.doInitialization();
     PM.run(*mod);
-    PM.doFinalization();
   }
 
   // Declare success.

@@ -886,6 +886,8 @@ main checks are:
 <li id="opt_fsanitize_address"><tt>-fsanitize=address</tt>:
     <a href="AddressSanitizer.html">AddressSanitizer</a>, a memory error
     detector.</li>
+<li id="opt_fsanitize_address_full"><tt>-fsanitize=address-full</tt>:
+    AddressSanitizer with all the experimental features listed below.
 <li id="opt_fsanitize_integer"><tt>-fsanitize=integer</tt>:
     Enables checks for undefined or suspicious integer behavior.</li>
 <li id="opt_fsanitize_thread"><tt>-fsanitize=thread</tt>:
@@ -894,8 +896,8 @@ main checks are:
 <li id="opt_fsanitize_undefined"><tt>-fsanitize=undefined</tt>:
     Fast and compatible undefined behavior checker.  Enables the undefined behavior
     checks that have small runtime cost and no impact on address space layout
-    or ABI.  This includes all of the checks listed below other than unsigned
-    integer overflow.</li>
+    or ABI.  This includes all of the checks listed below other than
+    <tt>unsigned-integer-overflow</tt> and <tt>bounds</tt>.</li>
 </ul>
 
 The following more fine-grained checks are also available:
@@ -903,6 +905,9 @@ The following more fine-grained checks are also available:
 <ul>
 <li id="opt_fsanitize_alignment"><tt>-fsanitize=alignment</tt>:
     Use of a misaligned pointer or creation of a misaligned reference.</li>
+<li id="opt_fsanitize_bounds"><tt>-fsanitize=bounds</tt>:
+    Out of bounds array indexing, in cases where the array bound can be
+    statically determined.</li>
 <li id="opt_fsanitize_float-cast-overflow"><tt>-fsanitize=float-cast-overflow</tt>:
     Conversion to, from, or between floating-point types which would overflow
     the destination.</li>
@@ -939,6 +944,20 @@ The following more fine-grained checks are also available:
     Use of an object whose vptr indicates that it is of the wrong dynamic type,
     or that its lifetime has not begun or has ended. Incompatible with
     <tt>-fno-rtti</tt>.</li>
+</ul>
+
+Experimental features of AddressSanitizer (not ready for widespread use,
+require explicit <tt>-fsanitize=address</tt>):
+
+<ul>
+<li id="opt_fsanitize_init_order"><tt>-fsanitize=init-order</tt>:
+Check for dynamic initialization order problems.</li>
+<li id="opt_fsanitize_use_after_return"><tt>-fsanitize=use-after-return</tt>:
+Check for use-after-return errors (accessing local variable after the function
+exit).
+<li id="opt_fsanitize_use_after_scope"><tt>-fsanitize=use-after-scope</tt>:
+Check for use-after-scope errors (accesing local variable after it went out of
+scope).
 </ul>
 
 The <tt>-fsanitize=</tt> argument must also be provided when linking, in order

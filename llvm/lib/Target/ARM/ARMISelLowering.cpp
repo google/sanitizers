@@ -23,14 +23,9 @@
 #include "ARMTargetMachine.h"
 #include "ARMTargetObjectFile.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/CallingConv.h"
-#include "llvm/Constants.h"
-#include "llvm/Function.h"
-#include "llvm/GlobalValue.h"
-#include "llvm/Instruction.h"
-#include "llvm/Instructions.h"
-#include "llvm/Intrinsics.h"
-#include "llvm/Type.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -40,14 +35,19 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/Constants.h"
+#include "llvm/Function.h"
+#include "llvm/GlobalValue.h"
+#include "llvm/Instruction.h"
+#include "llvm/Instructions.h"
+#include "llvm/Intrinsics.h"
 #include "llvm/MC/MCSectionMachO.h"
-#include "llvm/Target/TargetOptions.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetOptions.h"
+#include "llvm/Type.h"
 using namespace llvm;
 
 STATISTIC(NumTailCalls, "Number of tail calls");
@@ -695,7 +695,11 @@ ARMTargetLowering::ARMTargetLowering(TargetMachine &TM)
     setOperationAction(ISD::ATOMIC_LOAD_AND,  MVT::i64, Custom);
     setOperationAction(ISD::ATOMIC_LOAD_OR,   MVT::i64, Custom);
     setOperationAction(ISD::ATOMIC_LOAD_XOR,  MVT::i64, Custom);
-    setOperationAction(ISD::ATOMIC_SWAP,  MVT::i64, Custom);
+    setOperationAction(ISD::ATOMIC_SWAP,      MVT::i64, Custom);
+    setOperationAction(ISD::ATOMIC_LOAD_MIN,  MVT::i64, Custom);
+    setOperationAction(ISD::ATOMIC_LOAD_MAX,  MVT::i64, Custom);
+    setOperationAction(ISD::ATOMIC_LOAD_UMIN, MVT::i64, Custom);
+    setOperationAction(ISD::ATOMIC_LOAD_UMAX, MVT::i64, Custom);
     setOperationAction(ISD::ATOMIC_CMP_SWAP,  MVT::i64, Custom);
     // Automatically insert fences (dmb ist) around ATOMIC_SWAP etc.
     setInsertFencesForAtomic(true);
@@ -4935,16 +4939,76 @@ static bool isZeroExtended(SDNode *N, SelectionDAG &DAG) {
   return false;
 }
 
-/// SkipExtension - For a node that is a SIGN_EXTEND, ZERO_EXTEND, extending
-/// load, or BUILD_VECTOR with extended elements, return the unextended value.
-static SDValue SkipExtension(SDNode *N, SelectionDAG &DAG) {
+/// AddRequiredExtensionForVMULL - Add a sign/zero extension to extend the total
+/// value size to 64 bits. We need a 64-bit D register as an operand to VMULL.
+/// We insert the required extension here to get the vector to fill a D register.
+static SDValue AddRequiredExtensionForVMULL(SDValue N, SelectionDAG &DAG,
+                                            const EVT &OrigTy,
+                                            const EVT &ExtTy,
+                                            unsigned ExtOpcode) {
+  // The vector originally had a size of OrigTy. It was then extended to ExtTy.
+  // We expect the ExtTy to be 128-bits total. If the OrigTy is less than
+  // 64-bits we need to insert a new extension so that it will be 64-bits.
+  assert(ExtTy.is128BitVector() && "Unexpected extension size");
+  if (OrigTy.getSizeInBits() >= 64)
+    return N;
+
+  // Must extend size to at least 64 bits to be used as an operand for VMULL.
+  MVT::SimpleValueType OrigSimpleTy = OrigTy.getSimpleVT().SimpleTy;
+  EVT NewVT;
+  switch (OrigSimpleTy) {
+  default: llvm_unreachable("Unexpected Orig Vector Type");
+  case MVT::v2i8:
+  case MVT::v2i16:
+    NewVT = MVT::v2i32;
+    break;
+  case MVT::v4i8:
+    NewVT = MVT::v4i16;
+    break;
+  }
+  return DAG.getNode(ExtOpcode, N->getDebugLoc(), NewVT, N);
+}
+
+/// SkipLoadExtensionForVMULL - return a load of the original vector size that
+/// does not do any sign/zero extension. If the original vector is less
+/// than 64 bits, an appropriate extension will be added after the load to
+/// reach a total size of 64 bits. We have to add the extension separately
+/// because ARM does not have a sign/zero extending load for vectors.
+static SDValue SkipLoadExtensionForVMULL(LoadSDNode *LD, SelectionDAG& DAG) {
+  SDValue NonExtendingLoad =
+    DAG.getLoad(LD->getMemoryVT(), LD->getDebugLoc(), LD->getChain(),
+                LD->getBasePtr(), LD->getPointerInfo(), LD->isVolatile(),
+                LD->isNonTemporal(), LD->isInvariant(),
+                LD->getAlignment());
+  unsigned ExtOp = 0;
+  switch (LD->getExtensionType()) {
+  default: llvm_unreachable("Unexpected LoadExtType");
+  case ISD::EXTLOAD:
+  case ISD::SEXTLOAD: ExtOp = ISD::SIGN_EXTEND; break;
+  case ISD::ZEXTLOAD: ExtOp = ISD::ZERO_EXTEND; break;
+  }
+  MVT::SimpleValueType MemType = LD->getMemoryVT().getSimpleVT().SimpleTy;
+  MVT::SimpleValueType ExtType = LD->getValueType(0).getSimpleVT().SimpleTy;
+  return AddRequiredExtensionForVMULL(NonExtendingLoad, DAG,
+                                      MemType, ExtType, ExtOp);
+}
+
+/// SkipExtensionForVMULL - For a node that is a SIGN_EXTEND, ZERO_EXTEND,
+/// extending load, or BUILD_VECTOR with extended elements, return the
+/// unextended value. The unextended vector should be 64 bits so that it can
+/// be used as an operand to a VMULL instruction. If the original vector size
+/// before extension is less than 64 bits we add a an extension to resize
+/// the vector to 64 bits.
+static SDValue SkipExtensionForVMULL(SDNode *N, SelectionDAG &DAG) {
   if (N->getOpcode() == ISD::SIGN_EXTEND || N->getOpcode() == ISD::ZERO_EXTEND)
-    return N->getOperand(0);
+    return AddRequiredExtensionForVMULL(N->getOperand(0), DAG,
+                                        N->getOperand(0)->getValueType(0),
+                                        N->getValueType(0),
+                                        N->getOpcode());
+
   if (LoadSDNode *LD = dyn_cast<LoadSDNode>(N))
-    return DAG.getLoad(LD->getMemoryVT(), N->getDebugLoc(), LD->getChain(),
-                       LD->getBasePtr(), LD->getPointerInfo(), LD->isVolatile(),
-                       LD->isNonTemporal(), LD->isInvariant(),
-                       LD->getAlignment());
+    return SkipLoadExtensionForVMULL(LD, DAG);
+
   // Otherwise, the value must be a BUILD_VECTOR.  For v2i64, it will
   // have been legalized as a BITCAST from v4i32.
   if (N->getOpcode() == ISD::BITCAST) {
@@ -4999,7 +5063,8 @@ static SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) {
   // Multiplications are only custom-lowered for 128-bit vectors so that
   // VMULL can be detected.  Otherwise v2i64 multiplications are not legal.
   EVT VT = Op.getValueType();
-  assert(VT.is128BitVector() && "unexpected type for custom-lowering ISD::MUL");
+  assert(VT.is128BitVector() && VT.isInteger() &&
+         "unexpected type for custom-lowering ISD::MUL");
   SDNode *N0 = Op.getOperand(0).getNode();
   SDNode *N1 = Op.getOperand(1).getNode();
   unsigned NewOpc = 0;
@@ -5042,9 +5107,9 @@ static SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) {
   // Legalize to a VMULL instruction.
   DebugLoc DL = Op.getDebugLoc();
   SDValue Op0;
-  SDValue Op1 = SkipExtension(N1, DAG);
+  SDValue Op1 = SkipExtensionForVMULL(N1, DAG);
   if (!isMLA) {
-    Op0 = SkipExtension(N0, DAG);
+    Op0 = SkipExtensionForVMULL(N0, DAG);
     assert(Op0.getValueType().is64BitVector() &&
            Op1.getValueType().is64BitVector() &&
            "unexpected types for extended operands to VMULL");
@@ -5059,8 +5124,8 @@ static SDValue LowerMUL(SDValue Op, SelectionDAG &DAG) {
   //   vaddl q0, d4, d5
   //   vmovl q1, d6
   //   vmul  q0, q0, q1
-  SDValue N00 = SkipExtension(N0->getOperand(0).getNode(), DAG);
-  SDValue N01 = SkipExtension(N0->getOperand(1).getNode(), DAG);
+  SDValue N00 = SkipExtensionForVMULL(N0->getOperand(0).getNode(), DAG);
+  SDValue N01 = SkipExtensionForVMULL(N0->getOperand(1).getNode(), DAG);
   EVT Op1VT = Op1.getValueType();
   return DAG.getNode(N0->getOpcode(), DL, VT,
                      DAG.getNode(NewOpc, DL, VT,
@@ -5406,6 +5471,18 @@ void ARMTargetLowering::ReplaceNodeResults(SDNode *N,
   case ISD::ATOMIC_CMP_SWAP:
     ReplaceATOMIC_OP_64(N, Results, DAG, ARMISD::ATOMCMPXCHG64_DAG);
     return;
+  case ISD::ATOMIC_LOAD_MIN:
+    ReplaceATOMIC_OP_64(N, Results, DAG, ARMISD::ATOMMIN64_DAG);
+    return;
+  case ISD::ATOMIC_LOAD_UMIN:
+    ReplaceATOMIC_OP_64(N, Results, DAG, ARMISD::ATOMUMIN64_DAG);
+    return;
+  case ISD::ATOMIC_LOAD_MAX:
+    ReplaceATOMIC_OP_64(N, Results, DAG, ARMISD::ATOMMAX64_DAG);
+    return;
+  case ISD::ATOMIC_LOAD_UMAX:
+    ReplaceATOMIC_OP_64(N, Results, DAG, ARMISD::ATOMUMAX64_DAG);
+    return;
   }
   if (Res.getNode())
     Results.push_back(Res);
@@ -5745,7 +5822,8 @@ ARMTargetLowering::EmitAtomicBinaryMinMax(MachineInstr *MI,
 MachineBasicBlock *
 ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
                                       unsigned Op1, unsigned Op2,
-                                      bool NeedsCarry, bool IsCmpxchg) const {
+                                      bool NeedsCarry, bool IsCmpxchg,
+                                      bool IsMinMax, ARMCC::CondCodes CC) const {
   // This also handles ATOMIC_SWAP, indicated by Op1==0.
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
 
@@ -5774,16 +5852,15 @@ ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
 
   MachineBasicBlock *loopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineBasicBlock *contBB = 0, *cont2BB = 0;
-  if (IsCmpxchg) {
+  if (IsCmpxchg || IsMinMax)
     contBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  if (IsCmpxchg)
     cont2BB = MF->CreateMachineBasicBlock(LLVM_BB);
-  }
   MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+
   MF->insert(It, loopMBB);
-  if (IsCmpxchg) {
-    MF->insert(It, contBB);
-    MF->insert(It, cont2BB);
-  }
+  if (IsCmpxchg || IsMinMax) MF->insert(It, contBB);
+  if (IsCmpxchg) MF->insert(It, cont2BB);
   MF->insert(It, exitMBB);
 
   // Transfer the remainder of BB and its successor edges to exitMBB.
@@ -5821,6 +5898,22 @@ ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
   // Load
   unsigned GPRPair0 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
   unsigned GPRPair1 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+  unsigned GPRPair2;
+  if (IsMinMax) {
+    //We need an extra double register for doing min/max.
+    unsigned undef = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    unsigned r1 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    GPRPair2 = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
+    BuildMI(BB, dl, TII->get(TargetOpcode::IMPLICIT_DEF), undef);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), r1)
+      .addReg(undef)
+      .addReg(vallo)
+      .addImm(ARM::gsub_0);
+    BuildMI(BB, dl, TII->get(TargetOpcode::INSERT_SUBREG), GPRPair2)
+      .addReg(r1)
+      .addReg(valhi)
+      .addImm(ARM::gsub_1);
+  }
 
   AddDefaultPred(BuildMI(BB, dl, TII->get(ldrOpc))
                  .addReg(GPRPair0, RegState::Define).addReg(ptr));
@@ -5866,7 +5959,8 @@ ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
         .addReg(NeedsCarry ? ARM::CPSR : 0, getDefRegState(NeedsCarry));
     unsigned tmpRegHi = MRI.createVirtualRegister(TRC);
     AddDefaultPred(BuildMI(BB, dl, TII->get(Op2), tmpRegHi)
-                   .addReg(desthi).addReg(valhi)).addReg(0);
+                   .addReg(desthi).addReg(valhi))
+        .addReg(IsMinMax ? ARM::CPSR : 0, getDefRegState(IsMinMax));
 
     unsigned UndefPair = MRI.createVirtualRegister(&ARM::GPRPairRegClass);
     BuildMI(BB, dl, TII->get(TargetOpcode::IMPLICIT_DEF), UndefPair);
@@ -5893,10 +5987,20 @@ ARMTargetLowering::EmitAtomicBinary64(MachineInstr *MI, MachineBasicBlock *BB,
       .addReg(valhi)
       .addImm(ARM::gsub_1);
   }
+  unsigned GPRPairStore = GPRPair1;
+  if (IsMinMax) {
+    // Compare and branch to exit block.
+    BuildMI(BB, dl, TII->get(isThumb2 ? ARM::t2Bcc : ARM::Bcc))
+      .addMBB(exitMBB).addImm(CC).addReg(ARM::CPSR);
+    BB->addSuccessor(exitMBB);
+    BB->addSuccessor(contBB);
+    BB = contBB;
+    GPRPairStore = GPRPair2;
+  }
 
   // Store
   AddDefaultPred(BuildMI(BB, dl, TII->get(strOpc), storesuccess)
-                 .addReg(GPRPair1).addReg(ptr));
+                 .addReg(GPRPairStore).addReg(ptr));
   // Cmp+jump
   AddDefaultPred(BuildMI(BB, dl, TII->get(isThumb2 ? ARM::t2CMPri : ARM::CMPri))
                  .addReg(storesuccess).addImm(0));
@@ -6894,6 +6998,26 @@ ARMTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
     return EmitAtomicBinary64(MI, BB, isThumb2 ? ARM::t2SUBrr : ARM::SUBrr,
                               isThumb2 ? ARM::t2SBCrr : ARM::SBCrr,
                               /*NeedsCarry*/ false, /*IsCmpxchg*/true);
+  case ARM::ATOMMIN6432:
+    return EmitAtomicBinary64(MI, BB, isThumb2 ? ARM::t2SUBrr : ARM::SUBrr,
+                              isThumb2 ? ARM::t2SBCrr : ARM::SBCrr,
+                              /*NeedsCarry*/ true, /*IsCmpxchg*/false,
+                              /*IsMinMax*/ true, ARMCC::LE);
+  case ARM::ATOMMAX6432:
+    return EmitAtomicBinary64(MI, BB, isThumb2 ? ARM::t2SUBrr : ARM::SUBrr,
+                              isThumb2 ? ARM::t2SBCrr : ARM::SBCrr,
+                              /*NeedsCarry*/ true, /*IsCmpxchg*/false,
+                              /*IsMinMax*/ true, ARMCC::GE);
+  case ARM::ATOMUMIN6432:
+    return EmitAtomicBinary64(MI, BB, isThumb2 ? ARM::t2SUBrr : ARM::SUBrr,
+                              isThumb2 ? ARM::t2SBCrr : ARM::SBCrr,
+                              /*NeedsCarry*/ true, /*IsCmpxchg*/false,
+                              /*IsMinMax*/ true, ARMCC::LS);
+  case ARM::ATOMUMAX6432:
+    return EmitAtomicBinary64(MI, BB, isThumb2 ? ARM::t2SUBrr : ARM::SUBrr,
+                              isThumb2 ? ARM::t2SBCrr : ARM::SBCrr,
+                              /*NeedsCarry*/ true, /*IsCmpxchg*/false,
+                              /*IsMinMax*/ true, ARMCC::HS);
 
   case ARM::tMOVCCr_pseudo: {
     // To "insert" a SELECT_CC instruction, we actually have to insert the

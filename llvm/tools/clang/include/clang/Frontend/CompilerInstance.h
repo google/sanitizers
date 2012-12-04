@@ -10,15 +10,15 @@
 #ifndef LLVM_CLANG_FRONTEND_COMPILERINSTANCE_H_
 #define LLVM_CLANG_FRONTEND_COMPILERINSTANCE_H_
 
-#include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Lex/ModuleLoader.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/StringRef.h"
 #include <cassert>
 #include <list>
 #include <string>
@@ -94,7 +94,7 @@ class CompilerInstance : public ModuleLoader {
 
   /// \brief The semantic analysis object.
   OwningPtr<Sema> TheSema;
-  
+
   /// \brief The frontend timer
   OwningPtr<llvm::Timer> FrontendTimer;
 
@@ -111,7 +111,7 @@ class CompilerInstance : public ModuleLoader {
   
   /// \brief The result of the last module import.
   ///
-  Module *LastModuleImportResult;
+  ModuleLoadResult LastModuleImportResult;
   
   /// \brief Holds information about the output file.
   ///
@@ -645,9 +645,10 @@ public:
 
   /// }
   
-  virtual Module *loadModule(SourceLocation ImportLoc, ModuleIdPath Path,
-                             Module::NameVisibilityKind Visibility,
-                             bool IsInclusionDirective);
+  virtual ModuleLoadResult loadModule(SourceLocation ImportLoc,
+                                      ModuleIdPath Path,
+                                      Module::NameVisibilityKind Visibility,
+                                      bool IsInclusionDirective);
 };
 
 } // end namespace clang

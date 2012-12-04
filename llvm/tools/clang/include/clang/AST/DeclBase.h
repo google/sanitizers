@@ -14,38 +14,39 @@
 #ifndef LLVM_CLANG_AST_DECLBASE_H
 #define LLVM_CLANG_AST_DECLBASE_H
 
-#include "clang/AST/Attr.h"
+#include "clang/AST/AttrIterator.h"
 #include "clang/AST/DeclarationName.h"
-#include "clang/AST/Type.h"
 #include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/PrettyStackTrace.h"
 
 namespace clang {
-class DeclContext;
-class TranslationUnitDecl;
-class NamespaceDecl;
-class UsingDirectiveDecl;
-class NamedDecl;
-class FunctionDecl;
-class CXXRecordDecl;
-class EnumDecl;
-class ObjCMethodDecl;
-class ObjCContainerDecl;
-class ObjCInterfaceDecl;
-class ObjCCategoryDecl;
-class ObjCProtocolDecl;
-class ObjCImplementationDecl;
-class ObjCCategoryImplDecl;
-class ObjCImplDecl;
-class LinkageSpecDecl;
-class BlockDecl;
-class DeclarationName;
-class CompoundStmt;
-class StoredDeclsMap;
-class DependentDiagnostic;
 class ASTMutationListener;
+class BlockDecl;
+class CXXRecordDecl;
+class CompoundStmt;
+class DeclContext;
+class DeclarationName;
+class DependentDiagnostic;
+class EnumDecl;
+class FunctionDecl;
+class LinkageSpecDecl;
+class NamedDecl;
+class NamespaceDecl;
+class ObjCCategoryDecl;
+class ObjCCategoryImplDecl;
+class ObjCContainerDecl;
+class ObjCImplDecl;
+class ObjCImplementationDecl;
+class ObjCInterfaceDecl;
+class ObjCMethodDecl;
+class ObjCProtocolDecl;
+struct PrintingPolicy;
+class Stmt;
+class StoredDeclsMap;
+class TranslationUnitDecl;
+class UsingDirectiveDecl;
 }
 
 namespace llvm {
@@ -455,9 +456,7 @@ public:
 
   /// getMaxAlignment - return the maximum alignment specified by attributes
   /// on this decl, 0 if there are none.
-  unsigned getMaxAlignment() const {
-    return hasAttrs() ? getMaxAttrAlignment(getAttrs(), getASTContext()) : 0;
-  }
+  unsigned getMaxAlignment() const;
 
   /// setInvalidDecl - Indicates the Decl had a semantic error. This
   /// allows for graceful error recovery.

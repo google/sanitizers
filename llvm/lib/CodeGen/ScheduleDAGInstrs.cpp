@@ -13,7 +13,10 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "misched"
-#include "llvm/Operator.h"
+#include "llvm/CodeGen/ScheduleDAGInstrs.h"
+#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
@@ -23,19 +26,16 @@
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/RegisterPressure.h"
 #include "llvm/CodeGen/ScheduleDFS.h"
-#include "llvm/CodeGen/ScheduleDAGInstrs.h"
 #include "llvm/MC/MCInstrItineraries.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/Operator.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
 static cl::opt<bool> EnableAASchedMI("enable-aa-sched-mi", cl::Hidden,
@@ -210,7 +210,8 @@ void ScheduleDAGInstrs::addSchedBarrierDeps() {
         Uses[Reg].push_back(PhysRegSUOper(&ExitSU, -1));
       else {
         assert(!IsPostRA && "Virtual register encountered after regalloc.");
-        addVRegUseDeps(&ExitSU, i);
+        if (MO.readsReg()) // ignore undef operands
+          addVRegUseDeps(&ExitSU, i);
       }
     }
   } else {
@@ -712,17 +713,17 @@ void ScheduleDAGInstrs::buildSchedGraph(AliasAnalysis *AA,
   addSchedBarrierDeps();
 
   // Walk the list of instructions, from bottom moving up.
-  MachineInstr *PrevMI = NULL;
+  MachineInstr *DbgMI = NULL;
   for (MachineBasicBlock::iterator MII = RegionEnd, MIE = RegionBegin;
        MII != MIE; --MII) {
     MachineInstr *MI = prior(MII);
-    if (MI && PrevMI) {
-      DbgValues.push_back(std::make_pair(PrevMI, MI));
-      PrevMI = NULL;
+    if (MI && DbgMI) {
+      DbgValues.push_back(std::make_pair(DbgMI, MI));
+      DbgMI = NULL;
     }
 
     if (MI->isDebugValue()) {
-      PrevMI = MI;
+      DbgMI = MI;
       continue;
     }
     if (RPTracker) {
@@ -916,8 +917,8 @@ void ScheduleDAGInstrs::buildSchedGraph(AliasAnalysis *AA,
       }
     }
   }
-  if (PrevMI)
-    FirstDbgValue = PrevMI;
+  if (DbgMI)
+    FirstDbgValue = DbgMI;
 
   Defs.clear();
   Uses.clear();
