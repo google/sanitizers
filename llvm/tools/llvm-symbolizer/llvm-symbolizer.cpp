@@ -38,7 +38,7 @@ using namespace llvm;
 using namespace object;
 
 static cl::opt<bool>
-UseSymbolTable("use-symbol-table", cl::init(false),
+UseSymbolTable("use-symbol-table", cl::init(true),
                cl::desc("Prefer names in symbol table to names "
                         "in debug info"));
 
