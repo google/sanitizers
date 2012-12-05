@@ -400,7 +400,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                    << F.getName() << "'\n");
   }
 
-  void materializeChecks() {
+  void materializeStores() {
     for (size_t i = 0, n = StoreList.size(); i < n; i++) {
       StoreInst& I = *dyn_cast<StoreInst>(StoreList[i].OrigIns);
 
@@ -425,14 +425,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
 
           Constant *Cst = dyn_cast_or_null<Constant>(ConvertedShadow);
-          if (Cst) {
-            // TODO(eugenis): handle non-zero constant shadow by inserting an
-            // unconditional check (can not simply fail as this could be in the dead
-            // code).
-            // assert(Cst->isNullValue() &&
-            //     "NOT HANDLED: Shadow is a non-zero compile-time constant.");
+          // TODO(eugenis): handle non-zero constant shadow by inserting an
+          // unconditional check (can not simply fail compilation as this could
+          // be in the dead code).
+          if (Cst)
             continue;
-          }
 
           Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
               getCleanShadow(ConvertedShadow), "_mscmp");
@@ -444,7 +441,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         }
       }
     }
+  }
 
+  void materializeChecks() {
     for (size_t i = 0, n = InstrumentationList.size(); i < n; i++) {
       Instruction *Shadow = InstrumentationList[i].Shadow;
       Instruction *OrigIns = InstrumentationList[i].OrigIns;
@@ -501,6 +500,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     VAHelper->finalizeInstrumentation();
 
+    materializeStores();
     materializeChecks();
 
     return true;
@@ -760,20 +760,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
     if (!Shadow) {
       Constant *Cst = dyn_cast_or_null<Constant>(getShadow(Val));
-      if (!Cst)
-        errs() << *Shadow << "\n";
       assert(Cst && "Shadow is neither an Instruction, nor a constant!");
-      if (!Cst->isNullValue()) {
-        errs() << "Dirty shadow: " << *Cst << "\n";
-        errs() << "In function: " << F << "\n";
-        errs() << *OrigIns << "\n";
-        errs() << "shadow type: " << *getShadowTy(Val->getType()) << "\n";
-      }
-      // TODO(eugenis): handle non-zero constant shadow by inserting an
-      // unconditional check (can not simply fail as this could be in the dead
-      // code).
-      // assert(Cst->isNullValue() &&
-      //     "NOT HANDLED: Shadow is a non-zero compile-time constant.");
       return;
     }
 #ifndef NDEBUG
