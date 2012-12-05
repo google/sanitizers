@@ -47,6 +47,7 @@
 
 #define DEBUG_TYPE "msan"
 
+#include "llvm/Transforms/Instrumentation.h"
 #include "BlackList.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SmallString.h"
@@ -66,7 +67,6 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Type.h"
@@ -218,6 +218,7 @@ static GlobalVariable *createPrivateNonConstGlobalForString(Module &M,
                             GlobalValue::PrivateLinkage, StrConst, "");
 }
 
+
 /// \brief Insert extern declaration of runtime-provided functions and globals.
 void MemorySanitizer::initializeCallbacks(Module &M) {
   // Only do this once.
@@ -275,7 +276,6 @@ void MemorySanitizer::initializeCallbacks(Module &M) {
     M, IRB.getInt64Ty(), false, GlobalVariable::ExternalLinkage, 0,
     "__msan_va_arg_overflow_size_tls", 0,
     GlobalVariable::GeneralDynamicTLSModel);
-
   OriginTLS = new GlobalVariable(
     M, IRB.getInt32Ty(), false, GlobalVariable::ExternalLinkage, 0,
     "__msan_origin_tls", 0, GlobalVariable::GeneralDynamicTLSModel);
@@ -288,7 +288,6 @@ void MemorySanitizer::initializeCallbacks(Module &M) {
 
 /// \brief Module-level initialization.
 ///
-/// Obtains pointers to the required runtime library functions, and
 /// inserts a call to __msan_init to the module's constructor list.
 bool MemorySanitizer::doInitialization(Module &M) {
   TD = getAnalysisIfAvailable<DataLayout>();
