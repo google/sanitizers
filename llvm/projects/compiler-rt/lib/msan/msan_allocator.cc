@@ -1,4 +1,4 @@
-#include "sanitizer_common/sanitizer_allocator64.h"
+#include "sanitizer_common/sanitizer_allocator.h"
 #include "sanitizer_common/sanitizer_stackdepot.h"
 #include "msan.h"
 
@@ -14,8 +14,7 @@ static const uptr kMetadataSize  = sizeof(Metadata);
 
 typedef SizeClassAllocator64<kAllocatorSpace, kAllocatorSize, kMetadataSize,
   DefaultSizeClassMap> PrimaryAllocator;
-typedef SizeClassAllocatorLocalCache<PrimaryAllocator::kNumClasses,
-  PrimaryAllocator> AllocatorCache;
+typedef SizeClassAllocatorLocalCache<PrimaryAllocator> AllocatorCache;
 typedef LargeMmapAllocator SecondaryAllocator;
 typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
           SecondaryAllocator> Allocator;
