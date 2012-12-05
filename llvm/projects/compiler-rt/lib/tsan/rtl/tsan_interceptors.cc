@@ -15,7 +15,7 @@
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_placement_new.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
-#include "tsan_interceptors.h"
+#include "interception/interception.h"
 #include "tsan_interface.h"
 #include "tsan_platform.h"
 #include "tsan_rtl.h"
@@ -137,6 +137,15 @@ static SignalContext *SigCtx(ThreadState *thr) {
 
 static unsigned g_thread_finalize_key;
 
+class ScopedInterceptor {
+ public:
+  ScopedInterceptor(ThreadState *thr, const char *fname, uptr pc);
+  ~ScopedInterceptor();
+ private:
+  ThreadState *const thr_;
+  const int in_rtl_;
+};
+
 ScopedInterceptor::ScopedInterceptor(ThreadState *thr, const char *fname,
                                      uptr pc)
     : thr_(thr)
@@ -159,6 +168,30 @@ ScopedInterceptor::~ScopedInterceptor() {
   }
   CHECK_EQ(in_rtl_, thr_->in_rtl);
 }
+
+#define SCOPED_INTERCEPTOR_RAW(func, ...) \
+    ThreadState *thr = cur_thread(); \
+    StatInc(thr, StatInterceptor); \
+    StatInc(thr, StatInt_##func); \
+    const uptr caller_pc = GET_CALLER_PC(); \
+    ScopedInterceptor si(thr, #func, caller_pc); \
+    /* Subtract one from pc as we need current instruction address */ \
+    const uptr pc = __sanitizer::StackTrace::GetCurrentPc() - 1; \
+    (void)pc; \
+/**/
+
+#define SCOPED_TSAN_INTERCEPTOR(func, ...) \
+    SCOPED_INTERCEPTOR_RAW(func, __VA_ARGS__); \
+    if (REAL(func) == 0) { \
+      Printf("FATAL: ThreadSanitizer: failed to intercept %s\n", #func); \
+      Die(); \
+    } \
+    if (thr->in_rtl > 1) \
+      return REAL(func)(__VA_ARGS__); \
+/**/
+
+#define TSAN_INTERCEPTOR(ret, func, ...) INTERCEPTOR(ret, func, __VA_ARGS__)
+#define TSAN_INTERCEPT(func) INTERCEPT_FUNCTION(func)
 
 #define BLOCK_REAL(name) (BlockingCall(thr), REAL(name))
 
@@ -586,21 +619,31 @@ TSAN_INTERCEPTOR(int, posix_memalign, void **memptr, uptr align, uptr sz) {
 }
 
 // Used in thread-safe function static initialization.
-TSAN_INTERCEPTOR(int, __cxa_guard_acquire, char *m) {
-  SCOPED_TSAN_INTERCEPTOR(__cxa_guard_acquire, m);
-  int res = REAL(__cxa_guard_acquire)(m);
-  if (res) {
-    // This thread does the init.
-  } else {
-    Acquire(thr, pc, (uptr)m);
+extern "C" int INTERFACE_ATTRIBUTE __cxa_guard_acquire(atomic_uint32_t *g) {
+  SCOPED_INTERCEPTOR_RAW(__cxa_guard_acquire, g);
+  for (;;) {
+    u32 cmp = atomic_load(g, memory_order_acquire);
+    if (cmp == 0) {
+      if (atomic_compare_exchange_strong(g, &cmp, 1<<16, memory_order_relaxed))
+        return 1;
+    } else if (cmp == 1) {
+      Acquire(thr, pc, (uptr)g);
+      return 0;
+    } else {
+      internal_sched_yield();
+    }
   }
-  return res;
 }
 
-TSAN_INTERCEPTOR(void, __cxa_guard_release, char *m) {
-  SCOPED_TSAN_INTERCEPTOR(__cxa_guard_release, m);
-  Release(thr, pc, (uptr)m);
-  REAL(__cxa_guard_release)(m);
+extern "C" void INTERFACE_ATTRIBUTE __cxa_guard_release(atomic_uint32_t *g) {
+  SCOPED_INTERCEPTOR_RAW(__cxa_guard_release, g);
+  Release(thr, pc, (uptr)g);
+  atomic_store(g, 1, memory_order_release);
+}
+
+extern "C" void INTERFACE_ATTRIBUTE __cxa_guard_abort(atomic_uint32_t *g) {
+  SCOPED_INTERCEPTOR_RAW(__cxa_guard_abort, g);
+  atomic_store(g, 0, memory_order_relaxed);
 }
 
 static void thread_finalize(void *v) {
@@ -1476,9 +1519,6 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(strcpy);  // NOLINT
   TSAN_INTERCEPT(strncpy);
   TSAN_INTERCEPT(strstr);
-
-  TSAN_INTERCEPT(__cxa_guard_acquire);
-  TSAN_INTERCEPT(__cxa_guard_release);
 
   TSAN_INTERCEPT(pthread_create);
   TSAN_INTERCEPT(pthread_join);

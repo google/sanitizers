@@ -1472,10 +1472,19 @@ SanitizerArgs::SanitizerArgs(const Driver &D, const ArgList &Args) {
   // Only one runtime library can be used at once.
   bool NeedsAsan = needsAsanRt();
   bool NeedsTsan = needsTsanRt();
+  bool NeedsMsan = needsMsanRt();
   if (NeedsAsan && NeedsTsan)
     D.Diag(diag::err_drv_argument_not_allowed_with)
       << lastArgumentForKind(D, Args, NeedsAsanRt)
       << lastArgumentForKind(D, Args, NeedsTsanRt);
+  if (NeedsAsan && NeedsMsan)
+    D.Diag(diag::err_drv_argument_not_allowed_with)
+      << lastArgumentForKind(D, Args, NeedsAsanRt)
+      << lastArgumentForKind(D, Args, NeedsMsanRt);
+  if (NeedsTsan && NeedsMsan)
+    D.Diag(diag::err_drv_argument_not_allowed_with)
+      << lastArgumentForKind(D, Args, NeedsTsanRt)
+      << lastArgumentForKind(D, Args, NeedsMsanRt);
 
   // If -fsanitize contains extra features of ASan, it should also
   // explicitly contain -fsanitize=address.
@@ -1512,7 +1521,7 @@ static void addAsanRTLinux(const ToolChain &TC, const ArgList &Args,
     llvm::sys::path::append(LibAsan, "lib", "linux",
         (Twine("libclang_rt.asan-") +
             TC.getArchName() + "-android.so"));
-    CmdArgs.push_back(Args.MakeArgString(LibAsan));
+    CmdArgs.insert(CmdArgs.begin(), Args.MakeArgString(LibAsan));
   } else {
     if (!Args.hasArg(options::OPT_shared)) {
       // LibAsan is "libclang_rt.asan-<ArchName>.a" in the Linux library
@@ -1521,7 +1530,17 @@ static void addAsanRTLinux(const ToolChain &TC, const ArgList &Args,
       llvm::sys::path::append(LibAsan, "lib", "linux",
                               (Twine("libclang_rt.asan-") +
                                TC.getArchName() + ".a"));
-      CmdArgs.push_back(Args.MakeArgString(LibAsan));
+      // The ASan runtime needs to come before -lstdc++ (or -lc++, libstdc++.a,
+      // etc.) so that the linker picks ASan's versions of the global 'operator
+      // new' and 'operator delete' symbols. We take the extreme (but simple)
+      // strategy of inserting it at the front of the link command. It also
+      // needs to be forced to end up in the executable, so wrap it in
+      // whole-archive.
+      SmallVector<const char*, 3> PrefixArgs;
+      PrefixArgs.push_back("-whole-archive");
+      PrefixArgs.push_back(Args.MakeArgString(LibAsan));
+      PrefixArgs.push_back("-no-whole-archive");
+      CmdArgs.insert(CmdArgs.begin(), PrefixArgs.begin(), PrefixArgs.end());
       CmdArgs.push_back("-lpthread");
       CmdArgs.push_back("-ldl");
       CmdArgs.push_back("-export-dynamic");
@@ -1535,8 +1554,8 @@ static void addTsanRTLinux(const ToolChain &TC, const ArgList &Args,
                            ArgStringList &CmdArgs) {
   if (!Args.hasArg(options::OPT_shared)) {
     if (!Args.hasArg(options::OPT_pie))
-      TC.getDriver().Diag(diag::err_drv_sanitizer_requires_pie) <<
-        /* Thread */ 0;
+      TC.getDriver().Diag(diag::err_drv_argument_only_allowed_with) <<
+        "-fsanitize=thread" << "-pie";
     // LibTsan is "libclang_rt.tsan-<ArchName>.a" in the Linux library
     // resource directory.
     SmallString<128> LibTsan(TC.getDriver().ResourceDir);
@@ -1556,8 +1575,8 @@ static void addMsanRTLinux(const ToolChain &TC, const ArgList &Args,
                            ArgStringList &CmdArgs) {
   if (!Args.hasArg(options::OPT_shared)) {
     if (!Args.hasArg(options::OPT_pie))
-      TC.getDriver().Diag(diag::err_drv_sanitizer_requires_pie) <<
-        /* Memory */ 1;
+      TC.getDriver().Diag(diag::err_drv_argument_only_allowed_with) <<
+        "-fsanitize=memory" << "-pie";
     // LibMsan is "libclang_rt.msan-<ArchName>.a" in the Linux library
     // resource directory.
     SmallString<128> LibMsan(TC.getDriver().ResourceDir);

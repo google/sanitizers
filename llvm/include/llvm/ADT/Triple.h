@@ -100,8 +100,8 @@ public:
     Haiku,
     Minix,
     RTEMS,
-    NativeClient,
-    CNK,         // BG/P Compute-Node Kernel
+    NaCl,       // Native Client
+    CNK,        // BG/P Compute-Node Kernel
     Bitrig,
     AIX
   };

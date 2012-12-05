@@ -84,7 +84,8 @@ ThreadContext::ThreadContext(int tid)
   , epoch0()
   , epoch1()
   , dead_info()
-  , dead_next() {
+  , dead_next()
+  , name() {
 }
 
 static void WriteMemoryProfile(char *buf, uptr buf_size, int num) {
@@ -286,7 +287,7 @@ void TraceSwitch(ThreadState *thr) {
   thr->nomalloc++;
   ScopedInRtl in_rtl;
   Lock l(&thr->trace.mtx);
-  unsigned trace = (thr->fast_state.epoch() / kTracePartSize) % kTraceParts;
+  unsigned trace = (thr->fast_state.epoch() / kTracePartSize) % TraceParts();
   TraceHeader *hdr = &thr->trace.headers[trace];
   hdr->epoch0 = thr->fast_state.epoch();
   hdr->stack0.ObtainCurrent(thr, 0);
@@ -301,6 +302,10 @@ uptr TraceTopPC(ThreadState *thr) {
 
 uptr TraceSize() {
   return (uptr)(1ull << (kTracePartSizeBits + flags()->history_size + 1));
+}
+
+uptr TraceParts() {
+  return TraceSize() / kTracePartSize;
 }
 
 #ifndef TSAN_GO

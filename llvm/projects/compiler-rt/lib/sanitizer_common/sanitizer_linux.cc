@@ -218,7 +218,8 @@ void ReExec() {
 }
 
 // ----------------- sanitizer_procmaps.h
-ProcSelfMapsBuff MemoryMappingLayout::cached_proc_self_maps_;  // Linker initialized.
+// Linker initialized.
+ProcSelfMapsBuff MemoryMappingLayout::cached_proc_self_maps_;
 StaticSpinMutex MemoryMappingLayout::cache_lock_;  // Linker initialized.
 
 MemoryMappingLayout::MemoryMappingLayout() {
@@ -236,7 +237,11 @@ MemoryMappingLayout::MemoryMappingLayout() {
 }
 
 MemoryMappingLayout::~MemoryMappingLayout() {
-  UnmapOrDie(proc_self_maps_.data, proc_self_maps_.mmaped_size);
+  // Only unmap the buffer if it is different from the cached one. Otherwise
+  // it will be unmapped when the cache is refreshed.
+  if (proc_self_maps_.data != cached_proc_self_maps_.data) {
+    UnmapOrDie(proc_self_maps_.data, proc_self_maps_.mmaped_size);
+  }
 }
 
 void MemoryMappingLayout::Reset() {
@@ -265,7 +270,7 @@ void MemoryMappingLayout::CacheMemoryMappings() {
 void MemoryMappingLayout::LoadFromCache() {
   SpinMutexLock l(&cache_lock_);
   if (cached_proc_self_maps_.data) {
-    proc_self_maps_ = cached_proc_self_maps_;  
+    proc_self_maps_ = cached_proc_self_maps_;
   }
 }
 
