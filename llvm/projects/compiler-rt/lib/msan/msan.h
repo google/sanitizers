@@ -55,7 +55,7 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp);
 #define GET_MALLOC_STACK_TRACE                                     \
   StackTrace stack;                                                \
   stack.size = 0;                                                  \
-  if (__msan_track_origins && msan_inited)                           \
+  if (__msan_get_track_origins() && msan_inited)                   \
     GetStackTrace(&stack, flags.num_callers,                       \
       StackTrace::GetCurrentPc(), GET_CURRENT_FRAME())
 

@@ -43,7 +43,7 @@ static void *MsanAllocate(StackTrace *stack, uptr size,
     __msan_clear_and_unpoison(res, size);
   else if (flags.poison_in_malloc)
     __msan_poison(res, size);
-  if (__msan_track_origins) {
+  if (__msan_get_track_origins()) {
     u32 stack_id = StackDepotPut(stack->trace, stack->size);
     CHECK(stack_id);
     CHECK_EQ((stack_id >> 31), 0);  // Higher bit is occupied by stack origins.
@@ -61,7 +61,7 @@ void MsanDeallocate(void *p) {
   // This memory will not be reused by anyone else, so we are free to keep it
   // poisoned.
   __msan_poison(p, size);
-  if (__msan_track_origins)
+  if (__msan_get_track_origins())
     __msan_set_origin(p, size, -1);
   allocator.Deallocate(&cache, p);
 }

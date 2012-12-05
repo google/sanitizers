@@ -245,13 +245,6 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
                            addMemorySanitizerPass);
   }
 
-  if (LangOpts.SanitizeMemory) {
-    PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
-                           addMemorySanitizerPass);
-    PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
-                           addMemorySanitizerPass);
-  }
-
   if (LangOpts.SanitizeThread) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addThreadSanitizerPass);

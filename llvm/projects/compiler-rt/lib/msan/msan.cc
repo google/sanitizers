@@ -32,6 +32,11 @@ THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
 
 StaticSpinMutex report_mu;
 
+extern const int __msan_track_origins;
+int __msan_get_track_origins() {
+  return __msan_track_origins;
+}
+
 static bool IsRunningUnderDr() {
   return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
 }

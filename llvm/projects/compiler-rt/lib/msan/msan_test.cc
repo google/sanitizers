@@ -1248,7 +1248,7 @@ TEST(MemorySanitizerDr, StackStoreInDSOTest) {
 }
 
 TEST(MemorySanitizerOrigins, SetGet) {
-  EXPECT_EQ(TrackingOrigins(), __msan_track_origins);
+  EXPECT_EQ(TrackingOrigins(), __msan_get_track_origins());
   if (!TrackingOrigins()) return;
   int x;
   __msan_set_origin(&x, sizeof(x), 1234);

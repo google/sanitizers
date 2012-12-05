@@ -10,7 +10,7 @@ using __sanitizer::u32;
 extern "C" {
 #endif
 
-extern const int __msan_track_origins;
+int __msan_get_track_origins();
 void __msan_init();
 
 // Print a warning and maybe return.

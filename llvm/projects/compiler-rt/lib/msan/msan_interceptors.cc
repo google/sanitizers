@@ -719,7 +719,7 @@ void __msan_clear_and_unpoison(void *a, uptr size) {
 }
 
 void __msan_copy_origin(void *dst, const void *src, uptr size) {
-  if (!__msan_track_origins) return;
+  if (!__msan_get_track_origins()) return;
   if (!MEM_IS_APP(dst) || !MEM_IS_APP(src)) return;
   uptr d = MEM_TO_ORIGIN(dst);
   uptr s = MEM_TO_ORIGIN(src);
