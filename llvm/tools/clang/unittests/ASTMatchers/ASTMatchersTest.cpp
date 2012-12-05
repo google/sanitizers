@@ -232,6 +232,17 @@ TEST(DeclarationMatcher, ClassIsDerived) {
       "template <> class Z<void> {};"
       "template <typename T> class Z : public Z<void>, public X {};",
       ZIsDerivedFromX));
+  EXPECT_TRUE(
+      notMatches("template<int> struct X;"
+                 "template<int i> struct X : public X<i-1> {};",
+                 recordDecl(isDerivedFrom(recordDecl(hasName("Some"))))));
+  EXPECT_TRUE(matches(
+      "struct A {};"
+      "template<int> struct X;"
+      "template<int i> struct X : public X<i-1> {};"
+      "template<> struct X<0> : public A {};"
+      "struct B : public X<42> {};",
+      recordDecl(hasName("B"), isDerivedFrom(recordDecl(hasName("A"))))));
 
   // FIXME: Once we have better matchers for template type matching,
   // get rid of the Variable(...) matching and match the right template
@@ -1029,7 +1040,7 @@ TEST(Matcher, VariableUsage) {
       "}", Reference));
 }
 
-TEST(Matcher, FindsVarDeclInFuncitonParameter) {
+TEST(Matcher, FindsVarDeclInFunctionParameter) {
   EXPECT_TRUE(matches(
       "void f(int i) {}",
       varDecl(hasName("i"))));
@@ -1236,6 +1247,14 @@ TEST(Matcher, ArgumentCount) {
   EXPECT_TRUE(matches("void x(int) { x(0); }", Call1Arg));
   EXPECT_TRUE(matches("class X { void x(int) { x(0); } };", Call1Arg));
   EXPECT_TRUE(notMatches("void x(int, int) { x(0, 0); }", Call1Arg));
+}
+
+TEST(Matcher, ParameterCount) {
+  DeclarationMatcher Function1Arg = functionDecl(parameterCountIs(1));
+  EXPECT_TRUE(matches("void f(int i) {}", Function1Arg));
+  EXPECT_TRUE(matches("class X { void f(int i) {} };", Function1Arg));
+  EXPECT_TRUE(notMatches("void f() {}", Function1Arg));
+  EXPECT_TRUE(notMatches("void f(int i, int j, int k) {}", Function1Arg));
 }
 
 TEST(Matcher, References) {

@@ -27,7 +27,7 @@
 #define TSAN_RTL_H
 
 #include "sanitizer_common/sanitizer_common.h"
-#include "sanitizer_common/sanitizer_allocator64.h"
+#include "sanitizer_common/sanitizer_allocator.h"
 #include "tsan_clock.h"
 #include "tsan_defs.h"
 #include "tsan_flags.h"
@@ -36,6 +36,10 @@
 #include "tsan_vector.h"
 #include "tsan_report.h"
 #include "tsan_platform.h"
+
+#if SANITIZER_WORDSIZE != 64
+# error "ThreadSanitizer is supported only on 64-bit platforms"
+#endif
 
 namespace __tsan {
 
@@ -58,8 +62,7 @@ const uptr kAllocatorSize  =  0x10000000000ULL;  // 1T.
 
 typedef SizeClassAllocator64<kAllocatorSpace, kAllocatorSize, sizeof(MBlock),
     DefaultSizeClassMap> PrimaryAllocator;
-typedef SizeClassAllocatorLocalCache<PrimaryAllocator::kNumClasses,
-    PrimaryAllocator> AllocatorCache;
+typedef SizeClassAllocatorLocalCache<PrimaryAllocator> AllocatorCache;
 typedef LargeMmapAllocator SecondaryAllocator;
 typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
     SecondaryAllocator> Allocator;
@@ -370,6 +373,7 @@ struct ThreadContext {
   StackTrace creation_stack;
   ThreadDeadInfo *dead_info;
   ThreadContext *dead_next;  // In dead thread list.
+  char *name;  // As annotated by user.
 
   explicit ThreadContext(int tid);
 };
@@ -526,6 +530,7 @@ int ThreadTid(ThreadState *thr, uptr pc, uptr uid);
 void ThreadJoin(ThreadState *thr, uptr pc, int tid);
 void ThreadDetach(ThreadState *thr, uptr pc, int tid);
 void ThreadFinalize(ThreadState *thr);
+void ThreadSetName(ThreadState *thr, const char *name);
 int ThreadCount(ThreadState *thr);
 void ProcessPendingSignals(ThreadState *thr);
 
@@ -568,6 +573,7 @@ void AfterSleep(ThreadState *thr, uptr pc);
 void TraceSwitch(ThreadState *thr);
 uptr TraceTopPC(ThreadState *thr);
 uptr TraceSize();
+uptr TraceParts();
 
 extern "C" void __tsan_trace_switch();
 void ALWAYS_INLINE INLINE TraceAddEvent(ThreadState *thr, FastState fs,

@@ -125,8 +125,7 @@ ScopedReport::ScopedReport(ReportType typ) {
 
 ScopedReport::~ScopedReport() {
   ctx_->report_mtx.Unlock();
-  rep_->~ReportDesc();
-  internal_free(rep_);
+  DestroyAndFree(rep_);
 }
 
 void ScopedReport::AddStack(const StackTrace *stack) {
@@ -158,6 +157,7 @@ void ScopedReport::AddThread(const ThreadContext *tctx) {
   rt->id = tctx->tid;
   rt->pid = tctx->os_id;
   rt->running = (tctx->status == ThreadStatusRunning);
+  rt->name = tctx->name ? internal_strdup(tctx->name) : 0;
   rt->stack = SymbolizeStack(tctx->creation_stack);
 }
 
@@ -265,12 +265,12 @@ void RestoreStack(int tid, const u64 epoch, StackTrace *stk) {
     return;
   }
   Lock l(&trace->mtx);
-  const int partidx = (epoch / (TraceSize() / kTraceParts)) % kTraceParts;
+  const int partidx = (epoch / kTracePartSize) % TraceParts();
   TraceHeader* hdr = &trace->headers[partidx];
   if (epoch < hdr->epoch0)
     return;
   const u64 eend = epoch % TraceSize();
-  const u64 ebegin = eend / kTracePartSize * kTracePartSize;
+  const u64 ebegin = RoundDown(eend, kTracePartSize);
   DPrintf("#%d: RestoreStack epoch=%zu ebegin=%zu eend=%zu partidx=%d\n",
           tid, (uptr)epoch, (uptr)ebegin, (uptr)eend, partidx);
   InternalScopedBuffer<uptr> stack(1024);  // FIXME: de-hardcode 1024

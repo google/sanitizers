@@ -11,7 +11,6 @@
 #include "SanitizerArgs.h"
 #include "clang/Basic/ObjCRuntime.h"
 #include "clang/Basic/Version.h"
-#include "clang/Config/config.h" // for GCC_INSTALL_PREFIX
 #include "clang/Driver/Arg.h"
 #include "clang/Driver/ArgList.h"
 #include "clang/Driver/Compilation.h"
@@ -30,6 +29,11 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h"
+
+// FIXME: This needs to be listed last until we fix the broken include guards
+// in these files and the LLVM config.h files.
+#include "clang/Config/config.h" // for GCC_INSTALL_PREFIX
+
 #include <cstdlib> // ::getenv
 
 using namespace clang::driver;

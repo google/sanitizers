@@ -71,6 +71,8 @@ struct UnwrappedLine {
 
 class UnwrappedLineConsumer {
 public:
+  virtual ~UnwrappedLineConsumer() {
+  }
   virtual void formatUnwrappedLine(const UnwrappedLine &Line) = 0;
 };
 
@@ -79,11 +81,12 @@ public:
   UnwrappedLineParser(Lexer &Lex, SourceManager &SourceMgr,
                       UnwrappedLineConsumer &Callback);
 
-  void parse();
+  /// Returns true in case of a structural error.
+  bool parse();
 
 private:
-  void parseLevel();
-  void parseBlock();
+  bool parseLevel();
+  bool parseBlock();
   void parsePPDirective();
   void parseComment();
   void parseStatement();
