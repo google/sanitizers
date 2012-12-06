@@ -15,7 +15,8 @@ f1.addStep(ShellCommand(command='svn cleanup ../../../scripts',
                         name='cleanup scripts',
                         description='cleanup scripts'))
 
-f1.addStep(ShellCommand(command='svn up ../../../scripts',
+svn_flags = '--non-interactive --trust-server-cert'
+f1.addStep(ShellCommand(command='svn up ../../../scripts %s' % svn_flags,
                         timeout=60,
                         name='update scripts',
                         description='update scripts'))
