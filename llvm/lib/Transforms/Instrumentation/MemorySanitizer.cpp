@@ -53,7 +53,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ValueMap.h"
-#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/DataLayout.h"
 #include "llvm/Function.h"
 #include "llvm/IRBuilder.h"
@@ -1180,16 +1179,42 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     VAHelper->visitVACopyInst(I);
   }
 
-  // GET_INTRINSIC_MODREF_BEHAVIOR requires that ModRefBehaviour definition is
-  // in scope.
-  struct Dummy : public AliasAnalysis {
-    static ModRefBehavior getIntrinsicModRefBehaviour(Intrinsic::ID iid) {
-#define GET_INTRINSIC_MODREF_BEHAVIOR
-#include "llvm/Intrinsics.gen"
-#undef GET_INTRINSIC_MODREF_BEHAVIOR
-    }
+  enum IntrinsicKind {
+    IK_DoesNotAccessMemory,
+    IK_OnlyReadsMemory,
+    IK_WritesMemory
   };
 
+  static IntrinsicKind getIntrinsicKind(Intrinsic::ID iid) {
+    const int DoesNotAccessMemory = IK_DoesNotAccessMemory;
+    const int OnlyReadsArgumentPointees = IK_OnlyReadsMemory;
+    const int OnlyReadsMemory = IK_OnlyReadsMemory;
+    const int OnlyAccessesArgumentPointees = IK_WritesMemory;
+    const int UnknownModRefBehavior = IK_WritesMemory;
+#define GET_INTRINSIC_MODREF_BEHAVIOR
+#define ModRefBehavior IntrinsicKind
+#include "llvm/Intrinsics.gen"
+#undef ModRefBehavior
+#undef GET_INTRINSIC_MODREF_BEHAVIOR
+  }
+
+  /// \brief Heuristically instrument unknown intrinsics.
+  ///
+  /// The main purpose of this code is to do something reasonable with all
+  /// random intrinsics we might encounter, most importantly - SIMD intrinsics.
+  /// The algorithm roughly looks like this:
+  /// 1. Guess what intrinsic does by analysing its ModRefBehaviour and argument
+  ///    types.
+  /// 2. Collect shadow of all scalar and vector arguments or bitwise OR it
+  ///    together.
+  /// 3. If we think this intrinsics reads memory, load shadow for the base type
+  ///    of the pointer argument and bitwise OR it with the rest.
+  /// 4. If we think this intrinsics writes memory, store the accumulated shadow
+  ///    by the pointer argument.
+  /// 5. If the intrinsic has non-void return value, assign the accumulated
+  ///    shadow to it.
+  /// Note that this is a best-effort approach. We special-case intrinsics where
+  /// it fails. See llvm.bswap handling as an example of that.
   void handleUnknownIntrinsic(IntrinsicInst &I) {
     // TODO: handle struct types in CreateShadowCast
     if (hasStructArgumentOrRetVal(I)) {
@@ -1203,15 +1228,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     Intrinsic::ID iid = I.getIntrinsicID();
-    AliasAnalysis::ModRefBehavior modref =
-      Dummy::getIntrinsicModRefBehaviour(iid);
-    bool readsMemory =
-      (modref == AliasAnalysis::OnlyReadsArgumentPointees ||
-          modref == AliasAnalysis::OnlyReadsMemory);
-    bool writesMemory =
-      (modref == AliasAnalysis::OnlyAccessesArgumentPointees ||
-          modref == AliasAnalysis::UnknownModRefBehavior);
-    assert(!(readsMemory && writesMemory));
+    IntrinsicKind IK = getIntrinsicKind(iid);
+    bool readsMemory = IK == IK_OnlyReadsMemory;
+    bool writesMemory = IK == IK_WritesMemory;
 
     // See if we need to propagate shadow at all.
     if (!writesMemory && I.getType()->isVoidTy()) {
