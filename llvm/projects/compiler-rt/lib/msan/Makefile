@@ -62,14 +62,14 @@ msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBCXX) $(LIBMSAN_A)
 	  $< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) \
 	  -Wl,-rpath=$(ROOT)
 
-msan.a: $(LIBMSAN_OBJ)
-	ar ru $@ $^
+# msan.a: $(LIBMSAN_OBJ)
+# 	ar ru $@ $^
 
 
-install: $(LIBMSAN_A)
+# install: $(LIBMSAN_A)
 
-$(LIBMSAN_A): msan.a
-	cp $< $@
+# $(LIBMSAN_A): msan.a
+# 	cp $< $@
 
 %.o: %.cc $(RTL_HDR)
 	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ $(INCLUDES)
@@ -112,7 +112,7 @@ $(LIBCXX):
 	./build_libcxx.sh
 
 clean: 
-	rm -f *.o msan_test msan.a $(LIBMSAN_A)
+	rm -f *.o msan_test msan.a # $(LIBMSAN_A)
 clean_deps:
 	rm -rf $(GTEST_BUILD_DIR)
 	rm -rf $(LIBCXX)

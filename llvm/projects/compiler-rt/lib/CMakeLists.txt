@@ -11,6 +11,7 @@ endif()
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
   # ThreadSanitizer is supported on Linux only.
   add_subdirectory(tsan)
+  add_subdirectory(msan)
 endif()
 
 # FIXME: Add support for the profile library.
