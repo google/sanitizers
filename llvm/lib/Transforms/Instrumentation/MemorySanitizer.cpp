@@ -1007,7 +1007,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
     setShadow(&I, Shadow);
     setOriginForNaryOp(I);
- }
+  }
 
   void visitFAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
   void visitFSub(BinaryOperator &I) { handleShadowOrBinary(I); }
