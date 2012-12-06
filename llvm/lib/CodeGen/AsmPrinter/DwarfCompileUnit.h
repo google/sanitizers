@@ -79,6 +79,10 @@ class CompileUnit {
   /// corresponds to the MDNode mapped with the subprogram DIE.
   DenseMap<DIE *, const MDNode *> ContainingTypeMap;
 
+  /// getLowerBoundDefault - Return the default lower bound for an array. If the
+  /// DWARF version doesn't handle the language, return -1.
+  int64_t getDefaultLowerBound() const;
+
 public:
   CompileUnit(unsigned UID, unsigned L, DIE *D, AsmPrinter *A, DwarfDebug *DW);
   ~CompileUnit();
@@ -174,7 +178,6 @@ public:
   void setIndexTyDie(DIE *D) {
     IndexTyDie = D;
   }
-public:
 
   /// addFlag - Add a flag that is true to the DIE.
   void addFlag(DIE *Die, unsigned Attribute);

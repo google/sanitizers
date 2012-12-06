@@ -93,3 +93,123 @@ void test_named_fixed_enum_correction(enum SomeSize x) {
   // CHECK: fix-it:"{{.*}}":{92:11-92:13}:"%zu"
 }
 
+
+typedef unsigned char uint8_t;
+void test_char(char c, signed char s, unsigned char u, uint8_t n) {
+  NSLog(@"%s", c); // expected-warning{{format specifies type 'char *' but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%lf", c); // expected-warning{{format specifies type 'double' but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:14}:"%c"
+
+  NSLog(@"%@", c); // expected-warning{{format specifies type 'id' but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%c", c); // no-warning
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  
+  NSLog(@"%s", s); // expected-warning{{format specifies type 'char *' but the argument has type 'signed char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%lf", s); // expected-warning{{format specifies type 'double' but the argument has type 'signed char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:14}:"%c"
+
+  NSLog(@"%@", s); // expected-warning{{format specifies type 'id' but the argument has type 'signed char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%c", s); // no-warning
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+
+  NSLog(@"%s", u); // expected-warning{{format specifies type 'char *' but the argument has type 'unsigned char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%lf", u); // expected-warning{{format specifies type 'double' but the argument has type 'unsigned char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:14}:"%c"
+
+  NSLog(@"%@", u); // expected-warning{{format specifies type 'id' but the argument has type 'unsigned char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%c", u); // no-warning
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+
+  NSLog(@"%s", n); // expected-warning{{format specifies type 'char *' but the argument has type 'uint8_t' (aka 'unsigned char')}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%hhu"
+
+  NSLog(@"%lf", n); // expected-warning{{format specifies type 'double' but the argument has type 'uint8_t' (aka 'unsigned char')}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:14}:"%hhu"
+
+  NSLog(@"%@", n); // expected-warning{{format specifies type 'id' but the argument has type 'uint8_t' (aka 'unsigned char')}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%hhu"
+
+  NSLog(@"%c", n); // no-warning
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%hhu"
+
+
+  NSLog(@"%s", 'a'); // expected-warning{{format specifies type 'char *' but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%lf", 'a'); // expected-warning{{format specifies type 'double' but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:14}:"%c"
+
+  NSLog(@"%@", 'a'); // expected-warning{{format specifies type 'id' but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+  NSLog(@"%c", 'a'); // no-warning
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+
+
+  NSLog(@"%s", 'abcd'); // expected-warning{{format specifies type 'char *' but the argument has type 'int'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%d"
+
+  NSLog(@"%lf", 'abcd'); // expected-warning{{format specifies type 'double' but the argument has type 'int'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:14}:"%d"
+
+  NSLog(@"%@", 'abcd'); // expected-warning{{format specifies type 'id' but the argument has type 'int'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%d"
+}
+
+void multichar_constants_false_negative() {
+  // The value of a multi-character constant is implementation-defined, but
+  // almost certainly shouldn't be printed with %c. However, the current
+  // type-checker expects %c to correspond to an integer argument, because
+  // many C library functions like fgetc() actually return an int (using -1
+  // as a sentinel).
+  NSLog(@"%c", 'abcd'); // missing-warning{{format specifies type 'char' but the argument has type 'int'}}
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%d"
+}
+
+
+void test_percent_C() {
+  const unsigned short data = 'a';
+  NSLog(@"%C", data);  // no-warning
+
+  NSLog(@"%C", 0x2603);  // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'int'}}
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%d"
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:16-[[@LINE-2]]:16}:"(unsigned short)"
+
+  typedef unsigned short unichar;
+  
+  NSLog(@"%C", 0x2603);  // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'int'}}
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%d"
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:16-[[@LINE-2]]:16}:"(unichar)"
+  
+  NSLog(@"%C", data ? 0x2F : 0x2603); // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'int'}}
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%d"
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:16-[[@LINE-2]]:16}:"(unichar)("
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-3]]:36-[[@LINE-3]]:36}:")"
+
+  NSLog(@"%C", 0.0); // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'double'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%f"
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-2]]:16-[[@LINE-2]]:16}:"(unichar)"
+
+  NSLog(@"%C", (char)0x2603); // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-2]]:16-[[@LINE-2]]:22}:"(unichar)"
+
+  NSLog(@"%C", 'a'); // expected-warning{{format specifies type 'unichar' (aka 'unsigned short') but the argument has type 'char'}}
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-1]]:11-[[@LINE-1]]:13}:"%c"
+  // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-2]]:16-[[@LINE-2]]:22}:"(unichar)"
+}

@@ -1,5 +1,5 @@
 // REQUIRES: x86-64-registered-target
-// RUN: %clang_cc1 %s -triple i386-apple-darwin10 -O0 -fms-extensions -fenable-experimental-ms-inline-asm -w -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 %s -triple i386-apple-darwin10 -O0 -fasm-blocks -fenable-experimental-ms-inline-asm -w -emit-llvm -o - | FileCheck %s
 
 void t1() {
 // CHECK: @t1
@@ -199,4 +199,32 @@ void t20() {
   __asm mov eax, TYPE foo
 // CHECK: t20
 // CHECK: call void asm sideeffect inteldialect "mov eax, $$4", "~{eax},~{dirflag},~{fpsr},~{flags}"() nounwind
+}
+
+void t21() {
+  __asm {
+    __asm push ebx
+    __asm mov ebx, 0x07
+    __asm pop ebx
+  }
+// CHECK: t21
+// CHECK: call void asm sideeffect inteldialect "push ebx\0A\09mov ebx, $$0x07\0A\09pop ebx", "~{ebx},~{dirflag},~{fpsr},~{flags}"() nounwind
+}
+
+extern void t22_helper(int x);
+void t22() {
+  int x = 0;
+  __asm {
+    __asm push ebx
+    __asm mov ebx, esp
+  }
+  t22_helper(x);
+  __asm {
+    __asm mov esp, ebx
+    __asm pop ebx
+  }
+// CHECK: t22
+// CHECK: call void asm sideeffect inteldialect "push ebx\0A\09mov ebx, esp", "~{ebx},~{dirflag},~{fpsr},~{flags}"() nounwind
+// CHECK: call void @t22_helper
+// CHECK: call void asm sideeffect inteldialect "mov esp, ebx\0A\09pop ebx", "~{ebx},~{esp},~{dirflag},~{fpsr},~{flags}"() nounwind
 }

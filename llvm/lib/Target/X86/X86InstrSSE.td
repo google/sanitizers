@@ -3499,13 +3499,13 @@ def VMOVDQArr  : VPDI<0x6F, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
 def VMOVDQAYrr : VPDI<0x6F, MRMSrcReg, (outs VR256:$dst), (ins VR256:$src),
                     "movdqa\t{$src, $dst|$dst, $src}", [], IIC_SSE_MOVA_P_RR>,
                     VEX, VEX_L;
-}
 def VMOVDQUrr  : VSSI<0x6F, MRMSrcReg, (outs VR128:$dst), (ins VR128:$src),
                     "movdqu\t{$src, $dst|$dst, $src}", [], IIC_SSE_MOVU_P_RR>,
                     VEX;
 def VMOVDQUYrr : VSSI<0x6F, MRMSrcReg, (outs VR256:$dst), (ins VR256:$src),
                     "movdqu\t{$src, $dst|$dst, $src}", [], IIC_SSE_MOVU_P_RR>,
                     VEX, VEX_L;
+}
 
 // For Disassembler
 let isCodeGenOnly = 1 in {
@@ -3525,7 +3525,8 @@ def VMOVDQUYrr_REV : VSSI<0x7F, MRMDestReg, (outs VR256:$dst), (ins VR256:$src),
                         IIC_SSE_MOVU_P_RR>, VEX, VEX_L;
 }
 
-let canFoldAsLoad = 1, mayLoad = 1 in {
+let canFoldAsLoad = 1, mayLoad = 1, isReMaterializable = 1,
+    neverHasSideEffects = 1 in {
 def VMOVDQArm  : VPDI<0x6F, MRMSrcMem, (outs VR128:$dst), (ins i128mem:$src),
                    "movdqa\t{$src, $dst|$dst, $src}", [], IIC_SSE_MOVA_P_RM>,
                    VEX;
@@ -3542,7 +3543,7 @@ let Predicates = [HasAVX] in {
 }
 }
 
-let mayStore = 1 in {
+let mayStore = 1, neverHasSideEffects = 1 in {
 def VMOVDQAmr  : VPDI<0x7F, MRMDestMem, (outs),
                      (ins i128mem:$dst, VR128:$src),
                      "movdqa\t{$src, $dst|$dst, $src}", [], IIC_SSE_MOVA_P_MR>,
@@ -3580,7 +3581,8 @@ def MOVDQUrr_REV :   I<0x7F, MRMDestReg, (outs VR128:$dst), (ins VR128:$src),
                        [], IIC_SSE_MOVU_P_RR>, XS, Requires<[UseSSE2]>;
 }
 
-let canFoldAsLoad = 1, mayLoad = 1 in {
+let canFoldAsLoad = 1, mayLoad = 1, isReMaterializable = 1,
+    neverHasSideEffects = 1 in {
 def MOVDQArm : PDI<0x6F, MRMSrcMem, (outs VR128:$dst), (ins i128mem:$src),
                    "movdqa\t{$src, $dst|$dst, $src}",
                    [/*(set VR128:$dst, (alignedloadv2i64 addr:$src))*/],
@@ -3604,25 +3606,17 @@ def MOVDQUmr :   I<0x7F, MRMDestMem, (outs), (ins i128mem:$dst, VR128:$src),
                  XS, Requires<[UseSSE2]>;
 }
 
-// Intrinsic forms of MOVDQU load and store
-def VMOVDQUmr_Int : I<0x7F, MRMDestMem, (outs), (ins i128mem:$dst, VR128:$src),
-                       "vmovdqu\t{$src, $dst|$dst, $src}",
-                       [(int_x86_sse2_storeu_dq addr:$dst, VR128:$src)],
-                       IIC_SSE_MOVU_P_MR>,
-                     XS, VEX, Requires<[HasAVX]>;
-
-def MOVDQUmr_Int :   I<0x7F, MRMDestMem, (outs), (ins i128mem:$dst, VR128:$src),
-                       "movdqu\t{$src, $dst|$dst, $src}",
-                       [(int_x86_sse2_storeu_dq addr:$dst, VR128:$src)],
-                       IIC_SSE_MOVU_P_MR>,
-                     XS, Requires<[UseSSE2]>;
-
 } // ExeDomain = SSEPackedInt
 
 let Predicates = [HasAVX] in {
+  def : Pat<(int_x86_sse2_storeu_dq addr:$dst, VR128:$src),
+            (VMOVDQUmr addr:$dst, VR128:$src)>;
   def : Pat<(int_x86_avx_storeu_dq_256 addr:$dst, VR256:$src),
             (VMOVDQUYmr addr:$dst, VR256:$src)>;
 }
+let Predicates = [UseSSE2] in
+def : Pat<(int_x86_sse2_storeu_dq addr:$dst, VR128:$src),
+          (MOVDQUmr addr:$dst, VR128:$src)>;
 
 //===---------------------------------------------------------------------===//
 // SSE2 - Packed Integer Arithmetic Instructions

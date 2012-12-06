@@ -241,11 +241,16 @@ def executeShCmd(cmd, cfg, cwd, results):
     return exitCode
 
 def executeScriptInternal(test, litConfig, tmpBase, commands, cwd):
-    ln = ' &&\n'.join(commands)
-    try:
-        cmd = ShUtil.ShParser(ln, litConfig.isWindows).parse()
-    except:
-        return (Test.FAIL, "shell parser error on: %r" % ln)
+    cmds = []
+    for ln in commands:
+        try:
+            cmds.append(ShUtil.ShParser(ln, litConfig.isWindows).parse())
+        except:
+            return (Test.FAIL, "shell parser error on: %r" % ln)
+
+    cmd = cmds[0]
+    for c in cmds[1:]:
+        cmd = ShUtil.Seq(cmd, '&&', c)
 
     results = []
     try:
@@ -352,7 +357,7 @@ def executeScript(test, litConfig, tmpBase, commands, cwd):
     if isWin32CMDEXE:
         f.write('\nif %ERRORLEVEL% NEQ 0 EXIT\n'.join(commands))
     else:
-        f.write(' &&\n'.join(commands))
+        f.write('{ ' + '; } &&\n{ '.join(commands) + '; }')
     f.write('\n')
     f.close()
 
