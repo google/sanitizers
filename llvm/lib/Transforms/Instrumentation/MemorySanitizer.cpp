@@ -501,7 +501,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     VAHelper->finalizeInstrumentation();
 
     // Delayed instrumentation of StoreInst.
-    // This make add new checks to inserted later.
+    // This may add new checks to be inserted later.
     materializeStores();
 
     // Insert shadow value checks.
@@ -1335,8 +1335,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     IRBuilder<> IRB(&I);
     Value *Op = I.getArgOperand(0);
     Type *OpType = Op->getType();
-    Function *BswapFunc = Intrinsic::getDeclaration(F.getParent(),
-        Intrinsic::bswap, ArrayRef<Type*>(&OpType, 1));
+    Function *BswapFunc = Intrinsic::getDeclaration(
+      F.getParent(), Intrinsic::bswap, ArrayRef<Type*>(&OpType, 1));
     setShadow(&I, IRB.CreateCall(BswapFunc, getShadow(Op)));
     setOrigin(&I, getOrigin(Op));
   }
@@ -1370,8 +1370,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       if (Call->isTailCall() && Call->getType() != Call->getParent()->getType())
         Call->setTailCall(false);
 
-      assert(!isa<IntrinsicInst>(&I) &&
-          "intrinsics should be intercepted elsewhere");
+      assert(!isa<IntrinsicInst>(&I) && "intrinsics are handled elsewhere");
 
       // HACK: We are going to insert code that relies on the fact that the
       // callee will become a non-readonly function after it is instrumented by

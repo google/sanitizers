@@ -397,6 +397,7 @@ void DeclPrinter::VisitEnumConstantDecl(EnumConstantDecl *D) {
 }
 
 void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
+  CXXConstructorDecl *CDecl = dyn_cast<CXXConstructorDecl>(D);
   if (!Policy.SuppressSpecifiers) {
     switch (D->getStorageClassAsWritten()) {
     case SC_None: break;
@@ -410,6 +411,8 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
     if (D->isInlineSpecified())  Out << "inline ";
     if (D->isVirtualAsWritten()) Out << "virtual ";
     if (D->isModulePrivate())    Out << "__module_private__ ";
+    if (CDecl && CDecl->isExplicitSpecified())
+      Out << "explicit ";
   }
 
   PrintingPolicy SubPolicy(Policy);
@@ -485,7 +488,7 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
       }
     }
 
-    if (CXXConstructorDecl *CDecl = dyn_cast<CXXConstructorDecl>(D)) {
+    if (CDecl) {
       bool HasInitializerList = false;
       for (CXXConstructorDecl::init_const_iterator B = CDecl->init_begin(),
            E = CDecl->init_end();
@@ -547,6 +550,8 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
         }
         Out << ")";
       }
+      if (!Proto.empty())
+        Out << Proto;
     }
     else
       AFT->getResultType().print(Out, Policy, Proto);
@@ -560,6 +565,8 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
     Out << " = 0";
   else if (D->isDeletedAsWritten())
     Out << " = delete";
+  else if (D->isExplicitlyDefaulted())
+    Out << " = default";
   else if (D->doesThisDeclarationHaveABody() && !Policy.TerseOutput) {
     if (!D->hasPrototype() && D->getNumParams()) {
       // This is a K&R function definition, so we need to print the
@@ -1115,7 +1122,7 @@ DeclPrinter::VisitUnresolvedUsingTypenameDecl(UnresolvedUsingTypenameDecl *D) {
 void DeclPrinter::VisitUnresolvedUsingValueDecl(UnresolvedUsingValueDecl *D) {
   Out << "using ";
   D->getQualifier()->print(Out, Policy);
-  Out << D->getDeclName();
+  Out << D->getName();
 }
 
 void DeclPrinter::VisitUsingShadowDecl(UsingShadowDecl *D) {

@@ -52,6 +52,7 @@ bool UnwrappedLineParser::parseLevel() {
       addUnwrappedLine();
       break;
     case tok::r_brace:
+      // FIXME: We need a test when it has to be "return Error;"
       return false;
     default:
       parseStatement();
@@ -105,6 +106,12 @@ void UnwrappedLineParser::parseComment() {
 }
 
 void UnwrappedLineParser::parseStatement() {
+  // Consume leading line comments, e.g. for branches without compounds.
+  while (FormatTok.Tok.is(tok::comment)) {
+    nextToken();
+    addUnwrappedLine();
+  }
+
   switch (FormatTok.Tok.getKind()) {
   case tok::kw_public:
   case tok::kw_protected:
@@ -113,6 +120,10 @@ void UnwrappedLineParser::parseStatement() {
     return;
   case tok::kw_if:
     parseIfThenElse();
+    return;
+  case tok::kw_for:
+  case tok::kw_while:
+    parseForOrWhileLoop();
     return;
   case tok::kw_do:
     parseDoWhile();
@@ -209,6 +220,22 @@ void UnwrappedLineParser::parseIfThenElse() {
     }
   } else if (NeedsUnwrappedLine) {
     addUnwrappedLine();
+  }
+}
+
+void UnwrappedLineParser::parseForOrWhileLoop() {
+  assert((FormatTok.Tok.is(tok::kw_for) || FormatTok.Tok.is(tok::kw_while)) &&
+         "'for' or 'while' expected");
+  nextToken();
+  parseParens();
+  if (FormatTok.Tok.is(tok::l_brace)) {
+    parseBlock();
+    addUnwrappedLine();
+  } else {
+    addUnwrappedLine();
+    ++Line.Level;
+    parseStatement();
+    --Line.Level;
   }
 }
 
@@ -318,7 +345,7 @@ void UnwrappedLineParser::addUnwrappedLine() {
          FormatTok.Tok.is(tok::comment)) {
     nextToken();
   }
-  Callback.formatUnwrappedLine(Line);
+  Callback.consumeUnwrappedLine(Line);
   Line.Tokens.clear();
 }
 

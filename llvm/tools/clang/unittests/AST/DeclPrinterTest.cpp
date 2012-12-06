@@ -412,8 +412,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl1) {
     "  A();"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A();"
+    "A()"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl2) {
@@ -422,8 +421,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl2) {
     "  A(int a);"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A(int a);"
+    "A(int a)"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl3) {
@@ -432,8 +430,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl3) {
     "  A(const A &a);"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A(const A &a);"
+    "A(const A &a)"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl4) {
@@ -442,8 +439,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl4) {
     "  A(const A &a, int = 0);"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A(const A &a, int = 0);"
+    "A(const A &a, int = 0)"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl5) {
@@ -452,8 +448,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl5) {
     "  A(const A &&a);"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A(const A &&a);"
+    "A(const A &&a)"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl6) {
@@ -462,8 +457,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl6) {
     "  explicit A(int a);"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "explicit A(int a);"
+    "explicit A(int a)"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl7) {
@@ -472,7 +466,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl7) {
     "  constexpr A();"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
+    "A()"));
     // WRONG; Should be: "constexpr A();"
 }
 
@@ -482,8 +476,8 @@ TEST(DeclPrinter, TestCXXConstructorDecl8) {
     "  A() = default;"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A() = default;"
+    "A() noexcept = default"));
+    // Should be: "A() = default;" if we care about noexcept as written
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl9) {
@@ -492,8 +486,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl9) {
     "  A() = delete;"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    " = delete"));
-    // WRONG; Should be: "A() = delete;"
+    "A() = delete"));
 }
 
 TEST(DeclPrinter, TestCXXConstructorDecl10) {
@@ -503,8 +496,7 @@ TEST(DeclPrinter, TestCXXConstructorDecl10) {
     "  A(const A &a);"
     "};",
     constructorDecl(ofClass(hasName("A"))).bind("id"),
-    ""));
-    // WRONG; Should be: "A(const A &a);"
+    "A<T...>(const A<T...> &a)"));
 }
 
 #if !defined(_MSC_VER)
