@@ -390,7 +390,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     ShadowOriginAndInsertPoint() : Shadow(0), Origin(0), OrigIns(0) { }
   };
   SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationList;
-  SmallVector<ShadowOriginAndInsertPoint, 16> StoreList;
+  SmallVector<Instruction*, 16> StoreList;
 
   MemorySanitizerVisitor(Function &F, MemorySanitizer &MS)
     : F(F), MS(MS), VAHelper(CreateVarArgHelper(F, MS, *this)) {
@@ -402,7 +402,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   void materializeStores() {
     for (size_t i = 0, n = StoreList.size(); i < n; i++) {
-      StoreInst& I = *dyn_cast<StoreInst>(StoreList[i].OrigIns);
+      StoreInst& I = *dyn_cast<StoreInst>(StoreList[i]);
 
       IRBuilder<> IRB(&I);
       Value *Val = I.getValueOperand();
@@ -500,7 +500,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     VAHelper->finalizeInstrumentation();
 
+    // Delayed instrumentation of StoreInst.
+    // This make add new checks to inserted later.
     materializeStores();
+
+    // Insert shadow value checks.
     materializeChecks();
 
     return true;
@@ -800,7 +804,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// Optionally, checks that the store address is fully defined.
   /// Volatile stores check that the value being stored is fully defined.
   void visitStoreInst(StoreInst &I) {
-    StoreList.push_back(ShadowOriginAndInsertPoint(NULL, NULL, &I));
+    StoreList.push_back(&I);
   }
 
   // Vector manipulation.
