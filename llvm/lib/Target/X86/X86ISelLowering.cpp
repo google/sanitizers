@@ -3252,9 +3252,7 @@ static bool isUndefOrInRange(int Val, int Low, int Hi) {
 /// isUndefOrEqual - Val is either less than zero (undef) or equal to the
 /// specified value.
 static bool isUndefOrEqual(int Val, int CmpVal) {
-  if (Val < 0 || Val == CmpVal)
-    return true;
-  return false;
+  return (Val < 0 || Val == CmpVal);
 }
 
 /// isSequentialOrUndefInRange - Return true if every element in Mask, beginning
@@ -6460,23 +6458,6 @@ static bool MayFoldVectorLoad(SDValue V) {
   return MayFoldLoad(V);
 }
 
-// FIXME: the version above should always be used. Since there's
-// a bug where several vector shuffles can't be folded because the
-// DAG is not updated during lowering and a node claims to have two
-// uses while it only has one, use this version, and let isel match
-// another instruction if the load really happens to have more than
-// one use. Remove this version after this bug get fixed.
-// rdar://8434668, PR8156
-static bool RelaxedMayFoldVectorLoad(SDValue V) {
-  if (V.hasOneUse() && V.getOpcode() == ISD::BITCAST)
-    V = V.getOperand(0);
-  if (V.hasOneUse() && V.getOpcode() == ISD::SCALAR_TO_VECTOR)
-    V = V.getOperand(0);
-  if (ISD::isNormalLoad(V.getNode()))
-    return true;
-  return false;
-}
-
 static
 SDValue getMOVDDup(SDValue &Op, DebugLoc &dl, SDValue V1, SelectionDAG &DAG) {
   EVT VT = Op.getValueType();
@@ -6780,7 +6761,7 @@ X86TargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const {
     return getTargetShuffleNode(X86ISD::UNPCKH, dl, VT, V1, V1, DAG);
 
   if (isMOVDDUPMask(M, VT) && Subtarget->hasSSE3() &&
-      V2IsUndef && RelaxedMayFoldVectorLoad(V1))
+      V2IsUndef && MayFoldVectorLoad(V1))
     return getMOVDDup(Op, dl, V1, DAG);
 
   if (isMOVHLPS_v_undef_Mask(M, VT))
@@ -12161,6 +12142,30 @@ bool X86TargetLowering::isZExtFree(EVT VT1, EVT VT2) const {
   return VT1 == MVT::i32 && VT2 == MVT::i64 && Subtarget->is64Bit();
 }
 
+bool X86TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
+  EVT VT1 = Val.getValueType();
+  if (isZExtFree(VT1, VT2))
+    return true;
+
+  if (Val.getOpcode() != ISD::LOAD)
+    return false;
+
+  if (!VT1.isSimple() || !VT1.isInteger() ||
+      !VT2.isSimple() || !VT2.isInteger())
+    return false;
+
+  switch (VT1.getSimpleVT().SimpleTy) {
+  default: break;
+  case MVT::i8:
+  case MVT::i16:
+  case MVT::i32:
+    // X86 has 8, 16, and 32-bit zero-extending loads.
+    return true;
+  }
+
+  return false;
+}
+
 bool X86TargetLowering::isNarrowingProfitable(EVT VT1, EVT VT2) const {
   // i16 instructions are longer (0x66 prefix) and potentially slower.
   return !(VT1 == MVT::i32 && VT2 == MVT::i16);
@@ -14110,38 +14115,6 @@ void X86TargetLowering::computeMaskedBitsForTargetNode(const SDValue Op,
     break;
   }
   }
-}
-
-void X86TargetLowering::computeMaskedBitsForAnyExtend(const SDValue Op,
-                                                      APInt &KnownZero,
-                                                      APInt &KnownOne,
-                                                      const SelectionDAG &DAG,
-                                                      unsigned Depth) const {
-  unsigned BitWidth = Op.getValueType().getScalarType().getSizeInBits();
-  if (Op.getOpcode() == ISD::ANY_EXTEND) {
-    // Implemented as a zero_extend except for i16 -> i32
-    EVT InVT = Op.getOperand(0).getValueType();
-    unsigned InBits = InVT.getScalarType().getSizeInBits();
-    KnownZero = KnownZero.trunc(InBits);
-    KnownOne = KnownOne.trunc(InBits);
-    DAG.ComputeMaskedBits(Op.getOperand(0), KnownZero, KnownOne, Depth+1);
-    KnownZero = KnownZero.zext(BitWidth);
-    KnownOne = KnownOne.zext(BitWidth);
-    if (BitWidth != 32 || InBits != 16) {
-      APInt NewBits = APInt::getHighBitsSet(BitWidth, BitWidth - InBits);
-      KnownZero |= NewBits;
-    }
-    return;
-  } else if (ISD::isEXTLoad(Op.getNode())) {
-    // Implemented as zextloads or implicitly zero-extended (i32 -> i64)
-    LoadSDNode *LD = cast<LoadSDNode>(Op);
-    EVT VT = LD->getMemoryVT();
-    unsigned MemBits = VT.getScalarType().getSizeInBits();
-    KnownZero |= APInt::getHighBitsSet(BitWidth, BitWidth - MemBits);
-    return;
-  }
-  
-  assert(0 && "Expecting an ANY_EXTEND or extload!");
 }
 
 unsigned X86TargetLowering::ComputeNumSignBitsForTargetNode(SDValue Op,

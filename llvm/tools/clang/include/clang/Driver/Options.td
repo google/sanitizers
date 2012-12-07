@@ -152,7 +152,8 @@ def E : Flag<["-"], "E">, Flags<[DriverOption,CC1Option]>, Group<Action_Group>,
   HelpText<"Only run the preprocessor">;
 def F : JoinedOrSeparate<["-"], "F">, Flags<[RenderJoined,CC1Option]>,
     HelpText<"Add directory to framework include search path">;
-def G : Separate<["-"], "G">, Flags<[DriverOption]>;
+def G : JoinedOrSeparate<["-"], "G">, Flags<[DriverOption]>;
+def G_EQ : Joined<["-"], "G=">, Flags<[DriverOption]>;
 def H : Flag<["-"], "H">, Flags<[CC1Option]>,
     HelpText<"Show header includes and nesting depth">;
 def I_ : Flag<["-"], "I-">, Group<I_Group>;
@@ -845,6 +846,7 @@ def mno_warn_nonportable_cfstrings : Flag<["-"], "mno-warn-nonportable-cfstrings
 def mno_omit_leaf_frame_pointer : Flag<["-"], "mno-omit-leaf-frame-pointer">, Group<m_Group>;
 def momit_leaf_frame_pointer : Flag<["-"], "momit-leaf-frame-pointer">, Group<m_Group>,
   HelpText<"Omit frame pointer setup for leaf functions">, Flags<[CC1Option]>;
+def moslib_EQ : Joined<["-"], "moslib=">, Group<m_Group>;
 def mpascal_strings : Flag<["-"], "mpascal-strings">, Group<m_Group>;
 def mred_zone : Flag<["-"], "mred-zone">, Group<m_Group>;
 def mregparm_EQ : Joined<["-"], "mregparm=">, Group<m_Group>;

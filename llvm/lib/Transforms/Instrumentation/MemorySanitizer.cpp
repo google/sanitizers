@@ -412,6 +412,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
       StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
       DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
+      (void)NewSI;
       // If the store is volatile, add a check.
       if (I.isVolatile())
         insertCheck(Val, &I);
@@ -1392,9 +1393,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
       assert(!isa<IntrinsicInst>(&I) && "intrinsics are handled elsewhere");
 
-      // HACK: We are going to insert code that relies on the fact that the
-      // callee will become a non-readonly function after it is instrumented by
-      // us. To avoid this code being optimized out, mark this function
+      // We are going to insert code that relies on the fact that the callee
+      // will become a non-readonly function after it is instrumented by us. To
+      // prevent this code from being optimized out, mark that function
       // non-readonly in advance.
       if (Function *Func = Call->getCalledFunction()) {
         // Clear out readonly/readnone attributes.
@@ -1402,7 +1403,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         B.addAttribute(Attributes::ReadOnly)
           .addAttribute(Attributes::ReadNone);
         Func->removeAttribute(AttrListPtr::FunctionIndex,
-            Attributes::get(Func->getContext(), B));
+                              Attributes::get(Func->getContext(), B));
       }
     }
     IRBuilder<> IRB(&I);

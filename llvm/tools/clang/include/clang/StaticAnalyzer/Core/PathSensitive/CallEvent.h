@@ -181,7 +181,7 @@ public:
   }
 
   /// \brief The state in which the call is being evaluated.
-  ProgramStateRef getState() const {
+  const ProgramStateRef &getState() const {
     return State;
   }
 

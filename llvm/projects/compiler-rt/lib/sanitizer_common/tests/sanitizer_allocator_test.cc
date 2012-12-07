@@ -23,13 +23,19 @@
 #if SANITIZER_WORDSIZE == 64
 static const uptr kAllocatorSpace = 0x700000000000ULL;
 static const uptr kAllocatorSize  = 0x010000000000ULL;  // 1T.
+static const u64 kAddressSpaceSize = 1ULL << 47;
 
 typedef SizeClassAllocator64<
   kAllocatorSpace, kAllocatorSize, 16, DefaultSizeClassMap> Allocator64;
 
 typedef SizeClassAllocator64<
   kAllocatorSpace, kAllocatorSize, 16, CompactSizeClassMap> Allocator64Compact;
+#else
+static const u64 kAddressSpaceSize = 1ULL << 32;
 #endif
+
+typedef SizeClassAllocator32<
+  0, kAddressSpaceSize, 16, CompactSizeClassMap> Allocator32Compact;
 
 template <class SizeClassMap>
 void TestSizeClassMap() {
@@ -71,8 +77,8 @@ TEST(SanitizerCommon, CompactSizeClassMap) {
 
 template <class Allocator>
 void TestSizeClassAllocator() {
-  Allocator a;
-  a.Init();
+  Allocator *a = new Allocator;
+  a->Init();
 
   static const uptr sizes[] = {1, 16, 30, 40, 100, 1000, 10000,
     50000, 60000, 100000, 300000, 500000, 1000000, 2000000};
@@ -82,19 +88,21 @@ void TestSizeClassAllocator() {
   uptr last_total_allocated = 0;
   for (int i = 0; i < 5; i++) {
     // Allocate a bunch of chunks.
-    for (uptr s = 0; s < sizeof(sizes) /sizeof(sizes[0]); s++) {
+    for (uptr s = 0; s < ARRAY_SIZE(sizes); s++) {
       uptr size = sizes[s];
-      if (!a.CanAllocate(size, 1)) continue;
+      if (!a->CanAllocate(size, 1)) continue;
       // printf("s = %ld\n", size);
       uptr n_iter = std::max((uptr)2, 1000000 / size);
       for (uptr i = 0; i < n_iter; i++) {
-        void *x = a.Allocate(size, 1);
+        void *x = a->Allocate(size, 1);
         allocated.push_back(x);
-        CHECK(a.PointerIsMine(x));
-        CHECK_GE(a.GetActuallyAllocatedSize(x), size);
-        uptr class_id = a.GetSizeClass(x);
+        CHECK_EQ(x, a->GetBlockBegin(x));
+        CHECK_EQ(x, a->GetBlockBegin((char*)x + size - 1));
+        CHECK(a->PointerIsMine(x));
+        CHECK_GE(a->GetActuallyAllocatedSize(x), size);
+        uptr class_id = a->GetSizeClass(x);
         CHECK_EQ(class_id, Allocator::SizeClassMapT::ClassID(size));
-        uptr *metadata = reinterpret_cast<uptr*>(a.GetMetaData(x));
+        uptr *metadata = reinterpret_cast<uptr*>(a->GetMetaData(x));
         metadata[0] = reinterpret_cast<uptr>(x) + 1;
         metadata[1] = 0xABCD;
       }
@@ -102,19 +110,20 @@ void TestSizeClassAllocator() {
     // Deallocate all.
     for (uptr i = 0; i < allocated.size(); i++) {
       void *x = allocated[i];
-      uptr *metadata = reinterpret_cast<uptr*>(a.GetMetaData(x));
+      uptr *metadata = reinterpret_cast<uptr*>(a->GetMetaData(x));
       CHECK_EQ(metadata[0], reinterpret_cast<uptr>(x) + 1);
       CHECK_EQ(metadata[1], 0xABCD);
-      a.Deallocate(x);
+      a->Deallocate(x);
     }
     allocated.clear();
-    uptr total_allocated = a.TotalMemoryUsed();
+    uptr total_allocated = a->TotalMemoryUsed();
     if (last_total_allocated == 0)
       last_total_allocated = total_allocated;
     CHECK_EQ(last_total_allocated, total_allocated);
   }
 
-  a.TestOnlyUnmap();
+  a->TestOnlyUnmap();
+  delete a;
 }
 
 #if SANITIZER_WORDSIZE == 64
@@ -127,40 +136,48 @@ TEST(SanitizerCommon, SizeClassAllocator64Compact) {
 }
 #endif
 
+TEST(SanitizerCommon, SizeClassAllocator32Compact) {
+  TestSizeClassAllocator<Allocator32Compact>();
+}
+
 template <class Allocator>
-void SizeClassAllocator64MetadataStress() {
-  Allocator a;
-  a.Init();
+void SizeClassAllocatorMetadataStress() {
+  Allocator *a = new Allocator;
+  a->Init();
   static volatile void *sink;
 
   const uptr kNumAllocs = 10000;
   void *allocated[kNumAllocs];
   for (uptr i = 0; i < kNumAllocs; i++) {
     uptr size = (i % 4096) + 1;
-    void *x = a.Allocate(size, 1);
+    void *x = a->Allocate(size, 1);
     allocated[i] = x;
   }
   // Get Metadata kNumAllocs^2 times.
   for (uptr i = 0; i < kNumAllocs * kNumAllocs; i++) {
-    sink = a.GetMetaData(allocated[i % kNumAllocs]);
+    sink = a->GetMetaData(allocated[i % kNumAllocs]);
   }
   for (uptr i = 0; i < kNumAllocs; i++) {
-    a.Deallocate(allocated[i]);
+    a->Deallocate(allocated[i]);
   }
 
-  a.TestOnlyUnmap();
+  a->TestOnlyUnmap();
   (void)sink;
+  delete a;
 }
 
 #if SANITIZER_WORDSIZE == 64
 TEST(SanitizerCommon, SizeClassAllocator64MetadataStress) {
-  SizeClassAllocator64MetadataStress<Allocator64>();
+  SizeClassAllocatorMetadataStress<Allocator64>();
 }
 
 TEST(SanitizerCommon, SizeClassAllocator64CompactMetadataStress) {
-  SizeClassAllocator64MetadataStress<Allocator64Compact>();
+  SizeClassAllocatorMetadataStress<Allocator64Compact>();
 }
 #endif
+TEST(SanitizerCommon, SizeClassAllocator32CompactMetadataStress) {
+  SizeClassAllocatorMetadataStress<Allocator32Compact>();
+}
 
 template<class Allocator>
 void FailInAssertionOnOOM() {
@@ -181,7 +198,6 @@ TEST(SanitizerCommon, SizeClassAllocator64Overflow) {
 #endif
 
 TEST(SanitizerCommon, LargeMmapAllocator) {
-  fprintf(stderr, "xxxx %ld\n", 0L);
   LargeMmapAllocator a;
   a.Init();
 
@@ -190,7 +206,6 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
   static const uptr size = 1000;
   // Allocate some.
   for (int i = 0; i < kNumAllocs; i++) {
-    fprintf(stderr, "zzz0 %ld\n", size);
     allocated[i] = a.Allocate(size, 1);
   }
   // Deallocate all.
@@ -205,7 +220,6 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
 
   // Allocate some more, also add metadata.
   for (int i = 0; i < kNumAllocs; i++) {
-    fprintf(stderr, "zzz1 %ld\n", size);
     void *x = a.Allocate(size, 1);
     CHECK_GE(a.GetActuallyAllocatedSize(x), size);
     uptr *meta = reinterpret_cast<uptr*>(a.GetMetaData(x));
@@ -227,7 +241,6 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
   for (uptr alignment = 8; alignment <= max_alignment; alignment *= 2) {
     for (int i = 0; i < kNumAllocs; i++) {
       uptr size = ((i % 10) + 1) * 4096;
-      fprintf(stderr, "zzz1 %ld %ld\n", size, alignment);
       allocated[i] = a.Allocate(size, alignment);
       CHECK_EQ(0, (uptr)allocated[i] % alignment);
       char *p = (char*)allocated[i];
@@ -242,17 +255,20 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
 template
 <class PrimaryAllocator, class SecondaryAllocator, class AllocatorCache>
 void TestCombinedAllocator() {
-  CombinedAllocator<PrimaryAllocator, AllocatorCache, SecondaryAllocator> a;
-  a.Init();
+  typedef
+      CombinedAllocator<PrimaryAllocator, AllocatorCache, SecondaryAllocator>
+      Allocator;
+  Allocator *a = new Allocator;
+  a->Init();
 
   AllocatorCache cache;
   cache.Init();
 
-  EXPECT_EQ(a.Allocate(&cache, -1, 1), (void*)0);
-  EXPECT_EQ(a.Allocate(&cache, -1, 1024), (void*)0);
-  EXPECT_EQ(a.Allocate(&cache, (uptr)-1 - 1024, 1), (void*)0);
-  EXPECT_EQ(a.Allocate(&cache, (uptr)-1 - 1024, 1024), (void*)0);
-  EXPECT_EQ(a.Allocate(&cache, (uptr)-1 - 1023, 1024), (void*)0);
+  EXPECT_EQ(a->Allocate(&cache, -1, 1), (void*)0);
+  EXPECT_EQ(a->Allocate(&cache, -1, 1024), (void*)0);
+  EXPECT_EQ(a->Allocate(&cache, (uptr)-1 - 1024, 1), (void*)0);
+  EXPECT_EQ(a->Allocate(&cache, (uptr)-1 - 1024, 1024), (void*)0);
+  EXPECT_EQ(a->Allocate(&cache, (uptr)-1 - 1023, 1024), (void*)0);
 
   const uptr kNumAllocs = 100000;
   const uptr kNumIter = 10;
@@ -262,8 +278,8 @@ void TestCombinedAllocator() {
       uptr size = (i % (1 << 14)) + 1;
       if ((i % 1024) == 0)
         size = 1 << (10 + (i % 14));
-      void *x = a.Allocate(&cache, size, 1);
-      uptr *meta = reinterpret_cast<uptr*>(a.GetMetaData(x));
+      void *x = a->Allocate(&cache, size, 1);
+      uptr *meta = reinterpret_cast<uptr*>(a->GetMetaData(x));
       CHECK_EQ(*meta, 0);
       *meta = size;
       allocated.push_back(x);
@@ -273,34 +289,47 @@ void TestCombinedAllocator() {
 
     for (uptr i = 0; i < kNumAllocs; i++) {
       void *x = allocated[i];
-      uptr *meta = reinterpret_cast<uptr*>(a.GetMetaData(x));
+      uptr *meta = reinterpret_cast<uptr*>(a->GetMetaData(x));
       CHECK_NE(*meta, 0);
-      CHECK(a.PointerIsMine(x));
+      CHECK(a->PointerIsMine(x));
       *meta = 0;
-      a.Deallocate(&cache, x);
+      a->Deallocate(&cache, x);
     }
     allocated.clear();
-    a.SwallowCache(&cache);
+    a->SwallowCache(&cache);
   }
-  a.TestOnlyUnmap();
+  a->TestOnlyUnmap();
 }
 
 #if SANITIZER_WORDSIZE == 64
-TEST(SanitizerCommon, CombinedAllocator) {
+TEST(SanitizerCommon, CombinedAllocator64) {
   TestCombinedAllocator<Allocator64,
       LargeMmapAllocator,
       SizeClassAllocatorLocalCache<Allocator64> > ();
 }
+
+TEST(SanitizerCommon, CombinedAllocator64Compact) {
+  TestCombinedAllocator<Allocator64Compact,
+      LargeMmapAllocator,
+      SizeClassAllocatorLocalCache<Allocator64Compact> > ();
+}
 #endif
+
+TEST(SanitizerCommon, CombinedAllocator32Compact) {
+  TestCombinedAllocator<Allocator32Compact,
+      LargeMmapAllocator,
+      SizeClassAllocatorLocalCache<Allocator32Compact> > ();
+}
 
 template <class AllocatorCache>
 void TestSizeClassAllocatorLocalCache() {
   static THREADLOCAL AllocatorCache static_allocator_cache;
   static_allocator_cache.Init();
   AllocatorCache cache;
-  typename AllocatorCache::Allocator a;
+  typedef typename AllocatorCache::Allocator Allocator;
+  Allocator *a = new Allocator();
 
-  a.Init();
+  a->Init();
   cache.Init();
 
   const uptr kNumAllocs = 10000;
@@ -309,19 +338,20 @@ void TestSizeClassAllocatorLocalCache() {
   for (int i = 0; i < kNumIter; i++) {
     void *allocated[kNumAllocs];
     for (uptr i = 0; i < kNumAllocs; i++) {
-      allocated[i] = cache.Allocate(&a, 0);
+      allocated[i] = cache.Allocate(a, 0);
     }
     for (uptr i = 0; i < kNumAllocs; i++) {
-      cache.Deallocate(&a, 0, allocated[i]);
+      cache.Deallocate(a, 0, allocated[i]);
     }
-    cache.Drain(&a);
-    uptr total_allocated = a.TotalMemoryUsed();
+    cache.Drain(a);
+    uptr total_allocated = a->TotalMemoryUsed();
     if (saved_total)
       CHECK_EQ(saved_total, total_allocated);
     saved_total = total_allocated;
   }
 
-  a.TestOnlyUnmap();
+  a->TestOnlyUnmap();
+  delete a;
 }
 
 #if SANITIZER_WORDSIZE == 64
@@ -329,7 +359,17 @@ TEST(SanitizerCommon, SizeClassAllocator64LocalCache) {
   TestSizeClassAllocatorLocalCache<
       SizeClassAllocatorLocalCache<Allocator64> >();
 }
+
+TEST(SanitizerCommon, SizeClassAllocator64CompactLocalCache) {
+  TestSizeClassAllocatorLocalCache<
+      SizeClassAllocatorLocalCache<Allocator64Compact> >();
+}
 #endif
+
+TEST(SanitizerCommon, SizeClassAllocator32CompactLocalCache) {
+  TestSizeClassAllocatorLocalCache<
+      SizeClassAllocatorLocalCache<Allocator32Compact> >();
+}
 
 TEST(Allocator, Basic) {
   char *p = (char*)InternalAlloc(10);
@@ -364,7 +404,7 @@ TEST(Allocator, ScopedBuffer) {
   }
   InternalScopedBuffer<char> char_buf(kSize);
   EXPECT_EQ(sizeof(char) * kSize, char_buf.size());  // NOLINT
-  memset(char_buf.data(), 'c', kSize);
+  internal_memset(char_buf.data(), 'c', kSize);
   for (int i = 0; i < kSize; i++) {
     EXPECT_EQ('c', char_buf[i]);
   }

@@ -19,7 +19,7 @@ void *Thread1(void *x) {
 }
 
 void *Thread2(void *x) {
-  usleep(1000*1000);
+  sleep(1);
   g_data = 43;
   return NULL;
 }
@@ -34,10 +34,10 @@ int main() {
 }
 
 // CHECK: WARNING: ThreadSanitizer: data race
-// CHECK:   Write of size 4 at {{.*}} by thread 2:
-// CHECK:   Previous write of size 4 at {{.*}} by thread 1:
+// CHECK:   Write of size 4 at {{.*}} by thread T2:
+// CHECK:   Previous write of size 4 at {{.*}} by thread T1:
 // CHECK:     #0 foobar
 // CHECK:     #1 Thread1
-// CHECK:   Thread 1 (tid={{.*}}, finished) created at:
+// CHECK:   Thread T1 (tid={{.*}}, finished) created at:
 // CHECK:     #0 pthread_create
 // CHECK:     #1 main

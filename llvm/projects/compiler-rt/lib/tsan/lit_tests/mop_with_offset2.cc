@@ -5,7 +5,7 @@
 #include <unistd.h>
 
 void *Thread1(void *x) {
-  usleep(500*1000);
+  sleep(1);
   int *p = (int*)x;
   p[0] = 1;
   return NULL;
@@ -32,5 +32,5 @@ int main() {
 // CHECK: ptr1=[[PTR1:0x[0-9,a-f]+]]
 // CHECK: ptr2=[[PTR2:0x[0-9,a-f]+]]
 // CHECK: WARNING: ThreadSanitizer: data race
-// CHECK:   Write of size 4 at [[PTR1]] by thread 1:
-// CHECK:   Previous write of size 1 at [[PTR2]] by thread 2:
+// CHECK:   Write of size 4 at [[PTR1]] by thread T1:
+// CHECK:   Previous write of size 1 at [[PTR2]] by thread T2:
