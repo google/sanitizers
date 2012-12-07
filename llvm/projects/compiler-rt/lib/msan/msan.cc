@@ -1,4 +1,4 @@
-//===-- msan_new_delete.cc ------------------------------------------------===//
+//===-- msan.cc -----------------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -9,7 +9,7 @@
 //
 // This file is a part of MemorySanitizer.
 //
-// Interceptors for operators new and delete.
+// MemorySanitizer runtime.
 //===----------------------------------------------------------------------===//
 
 #include "msan_interface.h"
