@@ -185,37 +185,42 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
                                           CGOpts.SanitizerBlacklistFile));
 }
 
+
+
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
                                    PassManagerBase &PM) {
   PM.add(createMemorySanitizerPass());
-  if (Builder.OptLevel > 1) {
-    PM.add(createEarlyCSEPass());              // Catch trivial redundancies
-    PM.add(createJumpThreadingPass());         // Thread jumps.
-    PM.add(createCorrelatedValuePropagationPass()); // Propagate conditionals
-    PM.add(createCFGSimplificationPass());     // Merge & remove BBs
-    PM.add(createInstructionCombiningPass());  // Combine silly seq's
+  char* mask = getenv("MSAN_EXTRA_OPT_MASK");
+#define Z(idx) if (!mask || (strlen(mask) > idx && mask[idx] == 'x'))
+  if (Builder.OptLevel > 0) {
+    Z(0) PM.add(createEarlyCSEPass());              // Catch trivial redundancies
+    Z(1) PM.add(createJumpThreadingPass());         // Thread jumps.
+    Z(2) PM.add(createCorrelatedValuePropagationPass()); // Propagate conditionals
+    Z(3) PM.add(createCFGSimplificationPass());     // Merge & remove BBs
+    Z(4) PM.add(createInstructionCombiningPass());  // Combine silly seq's
 
-    PM.add(createTailCallEliminationPass());   // Eliminate tail calls
-    PM.add(createCFGSimplificationPass());     // Merge & remove BBs
-    PM.add(createReassociatePass());           // Reassociate expressions
-    PM.add(createLoopRotatePass());            // Rotate Loop
-    PM.add(createLICMPass());                  // Hoist loop invariants
-    PM.add(createInstructionCombiningPass());
-    PM.add(createIndVarSimplifyPass());        // Canonicalize indvars
-    PM.add(createLoopIdiomPass());             // Recognize idioms like memset.
-    PM.add(createLoopDeletionPass());          // Delete dead loops
+    Z(5) PM.add(createTailCallEliminationPass());   // Eliminate tail calls
+Z(6)     PM.add(createCFGSimplificationPass());     // Merge & remove BBs
+Z(7)     PM.add(createReassociatePass());           // Reassociate expressions
+Z(8)     PM.add(createLoopRotatePass());            // Rotate Loop
+Z(9)     PM.add(createLICMPass());                  // Hoist loop invariants
+Z(10)     PM.add(createInstructionCombiningPass());
+Z(11)     PM.add(createIndVarSimplifyPass());        // Canonicalize indvars
+Z(12)     PM.add(createLoopIdiomPass());             // Recognize idioms like memset.
+Z(13)     PM.add(createLoopDeletionPass());          // Delete dead loops
 
-    PM.add(createGVNPass());                 // Remove redundancies
-    PM.add(createMemCpyOptPass());             // Remove memcpy / form memset
-    PM.add(createSCCPPass());                  // Constant prop with SCCP
+Z(14)     PM.add(createGVNPass());                 // Remove redundancies
+Z(15)     PM.add(createMemCpyOptPass());             // Remove memcpy / form memset
+Z(16)     PM.add(createSCCPPass());                  // Constant prop with SCCP
 
     // Run instcombine after redundancy elimination to exploit opportunities
     // opened up by them.
-    PM.add(createInstructionCombiningPass());
-    PM.add(createJumpThreadingPass());         // Thread jumps
-    PM.add(createCorrelatedValuePropagationPass());
-    PM.add(createDeadStoreEliminationPass());  // Delete dead stores
+Z(17)     PM.add(createInstructionCombiningPass());
+Z(18)     PM.add(createJumpThreadingPass());         // Thread jumps
+Z(19)     PM.add(createCorrelatedValuePropagationPass());
+Z(20)     PM.add(createDeadStoreEliminationPass());  // Delete dead stores
   }
+#undef Z
 }
 
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
