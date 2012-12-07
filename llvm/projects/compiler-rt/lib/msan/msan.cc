@@ -34,12 +34,26 @@ static THREADLOCAL int msan_expect_umr = 0;
 static THREADLOCAL int msan_expected_umr_found = 0;
 
 static int msan_running_under_dr = 0;
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL long long __msan_param_tls[100];
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_param_origin_tls[100];
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL long long __msan_retval_tls[8];
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_retval_origin_tls;
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL long long __msan_va_arg_tls[100];
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL long long __msan_va_arg_overflow_size_tls;
+
+SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_origin_tls;
 
 THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
