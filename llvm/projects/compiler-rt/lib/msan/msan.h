@@ -25,8 +25,6 @@ void InitializeInterceptors();
 void *MsanReallocate(StackTrace *stack, void *oldp, uptr size,
                      uptr alignment, bool zeroise);
 void MsanDeallocate(void *ptr);
-void GdbBackTrace();  // FIXME
-void BacktraceStackTrace();
 void InstallTrapHandler();
 void ReplaceOperatorsNewAndDelete();
 
@@ -42,7 +40,6 @@ struct Flags {
   bool poison_stack_with_zeroes;  // default: false
   bool poison_in_malloc;  // default: true
   int  exit_code;
-  bool fast_unwinder;
   int  num_callers;
   bool report_umrs;
   bool verbosity;

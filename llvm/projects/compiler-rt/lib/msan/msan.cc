@@ -56,7 +56,7 @@ THREADLOCAL long long __msan_va_arg_overflow_size_tls;
 SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_origin_tls;
 
-THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
+static THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
 
 StaticSpinMutex report_mu;
 
@@ -76,7 +76,6 @@ Flags flags = {
   false,  // poison_stack_with_zeroes
   true,   // poison_in_malloc
   67,     // exit_code
-  true,   // fast_unwinder
   20,     // num_callers
   true,   // report_umrs
   false,  // verbosity
@@ -96,7 +95,6 @@ void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_stack_with_zeroes, "poison_stack_with_zeroes");
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
   ParseFlag(str, &f->exit_code, "exit_code");
-  ParseFlag(str, &f->fast_unwinder, "fast_unwinder");
   ParseFlag(str, &f->num_callers, "num_callers");
   ParseFlag(str, &f->report_umrs, "report_umrs");
   ParseFlag(str, &f->verbosity, "verbosity");
@@ -146,13 +144,10 @@ void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
   GenericScopedLock<StaticSpinMutex> lock(&report_mu);
 
   Report(" WARNING: MemorySanitizer: UMR (uninitialized-memory-read)\n");
-  if (flags.fast_unwinder)
-    PrintCurrentStackTrace(pc, bp);
-  else
-    BacktraceStackTrace();
+  PrintCurrentStackTrace(pc, bp);
   if (__msan_track_origins) {
     Printf("  raw origin id: %d\n", origin);
-    if (origin == 0 || origin == -1) {
+    if (origin == 0 || origin == (u32)-1) {
       Printf("  ORIGIN: invalid (%x). Might be a bug in MemorySanitizer, "
              "please report to MemorySanitizer developers.\n",
              origin);
@@ -178,11 +173,13 @@ void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
 
 void __msan_warning() {
   GET_CALLER_PC_BP_SP;
+  (void)sp;
   __msan::PrintWarning(pc, bp);
 }
 
 void __msan_warning_noreturn() {
   GET_CALLER_PC_BP_SP;
+  (void)sp;
   __msan::PrintWarning(pc, bp);
   Die();
 }
@@ -242,7 +239,9 @@ void __msan_set_expect_umr(int expect_umr) {
     msan_expected_umr_found = 0;
   } else if (!msan_expected_umr_found) {
     Printf("Expected UMR not found\n");
-    __msan::BacktraceStackTrace();
+    GET_CALLER_PC_BP_SP;
+    (void)sp;
+    __msan::PrintCurrentStackTrace(pc, bp);
     Die();
   }
   msan_expect_umr = expect_umr;
@@ -272,7 +271,7 @@ void __msan_print_param_shadow() {
 
 sptr __msan_test_shadow(const void *x, uptr size) {
   unsigned char *s = (unsigned char*)MEM_TO_SHADOW((uptr)x);
-  for (sptr i = 0; i < size; ++i)
+  for (uptr i = 0; i < size; ++i)
     if (s[i])
       return i;
   return -1;

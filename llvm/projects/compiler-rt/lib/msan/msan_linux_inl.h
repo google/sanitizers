@@ -86,39 +86,6 @@ bool InitShadow(bool prot1, bool prot2, bool map_shadow, bool init_origins) {
   return true;
 }
 
-void GdbBackTrace() {
-  char cmd[100];
-  sprintf(cmd, "gdb -q --batch -ex bt /proc/%d/exe %d "
-          "> /dev/stderr",
-          GetPid(), GetPid());
-  system(cmd);
-}
-
-// TODO: get rid of this once we are sure that the common unwinder is ok.
-void PrintStack(uptr *addr, uptr size) {
-  MemoryMappingLayout proc_maps;
-  uptr frame_num = 0;
-  for (uptr i = 0; i < size && addr[i]; i++) {
-    uptr pc = addr[i];
-    uptr offset;
-    char filename[4096];
-    if (proc_maps.GetObjectNameAndOffset(pc, &offset,
-            filename, sizeof(filename))) {
-      Printf("    #%zu 0x%zx (%s+0x%zx)\n", frame_num, pc, filename,
-          offset);
-    } else {
-      Printf("    #%zu 0x%zx\n", frame_num, pc);
-    }
-    frame_num++;
-  }
-}
-
-void BacktraceStackTrace() {
-  uptr buffer[50];
-  int res = backtrace((void**)buffer, 50);
-  PrintStack(buffer, 50);
-}
-
 static void MsanTrap(int, siginfo_t *siginfo, void *context) {
   ucontext_t *ucontext = (ucontext_t*)context;
   uptr pc = ucontext->uc_mcontext.gregs[REG_RIP];
