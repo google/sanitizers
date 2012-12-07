@@ -188,6 +188,34 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
                                    PassManagerBase &PM) {
   PM.add(createMemorySanitizerPass());
+  if (Builder.OptLevel > 1) {
+    PM.add(createEarlyCSEPass());              // Catch trivial redundancies
+    PM.add(createJumpThreadingPass());         // Thread jumps.
+    PM.add(createCorrelatedValuePropagationPass()); // Propagate conditionals
+    PM.add(createCFGSimplificationPass());     // Merge & remove BBs
+    PM.add(createInstructionCombiningPass());  // Combine silly seq's
+
+    PM.add(createTailCallEliminationPass());   // Eliminate tail calls
+    PM.add(createCFGSimplificationPass());     // Merge & remove BBs
+    PM.add(createReassociatePass());           // Reassociate expressions
+    PM.add(createLoopRotatePass());            // Rotate Loop
+    PM.add(createLICMPass());                  // Hoist loop invariants
+    PM.add(createInstructionCombiningPass());
+    PM.add(createIndVarSimplifyPass());        // Canonicalize indvars
+    PM.add(createLoopIdiomPass());             // Recognize idioms like memset.
+    PM.add(createLoopDeletionPass());          // Delete dead loops
+
+    PM.add(createGVNPass());                 // Remove redundancies
+    PM.add(createMemCpyOptPass());             // Remove memcpy / form memset
+    PM.add(createSCCPPass());                  // Constant prop with SCCP
+
+    // Run instcombine after redundancy elimination to exploit opportunities
+    // opened up by them.
+    PM.add(createInstructionCombiningPass());
+    PM.add(createJumpThreadingPass());         // Thread jumps
+    PM.add(createCorrelatedValuePropagationPass());
+    PM.add(createDeadStoreEliminationPass());  // Delete dead stores
+  }
 }
 
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
