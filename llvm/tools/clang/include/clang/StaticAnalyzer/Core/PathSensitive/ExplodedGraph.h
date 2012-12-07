@@ -152,7 +152,7 @@ public:
     return *getLocationContext()->getAnalysis<T>();
   }
 
-  ProgramStateRef getState() const { return State; }
+  const ProgramStateRef &getState() const { return State; }
 
   template <typename T>
   const T* getLocationAs() const LLVM_LVALUE_FUNCTION {
@@ -174,7 +174,8 @@ public:
   }
 
   void Profile(llvm::FoldingSetNodeID& ID) const {
-    Profile(ID, getLocation(), getState(), isSink());
+    // We avoid copy constructors by not using accessors.
+    Profile(ID, Location, State, isSink());
   }
 
   /// addPredeccessor - Adds a predecessor to the current node, and

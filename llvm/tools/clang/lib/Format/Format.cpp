@@ -57,6 +57,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.PointerAndReferenceBindToType = false;
   LLVMStyle.AccessModifierOffset = -2;
   LLVMStyle.SplitTemplateClosingGreater = true;
+  LLVMStyle.IndentCaseLabels = false;
   return LLVMStyle;
 }
 
@@ -67,6 +68,7 @@ FormatStyle getGoogleStyle() {
   GoogleStyle.PointerAndReferenceBindToType = true;
   GoogleStyle.AccessModifierOffset = -1;
   GoogleStyle.SplitTemplateClosingGreater = false;
+  GoogleStyle.IndentCaseLabels = true;
   return GoogleStyle;
 }
 
@@ -618,12 +620,24 @@ private:
 
   bool isUnaryOperator(unsigned Index) {
     const Token &Tok = Line.Tokens[Index].Tok;
+
+    // '++', '--' and '!' are always unary operators.
+    if (Tok.is(tok::minusminus) || Tok.is(tok::plusplus) ||
+        Tok.is(tok::exclaim))
+      return true;
+
+    // The other possible unary operators are '+' and '-' as we
+    // determine the usage of '*' and '&' in determineStarAmpUsage().
     if (Tok.isNot(tok::minus) && Tok.isNot(tok::plus))
       return false;
+
+    // Use heuristics to recognize unary operators.
     const Token &PreviousTok = Line.Tokens[Index - 1].Tok;
     if (PreviousTok.is(tok::equal) || PreviousTok.is(tok::l_paren) ||
         PreviousTok.is(tok::comma) || PreviousTok.is(tok::l_square))
       return true;
+
+    // Fall back to marking the token as binary operator.
     return Annotations[Index - 1].Type == TokenAnnotation::TT_BinaryOperator;
   }
 
@@ -682,16 +696,20 @@ private:
       return false;
     if (Left.is(tok::less) || Right.is(tok::greater) || Right.is(tok::less))
       return false;
+    if (Right.is(tok::amp) || Right.is(tok::star))
+      return Left.isLiteral() ||
+          (Left.isNot(tok::star) && Left.isNot(tok::amp) &&
+           !Style.PointerAndReferenceBindToType);
     if (Left.is(tok::amp) || Left.is(tok::star))
       return Right.isLiteral() || Style.PointerAndReferenceBindToType;
     if (Right.is(tok::star) && Left.is(tok::l_paren))
       return false;
-    if (Right.is(tok::amp) || Right.is(tok::star))
-      return Left.isLiteral() || !Style.PointerAndReferenceBindToType;
     if (Left.is(tok::l_square) || Right.is(tok::l_square) ||
         Right.is(tok::r_square))
       return false;
-    if (Left.is(tok::coloncolon) || Right.is(tok::coloncolon))
+    if (Left.is(tok::coloncolon) ||
+        (Right.is(tok::coloncolon) &&
+         (Left.is(tok::identifier) || Left.is(tok::greater))))
       return false;
     if (Left.is(tok::period) || Right.is(tok::period))
       return false;
@@ -748,7 +766,7 @@ public:
   }
 
   tooling::Replacements format() {
-    UnwrappedLineParser Parser(Lex, SourceMgr, *this);
+    UnwrappedLineParser Parser(Style, Lex, SourceMgr, *this);
     StructuralError = Parser.parse();
     for (std::vector<UnwrappedLine>::iterator I = UnwrappedLines.begin(),
                                               E = UnwrappedLines.end();

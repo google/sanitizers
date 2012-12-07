@@ -16,7 +16,7 @@ void *Thread1(void *x) {
 }
 
 void *Thread2(void *x) {
-  usleep(1000000);
+  sleep(1);
   pthread_mutex_lock(&Mtx);
   Global = 43;
   pthread_mutex_unlock(&Mtx);
@@ -34,9 +34,9 @@ int main() {
 }
 
 // CHECK:      WARNING: ThreadSanitizer: data race
-// CHECK-NEXT:   Read of size 1 at {{.*}} by thread 2:
+// CHECK-NEXT:   Read of size 1 at {{.*}} by thread T2:
 // CHECK-NEXT:     #0 pthread_mutex_lock
 // CHECK-NEXT:     #1 Thread2{{.*}} {{.*}}race_on_mutex.c:20{{(:3)?}} ({{.*}})
-// CHECK:        Previous write of size 1 at {{.*}} by thread 1:
+// CHECK:        Previous write of size 1 at {{.*}} by thread T1:
 // CHECK-NEXT:     #0 pthread_mutex_init {{.*}} ({{.*}})
 // CHECK-NEXT:     #1 Thread1{{.*}} {{.*}}race_on_mutex.c:11{{(:3)?}} ({{.*}})
