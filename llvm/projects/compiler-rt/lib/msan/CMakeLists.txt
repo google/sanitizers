@@ -19,7 +19,7 @@ add_library(clang_rt.msan-x86_64 STATIC
   $<TARGET_OBJECTS:RTInterception.x86_64>
   $<TARGET_OBJECTS:RTSanitizerCommon.x86_64>
   )
-set_target_compile_flags(clang_rt.asan-x86_64
+set_target_compile_flags(clang_rt.msan-x86_64
   ${MSAN_CFLAGS} ${TARGET_X86_64_CFLAGS}
   )
 list(APPEND MSAN_RUNTIME_LIBRARIES clang_rt.msan-x86_64)

@@ -1,3 +1,17 @@
+//===-- msan_interface.h --------------------------------------------------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file is a part of MemorySanitizer.
+//
+// Public interface header.
+//===----------------------------------------------------------------------===//
+
 #ifndef MSAN_INTERFACE_H
 #define MSAN_INTERFACE_H
 #include "sanitizer/common_interface_defs.h"

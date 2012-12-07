@@ -1,3 +1,17 @@
+//===-- msan_new_delete.cc ------------------------------------------------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+//
+// This file is a part of MemorySanitizer.
+//
+// Interceptors for operators new and delete.
+//===----------------------------------------------------------------------===//
+
 #include "msan_interface.h"
 #include "msan.h"
 #include "sanitizer_common/sanitizer_atomic.h"

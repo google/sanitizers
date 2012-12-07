@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file is a part of AddressSanitizer, an address sanity checker.
+// This file is a part of MemorySanitizer.
 //
 // Interceptors for operators new and delete.
 //===----------------------------------------------------------------------===//
