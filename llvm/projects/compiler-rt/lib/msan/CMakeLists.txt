@@ -1,9 +1,10 @@
 # Build for the MemorySanitizer runtime support library.
 
 set(MSAN_SOURCES
-  msan_allocator.cc
   msan.cc
+  msan_allocator.cc
   msan_interceptors.cc
+  msan_linux.cc
   msan_new_delete.cc
   msan_platform_limits.cc
   )

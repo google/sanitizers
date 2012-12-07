@@ -392,5 +392,3 @@ u32 __msan_get_origin(void *a) {
 u32 __msan_get_origin_tls() {
   return __msan_origin_tls;
 }
-
-#include "msan_linux_inl.h"
