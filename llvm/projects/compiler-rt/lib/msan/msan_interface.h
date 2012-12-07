@@ -67,7 +67,8 @@ void __msan_poison_stack(void *a, uptr size);
 SANITIZER_INTERFACE_ATTRIBUTE
 void __msan_load_unpoisoned(void *src, uptr size, void *dst);
 
-// Returns the offset of the first (at least partially) poisoned byte, or -1 if the whole range is good.
+// Returns the offset of the first (at least partially) poisoned byte,
+// or -1 if the whole range is good.
 SANITIZER_INTERFACE_ATTRIBUTE
 sptr __msan_test_shadow(const void *x, uptr size);
 

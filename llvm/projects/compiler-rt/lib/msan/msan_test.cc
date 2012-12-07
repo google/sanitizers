@@ -28,13 +28,13 @@
 #endif
 
 typedef unsigned char      U1;
-typedef unsigned short     U2;
+typedef unsigned short     U2;  // NOLINT
 typedef unsigned int       U4;
-typedef unsigned long long U8;
+typedef unsigned long long U8;  // NOLINT
 typedef   signed char      S1;
-typedef   signed short     S2;
+typedef   signed short     S2;  // NOLINT
 typedef   signed int       S4;
-typedef   signed long long S8;
+typedef   signed long long S8;  // NOLINT
 #define NOINLINE      __attribute__((noinline))
 #define INLINE      __attribute__((always_inline))
 
@@ -89,7 +89,7 @@ T *GetPoisonedO(int i, u32 origin, T val = 0) {
 }
 
 static bool TrackingOrigins() {
-  long x;
+  S8 x;
   __msan_set_origin(&x, sizeof(x), 0x1234);
   u32 origin = __msan_get_origin(&x);
   __msan_set_origin(&x, sizeof(x), 0);
@@ -167,7 +167,6 @@ TEST(MemorySanitizer, PositiveTest1) {
 
   a_s4[g_zero] = 1 - *GetPoisoned<S4>();
   a_s4[g_zero] = 1 + *GetPoisoned<S4>();
-
 }
 
 TEST(MemorySanitizer, Phi1) {
@@ -334,7 +333,7 @@ TEST(MemorySanitizer, Shift) {
 NOINLINE static int GetPoisonedZero() {
   int *zero = new int;
   *zero = 0;
-  __msan_poison(zero, sizeof(int));
+  __msan_poison(zero, sizeof(*zero));
   int res = *zero;
   delete zero;
   return res;
@@ -605,21 +604,25 @@ TEST(MemorySanitizer, overlap_memmove) {
   TestOverlapMemmove<U8, 1000>();
 }
 
-TEST(MemorySanitizer, strcpy) {
+TEST(MemorySanitizer, strcpy) {  // NOLINT
   char* x = new char[3];
   char* y = new char[3];
-  x[0] = 'a'; x[1] = *GetPoisoned<char>(1, 1); x[2] = 0;
-  strcpy(y, x);
+  x[0] = 'a';
+  x[1] = *GetPoisoned<char>(1, 1);
+  x[2] = 0;
+  strcpy(y, x);  // NOLINT
   v_s4 = y[0];
   EXPECT_POISONED(v_s4 = y[1]);
   v_s4 = y[2];
 }
 
-TEST(MemorySanitizer, strncpy) {
+TEST(MemorySanitizer, strncpy) {  // NOLINT
   char* x = new char[3];
   char* y = new char[3];
-  x[0] = 'a'; x[1] = *GetPoisoned<char>(1, 1); x[2] = 0;
-  strncpy(y, x, 2);
+  x[0] = 'a';
+  x[1] = *GetPoisoned<char>(1, 1);
+  x[2] = 0;
+  strncpy(y, x, 2);  // NOLINT
   v_s4 = y[0];
   EXPECT_POISONED(v_s4 = y[1]);
   EXPECT_POISONED(v_s4 = y[2]);
@@ -649,11 +652,11 @@ TEST(MemorySanitizer, strtoull) {
   v_s8 = (S8) e;
 }
 
-TEST(MemorySanitizer, sprintf) {
+TEST(MemorySanitizer, sprintf) {  // NOLINT
   char buff[10];
   __msan_break_optimization(buff);
   EXPECT_POISONED(v_s1 = buff[0]);
-  int res = sprintf(buff, "%d", 1234567);
+  int res = sprintf(buff, "%d", 1234567);  // NOLINT
   assert(res == 7);
   assert(buff[0] == '1');
   assert(buff[1] == '2');
@@ -667,7 +670,7 @@ TEST(MemorySanitizer, snprintf) {
   char buff[10];
   __msan_break_optimization(buff);
   EXPECT_POISONED(v_s1 = buff[0]);
-  int res = snprintf(buff, 9, "%d", 1234567);
+  int res = snprintf(buff, sizeof(buff), "%d", 1234567);
   assert(res == 7);
   assert(buff[0] == '1');
   assert(buff[1] == '2');
@@ -774,7 +777,7 @@ NOINLINE void ExpectPoisoned(int a) {
 }
 
 TEST(MemorySanitizer, Invoke) {
-  StructWithDtor s; // Will cause the calls to become invokes.
+  StructWithDtor s;  // Will cause the calls to become invokes.
   ExpectGood(0);
   ExpectPoisoned(*GetPoisoned<int>());
   ExpectGood(0);
@@ -1057,15 +1060,35 @@ NOINLINE void TestReturnStruct() {
   EXPECT_POISONED(v_s4 = s1.b);
 }
 
-struct SSS1 {int a, b, c;};
-struct SSS2 {int b, a, c;};
-struct SSS3 {int b, c, a;};
-struct SSS4 {int c, b, a;};
+struct SSS1 {
+  int a, b, c;
+};
+struct SSS2 {
+  int b, a, c;
+};
+struct SSS3 {
+  int b, c, a;
+};
+struct SSS4 {
+  int c, b, a;
+};
 
-struct SSS5 {int a; float b;};
-struct SSS6 {int a; double b;};
-struct SSS7 {long b; int a;};
-struct SSS8 {short b; long a;};
+struct SSS5 {
+  int a;
+  float b;
+};
+struct SSS6 {
+  int a;
+  double b;
+};
+struct SSS7 {
+  S8 b;
+  int a;
+};
+struct SSS8 {
+  S2 b;
+  S8 a;
+};
 
 TEST(MemorySanitizer, IntStruct3) {
   TestReturnStruct<SSS1>();
@@ -1148,7 +1171,7 @@ TEST(MemorySanitizer, SimpleThread) {
   assert(!res);
   res = pthread_join(t, &p);
   assert(!res);
-  if (!__msan_has_dynamic_component()) // FIXME: intercept pthread_join (?).
+  if (!__msan_has_dynamic_component())  // FIXME: intercept pthread_join (?).
     __msan_unpoison(&p, sizeof(p));
   delete (int*)p;
 }
@@ -1214,14 +1237,14 @@ TEST(MemorySanitizerDr, ReturnFromDSOTest) {
   v_u8 = dso_callfn(return_poisoned_int);
 }
 
-NOINLINE int TrashParamTLS(long long x, long long y, long long z) {
+NOINLINE int TrashParamTLS(long long x, long long y, long long z) {  //NOLINT
   EXPECT_POISONED(v_s8 = x);
   EXPECT_POISONED(v_s8 = y);
   EXPECT_POISONED(v_s8 = z);
   return 0;
 }
 
-static int CheckParamTLS(long long x, long long y, long long z) {
+static int CheckParamTLS(long long x, long long y, long long z) {  //NOLINT
   v_s8 = x;
   v_s8 = y;
   v_s8 = z;
@@ -1271,7 +1294,7 @@ TEST(MemorySanitizerOrigins, DISABLED_InitializedStoreDoesNotChangeOrigin) {
   if (!TrackingOrigins()) return;
 
   S s;
-  u32 origin = rand();
+  u32 origin = rand();  // NOLINT
   s.a = *GetPoisonedO<U2>(0, origin);
   EXPECT_EQ(origin, __msan_get_origin(&s.a));
   EXPECT_EQ(origin, __msan_get_origin(&s.b));
@@ -1280,13 +1303,13 @@ TEST(MemorySanitizerOrigins, DISABLED_InitializedStoreDoesNotChangeOrigin) {
   EXPECT_EQ(origin, __msan_get_origin(&s.a));
   EXPECT_EQ(origin, __msan_get_origin(&s.b));
 }
-} // namespace
+}  // namespace
 
 template<class T, class BinaryOp>
 INLINE
 void BinaryOpOriginTest(BinaryOp op) {
-  u32 ox = rand();
-  u32 oy = rand();
+  u32 ox = rand();  //NOLINT
+  u32 oy = rand();  //NOLINT
   T *x = GetPoisonedO<T>(0, ox, 0);
   T *y = GetPoisonedO<T>(1, oy, 0);
   T *z = GetPoisonedO<T>(2, 0, 0);
@@ -1458,7 +1481,7 @@ TEST(MemorySanitizerOrigins, AllocaDeath) {
 NOINLINE int RetvalOriginTest(u32 origin) {
   int *a = new int;
   __msan_break_optimization(a);
-  __msan_set_origin(a, sizeof(int), origin);
+  __msan_set_origin(a, sizeof(*a), origin);
   int res = *a;
   delete a;
   return res;
@@ -1478,25 +1501,25 @@ TEST(MemorySanitizerOrigins, Param) {
   int *a = new int;
   u32 origin = __LINE__;
   __msan_break_optimization(a);
-  __msan_set_origin(a, sizeof(int), origin);
+  __msan_set_origin(a, sizeof(*a), origin);
   ParamOriginTest(*a, origin);
   delete a;
 }
 
 TEST(MemorySanitizerOrigins, Invoke) {
   if (!TrackingOrigins()) return;
-  StructWithDtor s; // Will cause the calls to become invokes.
+  StructWithDtor s;  // Will cause the calls to become invokes.
   EXPECT_POISONED_O(v_s4 = RetvalOriginTest(__LINE__), __LINE__);
 }
 
 TEST(MemorySanitizerOrigins, strlen) {
-  long alignment;
+  S8 alignment;
   __msan_break_optimization(&alignment);
-    char x[4] = {'a', 'b', 0, 0};
-    __msan_poison(&x[2], 1);
-    u32 origin = __LINE__;
-    __msan_set_origin(x, sizeof(x), origin);
-    EXPECT_POISONED_O(v_s4 = strlen(x), origin);
+  char x[4] = {'a', 'b', 0, 0};
+  __msan_poison(&x[2], 1);
+  u32 origin = __LINE__;
+  __msan_set_origin(x, sizeof(x), origin);
+  EXPECT_POISONED_O(v_s4 = strlen(x), origin);
 }
 
 TEST(MemorySanitizerOrigins, wcslen) {

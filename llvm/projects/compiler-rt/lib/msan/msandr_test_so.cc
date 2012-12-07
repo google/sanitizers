@@ -10,7 +10,7 @@ int dso_callfn(int (*fn)(void)) {
   return x;
 }
 
-int dso_callfn1(int (*fn)(long long, long long, long long)) {
+int dso_callfn1(int (*fn)(long long, long long, long long)) {  //NOLINT
   volatile int x = fn(1, 2, 3);
   return x;
 }

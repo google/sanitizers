@@ -36,27 +36,29 @@ static THREADLOCAL int msan_expected_umr_found = 0;
 static int msan_running_under_dr = 0;
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL long long __msan_param_tls[100];
+THREADLOCAL u64 __msan_param_tls[100];
 
 SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_param_origin_tls[100];
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL long long __msan_retval_tls[8];
+THREADLOCAL u64 __msan_retval_tls[8];
 
 SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_retval_origin_tls;
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL long long __msan_va_arg_tls[100];
+THREADLOCAL u64 __msan_va_arg_tls[100];
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL long long __msan_va_arg_overflow_size_tls;
+THREADLOCAL u64 __msan_va_arg_overflow_size_tls;
 
 SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32       __msan_origin_tls;
 
-static THREADLOCAL struct { uptr stack_top, stack_bottom; } __msan_stack_bounds;
+static THREADLOCAL struct {
+  uptr stack_top, stack_bottom;
+} __msan_stack_bounds;
 
 StaticSpinMutex report_mu;
 
@@ -295,23 +297,25 @@ void __msan_clear_on_return() {
 }
 
 static void* get_tls_base() {
-  unsigned long long p;
+  u64 p;
   asm("mov %%fs:0, %0"
       : "=r"(p) ::);
   return (void*)p;
 }
 
 int __msan_get_retval_tls_offset() {
-  // volatile here is needed to avoid UB, because the compiler thinks that we are doing address
-  // arithmetics on unrelated pointers, and takes some shortcuts
+  // volatile here is needed to avoid UB, because the compiler thinks that we
+  // are doing address arithmetics on unrelated pointers, and takes some
+  // shortcuts
   volatile sptr retval_tls_p = (sptr)&__msan_retval_tls;
   volatile sptr tls_base_p = (sptr)get_tls_base();
   return retval_tls_p - tls_base_p;
 }
 
 int __msan_get_param_tls_offset() {
-  // volatile here is needed to avoid UB, because the compiler thinks that we are doing address
-  // arithmetics on unrelated pointers, and takes some shortcuts
+  // volatile here is needed to avoid UB, because the compiler thinks that we
+  // are doing address arithmetics on unrelated pointers, and takes some
+  // shortcuts
   volatile sptr param_tls_p = (sptr)&__msan_param_tls;
   volatile sptr tls_base_p = (sptr)get_tls_base();
   return param_tls_p - tls_base_p;
@@ -330,7 +334,7 @@ void __msan_set_origin(void *a, uptr size, u32 origin) {
   if (!__msan_track_origins) return;
   uptr x = MEM_TO_ORIGIN((uptr)a);
   uptr beg = x & ~3UL;  // align down.
-  uptr end = (x + size + 3) & ~3UL; // align up.
+  uptr end = (x + size + 3) & ~3UL;  // align up.
   u64 origin64 = ((u64)origin << 32) | origin;
   // This is like memset, but the value is 32-bit. We unroll by 2 two write
   // 64-bits at once. May want to unroll further to get 128-bit stores.

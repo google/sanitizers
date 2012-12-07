@@ -99,11 +99,10 @@ void InstallTrapHandler() {
   internal_memset(&sigact, 0, sizeof(sigact));
   sigact.sa_sigaction = MsanTrap;
   sigact.sa_flags = SA_SIGINFO;
-  CHECK(0 == sigaction(SIGILL, &sigact, 0));
+  CHECK_EQ(0, sigaction(SIGILL, &sigact, 0));
 }
 
 void MsanDie() {
   _exit(flags.exit_code);
 }
-
 }
