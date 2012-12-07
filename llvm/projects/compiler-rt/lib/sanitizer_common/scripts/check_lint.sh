@@ -61,3 +61,6 @@ ${CPPLINT} --filter=${TSAN_RTL_LINT_FILTER} ${TSAN_RTL}/rtl/*.{cc,h}
 ${CPPLINT} --filter=${TSAN_TEST_LINT_FILTER} ${TSAN_RTL}/tests/rtl/*.{cc,h} \
                                              ${TSAN_RTL}/tests/unit/*.cc \
                                              ${TSAN_RTL}/lit_tests/*.cc
+# MSan
+MSAN_RTL=${COMPILER_RT}/lib/msan
+${CPPLINT} --filter=${MSAN_RTL_LINT_FILTER} ${MSAN_RTL}/*.{cc,h}
