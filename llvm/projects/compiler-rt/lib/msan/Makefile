@@ -5,8 +5,6 @@ GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_BUILD_DIR=$(GTEST_ROOT)/build
 GTEST_LIB=$(GTEST_BUILD_DIR)/gtest-all.o
 
-INTERCEPTION=../interception
-COMMON=../sanitizer_common
 RTL_HDR=$(wildcard *.h) \
 	$(wildcard $(INTERCEPTION)/*.h) \
 	$(wildcard $(COMMON)/*.h)
@@ -17,21 +15,6 @@ LIBCXX_CXXFLAGS=-std=c++0x -stdlib=libc++ -I $(LIBCXX)/include \
 LIBCXX_LDFLAGS=-stdlib=libc++ -L$(LIBCXX)/lib -Wl,-R$(LIBCXX)/lib \
 	       $(LIBCXX)/lib/*.o
 
-LIBMSAN_SRC= msan.cc \
-	     msan_allocator.cc \
-	     msan_new_delete.cc \
-	     msan_interceptors.cc \
-	     msan_platform_limits.cc
-
-INTERCEPTION_SRC=$(wildcard $(INTERCEPTION)/*.cc)
-COMMON_SRC=$(wildcard $(COMMON)/*.cc)
-
-LIBMSAN_OBJ=$(patsubst %.cc,%.o,$(LIBMSAN_SRC)) \
-	    $(patsubst $(INTERCEPTION)/%.cc,%.o,$(INTERCEPTION_SRC)) \
-	    $(patsubst $(COMMON)/%.cc,%.o,$(COMMON_SRC))
-
-
-#CXX=$(HOME)/llvm_msan/build/Release+Asserts/bin/clang++
 CLANG_BUILD=$(ROOT)/../../../../build
 CXX=$(CLANG_BUILD)/bin/clang++
 CXXFLAGS=-fPIE -g -O1
@@ -61,23 +44,6 @@ msan_test: msan_test.cc libmsandr_test.so $(GTEST_LIB) $(LIBCXX) $(LIBMSAN_A)
 	  $(INCLUDES) $(MSAN_OPT) $(LIBCXX_CXXFLAGS) $(LIBCXX_LDFLAGS) \
 	  $< -L. -lmsandr_test $(GTEST_LIB) -o $@ -ldl $(LDFLAGS) \
 	  -Wl,-rpath=$(ROOT)
-
-# msan.a: $(LIBMSAN_OBJ)
-# 	ar ru $@ $^
-
-
-# install: $(LIBMSAN_A)
-
-# $(LIBMSAN_A): msan.a
-# 	cp $< $@
-
-%.o: %.cc $(RTL_HDR)
-	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@ $(INCLUDES)
-
-%.o: ../interception/%.cc
-	$(CXX) $(RTL_CXXFLAGS) -c $< -o $@
-%.o: $(COMMON)/%.cc
-	$(CXX) $(RTL_CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 t:
 	(make clean && make clean_deps && make -j 10 2> log && ./msan_test )
@@ -112,7 +78,7 @@ $(LIBCXX):
 	./build_libcxx.sh
 
 clean: 
-	rm -f *.o msan_test msan.a # $(LIBMSAN_A)
+	rm -f *.o msan_test
 clean_deps:
 	rm -rf $(GTEST_BUILD_DIR)
 	rm -rf $(LIBCXX)
