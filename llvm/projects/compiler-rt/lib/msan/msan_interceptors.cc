@@ -101,6 +101,7 @@ INTERCEPTOR(ssize_t, readlink, const char *path, char *buf, size_t bufsiz) {
 }
 
 INTERCEPTOR(void *, readdir, void *a) {
+  ENSURE_MSAN_INITED();
   void *res = REAL(readdir)(a);
   __msan_unpoison(res, __msan::struct_dirent_sz);
   return res;
@@ -205,6 +206,7 @@ INTERCEPTOR(char*, strncat, char* dest, const char* src, size_t n) {  // NOLINT
 
 INTERCEPTOR(long, strtol, const char *nptr, char **endptr,  // NOLINT
             int base) {
+  ENSURE_MSAN_INITED();
   long res = REAL(strtol)(nptr, endptr, base);  // NOLINT
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(endptr, sizeof(*endptr));
@@ -214,6 +216,7 @@ INTERCEPTOR(long, strtol, const char *nptr, char **endptr,  // NOLINT
 
 INTERCEPTOR(long long, strtoll, const char *nptr, char **endptr,  // NOLINT
             int base) {
+  ENSURE_MSAN_INITED();
   long res = REAL(strtoll)(nptr, endptr, base);  //NOLINT
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(endptr, sizeof(*endptr));
@@ -223,6 +226,7 @@ INTERCEPTOR(long long, strtoll, const char *nptr, char **endptr,  // NOLINT
 
 INTERCEPTOR(unsigned long, strtoul, const char *nptr, char **endptr,  //NOLINT
             int base) {
+  ENSURE_MSAN_INITED();
   unsigned long res = REAL(strtoul)(nptr, endptr, base);  //NOLINT
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(endptr, sizeof(*endptr));
@@ -232,6 +236,7 @@ INTERCEPTOR(unsigned long, strtoul, const char *nptr, char **endptr,  //NOLINT
 
 INTERCEPTOR(unsigned long long, strtoull, const char *nptr,  //NOLINT
             char **endptr, int base) {
+  ENSURE_MSAN_INITED();
   unsigned long res = REAL(strtoull)(nptr, endptr, base);  //NOLINT
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(endptr, sizeof(*endptr));
@@ -241,6 +246,7 @@ INTERCEPTOR(unsigned long long, strtoull, const char *nptr,  //NOLINT
 
 INTERCEPTOR(int, vsnprintf, char *str, uptr size,
             const char *format, va_list ap) {
+  ENSURE_MSAN_INITED();
   int res = REAL(vsnprintf)(str, size, format, ap);
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(str, res + 1);
@@ -249,6 +255,7 @@ INTERCEPTOR(int, vsnprintf, char *str, uptr size,
 }
 
 INTERCEPTOR(int, vsprintf, char *str, const char *format, va_list ap) {
+  ENSURE_MSAN_INITED();
   int res = REAL(vsprintf)(str, format, ap);
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(str, res + 1);
@@ -257,6 +264,7 @@ INTERCEPTOR(int, vsprintf, char *str, const char *format, va_list ap) {
 }
 
 INTERCEPTOR(int, vswprintf, void *str, uptr size, void *format, va_list ap) {
+  ENSURE_MSAN_INITED();
   int res = REAL(vswprintf)(str, size, format, ap);
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(str, 4 * (res + 1));
@@ -265,6 +273,7 @@ INTERCEPTOR(int, vswprintf, void *str, uptr size, void *format, va_list ap) {
 }
 
 INTERCEPTOR(int, sprintf, char *str, const char *format, ...) {  // NOLINT
+  ENSURE_MSAN_INITED();
   va_list ap;
   va_start(ap, format);
   int res = vsprintf(str, format, ap);  // NOLINT
@@ -273,6 +282,7 @@ INTERCEPTOR(int, sprintf, char *str, const char *format, ...) {  // NOLINT
 }
 
 INTERCEPTOR(int, snprintf, char *str, uptr size, const char *format, ...) {
+  ENSURE_MSAN_INITED();
   va_list ap;
   va_start(ap, format);
   int res = vsnprintf(str, size, format, ap);
@@ -281,6 +291,7 @@ INTERCEPTOR(int, snprintf, char *str, uptr size, const char *format, ...) {
 }
 
 INTERCEPTOR(int, swprintf, void *str, uptr size, void *format, ...) {
+  ENSURE_MSAN_INITED();
   va_list ap;
   va_start(ap, format);
   int res = vswprintf(str, size, format, ap);
@@ -291,12 +302,14 @@ INTERCEPTOR(int, swprintf, void *str, uptr size, void *format, ...) {
 // size_t strftime(char *s, size_t max, const char *format,const struct tm *tm);
 INTERCEPTOR(size_t, strftime, char *s, size_t max, const char *format,
             void *tm) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(strftime)(s, max, format, tm);
   if (res) __msan_unpoison(s, res + 1);
   return res;
 }
 
 INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(wcstombs)(dest, src, size);
   if (res != -1)  __msan_unpoison(dest, res + 1);
   return res;
@@ -304,6 +317,7 @@ INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
 
 // size_t mbstowcs(wchar_t *dest, const char *src, size_t n);
 INTERCEPTOR(size_t, mbstowcs, wchar_t *dest, const char *src, size_t n) {
+  ENSURE_MSAN_INITED();
   size_t res = REAL(mbstowcs)(dest, src, n);
   if (res != -1) __msan_unpoison(dest, (res + 1) * sizeof(wchar_t));
   return res;
@@ -318,12 +332,14 @@ INTERCEPTOR(size_t, wcslen, const wchar_t *s) {
 
 // wchar_t *wcschr(const wchar_t *wcs, wchar_t wc);
 INTERCEPTOR(wchar_t *, wcschr, void *s, wchar_t wc, void *ps) {
+  ENSURE_MSAN_INITED();
   wchar_t *res = REAL(wcschr)(s, wc, ps);
   return res;
 }
 
 // wchar_t *wcscpy(wchar_t *dest, const wchar_t *src);
 INTERCEPTOR(wchar_t *, wcscpy, wchar_t *dest, const wchar_t *src) {
+  ENSURE_MSAN_INITED();
   wchar_t *res = REAL(wcscpy)(dest, src);
   __msan_copy_poison(dest, src, sizeof(wchar_t) * (REAL(wcslen)(src) + 1));
   return res;
@@ -331,6 +347,7 @@ INTERCEPTOR(wchar_t *, wcscpy, wchar_t *dest, const wchar_t *src) {
 
 // wchar_t *wmemcpy(wchar_t *dest, const wchar_t *src, size_t n);
 INTERCEPTOR(wchar_t *, wmemcpy, wchar_t *dest, const wchar_t *src, size_t n) {
+  ENSURE_MSAN_INITED();
   wchar_t *res = REAL(wmemcpy)(dest, src, n);
   __msan_copy_poison(dest, src, n * sizeof(wchar_t));
   return res;
@@ -351,15 +368,14 @@ INTERCEPTOR(wchar_t*, wmemmove, wchar_t* dest, const wchar_t* src, size_t n) {
   return res;
 }
 
-// int wcscmp(const wchar_t *s1, const wchar_t *s2);
 INTERCEPTOR(int, wcscmp, const wchar_t *s1, const wchar_t *s2) {
-  // Printf("ZZZ %s\n", __FUNCTION__);
+  ENSURE_MSAN_INITED();
   int res = REAL(wcscmp)(s1, s2);
   return res;
 }
 
-// double wcstod(const wchar_t *nptr, wchar_t **endptr);
 INTERCEPTOR(double, wcstod, const wchar_t *nptr, wchar_t **endptr) {
+  ENSURE_MSAN_INITED();
   double res = REAL(wcstod)(nptr, endptr);
   __msan_unpoison(endptr, sizeof(*endptr));
   return res;
@@ -387,6 +403,7 @@ UNSUPPORTED(wcsdup);
 
 
 INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
+  ENSURE_MSAN_INITED();
   int res = REAL(gettimeofday)(tv, tz);
   if (tv)
     __msan_unpoison(tv, 16);
@@ -396,6 +413,7 @@ INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
 }
 
 INTERCEPTOR(char *, fcvt, double x, int a, int *b, int *c) {
+  ENSURE_MSAN_INITED();
   char *res = REAL(fcvt)(x, a, b, c);
   if (!__msan_has_dynamic_component()) {
     __msan_unpoison(b, sizeof(*b));
@@ -659,6 +677,7 @@ INTERCEPTOR(void *, malloc, size_t size) {
 
 INTERCEPTOR(void *, mmap, void *addr, size_t length, int prot, int flags,
                    int fd, off_t offset) {
+  ENSURE_MSAN_INITED();
   void *res = REAL(mmap)(addr, length, prot, flags, fd, offset);
   if (res != (void*)-1)
     __msan_unpoison(res, RoundUpTo(length, GetPageSize()));
@@ -667,6 +686,7 @@ INTERCEPTOR(void *, mmap, void *addr, size_t length, int prot, int flags,
 
 INTERCEPTOR(void *, mmap64, void *addr, size_t length, int prot, int flags,
                    int fd, off64_t offset) {
+  ENSURE_MSAN_INITED();
   void *res = REAL(mmap64)(addr, length, prot, flags, fd, offset);
   if (res != (void*)-1)
     __msan_unpoison(res, RoundUpTo(length, GetPageSize()));
