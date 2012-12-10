@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "msan.h"
-#include "msan_platform_limits.h"
+#include "msan_platform_limits_posix.h"
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include <interception/interception.h>

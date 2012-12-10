@@ -6,7 +6,7 @@ set(MSAN_SOURCES
   msan_interceptors.cc
   msan_linux.cc
   msan_new_delete.cc
-  msan_platform_limits.cc
+  msan_platform_limits_posix.cc
   )
 
 include_directories(..)

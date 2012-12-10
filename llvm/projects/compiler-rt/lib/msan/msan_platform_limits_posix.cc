@@ -9,11 +9,13 @@
 //
 // This file is a part of MemorySanitizer.
 //
-// Sizes and layouts of platform-specific data structures.
+// Sizes and layouts of platform-specific POSIX data structures.
 //===----------------------------------------------------------------------===//
 
+#ifdef __linux__
+
 #include "msan.h"
-#include "msan_platform_limits.h"
+#include "msan_platform_limits_posix.h"
 
 #include <sys/utsname.h>
 #include <sys/types.h>
@@ -48,3 +50,5 @@ namespace __msan {
     return ((struct msghdr *)msg)->msg_iovlen;
   }
 };
+
+#endif  // __linux__
