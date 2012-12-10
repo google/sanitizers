@@ -1,4 +1,4 @@
-#include "msan_interface.h"
+#include "sanitizer/msan_interface.h"
 #include "msandr_test_so.h"
 #include "gtest/gtest.h"
 

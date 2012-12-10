@@ -12,7 +12,6 @@
 // Interceptors for standard library functions.
 //===----------------------------------------------------------------------===//
 
-#include "msan_interface.h"
 #include "msan.h"
 #include "msan_platform_limits.h"
 #include "sanitizer_common/sanitizer_common.h"

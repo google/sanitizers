@@ -11,10 +11,10 @@
 //
 // Public interface header.
 //===----------------------------------------------------------------------===//
-
 #ifndef MSAN_INTERFACE_H
 #define MSAN_INTERFACE_H
-#include "sanitizer/common_interface_defs.h"
+
+#include <sanitizer/common_interface_defs.h>
 
 using __sanitizer::uptr;
 using __sanitizer::sptr;
@@ -112,7 +112,6 @@ SANITIZER_INTERFACE_ATTRIBUTE
 u32 __msan_get_origin_tls();
 SANITIZER_INTERFACE_ATTRIBUTE
 const char *__msan_get_origin_descr_if_stack(u32 id);
-
 SANITIZER_INTERFACE_ATTRIBUTE
 void __msan_partial_poison(void* data, void* shadow, uptr size);
 

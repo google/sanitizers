@@ -12,7 +12,6 @@
 // MemorySanitizer runtime.
 //===----------------------------------------------------------------------===//
 
-#include "msan_interface.h"
 #include "msan.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"

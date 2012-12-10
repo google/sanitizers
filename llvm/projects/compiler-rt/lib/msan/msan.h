@@ -17,7 +17,7 @@
 
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
-#include "msan_interface.h"
+#include "sanitizer/msan_interface.h"
 #include "msan_flags.h"
 
 #define MEM_TO_SHADOW(mem) (((uptr)mem)       & ~0x400000000000ULL)
