@@ -39,8 +39,9 @@ using namespace __msan;
 #define CHECK_UNPOISONED(x, n) \
   do { \
     sptr offset = __msan_test_shadow(x, n);                 \
-    if (offset >= 0 && flags()->report_umrs) {                 \
+    if (offset >= 0 && flags()->report_umrs) {              \
       GET_CALLER_PC_BP_SP;                                  \
+      (void)sp;                                             \
       Printf("UMR in %s at offset %d inside [%p, +%d) \n",  \
              __FUNCTION__, offset, x, n);                   \
       __msan::PrintWarningWithOrigin(                       \
@@ -308,10 +309,10 @@ INTERCEPTOR(size_t, strftime, char *s, size_t max, const char *format,
   return res;
 }
 
-INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
+INTERCEPTOR(size_t, wcstombs, void *dest, void *src, size_t size) {
   ENSURE_MSAN_INITED();
   size_t res = REAL(wcstombs)(dest, src, size);
-  if (res != -1)  __msan_unpoison(dest, res + 1);
+  if (res != (size_t)-1)  __msan_unpoison(dest, res + 1);
   return res;
 }
 
@@ -319,7 +320,7 @@ INTERCEPTOR(ssize_t, wcstombs, void *dest, void *src, size_t size) {
 INTERCEPTOR(size_t, mbstowcs, wchar_t *dest, const char *src, size_t n) {
   ENSURE_MSAN_INITED();
   size_t res = REAL(mbstowcs)(dest, src, n);
-  if (res != -1) __msan_unpoison(dest, (res + 1) * sizeof(wchar_t));
+  if (res != (size_t)-1) __msan_unpoison(dest, (res + 1) * sizeof(wchar_t));
   return res;
 }
 
@@ -382,24 +383,24 @@ INTERCEPTOR(double, wcstod, const wchar_t *nptr, wchar_t **endptr) {
 }
 
 #define UNSUPPORTED(name) \
-    INTERCEPTOR(void, name) { \
-      Printf("MSAN: Unsupported %s\n", __FUNCTION__);\
-      Die(); \
-    }
+  INTERCEPTOR(void, name, void) {                     \
+    Printf("MSAN: Unsupported %s\n", __FUNCTION__);   \
+    Die();                                            \
+  }
 
-UNSUPPORTED(wcscoll_l);
-UNSUPPORTED(wcsnrtombs);
-UNSUPPORTED(wcstol);
-UNSUPPORTED(wcstoll);
-UNSUPPORTED(wcstold);
-UNSUPPORTED(wcstoul);
-UNSUPPORTED(wcstoull);
-UNSUPPORTED(wcsxfrm_l);
-UNSUPPORTED(wcsdup);
-// UNSUPPORTED(wcsftime);  // FIXME
-// UNSUPPORTED(wcsstr);
-// UNSUPPORTED(wcsrchr);
-// UNSUPPORTED(wctob);
+UNSUPPORTED(wcscoll_l)
+UNSUPPORTED(wcsnrtombs)
+UNSUPPORTED(wcstol)
+UNSUPPORTED(wcstoll)
+UNSUPPORTED(wcstold)
+UNSUPPORTED(wcstoul)
+UNSUPPORTED(wcstoull)
+UNSUPPORTED(wcsxfrm_l)
+UNSUPPORTED(wcsdup)
+// UNSUPPORTED(wcsftime)  // FIXME
+// UNSUPPORTED(wcsstr)
+// UNSUPPORTED(wcsrchr)
+// UNSUPPORTED(wctob)
 
 
 INTERCEPTOR(int, gettimeofday, void *tv, void *tz) {
@@ -641,7 +642,7 @@ INTERCEPTOR(ssize_t, recvmsg, int fd, struct msghdr *msg, int flags) {
   ENSURE_MSAN_INITED();
   ssize_t res = REAL(recvmsg)(fd, msg, flags);
   if (res > 0) {
-    for (int i = 0; i < __msan_get_msghdr_iovlen(msg); ++i)
+    for (size_t i = 0; i < __msan_get_msghdr_iovlen(msg); ++i)
       __msan_unpoison(__msan_get_msghdr_iov_iov_base(msg, i),
           __msan_get_msghdr_iov_iov_len(msg, i));
   }

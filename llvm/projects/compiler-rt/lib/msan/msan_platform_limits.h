@@ -29,6 +29,6 @@ namespace __msan {
   void* __msan_get_msghdr_iov_iov_base(void* msg, int idx);
   uptr __msan_get_msghdr_iov_iov_len(void* msg, int idx);
   uptr __msan_get_msghdr_iovlen(void* msg);
-};
+}  // namespace __msan
 
 #endif
