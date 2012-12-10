@@ -731,24 +731,22 @@ void *fast_memcpy(void *dst, const void *src, size_t n) {
   return internal_memcpy(dst, src, n);
 }
 
-#define IS_IN_SHADOW(x) (MEM_TO_SHADOW(((uptr)x)) == (uptr)x)
-
 // These interface functions reside here so that they can use
 // fast_memset, etc.
 
 void __msan_unpoison(void *a, uptr size) {
-  if (IS_IN_SHADOW(a)) return;
+  if (!MEM_IS_APP(a)) return;
   fast_memset((void*)MEM_TO_SHADOW((uptr)a), 0, size);
 }
 
 void __msan_poison(void *a, uptr size) {
-  if (IS_IN_SHADOW(a)) return;
+  if (!MEM_IS_APP(a)) return;
   fast_memset((void*)MEM_TO_SHADOW((uptr)a),
               __msan::flags()->poison_heap_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_poison_stack(void *a, uptr size) {
-  if (IS_IN_SHADOW(a)) return;
+  if (!MEM_IS_APP(a)) return;
   fast_memset((void*)MEM_TO_SHADOW((uptr)a),
               __msan::flags()->poison_stack_with_zeroes ? 0 : -1, size);
 }
@@ -770,16 +768,16 @@ void __msan_copy_origin(void *dst, const void *src, uptr size) {
 }
 
 void __msan_copy_poison(void *dst, const void *src, uptr size) {
-  if (IS_IN_SHADOW(dst)) return;
-  if (IS_IN_SHADOW(src)) return;
+  if (!MEM_IS_APP(dst)) return;
+  if (!MEM_IS_APP(src)) return;
   fast_memcpy((void*)MEM_TO_SHADOW((uptr)dst),
               (void*)MEM_TO_SHADOW((uptr)src), size);
   __msan_copy_origin(dst, src, size);
 }
 
 void __msan_move_poison(void *dst, const void *src, uptr size) {
-  if (IS_IN_SHADOW(dst)) return;
-  if (IS_IN_SHADOW(src)) return;
+  if (!MEM_IS_APP(dst)) return;
+  if (!MEM_IS_APP(src)) return;
   internal_memmove((void*)MEM_TO_SHADOW((uptr)dst),
          (void*)MEM_TO_SHADOW((uptr)src), size);
   __msan_copy_origin(dst, src, size);
@@ -806,8 +804,6 @@ void* __msan_memmove(void* dest, const void* src, size_t n) {
   __msan_move_poison(dest, src, n);
   return res;
 }
-
-#undef IS_IN_SHADOW
 
 namespace __msan {
 void InitializeInterceptors() {
