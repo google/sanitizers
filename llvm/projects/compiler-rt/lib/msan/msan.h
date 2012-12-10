@@ -29,9 +29,7 @@ namespace __msan {
 extern int msan_inited;
 extern bool msan_init_is_running;
 
-uptr ReadFromFile(const char *path, char *buff, uptr size);
 bool ProtectRange(uptr beg, uptr end);
-void CatProcSelfMaps();
 bool InitShadow(bool prot1, bool prot2, bool map_shadow, bool init_origins);
 char *GetProcSelfMaps();
 void InitializeInterceptors();

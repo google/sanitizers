@@ -214,7 +214,7 @@ void __msan_init() {
     // FIXME: eugenis, do we need *false* above?
     Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
     Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
-    CatProcSelfMaps();
+    DumpProcessMap();
     Die();
   }
 

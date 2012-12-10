@@ -40,27 +40,6 @@ static const uptr kBad2End    = kMemBeg - 1;
 static const uptr kOriginsBeg = kBad2Beg;
 static const uptr kOriginsEnd = kBad2End;
 
-char *GetProcSelfMaps() {
-  // FIXME
-  static const int kSize = 1 << 22;
-  static char maps[kSize];
-  size_t s = ReadFromFile("/proc/self/maps", maps, kSize - 1);
-  maps[s] = 0;
-  return maps;
-}
-
-void CatProcSelfMaps() {
-  Printf("%s", GetProcSelfMaps());
-}
-
-uptr ReadFromFile(const char *path, char *buff, uptr size) {
-  int fd = internal_open(path, false);
-  if (fd < 0) return 0;
-  uptr res = internal_read(fd, buff, size);
-  internal_close(fd);
-  return res;
-}
-
 bool InitShadow(bool prot1, bool prot2, bool map_shadow, bool init_origins) {
   if (flags.verbosity) {
     Printf("__msan_init %p\n", &__msan_init);
