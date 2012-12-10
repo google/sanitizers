@@ -26,7 +26,6 @@
 #include <sys/socket.h>
 #include <dirent.h>
 
-
 namespace __msan {
   unsigned struct_utsname_sz = sizeof(struct utsname);
   unsigned struct_stat_sz = sizeof(struct stat);

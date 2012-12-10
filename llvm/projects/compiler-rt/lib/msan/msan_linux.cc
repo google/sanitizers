@@ -1,4 +1,4 @@
-//===-- msan_linux_inl.h --  ----------------------------------------------===//
+//===-- msan_linux.cc -----------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,6 +11,8 @@
 //
 // Linux-specific code.
 //===----------------------------------------------------------------------===//
+
+#ifdef __linux__
 
 #include "msan.h"
 
@@ -85,3 +87,5 @@ void MsanDie() {
   _exit(flags()->exit_code);
 }
 }
+
+#endif  // __linux__

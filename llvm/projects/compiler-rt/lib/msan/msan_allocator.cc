@@ -36,10 +36,9 @@ typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
 static THREADLOCAL AllocatorCache cache;
 static Allocator allocator;
 
-
 static int inited = 0;
 
-void Init() {
+static inline void Init() {
   if (inited) return;
   __msan_init();
   inited = true;  // this must happen before any threads are created.

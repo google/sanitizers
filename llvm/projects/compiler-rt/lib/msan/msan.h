@@ -26,6 +26,9 @@
 #define MEM_IS_SHADOW(mem) ((uptr)mem >=         0x200000000000ULL && \
                             (uptr)mem <=         0x400000000000ULL)
 
+const int kMsanParamTlsSizeInWords = 100;
+const int kMsanRetvalTlsSizeInWords = 100;
+
 namespace __msan {
 extern int msan_inited;
 extern bool msan_init_is_running;

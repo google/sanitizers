@@ -36,19 +36,19 @@ static THREADLOCAL int msan_expected_umr_found = 0;
 static int msan_running_under_dr = 0;
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL u64 __msan_param_tls[100];
+THREADLOCAL u64 __msan_param_tls[kMsanParamTlsSizeInWords];
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL u32 __msan_param_origin_tls[100];
+THREADLOCAL u32 __msan_param_origin_tls[kMsanParamTlsSizeInWords];
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL u64 __msan_retval_tls[8];
+THREADLOCAL u64 __msan_retval_tls[kMsanRetvalTlsSizeInWords];
 
 SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u32 __msan_retval_origin_tls;
 
 SANITIZER_INTERFACE_ATTRIBUTE
-THREADLOCAL u64 __msan_va_arg_tls[100];
+THREADLOCAL u64 __msan_va_arg_tls[kMsanParamTlsSizeInWords];
 
 SANITIZER_INTERFACE_ATTRIBUTE
 THREADLOCAL u64 __msan_va_arg_overflow_size_tls;
@@ -117,7 +117,7 @@ static void InitializeFlags(Flags *f, const char *options) {
   f->poison_heap_with_zeroes = false;
   f->poison_stack_with_zeroes = false;
   f->poison_in_malloc = true;
-  f->exit_code = 67;
+  f->exit_code = 77;
   f->num_callers = 20;
   f->report_umrs = true;
   f->verbosity = 0;
@@ -130,7 +130,7 @@ static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
     // Break recursion (GetStackTrace -> GetThreadStackTopAndBottom ->
     // realloc -> GetStackTrace).
     __msan_stack_bounds.stack_top = __msan_stack_bounds.stack_bottom = 1;
-    GetThreadStackTopAndBottom(false,
+    GetThreadStackTopAndBottom(/* at_initialization */false,
                                &__msan_stack_bounds.stack_top,
                                &__msan_stack_bounds.stack_bottom);
   }
@@ -235,8 +235,9 @@ void __msan_init() {
   __msan_clear_on_return();
   if (__msan_track_origins && flags()->verbosity > 0)
     Printf("msan_track_origins\n");
-  if (!InitShadow(/*true*/ false, true, true, __msan_track_origins)) {
-    // FIXME: eugenis, do we need *false* above?
+  if (!InitShadow(/* prot1 */false, /* prot2 */true, /* map_shadow */true,
+                  __msan_track_origins)) {
+    // FIXME: prot1 = false is only required when running under DR.
     Printf("FATAL: MemorySanitizer can not mmap the shadow memory\n");
     Printf("FATAL: Make sure to compile with -fPIE and to link with -pie.\n");
     DumpProcessMap();
@@ -250,7 +251,7 @@ void __msan_init() {
     CHECK(InitializeExternalSymbolizer(external_symbolizer));
   }
 
-  GetThreadStackTopAndBottom(true,
+  GetThreadStackTopAndBottom(/* at_initialization */true,
                              &__msan_stack_bounds.stack_top,
                              &__msan_stack_bounds.stack_bottom);
   if (flags()->verbosity)
