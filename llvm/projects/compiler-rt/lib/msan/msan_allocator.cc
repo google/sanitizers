@@ -54,7 +54,7 @@ static void *MsanAllocate(StackTrace *stack, uptr size,
   meta->requested_size = size;
   if (zeroise)
     __msan_clear_and_unpoison(res, size);
-  else if (flags.poison_in_malloc)
+  else if (flags()->poison_in_malloc)
     __msan_poison(res, size);
   if (__msan_get_track_origins()) {
     u32 stack_id = StackDepotPut(stack->trace, stack->size);

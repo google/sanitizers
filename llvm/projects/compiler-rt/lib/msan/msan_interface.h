@@ -31,7 +31,7 @@ SANITIZER_INTERFACE_ATTRIBUTE
 void __msan_init();
 
 // Print a warning and maybe return.
-// This function can die based on flags.exit_code.
+// This function can die based on flags()->exit_code.
 SANITIZER_INTERFACE_ATTRIBUTE
 void __msan_warning();
 

@@ -18,6 +18,7 @@
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "msan_interface.h"
+#include "msan_flags.h"
 
 #define MEM_TO_SHADOW(mem) (((uptr)mem)       & ~0x400000000000ULL)
 #define MEM_TO_ORIGIN(mem) (MEM_TO_SHADOW(mem) + 0x200000000000ULL)
@@ -40,24 +41,9 @@ void MsanDeallocate(void *ptr);
 void InstallTrapHandler();
 void ReplaceOperatorsNewAndDelete();
 
-bool StackIsUnlimited();
-void SetSaneStackLimit();
 void MsanDie();
 void PrintWarning(uptr pc, uptr bp);
 void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin);
-
-// Flags.
-struct Flags {
-  bool poison_heap_with_zeroes;  // default: false
-  bool poison_stack_with_zeroes;  // default: false
-  bool poison_in_malloc;  // default: true
-  int  exit_code;
-  int  num_callers;
-  bool report_umrs;
-  bool verbosity;
-};
-
-extern Flags flags;
 
 void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp);
 
@@ -65,7 +51,7 @@ void GetStackTrace(StackTrace *stack, uptr max_s, uptr pc, uptr bp);
   StackTrace stack;                                                \
   stack.size = 0;                                                  \
   if (__msan_get_track_origins() && msan_inited)                   \
-    GetStackTrace(&stack, flags.num_callers,                       \
+    GetStackTrace(&stack, flags()->num_callers,                    \
       StackTrace::GetCurrentPc(), GET_CURRENT_FRAME())
 
 }  // namespace __msan

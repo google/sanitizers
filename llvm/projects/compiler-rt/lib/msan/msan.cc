@@ -16,14 +16,15 @@
 #include "msan.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_common.h"
+#include "sanitizer_common/sanitizer_flags.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_mutex.h"
-#include "sanitizer_common/sanitizer_flags.h"
+#include "sanitizer_common/sanitizer_procmaps.h"
 #include "sanitizer_common/sanitizer_stackdepot.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
 
-#include <interception/interception.h>
+#include "interception/interception.h"
 
 // ACHTUNG! No system header includes in this file.
 
@@ -68,20 +69,29 @@ int __msan_get_track_origins() {
 }
 
 static bool IsRunningUnderDr() {
-  return internal_strstr(__msan::GetProcSelfMaps(), "libdynamorio") != 0;
+  bool result = false;
+  MemoryMappingLayout proc_maps;
+  const sptr kBufSize = 4095;
+  char *filename = (char*)MmapOrDie(kBufSize, __FUNCTION__);
+  while (proc_maps.Next(/* start */0, /* end */0, /* file_offset */0,
+                        filename, kBufSize)) {
+    if (internal_strstr(filename, "libdynamorio") != 0) {
+      result = true;
+      break;
+    }
+  }
+  UnmapOrDie(filename, kBufSize);
+  return result;
 }
 
 namespace __msan {
 
-Flags flags = {
-  false,  // poison_heap_with_zeroes
-  false,  // poison_stack_with_zeroes
-  true,   // poison_in_malloc
-  67,     // exit_code
-  20,     // num_callers
-  true,   // report_umrs
-  false,  // verbosity
-};
+static Flags msan_flags;
+
+Flags *flags() {
+  return &msan_flags;
+}
+
 int msan_inited = 0;
 bool msan_init_is_running;
 
@@ -92,7 +102,7 @@ static const char *StackOriginDescr[kNumStackOriginDescrs];
 static atomic_uint32_t NumStackOriginDescrs;
 
 
-void ParseFlagsFromString(Flags *f, const char *str) {
+static void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_heap_with_zeroes, "poison_heap_with_zeroes");
   ParseFlag(str, &f->poison_stack_with_zeroes, "poison_stack_with_zeroes");
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
@@ -100,6 +110,20 @@ void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->num_callers, "num_callers");
   ParseFlag(str, &f->report_umrs, "report_umrs");
   ParseFlag(str, &f->verbosity, "verbosity");
+}
+
+static void InitializeFlags(Flags *f, const char *options) {
+  internal_memset(f, 0, sizeof(*f));
+
+  f->poison_heap_with_zeroes = false;
+  f->poison_stack_with_zeroes = false;
+  f->poison_in_malloc = true;
+  f->exit_code = 67;
+  f->num_callers = 20;
+  f->report_umrs = true;
+  f->verbosity = 0;
+
+  ParseFlagsFromString(f, options);
 }
 
 static void GetCurrentStackBounds(uptr *stack_top, uptr *stack_bottom) {
@@ -135,7 +159,7 @@ void PrintWarning(uptr pc, uptr bp) {
 }
 
 void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
-  if (!__msan::flags.report_umrs) return;
+  if (!__msan::flags()->report_umrs) return;
   if (msan_expect_umr) {
     // Printf("Expected UMR\n");
     __msan_origin_tls = origin;
@@ -162,7 +186,7 @@ void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
       StackTrace::PrintStack(trace, size, true, "", 0);
     }
   }
-  if (__msan::flags.exit_code >= 0) {
+  if (__msan::flags()->exit_code >= 0) {
     Printf("Exiting\n");
     Die();
   }
@@ -203,8 +227,8 @@ void __msan_init() {
     ReExec();
   }
   const char *msan_options = GetEnv("MSAN_OPTIONS");
-  ParseFlagsFromString(&flags, msan_options);
-  if (flags.verbosity)
+  InitializeFlags(&msan_flags, msan_options);
+  if (flags()->verbosity)
     Printf("MSAN_OPTIONS: %s\n", msan_options ? msan_options : "<empty>");
   msan_running_under_dr = IsRunningUnderDr();
   __msan_clear_on_return();
@@ -234,7 +258,7 @@ void __msan_init() {
 }
 
 void __msan_set_exit_code(int exit_code) {
-  __msan::flags.exit_code = exit_code;
+  __msan::flags()->exit_code = exit_code;
 }
 void __msan_set_expect_umr(int expect_umr) {
   if (expect_umr) {
@@ -280,8 +304,8 @@ sptr __msan_test_shadow(const void *x, uptr size) {
 }
 
 int __msan_set_poison_in_malloc(int do_poison) {
-  int old = __msan::flags.poison_in_malloc;
-  __msan::flags.poison_in_malloc = do_poison;
+  int old = __msan::flags()->poison_in_malloc;
+  __msan::flags()->poison_in_malloc = do_poison;
   return old;
 }
 

@@ -39,7 +39,7 @@ using namespace __msan;
 #define CHECK_UNPOISONED(x, n) \
   do { \
     sptr offset = __msan_test_shadow(x, n);                 \
-    if (offset >= 0 && flags.report_umrs) {                 \
+    if (offset >= 0 && flags()->report_umrs) {                 \
       GET_CALLER_PC_BP_SP;                                  \
       Printf("UMR in %s at offset %d inside [%p, +%d) \n",  \
              __FUNCTION__, offset, x, n);                   \
@@ -212,7 +212,7 @@ INTERCEPTOR(long, strtol, const char *nptr, char **endptr,  // NOLINT
   return res;
 }
 
-INTERCEPTOR(long long , strtoll, const char *nptr, char **endptr,  // NOLINT
+INTERCEPTOR(long long, strtoll, const char *nptr, char **endptr,  // NOLINT
             int base) {
   long res = REAL(strtoll)(nptr, endptr, base);  //NOLINT
   if (!__msan_has_dynamic_component()) {
@@ -723,13 +723,13 @@ void __msan_unpoison(void *a, uptr size) {
 void __msan_poison(void *a, uptr size) {
   if (IS_IN_SHADOW(a)) return;
   fast_memset((void*)MEM_TO_SHADOW((uptr)a),
-                  __msan::flags.poison_heap_with_zeroes ? 0 : -1, size);
+              __msan::flags()->poison_heap_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_poison_stack(void *a, uptr size) {
   if (IS_IN_SHADOW(a)) return;
   fast_memset((void*)MEM_TO_SHADOW((uptr)a),
-                  __msan::flags.poison_stack_with_zeroes ? 0 : -1, size);
+              __msan::flags()->poison_stack_with_zeroes ? 0 : -1, size);
 }
 
 void __msan_clear_and_unpoison(void *a, uptr size) {
