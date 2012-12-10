@@ -11,7 +11,12 @@ set(MSAN_SOURCES
 
 include_directories(..)
 
-set(MSAN_CFLAGS ${SANITIZER_COMMON_CFLAGS} -fPIE -ffreestanding)
+set(MSAN_CFLAGS
+  ${SANITIZER_COMMON_CFLAGS}
+  -fPIE
+  -ffreestanding
+  -g
+  -fno-omit-frame-pointer)
 set(MSAN_COMMON_DEFINITIONS)
 
 set(MSAN_RUNTIME_LIBRARIES)
