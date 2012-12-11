@@ -19,8 +19,8 @@
 
 int main(void) {
   volatile char buff1[6] = "Hello",
-                buff2[6];
-  memcpy(ident(buff2), ident(buff1), 7);
+                buff2[5];
+  memcpy(ident(buff2), ident(buff1), 6);
 
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
