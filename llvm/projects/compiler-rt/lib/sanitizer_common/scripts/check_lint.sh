@@ -41,27 +41,27 @@ SANITIZER_INCLUDES=${COMPILER_RT}/include/sanitizer
 ${CPPLINT} --filter=${TSAN_RTL_LINT_FILTER} ${SANITIZER_INCLUDES}/*.h
 
 # Sanitizer_common
-# COMMON_RTL=${COMPILER_RT}/lib/sanitizer_common
-# ${CPPLINT} --filter=${ASAN_RTL_LINT_FILTER} ${COMMON_RTL}/*.{cc,h}
-# ${CPPLINT} --filter=${TSAN_RTL_LINT_FILTER} ${COMMON_RTL}/tests/*.cc
+COMMON_RTL=${COMPILER_RT}/lib/sanitizer_common
+${CPPLINT} --filter=${ASAN_RTL_LINT_FILTER} ${COMMON_RTL}/*.{cc,h}
+${CPPLINT} --filter=${TSAN_RTL_LINT_FILTER} ${COMMON_RTL}/tests/*.cc
 
-# #Interception
-# INTERCEPTION=${COMPILER_RT}/lib/interception
-# ${CPPLINT} --filter=${ASAN_RTL_LINT_FILTER} ${INTERCEPTION}/*.{cc,h}
+# Interception
+INTERCEPTION=${COMPILER_RT}/lib/interception
+${CPPLINT} --filter=${ASAN_RTL_LINT_FILTER} ${INTERCEPTION}/*.{cc,h}
 
-# # ASan
-# ASAN_RTL=${COMPILER_RT}/lib/asan
-# ${CPPLINT} --filter=${ASAN_RTL_LINT_FILTER} ${ASAN_RTL}/*.{cc,h}
-# ${CPPLINT} --filter=${ASAN_TEST_LINT_FILTER} ${ASAN_RTL}/tests/*.{cc,h}
-# ${CPPLINT} --filter=${ASAN_TEST_LINT_FILTER} ${ASAN_RTL}/lit_tests/*.cc \
-#                                              ${ASAN_RTL}/lit_tests/*/*.cc \
+# ASan
+ASAN_RTL=${COMPILER_RT}/lib/asan
+${CPPLINT} --filter=${ASAN_RTL_LINT_FILTER} ${ASAN_RTL}/*.{cc,h}
+${CPPLINT} --filter=${ASAN_TEST_LINT_FILTER} ${ASAN_RTL}/tests/*.{cc,h}
+${CPPLINT} --filter=${ASAN_TEST_LINT_FILTER} ${ASAN_RTL}/lit_tests/*.cc \
+                                             ${ASAN_RTL}/lit_tests/*/*.cc \
 
-# # TSan
-# TSAN_RTL=${COMPILER_RT}/lib/tsan
-# ${CPPLINT} --filter=${TSAN_RTL_LINT_FILTER} ${TSAN_RTL}/rtl/*.{cc,h}
-# ${CPPLINT} --filter=${TSAN_TEST_LINT_FILTER} ${TSAN_RTL}/tests/rtl/*.{cc,h} \
-#                                              ${TSAN_RTL}/tests/unit/*.cc \
-#                                              ${TSAN_RTL}/lit_tests/*.cc
+# TSan
+TSAN_RTL=${COMPILER_RT}/lib/tsan
+${CPPLINT} --filter=${TSAN_RTL_LINT_FILTER} ${TSAN_RTL}/rtl/*.{cc,h}
+${CPPLINT} --filter=${TSAN_TEST_LINT_FILTER} ${TSAN_RTL}/tests/rtl/*.{cc,h} \
+                                             ${TSAN_RTL}/tests/unit/*.cc \
+                                             ${TSAN_RTL}/lit_tests/*.cc
 # MSan
 MSAN_RTL=${COMPILER_RT}/lib/msan
 ${CPPLINT} --filter=${MSAN_RTL_LINT_FILTER} ${MSAN_RTL}/*.{cc,h}
