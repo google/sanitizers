@@ -27,11 +27,11 @@ static const uptr kAllocatorSize   = 0x80000000000;  // 8T.
 static const uptr kMetadataSize  = sizeof(Metadata);
 
 typedef SizeClassAllocator64<kAllocatorSpace, kAllocatorSize, kMetadataSize,
-  DefaultSizeClassMap> PrimaryAllocator;
+                             DefaultSizeClassMap> PrimaryAllocator;
 typedef SizeClassAllocatorLocalCache<PrimaryAllocator> AllocatorCache;
 typedef LargeMmapAllocator SecondaryAllocator;
 typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
-          SecondaryAllocator> Allocator;
+                          SecondaryAllocator> Allocator;
 
 static THREADLOCAL AllocatorCache cache;
 static Allocator allocator;

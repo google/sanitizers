@@ -67,6 +67,8 @@ int __msan_get_track_origins() {
   return __msan_track_origins;
 }
 
+namespace __msan {
+
 static bool IsRunningUnderDr() {
   bool result = false;
   MemoryMappingLayout proc_maps;
@@ -83,8 +85,6 @@ static bool IsRunningUnderDr() {
   return result;
 }
 
-namespace __msan {
-
 static Flags msan_flags;
 
 Flags *flags() {
@@ -100,12 +100,16 @@ static const uptr kNumStackOriginDescrs = 1024 * 1024;
 static const char *StackOriginDescr[kNumStackOriginDescrs];
 static atomic_uint32_t NumStackOriginDescrs;
 
-
 static void ParseFlagsFromString(Flags *f, const char *str) {
   ParseFlag(str, &f->poison_heap_with_zeroes, "poison_heap_with_zeroes");
   ParseFlag(str, &f->poison_stack_with_zeroes, "poison_stack_with_zeroes");
   ParseFlag(str, &f->poison_in_malloc, "poison_in_malloc");
   ParseFlag(str, &f->exit_code, "exit_code");
+  if (f->exit_code < 0 || f->exit_code > 127) {
+    Printf("Exit code not in [0, 128) range: %d\n", f->exit_code);
+    f->exit_code = 1;
+    Die();
+  }
   ParseFlag(str, &f->num_callers, "num_callers");
   ParseFlag(str, &f->report_umrs, "report_umrs");
   ParseFlag(str, &f->verbosity, "verbosity");
@@ -185,12 +189,7 @@ void PrintWarningWithOrigin(uptr pc, uptr bp, u32 origin) {
       StackTrace::PrintStack(trace, size, true, "", 0);
     }
   }
-  if (__msan::flags()->exit_code >= 0) {
-    Printf("Exiting\n");
-    Die();
-  }
 }
-
 
 }  // namespace __msan
 
@@ -208,6 +207,7 @@ void __msan_warning_noreturn() {
   GET_CALLER_PC_BP_SP;
   (void)sp;
   PrintWarning(pc, bp);
+  Printf("Exiting\n");
   Die();
 }
 
@@ -224,6 +224,8 @@ void __msan_init() {
   if (StackSizeIsUnlimited()) {
     if (flags()->verbosity)
       Printf("Unlimited stack, doing reexec\n");
+    // A reasonably large stack size. It is bigger than the usual 8Mb, because,
+    // well, the program could have been run with unlimited stack for a reason.
     SetStackSizeLimitInBytes(32 * 1024 * 1024);
     ReExec();
   }

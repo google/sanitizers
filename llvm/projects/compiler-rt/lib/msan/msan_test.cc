@@ -1563,7 +1563,6 @@ TEST(MemorySanitizerStress, DISABLED_MallocStackTrace) {
 }
 
 int main(int argc, char **argv) {
-  __msan_set_exit_code(33);
   __msan_set_poison_in_malloc(1);
   testing::InitGoogleTest(&argc, argv);
   int res = RUN_ALL_TESTS();

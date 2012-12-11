@@ -358,10 +358,10 @@ INTERCEPTOR(wchar_t *, wmemcpy, wchar_t *dest, const wchar_t *src, size_t n) {
 }
 
 INTERCEPTOR(wchar_t *, wmemset, wchar_t *s, wchar_t c, size_t n) {
+  assert(MEM_IS_APP(s));
   ENSURE_MSAN_INITED();
   wchar_t *res = (wchar_t *)fast_memset(s, c, n * sizeof(wchar_t));
-  if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
-    __msan_unpoison(s, n * sizeof(wchar_t));
+  __msan_unpoison(s, n * sizeof(wchar_t));
   return res;
 }
 
@@ -391,7 +391,7 @@ INTERCEPTOR(double, wcstod, const wchar_t *nptr, wchar_t **endptr) {
 //     Die();                                            \
 //   }
 
-// TODO: intercept the following functions:
+// FIXME: intercept the following functions:
 // Note, they only matter when running without a dynamic tool.
 // UNSUPPORTED(wcscoll_l)
 // UNSUPPORTED(wcsnrtombs)
@@ -488,7 +488,6 @@ INTERCEPTOR(int, __lxstat64, int magic, char *path, void *buf) {
 INTERCEPTOR(int, pipe, int pipefd[2]) {
   if (msan_init_is_running)
     return REAL(pipe)(pipefd);
-
   ENSURE_MSAN_INITED();
   int res = REAL(pipe)(pipefd);
   if (!res)
@@ -791,8 +790,7 @@ void *__msan_memcpy(void *dest, const void *src, size_t n) {
 void *__msan_memset(void *s, int c, size_t n) {
   ENSURE_MSAN_INITED();
   void *res = fast_memset(s, c, n);
-  if (MEM_TO_SHADOW((uptr)s) != (uptr)s)
-    __msan_unpoison(s, n);
+  __msan_unpoison(s, n);
   return res;
 }
 
@@ -807,7 +805,6 @@ namespace __msan {
 void InitializeInterceptors() {
   static int inited = 0;
   CHECK_EQ(inited, 0);
-  inited = 1;
   CHECK(INTERCEPT_FUNCTION(mmap));
   CHECK(INTERCEPT_FUNCTION(mmap64));
   CHECK(INTERCEPT_FUNCTION(posix_memalign));
@@ -882,5 +879,6 @@ void InitializeInterceptors() {
   CHECK(INTERCEPT_FUNCTION(recv));
   CHECK(INTERCEPT_FUNCTION(recvfrom));
   CHECK(INTERCEPT_FUNCTION(recvmsg));
+  inited = 1;
 }
 }  // namespace __msan

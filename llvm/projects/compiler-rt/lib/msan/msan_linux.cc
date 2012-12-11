@@ -25,7 +25,6 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 
-
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_procmaps.h"
 

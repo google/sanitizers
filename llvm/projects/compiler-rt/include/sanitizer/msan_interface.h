@@ -24,6 +24,8 @@ using __sanitizer::u32;
 extern "C" {
 #endif
 
+// FIXME: document all interface functions.
+
 SANITIZER_INTERFACE_ATTRIBUTE
 int __msan_get_track_origins();
 
