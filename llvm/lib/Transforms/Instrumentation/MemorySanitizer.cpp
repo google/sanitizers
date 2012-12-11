@@ -1207,7 +1207,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// The algorithm roughly looks like this:
   /// 1. Guess what intrinsic does by analysing its ModRefBehaviour and argument
   ///    types.
-  /// 2. Collect shadow of all scalar and vector arguments or bitwise OR it
+  /// 2. Collect shadow of all scalar and vector arguments and bitwise OR it
   ///    together.
   /// 3. If we think this intrinsic reads memory, load shadow for the base type
   ///    of the pointer argument and bitwise OR it with the rest.
@@ -1275,7 +1275,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Type* MemAccessShadowTy = getShadowTy(MemAccessType);
 
     DEBUG(dbgs() << (readsMemory ? "read" : (writesMemory ? "write" :
-           "nomem")) << " intrinsic: " << I << "\n");
+          "nomem")) << " intrinsic: " << I << "\n");
     DEBUG(dbgs() << "pointer argument: " << pointerOpIdx << "\n");
     DEBUG(dbgs() << "memory access type: " << *MemAccessType << "\n");
     DEBUG(dbgs() << "shadow type: " << *MemAccessShadowTy << "\n");
@@ -1303,7 +1303,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           assert(Shadow);
           Value *S = convertToShadowTyNoVec(Shadow, IRB);
           Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-              Origin, OpOrigin);
+                                    Origin, OpOrigin);
         }
       }
     }
@@ -1327,7 +1327,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           assert(Shadow);
           Value *S = convertToShadowTyNoVec(Shadow, IRB);
           Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-              Origin, MemOrigin);
+                                    Origin, MemOrigin);
         }
       }
     }
