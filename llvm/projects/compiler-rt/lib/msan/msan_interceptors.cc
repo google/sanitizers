@@ -358,7 +358,7 @@ INTERCEPTOR(wchar_t *, wmemcpy, wchar_t *dest, const wchar_t *src, size_t n) {
 }
 
 INTERCEPTOR(wchar_t *, wmemset, wchar_t *s, wchar_t c, size_t n) {
-  assert(MEM_IS_APP(s));
+  CHECK(MEM_IS_APP(s));
   ENSURE_MSAN_INITED();
   wchar_t *res = (wchar_t *)fast_memset(s, c, n * sizeof(wchar_t));
   __msan_unpoison(s, n * sizeof(wchar_t));
