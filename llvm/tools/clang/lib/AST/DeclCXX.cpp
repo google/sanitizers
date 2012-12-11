@@ -41,8 +41,15 @@ CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
     Abstract(false), IsStandardLayout(true), HasNoNonEmptyBases(true),
     HasPrivateFields(false), HasProtectedFields(false), HasPublicFields(false),
     HasMutableFields(false), HasOnlyCMembers(true),
-    HasInClassInitializer(false),
+    HasInClassInitializer(false), HasUninitializedReferenceMember(false),
+    NeedOverloadResolutionForMoveConstructor(false),
+    NeedOverloadResolutionForMoveAssignment(false),
+    NeedOverloadResolutionForDestructor(false),
+    DefaultedMoveConstructorIsDeleted(false),
+    DefaultedMoveAssignmentIsDeleted(false),
+    DefaultedDestructorIsDeleted(false),
     HasTrivialSpecialMembers(SMF_All),
+    DeclaredNonTrivialSpecialMembers(0),
     HasIrrelevantDestructor(true),
     HasConstexprNonCopyMoveConstructor(false),
     DefaultedDefaultConstructorIsConstexpr(true),
@@ -234,11 +241,12 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
       //    [...]
       //    -- the constructor selected to copy/move each direct base class
       //       subobject is trivial, and
-      // FIXME: C++0x: We need to only consider the selected constructor
-      // instead of all of them. For now, we treat a move constructor as being
-      // non-trivial if it calls anything other than a trivial move constructor.
       if (!BaseClassDecl->hasTrivialCopyConstructor())
         data().HasTrivialSpecialMembers &= ~SMF_CopyConstructor;
+      // If the base class doesn't have a simple move constructor, we'll eagerly
+      // declare it and perform overload resolution to determine which function
+      // it actually calls. If it does have a simple move constructor, this
+      // check is correct.
       if (!BaseClassDecl->hasTrivialMoveConstructor())
         data().HasTrivialSpecialMembers &= ~SMF_MoveConstructor;
 
@@ -247,10 +255,12 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
       //    [...]
       //    -- the assignment operator selected to copy/move each direct base
       //       class subobject is trivial, and
-      // FIXME: C++0x: We need to only consider the selected operator instead
-      // of all of them.
       if (!BaseClassDecl->hasTrivialCopyAssignment())
         data().HasTrivialSpecialMembers &= ~SMF_CopyAssignment;
+      // If the base class doesn't have a simple move assignment, we'll eagerly
+      // declare it and perform overload resolution to determine which function
+      // it actually calls. If it does have a simple move assignment, this
+      // check is correct.
       if (!BaseClassDecl->hasTrivialMoveAssignment())
         data().HasTrivialSpecialMembers &= ~SMF_MoveAssignment;
 
@@ -261,7 +271,7 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
       if (!BaseClassDecl->hasConstexprDefaultConstructor())
         data().DefaultedDefaultConstructorIsConstexpr = false;
     }
-    
+
     // C++ [class.ctor]p3:
     //   A destructor is trivial if all the direct base classes of its class
     //   have trivial destructors.
@@ -295,6 +305,11 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
     // Keep track of the presence of mutable fields.
     if (BaseClassDecl->hasMutableFields())
       data().HasMutableFields = true;
+
+    if (BaseClassDecl->hasUninitializedReferenceMember())
+      data().HasUninitializedReferenceMember = true;
+
+    addedClassSubobject(BaseClassDecl);
   }
   
   if (VBases.empty())
@@ -303,8 +318,44 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
   // Create base specifier for any direct or indirect virtual bases.
   data().VBases = new (C) CXXBaseSpecifier[VBases.size()];
   data().NumVBases = VBases.size();
-  for (int I = 0, E = VBases.size(); I != E; ++I)
+  for (int I = 0, E = VBases.size(); I != E; ++I) {
+    QualType Type = VBases[I]->getType();
+    if (!Type->isDependentType())
+      addedClassSubobject(Type->getAsCXXRecordDecl());
     data().getVBases()[I] = *VBases[I];
+  }
+}
+
+void CXXRecordDecl::addedClassSubobject(CXXRecordDecl *Subobj) {
+  // C++11 [class.copy]p11:
+  //   A defaulted copy/move constructor for a class X is defined as
+  //   deleted if X has:
+  //    -- a direct or virtual base class B that cannot be copied/moved [...]
+  //    -- a non-static data member of class type M (or array thereof)
+  //       that cannot be copied or moved [...]
+  if (!Subobj->hasSimpleMoveConstructor())
+    data().NeedOverloadResolutionForMoveConstructor = true;
+
+  // C++11 [class.copy]p23:
+  //   A defaulted copy/move assignment operator for a class X is defined as
+  //   deleted if X has:
+  //    -- a direct or virtual base class B that cannot be copied/moved [...]
+  //    -- a non-static data member of class type M (or array thereof)
+  //        that cannot be copied or moved [...]
+  if (!Subobj->hasSimpleMoveAssignment())
+    data().NeedOverloadResolutionForMoveAssignment = true;
+
+  // C++11 [class.ctor]p5, C++11 [class.copy]p11, C++11 [class.dtor]p5:
+  //   A defaulted [ctor or dtor] for a class X is defined as
+  //   deleted if X has:
+  //    -- any direct or virtual base class [...] has a type with a destructor
+  //       that is deleted or inaccessible from the defaulted [ctor or dtor].
+  //    -- any non-static data member has a type with a destructor
+  //       that is deleted or inaccessible from the defaulted [ctor or dtor].
+  if (!Subobj->hasSimpleDestructor()) {
+    data().NeedOverloadResolutionForMoveConstructor = true;
+    data().NeedOverloadResolutionForDestructor = true;
+  }
 }
 
 /// Callback function for CXXRecordDecl::forallBases that acknowledges
@@ -318,10 +369,6 @@ bool CXXRecordDecl::hasAnyDependentBases() const {
     return false;
 
   return !forallBases(SawBase, 0);
-}
-
-bool CXXRecordDecl::hasConstCopyConstructor() const {
-  return getCopyConstructor(Qualifiers::Const) != 0;
 }
 
 bool CXXRecordDecl::isTriviallyCopyable() const {
@@ -341,138 +388,10 @@ bool CXXRecordDecl::isTriviallyCopyable() const {
   return true;
 }
 
-/// \brief Perform a simplistic form of overload resolution that only considers
-/// cv-qualifiers on a single parameter, and return the best overload candidate
-/// (if there is one).
-static CXXMethodDecl *
-GetBestOverloadCandidateSimple(
-  const SmallVectorImpl<std::pair<CXXMethodDecl *, Qualifiers> > &Cands) {
-  if (Cands.empty())
-    return 0;
-  if (Cands.size() == 1)
-    return Cands[0].first;
-  
-  unsigned Best = 0, N = Cands.size();
-  for (unsigned I = 1; I != N; ++I)
-    if (Cands[Best].second.compatiblyIncludes(Cands[I].second))
-      Best = I;
-  
-  for (unsigned I = 0; I != N; ++I)
-    if (I != Best && Cands[Best].second.compatiblyIncludes(Cands[I].second))
-      return 0;
-  
-  return Cands[Best].first;
-}
-
-CXXConstructorDecl *CXXRecordDecl::getCopyConstructor(unsigned TypeQuals) const{
-  ASTContext &Context = getASTContext();
-  QualType ClassType
-    = Context.getTypeDeclType(const_cast<CXXRecordDecl*>(this));
-  DeclarationName ConstructorName
-    = Context.DeclarationNames.getCXXConstructorName(
-                                          Context.getCanonicalType(ClassType));
-  unsigned FoundTQs;
-  SmallVector<std::pair<CXXMethodDecl *, Qualifiers>, 4> Found;
-  DeclContext::lookup_const_iterator Con, ConEnd;
-  for (llvm::tie(Con, ConEnd) = this->lookup(ConstructorName);
-       Con != ConEnd; ++Con) {
-    // C++ [class.copy]p2:
-    //   A non-template constructor for class X is a copy constructor if [...]
-    if (isa<FunctionTemplateDecl>(*Con))
-      continue;
-
-    CXXConstructorDecl *Constructor = cast<CXXConstructorDecl>(*Con);
-    if (Constructor->isCopyConstructor(FoundTQs)) {
-      if (((TypeQuals & Qualifiers::Const) == (FoundTQs & Qualifiers::Const)) ||
-          (!(TypeQuals & Qualifiers::Const) && (FoundTQs & Qualifiers::Const)))
-        Found.push_back(std::make_pair(
-                                 const_cast<CXXConstructorDecl *>(Constructor), 
-                                       Qualifiers::fromCVRMask(FoundTQs)));
-    }
-  }
-  
-  return cast_or_null<CXXConstructorDecl>(
-                                        GetBestOverloadCandidateSimple(Found));
-}
-
-CXXConstructorDecl *CXXRecordDecl::getMoveConstructor() const {
-  for (ctor_iterator I = ctor_begin(), E = ctor_end(); I != E; ++I)
-    if (I->isMoveConstructor())
-      return *I;
-
-  return 0;
-}
-
-CXXMethodDecl *CXXRecordDecl::getCopyAssignmentOperator(bool ArgIsConst) const {
-  ASTContext &Context = getASTContext();
-  QualType Class = Context.getTypeDeclType(const_cast<CXXRecordDecl *>(this));
-  DeclarationName Name = Context.DeclarationNames.getCXXOperatorName(OO_Equal);
-  
-  SmallVector<std::pair<CXXMethodDecl *, Qualifiers>, 4> Found;
-  DeclContext::lookup_const_iterator Op, OpEnd;
-  for (llvm::tie(Op, OpEnd) = this->lookup(Name); Op != OpEnd; ++Op) {
-    // C++ [class.copy]p9:
-    //   A user-declared copy assignment operator is a non-static non-template
-    //   member function of class X with exactly one parameter of type X, X&,
-    //   const X&, volatile X& or const volatile X&.
-    const CXXMethodDecl* Method = dyn_cast<CXXMethodDecl>(*Op);
-    if (!Method || Method->isStatic() || Method->getPrimaryTemplate())
-      continue;
-    
-    const FunctionProtoType *FnType 
-      = Method->getType()->getAs<FunctionProtoType>();
-    assert(FnType && "Overloaded operator has no prototype.");
-    // Don't assert on this; an invalid decl might have been left in the AST.
-    if (FnType->getNumArgs() != 1 || FnType->isVariadic())
-      continue;
-    
-    QualType ArgType = FnType->getArgType(0);
-    Qualifiers Quals;
-    if (const LValueReferenceType *Ref = ArgType->getAs<LValueReferenceType>()) {
-      ArgType = Ref->getPointeeType();
-      // If we have a const argument and we have a reference to a non-const,
-      // this function does not match.
-      if (ArgIsConst && !ArgType.isConstQualified())
-        continue;
-      
-      Quals = ArgType.getQualifiers();
-    } else {
-      // By-value copy-assignment operators are treated like const X&
-      // copy-assignment operators.
-      Quals = Qualifiers::fromCVRMask(Qualifiers::Const);
-    }
-    
-    if (!Context.hasSameUnqualifiedType(ArgType, Class))
-      continue;
-
-    // Save this copy-assignment operator. It might be "the one".
-    Found.push_back(std::make_pair(const_cast<CXXMethodDecl *>(Method), Quals));
-  }
-  
-  // Use a simplistic form of overload resolution to find the candidate.
-  return GetBestOverloadCandidateSimple(Found);
-}
-
-CXXMethodDecl *CXXRecordDecl::getMoveAssignmentOperator() const {
-  for (method_iterator I = method_begin(), E = method_end(); I != E; ++I)
-    if (I->isMoveAssignmentOperator())
-      return *I;
-
-  return 0;
-}
-
 void CXXRecordDecl::markedVirtualFunctionPure() {
   // C++ [class.abstract]p2: 
   //   A class is abstract if it has at least one pure virtual function.
   data().Abstract = true;
-}
-
-void CXXRecordDecl::markedConstructorConstexpr(CXXConstructorDecl *CD) {
-  if (!CD->isCopyOrMoveConstructor())
-    data().HasConstexprNonCopyMoveConstructor = true;
-
-  if (CD->isDefaultConstructor())
-    data().HasConstexprDefaultConstructor = true;
 }
 
 void CXXRecordDecl::addedMember(Decl *D) {
@@ -635,6 +554,20 @@ void CXXRecordDecl::addedMember(Decl *D) {
     }
 
     if (SMKind) {
+      // If this is the first declaration of a special member, we no longer have
+      // an implicit trivial special member.
+      data().HasTrivialSpecialMembers &=
+        data().DeclaredSpecialMembers | ~SMKind;
+
+      if (!Method->isImplicit() && !Method->isUserProvided()) {
+        // This method is user-declared but not user-provided. We can't work out
+        // whether it's trivial yet (not until we get to the end of the class).
+        // We'll handle this method in finishedDefaultedOrDeletedMember.
+      } else if (Method->isTrivial())
+        data().HasTrivialSpecialMembers |= SMKind;
+      else
+        data().DeclaredNonTrivialSpecialMembers |= SMKind;
+
       // Note when we have declared a declared special member, and suppress the
       // implicit declaration of this special member.
       data().DeclaredSpecialMembers |= SMKind;
@@ -655,14 +588,6 @@ void CXXRecordDecl::addedMember(Decl *D) {
         // This is an extension in C++03.
         data().PlainOldData = false;
       }
-
-      // C++11 [class.ctor]p5, C++11 [class.copy]p12, C++11 [class.copy]p25,
-      // C++11 [class.dtor]p5:
-      //   A [special member] is trivial if it is not user-provided [...]
-      // FIXME: This is bogus. A class can have both (say) a trivial copy
-      // constructor *and* a user-provided copy constructor.
-      if (Method->isUserProvided())
-        data().HasTrivialSpecialMembers &= ~SMKind;
     }
 
     return;
@@ -727,7 +652,8 @@ void CXXRecordDecl::addedMember(Decl *D) {
       data().PlainOldData = false;
     
     if (T->isReferenceType()) {
-      data().HasTrivialSpecialMembers &= ~SMF_DefaultConstructor;
+      if (!Field->hasInClassInitializer())
+        data().HasUninitializedReferenceMember = true;
 
       // C++0x [class]p7:
       //   A standard-layout class is a class that:
@@ -757,9 +683,32 @@ void CXXRecordDecl::addedMember(Decl *D) {
       data().PlainOldData = false;
     }
 
+    // C++11 [class.copy]p23:
+    //   A defaulted copy/move assignment operator for a class X is defined
+    //   as deleted if X has:
+    //    -- a non-static data member of reference type
+    if (T->isReferenceType())
+      data().DefaultedMoveAssignmentIsDeleted = true;
+
     if (const RecordType *RecordTy = T->getAs<RecordType>()) {
       CXXRecordDecl* FieldRec = cast<CXXRecordDecl>(RecordTy->getDecl());
       if (FieldRec->getDefinition()) {
+        addedClassSubobject(FieldRec);
+
+        // C++11 [class.ctor]p5, C++11 [class.copy]p11:
+        //   A defaulted [special member] for a class X is defined as
+        //   deleted if:
+        //    -- X is a union-like class that has a variant member with a
+        //       non-trivial [corresponding special member]
+        if (isUnion()) {
+          if (FieldRec->hasNonTrivialMoveConstructor())
+            data().DefaultedMoveConstructorIsDeleted = true;
+          if (FieldRec->hasNonTrivialMoveAssignment())
+            data().DefaultedMoveAssignmentIsDeleted = true;
+          if (FieldRec->hasNonTrivialDestructor())
+            data().DefaultedDestructorIsDeleted = true;
+        }
+
         // C++0x [class.ctor]p5:
         //   A default constructor is trivial [...] if:
         //    -- for all the non-static data members of its class that are of
@@ -774,9 +723,11 @@ void CXXRecordDecl::addedMember(Decl *D) {
         //    -- for each non-static data member of X that is of class type (or
         //       an array thereof), the constructor selected to copy/move that
         //       member is trivial;
-        // FIXME: C++0x: We don't correctly model 'selected' constructors.
         if (!FieldRec->hasTrivialCopyConstructor())
           data().HasTrivialSpecialMembers &= ~SMF_CopyConstructor;
+        // If the field doesn't have a simple move constructor, we'll eagerly
+        // declare the move constructor for this class and we'll decide whether
+        // it's trivial then.
         if (!FieldRec->hasTrivialMoveConstructor())
           data().HasTrivialSpecialMembers &= ~SMF_MoveConstructor;
 
@@ -786,9 +737,11 @@ void CXXRecordDecl::addedMember(Decl *D) {
         //    -- for each non-static data member of X that is of class type (or
         //       an array thereof), the assignment operator selected to
         //       copy/move that member is trivial;
-        // FIXME: C++0x: We don't correctly model 'selected' operators.
         if (!FieldRec->hasTrivialCopyAssignment())
           data().HasTrivialSpecialMembers &= ~SMF_CopyAssignment;
+        // If the field doesn't have a simple move assignment, we'll eagerly
+        // declare the move assignment for this class and we'll decide whether
+        // it's trivial then.
         if (!FieldRec->hasTrivialMoveAssignment())
           data().HasTrivialSpecialMembers &= ~SMF_MoveAssignment;
 
@@ -866,12 +819,24 @@ void CXXRecordDecl::addedMember(Decl *D) {
         //   parameter is of type 'const M&', 'const volatile M&' or 'M'.
         if (!FieldRec->hasCopyAssignmentWithConstParam())
           data().ImplicitCopyAssignmentHasConstParam = false;
+
+        if (FieldRec->hasUninitializedReferenceMember() &&
+            !Field->hasInClassInitializer())
+          data().HasUninitializedReferenceMember = true;
       }
     } else {
       // Base element type of field is a non-class type.
       if (!T->isLiteralType() ||
           (!Field->hasInClassInitializer() && !isUnion()))
         data().DefaultedDefaultConstructorIsConstexpr = false;
+
+      // C++11 [class.copy]p23:
+      //   A defaulted copy/move assignment operator for a class X is defined
+      //   as deleted if X has:
+      //    -- a non-static data member of const non-class type (or array
+      //       thereof)
+      if (T.isConstQualified())
+        data().DefaultedMoveAssignmentIsDeleted = true;
     }
 
     // C++0x [class]p7:
@@ -900,6 +865,40 @@ void CXXRecordDecl::addedMember(Decl *D) {
     if (Shadow->getDeclName().getNameKind()
           == DeclarationName::CXXConversionFunctionName)
       data().Conversions.addDecl(getASTContext(), Shadow, Shadow->getAccess());
+}
+
+void CXXRecordDecl::finishedDefaultedOrDeletedMember(CXXMethodDecl *D) {
+  assert(!D->isImplicit() && !D->isUserProvided());
+
+  // The kind of special member this declaration is, if any.
+  unsigned SMKind = 0;
+
+  if (CXXConstructorDecl *Constructor = dyn_cast<CXXConstructorDecl>(D)) {
+    if (Constructor->isDefaultConstructor()) {
+      SMKind |= SMF_DefaultConstructor;
+      if (Constructor->isConstexpr())
+        data().HasConstexprDefaultConstructor = true;
+    }
+    if (Constructor->isCopyConstructor())
+      SMKind |= SMF_CopyConstructor;
+    else if (Constructor->isMoveConstructor())
+      SMKind |= SMF_MoveConstructor;
+    else if (Constructor->isConstexpr())
+      // We may now know that the constructor is constexpr.
+      data().HasConstexprNonCopyMoveConstructor = true;
+  } else if (isa<CXXDestructorDecl>(D))
+    SMKind |= SMF_Destructor;
+  else if (D->isCopyAssignmentOperator())
+    SMKind |= SMF_CopyAssignment;
+  else if (D->isMoveAssignmentOperator())
+    SMKind |= SMF_MoveAssignment;
+
+  // Update which trivial / non-trivial special members we have.
+  // addedMember will have skipped this step for this member.
+  if (D->isTrivial())
+    data().HasTrivialSpecialMembers |= SMKind;
+  else
+    data().DeclaredNonTrivialSpecialMembers |= SMKind;
 }
 
 bool CXXRecordDecl::isCLike() const {

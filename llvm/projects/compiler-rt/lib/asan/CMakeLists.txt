@@ -2,6 +2,8 @@
 
 set(ASAN_SOURCES
   asan_allocator.cc
+  asan_allocator2.cc
+  asan_fake_stack.cc
   asan_globals.cc
   asan_interceptors.cc
   asan_linux.cc

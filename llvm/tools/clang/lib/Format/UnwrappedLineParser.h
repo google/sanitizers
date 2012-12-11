@@ -77,10 +77,16 @@ public:
   virtual void consumeUnwrappedLine(const UnwrappedLine &Line) = 0;
 };
 
+class FormatTokenSource {
+public:
+  virtual ~FormatTokenSource() {
+  }
+  virtual FormatToken getNextToken() = 0;
+};
+
 class UnwrappedLineParser {
 public:
-  UnwrappedLineParser(const FormatStyle &Style, Lexer &Lex,
-                      SourceManager &SourceMgr,
+  UnwrappedLineParser(const FormatStyle &Style, FormatTokenSource &Tokens,
                       UnwrappedLineConsumer &Callback);
 
   /// Returns true in case of a structural error.
@@ -105,19 +111,12 @@ private:
   void addUnwrappedLine();
   bool eof() const;
   void nextToken();
-  void parseToken();
-
-  /// Returns the text of \c FormatTok.
-  StringRef tokenText();
 
   UnwrappedLine Line;
   FormatToken FormatTok;
-  bool GreaterStashed;
 
   const FormatStyle &Style;
-  Lexer &Lex;
-  SourceManager &SourceMgr;
-  IdentifierTable IdentTable;
+  FormatTokenSource &Tokens;
   UnwrappedLineConsumer &Callback;
 };
 

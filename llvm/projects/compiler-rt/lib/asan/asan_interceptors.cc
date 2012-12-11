@@ -177,6 +177,25 @@ INTERCEPTOR(void, siglongjmp, void *env, int val) {
 }
 #endif
 
+#if ASAN_INTERCEPT_PRCTL
+#define PR_SET_NAME 15
+INTERCEPTOR(int, prctl, int option,
+            unsigned long arg2, unsigned long arg3,  // NOLINT
+            unsigned long arg4, unsigned long arg5) {  // NOLINT
+  int res = REAL(prctl(option, arg2, arg3, arg4, arg5));
+  if (option == PR_SET_NAME) {
+    AsanThread *t = asanThreadRegistry().GetCurrent();
+    if (t) {
+      char buff[17];
+      internal_strncpy(buff, (char*)arg2, 16);
+      buff[16] = 0;
+      t->summary()->set_name(buff);
+    }
+  }
+  return res;
+}
+#endif
+
 #if ASAN_INTERCEPT___CXA_THROW
 INTERCEPTOR(void, __cxa_throw, void *a, void *b, void *c) {
   CHECK(REAL(__cxa_throw));
@@ -258,8 +277,8 @@ INTERCEPTOR(void*, memcpy, void *to, const void *from, uptr size) {
       // See http://llvm.org/bugs/show_bug.cgi?id=11763.
       CHECK_RANGES_OVERLAP("memcpy", to, size, from, size);
     }
-    ASAN_WRITE_RANGE(from, size);
-    ASAN_READ_RANGE(to, size);
+    ASAN_READ_RANGE(from, size);
+    ASAN_WRITE_RANGE(to, size);
   }
 #if MAC_INTERPOSE_FUNCTIONS
   // Interposing of resolver functions is broken on Mac OS 10.7 and 10.8.
@@ -277,8 +296,8 @@ INTERCEPTOR(void*, memmove, void *to, const void *from, uptr size) {
   }
   ENSURE_ASAN_INITED();
   if (flags()->replace_intrin) {
-    ASAN_WRITE_RANGE(from, size);
-    ASAN_READ_RANGE(to, size);
+    ASAN_READ_RANGE(from, size);
+    ASAN_WRITE_RANGE(to, size);
   }
 #if MAC_INTERPOSE_FUNCTIONS
   // Interposing of resolver functions is broken on Mac OS 10.7 and 10.8.
@@ -719,6 +738,9 @@ void InitializeAsanInterceptors() {
 #endif
 #if ASAN_INTERCEPT_SIGLONGJMP
   ASAN_INTERCEPT_FUNC(siglongjmp);
+#endif
+#if ASAN_INTERCEPT_PRCTL
+  ASAN_INTERCEPT_FUNC(prctl);
 #endif
 
   // Intercept exception handling functions.

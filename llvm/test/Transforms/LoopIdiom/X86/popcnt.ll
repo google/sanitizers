@@ -74,3 +74,47 @@ while.end:                                        ; preds = %while.body, %entry
   ret i32 %add2
 }
 
+; Some variants once cause crash
+target triple = "x86_64-apple-macosx10.8.0"
+
+define i32 @PopCntCrash1(i64 %a) nounwind uwtable readnone ssp {
+entry:
+  %tobool3 = icmp eq i64 %a, 0
+  br i1 %tobool3, label %while.end, label %while.body
+
+while.body:                                       ; preds = %entry, %while.body
+  %c.05 = phi i32 [ %inc, %while.body ], [ 0, %entry ]
+  %a.addr.04 = phi i64 [ %and, %while.body ], [ %a, %entry ]
+  %t = add i32 %c.05, %c.05
+  %inc = add nsw i32 %t, 1
+  %sub = add i64 %a.addr.04, -1
+  %and = and i64 %sub, %a.addr.04
+  %tobool = icmp eq i64 %and, 0
+  br i1 %tobool, label %while.end, label %while.body
+
+while.end:                                        ; preds = %while.body, %entry
+  %c.0.lcssa = phi i32 [ 0, %entry ], [ %inc, %while.body ]
+  ret i32 %c.0.lcssa
+
+; CHECK: entry
+; CHECK: ret 
+}
+
+define i32 @PopCntCrash2(i64 %a, i32 %b) nounwind uwtable readnone ssp {
+entry:
+  %tobool3 = icmp eq i64 %a, 0
+  br i1 %tobool3, label %while.end, label %while.body
+
+while.body:                                       ; preds = %entry, %while.body
+  %c.05 = phi i32 [ %inc, %while.body ], [ %b, %entry ]
+  %a.addr.04 = phi i64 [ %and, %while.body ], [ %a, %entry ]
+  %inc = add nsw i32 %c.05, 1
+  %sub = add i64 %a.addr.04, -1
+  %and = and i64 %sub, %a.addr.04
+  %tobool = icmp eq i64 %and, 0
+  br i1 %tobool, label %while.end, label %while.body
+
+while.end:                                        ; preds = %while.body, %entry
+  %c.0.lcssa = phi i32 [ 0, %entry ], [ %inc, %while.body ]
+  ret i32 %c.0.lcssa
+}

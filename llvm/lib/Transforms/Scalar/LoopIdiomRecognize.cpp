@@ -455,7 +455,7 @@ bool NclPopcountRecognize::detectIdiom(Instruction *&CntInst,
         continue;
 
       PHINode *Phi = dyn_cast<PHINode>(Inst->getOperand(0));
-      if (!Phi && Phi->getParent() != LoopEntry)
+      if (!Phi || Phi->getParent() != LoopEntry)
         continue;
 
       // Check if the result of the instruction is live of the loop.
@@ -509,7 +509,7 @@ void NclPopcountRecognize::transform(Instruction *CntInst,
  
   // Step 1: Insert the ctpop instruction at the end of the precondition block
   IRBuilderTy Builder(PreCondBr);
-  Value *PopCnt, *PopCntZext, *NewCount;
+  Value *PopCnt, *PopCntZext, *NewCount, *TripCnt;
   {
     PopCnt = createPopcntIntrinsic(Builder, Var, DL);
     NewCount = PopCntZext =
@@ -518,11 +518,14 @@ void NclPopcountRecognize::transform(Instruction *CntInst,
     if (NewCount != PopCnt)
       (cast<Instruction>(NewCount))->setDebugLoc(DL);
 
+    // TripCnt is exactly the number of iterations the loop has
+    TripCnt = NewCount;
+
     // If the popoulation counter's initial value is not zero, insert Add Inst.
     Value *CntInitVal = CntPhi->getIncomingValueForBlock(PreHead);
     ConstantInt *InitConst = dyn_cast<ConstantInt>(CntInitVal);
     if (!InitConst || !InitConst->isZero()) {
-      NewCount = Builder.CreateAdd(PopCnt, InitConst);
+      NewCount = Builder.CreateAdd(NewCount, CntInitVal);
       (cast<Instruction>(NewCount))->setDebugLoc(DL);
     }
   }
@@ -570,7 +573,7 @@ void NclPopcountRecognize::transform(Instruction *CntInst,
   {
     BranchInst *LbBr = LIRUtil::getBranch(Body);
     ICmpInst *LbCond = cast<ICmpInst>(LbBr->getCondition());
-    Type *Ty = NewCount->getType();
+    Type *Ty = TripCnt->getType();
 
     PHINode *TcPhi = PHINode::Create(Ty, 2, "tcphi", Body->begin());
 
@@ -580,7 +583,7 @@ void NclPopcountRecognize::transform(Instruction *CntInst,
     Instruction *TcDec =
       cast<Instruction>(Builder.CreateSub(Opnd1, Opnd2, "tcdec", false, true));
 
-    TcPhi->addIncoming(NewCount, PreHead);
+    TcPhi->addIncoming(TripCnt, PreHead);
     TcPhi->addIncoming(TcDec, Body);
 
     CmpInst::Predicate Pred = (LbBr->getSuccessor(0) == Body) ?

@@ -1381,6 +1381,12 @@ SDValue DAGCombiner::visitADD(SDNode *N) {
   if (VT.isVector()) {
     SDValue FoldedVOp = SimplifyVBinOp(N);
     if (FoldedVOp.getNode()) return FoldedVOp;
+
+    // fold (add x, 0) -> x, vector edition
+    if (ISD::isBuildVectorAllZeros(N1.getNode()))
+      return N0;
+    if (ISD::isBuildVectorAllZeros(N0.getNode()))
+      return N1;
   }
 
   // fold (add x, undef) -> undef
@@ -1624,6 +1630,10 @@ SDValue DAGCombiner::visitSUB(SDNode *N) {
   if (VT.isVector()) {
     SDValue FoldedVOp = SimplifyVBinOp(N);
     if (FoldedVOp.getNode()) return FoldedVOp;
+
+    // fold (sub x, 0) -> x, vector edition
+    if (ISD::isBuildVectorAllZeros(N1.getNode()))
+      return N0;
   }
 
   // fold (sub x, x) -> 0
@@ -2427,6 +2437,18 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
   if (VT.isVector()) {
     SDValue FoldedVOp = SimplifyVBinOp(N);
     if (FoldedVOp.getNode()) return FoldedVOp;
+
+    // fold (and x, 0) -> 0, vector edition
+    if (ISD::isBuildVectorAllZeros(N0.getNode()))
+      return N0;
+    if (ISD::isBuildVectorAllZeros(N1.getNode()))
+      return N1;
+
+    // fold (and x, -1) -> x, vector edition
+    if (ISD::isBuildVectorAllOnes(N0.getNode()))
+      return N1;
+    if (ISD::isBuildVectorAllOnes(N1.getNode()))
+      return N0;
   }
 
   // fold (and x, undef) -> 0
@@ -2770,7 +2792,6 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
       }
     }
   }
-      
 
   return SDValue();
 }
@@ -3025,6 +3046,18 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
   if (VT.isVector()) {
     SDValue FoldedVOp = SimplifyVBinOp(N);
     if (FoldedVOp.getNode()) return FoldedVOp;
+
+    // fold (or x, 0) -> x, vector edition
+    if (ISD::isBuildVectorAllZeros(N0.getNode()))
+      return N1;
+    if (ISD::isBuildVectorAllZeros(N1.getNode()))
+      return N0;
+
+    // fold (or x, -1) -> -1, vector edition
+    if (ISD::isBuildVectorAllOnes(N0.getNode()))
+      return N0;
+    if (ISD::isBuildVectorAllOnes(N1.getNode()))
+      return N1;
   }
 
   // fold (or x, undef) -> -1
@@ -3334,6 +3367,12 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
   if (VT.isVector()) {
     SDValue FoldedVOp = SimplifyVBinOp(N);
     if (FoldedVOp.getNode()) return FoldedVOp;
+
+    // fold (xor x, 0) -> x, vector edition
+    if (ISD::isBuildVectorAllZeros(N0.getNode()))
+      return N1;
+    if (ISD::isBuildVectorAllZeros(N1.getNode()))
+      return N0;
   }
 
   // fold (xor undef, undef) -> 0. This is a common idiom (misuse).
@@ -5029,11 +5068,15 @@ SDValue DAGCombiner::ReduceLoadWidth(SDNode *N) {
       // At this point, we must have a load or else we can't do the transform.
       if (!isa<LoadSDNode>(N0)) return SDValue();
 
+      // Because a SRL must be assumed to *need* to zero-extend the high bits
+      // (as opposed to anyext the high bits), we can't combine the zextload
+      // lowering of SRL and an sextload.
+      if (cast<LoadSDNode>(N0)->getExtensionType() == ISD::SEXTLOAD)
+        return SDValue();
+
       // If the shift amount is larger than the input type then we're not
       // accessing any of the loaded bytes.  If the load was a zextload/extload
       // then the result of the shift+trunc is zero/undef (handled elsewhere).
-      // If the load was a sextload then the result is a splat of the sign bit
-      // of the extended byte.  This is not worth optimizing for.
       if (ShAmt >= cast<LoadSDNode>(N0)->getMemoryVT().getSizeInBits())
         return SDValue();
     }

@@ -1258,9 +1258,8 @@ void Clang::AddHexagonTargetArgs(const ArgList &Args,
                       "hexagon"
                       + toolchains::Hexagon_TC::GetTargetCPU(Args)));
   CmdArgs.push_back("-fno-signed-char");
-
-  if (Args.hasArg(options::OPT_mqdsp6_compat))
-    CmdArgs.push_back("-mqdsp6-compat");
+  CmdArgs.push_back("-mqdsp6-compat");
+  CmdArgs.push_back("-Wreturn-type");
 
   std::string SmallDataThreshold = GetHexagonSmallDataThresholdValue(Args);
   if (!SmallDataThreshold.empty()) {
@@ -3507,6 +3506,10 @@ void hexagon::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back(
       Args.MakeArgString(std::string("-G") + SmallDataThreshold));
 
+  Args.AddAllArgs(CmdArgs, options::OPT_g_Group);
+  Args.AddAllArgValues(CmdArgs, options::OPT_Wa_COMMA,
+                       options::OPT_Xassembler);
+
   // Only pass -x if gcc will understand it; otherwise hope gcc
   // understands the suffix correctly. The main use case this would go
   // wrong in is for linker inputs if they happened to have an odd
@@ -4111,6 +4114,9 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
   // categories.
   if (Args.hasArg(options::OPT_ObjC) || Args.hasArg(options::OPT_ObjCXX))
     CmdArgs.push_back("-ObjC");
+
+  if (Args.hasArg(options::OPT_rdynamic))
+    CmdArgs.push_back("-export_dynamic");
 
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());

@@ -22,6 +22,7 @@
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
+#include "llvm/TargetTransformInfo.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/PrettyStackTrace.h"
@@ -327,7 +328,9 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
   if (CodeGenOpts.EmitGcovArcs || CodeGenOpts.EmitGcovNotes) {
     MPM->add(createGCOVProfilerPass(CodeGenOpts.EmitGcovNotes,
                                     CodeGenOpts.EmitGcovArcs,
-                                    TargetTriple.isMacOSX()));
+                                    TargetTriple.isMacOSX(),
+                                    false,
+                                    CodeGenOpts.DisableRedZone));
 
     if (CodeGenOpts.getDebugInfo() == CodeGenOptions::NoDebugInfo)
       MPM->add(createStripSymbolsPass(true));

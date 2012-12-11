@@ -1,4 +1,4 @@
-; RUN: llc -dwarf-fission=Enable -O0 %s -mtriple=x86_64-unknown-linux-gnu -filetype=obj -o %t
+; RUN: llc -split-dwarf=Enable -O0 %s -mtriple=x86_64-unknown-linux-gnu -filetype=obj -o %t
 ; RUN: llvm-dwarfdump %t | FileCheck %s
 
 @a = common global i32 0, align 4
@@ -19,7 +19,7 @@
 ; DW_AT_low_pc, DW_AT_high_pc, DW_AT_ranges, DW_AT_dwo_name, DW_AT_dwo_id,
 ; DW_AT_ranges_base, DW_AT_addr_base.
 
-; CHECK: DW_TAG_compile_unit [1]  
+; CHECK: DW_TAG_compile_unit
 ; CHECK: DW_AT_GNU_dwo_name [DW_FORM_strp] ( .debug_str[0x00000035] = "baz.c")
 ; CHECK: DW_AT_low_pc [DW_FORM_addr]       (0x0000000000000000)
 ; CHECK: DW_AT_stmt_list [DW_FORM_data4]   (0x00000000)

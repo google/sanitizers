@@ -164,14 +164,14 @@ static void WriteStringRecord(unsigned Code, StringRef Str,
 // Emit information about parameter attributes.
 static void WriteAttributeTable(const ValueEnumerator &VE,
                                 BitstreamWriter &Stream) {
-  const std::vector<AttrListPtr> &Attrs = VE.getAttributes();
+  const std::vector<AttributeSet> &Attrs = VE.getAttributes();
   if (Attrs.empty()) return;
 
   Stream.EnterSubblock(bitc::PARAMATTR_BLOCK_ID, 3);
 
   SmallVector<uint64_t, 64> Record;
   for (unsigned i = 0, e = Attrs.size(); i != e; ++i) {
-    const AttrListPtr &A = Attrs[i];
+    const AttributeSet &A = Attrs[i];
     for (unsigned i = 0, e = A.getNumSlots(); i != e; ++i) {
       const AttributeWithIndex &PAWI = A.getSlot(i);
       Record.push_back(PAWI.Index);
@@ -552,15 +552,15 @@ static uint64_t GetOptimizationFlags(const Value *V) {
   } else if (const FPMathOperator *FPMO =
              dyn_cast<const FPMathOperator>(V)) {
     if (FPMO->hasUnsafeAlgebra())
-      Flags |= 1 << bitc::FMF_UNSAFE_ALGEBRA;
+      Flags |= FastMathFlags::UnsafeAlgebra;
     if (FPMO->hasNoNaNs())
-      Flags |= 1 << bitc::FMF_NO_NANS;
+      Flags |= FastMathFlags::NoNaNs;
     if (FPMO->hasNoInfs())
-      Flags |= 1 << bitc::FMF_NO_INFS;
+      Flags |= FastMathFlags::NoInfs;
     if (FPMO->hasNoSignedZeros())
-      Flags |= 1 << bitc::FMF_NO_SIGNED_ZEROS;
+      Flags |= FastMathFlags::NoSignedZeros;
     if (FPMO->hasAllowReciprocal())
-      Flags |= 1 << bitc::FMF_ALLOW_RECIPROCAL;
+      Flags |= FastMathFlags::AllowReciprocal;
   }
 
   return Flags;
