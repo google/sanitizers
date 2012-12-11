@@ -20,6 +20,10 @@
 #include <setjmp.h>
 #include <assert.h>
 
+#ifdef __linux__
+# include <sys/prctl.h>
+#endif
+
 #if defined(__i386__) || defined(__x86_64__)
 #include <emmintrin.h>
 #endif
@@ -1619,19 +1623,28 @@ TEST(AddressSanitizer, DISABLED_MallocFreeUnwindAndSymbolizeTest) {
                "malloc_fff.*malloc_eee.*malloc_ddd");
 }
 
+static void TryToSetThreadName(const char *name) {
+#ifdef __linux__
+  prctl(PR_SET_NAME, (unsigned long)name, 0, 0, 0);
+#endif
+}
+
 void *ThreadedTestAlloc(void *a) {
+  TryToSetThreadName("AllocThr");
   int **p = (int**)a;
   *p = new int;
   return 0;
 }
 
 void *ThreadedTestFree(void *a) {
+  TryToSetThreadName("FreeThr");
   int **p = (int**)a;
   delete *p;
   return 0;
 }
 
 void *ThreadedTestUse(void *a) {
+  TryToSetThreadName("UseThr");
   int **p = (int**)a;
   **p = 1;
   return 0;
@@ -1655,6 +1668,21 @@ TEST(AddressSanitizer, ThreadedTest) {
                ".*Thread T.*created"
                ".*Thread T.*created");
 }
+
+#ifdef __linux__
+TEST(AddressSanitizer, ThreadNamesTest) {
+  // ThreadedTestSpawn();
+  EXPECT_DEATH(ThreadedTestSpawn(),
+               ASAN_PCRE_DOTALL
+               "WRITE .*thread T. .UseThr."
+               ".*freed by thread T. .FreeThr. here:"
+               ".*previously allocated by thread T. .AllocThr. here:"
+               ".*Thread T. .UseThr. created by T. here:"
+               ".*Thread T. .FreeThr. created by T. here:"
+               ".*Thread T. .AllocThr. created by T. here:"
+               "");
+}
+#endif
 
 #if ASAN_NEEDS_SEGV
 TEST(AddressSanitizer, ShadowGapTest) {

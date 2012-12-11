@@ -1806,8 +1806,8 @@ public:
             CC == CC_X86Pascal) ? CCCR_OK : CCCR_Warning;
   }
 
-  virtual CallingConv getDefaultCallingConv() const {
-    return CC_C;
+  virtual CallingConv getDefaultCallingConv(CallingConvMethodType MT) const {
+    return MT == CCMT_Member ? CC_X86ThisCall : CC_C;
   }
 };
 
@@ -2896,8 +2896,8 @@ public:
     return TargetInfo::checkCallingConvention(CC);
   }
 
-  virtual CallingConv getDefaultCallingConv() const {
-    return CC_Default;
+  virtual CallingConv getDefaultCallingConv(CallingConvMethodType MT) const {
+    return CC_C;
   }
 
 };
@@ -4222,6 +4222,10 @@ public:
     PointerWidth = PointerAlign = 64;
     LongDoubleWidth = LongDoubleAlign = 128;
     LongDoubleFormat = &llvm::APFloat::IEEEquad;
+    if (getTriple().getOS() == llvm::Triple::FreeBSD) {
+      LongDoubleWidth = LongDoubleAlign = 64;
+      LongDoubleFormat = &llvm::APFloat::IEEEdouble;
+    }
     SuitableAlign = 128;
   }
   virtual bool setABI(const std::string &Name) {

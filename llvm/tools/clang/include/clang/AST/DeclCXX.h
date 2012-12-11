@@ -353,10 +353,42 @@ class CXXRecordDecl : public RecordDecl {
     /// \brief True if any field has an in-class initializer.
     bool HasInClassInitializer : 1;
 
+    /// \brief True if any field is of reference type, and does not have an
+    /// in-class initializer. In this case, value-initialization of this class
+    /// is illegal in C++98 even if the class has a trivial default constructor.
+    bool HasUninitializedReferenceMember : 1;
+
+    /// \brief These flags are \c true if a defaulted corresponding special
+    /// member can't be fully analyzed without performing overload resolution.
+    /// @{
+    bool NeedOverloadResolutionForMoveConstructor : 1;
+    bool NeedOverloadResolutionForMoveAssignment : 1;
+    bool NeedOverloadResolutionForDestructor : 1;
+    /// @}
+
+    /// \brief These flags are \c true if an implicit defaulted corresponding
+    /// special member would be defined as deleted.
+    /// @{
+    bool DefaultedMoveConstructorIsDeleted : 1;
+    bool DefaultedMoveAssignmentIsDeleted : 1;
+    bool DefaultedDestructorIsDeleted : 1;
+    /// @}
+
     /// \brief The trivial special members which this class has, per
     /// C++11 [class.ctor]p5, C++11 [class.copy]p12, C++11 [class.copy]p25,
-    /// C++11 [class.dtor]p5.
+    /// C++11 [class.dtor]p5, or would have if the member were not suppressed.
+    ///
+    /// This excludes any user-declared but not user-provided special members
+    /// which have been declared but not yet defined.
     unsigned HasTrivialSpecialMembers : 6;
+
+    /// \brief The declared special members of this class which are known to be
+    /// non-trivial.
+    ///
+    /// This excludes any user-declared but not user-provided special members
+    /// which have been declared but not yet defined, and any implicit special
+    /// members which have not yet been declared.
+    unsigned DeclaredNonTrivialSpecialMembers : 6;
 
     /// HasIrrelevantDestructor - True when this class has a destructor with no
     /// semantic effect.
@@ -550,6 +582,10 @@ class CXXRecordDecl : public RecordDecl {
   friend class DeclContext;
   friend class LambdaExpr;
 
+  /// \brief Called from setBases and addedMember to notify the class that a
+  /// direct or virtual base class or a member of class type has been added.
+  void addedClassSubobject(CXXRecordDecl *Base);
+
   /// \brief Notify the class that member has been added.
   ///
   /// This routine helps maintain information about the class based on which
@@ -559,9 +595,6 @@ class CXXRecordDecl : public RecordDecl {
 
   void markedVirtualFunctionPure();
   friend void FunctionDecl::setPure(bool);
-
-  void markedConstructorConstexpr(CXXConstructorDecl *CD);
-  friend void FunctionDecl::setConstexpr(bool);
 
   friend class ASTNodeImporter;
 
@@ -720,6 +753,23 @@ public:
     return data().FirstFriend != 0;
   }
 
+  /// \brief \c true if we know for sure that this class has a single,
+  /// accessible, unambiguous move constructor that is not deleted.
+  bool hasSimpleMoveConstructor() const {
+    return !hasUserDeclaredMoveConstructor() && hasMoveConstructor();
+  }
+  /// \brief \c true if we know for sure that this class has a single,
+  /// accessible, unambiguous move assignment operator that is not deleted.
+  bool hasSimpleMoveAssignment() const {
+    return !hasUserDeclaredMoveAssignment() && hasMoveAssignment();
+  }
+  /// \brief \c true if we know for sure that this class has an accessible
+  /// destructor that is not deleted.
+  bool hasSimpleDestructor() const {
+    return !hasUserDeclaredDestructor() &&
+           !data().DefaultedDestructorIsDeleted;
+  }
+
   /// \brief Determine whether this class has any default constructors.
   bool hasDefaultConstructor() const {
     return (data().DeclaredSpecialMembers & SMF_DefaultConstructor) ||
@@ -734,32 +784,6 @@ public:
     return !data().UserDeclaredConstructor &&
            !(data().DeclaredSpecialMembers & SMF_DefaultConstructor);
   }
-
-  /// hasConstCopyConstructor - Determines whether this class has a
-  /// copy constructor that accepts a const-qualified argument.
-  bool hasConstCopyConstructor() const;
-
-  /// getCopyConstructor - Returns the copy constructor for this class
-  CXXConstructorDecl *getCopyConstructor(unsigned TypeQuals) const;
-
-  /// getMoveConstructor - Returns the move constructor for this class
-  CXXConstructorDecl *getMoveConstructor() const;
-
-  /// \brief Retrieve the copy-assignment operator for this class, if available.
-  ///
-  /// This routine attempts to find the copy-assignment operator for this
-  /// class, using a simplistic form of overload resolution.
-  ///
-  /// \param ArgIsConst Whether the argument to the copy-assignment operator
-  /// is const-qualified.
-  ///
-  /// \returns The copy-assignment operator that can be invoked, or NULL if
-  /// a unique copy-assignment operator could not be found.
-  CXXMethodDecl *getCopyAssignmentOperator(bool ArgIsConst) const;
-
-  /// getMoveAssignmentOperator - Returns the move assignment operator for this
-  /// class
-  CXXMethodDecl *getMoveAssignmentOperator() const;
 
   /// hasUserDeclaredConstructor - Whether this class has any
   /// user-declared constructors. When true, a default constructor
@@ -785,6 +809,12 @@ public:
   /// constructor to be lazily declared.
   bool needsImplicitCopyConstructor() const {
     return !(data().DeclaredSpecialMembers & SMF_CopyConstructor);
+  }
+
+  /// \brief Determine whether we need to eagerly declare a defaulted copy
+  /// constructor for this class.
+  bool needsOverloadResolutionForCopyConstructor() const {
+    return data().HasMutableFields;
   }
 
   /// \brief Determine whether an implicit copy constructor for this type
@@ -816,8 +846,6 @@ public:
   }
 
   /// \brief Determine whether this class has a move constructor.
-  /// FIXME: This can be wrong if the implicit move constructor would be
-  /// deleted.
   bool hasMoveConstructor() const {
     return (data().DeclaredSpecialMembers & SMF_MoveConstructor) ||
            needsImplicitMoveConstructor();
@@ -837,17 +865,20 @@ public:
 
   /// \brief Determine whether this class should get an implicit move
   /// constructor or if any existing special member function inhibits this.
-  ///
-  /// Covers all bullets of C++0x [class.copy]p9 except the last, that the
-  /// constructor wouldn't be deleted, which is only looked up from a cached
-  /// result.
   bool needsImplicitMoveConstructor() const {
     return !hasFailedImplicitMoveConstructor() &&
            !(data().DeclaredSpecialMembers & SMF_MoveConstructor) &&
            !hasUserDeclaredCopyConstructor() &&
            !hasUserDeclaredCopyAssignment() &&
            !hasUserDeclaredMoveAssignment() &&
-           !hasUserDeclaredDestructor();
+           !hasUserDeclaredDestructor() &&
+           !data().DefaultedMoveConstructorIsDeleted;
+  }
+
+  /// \brief Determine whether we need to eagerly declare a defaulted move
+  /// constructor for this class.
+  bool needsOverloadResolutionForMoveConstructor() const {
+    return data().NeedOverloadResolutionForMoveConstructor;
   }
 
   /// hasUserDeclaredCopyAssignment - Whether this class has a
@@ -861,6 +892,12 @@ public:
   /// assignment operator to be lazily declared.
   bool needsImplicitCopyAssignment() const {
     return !(data().DeclaredSpecialMembers & SMF_CopyAssignment);
+  }
+
+  /// \brief Determine whether we need to eagerly declare a defaulted copy
+  /// assignment operator for this class.
+  bool needsOverloadResolutionForCopyAssignment() const {
+    return data().HasMutableFields;
   }
 
   /// \brief Determine whether an implicit copy assignment operator for this
@@ -885,7 +922,6 @@ public:
   }
 
   /// \brief Determine whether this class has a move assignment operator.
-  /// FIXME: This can be wrong if the implicit move assignment would be deleted.
   bool hasMoveAssignment() const {
     return (data().DeclaredSpecialMembers & SMF_MoveAssignment) ||
            needsImplicitMoveAssignment();
@@ -906,16 +942,20 @@ public:
   /// \brief Determine whether this class should get an implicit move
   /// assignment operator or if any existing special member function inhibits
   /// this.
-  ///
-  /// Covers all bullets of C++0x [class.copy]p20 except the last, that the
-  /// constructor wouldn't be deleted.
   bool needsImplicitMoveAssignment() const {
     return !hasFailedImplicitMoveAssignment() &&
            !(data().DeclaredSpecialMembers & SMF_MoveAssignment) &&
            !hasUserDeclaredCopyConstructor() &&
            !hasUserDeclaredCopyAssignment() &&
            !hasUserDeclaredMoveConstructor() &&
-           !hasUserDeclaredDestructor();
+           !hasUserDeclaredDestructor() &&
+           !data().DefaultedMoveAssignmentIsDeleted;
+  }
+
+  /// \brief Determine whether we need to eagerly declare a move assignment
+  /// operator for this class.
+  bool needsOverloadResolutionForMoveAssignment() const {
+    return data().NeedOverloadResolutionForMoveAssignment;
   }
 
   /// hasUserDeclaredDestructor - Whether this class has a
@@ -931,9 +971,15 @@ public:
     return !(data().DeclaredSpecialMembers & SMF_Destructor);
   }
 
+  /// \brief Determine whether we need to eagerly declare a destructor for this
+  /// class.
+  bool needsOverloadResolutionForDestructor() const {
+    return data().NeedOverloadResolutionForDestructor;
+  }
+
   /// \brief Determine whether this class describes a lambda function object.
   bool isLambda() const { return hasDefinition() && data().IsLambda; }
-  
+
   /// \brief For a closure type, retrieve the mapping from captured
   /// variables and this to the non-static data members that store the
   /// values or references of the captures.
@@ -982,6 +1028,20 @@ public:
   /// for non-static data members.
   bool hasInClassInitializer() const { return data().HasInClassInitializer; }
 
+  /// \brief Whether this class or any of its subobjects has any members of
+  /// reference type which would make value-initialization ill-formed, per
+  /// C++03 [dcl.init]p5:
+  ///  -- if T is a non-union class type without a user-declared constructor,
+  ///     then every non-static data member and base-class component of T is
+  ///     value-initialized
+  /// [...]
+  /// A program that calls for [...] value-initialization of an entity of
+  /// reference type is ill-formed.
+  bool hasUninitializedReferenceMember() const {
+    return !isUnion() && !hasUserDeclaredConstructor() &&
+           data().HasUninitializedReferenceMember;
+  }
+
   /// isPOD - Whether this class is a POD-type (C++ [class]p4), which is a class
   /// that is an aggregate that has no non-static non-POD data members, no
   /// reference data members, no user-defined copy assignment operator and no
@@ -1016,7 +1076,6 @@ public:
 
   /// \brief Determine whether this class has a trivial default constructor
   /// (C++11 [class.ctor]p5).
-  /// FIXME: This can be wrong when the class has multiple default constructors.
   bool hasTrivialDefaultConstructor() const {
     return hasDefaultConstructor() &&
            (data().HasTrivialSpecialMembers & SMF_DefaultConstructor);
@@ -1025,8 +1084,9 @@ public:
   /// \brief Determine whether this class has a non-trivial default constructor
   /// (C++11 [class.ctor]p5).
   bool hasNonTrivialDefaultConstructor() const {
-    return hasDefaultConstructor() &&
-           !(data().HasTrivialSpecialMembers & SMF_DefaultConstructor);
+    return (data().DeclaredNonTrivialSpecialMembers & SMF_DefaultConstructor) ||
+           (needsImplicitDefaultConstructor() &&
+            !(data().HasTrivialSpecialMembers & SMF_DefaultConstructor));
   }
 
   /// \brief Determine whether this class has at least one constexpr constructor
@@ -1053,7 +1113,6 @@ public:
 
   /// \brief Determine whether this class has a trivial copy constructor
   /// (C++ [class.copy]p6, C++11 [class.copy]p12)
-  /// FIXME: This can be wrong if the class has multiple copy constructors.
   bool hasTrivialCopyConstructor() const {
     return data().HasTrivialSpecialMembers & SMF_CopyConstructor;
   }
@@ -1061,13 +1120,12 @@ public:
   /// \brief Determine whether this class has a non-trivial copy constructor
   /// (C++ [class.copy]p6, C++11 [class.copy]p12)
   bool hasNonTrivialCopyConstructor() const {
-    return !(data().HasTrivialSpecialMembers & SMF_CopyConstructor);
+    return data().DeclaredNonTrivialSpecialMembers & SMF_CopyConstructor ||
+           !hasTrivialCopyConstructor();
   }
 
   /// \brief Determine whether this class has a trivial move constructor
   /// (C++11 [class.copy]p12)
-  /// FIXME: This can be wrong if the class has multiple move constructors,
-  /// or if the implicit move constructor would be deleted.
   bool hasTrivialMoveConstructor() const {
     return hasMoveConstructor() &&
            (data().HasTrivialSpecialMembers & SMF_MoveConstructor);
@@ -1075,17 +1133,14 @@ public:
 
   /// \brief Determine whether this class has a non-trivial move constructor
   /// (C++11 [class.copy]p12)
-  /// FIXME: This can be wrong if the implicit move constructor would be
-  /// deleted.
   bool hasNonTrivialMoveConstructor() const {
-    return hasMoveConstructor() &&
-           !(data().HasTrivialSpecialMembers & SMF_MoveConstructor);
+    return (data().DeclaredNonTrivialSpecialMembers & SMF_MoveConstructor) ||
+           (needsImplicitMoveConstructor() &&
+            !(data().HasTrivialSpecialMembers & SMF_MoveConstructor));
   }
 
   /// \brief Determine whether this class has a trivial copy assignment operator
   /// (C++ [class.copy]p11, C++11 [class.copy]p25)
-  /// FIXME: This can be wrong if the class has multiple copy assignment
-  /// operators.
   bool hasTrivialCopyAssignment() const {
     return data().HasTrivialSpecialMembers & SMF_CopyAssignment;
   }
@@ -1093,13 +1148,12 @@ public:
   /// \brief Determine whether this class has a non-trivial copy assignment
   /// operator (C++ [class.copy]p11, C++11 [class.copy]p25)
   bool hasNonTrivialCopyAssignment() const {
-    return !(data().HasTrivialSpecialMembers & SMF_CopyAssignment);
+    return data().DeclaredNonTrivialSpecialMembers & SMF_CopyAssignment ||
+           !hasTrivialCopyAssignment();
   }
 
   /// \brief Determine whether this class has a trivial move assignment operator
   /// (C++11 [class.copy]p25)
-  /// FIXME: This can be wrong if the class has multiple move assignment
-  /// operators, or if the implicit move assignment operator would be deleted.
   bool hasTrivialMoveAssignment() const {
     return hasMoveAssignment() &&
            (data().HasTrivialSpecialMembers & SMF_MoveAssignment);
@@ -1107,10 +1161,10 @@ public:
 
   /// \brief Determine whether this class has a non-trivial move assignment
   /// operator (C++11 [class.copy]p25)
-  /// FIXME: This can be wrong if the implicit move assignment would be deleted.
   bool hasNonTrivialMoveAssignment() const {
-    return hasMoveAssignment() &&
-           !(data().HasTrivialSpecialMembers & SMF_MoveAssignment);
+    return (data().DeclaredNonTrivialSpecialMembers & SMF_MoveAssignment) ||
+           (needsImplicitMoveAssignment() &&
+            !(data().HasTrivialSpecialMembers & SMF_MoveAssignment));
   }
 
   /// \brief Determine whether this class has a trivial destructor
@@ -1427,6 +1481,10 @@ public:
     if (DeclAccess == AS_private) return AS_none;
     return (PathAccess > DeclAccess ? PathAccess : DeclAccess);
   }
+
+  /// \brief Indicates that the declaration of a defaulted or deleted special
+  /// member function is now complete.
+  void finishedDefaultedOrDeletedMember(CXXMethodDecl *MD);
 
   /// \brief Indicates that the definition of this class is now complete.
   virtual void completeDefinition();

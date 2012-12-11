@@ -24,8 +24,9 @@
 // Once freed, the body of the chunk contains the stack trace of the free call.
 //
 //===----------------------------------------------------------------------===//
-
 #include "asan_allocator.h"
+
+#if ASAN_ALLOCATOR_VERSION == 1
 #include "asan_interceptors.h"
 #include "asan_internal.h"
 #include "asan_lock.h"
@@ -36,10 +37,6 @@
 #include "asan_thread_registry.h"
 #include "sanitizer/asan_interface.h"
 #include "sanitizer_common/sanitizer_atomic.h"
-
-#if defined(_WIN32) && !defined(__clang__)
-#include <intrin.h>
-#endif
 
 namespace __asan {
 
@@ -64,37 +61,6 @@ static inline bool IsAligned(uptr a, uptr alignment) {
   return (a & (alignment - 1)) == 0;
 }
 
-static inline uptr Log2(uptr x) {
-  CHECK(IsPowerOfTwo(x));
-#if !defined(_WIN32) || defined(__clang__)
-  return __builtin_ctzl(x);
-#elif defined(_WIN64)
-  unsigned long ret;  // NOLINT
-  _BitScanForward64(&ret, x);
-  return ret;
-#else
-  unsigned long ret;  // NOLINT
-  _BitScanForward(&ret, x);
-  return ret;
-#endif
-}
-
-static inline uptr RoundUpToPowerOfTwo(uptr size) {
-  CHECK(size);
-  if (IsPowerOfTwo(size)) return size;
-
-  unsigned long up;  // NOLINT
-#if !defined(_WIN32) || defined(__clang__)
-  up = SANITIZER_WORDSIZE - 1 - __builtin_clzl(size);
-#elif defined(_WIN64)
-  _BitScanReverse64(&up, size);
-#else
-  _BitScanReverse(&up, size);
-#endif
-  CHECK(size < (1ULL << (up + 1)));
-  CHECK(size > (1ULL << up));
-  return 1UL << (up + 1);
-}
 
 static inline uptr SizeClassToSize(u8 size_class) {
   CHECK(size_class < kNumberOfSizeClasses);
@@ -215,33 +181,6 @@ void AsanChunkView::GetAllocStack(StackTrace *stack) {
 void AsanChunkView::GetFreeStack(StackTrace *stack) {
   StackTrace::UncompressStack(stack, chunk_->compressed_free_stack(),
                               chunk_->compressed_free_stack_size());
-}
-
-bool AsanChunkView::AddrIsInside(uptr addr, uptr access_size, uptr *offset) {
-  if (addr >= Beg() && (addr + access_size) <= End()) {
-    *offset = addr - Beg();
-    return true;
-  }
-  return false;
-}
-
-bool AsanChunkView::AddrIsAtLeft(uptr addr, uptr access_size, uptr *offset) {
-  if (addr < Beg()) {
-    *offset = Beg() - addr;
-    return true;
-  }
-  return false;
-}
-
-bool AsanChunkView::AddrIsAtRight(uptr addr, uptr access_size, uptr *offset) {
-  if (addr + access_size >= End()) {
-    if (addr <= End())
-      *offset = 0;
-    else
-      *offset = addr - End();
-    return true;
-  }
-  return false;
 }
 
 static AsanChunk *PtrToChunk(uptr ptr) {
@@ -757,7 +696,8 @@ static u8 *Reallocate(u8 *old_ptr, uptr new_size,
 
 }  // namespace __asan
 
-// Default (no-op) implementation of malloc hooks.
+#if !SANITIZER_SUPPORTS_WEAK_HOOKS
+// Provide default (no-op) implementation of malloc hooks.
 extern "C" {
 SANITIZER_WEAK_ATTRIBUTE SANITIZER_INTERFACE_ATTRIBUTE
 void __asan_malloc_hook(void *ptr, uptr size) {
@@ -769,26 +709,27 @@ void __asan_free_hook(void *ptr) {
   (void)ptr;
 }
 }  // extern "C"
+#endif
 
 namespace __asan {
 
 SANITIZER_INTERFACE_ATTRIBUTE
 void *asan_memalign(uptr alignment, uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(alignment, size, stack);
-  __asan_malloc_hook(ptr, size);
+  ASAN_MALLOC_HOOK(ptr, size);
   return ptr;
 }
 
 SANITIZER_INTERFACE_ATTRIBUTE
 void asan_free(void *ptr, StackTrace *stack) {
-  __asan_free_hook(ptr);
+  ASAN_FREE_HOOK(ptr);
   Deallocate((u8*)ptr, stack);
 }
 
 SANITIZER_INTERFACE_ATTRIBUTE
 void *asan_malloc(uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(0, size, stack);
-  __asan_malloc_hook(ptr, size);
+  ASAN_MALLOC_HOOK(ptr, size);
   return ptr;
 }
 
@@ -796,17 +737,17 @@ void *asan_calloc(uptr nmemb, uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(0, nmemb * size, stack);
   if (ptr)
     REAL(memset)(ptr, 0, nmemb * size);
-  __asan_malloc_hook(ptr, nmemb * size);
+  ASAN_MALLOC_HOOK(ptr, size);
   return ptr;
 }
 
 void *asan_realloc(void *p, uptr size, StackTrace *stack) {
   if (p == 0) {
     void *ptr = (void*)Allocate(0, size, stack);
-    __asan_malloc_hook(ptr, size);
+    ASAN_MALLOC_HOOK(ptr, size);
     return ptr;
   } else if (size == 0) {
-    __asan_free_hook(p);
+    ASAN_FREE_HOOK(p);
     Deallocate((u8*)p, stack);
     return 0;
   }
@@ -815,7 +756,7 @@ void *asan_realloc(void *p, uptr size, StackTrace *stack) {
 
 void *asan_valloc(uptr size, StackTrace *stack) {
   void *ptr = (void*)Allocate(GetPageSizeCached(), size, stack);
-  __asan_malloc_hook(ptr, size);
+  ASAN_MALLOC_HOOK(ptr, size);
   return ptr;
 }
 
@@ -827,7 +768,7 @@ void *asan_pvalloc(uptr size, StackTrace *stack) {
     size = PageSize;
   }
   void *ptr = (void*)Allocate(PageSize, size, stack);
-  __asan_malloc_hook(ptr, size);
+  ASAN_MALLOC_HOOK(ptr, size);
   return ptr;
 }
 
@@ -835,7 +776,7 @@ int asan_posix_memalign(void **memptr, uptr alignment, uptr size,
                           StackTrace *stack) {
   void *ptr = Allocate(alignment, size, stack);
   CHECK(IsAligned((uptr)ptr, alignment));
-  __asan_malloc_hook(ptr, size);
+  ASAN_MALLOC_HOOK(ptr, size);
   *memptr = ptr;
   return 0;
 }
@@ -862,169 +803,10 @@ void asan_mz_force_unlock() {
   malloc_info.ForceUnlock();
 }
 
-// ---------------------- Fake stack-------------------- {{{1
-FakeStack::FakeStack() {
-  CHECK(REAL(memset) != 0);
-  REAL(memset)(this, 0, sizeof(*this));
-}
-
-bool FakeStack::AddrIsInSizeClass(uptr addr, uptr size_class) {
-  uptr mem = allocated_size_classes_[size_class];
-  uptr size = ClassMmapSize(size_class);
-  bool res = mem && addr >= mem && addr < mem + size;
-  return res;
-}
-
-uptr FakeStack::AddrIsInFakeStack(uptr addr) {
-  for (uptr i = 0; i < kNumberOfSizeClasses; i++) {
-    if (AddrIsInSizeClass(addr, i)) return allocated_size_classes_[i];
-  }
-  return 0;
-}
-
-// We may want to compute this during compilation.
-inline uptr FakeStack::ComputeSizeClass(uptr alloc_size) {
-  uptr rounded_size = RoundUpToPowerOfTwo(alloc_size);
-  uptr log = Log2(rounded_size);
-  CHECK(alloc_size <= (1UL << log));
-  if (!(alloc_size > (1UL << (log-1)))) {
-    Printf("alloc_size %zu log %zu\n", alloc_size, log);
-  }
-  CHECK(alloc_size > (1UL << (log-1)));
-  uptr res = log < kMinStackFrameSizeLog ? 0 : log - kMinStackFrameSizeLog;
-  CHECK(res < kNumberOfSizeClasses);
-  CHECK(ClassSize(res) >= rounded_size);
-  return res;
-}
-
-void FakeFrameFifo::FifoPush(FakeFrame *node) {
-  CHECK(node);
-  node->next = 0;
-  if (first_ == 0 && last_ == 0) {
-    first_ = last_ = node;
-  } else {
-    CHECK(first_);
-    CHECK(last_);
-    last_->next = node;
-    last_ = node;
-  }
-}
-
-FakeFrame *FakeFrameFifo::FifoPop() {
-  CHECK(first_ && last_ && "Exhausted fake stack");
-  FakeFrame *res = 0;
-  if (first_ == last_) {
-    res = first_;
-    first_ = last_ = 0;
-  } else {
-    res = first_;
-    first_ = first_->next;
-  }
-  return res;
-}
-
-void FakeStack::Init(uptr stack_size) {
-  stack_size_ = stack_size;
-  alive_ = true;
-}
-
-void FakeStack::Cleanup() {
-  alive_ = false;
-  for (uptr i = 0; i < kNumberOfSizeClasses; i++) {
-    uptr mem = allocated_size_classes_[i];
-    if (mem) {
-      PoisonShadow(mem, ClassMmapSize(i), 0);
-      allocated_size_classes_[i] = 0;
-      UnmapOrDie((void*)mem, ClassMmapSize(i));
-    }
-  }
-}
-
-uptr FakeStack::ClassMmapSize(uptr size_class) {
-  return RoundUpToPowerOfTwo(stack_size_);
-}
-
-void FakeStack::AllocateOneSizeClass(uptr size_class) {
-  CHECK(ClassMmapSize(size_class) >= GetPageSizeCached());
-  uptr new_mem = (uptr)MmapOrDie(
-      ClassMmapSize(size_class), __FUNCTION__);
-  // Printf("T%d new_mem[%zu]: %p-%p mmap %zu\n",
-  //       asanThreadRegistry().GetCurrent()->tid(),
-  //       size_class, new_mem, new_mem + ClassMmapSize(size_class),
-  //       ClassMmapSize(size_class));
-  uptr i;
-  for (i = 0; i < ClassMmapSize(size_class);
-       i += ClassSize(size_class)) {
-    size_classes_[size_class].FifoPush((FakeFrame*)(new_mem + i));
-  }
-  CHECK(i == ClassMmapSize(size_class));
-  allocated_size_classes_[size_class] = new_mem;
-}
-
-uptr FakeStack::AllocateStack(uptr size, uptr real_stack) {
-  if (!alive_) return real_stack;
-  CHECK(size <= kMaxStackMallocSize && size > 1);
-  uptr size_class = ComputeSizeClass(size);
-  if (!allocated_size_classes_[size_class]) {
-    AllocateOneSizeClass(size_class);
-  }
-  FakeFrame *fake_frame = size_classes_[size_class].FifoPop();
-  CHECK(fake_frame);
-  fake_frame->size_minus_one = size - 1;
-  fake_frame->real_stack = real_stack;
-  while (FakeFrame *top = call_stack_.top()) {
-    if (top->real_stack > real_stack) break;
-    call_stack_.LifoPop();
-    DeallocateFrame(top);
-  }
-  call_stack_.LifoPush(fake_frame);
-  uptr ptr = (uptr)fake_frame;
-  PoisonShadow(ptr, size, 0);
-  return ptr;
-}
-
-void FakeStack::DeallocateFrame(FakeFrame *fake_frame) {
-  CHECK(alive_);
-  uptr size = fake_frame->size_minus_one + 1;
-  uptr size_class = ComputeSizeClass(size);
-  CHECK(allocated_size_classes_[size_class]);
-  uptr ptr = (uptr)fake_frame;
-  CHECK(AddrIsInSizeClass(ptr, size_class));
-  CHECK(AddrIsInSizeClass(ptr + size - 1, size_class));
-  size_classes_[size_class].FifoPush(fake_frame);
-}
-
-void FakeStack::OnFree(uptr ptr, uptr size, uptr real_stack) {
-  FakeFrame *fake_frame = (FakeFrame*)ptr;
-  CHECK(fake_frame->magic = kRetiredStackFrameMagic);
-  CHECK(fake_frame->descr != 0);
-  CHECK(fake_frame->size_minus_one == size - 1);
-  PoisonShadow(ptr, size, kAsanStackAfterReturnMagic);
-}
-
 }  // namespace __asan
 
 // ---------------------- Interface ---------------- {{{1
 using namespace __asan;  // NOLINT
-
-uptr __asan_stack_malloc(uptr size, uptr real_stack) {
-  if (!flags()->use_fake_stack) return real_stack;
-  AsanThread *t = asanThreadRegistry().GetCurrent();
-  if (!t) {
-    // TSD is gone, use the real stack.
-    return real_stack;
-  }
-  uptr ptr = t->fake_stack().AllocateStack(size, real_stack);
-  // Printf("__asan_stack_malloc %p %zu %p\n", ptr, size, real_stack);
-  return ptr;
-}
-
-void __asan_stack_free(uptr ptr, uptr size, uptr real_stack) {
-  if (!flags()->use_fake_stack) return;
-  if (ptr != real_stack) {
-    FakeStack::OnFree(ptr, size, real_stack);
-  }
-}
 
 // ASan allocator doesn't reserve extra bytes, so normally we would
 // just return "size".
@@ -1047,3 +829,4 @@ uptr __asan_get_allocated_size(const void *p) {
   }
   return allocated_size;
 }
+#endif  // ASAN_ALLOCATOR_VERSION

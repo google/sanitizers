@@ -78,8 +78,8 @@ static cl::opt<DefaultOnOff> DarwinGDBCompat("darwin-gdb-compat", cl::Hidden,
                 clEnumValEnd),
      cl::init(Default));
 
-static cl::opt<DefaultOnOff> DwarfFission("dwarf-fission", cl::Hidden,
-     cl::desc("Output prototype dwarf fission."),
+static cl::opt<DefaultOnOff> SplitDwarf("split-dwarf", cl::Hidden,
+     cl::desc("Output prototype dwarf split debug info."),
      cl::values(
                 clEnumVal(Default, "Default for platform"),
                 clEnumVal(Enable, "Enabled"),
@@ -153,10 +153,12 @@ DIType DbgVariable::getType() const {
 } // end llvm namespace
 
 DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
-  : Asm(A), MMI(Asm->MMI), FirstCU(0), FissionCU(0),
+  : Asm(A), MMI(Asm->MMI), FirstCU(0),
     AbbreviationsSet(InitAbbreviationsSetSize),
     SourceIdMap(DIEValueAllocator), StringPool(DIEValueAllocator),
-    PrevLabel(NULL), GlobalCUIndexCount(0) {
+    PrevLabel(NULL), GlobalCUIndexCount(0),
+    InfoHolder(A, &AbbreviationsSet, &Abbreviations),
+    SkeletonCU(0), SkeletonHolder(A, &AbbreviationsSet, &Abbreviations) {
   NextStringPoolNumber = 0;
 
   DwarfInfoSectionSym = DwarfAbbrevSectionSym = 0;
@@ -183,10 +185,10 @@ DwarfDebug::DwarfDebug(AsmPrinter *A, Module *M)
   } else
     HasDwarfAccelTables = DwarfAccelTables == Enable ? true : false;
 
-  if (DwarfFission == Default)
-    HasDwarfFission = false;
+  if (SplitDwarf == Default)
+    HasSplitDwarf = false;
   else
-    HasDwarfFission = DwarfFission == Enable ? true : false;
+    HasSplitDwarf = SplitDwarf == Enable ? true : false;
 
   {
     NamedRegionTimer T(DbgTimerName, DWARFGroupName, TimePassesIsEnabled);
@@ -222,21 +224,21 @@ MCSymbol *DwarfDebug::getStringPoolEntry(StringRef Str) {
 
 // Define a unique number for the abbreviation.
 //
-void DwarfDebug::assignAbbrevNumber(DIEAbbrev &Abbrev) {
+void DwarfUnits::assignAbbrevNumber(DIEAbbrev &Abbrev) {
   // Profile the node so that we can make it unique.
   FoldingSetNodeID ID;
   Abbrev.Profile(ID);
 
   // Check the set for priors.
-  DIEAbbrev *InSet = AbbreviationsSet.GetOrInsertNode(&Abbrev);
+  DIEAbbrev *InSet = AbbreviationsSet->GetOrInsertNode(&Abbrev);
 
   // If it's newly added.
   if (InSet == &Abbrev) {
     // Add to abbreviation list.
-    Abbreviations.push_back(&Abbrev);
+    Abbreviations->push_back(&Abbrev);
 
     // Assign the vector position + 1 as its number.
-    Abbrev.setNumber(Abbreviations.size());
+    Abbrev.setNumber(Abbreviations->size());
   } else {
     // Assign existing abbreviation number.
     Abbrev.setNumber(InSet->getNumber());
@@ -652,8 +654,10 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
 
   if (!FirstCU)
     FirstCU = NewCU;
-  if (useDwarfFission() && !FissionCU)
-    FissionCU = constructFissionCU(N);
+  if (useSplitDwarf() && !SkeletonCU)
+    SkeletonCU = constructSkeletonCU(N);
+
+  InfoHolder.addUnit(NewCU);
 
   CUMap.insert(std::make_pair(N, NewCU));
   return NewCU;
@@ -871,7 +875,9 @@ void DwarfDebug::finalizeModuleInfo() {
   }
 
    // Compute DIE offsets and sizes.
-  computeSizeAndOffsets();
+  InfoHolder.computeSizeAndOffsets();
+  if (useSplitDwarf())
+    SkeletonHolder.computeSizeAndOffsets();
 }
 
 void DwarfDebug::endSections() {
@@ -903,7 +909,7 @@ void DwarfDebug::endModule() {
   // Emit initial sections.
   emitSectionLabels();
 
-  if (!useDwarfFission()) {
+  if (!useSplitDwarf()) {
     // Emit all the DIEs into a debug info section.
     emitDebugInfo();
 
@@ -981,9 +987,12 @@ void DwarfDebug::endModule() {
   for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
          E = CUMap.end(); I != E; ++I)
     delete I->second;
+
+  delete SkeletonCU;
+
   // Reset these for the next Module if we have one.
   FirstCU = NULL;
-  FissionCU = NULL;
+  SkeletonCU = NULL;
 }
 
 // Find abstract variable, if any, associated with Var.
@@ -1632,7 +1641,7 @@ void DwarfDebug::recordSourceLine(unsigned Line, unsigned Col, const MDNode *S,
 
 // Compute the size and offset of a DIE.
 unsigned
-DwarfDebug::computeSizeAndOffset(DIE *Die, unsigned Offset) {
+DwarfUnits::computeSizeAndOffset(DIE *Die, unsigned Offset) {
   // Get the children.
   const std::vector<DIE *> &Children = Die->getChildren();
 
@@ -1641,7 +1650,7 @@ DwarfDebug::computeSizeAndOffset(DIE *Die, unsigned Offset) {
 
   // Get the abbreviation for this DIE.
   unsigned AbbrevNumber = Die->getAbbrevNumber();
-  const DIEAbbrev *Abbrev = Abbreviations[AbbrevNumber - 1];
+  const DIEAbbrev *Abbrev = Abbreviations->at(AbbrevNumber - 1);
 
   // Set DIE offset
   Die->setOffset(Offset);
@@ -1674,25 +1683,16 @@ DwarfDebug::computeSizeAndOffset(DIE *Die, unsigned Offset) {
 }
 
 // Compute the size and offset of all the DIEs.
-void DwarfDebug::computeSizeAndOffsets() {
-  if (FissionCU) {
+void DwarfUnits::computeSizeAndOffsets() {
+  for (SmallVector<CompileUnit *, 1>::iterator I = CUs.begin(),
+         E = CUs.end(); I != E; ++I) {
     unsigned Offset =
       sizeof(int32_t) + // Length of Compilation Unit Info
       sizeof(int16_t) + // DWARF version number
       sizeof(int32_t) + // Offset Into Abbrev. Section
       sizeof(int8_t);   // Pointer Size (in bytes)
 
-    computeSizeAndOffset(FissionCU->getCUDie(), Offset);
-  }
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
-    // Compute size of compile unit header.
-    unsigned Offset =
-      sizeof(int32_t) + // Length of Compilation Unit Info
-      sizeof(int16_t) + // DWARF version number
-      sizeof(int32_t) + // Offset Into Abbrev. Section
-      sizeof(int8_t);   // Pointer Size (in bytes)
-    computeSizeAndOffset(I->second->getCUDie(), Offset);
+    computeSizeAndOffset((*I)->getCUDie(), Offset);
   }
 }
 
@@ -1849,10 +1849,10 @@ void DwarfDebug::emitCompileUnits(const MCSection *Section) {
 
 // Emit the debug info section.
 void DwarfDebug::emitDebugInfo() {
-  if (!useDwarfFission())
+  if (!useSplitDwarf())
     emitCompileUnits(Asm->getObjFileLowering().getDwarfInfoSection());
   else
-    emitFissionSkeletonCU(Asm->getObjFileLowering().getDwarfInfoSection());
+    emitSkeletonCU(Asm->getObjFileLowering().getDwarfInfoSection());
 }
 
 // Emit the abbreviation section.
@@ -2321,7 +2321,7 @@ void DwarfDebug::emitDebugInlineInfo() {
 // DW_AT_low_pc, DW_AT_high_pc, DW_AT_ranges, DW_AT_dwo_name, DW_AT_dwo_id,
 // DW_AT_ranges_base, DW_AT_addr_base. If DW_AT_ranges is present,
 // DW_AT_low_pc and DW_AT_high_pc are not used, and vice versa.
-CompileUnit *DwarfDebug::constructFissionCU(const MDNode *N) {
+CompileUnit *DwarfDebug::constructSkeletonCU(const MDNode *N) {
   DICompileUnit DIUnit(N);
   StringRef FN = DIUnit.getFilename();
   CompilationDir = DIUnit.getDirectory();
@@ -2348,16 +2348,18 @@ CompileUnit *DwarfDebug::constructFissionCU(const MDNode *N) {
   if (!CompilationDir.empty())
     NewCU->addString(Die, dwarf::DW_AT_comp_dir, CompilationDir);
 
+  SkeletonHolder.addUnit(NewCU);
+
   return NewCU;
 }
 
-void DwarfDebug::emitFissionSkeletonCU(const MCSection *Section) {
+void DwarfDebug::emitSkeletonCU(const MCSection *Section) {
   Asm->OutStreamer.SwitchSection(Section);
-  DIE *Die = FissionCU->getCUDie();
+  DIE *Die = SkeletonCU->getCUDie();
 
   // Emit the compile units header.
   Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("skel_info_begin",
-                                                FissionCU->getUniqueID()));
+                                                SkeletonCU->getUniqueID()));
 
   // Emit size of content not including length itself
   unsigned ContentSize = Die->getSize() +
@@ -2377,7 +2379,7 @@ void DwarfDebug::emitFissionSkeletonCU(const MCSection *Section) {
 
   emitDIE(Die);
   Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("skel_info_end",
-                                                FissionCU->getUniqueID()));
+                                                SkeletonCU->getUniqueID()));
 
 
 }
@@ -2385,6 +2387,6 @@ void DwarfDebug::emitFissionSkeletonCU(const MCSection *Section) {
 // Emit the .debug_info.dwo section for fission. This contains the compile
 // units that would normally be in debug_info.
 void DwarfDebug::emitDebugInfoDWO() {
-  assert(useDwarfFission() && "Got fission?");
+  assert(useSplitDwarf() && "No split dwarf debug info?");
   emitCompileUnits(Asm->getObjFileLowering().getDwarfInfoDWOSection());
 }

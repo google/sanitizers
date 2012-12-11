@@ -188,6 +188,39 @@ public:
   DIType getType() const;
 };
 
+/// \brief Collects and handles information specific to a particular
+/// collection of units.
+class DwarfUnits {
+  // Target of Dwarf emission, used for sizing of abbreviations.
+  AsmPrinter *Asm;
+
+  // Used to uniquely define abbreviations.
+  FoldingSet<DIEAbbrev> *AbbreviationsSet;
+
+  // A list of all the unique abbreviations in use.
+  std::vector<DIEAbbrev *> *Abbreviations;
+
+  // A pointer to all units in the section.
+  SmallVector<CompileUnit *, 1> CUs;
+
+public:
+  DwarfUnits(AsmPrinter *AP, FoldingSet<DIEAbbrev> *AS,
+             std::vector<DIEAbbrev *> *A) :
+    Asm(AP), AbbreviationsSet(AS), Abbreviations(A) {}
+
+  /// \brief Compute the size and offset of a DIE given an incoming Offset.
+  unsigned computeSizeAndOffset(DIE *Die, unsigned Offset);
+
+  /// \brief Compute the size and offset of all the DIEs.
+  void computeSizeAndOffsets();
+
+  /// \brief Define a unique number for the abbreviation.
+  void assignAbbrevNumber(DIEAbbrev &Abbrev);
+
+  /// \brief Add a unit to the list of CUs.
+  void addUnit(CompileUnit *CU) { CUs.push_back(CU); }
+};
+
 /// \brief Collects and handles dwarf debug information.
 class DwarfDebug {
   // Target of Dwarf emission.
@@ -204,9 +237,6 @@ class DwarfDebug {
   //
 
   CompileUnit *FirstCU;
-
-  // The CU left in the original object file for Fission debug info.
-  CompileUnit *FissionCU;
 
   // Maps MDNode with its corresponding CompileUnit.
   DenseMap <const MDNode *, CompileUnit *> CUMap;
@@ -312,20 +342,32 @@ class DwarfDebug {
   // table for the same directory as DW_at_comp_dir.
   StringRef CompilationDir;
 
-  // Holders for the various debug information flags that we might need to
-  // have exposed. See accessor functions below for description.
-  bool IsDarwinGDBCompat;
-
   // Counter for assigning globally unique IDs for CUs.
   unsigned GlobalCUIndexCount;
 
+  // Holder for the file specific debug information.
+  DwarfUnits InfoHolder;
+
+  // Holders for the various debug information flags that we might need to
+  // have exposed. See accessor functions below for description.
+
+  // Whether or not we're emitting info for older versions of gdb on darwin.
+  bool IsDarwinGDBCompat;
+
   // DWARF5 Experimental Options
   bool HasDwarfAccelTables;
-  bool HasDwarfFission;
-private:
+  bool HasSplitDwarf;
 
-  /// \brief Define a unique number for the abbreviation.
-  void assignAbbrevNumber(DIEAbbrev &Abbrev);
+  // Fission Variables
+  // In general these will all be for bits that are left in the
+  // original object file, rather than things that are meant
+  // to be in the .dwo sections.
+
+  // The CU left in the original object file for Fission debug info.
+  CompileUnit *SkeletonCU;
+  DwarfUnits SkeletonHolder;
+
+private:
 
   void addScopeVariable(LexicalScope *LS, DbgVariable *Var);
 
@@ -422,13 +464,14 @@ private:
   /// \brief Emit inline info using custom format.
   void emitDebugInlineInfo();
 
-  /// DWARF 5 Experimental Fission Emitters
+  /// DWARF 5 Experimental Split Dwarf Emitters
 
-  /// \brief Construct the fission compile unit for the debug info section.
-  CompileUnit *constructFissionCU(const MDNode *);
+  /// \brief Construct the split debug info compile unit for the debug info
+  /// section.
+  CompileUnit *constructSkeletonCU(const MDNode *);
 
-  /// \brief Emit the fission debug info section.
-  void emitFissionSkeletonCU(const MCSection *);
+  /// \brief Emit the local split debug info section.
+  void emitSkeletonCU(const MCSection *);
 
   /// \brief Emit the debug info dwo section.
   void emitDebugInfoDWO();
@@ -537,8 +580,8 @@ public:
   bool useDwarfAccelTables() { return HasDwarfAccelTables; }
 
   /// \brief Returns whether or not to change the current debug info for the
-  /// fission proposal support.
-  bool useDwarfFission() { return HasDwarfFission; }
+  /// split dwarf proposal support.
+  bool useSplitDwarf() { return HasSplitDwarf; }
 };
 } // End of namespace llvm
 

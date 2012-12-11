@@ -102,35 +102,55 @@ public:
   void dump();
 };
 
-class MCDataFragment : public MCFragment {
+class MCEncodedFragment : public MCFragment {
   virtual void anchor();
-  SmallString<32> Contents;
+public:
+  MCEncodedFragment(MCFragment::FragmentType FType, MCSectionData *SD = 0)
+    : MCFragment(FType, SD) {
+  }
+  virtual ~MCEncodedFragment();
+
+  typedef SmallVectorImpl<MCFixup>::const_iterator const_fixup_iterator;
+  typedef SmallVectorImpl<MCFixup>::iterator fixup_iterator;
+
+  virtual SmallVectorImpl<char> &getContents() = 0;
+  virtual const SmallVectorImpl<char> &getContents() const = 0;
+
+  virtual SmallVectorImpl<MCFixup> &getFixups() = 0;
+  virtual const SmallVectorImpl<MCFixup> &getFixups() const = 0;
+
+  virtual fixup_iterator fixup_begin() = 0;
+  virtual const_fixup_iterator fixup_begin() const  = 0;
+  virtual fixup_iterator fixup_end() = 0;
+  virtual const_fixup_iterator fixup_end() const = 0;
+
+  static bool classof(const MCFragment *F) {
+    MCFragment::FragmentType Kind = F->getKind();
+    return Kind == MCFragment::FT_Inst || Kind == MCFragment::FT_Data;
+  }
+};
+
+class MCDataFragment : public MCEncodedFragment {
+  virtual void anchor();
+  SmallVector<char, 32> Contents;
 
   /// Fixups - The list of fixups in this fragment.
   SmallVector<MCFixup, 4> Fixups;
 
 public:
-  typedef SmallVectorImpl<MCFixup>::const_iterator const_fixup_iterator;
-  typedef SmallVectorImpl<MCFixup>::iterator fixup_iterator;
+  MCDataFragment(MCSectionData *SD = 0)
+    : MCEncodedFragment(FT_Data, SD) {
+  }
 
-public:
-  MCDataFragment(MCSectionData *SD = 0) : MCFragment(FT_Data, SD) {}
+  virtual SmallVectorImpl<char> &getContents() { return Contents; }
+  virtual const SmallVectorImpl<char> &getContents() const { return Contents; }
 
-  /// @name Accessors
-  /// @{
+  SmallVectorImpl<MCFixup> &getFixups() {
+    return Fixups;
+  }
 
-  SmallString<32> &getContents() { return Contents; }
-  const SmallString<32> &getContents() const { return Contents; }
-
-  /// @}
-  /// @name Fixup Access
-  /// @{
-
-  void addFixup(MCFixup Fixup) {
-    // Enforce invariant that fixups are in offset order.
-    assert((Fixups.empty() || Fixup.getOffset() >= Fixups.back().getOffset()) &&
-           "Fixups must be added in order!");
-    Fixups.push_back(Fixup);
+  const SmallVectorImpl<MCFixup> &getFixups() const {
+    return Fixups;
   }
 
   fixup_iterator fixup_begin() { return Fixups.begin(); }
@@ -138,64 +158,49 @@ public:
 
   fixup_iterator fixup_end() {return Fixups.end();}
   const_fixup_iterator fixup_end() const {return Fixups.end();}
-
-  /// @}
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Data;
   }
 };
 
-// FIXME: This current incarnation of MCInstFragment doesn't make much sense, as
-// it is almost entirely a duplicate of MCDataFragment. If we decide to stick
-// with this approach (as opposed to making MCInstFragment a very light weight
-// object with just the MCInst and a code size, then we should just change
-// MCDataFragment to have an optional MCInst at its end.
-class MCInstFragment : public MCFragment {
+class MCInstFragment : public MCEncodedFragment {
   virtual void anchor();
 
   /// Inst - The instruction this is a fragment for.
   MCInst Inst;
 
-  /// Code - Binary data for the currently encoded instruction.
-  SmallString<8> Code;
+  /// Contents - Binary data for the currently encoded instruction.
+  SmallVector<char, 8> Contents;
 
   /// Fixups - The list of fixups in this fragment.
   SmallVector<MCFixup, 1> Fixups;
 
 public:
-  typedef SmallVectorImpl<MCFixup>::const_iterator const_fixup_iterator;
-  typedef SmallVectorImpl<MCFixup>::iterator fixup_iterator;
-
-public:
   MCInstFragment(const MCInst &_Inst, MCSectionData *SD = 0)
-    : MCFragment(FT_Inst, SD), Inst(_Inst) {
+    : MCEncodedFragment(FT_Inst, SD), Inst(_Inst) {
   }
 
-  /// @name Accessors
-  /// @{
+  virtual SmallVectorImpl<char> &getContents() { return Contents; }
+  virtual const SmallVectorImpl<char> &getContents() const { return Contents; }
 
-  SmallVectorImpl<char> &getCode() { return Code; }
-  const SmallVectorImpl<char> &getCode() const { return Code; }
-
-  unsigned getInstSize() const { return Code.size(); }
+  unsigned getInstSize() const { return Contents.size(); }
   const MCInst &getInst() const { return Inst; }
   void setInst(const MCInst& Value) { Inst = Value; }
 
-  /// @}
-  /// @name Fixup Access
-  /// @{
+  SmallVectorImpl<MCFixup> &getFixups() {
+    return Fixups;
+  }
 
-  SmallVectorImpl<MCFixup> &getFixups() { return Fixups; }
-  const SmallVectorImpl<MCFixup> &getFixups() const { return Fixups; }
+  const SmallVectorImpl<MCFixup> &getFixups() const {
+    return Fixups;
+  }
 
   fixup_iterator fixup_begin() { return Fixups.begin(); }
   const_fixup_iterator fixup_begin() const { return Fixups.begin(); }
 
   fixup_iterator fixup_end() {return Fixups.end();}
   const_fixup_iterator fixup_end() const {return Fixups.end();}
-
-  /// @}
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Inst;
@@ -733,10 +738,12 @@ private:
   bool fragmentNeedsRelaxation(const MCInstFragment *IF,
                                const MCAsmLayout &Layout) const;
 
-  /// layoutOnce - Perform one layout iteration and return true if any offsets
+  /// \brief Perform one layout iteration and return true if any offsets
   /// were adjusted.
   bool layoutOnce(MCAsmLayout &Layout);
 
+  /// \brief Perform one layout iteration of the given section and return true
+  /// if any offsets were adjusted.
   bool layoutSectionOnce(MCAsmLayout &Layout, MCSectionData &SD);
 
   bool relaxInstruction(MCAsmLayout &Layout, MCInstFragment &IF);
