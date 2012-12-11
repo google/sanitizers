@@ -1209,9 +1209,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   ///    types.
   /// 2. Collect shadow of all scalar and vector arguments or bitwise OR it
   ///    together.
-  /// 3. If we think this intrinsics reads memory, load shadow for the base type
+  /// 3. If we think this intrinsic reads memory, load shadow for the base type
   ///    of the pointer argument and bitwise OR it with the rest.
-  /// 4. If we think this intrinsics writes memory, store the accumulated shadow
+  /// 4. If we think this intrinsic writes memory, store the accumulated shadow
   ///    by the pointer argument.
   /// 5. If the intrinsic has non-void return value, assign the accumulated
   ///    shadow to it.
@@ -1241,7 +1241,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     int pointerOpIdx = -1;
-    Type* MemAccessType = NULL;
+    Type* MemAccessType = 0;
     for (unsigned i = 0, n = I.getNumArgOperands(); i < n; ++i) {
       Value* Op = I.getArgOperand(i);
       if (Op->getType()->isPointerTy()) {
@@ -1339,6 +1339,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (pointerOpIdx >= 0 && writesMemory) {
       Value *Op = I.getArgOperand(pointerOpIdx);
       Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
+      // Seems like we don't know anything about the alignment of this store.
+      // Ex.: SSE storeu (unaligned store). Have to assume the worst case and
+      // use unaligned store for the shadow.
       IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
       if (ClTrackOrigins)
         IRB.CreateAlignedStore(Origin, getOriginPtr(Op, IRB), 1);
@@ -1347,8 +1350,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!I.getType()->isVoidTy()) {
       Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
       setShadow(&I, Shadow);
-      if (ClTrackOrigins)
-        setOrigin(&I, Origin);
+      setOrigin(&I, Origin);
     }
   }
 
