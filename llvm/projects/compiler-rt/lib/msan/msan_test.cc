@@ -1473,7 +1473,7 @@ TEST(MemorySanitizerOrigins, Alloca) {
 }
 
 // FIXME: replace with a lit-like test.
-TEST(MemorySanitizerOrigins, AllocaDeath) {
+TEST(MemorySanitizerOrigins, DISABLED_AllocaDeath) {
   if (!TrackingOrigins()) return;
   EXPECT_DEATH(AllocaTOTest(), "ORIGIN: stack allocation: ar@AllocaTOTest");
 }
