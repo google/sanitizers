@@ -1254,8 +1254,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// Note that this is a best-effort approach. We special-case intrinsics where
   /// it fails. See llvm.bswap handling as an example of that.
   void handleUnknownIntrinsic(IntrinsicInst &I) {
-    // TODO: handle struct types in CreateShadowCast
     if (hasStructArgumentOrRetVal(I)) {
+      // FIXME: Handle struct types in CreateShadowCast.
+      // Fallback to generic instruction handling.
       visitInstruction(I);
       return;
     }
@@ -1267,38 +1268,42 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     Intrinsic::ID iid = I.getIntrinsicID();
     IntrinsicKind IK = getIntrinsicKind(iid);
-    bool readsMemory = IK == IK_OnlyReadsMemory;
-    bool writesMemory = IK == IK_WritesMemory;
+    bool ReadsMemory = IK == IK_OnlyReadsMemory;
+    bool WritesMemory = IK == IK_WritesMemory;
 
     // See if we need to propagate shadow at all.
-    if (!writesMemory && I.getType()->isVoidTy()) {
+    if (!WritesMemory && I.getType()->isVoidTy()) {
       visitInstruction(I);
       return;
     }
 
-    int pointerOpIdx = -1;
+    // Index of the pointer operand.
+    int PointerOpIdx = -1;
+    // Guessed type of the memory access.
     Type* MemAccessType = 0;
     for (unsigned i = 0, n = I.getNumArgOperands(); i < n; ++i) {
       Value* Op = I.getArgOperand(i);
       if (Op->getType()->isPointerTy()) {
-        if (pointerOpIdx < 0) {
-          pointerOpIdx = i;
-        } else {
+        if (PointerOpIdx >= 0) {
           // Two pointer operands? Meh.
           visitInstruction(I);
           return;
         }
+        PointerOpIdx = i;
       } else if (!MemAccessType) {
         MemAccessType = Op->getType();
       }
     }
 
-    if (pointerOpIdx < 0 && (readsMemory || writesMemory)) {
+    if (PointerOpIdx < 0 && (ReadsMemory || WritesMemory)) {
+      // No pointer operands, but still somehow writes or reads memory.
       // No idea how to handle this.
       visitInstruction(I);
       return;
     }
 
+    // All operands are pointers! Assume that memory access type is the same as
+    // retval type.
     if (!MemAccessType)
       MemAccessType = I.getType();
 
@@ -1310,9 +1315,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     Type* MemAccessShadowTy = getShadowTy(MemAccessType);
 
-    DEBUG(dbgs() << (readsMemory ? "read" : (writesMemory ? "write" :
+    DEBUG(dbgs() << (ReadsMemory ? "read" : (WritesMemory ? "write" :
           "nomem")) << " intrinsic: " << I << "\n");
-    DEBUG(dbgs() << "pointer argument: " << pointerOpIdx << "\n");
+    DEBUG(dbgs() << "pointer argument: " << PointerOpIdx << "\n");
     DEBUG(dbgs() << "memory access type: " << *MemAccessType << "\n");
     DEBUG(dbgs() << "shadow type: " << *MemAccessShadowTy << "\n");
 
@@ -1322,9 +1327,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value* Shadow = NULL;
     Value* Origin = NULL;
     for (int i = 0, n = I.getNumArgOperands(); i < n; ++i) {
-      // For nomem intrinsics, we mix in the shadow of the pointer argument,
-      // as well.
-      if (i == pointerOpIdx && (readsMemory || writesMemory)) continue;
+      // Also mix in the shadow of the pointer argument for nomem instrinsics.
+      if (i == PointerOpIdx && (ReadsMemory || WritesMemory)) continue;
       Value* Op = I.getArgOperand(i);
       Value* OpShadow = CreateShadowCast(IRB, getShadow(Op), MemAccessShadowTy);
       if (!Shadow)
@@ -1336,18 +1340,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         if (!Origin) {
           Origin = OpOrigin;
         } else {
-          assert(Shadow);
-          Value *S = convertToShadowTyNoVec(Shadow, IRB);
+          Value* S = convertToShadowTyNoVec(OpShadow, IRB);
           Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                    Origin, OpOrigin);
+                                    OpOrigin, Origin);
         }
       }
     }
 
     // Read shadow by the pointer argument and mix it in.
-    if (pointerOpIdx >= 0 && readsMemory) {
-      Value *Op = I.getArgOperand(pointerOpIdx);
-      Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
+    if (PointerOpIdx >= 0 && ReadsMemory) {
+      Value* Op = I.getArgOperand(PointerOpIdx);
+      Value* ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
       // FIXME: do we know anything at all about this load alignment?
       // The same goes for the store below.
       Value* OpShadow = IRB.CreateAlignedLoad(ShadowPtr, 1, "_msld");
@@ -1356,31 +1359,30 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       else
         Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
       if (ClTrackOrigins) {
-        Value* MemOrigin = IRB.CreateAlignedLoad(getOriginPtr(Op, IRB), 1);
+        Value* MemOrigin = IRB.CreateLoad(getOriginPtr(Op, IRB));
         if (!Origin) {
           Origin = MemOrigin;
         } else {
-          assert(Shadow);
-          Value *S = convertToShadowTyNoVec(Shadow, IRB);
+          Value* S = convertToShadowTyNoVec(OpShadow, IRB);
           Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                    Origin, MemOrigin);
+                                    MemOrigin, Origin);
         }
       }
     }
 
     assert(Shadow);
-    if (ClTrackOrigins) assert(Origin);
+    assert(!ClTrackOrigins || Origin);
 
-    // Store shadow by the pointer argument.
-    if (pointerOpIdx >= 0 && writesMemory) {
-      Value *Op = I.getArgOperand(pointerOpIdx);
-      Value *ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
+    // Store shadow for the memory referenced by the pointer argument.
+    if (PointerOpIdx >= 0 && WritesMemory) {
+      Value* Op = I.getArgOperand(PointerOpIdx);
+      Value* ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
       // Seems like we don't know anything about the alignment of this store.
       // Ex.: SSE storeu (unaligned store). Have to assume the worst case and
       // use unaligned store for the shadow.
       IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
       if (ClTrackOrigins)
-        IRB.CreateAlignedStore(Origin, getOriginPtr(Op, IRB), 1);
+        IRB.CreateStore(Origin, getOriginPtr(Op, IRB));
     }
 
     if (!I.getType()->isVoidTy()) {

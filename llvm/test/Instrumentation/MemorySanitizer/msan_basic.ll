@@ -405,12 +405,12 @@ define void @StoreIntrinsic(i8* %p, <4 x float> %x) nounwind uwtable {
 
 declare void @llvm.x86.sse.storeu.ps(i8*, <4 x float>) nounwind
 
-; CHECK: define void @StoreIntrinsic
+; CHECK: @StoreIntrinsic
 ; CHECK-NOT: br
 ; CHECK-NOT: = or
 ; CHECK: store <4 x i32> {{.*}} align 1
 ; CHECK: call void @llvm.x86.sse.storeu.ps
-; CHECK: }
+; CHECK: ret void
 
 
 ; Load intrinsic.
@@ -422,10 +422,16 @@ define <16 x i8> @LoadIntrinsic(i8* %p) nounwind uwtable {
 
 declare <16 x i8> @llvm.x86.sse3.ldu.dq(i8* %p) nounwind
 
-; CHECK: define <16 x i8> @LoadIntrinsic
+; CHECK: @LoadIntrinsic
 ; CHECK: load <16 x i8>* {{.*}} align 1
 ; CHECK-NOT: br
 ; CHECK-NOT: = or
 ; CHECK: call <16 x i8> @llvm.x86.sse3.ldu.dq
 ; CHECK: store <16 x i8> {{.*}} @__msan_retval_tls
-; CHECK: }
+; CHECK: ret <16 x i8>
+
+; CHECK-ORIGINS: @LoadIntrinsic
+; CHECK-ORIGINS: [[ORIGIN:%[01-9a-z]+]] = load i32* {{.*}}
+; CHECK-ORIGINS: call <16 x i8> @llvm.x86.sse3.ldu.dq
+; CHECK-ORIGINS: store i32 {{.*}}[[ORIGIN]], i32* @__msan_retval_origin_tls
+; CHECK-ORIGINS: ret <16 x i8>
