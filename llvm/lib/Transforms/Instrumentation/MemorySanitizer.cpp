@@ -1302,7 +1302,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return;
     }
 
-    // All operands are pointers! Assume that memory access type is the same as
+    // A single pointer operand. Assume that memory access type is the same as
     // retval type.
     if (!MemAccessType)
       MemAccessType = I.getType();
