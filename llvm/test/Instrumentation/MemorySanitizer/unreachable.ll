@@ -12,7 +12,7 @@ entry:
 unreachable:
   %x = load i32* %p
   br label %exit
-  
+
 exit:
   %z = phi i32 [ 42, %entry ], [ %x, %unreachable ]
   ret i32 %z
