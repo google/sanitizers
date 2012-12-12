@@ -793,17 +793,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void insertCheck(Value *Val, Instruction *OrigIns) {
     assert(Val);
     if (!InsertChecks) return;
-    Value *Shadow0 = getShadow(Val);
-    if (!Shadow0) {
-      // errs() << "no shadow: " << *Val << "\n";
-      return;
-    }
     Instruction *Shadow = dyn_cast_or_null<Instruction>(getShadow(Val));
-    if (!Shadow) {
-      Constant *Cst = dyn_cast_or_null<Constant>(getShadow(Val));
-      assert(Cst && "Shadow is neither an Instruction, nor a constant!");
-      return;
-    }
+    if (!Shadow) return;
 #ifndef NDEBUG
     Type *ShadowTy = Shadow->getType();
     assert((isa<IntegerType>(ShadowTy) || isa<VectorType>(ShadowTy)) &&
