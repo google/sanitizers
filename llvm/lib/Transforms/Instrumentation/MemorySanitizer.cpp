@@ -955,25 +955,28 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
-  class ShadowCombiner {
+  template <bool CombineShadow, bool CombineOrigin>
+  class Combiner {
     Value *Shadow;
     Value *Origin;
     IRBuilder<> &IRB;
     MemorySanitizerVisitor* MSV;
   public:
-    ShadowCombiner(MemorySanitizerVisitor* MSV, IRBuilder<> &IRB) :
+    Combiner(MemorySanitizerVisitor* MSV, IRBuilder<> &IRB) :
       Shadow(0), Origin(0), IRB(IRB), MSV(MSV) {}
 
-    ShadowCombiner& Add(Value *OpShadow, Value *OpOrigin) {
-      assert(OpShadow);
-      if (!Shadow)
-        Shadow = OpShadow;
-      else {
-        OpShadow = MSV->CreateShadowCast(IRB, OpShadow, Shadow->getType());
-        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
+    Combiner& Add(Value *OpShadow, Value *OpOrigin) {
+      if (CombineShadow) {
+        assert(OpShadow);
+        if (!Shadow)
+          Shadow = OpShadow;
+        else {
+          OpShadow = MSV->CreateShadowCast(IRB, OpShadow, Shadow->getType());
+          Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
+        }
       }
 
-      if (ClTrackOrigins) {
+      if (CombineOrigin && ClTrackOrigins) {
         assert(OpOrigin);
         if (!Origin) {
           Origin = OpOrigin;
@@ -987,22 +990,27 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return *this;
     }
 
-    ShadowCombiner& Add(Value *V) {
+    Combiner& Add(Value *V) {
       Value *OpShadow = MSV->getShadow(V);
       Value* OpOrigin = ClTrackOrigins ? MSV->getOrigin(V) : 0;
       return Add(OpShadow, OpOrigin);
     }
 
     void Done(Instruction *I) {
-      assert(Shadow);
-      Shadow = MSV->CreateShadowCast(IRB, Shadow, MSV->getShadowTy(I));
-      MSV->setShadow(I, Shadow);
-      if (ClTrackOrigins) {
+      if (CombineShadow) {
+        assert(Shadow);
+        Shadow = MSV->CreateShadowCast(IRB, Shadow, MSV->getShadowTy(I));
+        MSV->setShadow(I, Shadow);
+      }
+      if (CombineOrigin && ClTrackOrigins) {
         assert(Origin);
         MSV->setOrigin(I, Origin);
       }
     }
   };
+
+  typedef Combiner<true, true> ShadowAndOriginCombiner;
+  typedef Combiner<false, true> OriginCombiner;
 
   /// \brief Propagate origin for an instruction.
   ///
@@ -1064,7 +1072,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // FIXME: merge this with handleShadowOrBinary.
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
-    ShadowCombiner SC(this, IRB);
+    ShadowAndOriginCombiner SC(this, IRB);
     for (Instruction::op_iterator OI = I.op_begin(); OI != I.op_end(); ++OI)
       SC.Add(OI->get());
     SC.Done(&I);
