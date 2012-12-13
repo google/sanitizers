@@ -955,6 +955,21 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  /// \brief Default propagation of shadow and/or origin.
+  ///
+  /// This class implements the general case of shadow propagation, used in all
+  /// cases where we don't know and/or don't care about what the operation
+  /// actually does. It converts all input shadow values to a common type
+  /// (extending or truncating as necessary), and bitwise OR's them.
+  ///
+  /// This is much cheaper than inserting checks (i.e. requiring inputs to be
+  /// fully initialized), and less prone to false positives.
+  ///
+  /// This class also implements the general case of origin propagation. For a
+  /// Nary operation, result origin is set to the origin of an argument that is
+  /// not entirely initialized. If there is more than one such arguments, the
+  /// rightmost of them is picked. It does not matter which one is picked if all
+  /// arguments are initialized.
   template <bool CombineShadow, bool CombineOrigin>
   class Combiner {
     Value *Shadow;
@@ -1012,22 +1027,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   typedef Combiner<true, true> ShadowAndOriginCombiner;
   typedef Combiner<false, true> OriginCombiner;
 
-  /// \brief Propagate origin for an instruction.
-  ///
-  /// This is a general case of origin propagation. For an Nary operation,
-  /// is set to the origin of an argument that is not entirely initialized.
-  /// If there is more than one such arguments, the rightmost of them is picked.
-  /// It does not matter which one is picked if all arguments are initialized.
+  /// \brief Propagate origin for arbitrary operation.
   void setOriginForNaryOp(Instruction &I) {
     if (!ClTrackOrigins) return;
     IRBuilder<> IRB(&I);
-    Value *Origin = getOrigin(&I, 0);
-    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op) {
-      Value *S = convertToShadowTyNoVec(getShadow(&I, Op), IRB);
-      Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                getOrigin(&I, Op), Origin);
-    }
-    setOrigin(&I, Origin);
+    OriginCombiner OC(this, IRB);
+    for (Instruction::op_iterator OI = I.op_begin(); OI != I.op_end(); ++OI)
+      OC.Add(OI->get());
+    OC.Done(&I);
   }
 
   bool hasStructArgumentOrRetVal(CallInst &I) {
@@ -1060,16 +1067,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   }
 
   /// \brief Propagate shadow for arbitrary operation.
-  ///
-  /// This is a general case of shadow propagation, used in all cases where we
-  /// don't know and/or care about what the operation actually does.
-  /// It converts all input shadow values to a common type (extending or
-  /// truncating as necessary), and bitwise OR's them.
-  ///
-  /// This is much cheaper than inserting checks (i.e. requiring inputs to be
-  /// fully initialized), and less prone to false positives.
-  // FIXME: is the casting actually correct?
-  // FIXME: merge this with handleShadowOrBinary.
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
     ShadowAndOriginCombiner SC(this, IRB);
