@@ -1264,160 +1264,82 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 #undef GET_INTRINSIC_MODREF_BEHAVIOR
   }
 
+  bool handleVectorStoreIntrinsic(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Value* Addr = I.getArgOperand(0);
+    Value *Shadow = getShadow(&I, 1);
+    Value *ShadowPtr = getShadowPtr(Addr, Shadow->getType(), IRB);
+
+    // We don't know the pointer alignment (could be unaligned SSE store!).
+    // Have to assume to worst case.
+    IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
+
+    if (ClCheckAccessAddress)
+      insertCheck(Addr, &I);
+
+    // FIXME: use ClStoreCleanOrigin
+    // FIXME: factor out common code from materializeStores
+    if (ClTrackOrigins)
+      IRB.CreateStore(getOrigin(&I, 1), getOriginPtr(Addr, IRB));
+    return true;
+  }
+
+  bool handleVectorLoadIntrinsic(IntrinsicInst &I) {
+    IRBuilder<> IRB(&I);
+    Value *Addr = I.getArgOperand(0);
+
+    Type *ShadowTy = getShadowTy(&I);
+    Value *ShadowPtr = getShadowPtr(Addr, ShadowTy, IRB);
+    // We don't know the pointer alignment (could be unaligned SSE load!).
+    // Have to assume to worst case.
+    setShadow(&I, IRB.CreateAlignedLoad(ShadowPtr, 1, "_msld"));
+
+    if (ClCheckAccessAddress)
+      insertCheck(Addr, &I);
+
+    if (ClTrackOrigins)
+      setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
+    return true;
+  }
+
   /// \brief Heuristically instrument unknown intrinsics.
   ///
   /// The main purpose of this code is to do something reasonable with all
   /// random intrinsics we might encounter, most importantly - SIMD intrinsics.
-  /// The algorithm roughly looks like this:
-  /// 1. Guess what intrinsic does by analysing its ModRefBehaviour and argument
-  ///    types.
-  /// 2. Collect shadow of all scalar and vector arguments and bitwise OR it
-  ///    together.
-  /// 3. If we think this intrinsic reads memory, load shadow for the base type
-  ///    of the pointer argument and bitwise OR it with the rest.
-  /// 4. If we think this intrinsic writes memory, store the accumulated shadow
-  ///    by the pointer argument.
-  /// 5. If the intrinsic has non-void return value, assign the accumulated
-  ///    shadow to it.
-  /// Note that this is a best-effort approach. We special-case intrinsics where
-  /// it fails. See llvm.bswap handling as an example of that.
-  void handleUnknownIntrinsic(IntrinsicInst &I) {
-    if (hasStructArgumentOrRetVal(I)) {
-      // FIXME: Handle struct types in CreateShadowCast.
-      // Fallback to generic instruction handling.
-      visitInstruction(I);
-      return;
-    }
-
-    if (I.getNumArgOperands() == 0) {
-      visitInstruction(I);
-      return;
-    }
+  /// We recognize several classes of intrinsics by their argument types and
+  /// ModRefBehaviour and apply special intrumentation when we are reasonably
+  /// sure that we know what the intrinsic does.
+  ///
+  /// We special-case intrinsics where this approach fails. See llvm.bswap
+  /// handling as an example of that.
+  bool handleUnknownIntrinsic(IntrinsicInst &I) {
+    if (I.getNumArgOperands() == 0)
+      return false;
 
     Intrinsic::ID iid = I.getIntrinsicID();
     IntrinsicKind IK = getIntrinsicKind(iid);
     bool ReadsMemory = IK == IK_OnlyReadsMemory;
     bool WritesMemory = IK == IK_WritesMemory;
 
-    // See if we need to propagate shadow at all.
-    if (!WritesMemory && I.getType()->isVoidTy()) {
-      visitInstruction(I);
-      return;
+    if (I.getNumArgOperands() == 2 &&
+        I.getArgOperand(0)->getType()->isPointerTy() &&
+        I.getArgOperand(1)->getType()->isVectorTy() &&
+        I.getType()->isVoidTy() &&
+        WritesMemory) {
+      // This looks like a vector store.
+      return handleVectorStoreIntrinsic(I);
     }
 
-    // Index of the pointer operand.
-    int PointerOpIdx = -1;
-    // Guessed type of the memory access.
-    Type* MemAccessType = 0;
-    for (unsigned i = 0, n = I.getNumArgOperands(); i < n; ++i) {
-      Value* Op = I.getArgOperand(i);
-      if (Op->getType()->isPointerTy()) {
-        if (PointerOpIdx >= 0) {
-          // Two pointer operands? Meh.
-          visitInstruction(I);
-          return;
-        }
-        PointerOpIdx = i;
-      } else if (!MemAccessType) {
-        MemAccessType = Op->getType();
-      }
+    if (I.getNumArgOperands() == 1 &&
+        I.getArgOperand(0)->getType()->isPointerTy() &&
+        I.getType()->isVectorTy() &&
+        ReadsMemory) {
+      // This looks like a vector load.
+      return handleVectorLoadIntrinsic(I);
     }
 
-    if (PointerOpIdx < 0 && (ReadsMemory || WritesMemory)) {
-      // No pointer operands, but still somehow writes or reads memory.
-      // No idea how to handle this.
-      visitInstruction(I);
-      return;
-    }
-
-    // A single pointer operand. Assume that memory access type is the same as
-    // retval type.
-    if (!MemAccessType)
-      MemAccessType = I.getType();
-
-    if (MemAccessType->isVoidTy()) {
-      // Can't figure out memory access size.
-      visitInstruction(I);
-      return;
-    }
-
-    Type* MemAccessShadowTy = getShadowTy(MemAccessType);
-
-    DEBUG(dbgs() << (ReadsMemory ? "read" : (WritesMemory ? "write" :
-          "nomem")) << " intrinsic: " << I << "\n");
-    DEBUG(dbgs() << "pointer argument: " << PointerOpIdx << "\n");
-    DEBUG(dbgs() << "memory access type: " << *MemAccessType << "\n");
-    DEBUG(dbgs() << "shadow type: " << *MemAccessShadowTy << "\n");
-
-    IRBuilder<> IRB(&I);
-
-    // Calculate OR'ed shadow of all scalar (or vector of scalars) arguments.
-    Value* Shadow = NULL;
-    Value* Origin = NULL;
-    for (int i = 0, n = I.getNumArgOperands(); i < n; ++i) {
-      // Also mix in the shadow of the pointer argument for nomem instrinsics.
-      if (i == PointerOpIdx && (ReadsMemory || WritesMemory)) continue;
-      Value* Op = I.getArgOperand(i);
-      Value* OpShadow = CreateShadowCast(IRB, getShadow(Op), MemAccessShadowTy);
-      if (!Shadow)
-        Shadow = OpShadow;
-      else
-        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
-      if (ClTrackOrigins) {
-        Value* OpOrigin = getOrigin(Op);
-        if (!Origin) {
-          Origin = OpOrigin;
-        } else {
-          Value* S = convertToShadowTyNoVec(OpShadow, IRB);
-          Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                    OpOrigin, Origin);
-        }
-      }
-    }
-
-    // Read shadow by the pointer argument and mix it in.
-    if (PointerOpIdx >= 0 && ReadsMemory) {
-      Value* Op = I.getArgOperand(PointerOpIdx);
-      Value* ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
-      // FIXME: do we know anything at all about this load alignment?
-      // The same goes for the store below.
-      Value* OpShadow = IRB.CreateAlignedLoad(ShadowPtr, 1, "_msld");
-      if (!Shadow)
-        Shadow = OpShadow;
-      else
-        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
-      if (ClTrackOrigins) {
-        Value* MemOrigin = IRB.CreateLoad(getOriginPtr(Op, IRB));
-        if (!Origin) {
-          Origin = MemOrigin;
-        } else {
-          Value* S = convertToShadowTyNoVec(OpShadow, IRB);
-          Origin = IRB.CreateSelect(IRB.CreateICmpNE(S, getCleanShadow(S)),
-                                    MemOrigin, Origin);
-        }
-      }
-    }
-
-    assert(Shadow);
-    assert(!ClTrackOrigins || Origin);
-
-    // Store shadow for the memory referenced by the pointer argument.
-    if (PointerOpIdx >= 0 && WritesMemory) {
-      Value* Op = I.getArgOperand(PointerOpIdx);
-      Value* ShadowPtr = getShadowPtr(Op, MemAccessShadowTy, IRB);
-      // Seems like we don't know anything about the alignment of this store.
-      // Ex.: SSE storeu (unaligned store). Have to assume the worst case and
-      // use unaligned store for the shadow.
-      IRB.CreateAlignedStore(Shadow, ShadowPtr, 1);
-      if (ClTrackOrigins)
-        IRB.CreateStore(Origin, getOriginPtr(Op, IRB));
-    }
-
-    if (!I.getType()->isVoidTy()) {
-      Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
-      setShadow(&I, Shadow);
-      setOrigin(&I, Origin);
-    }
+    // FIXME: detect and handle NoMem, no pointers, vector manipulation SIMD.
+    return false;
   }
 
   void handleBswap(IntrinsicInst &I) {
@@ -1435,7 +1357,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     case llvm::Intrinsic::bswap:
       handleBswap(I); break;
     default:
-      handleUnknownIntrinsic(I); break;
+      if (!handleUnknownIntrinsic(I))
+        visitInstruction(I);
+      break;
     }
   }
 
