@@ -1293,10 +1293,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return true;
   }
 
-  /// Caller checks that this intrinsic is NoMem.
+  /// \brief Handle (SIMD arithmetic)-like intrinsics.
+  ///
   /// Instrument intrinsics with any number of arguments of the same type,
   /// equal to the return type. The type should be simple (no aggregates or
   /// pointers; vectors are fine).
+  /// Caller guarantees that this intrinsic does not access memory.
   bool maybeHandleSimpleNomemIntrinsic(IntrinsicInst &I) {
     Type *RetTy = I.getType();
     if (!(RetTy->isIntOrIntVectorTy() ||
