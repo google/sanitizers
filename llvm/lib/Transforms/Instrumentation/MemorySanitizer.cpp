@@ -1022,19 +1022,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOrigin(&I, Origin);
   }
 
-  /// \brief Propagate shadow for a binary operation.
-  ///
-  /// Shadow = Shadow0 | Shadow1, all 3 must have the same type.
-  /// Bitwise OR is selected as an operation that will never lose even a bit of
-  /// poison.
-  void handleShadowOrBinary(Instruction &I) {
-    IRBuilder<> IRB(&I);
-    Value *Shadow0 = getShadow(&I, 0);
-    Value *Shadow1 = getShadow(&I, 1);
-    setShadow(&I, IRB.CreateOr(Shadow0, Shadow1, "_msprop"));
-    setOriginForNaryOp(I);
-  }
-
   bool hasStructArgumentOrRetVal(CallInst &I) {
     for (unsigned Op = 0, n = I.getNumArgOperands(); Op < n; ++Op)
       if (I.getArgOperand(Op)->getType()->isStructTy())
@@ -1083,13 +1070,13 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     SC.Done(&I);
   }
 
-  void visitFAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
-  void visitFSub(BinaryOperator &I) { handleShadowOrBinary(I); }
-  void visitFMul(BinaryOperator &I) { handleShadowOrBinary(I); }
-  void visitAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
-  void visitSub(BinaryOperator &I) { handleShadowOrBinary(I); }
-  void visitXor(BinaryOperator &I) { handleShadowOrBinary(I); }
-  void visitMul(BinaryOperator &I) { handleShadowOrBinary(I); }
+  void visitFAdd(BinaryOperator &I) { handleShadowOr(I); }
+  void visitFSub(BinaryOperator &I) { handleShadowOr(I); }
+  void visitFMul(BinaryOperator &I) { handleShadowOr(I); }
+  void visitAdd(BinaryOperator &I) { handleShadowOr(I); }
+  void visitSub(BinaryOperator &I) { handleShadowOr(I); }
+  void visitXor(BinaryOperator &I) { handleShadowOr(I); }
+  void visitMul(BinaryOperator &I) { handleShadowOr(I); }
 
   void handleDiv(Instruction &I) {
     IRBuilder<> IRB(&I);
