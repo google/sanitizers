@@ -955,6 +955,55 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     setOriginForNaryOp(I);
   }
 
+  class ShadowCombiner {
+    Value *Shadow;
+    Value *Origin;
+    IRBuilder<> &IRB;
+    MemorySanitizerVisitor* MSV;
+  public:
+    ShadowCombiner(MemorySanitizerVisitor* MSV, IRBuilder<> &IRB) :
+      Shadow(0), Origin(0), IRB(IRB), MSV(MSV) {}
+
+    ShadowCombiner& Add(Value *OpShadow, Value *OpOrigin) {
+      assert(OpShadow);
+      if (!Shadow)
+        Shadow = OpShadow;
+      else {
+        OpShadow = MSV->CreateShadowCast(IRB, OpShadow, Shadow->getType());
+        Shadow = IRB.CreateOr(Shadow, OpShadow, "_msprop");
+      }
+
+      if (ClTrackOrigins) {
+        assert(OpOrigin);
+        if (!Origin) {
+          Origin = OpOrigin;
+        } else {
+          Value* FlatShadow = MSV->convertToShadowTyNoVec(OpShadow, IRB);
+          Value* Cond = IRB.CreateICmpNE(FlatShadow,
+                                         MSV->getCleanShadow(FlatShadow));
+          Origin = IRB.CreateSelect(Cond, OpOrigin, Origin);
+        }
+      }
+      return *this;
+    }
+
+    ShadowCombiner& Add(Value *V) {
+      Value *OpShadow = MSV->getShadow(V);
+      Value* OpOrigin = ClTrackOrigins ? MSV->getOrigin(V) : 0;
+      return Add(OpShadow, OpOrigin);
+    }
+
+    void Done(Instruction *I) {
+      assert(Shadow);
+      Shadow = MSV->CreateShadowCast(IRB, Shadow, MSV->getShadowTy(I));
+      MSV->setShadow(I, Shadow);
+      if (ClTrackOrigins) {
+        assert(Origin);
+        MSV->setOrigin(I, Origin);
+      }
+    }
+  };
+
   /// \brief Propagate origin for an instruction.
   ///
   /// This is a general case of origin propagation. For an Nary operation,
@@ -1028,14 +1077,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   // FIXME: merge this with handleShadowOrBinary.
   void handleShadowOr(Instruction &I) {
     IRBuilder<> IRB(&I);
-    Value *Shadow = getShadow(&I, 0);
-    for (unsigned Op = 1, n = I.getNumOperands(); Op < n; ++Op)
-      Shadow = IRB.CreateOr(
-        Shadow, CreateShadowCast(IRB, getShadow(&I, Op), Shadow->getType()),
-        "_msprop");
-    Shadow = CreateShadowCast(IRB, Shadow, getShadowTy(&I));
-    setShadow(&I, Shadow);
-    setOriginForNaryOp(I);
+    ShadowCombiner SC(this, IRB);
+    for (Instruction::op_iterator OI = I.op_begin(); OI != I.op_end(); ++OI)
+      SC.Add(OI->get());
+    SC.Done(&I);
   }
 
   void visitFAdd(BinaryOperator &I) { handleShadowOrBinary(I); }
