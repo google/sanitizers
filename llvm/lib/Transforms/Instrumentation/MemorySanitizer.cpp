@@ -1339,6 +1339,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     // FIXME: detect and handle NoMem, no pointers, vector manipulation SIMD.
+    // FIXME: detect and handle SSE maskstore/maskload
     return false;
   }
 
