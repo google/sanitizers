@@ -1037,15 +1037,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     OC.Done(&I);
   }
 
-  bool hasStructArgumentOrRetVal(CallInst &I) {
-    for (unsigned Op = 0, n = I.getNumArgOperands(); Op < n; ++Op)
-      if (I.getArgOperand(Op)->getType()->isStructTy())
-        return true;
-    if (I.getType()->isStructTy())
-      return true;
-    return false;
-  }
-
   // Cast between two shadow types, extending or truncating as necessary.
   Value* CreateShadowCast(IRBuilder<>& IRB, Value* V, Type* dstTy) {
     Type* srcTy = V->getType();
@@ -1302,6 +1293,32 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return true;
   }
 
+  /// Caller checks that this intrinsic is NoMem.
+  /// Instrument intrinsics with any number of arguments of the same type,
+  /// equal to the return type. The type should be simple (no aggregates or
+  /// pointers; vectors are fine).
+  bool maybeHandleSimpleNomemIntrinsic(IntrinsicInst &I) {
+    Type *RetTy = I.getType();
+    if (!(RetTy->isIntOrIntVectorTy() ||
+          RetTy->isFPOrFPVectorTy() ||
+          RetTy->isX86_MMXTy()))
+      return false;
+
+    for (unsigned i = 0; i < I.getNumArgOperands(); ++i) {
+      Type *Ty = I.getArgOperand(i)->getType();
+      if (Ty != RetTy)
+        return false;
+    }
+
+    IRBuilder<> IRB(&I);
+    ShadowAndOriginCombiner SC(this, IRB);
+    for (unsigned i = 0; i < I.getNumArgOperands(); ++i)
+      SC.Add(I.getArgOperand(i));
+    SC.Done(&I);
+
+    return true;
+  }
+
   /// \brief Heuristically instrument unknown intrinsics.
   ///
   /// The main purpose of this code is to do something reasonable with all
@@ -1338,7 +1355,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return handleVectorLoadIntrinsic(I);
     }
 
-    // FIXME: detect and handle NoMem, no pointers, vector manipulation SIMD.
+    if (!ReadsMemory && !WritesMemory)
+      if (maybeHandleSimpleNomemIntrinsic(I))
+        return true;
+
     // FIXME: detect and handle SSE maskstore/maskload
     return false;
   }

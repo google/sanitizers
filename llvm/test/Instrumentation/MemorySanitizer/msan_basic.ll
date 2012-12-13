@@ -435,3 +435,33 @@ declare <16 x i8> @llvm.x86.sse3.ldu.dq(i8* %p) nounwind
 ; CHECK-ORIGINS: call <16 x i8> @llvm.x86.sse3.ldu.dq
 ; CHECK-ORIGINS: store i32 {{.*}}[[ORIGIN]], i32* @__msan_retval_origin_tls
 ; CHECK-ORIGINS: ret <16 x i8>
+
+
+; Simple NoMem intrinsic
+; Check that shadow is OR'ed, and origin is Select'ed
+; And no shadow checks!
+
+define <8 x i16> @Paddsw128(<8 x i16> %a, <8 x i16> %b) nounwind uwtable {
+  %call = call <8 x i16> @llvm.x86.sse2.padds.w(<8 x i16> %a, <8 x i16> %b)
+  ret <8 x i16> %call
+}
+
+declare <8 x i16> @llvm.x86.sse2.padds.w(<8 x i16> %a, <8 x i16> %b) nounwind
+
+; CHECK: @Paddsw128
+; CHECK-NEXT: load <8 x i16>* {{.*}} @__msan_param_tls
+; CHECK-NEXT: load <8 x i16>* {{.*}} @__msan_param_tls
+; CHECK-NEXT: = or <8 x i16>
+; CHECK-NEXT: call <8 x i16> @llvm.x86.sse2.padds.w
+; CHECK-NEXT: store <8 x i16> {{.*}} @__msan_retval_tls
+; CHECK-NEXT: ret <8 x i16>
+
+; CHECK-ORIGINS: @Paddsw128
+; CHECK-ORIGINS: load i32* {{.*}} @__msan_param_origin_tls
+; CHECK-ORIGINS: load i32* {{.*}} @__msan_param_origin_tls
+; CHECK-ORIGINS: = bitcast <8 x i16> {{.*}} to i128
+; CHECK-ORIGINS-NEXT: = icmp ne i128 {{.*}}, 0
+; CHECK-ORIGINS-NEXT: = select i1 {{.*}}, i32 {{.*}}, i32
+; CHECK-ORIGINS: call <8 x i16> @llvm.x86.sse2.padds.w
+; CHECK-ORIGINS: store i32 {{.*}} @__msan_retval_origin_tls
+; CHECK-ORIGINS: ret <8 x i16>
