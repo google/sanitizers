@@ -133,14 +133,14 @@ namespace {
 /// MemorySanitizer: instrument the code in module to find
 /// uninitialized reads.
 class MemorySanitizer : public FunctionPass {
-public:
+ public:
   MemorySanitizer() : FunctionPass(ID), TD(0), WarningFn(0) { }
   const char *getPassName() const { return "MemorySanitizer"; }
   bool runOnFunction(Function &F);
   bool doInitialization(Module &M);
   static char ID;  // Pass identification, replacement for typeid.
 
-private:
+ private:
   void initializeCallbacks(Module &M);
 
   DataLayout *TD;
@@ -242,8 +242,8 @@ void MemorySanitizer::initializeCallbacks(Module &M) {
   MsanPoisonStackFn = M.getOrInsertFunction(
     "__msan_poison_stack", IRB.getVoidTy(), IRB.getInt8PtrTy(), IntptrTy, NULL);
   MemmoveFn = M.getOrInsertFunction(
-    "__msan_memmove", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
-    IntptrTy, NULL);
+    "__msan_memmove", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
+    IRB.getInt8PtrTy(), IntptrTy, NULL);
   MemcpyFn = M.getOrInsertFunction(
     "__msan_memcpy", IRB.getInt8PtrTy(), IRB.getInt8PtrTy(), IRB.getInt8PtrTy(),
     IntptrTy, NULL);
@@ -378,7 +378,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
-  static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
+  static const unsigned AMD64GpEndOffset = 48;  // AMD64 ABI Draft 0.99.6 p3.5.7
   static const unsigned AMD64FpEndOffset = 176;
 
   struct ShadowOriginAndInsertPoint {
@@ -410,7 +410,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Value *Shadow = getShadow(Val);
       Value *ShadowPtr = getShadowPtr(Addr, Shadow->getType(), IRB);
 
-      StoreInst *NewSI = IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
+      StoreInst *NewSI =
+        IRB.CreateAlignedStore(Shadow, ShadowPtr, I.getAlignment());
       DEBUG(dbgs() << "  STORE: " << *NewSI << "\n");
       (void)NewSI;
       // If the store is volatile, add a check.
@@ -421,7 +422,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
       if (ClTrackOrigins) {
         if (ClStoreCleanOrigin || isa<StructType>(Shadow->getType())) {
-          IRB.CreateAlignedStore(getOrigin(Val), getOriginPtr(Addr, IRB), I.getAlignment());
+          IRB.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRB));
         } else {
           Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
 
@@ -435,10 +436,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           Value *Cmp = IRB.CreateICmpNE(ConvertedShadow,
               getCleanShadow(ConvertedShadow), "_mscmp");
           Instruction *CheckTerm =
-            SplitBlockAndInsertIfThen(cast<Instruction>(Cmp), false, MS.OriginStoreWeights);
-          IRBuilder<> IRBNewBlock(CheckTerm);
-          IRBNewBlock.CreateAlignedStore(getOrigin(Val),
-              getOriginPtr(Addr, IRBNewBlock), I.getAlignment());
+            SplitBlockAndInsertIfThen(cast<Instruction>(Cmp), false,
+                                      MS.OriginStoreWeights);
+          IRBuilder<> IRBNew(CheckTerm);
+          IRBNew.CreateStore(getOrigin(Val), getOriginPtr(Addr, IRBNew));
         }
       }
     }
@@ -776,7 +777,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       ShadowOriginAndInsertPoint(Shadow, Origin, OrigIns));
   }
 
-  //------------------- Visitors.
+  // ------------------- Visitors.
 
   /// \brief Instrument LoadInst
   ///
@@ -794,7 +795,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       insertCheck(I.getPointerOperand(), &I);
 
     if (ClTrackOrigins)
-      setOrigin(&I, IRB.CreateAlignedLoad(getOriginPtr(Addr, IRB), I.getAlignment()));
+      setOrigin(&I, IRB.CreateLoad(getOriginPtr(Addr, IRB)));
   }
 
   /// \brief Instrument StoreInst
@@ -1434,9 +1435,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                                        kShadowTLSAlignment);
       }
       if (ClTrackOrigins)
-        IRB.CreateAlignedStore(getOrigin(A),
-                               getOriginPtrForArgument(A, IRB, ArgOffset),
-                               kShadowTLSAlignment);
+        IRB.CreateStore(getOrigin(A),
+                        getOriginPtrForArgument(A, IRB, ArgOffset));
       assert(Size != 0 && Store != 0);
       DEBUG(dbgs() << "  Param:" << *Store << "\n");
       ArgOffset += DataLayout::RoundUpAlignment(Size, 8);
