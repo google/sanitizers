@@ -160,6 +160,7 @@ public:
     VK_TLVP,      // Mach-O thread local variable relocation
     VK_SECREL,
     // FIXME: We'd really like to use the generic Kinds listed above for these.
+    VK_ARM_NONE,
     VK_ARM_PLT,   // ARM-style PLT references. i.e., (PLT) instead of @PLT
     VK_ARM_TLSGD, //   ditto for TLSGD, GOT, GOTOFF, TPOFF and GOTTPOFF
     VK_ARM_GOT,
@@ -168,6 +169,7 @@ public:
     VK_ARM_GOTTPOFF,
     VK_ARM_TARGET1,
     VK_ARM_TARGET2,
+    VK_ARM_PREL31,
 
     VK_PPC_TOC,          // TOC base
     VK_PPC_TOC_ENTRY,    // TOC entry
@@ -177,10 +179,18 @@ public:
     VK_PPC_GAS_LO16,     // symbol@l
     VK_PPC_TPREL16_HA,   // symbol@tprel@ha
     VK_PPC_TPREL16_LO,   // symbol@tprel@l
+    VK_PPC_DTPREL16_HA,  // symbol@dtprel@ha
+    VK_PPC_DTPREL16_LO,  // symbol@dtprel@l
     VK_PPC_TOC16_HA,     // symbol@toc@ha
     VK_PPC_TOC16_LO,     // symbol@toc@l
     VK_PPC_GOT_TPREL16_DS, // symbol@got@tprel
     VK_PPC_TLS,            // symbol@tls
+    VK_PPC_GOT_TLSGD16_HA, // symbol@got@tlsgd@ha
+    VK_PPC_GOT_TLSGD16_LO, // symbol@got@tlsgd@l
+    VK_PPC_TLSGD,          // symbol@tlsgd
+    VK_PPC_GOT_TLSLD16_HA, // symbol@got@tlsld@ha
+    VK_PPC_GOT_TLSLD16_LO, // symbol@got@tlsld@l
+    VK_PPC_TLSLD,          // symbol@tlsld
 
     VK_Mips_GPREL,
     VK_Mips_GOT_CALL,

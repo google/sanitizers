@@ -22,6 +22,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetTransformImpl.h"
 #include <vector>
 
 namespace llvm {
@@ -291,7 +292,7 @@ namespace llvm {
 
     virtual EVT getOptimalMemOpType(uint64_t Size,
                                     unsigned DstAlign, unsigned SrcAlign,
-                                    bool IsZeroVal,
+                                    bool IsMemset, bool ZeroMemset,
                                     bool MemcpyStrSrc,
                                     MachineFunction &MF) const;
 
@@ -366,7 +367,7 @@ namespace llvm {
 
     /// getRegClassFor - Return the register class that should be used for the
     /// specified value type.
-    virtual const TargetRegisterClass *getRegClassFor(EVT VT) const;
+    virtual const TargetRegisterClass *getRegClassFor(MVT VT) const;
 
     /// getMaximalGlobalOffset - Returns the maximal possible offset which can
     /// be used for loads / stores from the global.
@@ -386,8 +387,6 @@ namespace llvm {
     /// specified FP immediate natively. If false, the legalizer will
     /// materialize the FP immediate as a load from a constant pool.
     virtual bool isFPImmLegal(const APFloat &Imm, EVT VT) const;
-
-    virtual bool isIntImmLegal(const APInt &Imm, EVT VT) const;
 
     virtual bool getTgtMemIntrinsic(IntrinsicInfo &Info,
                                     const CallInst &I,
@@ -575,6 +574,16 @@ namespace llvm {
     FastISel *createFastISel(FunctionLoweringInfo &funcInfo,
                              const TargetLibraryInfo *libInfo);
   }
+
+  class ARMScalarTargetTransformImpl : public ScalarTargetTransformImpl {
+    const ARMSubtarget *Subtarget;
+  public:
+    explicit ARMScalarTargetTransformImpl(const TargetLowering *TL) :
+      ScalarTargetTransformImpl(TL),
+      Subtarget(&TL->getTargetMachine().getSubtarget<ARMSubtarget>()) {};
+
+    virtual unsigned getIntImmCost(const APInt &Imm, Type *Ty) const;
+  };
 }
 
 #endif  // ARMISELLOWERING_H

@@ -2456,19 +2456,17 @@ void Sema::MergeVarDeclTypes(VarDecl *New, VarDecl *Old) {
     //   absence of a major array bound (8.3.4).
     else if (Old->getType()->isIncompleteArrayType() &&
              New->getType()->isArrayType()) {
-      CanQual<ArrayType> OldArray
-        = Context.getCanonicalType(Old->getType())->getAs<ArrayType>();
-      CanQual<ArrayType> NewArray
-        = Context.getCanonicalType(New->getType())->getAs<ArrayType>();
-      if (OldArray->getElementType() == NewArray->getElementType())
+      const ArrayType *OldArray = Context.getAsArrayType(Old->getType());
+      const ArrayType *NewArray = Context.getAsArrayType(New->getType());
+      if (Context.hasSameType(OldArray->getElementType(),
+                              NewArray->getElementType()))
         MergedT = New->getType();
     } else if (Old->getType()->isArrayType() &&
              New->getType()->isIncompleteArrayType()) {
-      CanQual<ArrayType> OldArray
-        = Context.getCanonicalType(Old->getType())->getAs<ArrayType>();
-      CanQual<ArrayType> NewArray
-        = Context.getCanonicalType(New->getType())->getAs<ArrayType>();
-      if (OldArray->getElementType() == NewArray->getElementType())
+      const ArrayType *OldArray = Context.getAsArrayType(Old->getType());
+      const ArrayType *NewArray = Context.getAsArrayType(New->getType());
+      if (Context.hasSameType(OldArray->getElementType(),
+                              NewArray->getElementType()))
         MergedT = Old->getType();
     } else if (New->getType()->isObjCObjectPointerType()
                && Old->getType()->isObjCObjectPointerType()) {
@@ -7233,7 +7231,10 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
   }
 
   if (var->isThisDeclarationADefinition() &&
-      var->getLinkage() == ExternalLinkage) {
+      var->getLinkage() == ExternalLinkage &&
+      getDiagnostics().getDiagnosticLevel(
+                       diag::warn_missing_variable_declarations,
+                       var->getLocation())) {
     // Find a previous declaration that's not a definition.
     VarDecl *prev = var->getPreviousDecl();
     while (prev && prev->isThisDeclarationADefinition())
@@ -7944,7 +7945,7 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
            diag::err_attribute_can_be_applied_only_to_symbol_declaration)
         << "dllimport";
       FD->setInvalidDecl();
-      return FD;
+      return D;
     }
 
     // Visual C++ appears to not think this is an issue, so only issue
@@ -7961,7 +7962,7 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
   // We want to attach documentation to original Decl (which might be
   // a function template).
   ActOnDocumentableDecl(D);
-  return FD;
+  return D;
 }
 
 /// \brief Given the set of return statements within a function body,

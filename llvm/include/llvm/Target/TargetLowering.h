@@ -232,9 +232,8 @@ public:
 
   /// getRegClassFor - Return the register class that should be used for the
   /// specified value type.
-  virtual const TargetRegisterClass *getRegClassFor(EVT VT) const {
-    assert(VT.isSimple() && "getRegClassFor called on illegal type!");
-    const TargetRegisterClass *RC = RegClassForVT[VT.getSimpleVT().SimpleTy];
+  virtual const TargetRegisterClass *getRegClassFor(MVT VT) const {
+    const TargetRegisterClass *RC = RegClassForVT[VT.SimpleTy];
     assert(RC && "This value type is not natively supported!");
     return RC;
   }
@@ -244,9 +243,8 @@ public:
   /// legal super-reg register class for the register class of the value type.
   /// For example, on i386 the rep register class for i8, i16, and i32 are GR32;
   /// while the rep register class is GR64 on x86_64.
-  virtual const TargetRegisterClass *getRepRegClassFor(EVT VT) const {
-    assert(VT.isSimple() && "getRepRegClassFor called on illegal type!");
-    const TargetRegisterClass *RC = RepRegClassForVT[VT.getSimpleVT().SimpleTy];
+  virtual const TargetRegisterClass *getRepRegClassFor(MVT VT) const {
+    const TargetRegisterClass *RC = RepRegClassForVT[VT.SimpleTy];
     return RC;
   }
 
@@ -280,8 +278,8 @@ public:
       return (LegalizeTypeAction)ValueTypeActions[VT.SimpleTy];
     }
 
-    void setTypeAction(EVT VT, LegalizeTypeAction Action) {
-      unsigned I = VT.getSimpleVT().SimpleTy;
+    void setTypeAction(MVT VT, LegalizeTypeAction Action) {
+      unsigned I = VT.SimpleTy;
       ValueTypeActions[I] = Action;
     }
   };
@@ -371,16 +369,6 @@ public:
     return false;
   }
 
-  /// isIntImmLegal - Returns true if the target can instruction select the
-  /// specified integer immediate natively (that is, it's materialized with one
-  /// instruction). The current *assumption* in isel is all of integer
-  /// immediates are "legal" and only the memcpy / memset expansion code is
-  /// making use of this. The rest of isel doesn't have proper cost model for
-  /// immediate materialization.
-  virtual bool isIntImmLegal(const APInt &/*Imm*/, EVT /*VT*/) const {
-    return true;
-  }
-
   /// isShuffleMaskLegal - Targets can use this to indicate that they only
   /// support *some* VECTOR_SHUFFLE operations, those with specific masks.
   /// By default, if a target supports the VECTOR_SHUFFLE node, all mask values
@@ -444,17 +432,17 @@ public:
   /// either it is legal, needs to be promoted to a larger size, needs to be
   /// expanded to some other code sequence, or the target has a custom expander
   /// for it.
-  LegalizeAction getLoadExtAction(unsigned ExtType, EVT VT) const {
-    assert(ExtType < ISD::LAST_LOADEXT_TYPE &&
-           VT.getSimpleVT() < MVT::LAST_VALUETYPE &&
+  LegalizeAction getLoadExtAction(unsigned ExtType, MVT VT) const {
+    assert(ExtType < ISD::LAST_LOADEXT_TYPE && VT < MVT::LAST_VALUETYPE &&
            "Table isn't big enough!");
-    return (LegalizeAction)LoadExtActions[VT.getSimpleVT().SimpleTy][ExtType];
+    return (LegalizeAction)LoadExtActions[VT.SimpleTy][ExtType];
   }
 
   /// isLoadExtLegal - Return true if the specified load with extension is legal
   /// on this target.
   bool isLoadExtLegal(unsigned ExtType, EVT VT) const {
-    return VT.isSimple() && getLoadExtAction(ExtType, VT) == Legal;
+    return VT.isSimple() &&
+      getLoadExtAction(ExtType, VT.getSimpleVT()) == Legal;
   }
 
   /// getTruncStoreAction - Return how this store with truncation should be
@@ -588,7 +576,11 @@ public:
     }
     return EVT::getEVT(Ty, AllowUnknown);
   }
-  
+
+  /// Return the MVT corresponding to this LLVM type. See getValueType.
+  MVT getSimpleValueType(Type *Ty, bool AllowUnknown = false) const {
+    return getValueType(Ty, AllowUnknown).getSimpleVT();
+  }
 
   /// getByValTypeAlignment - Return the desired alignment for ByVal aggregate
   /// function arguments in the caller parameter area.  This is the actual
@@ -711,19 +703,29 @@ public:
   /// lowering. If DstAlign is zero that means it's safe to destination
   /// alignment can satisfy any constraint. Similarly if SrcAlign is zero it
   /// means there isn't a need to check it against alignment requirement,
-  /// probably because the source does not need to be loaded. If
-  /// 'IsZeroVal' is true, that means it's safe to return a
-  /// non-scalar-integer type, e.g. empty string source, constant, or loaded
-  /// from memory. 'MemcpyStrSrc' indicates whether the memcpy source is
-  /// constant so it does not need to be loaded.
+  /// probably because the source does not need to be loaded. If 'IsMemset' is
+  /// true, that means it's expanding a memset. If 'ZeroMemset' is true, that
+  /// means it's a memset of zero. 'MemcpyStrSrc' indicates whether the memcpy
+  /// source is constant so it does not need to be loaded.
   /// It returns EVT::Other if the type should be determined using generic
   /// target-independent logic.
   virtual EVT getOptimalMemOpType(uint64_t /*Size*/,
                                   unsigned /*DstAlign*/, unsigned /*SrcAlign*/,
-                                  bool /*IsZeroVal*/,
+                                  bool /*IsMemset*/,
+                                  bool /*ZeroMemset*/,
                                   bool /*MemcpyStrSrc*/,
                                   MachineFunction &/*MF*/) const {
     return MVT::Other;
+  }
+
+  /// isSafeMemOpType - Returns true if it's safe to use load / store of the
+  /// specified type to expand memcpy / memset inline. This is mostly true
+  /// for all types except for some special cases. For example, on X86
+  /// targets without SSE2 f64 load / store are done with fldl / fstpl which
+  /// also does type conversion. Note the specified type doesn't have to be
+  /// legal as the hook is used before type legalization.
+  virtual bool isSafeMemOpType(MVT VT) const {
+    return true;
   }
 
   /// usesUnderscoreSetJmp - Determine if we should use _setjmp or setjmp

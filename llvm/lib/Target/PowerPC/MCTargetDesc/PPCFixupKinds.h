@@ -47,6 +47,10 @@ enum Fixups {
 
   /// fixup_ppc_tlsreg - Insert thread-pointer register number.
   fixup_ppc_tlsreg,
+
+  /// fixup_ppc_nofixup - Not a true fixup, but ties a symbol to a call
+  /// to __tls_get_addr for the TLS general and local dynamic models.
+  fixup_ppc_nofixup,
   
   // Marker
   LastTargetFixupKind,

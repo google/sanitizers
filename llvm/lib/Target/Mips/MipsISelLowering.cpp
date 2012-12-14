@@ -2155,7 +2155,7 @@ SDValue MipsTargetLowering::LowerRETURNADDR(SDValue Op,
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
-  EVT VT = Op.getValueType();
+  MVT VT = Op.getSimpleValueType();
   unsigned RA = IsN64 ? Mips::RA_64 : Mips::RA;
   MFI->setReturnAddressIsTaken(true);
 
@@ -2849,12 +2849,14 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol
   // node so that legalize doesn't hack it.
   bool IsPICCall = (IsN64 || IsPIC); // true if calls are translated to jalr $25
-  bool GlobalOrExternal = false;
+  bool GlobalOrExternal = false, InternalLinkage = false;
   SDValue CalleeLo;
 
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     if (IsPICCall) {
-      if (G->getGlobal()->hasInternalLinkage())
+      InternalLinkage = G->getGlobal()->hasInternalLinkage();
+
+      if (InternalLinkage)
         Callee = getAddrLocal(Callee, DAG, HasMips64);
       else if (LargeGOT)
         Callee = getAddrGlobalLargeGOT(Callee, DAG, MipsII::MO_CALL_HI16,
@@ -2901,8 +2903,11 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   }
 
   // Insert node "GP copy globalreg" before call to function.
-  // Lazy-binding stubs require GP to point to the GOT.
-  if (IsPICCall) {
+  //
+  // R_MIPS_CALL* operators (emitted when non-internal functions are called
+  // in PIC mode) allow symbols to be resolved via lazy binding.
+  // The lazy binding stub requires GP to point to the GOT.
+  if (IsPICCall && !InternalLinkage) {
     unsigned GPReg = IsN64 ? Mips::GP_64 : Mips::GP;
     EVT Ty = IsN64 ? MVT::i64 : MVT::i32;
     RegsToPass.push_back(std::make_pair(GPReg, GetGlobalReg(DAG, Ty)));
@@ -3476,7 +3481,8 @@ MipsTargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
 }
 
 EVT MipsTargetLowering::getOptimalMemOpType(uint64_t Size, unsigned DstAlign,
-                                            unsigned SrcAlign, bool IsZeroVal,
+                                            unsigned SrcAlign,
+                                            bool IsMemset, bool ZeroMemset,
                                             bool MemcpyStrSrc,
                                             MachineFunction &MF) const {
   if (Subtarget->hasMips64())
@@ -3655,7 +3661,7 @@ copyByValRegs(SDValue Chain, DebugLoc DL, std::vector<SDValue> &OutChains,
     return;
 
   // Copy arg registers.
-  EVT RegTy = MVT::getIntegerVT(CC.regSize() * 8);
+  MVT RegTy = MVT::getIntegerVT(CC.regSize() * 8);
   const TargetRegisterClass *RC = getRegClassFor(RegTy);
 
   for (unsigned I = 0; I < ByVal.NumRegs; ++I) {
@@ -3777,7 +3783,7 @@ MipsTargetLowering::writeVarArgRegs(std::vector<SDValue> &OutChains,
   const CCState &CCInfo = CC.getCCInfo();
   unsigned Idx = CCInfo.getFirstUnallocated(ArgRegs, NumRegs);
   unsigned RegSize = CC.regSize();
-  EVT RegTy = MVT::getIntegerVT(RegSize * 8);
+  MVT RegTy = MVT::getIntegerVT(RegSize * 8);
   const TargetRegisterClass *RC = getRegClassFor(RegTy);
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();

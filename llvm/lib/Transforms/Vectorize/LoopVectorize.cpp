@@ -44,16 +44,17 @@ VectorizationFactor("force-vector-width", cl::init(0), cl::Hidden,
                     cl::desc("Sets the SIMD width. Zero is autoselect."));
 
 static cl::opt<bool>
-EnableIfConversion("enable-if-conversion", cl::init(true), cl::Hidden,
+EnableIfConversion("enable-if-conversion", cl::init(false), cl::Hidden,
                    cl::desc("Enable if-conversion during vectorization."));
 
 namespace {
 
 /// The LoopVectorize Pass.
 struct LoopVectorize : public LoopPass {
-  static char ID; // Pass identification, replacement for typeid
+  /// Pass identification, replacement for typeid
+  static char ID;
 
-  LoopVectorize() : LoopPass(ID) {
+  explicit LoopVectorize() : LoopPass(ID) {
     initializeLoopVectorizePass(*PassRegistry::getPassRegistry());
   }
 
@@ -85,28 +86,27 @@ struct LoopVectorize : public LoopPass {
     }
 
     // Select the preffered vectorization factor.
-    unsigned VF = 1;
-    if (VectorizationFactor == 0) {
-      const VectorTargetTransformInfo *VTTI = 0;
-      if (TTI)
-        VTTI = TTI->getVectorTargetTransformInfo();
-      // Use the cost model.
-      LoopVectorizationCostModel CM(L, SE, &LVL, VTTI);
-      VF = CM.findBestVectorizationFactor();
+    const VectorTargetTransformInfo *VTTI = 0;
+    if (TTI)
+      VTTI = TTI->getVectorTargetTransformInfo();
+    // Use the cost model.
+    LoopVectorizationCostModel CM(L, SE, &LVL, VTTI);
 
-      if (VF == 1) {
-        DEBUG(dbgs() << "LV: Vectorization is possible but not beneficial.\n");
-        return false;
-      }
+    // Check the function attribues to find out if this function should be
+    // optimized for size.
+    Function *F = L->getHeader()->getParent();
+    Attributes::AttrVal SzAttr= Attributes::OptimizeForSize;
+    bool OptForSize = F->getFnAttributes().hasAttribute(SzAttr);
 
-    } else {
-      // Use the user command flag.
-      VF = VectorizationFactor;
+    unsigned VF = CM.selectVectorizationFactor(OptForSize, VectorizationFactor);
+
+    if (VF == 1) {
+      DEBUG(dbgs() << "LV: Vectorization is possible but not beneficial.\n");
+      return false;
     }
 
     DEBUG(dbgs() << "LV: Found a vectorizable loop ("<< VF << ") in "<<
-          L->getHeader()->getParent()->getParent()->getModuleIdentifier()<<
-          "\n");
+          F->getParent()->getModuleIdentifier()<<"\n");
 
     // If we decided that it is *legal* to vectorizer the loop then do it.
     InnerLoopVectorizer LB(L, SE, LI, DT, DL, VF);
@@ -407,27 +407,27 @@ InnerLoopVectorizer::createEmptyLoop(LoopVectorizationLegality *Legal) {
    the vectorized instructions while the old loop will continue to run the
    scalar remainder.
 
-   [ ] <-- vector loop bypass.
-   /  |
-   /   v
+       [ ] <-- vector loop bypass.
+     /  |
+    /   v
    |   [ ]     <-- vector pre header.
    |    |
    |    v
    |   [  ] \
    |   [  ]_|   <-- vector loop.
    |    |
-   \   v
-   >[ ]   <--- middle-block.
-   /  |
-   /   v
+    \   v
+      >[ ]   <--- middle-block.
+     /  |
+    /   v
    |   [ ]     <--- new preheader.
    |    |
    |    v
    |   [ ] \
    |   [ ]_|   <-- old scalar loop to handle remainder.
-   \   |
-   \  v
-   >[ ]     <-- exit block.
+    \   |
+     \  v
+      >[ ]     <-- exit block.
    ...
    */
 
@@ -954,7 +954,7 @@ InnerLoopVectorizer::vectorizeBlockInLoop(LoopVectorizationLegality *Legal,
         // At this point we generate the predication tree. There may be
         // duplications since this is a simple recursive scan, but future
         // optimizations will clean it up.
-        Value *Cond = createBlockInMask(P->getIncomingBlock(0));
+        Value *Cond = createEdgeMask(P->getIncomingBlock(0), P->getParent());
         WidenMap[P] =
           Builder.CreateSelect(Cond,
                                getVectorValue(P->getIncomingValue(0)),
@@ -1204,8 +1204,20 @@ InnerLoopVectorizer::vectorizeBlockInLoop(LoopVectorizationLegality *Legal,
     case Instruction::Trunc:
     case Instruction::FPTrunc:
     case Instruction::BitCast: {
-      /// Vectorize bitcasts.
       CastInst *CI = dyn_cast<CastInst>(it);
+      /// Optimize the special case where the source is the induction
+      /// variable. Notice that we can only optimize the 'trunc' case
+      /// because: a. FP conversions lose precision, b. sext/zext may wrap,
+      /// c. other casts depend on pointer size.
+      if (CI->getOperand(0) == OldInduction &&
+          it->getOpcode() == Instruction::Trunc) {
+        Value *ScalarCast = Builder.CreateCast(CI->getOpcode(), Induction,
+                                               CI->getType());
+        Value *Broadcasted = getBroadcastInstrs(ScalarCast);
+        WidenMap[it] = getConsecutiveVector(Broadcasted);
+        break;
+      }
+      /// Vectorize casts.
       Value *A = getVectorValue(it->getOperand(0));
       Type *DestTy = VectorType::get(CI->getType()->getScalarType(), VF);
       WidenMap[it] = Builder.CreateCast(CI->getOpcode(), A, DestTy);
@@ -1836,6 +1848,15 @@ LoopVectorizationLegality::isInductionVariable(PHINode *Phi) {
   return NoInduction;
 }
 
+bool LoopVectorizationLegality::isInductionVariable(const Value *V) {
+  Value *In0 = const_cast<Value*>(V);
+  PHINode *PN = dyn_cast_or_null<PHINode>(In0);
+  if (!PN)
+    return false;
+
+  return Inductions.count(PN);
+}
+
 bool LoopVectorizationLegality::blockNeedsPredication(BasicBlock *BB)  {
   assert(TheLoop->contains(BB) && "Unknown block used");
 
@@ -1850,7 +1871,7 @@ bool LoopVectorizationLegality::blockCanBePredicated(BasicBlock *BB) {
     if (it->mayReadFromMemory() || it->mayWriteToMemory() || it->mayThrow())
       return false;
 
-    // The isntructions below can trap.
+    // The instructions below can trap.
     switch (it->getOpcode()) {
     default: continue;
     case Instruction::UDiv:
@@ -1874,7 +1895,48 @@ bool LoopVectorizationLegality::hasComputableBounds(Value *Ptr) {
 }
 
 unsigned
-LoopVectorizationCostModel::findBestVectorizationFactor(unsigned VF) {
+LoopVectorizationCostModel::selectVectorizationFactor(bool OptForSize,
+                                                        unsigned UserVF) {
+  if (OptForSize && Legal->getRuntimePointerCheck()->Need) {
+    DEBUG(dbgs() << "LV: Aborting. Runtime ptr check is required in Os.\n");
+    return 1;
+  }
+
+  // Find the trip count.
+  unsigned TC = SE->getSmallConstantTripCount(TheLoop, TheLoop->getLoopLatch());
+  DEBUG(dbgs() << "LV: Found trip count:"<<TC<<"\n");
+
+  unsigned VF = MaxVectorSize;
+
+  // If we optimize the program for size, avoid creating the tail loop.
+  if (OptForSize) {
+    // If we are unable to calculate the trip count then don't try to vectorize.
+    if (TC < 2) {
+      DEBUG(dbgs() << "LV: Aborting. A tail loop is required in Os.\n");
+      return 1;
+    }
+
+    // Find the maximum SIMD width that can fit within the trip count.
+    VF = TC % MaxVectorSize;
+
+    if (VF == 0)
+      VF = MaxVectorSize;
+
+    // If the trip count that we found modulo the vectorization factor is not
+    // zero then we require a tail.
+    if (VF < 2) {
+      DEBUG(dbgs() << "LV: Aborting. A tail loop is required in Os.\n");
+      return 1;
+    }
+  }
+
+  if (UserVF != 0) {
+    assert(isPowerOf2_32(UserVF) && "VF needs to be a power of two");
+    DEBUG(dbgs() << "LV: Using user VF "<<UserVF<<".\n");
+
+    return UserVF;
+  }
+
   if (!VTTI) {
     DEBUG(dbgs() << "LV: No vector target information. Not vectorizing. \n");
     return 1;
@@ -2056,6 +2118,13 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
   case Instruction::Trunc:
   case Instruction::FPTrunc:
   case Instruction::BitCast: {
+    // We optimize the truncation of induction variable.
+    // The cost of these is the same as the scalar operation.
+    if (I->getOpcode() == Instruction::Trunc &&
+        Legal->isInductionVariable(I->getOperand(0)))
+         return VTTI->getCastInstrCost(I->getOpcode(), I->getType(),
+                                       I->getOperand(0)->getType());
+
     Type *SrcVecTy = ToVectorTy(I->getOperand(0)->getType(), VF);
     return VTTI->getCastInstrCost(I->getOpcode(), VectorTy, SrcVecTy);
   }

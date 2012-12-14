@@ -19,6 +19,7 @@
 #include "sanitizer_mutex.h"
 #include "sanitizer_placement_new.h"
 #include "sanitizer_procmaps.h"
+#include "sanitizer_stacktrace.h"
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -30,6 +31,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <unwind.h>
 #include <errno.h>
 #include <sys/prctl.h>
 
@@ -377,6 +379,60 @@ bool SanitizerGetThreadName(char *name, int max_len) {
   name[max_len] = 0;
   return true;
 }
+
+#ifndef SANITIZER_GO
+//------------------------- SlowUnwindStack -----------------------------------
+#ifdef __arm__
+#define UNWIND_STOP _URC_END_OF_STACK
+#define UNWIND_CONTINUE _URC_NO_REASON
+#else
+#define UNWIND_STOP _URC_NORMAL_STOP
+#define UNWIND_CONTINUE _URC_NO_REASON
+#endif
+
+uptr Unwind_GetIP(struct _Unwind_Context *ctx) {
+#ifdef __arm__
+  uptr val;
+  _Unwind_VRS_Result res = _Unwind_VRS_Get(ctx, _UVRSC_CORE,
+      15 /* r15 = PC */, _UVRSD_UINT32, &val);
+  CHECK(res == _UVRSR_OK && "_Unwind_VRS_Get failed");
+  // Clear the Thumb bit.
+  return val & ~(uptr)1;
+#else
+  return _Unwind_GetIP(ctx);
+#endif
+}
+
+_Unwind_Reason_Code Unwind_Trace(struct _Unwind_Context *ctx, void *param) {
+  StackTrace *b = (StackTrace*)param;
+  CHECK(b->size < b->max_size);
+  uptr pc = Unwind_GetIP(ctx);
+  b->trace[b->size++] = pc;
+  if (b->size == b->max_size) return UNWIND_STOP;
+  return UNWIND_CONTINUE;
+}
+
+static bool MatchPc(uptr cur_pc, uptr trace_pc) {
+  return cur_pc - trace_pc <= 8;
+}
+
+void StackTrace::SlowUnwindStack(uptr pc, uptr max_depth) {
+  this->size = 0;
+  this->max_size = max_depth;
+  if (max_depth > 1) {
+    _Unwind_Backtrace(Unwind_Trace, this);
+    // We need to pop a few (up to 3) frames so that pc is on top.
+    // trace[0] belongs to the current function.
+    int to_pop = 1;
+    /**/ if (size >= 2 && MatchPc(pc, trace[1])) to_pop = 2;
+    else if (size >= 3 && MatchPc(pc, trace[2])) to_pop = 3;
+    else if (size >= 4 && MatchPc(pc, trace[3])) to_pop = 4;
+    this->PopStackFrames(to_pop);
+  }
+  this->trace[0] = pc;
+}
+
+#endif  // #ifndef SANITIZER_GO
 
 }  // namespace __sanitizer
 

@@ -31,7 +31,6 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
 #include "llvm/LLVMContext.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -43,16 +42,6 @@
 #include "ARMGenRegisterInfo.inc"
 
 using namespace llvm;
-
-static cl::opt<bool>
-ForceAllBaseRegAlloc("arm-force-base-reg-alloc", cl::Hidden, cl::init(false),
-          cl::desc("Force use of virtual base registers for stack load/store"));
-static cl::opt<bool>
-EnableLocalStackAlloc("enable-local-stack-alloc", cl::init(true), cl::Hidden,
-          cl::desc("Enable pre-regalloc stack frame index allocation"));
-static cl::opt<bool>
-EnableBasePointer("arm-use-base-pointer", cl::Hidden, cl::init(true),
-          cl::desc("Enable use of a base pointer for complex stack frames"));
 
 ARMBaseRegisterInfo::ARMBaseRegisterInfo(const ARMBaseInstrInfo &tii,
                                          const ARMSubtarget &sti)
@@ -280,9 +269,6 @@ bool ARMBaseRegisterInfo::hasBasePointer(const MachineFunction &MF) const {
   const ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
-  if (!EnableBasePointer)
-    return false;
-
   // When outgoing call frames are so large that we adjust the stack pointer
   // around the call, we can no longer use the stack pointer to reach the
   // emergency spill slot.
@@ -328,8 +314,6 @@ bool ARMBaseRegisterInfo::canRealignStack(const MachineFunction &MF) const {
   // pointer adjustments around calls.
   if (MF.getTarget().getFrameLowering()->hasReservedCallFrame(MF))
     return true;
-  if (!EnableBasePointer)
-    return false;
   // A base pointer is required and allowed.  Check that it isn't too late to
   // reserve it.
   return MRI->canReserveReg(BasePtr);
@@ -412,7 +396,7 @@ requiresFrameIndexScavenging(const MachineFunction &MF) const {
 
 bool ARMBaseRegisterInfo::
 requiresVirtualBaseRegisters(const MachineFunction &MF) const {
-  return EnableLocalStackAlloc;
+  return true;
 }
 
 static void
@@ -551,8 +535,6 @@ needsFrameBaseReg(MachineInstr *MI, int64_t Offset) const {
   case ARM::VLDRS: case ARM::VLDRD:
   case ARM::VSTRS: case ARM::VSTRD:
   case ARM::tSTRspi: case ARM::tLDRspi:
-    if (ForceAllBaseRegAlloc)
-      return true;
     break;
   default:
     return false;

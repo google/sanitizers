@@ -37,7 +37,7 @@ static Value *simplifyValueKnownNonZero(Value *V, InstCombiner &IC) {
   if (match(V, m_LShr(m_OneUse(m_Shl(m_Value(PowerOf2), m_Value(A))),
                       m_Value(B))) &&
       // The "1" can be any value known to be a power of 2.
-      isPowerOfTwo(PowerOf2, IC.getDataLayout())) {
+      isKnownToBeAPowerOfTwo(PowerOf2)) {
     A = IC.Builder->CreateSub(A, B);
     return IC.Builder->CreateShl(PowerOf2, A);
   }
@@ -45,8 +45,7 @@ static Value *simplifyValueKnownNonZero(Value *V, InstCombiner &IC) {
   // (PowerOfTwo >>u B) --> isExact since shifting out the result would make it
   // inexact.  Similarly for <<.
   if (BinaryOperator *I = dyn_cast<BinaryOperator>(V))
-    if (I->isLogicalShift() &&
-        isPowerOfTwo(I->getOperand(0), IC.getDataLayout())) {
+    if (I->isLogicalShift() && isKnownToBeAPowerOfTwo(I->getOperand(0))) {
       // We know that this is an exact/nuw shift and that the input is a
       // non-zero context as well.
       if (Value *V2 = simplifyValueKnownNonZero(I->getOperand(0), IC)) {
@@ -296,20 +295,11 @@ Instruction *InstCombiner::visitFMul(BinaryOperator &I) {
   bool Changed = SimplifyAssociativeOrCommutative(I);
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
 
-  // Simplify mul instructions with a constant RHS.
-  if (Constant *Op1C = dyn_cast<Constant>(Op1)) {
-    if (ConstantFP *Op1F = dyn_cast<ConstantFP>(Op1C)) {
-      // "In IEEE floating point, x*1 is not equivalent to x for nans.  However,
-      // ANSI says we can drop signals, so we can do this anyway." (from GCC)
-      if (Op1F->isExactlyValue(1.0))
-        return ReplaceInstUsesWith(I, Op0);  // Eliminate 'fmul double %X, 1.0'
-    } else if (ConstantDataVector *Op1V = dyn_cast<ConstantDataVector>(Op1C)) {
-      // As above, vector X*splat(1.0) -> X in all defined cases.
-      if (ConstantFP *F = dyn_cast_or_null<ConstantFP>(Op1V->getSplatValue()))
-        if (F->isExactlyValue(1.0))
-          return ReplaceInstUsesWith(I, Op0);
-    }
+  if (Value *V = SimplifyFMulInst(Op0, Op1, I.getFastMathFlags(), TD))
+    return ReplaceInstUsesWith(I, V);
 
+  // Simplify mul instructions with a constant RHS.
+  if (isa<Constant>(Op1)) {
     // Try to fold constant mul into select arguments.
     if (SelectInst *SI = dyn_cast<SelectInst>(Op0))
       if (Instruction *R = FoldOpIntoSelect(I, SI))

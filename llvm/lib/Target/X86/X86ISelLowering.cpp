@@ -1369,21 +1369,20 @@ unsigned X86TargetLowering::getByValTypeAlignment(Type *Ty) const {
 /// lowering. If DstAlign is zero that means it's safe to destination
 /// alignment can satisfy any constraint. Similarly if SrcAlign is zero it
 /// means there isn't a need to check it against alignment requirement,
-/// probably because the source does not need to be loaded. If
-/// 'IsZeroVal' is true, that means it's safe to return a
-/// non-scalar-integer type, e.g. empty string source, constant, or loaded
-/// from memory. 'MemcpyStrSrc' indicates whether the memcpy source is
-/// constant so it does not need to be loaded.
+/// probably because the source does not need to be loaded. If 'IsMemset' is
+/// true, that means it's expanding a memset. If 'ZeroMemset' is true, that
+/// means it's a memset of zero. 'MemcpyStrSrc' indicates whether the memcpy
+/// source is constant so it does not need to be loaded.
 /// It returns EVT::Other if the type should be determined using generic
 /// target-independent logic.
 EVT
 X86TargetLowering::getOptimalMemOpType(uint64_t Size,
                                        unsigned DstAlign, unsigned SrcAlign,
-                                       bool IsZeroVal,
+                                       bool IsMemset, bool ZeroMemset,
                                        bool MemcpyStrSrc,
                                        MachineFunction &MF) const {
   const Function *F = MF.getFunction();
-  if (IsZeroVal &&
+  if ((!IsMemset || ZeroMemset) &&
       !F->getFnAttributes().hasAttribute(Attributes::NoImplicitFloat)) {
     if (Size >= 16 &&
         (Subtarget->isUnalignedMemAccessFast() ||
@@ -1410,6 +1409,14 @@ X86TargetLowering::getOptimalMemOpType(uint64_t Size,
   if (Subtarget->is64Bit() && Size >= 8)
     return MVT::i64;
   return MVT::i32;
+}
+
+bool X86TargetLowering::isSafeMemOpType(MVT VT) const {
+  if (VT == MVT::f32)
+    return X86ScalarSSEf32;
+  else if (VT == MVT::f64)
+    return X86ScalarSSEf64;
+  return true;
 }
 
 bool

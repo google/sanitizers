@@ -68,7 +68,7 @@ const uptr kAllocatorSize  =  0x10000000000ULL;  // 1T.
 typedef SizeClassAllocator64<kAllocatorSpace, kAllocatorSize, sizeof(MBlock),
     DefaultSizeClassMap> PrimaryAllocator;
 typedef SizeClassAllocatorLocalCache<PrimaryAllocator> AllocatorCache;
-typedef LargeMmapAllocator SecondaryAllocator;
+typedef LargeMmapAllocator<> SecondaryAllocator;
 typedef CombinedAllocator<PrimaryAllocator, AllocatorCache,
     SecondaryAllocator> Allocator;
 Allocator *allocator();
@@ -482,6 +482,7 @@ void ALWAYS_INLINE INLINE StatInc(ThreadState *thr, StatType typ, u64 n = 1) {
 }
 
 void MapShadow(uptr addr, uptr size);
+void MapThreadTrace(uptr addr, uptr size);
 void InitializeShadowMemory();
 void InitializeInterceptors();
 void InitializeDynamicAnnotations();

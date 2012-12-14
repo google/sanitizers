@@ -44,6 +44,7 @@ void GetThreadStackTopAndBottom(bool at_initialization, uptr *stack_top,
 void *MmapOrDie(uptr size, const char *mem_type);
 void UnmapOrDie(void *addr, uptr size);
 void *MmapFixedNoReserve(uptr fixed_addr, uptr size);
+void *MmapFixedOrDie(uptr fixed_addr, uptr size);
 void *Mprotect(uptr fixed_addr, uptr size);
 // Map aligned chunk of address space; size and alignment are powers of two.
 void *MmapAlignedOrDie(uptr size, uptr alignment, const char *mem_type);
@@ -159,6 +160,12 @@ INLINE bool IsPowerOfTwo(uptr x) {
 INLINE uptr RoundUpTo(uptr size, uptr boundary) {
   CHECK(IsPowerOfTwo(boundary));
   return (size + boundary - 1) & ~(boundary - 1);
+}
+INLINE uptr RoundDownTo(uptr x, uptr boundary) {
+  return x & ~(boundary - 1);
+}
+INLINE bool IsAligned(uptr a, uptr alignment) {
+  return (a & (alignment - 1)) == 0;
 }
 // Don't use std::min, std::max or std::swap, to minimize dependency
 // on libstdc++.
