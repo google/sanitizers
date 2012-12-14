@@ -61,7 +61,9 @@ for Darwin/ARM targets.
 In the LLVM 3.2 time-frame, the Clang team has made many improvements.
 Highlights include:
 
-#. ...
+#. More powerful warnings, especially `-Wuninitialized`
+#. Template type diffing in diagnostic messages
+#. Higher quality and more efficient debug info generation
 
 For more details about the changes to Clang since the 3.1 release, see the
 `Clang release notes. <http://clang.llvm.org/docs/ReleaseNotes.html>`_
@@ -290,7 +292,6 @@ Major New Features
    strong phi elim
    loop dependence analysis
    CorrelatedValuePropagation
-   lib/Transforms/IPO/MergeFunctions.cpp => consider for 3.2.
    Integrated assembler on by default for arm/thumb?
 
   Near dead:
@@ -350,7 +351,21 @@ We vectorize under the following loops:
    '``noalias``' and are checked at runtime.
 #. ...
 
-SROA - We've re-written SROA to be significantly more powerful.
+SROA - We've re-written SROA to be significantly more powerful and generate
+code which is much more friendly to the rest of the optimization pipeline.
+Previously this pass had scaling problems that required it to only operate on
+relatively small aggregates, and at times it would mistakenly replace a large
+aggregate with a single very large integer in order to make it a scalar SSA
+value. The result was a large number of i1024 and i2048 values representing any
+small stack buffer. These in turn slowed down many subsequent optimization
+paths.
+
+The new SROA pass uses a different algorithm that allows it to only promote to
+scalars the pieces of the aggregate actively in use. Because of this it doesn't
+require any thresholds. It also always deduces the scalar values from the uses
+of the aggregate rather than the specific LLVM type of the aggregate. These
+features combine to both optimize more code with the pass but to improve the
+compile time of many functions dramatically.
 
 #. Branch weight metadata is preseved through more of the optimizer.
 #. ...
@@ -371,6 +386,12 @@ Post <http://blog.llvm.org/2010/04/intro-to-llvm-mc-project.html>`_.
 Target Independent Code Generator Improvements
 ----------------------------------------------
 
+We have put a significant amount of work into the code generator
+infrastructure, which allows us to implement more aggressive algorithms and
+make it run faster:
+
+#. ...
+
 Stack Coloring - We have implemented a new optimization pass to merge stack
 objects which are used in disjoin areas of the code.  This optimization reduces
 the required stack space significantly, in cases where it is clear to the
@@ -378,28 +399,6 @@ optimizer that the stack slot is not shared.  We use the lifetime markers to
 tell the codegen that a certain alloca is used within a region.
 
 We now merge consecutive loads and stores.
-
-We have put a significant amount of work into the code generator
-infrastructure, which allows us to implement more aggressive algorithms and
-make it run faster:
-
-#. ...
-
-We added new TableGen infrastructure to support bundling for Very Long
-Instruction Word (VLIW) architectures.  TableGen can now automatically generate
-a deterministic finite automaton from a VLIW target's schedule description
-which can be queried to determine legal groupings of instructions in a bundle.
-
-We have added a new target independent VLIW packetizer based on the DFA
-infrastructure to group machine instructions into bundles.
-
-Basic Block Placement
-^^^^^^^^^^^^^^^^^^^^^
-
-A probability based block placement and code layout algorithm was added to
-LLVM's code generator.  This layout pass supports probabilities derived from
-static heuristics as well as source code annotations such as
-``__builtin_expect``.
 
 X86-32 and X86-64 Target Improvements
 -------------------------------------
@@ -418,21 +417,6 @@ New features of the ARM target include:
 #. ...
 
 .. _armintegratedassembler:
-
-ARM Integrated Assembler
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-The ARM target now includes a full featured macro assembler, including
-direct-to-object module support for clang.  The assembler is currently enabled
-by default for Darwin only pending testing and any additional necessary
-platform specific support for Linux.
-
-Full support is included for Thumb1, Thumb2 and ARM modes, along with subtarget
-and CPU specific extensions for VFP2, VFP3 and NEON.
-
-The assembler is Unified Syntax only (see ARM Architecural Reference Manual for
-details).  While there is some, and growing, support for pre-unfied (divided)
-syntax, there are still significant gaps in that support.
 
 MIPS Target Improvements
 ------------------------
@@ -542,7 +526,7 @@ the `LLVMdev list <http://lists.cs.uiuc.edu/mailman/listinfo/llvmdev>`_.
 
 Known problem areas include:
 
-#. The CellSPU, MSP430, and XCore backends are experimental.
+#. MSP430, and XCore backends are experimental.
 
 #. The integrated assembler, disassembler, and JIT is not supported by several
    targets.  If an integrated assembler is not supported, then a system
