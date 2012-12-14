@@ -473,45 +473,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     DEBUG(dbgs() << "DONE:\n" << F);
   }
 
-  /// \brief Remove unreachable basic blocks from the function.
-  ///
-  /// In the presence of unreachable blocks, we may see Phi nodes with
-  /// incoming nodes from such blocks. Since InstVisitor skips unreachable
-  /// blocks, such nodes will not have any shadow value associated with them.
-  /// It's easier to remove unreachable blocks than deal with missing shadow.
-  void removeUnreachableBlocks() {
-    SmallPtrSet<BasicBlock*, 128> Reachable;
-    SmallVector<BasicBlock*, 128> Worklist;
-    Worklist.push_back(&F.getEntryBlock());
-    do {
-      BasicBlock *BB = Worklist.pop_back_val();
-      if (!Reachable.insert(BB))
-        continue;
-      for (succ_iterator SI = succ_begin(BB), SE = succ_end(BB); SI != SE; ++SI)
-        Worklist.push_back(*SI);
-    } while (!Worklist.empty());
-
-    if (Reachable.size() == F.size())
-      return;
-
-    assert(Reachable.size() < F.size());
-    for (Function::iterator BB = ++F.begin(); BB != F.end();)
-      if (!Reachable.count(BB)) {
-        for (succ_iterator SI = succ_begin(BB), SE = succ_end(BB); SI != SE; ++SI)
-          if (Reachable.count(*SI))
-            (*SI)->removePredecessor(BB);
-        BB->dropAllReferences();
-        BB = F.getBasicBlockList().erase(BB);
-      } else
-        ++BB;
-  }
-
   /// \brief Add MemorySanitizer instrumentation to a function.
   bool runOnFunction() {
     MS.initializeCallbacks(*F.getParent());
     if (!MS.TD) return false;
 
-    removeUnreachableBlocks();
+    RemoveUnreachableBlocks(F);
 
     // Iterate all BBs in depth-first order and create shadow instructions
     // for all instructions (where applicable).
