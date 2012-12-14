@@ -948,6 +948,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     Value *Origin;
     IRBuilder<> &IRB;
     MemorySanitizerVisitor *MSV;
+
   public:
     Combiner(MemorySanitizerVisitor *MSV, IRBuilder<> &IRB) :
       Shadow(0), Origin(0), IRB(IRB), MSV(MSV) {}
@@ -1358,7 +1359,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitIntrinsicInst(IntrinsicInst &I) {
     switch (I.getIntrinsicID()) {
     case llvm::Intrinsic::bswap:
-      handleBswap(I); break;
+      handleBswap(I);
+      break;
     default:
       if (!handleUnknownIntrinsic(I))
         visitInstruction(I);
@@ -1615,7 +1617,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 struct VarArgAMD64Helper : public VarArgHelper {
   // An unfortunate workaround for asymmetric lowering of va_arg stuff.
   // See a comment in visitCallSite for more details.
-  static const unsigned AMD64GpEndOffset = 48; // AMD64 ABI Draft 0.99.6 p3.5.7
+  static const unsigned AMD64GpEndOffset = 48;  // AMD64 ABI Draft 0.99.6 p3.5.7
   static const unsigned AMD64FpEndOffset = 176;
 
   Function &F;
