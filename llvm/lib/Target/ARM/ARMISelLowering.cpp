@@ -1046,7 +1046,7 @@ EVT ARMTargetLowering::getSetCCResultType(EVT VT) const {
 
 /// getRegClassFor - Return the register class that should be used for the
 /// specified value type.
-const TargetRegisterClass *ARMTargetLowering::getRegClassFor(EVT VT) const {
+const TargetRegisterClass *ARMTargetLowering::getRegClassFor(MVT VT) const {
   // Map v4i64 to QQ registers but do not make the type legal. Similarly map
   // v8i64 to QQQQ registers. v4i64 and v8i64 are only used for REG_SEQUENCE to
   // load / store 4 to 8 consecutive D registers.
@@ -9450,13 +9450,13 @@ static bool memOpAlign(unsigned DstAlign, unsigned SrcAlign,
 
 EVT ARMTargetLowering::getOptimalMemOpType(uint64_t Size,
                                            unsigned DstAlign, unsigned SrcAlign,
-                                           bool IsZeroVal,
+                                           bool IsMemset, bool ZeroMemset,
                                            bool MemcpyStrSrc,
                                            MachineFunction &MF) const {
   const Function *F = MF.getFunction();
 
   // See if we can use NEON instructions for this...
-  if (IsZeroVal &&
+  if ((!IsMemset || ZeroMemset) &&
       Subtarget->hasNEON() &&
       !F->getFnAttributes().hasAttribute(Attributes::NoImplicitFloat)) {
     bool Fast;
@@ -10260,24 +10260,6 @@ bool ARMTargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT) const {
   return false;
 }
 
-bool ARMTargetLowering::isIntImmLegal(const APInt &Imm, EVT VT) const {
-  if (VT.getSizeInBits() > 32)
-    return false;
-
-  int32_t ImmVal = Imm.getSExtValue();
-  if (!Subtarget->isThumb()) {
-    return (ImmVal >= 0 && ImmVal < 65536) ||
-      (ARM_AM::getSOImmVal(ImmVal) != -1) ||
-      (ARM_AM::getSOImmVal(~ImmVal) != -1);
-  } else if (Subtarget->isThumb2()) {
-    return (ImmVal >= 0 && ImmVal < 65536) ||
-      (ARM_AM::getT2SOImmVal(ImmVal) != -1) ||
-      (ARM_AM::getT2SOImmVal(~ImmVal) != -1);
-  } else /*Thumb1*/ {
-    return (ImmVal >= 0 && ImmVal < 256);
-  }
-}
-
 /// getTgtMemIntrinsic - Represent NEON load and store intrinsics as
 /// MemIntrinsicNodes.  The associated MachineMemOperands record the alignment
 /// specified in the intrinsic calls.
@@ -10358,4 +10340,37 @@ bool ARMTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
   }
 
   return false;
+}
+
+unsigned
+ARMScalarTargetTransformImpl::getIntImmCost(const APInt &Imm, Type *Ty) const {
+  assert(Ty->isIntegerTy());
+
+  unsigned Bits = Ty->getPrimitiveSizeInBits();
+  if (Bits == 0 || Bits > 32)
+    return 4;
+
+  int32_t SImmVal = Imm.getSExtValue();
+  uint32_t ZImmVal = Imm.getZExtValue();
+  if (!Subtarget->isThumb()) {
+    if ((SImmVal >= 0 && SImmVal < 65536) ||
+        (ARM_AM::getSOImmVal(ZImmVal) != -1) ||
+        (ARM_AM::getSOImmVal(~ZImmVal) != -1))
+      return 1;
+    return Subtarget->hasV6T2Ops() ? 2 : 3;
+  } else if (Subtarget->isThumb2()) {
+    if ((SImmVal >= 0 && SImmVal < 65536) ||
+        (ARM_AM::getT2SOImmVal(ZImmVal) != -1) ||
+        (ARM_AM::getT2SOImmVal(~ZImmVal) != -1))
+      return 1;
+    return Subtarget->hasV6T2Ops() ? 2 : 3;
+  } else /*Thumb1*/ {
+    if (SImmVal >= 0 && SImmVal < 256)
+      return 1;
+    if ((~ZImmVal < 256) || ARM_AM::isThumbImmShiftedVal(ZImmVal))
+      return 2;
+    // Load from constantpool.
+    return 3;
+  }
+  return 2;
 }

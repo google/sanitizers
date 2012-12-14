@@ -54,14 +54,16 @@ void MCExpr::print(raw_ostream &OS) const {
     else
       OS << Sym;
 
-    if (SRE.getKind() == MCSymbolRefExpr::VK_ARM_PLT ||
+    if (SRE.getKind() == MCSymbolRefExpr::VK_ARM_NONE ||
+        SRE.getKind() == MCSymbolRefExpr::VK_ARM_PLT ||
         SRE.getKind() == MCSymbolRefExpr::VK_ARM_TLSGD ||
         SRE.getKind() == MCSymbolRefExpr::VK_ARM_GOT ||
         SRE.getKind() == MCSymbolRefExpr::VK_ARM_GOTOFF ||
         SRE.getKind() == MCSymbolRefExpr::VK_ARM_TPOFF ||
         SRE.getKind() == MCSymbolRefExpr::VK_ARM_GOTTPOFF ||
         SRE.getKind() == MCSymbolRefExpr::VK_ARM_TARGET1 ||
-        SRE.getKind() == MCSymbolRefExpr::VK_ARM_TARGET2)
+        SRE.getKind() == MCSymbolRefExpr::VK_ARM_TARGET2 ||
+        SRE.getKind() == MCSymbolRefExpr::VK_ARM_PREL31)
       OS << MCSymbolRefExpr::getVariantKindName(SRE.getKind());
     else if (SRE.getKind() != MCSymbolRefExpr::VK_None &&
              SRE.getKind() != MCSymbolRefExpr::VK_PPC_DARWIN_HA16 &&
@@ -193,6 +195,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_DTPOFF: return "DTPOFF";
   case VK_TLVP: return "TLVP";
   case VK_SECREL: return "SECREL";
+  case VK_ARM_NONE: return "(NONE)";
   case VK_ARM_PLT: return "(PLT)";
   case VK_ARM_GOT: return "(GOT)";
   case VK_ARM_GOTOFF: return "(GOTOFF)";
@@ -201,6 +204,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_ARM_TLSGD: return "(tlsgd)";
   case VK_ARM_TARGET1: return "(target1)";
   case VK_ARM_TARGET2: return "(target2)";
+  case VK_ARM_PREL31: return "(prel31)";
   case VK_PPC_TOC: return "tocbase";
   case VK_PPC_TOC_ENTRY: return "toc";
   case VK_PPC_DARWIN_HA16: return "ha16";
@@ -209,10 +213,18 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_PPC_GAS_LO16: return "l";
   case VK_PPC_TPREL16_HA: return "tprel@ha";
   case VK_PPC_TPREL16_LO: return "tprel@l";
+  case VK_PPC_DTPREL16_HA: return "dtprel@ha";
+  case VK_PPC_DTPREL16_LO: return "dtprel@l";
   case VK_PPC_TOC16_HA: return "toc@ha";
   case VK_PPC_TOC16_LO: return "toc@l";
   case VK_PPC_GOT_TPREL16_DS: return "got@tprel";
   case VK_PPC_TLS: return "tls";
+  case VK_PPC_GOT_TLSGD16_HA: return "got@tlsgd@ha";
+  case VK_PPC_GOT_TLSGD16_LO: return "got@tlsgd@l";
+  case VK_PPC_GOT_TLSLD16_HA: return "got@tlsld@ha";
+  case VK_PPC_GOT_TLSLD16_LO: return "got@tlsld@l";
+  case VK_PPC_TLSGD: return "tlsgd";
+  case VK_PPC_TLSLD: return "tlsld";
   case VK_Mips_GPREL: return "GPREL";
   case VK_Mips_GOT_CALL: return "GOT_CALL";
   case VK_Mips_GOT16: return "GOT16";

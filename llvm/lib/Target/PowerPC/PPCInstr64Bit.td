@@ -43,6 +43,7 @@ def tlsaddr : Operand<i64> {
 def tlsreg : Operand<i64> {
   let EncoderMethod = "getTLSRegEncoding";
 }
+def tlsgd : Operand<i64> {}
 
 //===----------------------------------------------------------------------===//
 // 64-bit transformation functions.
@@ -109,6 +110,16 @@ let isCall = 1, PPC970_Unit = 7, Defs = [LR8] in {
     def BL8_NOP_ELF  : IForm_and_DForm_4_zero<18, 0, 1, 24,
                              (outs), (ins calltarget:$func),
                              "bl $func\n\tnop", BrB, []>;
+
+    let isCodeGenOnly = 1 in
+    def BL8_NOP_ELF_TLSGD : IForm_and_DForm_4_zero<18, 0, 1, 24,
+                                  (outs), (ins calltarget:$func, tlsgd:$sym),
+                                  "bl $func($sym)\n\tnop", BrB, []>;
+
+    let isCodeGenOnly = 1 in
+    def BL8_NOP_ELF_TLSLD : IForm_and_DForm_4_zero<18, 0, 1, 24,
+                                  (outs), (ins calltarget:$func, tlsgd:$sym),
+                                  "bl $func($sym)\n\tnop", BrB, []>;
 
     def BLA8_ELF : IForm<18, 1, 1,
                          (outs), (ins aaddr:$func),
@@ -373,7 +384,7 @@ def ADD8  : XOForm_1<31, 266, 0, (outs G8RC:$rT), (ins G8RC:$rA, G8RC:$rB),
 // ADD8 has a special form: reg = ADD8(reg, sym@tls) for use by the
 // initial-exec thread-local storage model.
 def ADD8TLS  : XOForm_1<31, 266, 0, (outs G8RC:$rT), (ins G8RC:$rA, tlsreg:$rB),
-                        "add $rT, $rA, $rB", IntSimple,
+                        "add $rT, $rA, $rB@tls", IntSimple,
                         [(set G8RC:$rT, (add G8RC:$rA, tglobaltlsaddr:$rB))]>;
                      
 let Defs = [CARRY] in {
@@ -712,10 +723,51 @@ def ADDItocL: Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, tocentry:$disp),
 def LDgotTPREL: Pseudo<(outs G8RC:$rD), (ins tlsaddr:$disp, G8RC:$reg),
                        "#LDgotTPREL",
                        [(set G8RC:$rD,
-                         (PPCldGotTprel G8RC:$reg, tglobaltlsaddr:$disp))]>,
+                         (PPCldGotTprel tglobaltlsaddr:$disp, G8RC:$reg))]>,
                       isPPC64;
 def : Pat<(PPCaddTls G8RC:$in, tglobaltlsaddr:$g),
           (ADD8TLS G8RC:$in, tglobaltlsaddr:$g)>;
+def ADDIStlsgdHA: Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, symbolHi64:$disp),
+                         "#ADDIStlsgdHA",
+                         [(set G8RC:$rD,
+                           (PPCaddisTlsgdHA G8RC:$reg, tglobaltlsaddr:$disp))]>,
+                  isPPC64;
+def ADDItlsgdL : Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, symbolLo64:$disp),
+                       "#ADDItlsgdL",
+                       [(set G8RC:$rD,
+                         (PPCaddiTlsgdL G8RC:$reg, tglobaltlsaddr:$disp))]>,
+                 isPPC64;
+def GETtlsADDR : Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, tlsgd:$sym),
+                        "#GETtlsADDR",
+                        [(set G8RC:$rD,
+                          (PPCgetTlsAddr G8RC:$reg, tglobaltlsaddr:$sym))]>,
+                 isPPC64;
+def ADDIStlsldHA: Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, symbolHi64:$disp),
+                         "#ADDIStlsldHA",
+                         [(set G8RC:$rD,
+                           (PPCaddisTlsldHA G8RC:$reg, tglobaltlsaddr:$disp))]>,
+                  isPPC64;
+def ADDItlsldL : Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, symbolLo64:$disp),
+                       "#ADDItlsldL",
+                       [(set G8RC:$rD,
+                         (PPCaddiTlsldL G8RC:$reg, tglobaltlsaddr:$disp))]>,
+                 isPPC64;
+def GETtlsldADDR : Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, tlsgd:$sym),
+                          "#GETtlsldADDR",
+                          [(set G8RC:$rD,
+                            (PPCgetTlsldAddr G8RC:$reg, tglobaltlsaddr:$sym))]>,
+                   isPPC64;
+def ADDISdtprelHA: Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, symbolHi64:$disp),
+                          "#ADDISdtprelHA",
+                          [(set G8RC:$rD,
+                            (PPCaddisDtprelHA G8RC:$reg,
+                                              tglobaltlsaddr:$disp))]>,
+                   isPPC64;
+def ADDIdtprelL : Pseudo<(outs G8RC:$rD), (ins G8RC:$reg, symbolLo64:$disp),
+                         "#ADDIdtprelL",
+                         [(set G8RC:$rD,
+                           (PPCaddiDtprelL G8RC:$reg, tglobaltlsaddr:$disp))]>,
+                  isPPC64;
 
 let PPC970_Unit = 2 in {
 // Truncating stores.                       

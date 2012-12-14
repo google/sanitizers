@@ -592,9 +592,7 @@ void Preprocessor::HandleIdentifier(Token &Identifier) {
   // If this is a macro to be expanded, do it.
   if (MacroInfo *MI = getMacroInfo(&II)) {
     if (!DisableMacroExpansion) {
-      if (Identifier.isExpandDisabled()) {
-        Diag(Identifier, diag::pp_disabled_macro_expansion);
-      } else if (MI->isEnabled()) {
+      if (!Identifier.isExpandDisabled() && MI->isEnabled()) {
         if (!HandleMacroExpandedIdentifier(Identifier, MI))
           return;
       } else {
@@ -602,7 +600,8 @@ void Preprocessor::HandleIdentifier(Token &Identifier) {
         // expanded, even if it's in a context where it could be expanded in the
         // future.
         Identifier.setFlag(Token::DisableExpand);
-        Diag(Identifier, diag::pp_disabled_macro_expansion);
+        if (MI->isObjectLike() || isNextPPTokenLParen())
+          Diag(Identifier, diag::pp_disabled_macro_expansion);
       }
     }
   }
@@ -631,10 +630,10 @@ void Preprocessor::HandleIdentifier(Token &Identifier) {
   if (II.isExtensionToken() && !DisableMacroExpansion)
     Diag(Identifier, diag::ext_token_used);
   
-  // If this is the '__experimental_modules_import' contextual keyword, note
+  // If this is the 'import' contextual keyword, note
   // that the next token indicates a module name.
   //
-  // Note that we do not treat '__experimental_modules_import' as a contextual
+  // Note that we do not treat 'import' as a contextual
   // keyword when we're in a caching lexer, because caching lexers only get
   // used in contexts where import declarations are disallowed.
   if (II.isModulesImport() && !InMacroArgs && !DisableMacroExpansion &&

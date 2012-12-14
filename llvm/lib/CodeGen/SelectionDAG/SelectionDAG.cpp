@@ -41,6 +41,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetTransformInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetIntrinsicInfo.h"
 #include "llvm/Target/TargetLowering.h"
@@ -3382,7 +3383,10 @@ static SDValue getMemsetStringVal(EVT VT, DebugLoc dl, SelectionDAG &DAG,
       Val |= (uint64_t)(unsigned char)Str[i] << (NumVTBytes-i-1)*8;
   }
 
-  if (TLI.isIntImmLegal(Val, VT))
+  // If the "cost" of materializing the integer immediate is 1 or free, then
+  // it is cost effective to turn the load into the immediate.
+  if (DAG.getTarget().getScalarTargetTransformInfo()->
+      getIntImmCost(Val, VT.getTypeForEVT(*DAG.getContext())) < 2)
     return DAG.getConstant(Val, VT);
   return SDValue(0, 0);
 }
@@ -3422,7 +3426,8 @@ static bool isMemSrcFromString(SDValue Src, StringRef &Str) {
 static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
                                      unsigned Limit, uint64_t Size,
                                      unsigned DstAlign, unsigned SrcAlign,
-                                     bool IsZeroVal,
+                                     bool IsMemset,
+                                     bool ZeroMemset,
                                      bool MemcpyStrSrc,
                                      bool AllowOverlap,
                                      SelectionDAG &DAG,
@@ -3437,7 +3442,7 @@ static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
   // 'MemcpyStrSrc' indicates whether the memcpy source is constant so it does
   // not need to be loaded.
   EVT VT = TLI.getOptimalMemOpType(Size, DstAlign, SrcAlign,
-                                   IsZeroVal, MemcpyStrSrc,
+                                   IsMemset, ZeroMemset, MemcpyStrSrc,
                                    DAG.getMachineFunction());
 
   if (VT == MVT::Other) {
@@ -3464,39 +3469,43 @@ static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
 
   unsigned NumMemOps = 0;
   while (Size != 0) {
-    if (++NumMemOps > Limit)
-      return false;
-
     unsigned VTSize = VT.getSizeInBits() / 8;
     while (VTSize > Size) {
       // For now, only use non-vector load / store's for the left-over pieces.
-      EVT NewVT;
+      EVT NewVT = VT;
       unsigned NewVTSize;
+
+      bool Found = false;
       if (VT.isVector() || VT.isFloatingPoint()) {
         NewVT = (VT.getSizeInBits() > 64) ? MVT::i64 : MVT::i32;
-        while (!TLI.isOperationLegalOrCustom(ISD::STORE, NewVT)) {
-          if (NewVT == MVT::i64 &&
-              TLI.isOperationLegalOrCustom(ISD::STORE, MVT::f64)) {
-            // i64 is usually not legal on 32-bit targets, but f64 may be.
-            NewVT = MVT::f64;
-            break;
-          }
-          NewVT = (MVT::SimpleValueType)(NewVT.getSimpleVT().SimpleTy - 1);
+        if (TLI.isOperationLegalOrCustom(ISD::STORE, NewVT) &&
+            TLI.isSafeMemOpType(NewVT.getSimpleVT()))
+          Found = true;
+        else if (NewVT == MVT::i64 &&
+                 TLI.isOperationLegalOrCustom(ISD::STORE, MVT::f64) &&
+                 TLI.isSafeMemOpType(MVT::f64)) {
+          // i64 is usually not legal on 32-bit targets, but f64 may be.
+          NewVT = MVT::f64;
+          Found = true;
         }
-        NewVTSize = NewVT.getSizeInBits() / 8;
-      } else {
-        // This can result in a type that is not legal on the target, e.g.
-        // 1 or 2 bytes on PPC.
-        NewVT = (MVT::SimpleValueType)(VT.getSimpleVT().SimpleTy - 1);
-        NewVTSize = VTSize >> 1;
       }
+
+      if (!Found) {
+        do {
+          NewVT = (MVT::SimpleValueType)(NewVT.getSimpleVT().SimpleTy - 1);
+          if (NewVT == MVT::i8)
+            break;
+        } while (!TLI.isSafeMemOpType(NewVT.getSimpleVT()));
+      }
+      NewVTSize = NewVT.getSizeInBits() / 8;
 
       // If the new VT cannot cover all of the remaining bits, then consider
       // issuing a (or a pair of) unaligned and overlapping load / store.
       // FIXME: Only does this for 64-bit or more since we don't have proper
       // cost model for unaligned load / store.
       bool Fast;
-      if (AllowOverlap && VTSize >= 8 && NewVTSize < Size &&
+      if (NumMemOps && AllowOverlap &&
+          VTSize >= 8 && NewVTSize < Size &&
           TLI.allowsUnalignedMemoryAccesses(VT, &Fast) && Fast)
         VTSize = Size;
       else {
@@ -3504,6 +3513,9 @@ static bool FindOptimalMemOpLowering(std::vector<EVT> &MemOps,
         VTSize = NewVTSize;
       }
     }
+
+    if (++NumMemOps > Limit)
+      return false;
 
     MemOps.push_back(VT);
     Size -= VTSize;
@@ -3549,7 +3561,7 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
   if (!FindOptimalMemOpLowering(MemOps, Limit, Size,
                                 (DstAlignCanChange ? 0 : Align),
                                 (isZeroStr ? 0 : SrcAlign),
-                                true, CopyFromStr, true, DAG, TLI))
+                                false, false, CopyFromStr, true, DAG, TLI))
     return SDValue();
 
   if (DstAlignCanChange) {
@@ -3650,8 +3662,8 @@ static SDValue getMemmoveLoadsAndStores(SelectionDAG &DAG, DebugLoc dl,
   unsigned Limit = AlwaysInline ? ~0U : TLI.getMaxStoresPerMemmove(OptSize);
 
   if (!FindOptimalMemOpLowering(MemOps, Limit, Size,
-                                (DstAlignCanChange ? 0 : Align),
-                                SrcAlign, true, false, false, DAG, TLI))
+                                (DstAlignCanChange ? 0 : Align), SrcAlign,
+                                false, false, false, false, DAG, TLI))
     return SDValue();
 
   if (DstAlignCanChange) {
@@ -3727,7 +3739,7 @@ static SDValue getMemsetStores(SelectionDAG &DAG, DebugLoc dl,
     isa<ConstantSDNode>(Src) && cast<ConstantSDNode>(Src)->isNullValue();
   if (!FindOptimalMemOpLowering(MemOps, TLI.getMaxStoresPerMemset(OptSize),
                                 Size, (DstAlignCanChange ? 0 : Align), 0,
-                                IsZeroVal, false, true, DAG, TLI))
+                                true, IsZeroVal, false, true, DAG, TLI))
     return SDValue();
 
   if (DstAlignCanChange) {

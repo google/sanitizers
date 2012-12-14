@@ -46,9 +46,9 @@ namespace __asan {
 // checking the first and the last byte of a range.
 #define ACCESS_MEMORY_RANGE(offset, size, isWrite) do { \
   if (size > 0) { \
-    uptr ptr = (uptr)(offset); \
-    ACCESS_ADDRESS(ptr, isWrite); \
-    ACCESS_ADDRESS(ptr + (size) - 1, isWrite); \
+    uptr _ptr = (uptr)(offset); \
+    ACCESS_ADDRESS(_ptr, isWrite); \
+    ACCESS_ADDRESS(_ptr + (size) - 1, isWrite); \
   } \
 } while (0)
 
@@ -71,7 +71,7 @@ static inline bool RangesOverlap(const char *offset1, uptr length1,
   const char *offset1 = (const char*)_offset1; \
   const char *offset2 = (const char*)_offset2; \
   if (RangesOverlap(offset1, length1, offset2, length2)) { \
-    GET_STACK_TRACE_HERE(kStackTraceMax); \
+    GET_STACK_TRACE_FATAL_HERE; \
     ReportStringFunctionMemoryRangesOverlap(name, offset1, length1, \
                                             offset2, length2, &stack); \
   } \
@@ -98,6 +98,11 @@ static inline uptr MaybeRealStrnlen(const char *s, uptr maxlen) {
 // ---------------------- Wrappers ---------------- {{{1
 using namespace __asan;  // NOLINT
 
+#define COMMON_INTERCEPTOR_WRITE_RANGE(ptr, size) ASAN_WRITE_RANGE(ptr, size)
+#define COMMON_INTERCEPTOR_READ_RANGE(ptr, size) ASAN_READ_RANGE(ptr, size)
+#define COMMON_INTERCEPTOR_ENTER(func, ...) ENSURE_ASAN_INITED()
+#include "sanitizer_common/sanitizer_common_interceptors.h"
+
 static thread_return_t THREAD_CALLING_CONV asan_thread_start(void *arg) {
   AsanThread *t = (AsanThread*)arg;
   asanThreadRegistry().SetCurrent(t);
@@ -107,7 +112,7 @@ static thread_return_t THREAD_CALLING_CONV asan_thread_start(void *arg) {
 #if ASAN_INTERCEPT_PTHREAD_CREATE
 INTERCEPTOR(int, pthread_create, void *thread,
     void *attr, void *(*start_routine)(void*), void *arg) {
-  GET_STACK_TRACE_HERE(kStackTraceMax);
+  GET_STACK_TRACE_THREAD;
   u32 current_tid = asanThreadRegistry().GetCurrentTidOrInvalid();
   AsanThread *t = AsanThread::Create(current_tid, start_routine, arg, &stack);
   asanThreadRegistry().RegisterThread(t);
@@ -642,7 +647,7 @@ INTERCEPTOR_WINAPI(DWORD, CreateThread,
                    void* security, uptr stack_size,
                    DWORD (__stdcall *start_routine)(void*), void* arg,
                    DWORD flags, void* tid) {
-  GET_STACK_TRACE_HERE(kStackTraceMax);
+  GET_STACK_TRACE_THREAD;
   u32 current_tid = asanThreadRegistry().GetCurrentTidOrInvalid();
   AsanThread *t = AsanThread::Create(current_tid, start_routine, arg, &stack);
   asanThreadRegistry().RegisterThread(t);
@@ -667,6 +672,9 @@ void InitializeAsanInterceptors() {
 #if MAC_INTERPOSE_FUNCTIONS
   return;
 #endif
+
+  SANITIZER_COMMON_INTERCEPTORS_INIT;
+
   // Intercept mem* functions.
   ASAN_INTERCEPT_FUNC(memcmp);
   ASAN_INTERCEPT_FUNC(memmove);

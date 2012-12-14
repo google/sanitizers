@@ -57,11 +57,6 @@ static const uptr kMallocSizeClassStep = 1UL << kMallocSizeClassStepLog;
 static const uptr kMaxAllowedMallocSize =
     (SANITIZER_WORDSIZE == 32) ? 3UL << 30 : 8UL << 30;
 
-static inline bool IsAligned(uptr a, uptr alignment) {
-  return (a & (alignment - 1)) == 0;
-}
-
-
 static inline uptr SizeClassToSize(u8 size_class) {
   CHECK(size_class < kNumberOfSizeClasses);
   if (size_class <= kMallocSizeClassStepLog) {
@@ -824,7 +819,7 @@ uptr __asan_get_allocated_size(const void *p) {
   uptr allocated_size = malloc_info.AllocationSize((uptr)p);
   // Die if p is not malloced or if it is already freed.
   if (allocated_size == 0) {
-    GET_STACK_TRACE_HERE(kStackTraceMax);
+    GET_STACK_TRACE_FATAL_HERE;
     ReportAsanGetAllocatedSizeNotOwned((uptr)p, &stack);
   }
   return allocated_size;
