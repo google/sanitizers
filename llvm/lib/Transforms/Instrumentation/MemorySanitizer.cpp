@@ -997,8 +997,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         if (!Origin) {
           Origin = OpOrigin;
         } else {
-          Value* FlatShadow = MSV->convertToShadowTyNoVec(OpShadow, IRB);
-          Value* Cond = IRB.CreateICmpNE(FlatShadow,
+          Value *FlatShadow = MSV->convertToShadowTyNoVec(OpShadow, IRB);
+          Value *Cond = IRB.CreateICmpNE(FlatShadow,
                                          MSV->getCleanShadow(FlatShadow));
           Origin = IRB.CreateSelect(Cond, OpOrigin, Origin);
         }
@@ -1009,7 +1009,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     /// \brief Add an application value to the mix.
     Combiner& Add(Value *V) {
       Value *OpShadow = MSV->getShadow(V);
-      Value* OpOrigin = ClTrackOrigins ? MSV->getOrigin(V) : 0;
+      Value *OpOrigin = ClTrackOrigins ? MSV->getOrigin(V) : 0;
       return Add(OpShadow, OpOrigin);
     }
 
