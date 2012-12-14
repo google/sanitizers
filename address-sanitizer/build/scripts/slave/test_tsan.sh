@@ -49,7 +49,7 @@ echo @@@BUILD_STEP tsan racecheck_unittest@@@
 TSAN_PATH=`pwd`
 LIBTSAN_A=$TSAN_PATH/rtl/libtsan.a
 SUPPRESS_WARNINGS="-Wno-format-security -Wno-null-dereference -Wno-unused-private-field"
-EXTRA_COMPILER_FLAGS="-fsanitize=thread -fPIC -g -O2 $SUPPRESS_WARNINGS"
+EXTRA_COMPILER_FLAGS="-fsanitize=thread -DTHREAD_SANITIZER -fPIC -g -O2 $SUPPRESS_WARNINGS"
 (cd $RACECHECK_UNITTEST_PATH && \
 make clean && \
 OMIT_DYNAMIC_ANNOTATIONS_IMPL=1 LIBS=$LIBTSAN_A make l64 -j16 CC=clang CXX=clang++ LDOPT="-pie -ldl $LIBTSAN_A" OMIT_CPP0X=1 EXTRA_CFLAGS="$EXTRA_COMPILER_FLAGS" EXTRA_CXXFLAGS="$EXTRA_COMPILER_FLAGS" && \
