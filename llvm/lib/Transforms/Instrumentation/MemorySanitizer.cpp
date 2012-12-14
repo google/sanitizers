@@ -970,16 +970,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// not entirely initialized. If there is more than one such arguments, the
   /// rightmost of them is picked. It does not matter which one is picked if all
   /// arguments are initialized.
-  template <bool CombineShadow, bool CombineOrigin>
+  template <bool CombineShadow>
   class Combiner {
     Value *Shadow;
     Value *Origin;
     IRBuilder<> &IRB;
-    MemorySanitizerVisitor* MSV;
+    MemorySanitizerVisitor *MSV;
   public:
-    Combiner(MemorySanitizerVisitor* MSV, IRBuilder<> &IRB) :
+    Combiner(MemorySanitizerVisitor *MSV, IRBuilder<> &IRB) :
       Shadow(0), Origin(0), IRB(IRB), MSV(MSV) {}
 
+    /// \brief Add a pair of shadow and origin values to the mix.
     Combiner& Add(Value *OpShadow, Value *OpOrigin) {
       if (CombineShadow) {
         assert(OpShadow);
@@ -991,7 +992,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         }
       }
 
-      if (CombineOrigin && ClTrackOrigins) {
+      if (ClTrackOrigins) {
         assert(OpOrigin);
         if (!Origin) {
           Origin = OpOrigin;
@@ -1005,27 +1006,30 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return *this;
     }
 
+    /// \brief Add an application value to the mix.
     Combiner& Add(Value *V) {
       Value *OpShadow = MSV->getShadow(V);
       Value* OpOrigin = ClTrackOrigins ? MSV->getOrigin(V) : 0;
       return Add(OpShadow, OpOrigin);
     }
 
+    /// \brief Set the current combined values as the given instruction's shadow
+    /// and origin.
     void Done(Instruction *I) {
       if (CombineShadow) {
         assert(Shadow);
         Shadow = MSV->CreateShadowCast(IRB, Shadow, MSV->getShadowTy(I));
         MSV->setShadow(I, Shadow);
       }
-      if (CombineOrigin && ClTrackOrigins) {
+      if (ClTrackOrigins) {
         assert(Origin);
         MSV->setOrigin(I, Origin);
       }
     }
   };
 
-  typedef Combiner<true, true> ShadowAndOriginCombiner;
-  typedef Combiner<false, true> OriginCombiner;
+  typedef Combiner<true> ShadowAndOriginCombiner;
+  typedef Combiner<false> OriginCombiner;
 
   /// \brief Propagate origin for arbitrary operation.
   void setOriginForNaryOp(Instruction &I) {
@@ -1037,7 +1041,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     OC.Done(&I);
   }
 
-  // Cast between two shadow types, extending or truncating as necessary.
+  size_t VectorOrPrimitiveTypeSizeInBits(Type* Ty) {
+    return Ty->isVectorTy() ?
+      Ty->getVectorNumElements() * Ty->getScalarSizeInBits() :
+      Ty->getPrimitiveSizeInBits();
+  }
+
+  /// \brief Cast between two shadow types, extending or truncating as
+  /// necessary.
   Value* CreateShadowCast(IRBuilder<>& IRB, Value* V, Type* dstTy) {
     Type* srcTy = V->getType();
     if (dstTy->isIntegerTy() && srcTy->isIntegerTy())
@@ -1045,14 +1056,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (dstTy->isVectorTy() && srcTy->isVectorTy() &&
         dstTy->getVectorNumElements() == srcTy->getVectorNumElements())
       return IRB.CreateIntCast(V, dstTy, false);
-    size_t srcSizeInBits = srcTy->isVectorTy() ?
-      srcTy->getVectorNumElements() * srcTy->getScalarSizeInBits() :
-      srcTy->getPrimitiveSizeInBits();
-    size_t dstSizeInBits = dstTy->isVectorTy() ?
-      dstTy->getVectorNumElements() * dstTy->getScalarSizeInBits() :
-      dstTy->getPrimitiveSizeInBits();
+    size_t srcSizeInBits = VectorOrPrimitiveTypeSizeInBits(srcTy);
+    size_t dstSizeInBits = VectorOrPrimitiveTypeSizeInBits(dstTy);
     Value* V1 = IRB.CreateBitCast(V, Type::getIntNTy(*MS.C, srcSizeInBits));
-    Value* V2 = IRB.CreateIntCast(V1, Type::getIntNTy(*MS.C, dstSizeInBits), false);
+    Value* V2 =
+      IRB.CreateIntCast(V1, Type::getIntNTy(*MS.C, dstSizeInBits), false);
     return IRB.CreateBitCast(V2, dstTy);
     // TODO: handle struct types.
   }
