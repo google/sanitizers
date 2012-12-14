@@ -478,6 +478,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     MS.initializeCallbacks(*F.getParent());
     if (!MS.TD) return false;
 
+    // In the presence of unreachable blocks, we may see Phi nodes with
+    // incoming nodes from such blocks. Since InstVisitor skips unreachable
+    // blocks, such nodes will not have any shadow value associated with them.
+    // It's easier to remove unreachable blocks than deal with missing shadow.
     RemoveUnreachableBlocks(F);
 
     // Iterate all BBs in depth-first order and create shadow instructions
