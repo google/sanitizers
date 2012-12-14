@@ -42,6 +42,9 @@ echo @@@BUILD_STEP tsan output_tests@@@
 echo @@@BUILD_STEP tsan analyze@@@
 ./check_analyze.sh
 
+echo @@@BUILD_STEP tsan Go runtime@@@
+(cd go && ./buildgo.sh)
+
 echo @@@BUILD_STEP tsan racecheck_unittest@@@
 TSAN_PATH=`pwd`
 LIBTSAN_A=$TSAN_PATH/rtl/libtsan.a
