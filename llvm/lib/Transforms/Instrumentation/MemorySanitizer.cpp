@@ -948,7 +948,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       Shadow(0), Origin(0), IRB(IRB), MSV(MSV) {}
 
     /// \brief Add a pair of shadow and origin values to the mix.
-    Combiner& Add(Value *OpShadow, Value *OpOrigin) {
+    Combiner &Add(Value *OpShadow, Value *OpOrigin) {
       if (CombineShadow) {
         assert(OpShadow);
         if (!Shadow)
@@ -974,7 +974,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     }
 
     /// \brief Add an application value to the mix.
-    Combiner& Add(Value *V) {
+    Combiner &Add(Value *V) {
       Value *OpShadow = MSV->getShadow(V);
       Value *OpOrigin = ClTrackOrigins ? MSV->getOrigin(V) : 0;
       return Add(OpShadow, OpOrigin);
@@ -1008,7 +1008,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     OC.Done(&I);
   }
 
-  size_t VectorOrPrimitiveTypeSizeInBits(Type* Ty) {
+  size_t VectorOrPrimitiveTypeSizeInBits(Type *Ty) {
     return Ty->isVectorTy() ?
       Ty->getVectorNumElements() * Ty->getScalarSizeInBits() :
       Ty->getPrimitiveSizeInBits();
@@ -1016,8 +1016,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
   /// \brief Cast between two shadow types, extending or truncating as
   /// necessary.
-  Value* CreateShadowCast(IRBuilder<>& IRB, Value* V, Type* dstTy) {
-    Type* srcTy = V->getType();
+  Value *CreateShadowCast(IRBuilder<> &IRB, Value *V, Type *dstTy) {
+    Type *srcTy = V->getType();
     if (dstTy->isIntegerTy() && srcTy->isIntegerTy())
       return IRB.CreateIntCast(V, dstTy, false);
     if (dstTy->isVectorTy() && srcTy->isVectorTy() &&
@@ -1025,8 +1025,8 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return IRB.CreateIntCast(V, dstTy, false);
     size_t srcSizeInBits = VectorOrPrimitiveTypeSizeInBits(srcTy);
     size_t dstSizeInBits = VectorOrPrimitiveTypeSizeInBits(dstTy);
-    Value* V1 = IRB.CreateBitCast(V, Type::getIntNTy(*MS.C, srcSizeInBits));
-    Value* V2 =
+    Value *V1 = IRB.CreateBitCast(V, Type::getIntNTy(*MS.C, srcSizeInBits));
+    Value *V2 =
       IRB.CreateIntCast(V1, Type::getIntNTy(*MS.C, dstSizeInBits), false);
     return IRB.CreateBitCast(V2, dstTy);
     // TODO: handle struct types.
