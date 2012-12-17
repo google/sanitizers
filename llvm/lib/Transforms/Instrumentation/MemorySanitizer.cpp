@@ -1237,6 +1237,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 #undef GET_INTRINSIC_MODREF_BEHAVIOR
   }
 
+  /// \brief Handle vector store-like intrinsics.
+  ///
+  /// Instrument intrinsics that look like a simple SIMD store: writes memory,
+  /// has 1 pointer argument and 1 vector argument, returns void.
   bool handleVectorStoreIntrinsic(IntrinsicInst &I) {
     IRBuilder<> IRB(&I);
     Value* Addr = I.getArgOperand(0);
@@ -1257,6 +1261,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return true;
   }
 
+  /// \brief Handle vector load-like intrinsics.
+  ///
+  /// Instrument intrinsics that look like a simple SIMD load: reads memory,
+  /// has 1 pointer argument, returns a vector.
   bool handleVectorLoadIntrinsic(IntrinsicInst &I) {
     IRBuilder<> IRB(&I);
     Value *Addr = I.getArgOperand(0);
@@ -1288,7 +1296,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
           RetTy->isX86_MMXTy()))
       return false;
 
-    for (unsigned i = 0; i < I.getNumArgOperands(); ++i) {
+    unsigned NumArgOperands = I.getNumArgOperands();
+
+    for (unsigned i = 0; i < NumArgOperands; ++i) {
       Type *Ty = I.getArgOperand(i)->getType();
       if (Ty != RetTy)
         return false;
@@ -1296,7 +1306,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     IRBuilder<> IRB(&I);
     ShadowAndOriginCombiner SC(this, IRB);
-    for (unsigned i = 0; i < I.getNumArgOperands(); ++i)
+    for (unsigned i = 0; i < NumArgOperands; ++i)
       SC.Add(I.getArgOperand(i));
     SC.Done(&I);
 
@@ -1314,15 +1324,17 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   /// We special-case intrinsics where this approach fails. See llvm.bswap
   /// handling as an example of that.
   bool handleUnknownIntrinsic(IntrinsicInst &I) {
-    if (I.getNumArgOperands() == 0)
+    unsigned NumArgOperands = I.getNumArgOperands();
+    if (NumArgOperands == 0)
       return false;
 
     Intrinsic::ID iid = I.getIntrinsicID();
     IntrinsicKind IK = getIntrinsicKind(iid);
     bool ReadsMemory = IK == IK_OnlyReadsMemory;
     bool WritesMemory = IK == IK_WritesMemory;
+    assert(!(ReadsMemory && WritesMemory));
 
-    if (I.getNumArgOperands() == 2 &&
+    if (NumArgOperands == 2 &&
         I.getArgOperand(0)->getType()->isPointerTy() &&
         I.getArgOperand(1)->getType()->isVectorTy() &&
         I.getType()->isVoidTy() &&
@@ -1331,7 +1343,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       return handleVectorStoreIntrinsic(I);
     }
 
-    if (I.getNumArgOperands() == 1 &&
+    if (NumArgOperands == 1 &&
         I.getArgOperand(0)->getType()->isPointerTy() &&
         I.getType()->isVectorTy() &&
         ReadsMemory) {
