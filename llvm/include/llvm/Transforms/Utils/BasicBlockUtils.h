@@ -227,11 +227,6 @@ ReturnInst *FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
 
 TerminatorInst *SplitBlockAndInsertIfThen(Instruction *Cmp,
     bool Unreachable, MDNode *BranchWeights = 0);
-
-/// RemoveUnreachableBlocks - Remove all blocks that can not be reached from the
-/// function's entry.
-void RemoveUnreachableBlocks(Function &F);
-
 } // End llvm namespace
 
 #endif

@@ -67,6 +67,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Type.h"
 
@@ -483,7 +484,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     // incoming nodes from such blocks. Since InstVisitor skips unreachable
     // blocks, such nodes will not have any shadow value associated with them.
     // It's easier to remove unreachable blocks than deal with missing shadow.
-    RemoveUnreachableBlocks(F);
+    removeUnreachableBlocks(F);
 
     // Iterate all BBs in depth-first order and create shadow instructions
     // for all instructions (where applicable).

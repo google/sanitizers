@@ -726,30 +726,3 @@ TerminatorInst *llvm::SplitBlockAndInsertIfThen(Instruction *Cmp,
   ReplaceInstWithInst(HeadOldTerm, HeadNewTerm);
   return CheckTerm;
 }
-
-/// RemoveUnreachableBlocks - Remove all blocks that can not be reached from the
-/// function's entry.
-void llvm::RemoveUnreachableBlocks(Function &F) {
-  SmallPtrSet<BasicBlock*, 128> Reachable;
-  SmallVector<BasicBlock*, 128> Worklist;
-  Worklist.push_back(&F.getEntryBlock());
-  Reachable.insert(&F.getEntryBlock());
-  do {
-    BasicBlock *BB = Worklist.pop_back_val();
-    for (succ_iterator SI = succ_begin(BB), SE = succ_end(BB); SI != SE; ++SI)
-      if (Reachable.insert(*SI))
-        Worklist.push_back(*SI);
-  } while (!Worklist.empty());
-
-  if (Reachable.size() == F.size())
-    return;
-
-  assert(Reachable.size() < F.size());
-  for (Function::iterator BB = ++F.begin(); BB != F.end();)
-    if (!Reachable.count(BB)) {
-      if (!BB->use_empty())
-        BB->replaceAllUsesWith(UndefValue::get(BB->getType()));
-      DeleteDeadBlock(BB++);
-    } else
-      ++BB;
-}

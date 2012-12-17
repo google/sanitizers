@@ -257,6 +257,10 @@ DbgDeclareInst *FindAllocaDbgDeclare(Value *V);
 bool replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
                                 DIBuilder &Builder);
 
+/// \\brief - Remove all blocks that can not be reached from the function's
+/// entry.
+void removeUnreachableBlocks(Function &F);
+
 } // End llvm namespace
 
 #endif
