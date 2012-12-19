@@ -45,50 +45,57 @@ if [ "$PLATFORM" == "Darwin" ]; then
   CMAKE_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DPYTHON_EXECUTABLE=/usr/bin/python"
 fi
 
-if [ "$PLATFORM" == "Darwin" ]; then
-  # Use bootstrap build on Darwin: first build clang, then use this new
-  # clang to build and run ASan tests.
-  echo @@@BUILD_STEP build fresh clang@@@
-  if [ ! -d clang_build ]; then
-    mkdir clang_build
-  fi
-  (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release \
-      ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
-  (cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
-  CLANG=${ROOT}/clang_build/bin/clang
-  export CC=${CLANG}
-  export CXX=${CLANG}++
-fi
-
-BUILD_TYPE=Release
-echo @@@BUILD_STEP build 64-bit llvm@@@
-if [ ! -d llvm_build64 ]; then
-  mkdir llvm_build64
-fi
-(cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
-(cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
-
-echo @@@BUILD_STEP build 32-bit llvm@@@
-if [ ! -d llvm_build32 ]; then
-  mkdir llvm_build32
-fi
-(cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    -DLLVM_BUILD_32_BITS=ON \
-    ${CMAKE_COMMON_OPTIONS} \
-    $LLVM_CHECKOUT)
-(cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
-
 echo @@@BUILD_STEP lint@@@
 CHECK_LINT=${LLVM_CHECKOUT}/projects/compiler-rt/lib/sanitizer_common/scripts/check_lint.sh
 (LLVM_CHECKOUT=${LLVM_CHECKOUT} ${CHECK_LINT}) || echo @@@STEP_WARNINGS@@@
 
+# Use both gcc and just-built Clang as a host compiler for sanitizer tests.
+# Assume that self-hosted build tree should compile with -Werror.
+echo @@@BUILD_STEP build fresh clang@@@
+if [ ! -d clang_build ]; then
+  mkdir clang_build
+fi
+(cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release \
+    ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
+(cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
+
+# Do a sanity check on Linux: build and test sanitizers using gcc as a host
+# compiler.
+if [ "$PLATFORM" == "Linux" ]; then
+  echo @@@BUILD_STEP run sanitizer tests in gcc build@@@
+  (cd clang_build && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
+  (cd clang_build && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
+  (cd clang_build && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
+  (cd clang_build && make -j$MAKE_JOBS check-ubsan) || echo @@@STEP_WARNINGS@@@
+fi
+
+### From now on we use just-built Clang as a host compiler ###
+CLANG_PATH=${ROOT}/clang_build/bin
+export CC=${CLANG_PATH}/clang
+export CXX=${CLANG_PATH}/clang++
+# Build self-hosted tree with -Werror
+CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_FLAGS=-Werror -DCMAKE_CXX_FLAGS=-Werror"
+BUILD_TYPE=Release
+
+echo @@@BUILD_STEP build 64-bit llvm using clang@@@
+if [ ! -d llvm_build64 ]; then
+  mkdir llvm_build64
+fi
+(cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+    ${CMAKE_CLANG_OPTIONS} $LLVM_CHECKOUT)
+(cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
+
+echo @@@BUILD_STEP build 32-bit llvm using clang@@@
+if [ ! -d llvm_build32 ]; then
+  mkdir llvm_build32
+fi
+(cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+    -DLLVM_BUILD_32_BITS=ON ${CMAKE_CLANG_OPTIONS} $LLVM_CHECKOUT)
+(cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
+
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
 ASAN_TEST_BINARY=$ASAN_TESTS_PATH/$BUILD_TYPE/AsanTest
-TSAN_PATH=projects/compiler-rt/lib/tsan
-TSAN_RTL_TEST_BINARY=$TSAN_PATH/tests/rtl/$BUILD_TYPE/TsanRtlTest
-TSAN_UNIT_TEST_BINARY=$TSAN_PATH/tests/unit/$BUILD_TYPE/TsanUnitTest
 
 echo @@@BUILD_STEP run 64-bit asan tests@@@
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
@@ -100,18 +107,21 @@ echo @@@BUILD_STEP run 32-bit asan tests@@@
 # Run unit test binary in a single shard.
 ./llvm_build32/$ASAN_TEST_BINARY
 
-if [ "$PLATFORM" == "Linux" ]; then
-echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
-(cd llvm_build64 && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
-# Run tsan unit test binaries.
-./llvm_build64/$TSAN_RTL_TEST_BINARY
-./llvm_build64/$TSAN_UNIT_TEST_BINARY
+if [ "$PLATFORM" == "Darwin" ]; then
+  echo @@@BUILD_STEP build asan dynamic runtime@@@
+  # Building a fat binary for both 32 and 64 bits.
+  (cd llvm_build64/$ASAN_PATH && make -j$MAKE_JOBS clang_rt.asan_osx_dynamic) || echo @@@STEP_FAILURE@@@
 fi
 
-if [ "$PLATFORM" == "Darwin" ]; then
-echo @@@BUILD_STEP build asan dynamic runtime@@@
-# Building a fat binary for both 32 and 64 bits.
-(cd llvm_build64/$ASAN_PATH && make -j$MAKE_JOBS clang_rt.asan_osx_dynamic) || echo @@@STEP_FAILURE@@@
+if [ "$PLATFORM" == "Linux" ]; then
+  echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
+  TSAN_PATH=projects/compiler-rt/lib/tsan
+  TSAN_RTL_TEST_BINARY=$TSAN_PATH/tests/rtl/$BUILD_TYPE/TsanRtlTest
+  TSAN_UNIT_TEST_BINARY=$TSAN_PATH/tests/unit/$BUILD_TYPE/TsanUnitTest
+  (cd llvm_build64 && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
+  # Run tsan unit test binaries.
+  ./llvm_build64/$TSAN_RTL_TEST_BINARY
+  ./llvm_build64/$TSAN_UNIT_TEST_BINARY
 fi
 
 SANITIZER_COMMON_PATH=projects/compiler-rt/lib/sanitizer_common
@@ -132,19 +142,20 @@ BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
     ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
+    ANDROID_BUILD_DIR=llvm_build64/android
 
     # Always clobber android build tree.
     # It has a hidden dependency on clang (through CXX) which is not known to
     # the build system.
-    rm -rf llvm_build64/android
-    mkdir llvm_build64/android
-    (cd llvm_build64/android && \
+    rm -rf $ANDROID_BUILD_DIR
+    mkdir $ANDROID_BUILD_DIR
+    (cd $ANDROID_BUILD_DIR && \
         cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
         -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
         -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
         ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT)
-    (cd llvm_build64/android && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
+    (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
 fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
@@ -167,10 +178,10 @@ if [ $RUN_ANDROID == 1 ] ; then
     $ADB shell mkdir $DEVICE_ROOT
 
     ASAN_RT_LIB=libclang_rt.asan-arm-android.so
-    ASAN_RT_LIB_PATH=`find llvm_build64/android/lib -name $ASAN_RT_LIB`
+    ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
     echo "ASan runtime: $ASAN_RT_LIB_PATH"
     $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
-    $ADB push llvm_build64/android/projects/compiler-rt/lib/asan/tests/Release/AsanTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/Release/AsanTest $DEVICE_ROOT/
 
     $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
         LD_LIBRARY_PATH=$DEVICE_ROOT \
