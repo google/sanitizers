@@ -227,6 +227,7 @@ ReturnInst *FoldReturnIntoUncondBranch(ReturnInst *RI, BasicBlock *BB,
 
 TerminatorInst *SplitBlockAndInsertIfThen(Instruction *Cmp,
     bool Unreachable, MDNode *BranchWeights = 0);
+
 } // End llvm namespace
 
 #endif
