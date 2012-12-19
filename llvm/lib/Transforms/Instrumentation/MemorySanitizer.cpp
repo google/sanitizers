@@ -1330,9 +1330,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
     Intrinsic::ID iid = I.getIntrinsicID();
     IntrinsicKind IK = getIntrinsicKind(iid);
-    bool ReadsMemory = IK == IK_OnlyReadsMemory;
+    bool OnlyReadsMemory = IK == IK_OnlyReadsMemory;
     bool WritesMemory = IK == IK_WritesMemory;
-    assert(!(ReadsMemory && WritesMemory));
+    assert(!(OnlyReadsMemory && WritesMemory));
 
     if (NumArgOperands == 2 &&
         I.getArgOperand(0)->getType()->isPointerTy() &&
@@ -1346,12 +1346,12 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (NumArgOperands == 1 &&
         I.getArgOperand(0)->getType()->isPointerTy() &&
         I.getType()->isVectorTy() &&
-        ReadsMemory) {
+        OnlyReadsMemory) {
       // This looks like a vector load.
       return handleVectorLoadIntrinsic(I);
     }
 
-    if (!ReadsMemory && !WritesMemory)
+    if (!OnlyReadsMemory && !WritesMemory)
       if (maybeHandleSimpleNomemIntrinsic(I))
         return true;
 
