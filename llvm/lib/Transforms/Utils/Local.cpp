@@ -967,7 +967,7 @@ bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
 
 /// RemoveUnreachableBlocks - Remove all blocks that can not be reached from the
 /// function's entry.
-void llvm::removeUnreachableBlocks(Function &F) {
+bool llvm::removeUnreachableBlocks(Function &F) {
   SmallPtrSet<BasicBlock*, 128> Reachable;
   SmallVector<BasicBlock*, 128> Worklist;
   Worklist.push_back(&F.getEntryBlock());
@@ -980,7 +980,7 @@ void llvm::removeUnreachableBlocks(Function &F) {
   } while (!Worklist.empty());
 
   if (Reachable.size() == F.size())
-    return;
+    return false;
 
   assert(Reachable.size() < F.size());
   for (Function::iterator BB = llvm::next(F.begin()), E = F.end();
@@ -1005,4 +1005,5 @@ void llvm::removeUnreachableBlocks(Function &F) {
     --BB;
     llvm::next(BB)->eraseFromParent();
   }
+  return true;
 }
