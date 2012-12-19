@@ -93,19 +93,15 @@ fi
     -DLLVM_BUILD_32_BITS=ON ${CMAKE_CLANG_OPTIONS} $LLVM_CHECKOUT)
 (cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
+echo @@@BUILD_STEP run asan tests@@@
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
-ASAN_TEST_BINARY=$ASAN_TESTS_PATH/$BUILD_TYPE/AsanTest
-
-echo @@@BUILD_STEP run 64-bit asan tests@@@
+ASAN_TEST_BINARY_64=$ASAN_TESTS_PATH/$BUILD_TYPE/Asan-x86_64-Test
+ASAN_TEST_BINARY_32=$ASAN_TESTS_PATH/$BUILD_TYPE/Asan-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
-# Run unit test binary in a single shard.
-./llvm_build64/$ASAN_TEST_BINARY
-
-echo @@@BUILD_STEP run 32-bit asan tests@@@
-(cd llvm_build32 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
-# Run unit test binary in a single shard.
-./llvm_build32/$ASAN_TEST_BINARY
+# Run unit test binaries in a single shard.
+./llvm_build64/$ASAN_TEST_BINARY_64
+./llvm_build64/$ASAN_TEST_BINARY_32
 
 if [ "$PLATFORM" == "Darwin" ]; then
   echo @@@BUILD_STEP build asan dynamic runtime@@@
