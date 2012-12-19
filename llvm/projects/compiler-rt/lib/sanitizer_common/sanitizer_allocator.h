@@ -207,13 +207,16 @@ class SizeClassAllocator64 {
     return (reinterpret_cast<uptr>(p) / kRegionSize) % kNumClasses;
   }
 
-  static void *GetBlockBegin(void *p) {
+  void *GetBlockBegin(void *p) {
     uptr class_id = GetSizeClass(p);
     uptr size = SizeClassMap::Size(class_id);
     uptr chunk_idx = GetChunkIdx((uptr)p, size);
     uptr reg_beg = (uptr)p & ~(kRegionSize - 1);
     uptr begin = reg_beg + chunk_idx * size;
-    return reinterpret_cast<void*>(begin);
+    RegionInfo *region = GetRegionInfo(class_id);
+    if (region->allocated_user >= (chunk_idx + 1) * size)
+      return reinterpret_cast<void*>(begin);
+    return 0;
   }
 
   static uptr GetActuallyAllocatedSize(void *p) {
@@ -297,7 +300,7 @@ class SizeClassAllocator64 {
     uptr beg_idx = region->allocated_user;
     uptr end_idx = beg_idx + kPopulateSize;
     uptr region_beg = kSpaceBeg + kRegionSize * class_id;
-    if (end_idx > region->mapped_user) {
+    if (end_idx + size > region->mapped_user) {
       // Do the mmap for the user memory.
       CHECK_GT(region->mapped_user + kUserMapSize, end_idx);
       MapWithCallback(region_beg + region->mapped_user, kUserMapSize);
@@ -312,6 +315,7 @@ class SizeClassAllocator64 {
       i++;
     } while (idx < end_idx);
     region->allocated_user += idx - beg_idx;
+    CHECK_LE(region->allocated_user, region->mapped_user);
     region->allocated_meta += i * kMetadataSize;
     if (region->allocated_meta > region->mapped_meta) {
       // Do the mmap for the metadata.
@@ -674,17 +678,11 @@ class LargeMmapAllocator {
   }
 
   bool PointerIsMine(void *p) {
-    // Fast check.
-    if ((reinterpret_cast<uptr>(p) & (page_size_ - 1))) return false;
-    SpinMutexLock l(&mutex_);
-    for (Header *l = list_; l; l = l->next) {
-      if (GetUser(l) == p) return true;
-    }
-    return false;
+    return GetBlockBegin(p) != 0;
   }
 
   uptr GetActuallyAllocatedSize(void *p) {
-    return RoundUpMapSize(GetHeader(p)->size) - page_size_;
+    return RoundUpTo(GetHeader(p)->size, page_size_);
   }
 
   // At least page_size_/2 metadata bytes is available.
@@ -692,12 +690,12 @@ class LargeMmapAllocator {
     return GetHeader(p) + 1;
   }
 
-  void *GetBlockBegin(void *p) {
+  void *GetBlockBegin(void *ptr) {
+    uptr p = reinterpret_cast<uptr>(ptr);
     SpinMutexLock l(&mutex_);
     for (Header *l = list_; l; l = l->next) {
-      void *b = GetUser(l);
-      if (p >= b && p < (u8*)b + l->size)
-        return b;
+      if (p >= l->map_beg && p < l->map_beg + l->map_size)
+        return GetUser(l);
     }
     return 0;
   }

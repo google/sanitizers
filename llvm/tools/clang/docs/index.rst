@@ -19,7 +19,6 @@ progress. This page will get filled out with docs soon...
    ThreadSanitizer
    Tooling
    AddressSanitizer
-   AnalyzerRegions
    ClangPlugins
    ClangTools
    HowToSetupToolingForLLVM
@@ -30,7 +29,7 @@ progress. This page will get filled out with docs soon...
    RAVFrontendAction
    UsersManual
    AutomaticReferenceCounting
-
+   InternalsManual
 
 Indices and tables
 ==================

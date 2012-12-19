@@ -434,7 +434,7 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
   if (ExplicitParams)
     CheckCXXDefaultArguments(Method);
   
-  // Attributes on the lambda apply to the method.  
+  // Attribute on the lambda apply to the method.  
   ProcessDeclAttributes(CurScope, Method, ParamInfo);
   
   // Introduce the function call operator as the current declaration context.
@@ -902,8 +902,8 @@ ExprResult Sema::BuildBlockForLambdaConversion(SourceLocation CurrentLocation,
   CXXRecordDecl *Lambda = Conv->getParent();
   CXXMethodDecl *CallOperator 
     = cast<CXXMethodDecl>(
-        *Lambda->lookup(
-          Context.DeclarationNames.getCXXOperatorName(OO_Call)).first);
+        Lambda->lookup(
+          Context.DeclarationNames.getCXXOperatorName(OO_Call)).front());
   CallOperator->setReferenced();
   CallOperator->setUsed();
 

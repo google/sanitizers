@@ -184,7 +184,7 @@ class ARMFastISel : public FastISel {
     bool ARMEmitStore(MVT VT, unsigned SrcReg, Address &Addr,
                       unsigned Alignment = 0);
     bool ARMComputeAddress(const Value *Obj, Address &Addr);
-    void ARMSimplifyAddress(Address &Addr, EVT VT, bool useAM3);
+    void ARMSimplifyAddress(Address &Addr, MVT VT, bool useAM3);
     bool ARMIsMemCpySmall(uint64_t Len);
     bool ARMTryEmitSmallMemCpy(Address Dest, Address Src, uint64_t Len,
                                unsigned Alignment);
@@ -221,7 +221,7 @@ class ARMFastISel : public FastISel {
     bool isARMNEONPred(const MachineInstr *MI);
     bool DefinesOptionalPredicate(MachineInstr *MI, bool *CPSR);
     const MachineInstrBuilder &AddOptionalDefs(const MachineInstrBuilder &MIB);
-    void AddLoadStoreOperands(EVT VT, Address &Addr,
+    void AddLoadStoreOperands(MVT VT, Address &Addr,
                               const MachineInstrBuilder &MIB,
                               unsigned Flags, bool useAM3);
 };
@@ -719,7 +719,11 @@ unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
 }
 
 unsigned ARMFastISel::TargetMaterializeConstant(const Constant *C) {
-  MVT VT = TLI.getSimpleValueType(C->getType(), true);
+  EVT CEVT = TLI.getValueType(C->getType(), true);
+
+  // Only handle simple types.
+  if (!CEVT.isSimple()) return 0;
+  MVT VT = CEVT.getSimpleVT();
 
   if (const ConstantFP *CFP = dyn_cast<ConstantFP>(C))
     return ARMMaterializeFP(CFP, VT);
@@ -895,12 +899,9 @@ bool ARMFastISel::ARMComputeAddress(const Value *Obj, Address &Addr) {
   return Addr.Base.Reg != 0;
 }
 
-void ARMFastISel::ARMSimplifyAddress(Address &Addr, EVT VT, bool useAM3) {
-
-  assert(VT.isSimple() && "Non-simple types are invalid here!");
-
+void ARMFastISel::ARMSimplifyAddress(Address &Addr, MVT VT, bool useAM3) {
   bool needsLowering = false;
-  switch (VT.getSimpleVT().SimpleTy) {
+  switch (VT.SimpleTy) {
     default: llvm_unreachable("Unhandled load/store type!");
     case MVT::i1:
     case MVT::i8:
@@ -951,13 +952,12 @@ void ARMFastISel::ARMSimplifyAddress(Address &Addr, EVT VT, bool useAM3) {
   }
 }
 
-void ARMFastISel::AddLoadStoreOperands(EVT VT, Address &Addr,
+void ARMFastISel::AddLoadStoreOperands(MVT VT, Address &Addr,
                                        const MachineInstrBuilder &MIB,
                                        unsigned Flags, bool useAM3) {
   // addrmode5 output depends on the selection dag addressing dividing the
   // offset by 4 that it then later multiplies. Do this here as well.
-  if (VT.getSimpleVT().SimpleTy == MVT::f32 ||
-      VT.getSimpleVT().SimpleTy == MVT::f64)
+  if (VT.SimpleTy == MVT::f32 || VT.SimpleTy == MVT::f64)
     Addr.Offset /= 4;
 
   // Frame base works a bit differently. Handle it separately.
@@ -1401,7 +1401,9 @@ bool ARMFastISel::SelectIndirectBr(const Instruction *I) {
 bool ARMFastISel::ARMEmitCmp(const Value *Src1Value, const Value *Src2Value,
                              bool isZExt) {
   Type *Ty = Src1Value->getType();
-  MVT SrcVT = TLI.getSimpleValueType(Ty, true);
+  EVT SrcEVT = TLI.getValueType(Ty, true);
+  if (!SrcEVT.isSimple()) return false;
+  MVT SrcVT = SrcEVT.getSimpleVT();
 
   bool isFloat = (Ty->isFloatTy() || Ty->isDoubleTy());
   if (isFloat && !Subtarget->hasVFP2())
@@ -1590,7 +1592,10 @@ bool ARMFastISel::SelectIToFP(const Instruction *I, bool isSigned) {
     return false;
 
   Value *Src = I->getOperand(0);
-  MVT SrcVT = TLI.getSimpleValueType(Src->getType(), true);
+  EVT SrcEVT = TLI.getValueType(Src->getType(), true);
+  if (!SrcEVT.isSimple())
+    return false;
+  MVT SrcVT = SrcEVT.getSimpleVT();
   if (SrcVT != MVT::i32 && SrcVT != MVT::i16 && SrcVT != MVT::i8)
     return false;
 
@@ -1599,8 +1604,7 @@ bool ARMFastISel::SelectIToFP(const Instruction *I, bool isSigned) {
 
   // Handle sign-extension.
   if (SrcVT == MVT::i16 || SrcVT == MVT::i8) {
-    MVT DestVT = MVT::i32;
-    SrcReg = ARMEmitIntExt(SrcVT, SrcReg, DestVT,
+    SrcReg = ARMEmitIntExt(SrcVT, SrcReg, MVT::i32,
                                        /*isZExt*/!isSigned);
     if (SrcReg == 0) return false;
   }
@@ -1806,7 +1810,9 @@ bool ARMFastISel::SelectBinaryIntOp(const Instruction *I, unsigned ISDOpcode) {
 }
 
 bool ARMFastISel::SelectBinaryFPOp(const Instruction *I, unsigned ISDOpcode) {
-  MVT VT  = TLI.getSimpleValueType(I->getType(), true);
+  EVT FPVT = TLI.getValueType(I->getType(), true);
+  if (!FPVT.isSimple()) return false;
+  MVT VT = FPVT.getSimpleVT();
 
   // We can get here in the case when we want to use NEON for our fp
   // operations, but can't figure out how to. Just use the vfp instructions
@@ -1837,7 +1843,7 @@ bool ARMFastISel::SelectBinaryFPOp(const Instruction *I, unsigned ISDOpcode) {
   unsigned Op2 = getRegForValue(I->getOperand(1));
   if (Op2 == 0) return false;
 
-  unsigned ResultReg = createResultReg(TLI.getRegClassFor(VT));
+  unsigned ResultReg = createResultReg(TLI.getRegClassFor(VT.SimpleTy));
   AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL,
                           TII.get(Opc), ResultReg)
                   .addReg(Op1).addReg(Op2));
@@ -2124,7 +2130,9 @@ bool ARMFastISel::SelectRet(const Instruction *I) {
       return false;
 
     unsigned SrcReg = Reg + VA.getValNo();
-    MVT RVVT = TLI.getSimpleValueType(RV->getType());
+    EVT RVEVT = TLI.getValueType(RV->getType());
+    if (!RVEVT.isSimple()) return false;
+    MVT RVVT = RVEVT.getSimpleVT();
     MVT DestVT = VA.getValVT();
     // Special handling for extended integers.
     if (RVVT != DestVT) {
@@ -2170,7 +2178,9 @@ unsigned ARMFastISel::ARMSelectCallOp(bool UseReg) {
 unsigned ARMFastISel::getLibcallReg(const Twine &Name) {
   GlobalValue *GV = new GlobalVariable(Type::getInt32Ty(*Context), false,
                                        GlobalValue::ExternalLinkage, 0, Name);
-  return ARMMaterializeGV(GV, TLI.getSimpleValueType(GV->getType()));
+  EVT LCREVT = TLI.getValueType(GV->getType());
+  if (!LCREVT.isSimple()) return 0;
+  return ARMMaterializeGV(GV, LCREVT.getSimpleVT());
 }
 
 // A quick function that will emit a call for a named libcall in F with the
@@ -2330,16 +2340,16 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
     ISD::ArgFlagsTy Flags;
     unsigned AttrInd = i - CS.arg_begin() + 1;
-    if (CS.paramHasAttr(AttrInd, Attributes::SExt))
+    if (CS.paramHasAttr(AttrInd, Attribute::SExt))
       Flags.setSExt();
-    if (CS.paramHasAttr(AttrInd, Attributes::ZExt))
+    if (CS.paramHasAttr(AttrInd, Attribute::ZExt))
       Flags.setZExt();
 
     // FIXME: Only handle *easy* calls for now.
-    if (CS.paramHasAttr(AttrInd, Attributes::InReg) ||
-        CS.paramHasAttr(AttrInd, Attributes::StructRet) ||
-        CS.paramHasAttr(AttrInd, Attributes::Nest) ||
-        CS.paramHasAttr(AttrInd, Attributes::ByVal))
+    if (CS.paramHasAttr(AttrInd, Attribute::InReg) ||
+        CS.paramHasAttr(AttrInd, Attribute::StructRet) ||
+        CS.paramHasAttr(AttrInd, Attribute::Nest) ||
+        CS.paramHasAttr(AttrInd, Attribute::ByVal))
       return false;
 
     Type *ArgTy = (*i)->getType();
@@ -2637,14 +2647,18 @@ bool ARMFastISel::SelectIntExt(const Instruction *I) {
   Value *Src = I->getOperand(0);
   Type *SrcTy = Src->getType();
 
-  MVT SrcVT, DestVT;
-  SrcVT = TLI.getSimpleValueType(SrcTy, true);
-  DestVT = TLI.getSimpleValueType(DestTy, true);
-
   bool isZExt = isa<ZExtInst>(I);
   unsigned SrcReg = getRegForValue(Src);
   if (!SrcReg) return false;
 
+  EVT SrcEVT, DestEVT;
+  SrcEVT = TLI.getValueType(SrcTy, true);
+  DestEVT = TLI.getValueType(DestTy, true);
+  if (!SrcEVT.isSimple()) return false;
+  if (!DestEVT.isSimple()) return false;
+
+  MVT SrcVT = SrcEVT.getSimpleVT();
+  MVT DestVT = DestEVT.getSimpleVT();
   unsigned ResultReg = ARMEmitIntExt(SrcVT, SrcReg, DestVT, isZExt);
   if (ResultReg == 0) return false;
   UpdateValueMap(I, ResultReg);

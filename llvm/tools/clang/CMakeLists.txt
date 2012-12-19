@@ -66,6 +66,11 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib )
 
   set( CLANG_BUILT_STANDALONE 1 )
+
+  find_package(LibXml2)
+  if (LIBXML2_FOUND)
+    set(CLANG_HAVE_LIBXML 1)
+  endif ()
 endif()
 
 set(CLANG_RESOURCE_DIR "" CACHE STRING
@@ -138,10 +143,6 @@ endif ()
 if (APPLE)
   set(CMAKE_MODULE_LINKER_FLAGS "-Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
 endif ()
-
-# libxml2 is an optional dependency, required only to run validation
-# tests on XML output.
-find_package(LibXml2)
 
 configure_file(
   ${CLANG_SOURCE_DIR}/include/clang/Config/config.h.cmake

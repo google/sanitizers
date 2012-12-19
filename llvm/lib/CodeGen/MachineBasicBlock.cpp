@@ -788,40 +788,42 @@ MachineBasicBlock::SplitCriticalEdge(MachineBasicBlock *Succ, Pass *P) {
   return NMBB;
 }
 
-MachineBasicBlock::iterator
-MachineBasicBlock::erase(MachineBasicBlock::iterator I) {
-  if (I->isBundle()) {
-    MachineBasicBlock::iterator E = llvm::next(I);
-    return Insts.erase(I.getInstrIterator(), E.getInstrIterator());
-  }
-
-  return Insts.erase(I.getInstrIterator());
+/// Prepare MI to be removed from its bundle. This fixes bundle flags on MI's
+/// neighboring instructions so the bundle won't be broken by removing MI.
+static void unbundleSingleMI(MachineInstr *MI) {
+  // Removing the first instruction in a bundle.
+  if (MI->isBundledWithSucc() && !MI->isBundledWithPred())
+    MI->unbundleFromSucc();
+  // Removing the last instruction in a bundle.
+  if (MI->isBundledWithPred() && !MI->isBundledWithSucc())
+    MI->unbundleFromPred();
+  // If MI is not bundled, or if it is internal to a bundle, the neighbor flags
+  // are already fine.
 }
 
-MachineInstr *MachineBasicBlock::remove(MachineInstr *I) {
-  if (I->isBundle()) {
-    instr_iterator MII = llvm::next(I);
-    iterator E = end();
-    while (MII != E && MII->isInsideBundle()) {
-      MachineInstr *MI = &*MII++;
-      Insts.remove(MI);
-    }
-  }
-
-  return Insts.remove(I);
+MachineBasicBlock::instr_iterator
+MachineBasicBlock::erase(MachineBasicBlock::instr_iterator I) {
+  unbundleSingleMI(I);
+  return Insts.erase(I);
 }
 
-void MachineBasicBlock::splice(MachineBasicBlock::iterator where,
-                               MachineBasicBlock *Other,
-                               MachineBasicBlock::iterator From) {
-  if (From->isBundle()) {
-    MachineBasicBlock::iterator To = llvm::next(From);
-    Insts.splice(where.getInstrIterator(), Other->Insts,
-                 From.getInstrIterator(), To.getInstrIterator());
-    return;
-  }
+MachineInstr *MachineBasicBlock::remove_instr(MachineInstr *MI) {
+  unbundleSingleMI(MI);
+  MI->clearFlag(MachineInstr::BundledPred);
+  MI->clearFlag(MachineInstr::BundledSucc);
+  return Insts.remove(MI);
+}
 
-  Insts.splice(where.getInstrIterator(), Other->Insts, From.getInstrIterator());
+MachineBasicBlock::instr_iterator
+MachineBasicBlock::insert(instr_iterator I, MachineInstr *MI) {
+  assert(!MI->isBundledWithPred() && !MI->isBundledWithSucc() &&
+         "Cannot insert instruction with bundle flags");
+  // Set the bundle flags when inserting inside a bundle.
+  if (I != instr_end() && I->isBundledWithPred()) {
+    MI->setFlag(MachineInstr::BundledPred);
+    MI->setFlag(MachineInstr::BundledSucc);
+  }
+  return Insts.insert(I, MI);
 }
 
 /// removeFromParent - This method unlinks 'this' from the containing function,

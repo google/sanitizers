@@ -182,6 +182,9 @@ namespace llvm {
       /// BLENDI - Blend where the selector is an immediate.
       BLENDI,
 
+      // SUBUS - Integer sub with unsigned saturation.
+      SUBUS,
+
       /// HADD - Integer horizontal add.
       HADD,
 
@@ -269,8 +272,6 @@ namespace llvm {
       // ADD, SUB, SMUL, etc. - Arithmetic operations with FLAGS results.
       ADD, SUB, ADC, SBB, SMUL,
       INC, DEC, OR, XOR, AND,
-
-      ANDN, // ANDN - Bitwise AND NOT with FLAGS results.
 
       BLSI,   // BLSI - Extract lowest set isolated bit
       BLSMSK, // BLSMSK - Get mask up to lowest set bit

@@ -1399,7 +1399,7 @@ void StmtPrinter::VisitLambdaExpr(LambdaExpr *Node) {
       OS << ExceptionSpec;
     }
 
-    // FIXME: Attributes
+    // FIXME: Attribute
 
     // Print the trailing return type if it was specified in the source.
     if (Node->hasExplicitResultType())
@@ -1487,6 +1487,9 @@ void StmtPrinter::VisitCXXPseudoDestructorExpr(CXXPseudoDestructorExpr *E) {
 }
 
 void StmtPrinter::VisitCXXConstructExpr(CXXConstructExpr *E) {
+  if (E->isListInitialization())
+    OS << "{ ";
+
   for (unsigned i = 0, e = E->getNumArgs(); i != e; ++i) {
     if (isa<CXXDefaultArgExpr>(E->getArg(i))) {
       // Don't print any defaulted arguments
@@ -1496,6 +1499,9 @@ void StmtPrinter::VisitCXXConstructExpr(CXXConstructExpr *E) {
     if (i) OS << ", ";
     PrintExpr(E->getArg(i));
   }
+
+  if (E->isListInitialization())
+    OS << " }";
 }
 
 void StmtPrinter::VisitExprWithCleanups(ExprWithCleanups *E) {

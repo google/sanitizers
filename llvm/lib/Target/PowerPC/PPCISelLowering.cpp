@@ -578,7 +578,8 @@ const char *PPCTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PPCISD::ADDIS_TOC_HA:    return "PPCISD::ADDIS_TOC_HA";
   case PPCISD::LD_TOC_L:        return "PPCISD::LD_TOC_L";
   case PPCISD::ADDI_TOC_L:      return "PPCISD::ADDI_TOC_L";
-  case PPCISD::LD_GOT_TPREL:    return "PPCISD::LD_GOT_TPREL";
+  case PPCISD::ADDIS_GOT_TPREL_HA: return "PPCISD::ADDIS_GOT_TPREL_HA";
+  case PPCISD::LD_GOT_TPREL_L:  return "PPCISD::LD_GOT_TPREL_L";
   case PPCISD::ADD_TLS:         return "PPCISD::ADD_TLS";
   case PPCISD::ADDIS_TLSGD_HA:  return "PPCISD::ADDIS_TLSGD_HA";
   case PPCISD::ADDI_TLSGD_L:    return "PPCISD::ADDI_TLSGD_L";
@@ -1353,8 +1354,10 @@ SDValue PPCTargetLowering::LowerGlobalTLSAddress(SDValue Op,
   if (Model == TLSModel::InitialExec) {
     SDValue TGA = DAG.getTargetGlobalAddress(GV, dl, PtrVT, 0, 0);
     SDValue GOTReg = DAG.getRegister(PPC::X2, MVT::i64);
-    SDValue TPOffset = DAG.getNode(PPCISD::LD_GOT_TPREL, dl,
-                                   PtrVT, TGA, GOTReg);
+    SDValue TPOffsetHi = DAG.getNode(PPCISD::ADDIS_GOT_TPREL_HA, dl,
+                                     PtrVT, GOTReg, TGA);
+    SDValue TPOffset = DAG.getNode(PPCISD::LD_GOT_TPREL_L, dl,
+                                   PtrVT, TGA, TPOffsetHi);
     return DAG.getNode(PPCISD::ADD_TLS, dl, PtrVT, TPOffset, TGA);
   }
 
@@ -6817,7 +6820,7 @@ SDValue PPCTargetLowering::LowerFRAMEADDR(SDValue Op,
                MFI->hasVarSizedObjects()) &&
                   MFI->getStackSize() &&
                   !MF.getFunction()->getFnAttributes().
-                    hasAttribute(Attributes::Naked);
+                    hasAttribute(Attribute::Naked);
   unsigned FrameReg = isPPC64 ? (is31 ? PPC::X31 : PPC::X1) :
                                 (is31 ? PPC::R31 : PPC::R1);
   SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl, FrameReg,

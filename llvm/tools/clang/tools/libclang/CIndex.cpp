@@ -21,6 +21,7 @@
 #include "CXTranslationUnit.h"
 #include "CXType.h"
 #include "CursorVisitor.h"
+#include "SimpleFormatContext.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/Version.h"
@@ -61,6 +62,8 @@ CXTranslationUnit cxtu::MakeCXTranslationUnit(CIndexer *CIdx, ASTUnit *TU) {
   D->StringPool = createCXStringPool();
   D->Diagnostics = 0;
   D->OverridenCursorsPool = createOverridenCXCursorsPool();
+  D->FormatContext = 0;
+  D->FormatInMemoryUniqueId = 0;
   return D;
 }
 
@@ -749,7 +752,7 @@ bool CursorVisitor::VisitFunctionDecl(FunctionDecl *ND) {
     if (FTL && VisitFunctionTypeLoc(*FTL, true))
       return true;
     
-    // FIXME: Attributes?
+    // FIXME: Attribute?
   }
   
   if (ND->doesThisDeclarationHaveABody() && !ND->isLateTemplateParsed()) {
@@ -1367,6 +1370,12 @@ bool CursorVisitor::VisitBuiltinTypeLoc(BuiltinTypeLoc TL) {
   case BuiltinType::Void:
   case BuiltinType::NullPtr:
   case BuiltinType::Dependent:
+  case BuiltinType::OCLImage1d:
+  case BuiltinType::OCLImage1dArray:
+  case BuiltinType::OCLImage1dBuffer:
+  case BuiltinType::OCLImage2d:
+  case BuiltinType::OCLImage2dArray:
+  case BuiltinType::OCLImage3d:
 #define BUILTIN_TYPE(Id, SingletonId)
 #define SIGNED_TYPE(Id, SingletonId) case BuiltinType::Id:
 #define UNSIGNED_TYPE(Id, SingletonId) case BuiltinType::Id:
@@ -2773,6 +2782,7 @@ void clang_disposeTranslationUnit(CXTranslationUnit CTUnit) {
     disposeCXStringPool(CTUnit->StringPool);
     delete static_cast<CXDiagnosticSetImpl *>(CTUnit->Diagnostics);
     disposeOverridenCXCursorsPool(CTUnit->OverridenCursorsPool);
+    delete static_cast<SimpleFormatContext*>(CTUnit->FormatContext);
     delete CTUnit;
   }
 }

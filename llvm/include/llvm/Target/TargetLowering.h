@@ -449,19 +449,18 @@ public:
   /// treated: either it is legal, needs to be promoted to a larger size, needs
   /// to be expanded to some other code sequence, or the target has a custom
   /// expander for it.
-  LegalizeAction getTruncStoreAction(EVT ValVT, EVT MemVT) const {
-    assert(ValVT.getSimpleVT() < MVT::LAST_VALUETYPE &&
-           MemVT.getSimpleVT() < MVT::LAST_VALUETYPE &&
+  LegalizeAction getTruncStoreAction(MVT ValVT, MVT MemVT) const {
+    assert(ValVT < MVT::LAST_VALUETYPE && MemVT < MVT::LAST_VALUETYPE &&
            "Table isn't big enough!");
-    return (LegalizeAction)TruncStoreActions[ValVT.getSimpleVT().SimpleTy]
-                                            [MemVT.getSimpleVT().SimpleTy];
+    return (LegalizeAction)TruncStoreActions[ValVT.SimpleTy]
+                                            [MemVT.SimpleTy];
   }
 
   /// isTruncStoreLegal - Return true if the specified store with truncation is
   /// legal on this target.
   bool isTruncStoreLegal(EVT ValVT, EVT MemVT) const {
     return isTypeLegal(ValVT) && MemVT.isSimple() &&
-           getTruncStoreAction(ValVT, MemVT) == Legal;
+      getTruncStoreAction(ValVT.getSimpleVT(), MemVT.getSimpleVT()) == Legal;
   }
 
   /// getIndexedLoadAction - Return how the indexed load should be treated:
@@ -510,46 +509,46 @@ public:
   /// either it is legal, needs to be expanded to some other code sequence,
   /// or the target has a custom expander for it.
   LegalizeAction
-  getCondCodeAction(ISD::CondCode CC, EVT VT) const {
+  getCondCodeAction(ISD::CondCode CC, MVT VT) const {
     assert((unsigned)CC < array_lengthof(CondCodeActions) &&
-           (unsigned)VT.getSimpleVT().SimpleTy < sizeof(CondCodeActions[0])*4 &&
+           (unsigned)VT.SimpleTy < sizeof(CondCodeActions[0])*4 &&
            "Table isn't big enough!");
     /// The lower 5 bits of the SimpleTy index into Nth 2bit set from the 64bit
     /// value and the upper 27 bits index into the second dimension of the
     /// array to select what 64bit value to use.
     LegalizeAction Action = (LegalizeAction)
-      ((CondCodeActions[CC][VT.getSimpleVT().SimpleTy >> 5]
-        >> (2*(VT.getSimpleVT().SimpleTy & 0x1F))) & 3);
+      ((CondCodeActions[CC][VT.SimpleTy >> 5] >> (2*(VT.SimpleTy & 0x1F))) & 3);
     assert(Action != Promote && "Can't promote condition code!");
     return Action;
   }
 
   /// isCondCodeLegal - Return true if the specified condition code is legal
   /// on this target.
-  bool isCondCodeLegal(ISD::CondCode CC, EVT VT) const {
-    return getCondCodeAction(CC, VT) == Legal ||
-           getCondCodeAction(CC, VT) == Custom;
+  bool isCondCodeLegal(ISD::CondCode CC, MVT VT) const {
+    return
+      getCondCodeAction(CC, VT) == Legal ||
+      getCondCodeAction(CC, VT) == Custom;
   }
 
 
   /// getTypeToPromoteTo - If the action for this operation is to promote, this
   /// method returns the ValueType to promote to.
-  EVT getTypeToPromoteTo(unsigned Op, EVT VT) const {
+  MVT getTypeToPromoteTo(unsigned Op, MVT VT) const {
     assert(getOperationAction(Op, VT) == Promote &&
            "This operation isn't promoted!");
 
     // See if this has an explicit type specified.
     std::map<std::pair<unsigned, MVT::SimpleValueType>,
              MVT::SimpleValueType>::const_iterator PTTI =
-      PromoteToType.find(std::make_pair(Op, VT.getSimpleVT().SimpleTy));
+      PromoteToType.find(std::make_pair(Op, VT.SimpleTy));
     if (PTTI != PromoteToType.end()) return PTTI->second;
 
     assert((VT.isInteger() || VT.isFloatingPoint()) &&
            "Cannot autopromote this type, add it with AddPromotedToType.");
 
-    EVT NVT = VT;
+    MVT NVT = VT;
     do {
-      NVT = (MVT::SimpleValueType)(NVT.getSimpleVT().SimpleTy+1);
+      NVT = (MVT::SimpleValueType)(NVT.SimpleTy+1);
       assert(NVT.isInteger() == VT.isInteger() && NVT != MVT::isVoid &&
              "Didn't find type to promote to!");
     } while (!isTypeLegal(NVT) ||
@@ -1353,9 +1352,9 @@ public:
                      FunctionType *FTy, bool isTailCall, SDValue callee,
                      ArgListTy &args, SelectionDAG &dag, DebugLoc dl,
                      ImmutableCallSite &cs)
-    : Chain(chain), RetTy(retTy), RetSExt(cs.paramHasAttr(0, Attributes::SExt)),
-      RetZExt(cs.paramHasAttr(0, Attributes::ZExt)), IsVarArg(FTy->isVarArg()),
-      IsInReg(cs.paramHasAttr(0, Attributes::InReg)),
+    : Chain(chain), RetTy(retTy), RetSExt(cs.paramHasAttr(0, Attribute::SExt)),
+      RetZExt(cs.paramHasAttr(0, Attribute::ZExt)), IsVarArg(FTy->isVarArg()),
+      IsInReg(cs.paramHasAttr(0, Attribute::InReg)),
       DoesNotReturn(cs.doesNotReturn()),
       IsReturnValueUsed(!cs.getInstruction()->use_empty()),
       IsTailCall(isTailCall), NumFixedArgs(FTy->getNumParams()),
@@ -2205,7 +2204,7 @@ private:
 /// GetReturnInfo - Given an LLVM IR type and return type attributes,
 /// compute the return value EVTs and flags, and optionally also
 /// the offsets, if the return value is being lowered to memory.
-void GetReturnInfo(Type* ReturnType, Attributes attr,
+void GetReturnInfo(Type* ReturnType, Attribute attr,
                    SmallVectorImpl<ISD::OutputArg> &Outs,
                    const TargetLowering &TLI);
 

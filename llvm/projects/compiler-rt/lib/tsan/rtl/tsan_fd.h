@@ -46,10 +46,15 @@ void FdFileCreate(ThreadState *thr, uptr pc, int fd);
 void FdDup(ThreadState *thr, uptr pc, int oldfd, int newfd);
 void FdPipeCreate(ThreadState *thr, uptr pc, int rfd, int wfd);
 void FdEventCreate(ThreadState *thr, uptr pc, int fd);
+void FdSignalCreate(ThreadState *thr, uptr pc, int fd);
+void FdInotifyCreate(ThreadState *thr, uptr pc, int fd);
 void FdPollCreate(ThreadState *thr, uptr pc, int fd);
 void FdSocketCreate(ThreadState *thr, uptr pc, int fd);
 void FdSocketAccept(ThreadState *thr, uptr pc, int fd, int newfd);
+void FdSocketConnecting(ThreadState *thr, uptr pc, int fd);
 void FdSocketConnect(ThreadState *thr, uptr pc, int fd);
+bool FdLocation(uptr addr, int *fd, int *tid, u32 *stack);
+void FdOnFork(ThreadState *thr, uptr pc);
 
 uptr File2addr(char *path);
 uptr Dir2addr(char *path);

@@ -1096,7 +1096,7 @@ void Sema::pushExternalDeclIntoScope(NamedDecl *D, DeclarationName Name) {
 
 bool Sema::isDeclInScope(NamedDecl *&D, DeclContext *Ctx, Scope *S,
                          bool ExplicitInstantiationOrSpecialization) {
-  return IdResolver.isDeclInScope(D, Ctx, Context, S,
+  return IdResolver.isDeclInScope(D, Ctx, S,
                                   ExplicitInstantiationOrSpecialization);
 }
 
@@ -2616,8 +2616,7 @@ void Sema::MergeVarDecl(VarDecl *New, LookupResult &Previous) {
   // specified at the prior declaration.
   // FIXME. revisit this code.
   if (New->hasExternalStorage() &&
-      Old->getLinkage() == InternalLinkage &&
-      New->getDeclContext() == Old->getDeclContext())
+      Old->getLinkage() == InternalLinkage)
     New->setStorageClass(Old->getStorageClass());
 
   // Merge "used" flag.
@@ -2805,7 +2804,7 @@ Decl *Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS,
 
   // Warn about ignored type attributes, for example:
   // __attribute__((aligned)) struct A;
-  // Attributes should be placed after tag to apply to type declaration.
+  // Attribute should be placed after tag to apply to type declaration.
   if (!DS.getAttributes().empty()) {
     DeclSpec::TST TypeSpecType = DS.getTypeSpecType();
     if (TypeSpecType == DeclSpec::TST_class ||
@@ -4790,9 +4789,9 @@ static bool FindOverriddenMethod(const CXXBaseSpecifier *Specifier,
   }    
   
   for (Path.Decls = BaseRecord->lookup(Name);
-       Path.Decls.first != Path.Decls.second;
-       ++Path.Decls.first) {
-    NamedDecl *D = *Path.Decls.first;
+       !Path.Decls.empty();
+       Path.Decls = Path.Decls.slice(1)) {
+    NamedDecl *D = Path.Decls.front();
     if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D)) {
       if (MD->isVirtual() && !Data->S->IsOverload(Data->Method, MD, false))
         return true;
@@ -7762,7 +7761,8 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Declarator &D) {
   return ActOnStartOfFunctionDef(FnBodyScope, DP);
 }
 
-static bool ShouldWarnAboutMissingPrototype(const FunctionDecl *FD) {
+static bool ShouldWarnAboutMissingPrototype(const FunctionDecl *FD, 
+                             const FunctionDecl*& PossibleZeroParamPrototype) {
   // Don't warn about invalid declarations.
   if (FD->isInvalidDecl())
     return false;
@@ -7804,6 +7804,8 @@ static bool ShouldWarnAboutMissingPrototype(const FunctionDecl *FD) {
       continue;
       
     MissingPrototype = !Prev->getType()->isFunctionProtoType();
+    if (FD->getNumParams() == 0)
+      PossibleZeroParamPrototype = Prev;
     break;
   }
     
@@ -7869,8 +7871,22 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
   //   prototype declaration. This warning is issued even if the
   //   definition itself provides a prototype. The aim is to detect
   //   global functions that fail to be declared in header files.
-  if (ShouldWarnAboutMissingPrototype(FD))
+  const FunctionDecl *PossibleZeroParamPrototype = 0;
+  if (ShouldWarnAboutMissingPrototype(FD, PossibleZeroParamPrototype)) {
     Diag(FD->getLocation(), diag::warn_missing_prototype) << FD;
+  
+    if (PossibleZeroParamPrototype) {
+      // We found a declaration that is not a prototype, 
+      // but that could be a zero-parameter prototype
+      TypeSourceInfo* TI = PossibleZeroParamPrototype->getTypeSourceInfo();
+      TypeLoc TL = TI->getTypeLoc();
+      if (FunctionNoProtoTypeLoc* FTL = dyn_cast<FunctionNoProtoTypeLoc>(&TL))
+        Diag(PossibleZeroParamPrototype->getLocation(), 
+             diag::note_declaration_not_a_prototype)
+          << PossibleZeroParamPrototype 
+          << FixItHint::CreateInsertion(FTL->getRParenLoc(), "void");
+    }
+  }
 
   if (FnBodyScope)
     PushDeclContext(FnBodyScope, FD);
@@ -8437,8 +8453,12 @@ bool Sema::CheckEnumUnderlyingType(TypeSourceInfo *TI) {
   SourceLocation UnderlyingLoc = TI->getTypeLoc().getBeginLoc();
   QualType T = TI->getType();
 
-  if (T->isDependentType() || T->isIntegralType(Context))
+  if (T->isDependentType())
     return false;
+
+  if (const BuiltinType *BT = T->getAs<BuiltinType>())
+    if (BT->isInteger())
+      return false;
 
   Diag(UnderlyingLoc, diag::err_enum_invalid_underlying) << T;
   return true;

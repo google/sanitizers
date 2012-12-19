@@ -85,7 +85,10 @@ for Go, Java, Obj-C and Obj-C++.
 
 The 3.2 release has the following notable changes:
 
-#. ...
+#. Able to load LLVM plugins such as Polly.
+#. Supports thread-local storage models.
+#. Passes knowledge of variable lifetimes to the LLVM optimizers.
+#. No longer requires GCC to be built with LTO support.
 
 compiler-rt: Compiler Runtime Library
 -------------------------------------
@@ -526,7 +529,7 @@ the `LLVMdev list <http://lists.cs.uiuc.edu/mailman/listinfo/llvmdev>`_.
 
 Known problem areas include:
 
-#. MSP430, and XCore backends are experimental.
+#. The MSP430 and XCore backends are experimental.
 
 #. The integrated assembler, disassembler, and JIT is not supported by several
    targets.  If an integrated assembler is not supported, then a system

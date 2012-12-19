@@ -3724,6 +3724,12 @@ defm VPSUBD : PDI_binop_rm<0xFA, "vpsubd", sub, v4i32, VR128, memopv2i64,
                             i128mem, SSE_INTALU_ITINS_P, 0, 0>, VEX_4V;
 defm VPSUBQ : PDI_binop_rm<0xFB, "vpsubq", sub, v2i64, VR128, memopv2i64,
                             i128mem, SSE_INTALUQ_ITINS_P, 0, 0>, VEX_4V;
+defm VPSUBUSB : PDI_binop_rm<0xD8, "vpsubusb", X86subus, v16i8, VR128,
+                             memopv2i64, i128mem, SSE_INTALU_ITINS_P, 0, 0>,
+                             VEX_4V;
+defm VPSUBUSW : PDI_binop_rm<0xD9, "vpsubusw", X86subus, v8i16, VR128,
+                             memopv2i64, i128mem, SSE_INTALU_ITINS_P, 0, 0>,
+                             VEX_4V;
 defm VPMULUDQ : PDI_binop_rm2<0xF4, "vpmuludq", X86pmuludq, v2i64, v4i32, VR128,
                               memopv2i64, i128mem, SSE_INTMUL_ITINS_P, 1, 0>,
                               VEX_4V;
@@ -3733,12 +3739,6 @@ defm VPSUBSB  : PDI_binop_rm_int<0xE8, "vpsubsb" , int_x86_sse2_psubs_b,
                                  VR128, memopv2i64, i128mem,
                                  SSE_INTALU_ITINS_P, 0, 0>, VEX_4V;
 defm VPSUBSW  : PDI_binop_rm_int<0xE9, "vpsubsw" , int_x86_sse2_psubs_w,
-                                 VR128, memopv2i64, i128mem,
-                                 SSE_INTALU_ITINS_P, 0, 0>, VEX_4V;
-defm VPSUBUSB : PDI_binop_rm_int<0xD8, "vpsubusb", int_x86_sse2_psubus_b,
-                                 VR128, memopv2i64, i128mem,
-                                 SSE_INTALU_ITINS_P, 0, 0>, VEX_4V;
-defm VPSUBUSW : PDI_binop_rm_int<0xD9, "vpsubusw", int_x86_sse2_psubus_w,
                                  VR128, memopv2i64, i128mem,
                                  SSE_INTALU_ITINS_P, 0, 0>, VEX_4V;
 defm VPADDSB  : PDI_binop_rm_int<0xEC, "vpaddsb" , int_x86_sse2_padds_b,
@@ -3804,6 +3804,12 @@ defm VPSUBDY  : PDI_binop_rm<0xFA, "vpsubd", sub, v8i32, VR256, memopv4i64,
                              i256mem, SSE_INTALU_ITINS_P, 0, 0>, VEX_4V, VEX_L;
 defm VPSUBQY  : PDI_binop_rm<0xFB, "vpsubq", sub, v4i64, VR256, memopv4i64,
                              i256mem, SSE_INTALUQ_ITINS_P, 0, 0>, VEX_4V, VEX_L;
+defm VPSUBUSBY : PDI_binop_rm<0xD8, "vpsubusb", X86subus, v32i8, VR256,
+                              memopv4i64, i256mem, SSE_INTALU_ITINS_P, 0, 0>,
+                              VEX_4V, VEX_L;
+defm VPSUBUSWY : PDI_binop_rm<0xD9, "vpsubusw", X86subus, v16i16, VR256,
+                              memopv4i64, i256mem, SSE_INTALU_ITINS_P, 0, 0>,
+                              VEX_4V, VEX_L;
 defm VPMULUDQY : PDI_binop_rm2<0xF4, "vpmuludq", X86pmuludq, v4i64, v8i32,
                                VR256, memopv4i64, i256mem,
                                SSE_INTMUL_ITINS_P, 1, 0>, VEX_4V, VEX_L;
@@ -3813,12 +3819,6 @@ defm VPSUBSBY  : PDI_binop_rm_int<0xE8, "vpsubsb" , int_x86_avx2_psubs_b,
                                   VR256, memopv4i64, i256mem,
                                   SSE_INTALU_ITINS_P, 0, 0>, VEX_4V, VEX_L;
 defm VPSUBSWY  : PDI_binop_rm_int<0xE9, "vpsubsw" , int_x86_avx2_psubs_w,
-                                  VR256, memopv4i64, i256mem,
-                                  SSE_INTALU_ITINS_P, 0, 0>, VEX_4V, VEX_L;
-defm VPSUBUSBY : PDI_binop_rm_int<0xD8, "vpsubusb", int_x86_avx2_psubus_b,
-                                  VR256, memopv4i64, i256mem,
-                                  SSE_INTALU_ITINS_P, 0, 0>, VEX_4V, VEX_L;
-defm VPSUBUSWY : PDI_binop_rm_int<0xD9, "vpsubusw", int_x86_avx2_psubus_w,
                                   VR256, memopv4i64, i256mem,
                                   SSE_INTALU_ITINS_P, 0, 0>, VEX_4V, VEX_L;
 defm VPADDSBY  : PDI_binop_rm_int<0xEC, "vpaddsb" , int_x86_avx2_padds_b,
@@ -3884,6 +3884,10 @@ defm PSUBD : PDI_binop_rm<0xFA, "psubd", sub, v4i32, VR128, memopv2i64,
                           i128mem, SSE_INTALU_ITINS_P>;
 defm PSUBQ : PDI_binop_rm<0xFB, "psubq", sub, v2i64, VR128, memopv2i64,
                           i128mem, SSE_INTALUQ_ITINS_P>;
+defm PSUBUSB : PDI_binop_rm<0xD8, "psubusb", X86subus, v16i8, VR128, memopv2i64,
+                            i128mem, SSE_INTALU_ITINS_P>;
+defm PSUBUSW : PDI_binop_rm<0xD9, "psubusw", X86subus, v8i16, VR128, memopv2i64,
+                            i128mem, SSE_INTALU_ITINS_P>;
 defm PMULUDQ : PDI_binop_rm2<0xF4, "pmuludq", X86pmuludq, v2i64, v4i32, VR128,
                              memopv2i64, i128mem, SSE_INTMUL_ITINS_P, 1>;
 
@@ -3892,12 +3896,6 @@ defm PSUBSB  : PDI_binop_rm_int<0xE8, "psubsb" , int_x86_sse2_psubs_b,
                                 VR128, memopv2i64, i128mem,
                                 SSE_INTALU_ITINS_P>;
 defm PSUBSW  : PDI_binop_rm_int<0xE9, "psubsw" , int_x86_sse2_psubs_w,
-                                VR128, memopv2i64, i128mem,
-                                SSE_INTALU_ITINS_P>;
-defm PSUBUSB : PDI_binop_rm_int<0xD8, "psubusb", int_x86_sse2_psubus_b,
-                                VR128, memopv2i64, i128mem,
-                                SSE_INTALU_ITINS_P>;
-defm PSUBUSW : PDI_binop_rm_int<0xD9, "psubusw", int_x86_sse2_psubus_w,
                                 VR128, memopv2i64, i128mem,
                                 SSE_INTALU_ITINS_P>;
 defm PADDSB  : PDI_binop_rm_int<0xEC, "paddsb" , int_x86_sse2_padds_b,
@@ -5844,6 +5842,31 @@ defm VPMOVZXBQ : SS41I_binop_rm_int4_y<0x32, "vpmovzxbq",
 defm PMOVSXBQ   : SS41I_binop_rm_int2<0x22, "pmovsxbq", int_x86_sse41_pmovsxbq>;
 defm PMOVZXBQ   : SS41I_binop_rm_int2<0x32, "pmovzxbq", int_x86_sse41_pmovzxbq>;
 
+let Predicates = [HasAVX2] in {
+  def : Pat<(v8i32 (X86vsmovl (v8i16 (bitconvert (v2i64 (load addr:$src)))))),
+            (VPMOVSXWDYrm addr:$src)>;
+  def : Pat<(v4i64 (X86vsmovl (v4i32 (bitconvert (v2i64 (load addr:$src)))))),
+            (VPMOVSXDQYrm addr:$src)>;
+
+  def : Pat<(v8i32 (X86vsext (v16i8 (bitconvert (v2i64 
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (VPMOVSXBDYrm addr:$src)>;
+  def : Pat<(v8i32 (X86vsext (v16i8 (bitconvert (v2f64 
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (VPMOVSXBDYrm addr:$src)>;
+
+  def : Pat<(v4i64 (X86vsext (v8i16 (bitconvert (v2i64 
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (VPMOVSXWQYrm addr:$src)>;
+  def : Pat<(v4i64 (X86vsext (v8i16 (bitconvert (v2f64 
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (VPMOVSXWQYrm addr:$src)>;
+
+  def : Pat<(v4i64 (X86vsext (v16i8 (bitconvert (v4i32 
+                    (scalar_to_vector (loadi32 addr:$src))))))),
+            (VPMOVSXBQYrm addr:$src)>;
+}
+
 let Predicates = [HasAVX] in {
   // Common patterns involving scalar load
   def : Pat<(int_x86_sse41_pmovsxbq
@@ -5868,6 +5891,34 @@ let Predicates = [UseSSE41] in {
               (bitconvert (v4i32 (X86vzmovl
                             (v4i32 (scalar_to_vector (loadi32 addr:$src))))))),
             (PMOVZXBQrm addr:$src)>;
+
+  def : Pat<(v4i32 (X86vsext (v8i16 (bitconvert (v2i64
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (PMOVSXWDrm addr:$src)>;
+  def : Pat<(v4i32 (X86vsext (v8i16 (bitconvert (v2f64
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (PMOVSXWDrm addr:$src)>;
+  def : Pat<(v4i32 (X86vsext (v16i8 (bitconvert (v4i32
+                    (scalar_to_vector (loadi32 addr:$src))))))),
+            (PMOVSXBDrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v8i16 (bitconvert (v4i32
+                    (scalar_to_vector (loadi32 addr:$src))))))),
+            (PMOVSXWQrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v16i8 (bitconvert (v4i32
+                    (scalar_to_vector (extloadi32i16 addr:$src))))))),
+            (PMOVSXBQrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v4i32 (bitconvert (v2i64
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (PMOVSXDQrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v4i32 (bitconvert (v2f64
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (PMOVSXDQrm addr:$src)>;
+  def : Pat<(v8i16 (X86vsext (v16i8 (bitconvert (v2i64
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (PMOVSXBWrm addr:$src)>;
+  def : Pat<(v8i16 (X86vsext (v16i8 (bitconvert (v2f64
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (PMOVSXBWrm addr:$src)>;
 }
 
 let Predicates = [HasAVX2] in {
@@ -5928,6 +5979,35 @@ let Predicates = [HasAVX] in {
             (VPMOVZXDQrm addr:$src)>;
   def : Pat<(v2i64 (X86vzext (v4i32 (bitconvert (v2i64 (X86vzload addr:$src)))))),
             (VPMOVZXDQrm addr:$src)>;
+
+  def : Pat<(v4i32 (X86vsext (v8i16 (bitconvert (v2i64
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (VPMOVSXWDrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v4i32 (bitconvert (v2i64
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (VPMOVSXDQrm addr:$src)>;
+  def : Pat<(v4i32 (X86vsext (v8i16 (bitconvert (v2f64
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (VPMOVSXWDrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v4i32 (bitconvert (v2f64
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (VPMOVSXDQrm addr:$src)>;
+  def : Pat<(v8i16 (X86vsext (v16i8 (bitconvert (v2i64
+                    (scalar_to_vector (loadi64 addr:$src))))))),
+            (VPMOVSXBWrm addr:$src)>;
+  def : Pat<(v8i16 (X86vsext (v16i8 (bitconvert (v2f64
+                    (scalar_to_vector (loadf64 addr:$src))))))),
+            (VPMOVSXBWrm addr:$src)>;
+
+  def : Pat<(v4i32 (X86vsext (v16i8 (bitconvert (v4i32
+                    (scalar_to_vector (loadi32 addr:$src))))))),
+            (VPMOVSXBDrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v8i16 (bitconvert (v4i32
+                    (scalar_to_vector (loadi32 addr:$src))))))),
+            (VPMOVSXWQrm addr:$src)>;
+  def : Pat<(v2i64 (X86vsext (v16i8 (bitconvert (v4i32
+                    (scalar_to_vector (extloadi32i16 addr:$src))))))),
+            (VPMOVSXBQrm addr:$src)>;
 }
 
 let Predicates = [UseSSE41] in {

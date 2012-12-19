@@ -18,6 +18,8 @@
 #include "asan_stack.h"
 #include "asan_thread.h"
 #include "asan_thread_registry.h"
+#include "sanitizer_common/sanitizer_common.h"
+#include "sanitizer_common/sanitizer_report_decorator.h"
 
 namespace __asan {
 
@@ -40,14 +42,79 @@ void AppendToErrorMessageBuffer(const char *buffer) {
   }
 }
 
+// ---------------------- Decorator ------------------------------ {{{1
+bool PrintsToTtyCached() {
+  static int cached = 0;
+  static bool prints_to_tty;
+  if (!cached) {  // Ok wrt threads since we are printing only from one thread.
+    prints_to_tty = PrintsToTty();
+    cached = 1;
+  }
+  return prints_to_tty;
+}
+class Decorator: private __sanitizer::AnsiColorDecorator {
+ public:
+  Decorator() : __sanitizer::AnsiColorDecorator(PrintsToTtyCached()) { }
+  const char *Warning()    { return Red(); }
+  const char *EndWarning() { return Default(); }
+  const char *Access()     { return Blue(); }
+  const char *EndAccess()  { return Default(); }
+  const char *Location()   { return Green(); }
+  const char *EndLocation() { return Default(); }
+  const char *Allocation()  { return Magenta(); }
+  const char *EndAllocation()  { return Default(); }
+
+  const char *ShadowByte(u8 byte) {
+    switch (byte) {
+      case kAsanHeapLeftRedzoneMagic:
+      case kAsanHeapRightRedzoneMagic:
+        return Red();
+      case kAsanHeapFreeMagic:
+        return Magenta();
+      case kAsanStackLeftRedzoneMagic:
+      case kAsanStackMidRedzoneMagic:
+      case kAsanStackRightRedzoneMagic:
+      case kAsanStackPartialRedzoneMagic:
+        return Red();
+      case kAsanStackAfterReturnMagic:
+        return Magenta();
+      case kAsanInitializationOrderMagic:
+        return Cyan();
+      case kAsanUserPoisonedMemoryMagic:
+        return Blue();
+      case kAsanStackUseAfterScopeMagic:
+        return Magenta();
+      case kAsanGlobalRedzoneMagic:
+        return Red();
+      case kAsanInternalHeapMagic:
+        return Yellow();
+      default:
+        return Default();
+    }
+  }
+  const char *EndShadowByte() { return Default(); }
+};
+
 // ---------------------- Helper functions ----------------------- {{{1
 
-static void PrintBytes(const char *before, uptr *a) {
-  u8 *bytes = (u8*)a;
-  uptr byte_num = (SANITIZER_WORDSIZE) / 8;
-  Printf("%s%p:", before, (void*)a);
-  for (uptr i = 0; i < byte_num; i++) {
-    Printf(" %x%x", bytes[i] >> 4, bytes[i] & 15);
+static void PrintShadowByte(const char *before, u8 byte,
+                            const char *after = "\n") {
+  Decorator d;
+  Printf("%s%s%x%x%s%s", before,
+         d.ShadowByte(byte), byte >> 4, byte & 15, d.EndShadowByte(), after);
+}
+
+static void PrintShadowBytes(const char *before, u8 *bytes,
+                             u8 *guilty, uptr n) {
+  Decorator d;
+  if (before)
+    Printf("%s%p:", before, bytes);
+  for (uptr i = 0; i < n; i++) {
+    u8 *p = bytes + i;
+    const char *before = p == guilty ? "[" :
+        p - 1 == guilty ? "" : " ";
+    const char *after = p == guilty ? "]" : "";
+    PrintShadowByte(before, *p, after);
   }
   Printf("\n");
 }
@@ -56,15 +123,36 @@ static void PrintShadowMemoryForAddress(uptr addr) {
   if (!AddrIsInMem(addr))
     return;
   uptr shadow_addr = MemToShadow(addr);
-  Printf("Shadow byte and word:\n");
-  Printf("  %p: %x\n", (void*)shadow_addr, *(unsigned char*)shadow_addr);
-  uptr aligned_shadow = shadow_addr & ~(kWordSize - 1);
-  PrintBytes("  ", (uptr*)(aligned_shadow));
-  Printf("More shadow bytes:\n");
-  for (int i = -4; i <= 4; i++) {
+  const uptr n_bytes_per_row = 16;
+  uptr aligned_shadow = shadow_addr & ~(n_bytes_per_row - 1);
+  Printf("Shadow bytes around the buggy address:\n");
+  for (int i = -5; i <= 5; i++) {
     const char *prefix = (i == 0) ? "=>" : "  ";
-    PrintBytes(prefix, (uptr*)(aligned_shadow + i * kWordSize));
+    PrintShadowBytes(prefix,
+                     (u8*)(aligned_shadow + i * n_bytes_per_row),
+                     (u8*)shadow_addr, n_bytes_per_row);
   }
+  Printf("Shadow byte legend (one shadow byte represents %d "
+         "application bytes):\n", (int)SHADOW_GRANULARITY);
+  PrintShadowByte("  Addressable:           ", 0);
+  Printf("  Partially addressable: ");
+  for (uptr i = 1; i < SHADOW_GRANULARITY; i++)
+    PrintShadowByte("", i, " ");
+  Printf("\n");
+  PrintShadowByte("  Heap left redzone:     ", kAsanHeapLeftRedzoneMagic);
+  PrintShadowByte("  Heap righ redzone:     ", kAsanHeapRightRedzoneMagic);
+  PrintShadowByte("  Freed Heap region:     ", kAsanHeapFreeMagic);
+  PrintShadowByte("  Stack left redzone:    ", kAsanStackLeftRedzoneMagic);
+  PrintShadowByte("  Stack mid redzone:     ", kAsanStackMidRedzoneMagic);
+  PrintShadowByte("  Stack right redzone:   ", kAsanStackRightRedzoneMagic);
+  PrintShadowByte("  Stack partial redzone: ", kAsanStackPartialRedzoneMagic);
+  PrintShadowByte("  Stack right redzone:   ", kAsanStackRightRedzoneMagic);
+  PrintShadowByte("  Stack after return:    ", kAsanStackAfterReturnMagic);
+  PrintShadowByte("  Stack use after scope: ", kAsanStackUseAfterScopeMagic);
+  PrintShadowByte("  Global redzone:        ", kAsanGlobalRedzoneMagic);
+  PrintShadowByte("  Global init order:     ", kAsanInitializationOrderMagic);
+  PrintShadowByte("  Poisoned by user:      ", kAsanUserPoisonedMemoryMagic);
+  PrintShadowByte("  ASan internal:         ", kAsanInternalHeapMagic);
 }
 
 static void PrintZoneForPointer(uptr ptr, uptr zone_ptr,
@@ -100,6 +188,8 @@ static void PrintGlobalNameIfASCII(const __asan_global &g) {
 bool DescribeAddressRelativeToGlobal(uptr addr, const __asan_global &g) {
   if (addr < g.beg - kGlobalAndStackRedzone) return false;
   if (addr >= g.beg + g.size_with_redzone) return false;
+  Decorator d;
+  Printf("%s", d.Location());
   Printf("%p is located ", (void*)addr);
   if (addr < g.beg) {
     Printf("%zd bytes to the left", g.beg - addr);
@@ -110,6 +200,7 @@ bool DescribeAddressRelativeToGlobal(uptr addr, const __asan_global &g) {
   }
   Printf(" of global variable '%s' (0x%zx) of size %zu\n",
              g.name, g.beg, g.size);
+  Printf("%s", d.EndLocation());
   PrintGlobalNameIfASCII(g);
   return true;
 }
@@ -153,9 +244,12 @@ bool DescribeAddressIfStack(uptr addr, uptr access_size) {
   internal_strncat(buf, frame_descr,
                    Min(kBufSize,
                        static_cast<sptr>(name_end - frame_descr)));
+  Decorator d;
+  Printf("%s", d.Location());
   Printf("Address %p is located at offset %zu "
              "in frame <%s> of T%d's stack:\n",
              (void*)addr, offset, buf, t->tid());
+  Printf("%s", d.EndLocation());
   // Report the number of stack objects.
   char *p;
   uptr n_objects = internal_simple_strtoll(name_end, &p, 10);
@@ -189,6 +283,8 @@ bool DescribeAddressIfStack(uptr addr, uptr access_size) {
 static void DescribeAccessToHeapChunk(AsanChunkView chunk, uptr addr,
                                       uptr access_size) {
   uptr offset;
+  Decorator d;
+  Printf("%s", d.Location());
   Printf("%p is located ", (void*)addr);
   if (chunk.AddrIsInside(addr, access_size, &offset)) {
     Printf("%zu bytes inside of", offset);
@@ -201,6 +297,7 @@ static void DescribeAccessToHeapChunk(AsanChunkView chunk, uptr addr,
   }
   Printf(" %zu-byte region [%p,%p)\n", chunk.UsedSize(),
          (void*)(chunk.Beg()), (void*)(chunk.End()));
+  Printf("%s", d.EndLocation());
 }
 
 // Return " (thread_name) " or an empty string if the name is empty.
@@ -234,24 +331,30 @@ void DescribeHeapAddress(uptr addr, uptr access_size) {
   AsanThread *t = asanThreadRegistry().GetCurrent();
   CHECK(t);
   char tname[128];
+  Decorator d;
   if (chunk.FreeTid() != kInvalidTid) {
     AsanThreadSummary *free_thread =
         asanThreadRegistry().FindByTid(chunk.FreeTid());
-    Printf("freed by thread T%d%s here:\n", free_thread->tid(),
-           ThreadNameWithParenthesis(free_thread, tname, sizeof(tname)));
+    Printf("%sfreed by thread T%d%s here:%s\n", d.Allocation(),
+           free_thread->tid(),
+           ThreadNameWithParenthesis(free_thread, tname, sizeof(tname)),
+           d.EndAllocation());
     StackTrace free_stack;
     chunk.GetFreeStack(&free_stack);
     PrintStack(&free_stack);
-    Printf("previously allocated by thread T%d%s here:\n",
-           alloc_thread->tid(),
-           ThreadNameWithParenthesis(alloc_thread, tname, sizeof(tname)));
+    Printf("%spreviously allocated by thread T%d%s here:%s\n",
+           d.Allocation(), alloc_thread->tid(),
+           ThreadNameWithParenthesis(alloc_thread, tname, sizeof(tname)),
+           d.EndAllocation());
     PrintStack(&alloc_stack);
     DescribeThread(t->summary());
     DescribeThread(free_thread);
     DescribeThread(alloc_thread);
   } else {
-    Printf("allocated by thread T%d%s here:\n", alloc_thread->tid(),
-           ThreadNameWithParenthesis(alloc_thread, tname, sizeof(tname)));
+    Printf("%sallocated by thread T%d%s here:%s\n", d.Allocation(),
+           alloc_thread->tid(),
+           ThreadNameWithParenthesis(alloc_thread, tname, sizeof(tname)),
+           d.EndAllocation());
     PrintStack(&alloc_stack);
     DescribeThread(t->summary());
     DescribeThread(alloc_thread);
@@ -353,10 +456,13 @@ class ScopedInErrorReport {
 
 void ReportSIGSEGV(uptr pc, uptr sp, uptr bp, uptr addr) {
   ScopedInErrorReport in_report;
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: SEGV on unknown address %p"
              " (pc %p sp %p bp %p T%d)\n",
              (void*)addr, (void*)pc, (void*)sp, (void*)bp,
              asanThreadRegistry().GetCurrentTidOrInvalid());
+  Printf("%s", d.EndWarning());
   Printf("AddressSanitizer can not provide additional info.\n");
   GET_STACK_TRACE_FATAL(pc, bp);
   PrintStack(&stack);
@@ -364,33 +470,45 @@ void ReportSIGSEGV(uptr pc, uptr sp, uptr bp, uptr addr) {
 
 void ReportDoubleFree(uptr addr, StackTrace *stack) {
   ScopedInErrorReport in_report;
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: attempting double-free on %p:\n", addr);
+  Printf("%s", d.EndWarning());
   PrintStack(stack);
   DescribeHeapAddress(addr, 1);
 }
 
 void ReportFreeNotMalloced(uptr addr, StackTrace *stack) {
   ScopedInErrorReport in_report;
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: attempting free on address "
              "which was not malloc()-ed: %p\n", addr);
+  Printf("%s", d.EndWarning());
   PrintStack(stack);
   DescribeHeapAddress(addr, 1);
 }
 
 void ReportMallocUsableSizeNotOwned(uptr addr, StackTrace *stack) {
   ScopedInErrorReport in_report;
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: attempting to call "
              "malloc_usable_size() for pointer which is "
              "not owned: %p\n", addr);
+  Printf("%s", d.EndWarning());
   PrintStack(stack);
   DescribeHeapAddress(addr, 1);
 }
 
 void ReportAsanGetAllocatedSizeNotOwned(uptr addr, StackTrace *stack) {
   ScopedInErrorReport in_report;
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: attempting to call "
              "__asan_get_allocated_size() for pointer which is "
              "not owned: %p\n", addr);
+  Printf("%s", d.EndWarning());
   PrintStack(stack);
   DescribeHeapAddress(addr, 1);
 }
@@ -399,9 +517,12 @@ void ReportStringFunctionMemoryRangesOverlap(
     const char *function, const char *offset1, uptr length1,
     const char *offset2, uptr length2, StackTrace *stack) {
   ScopedInErrorReport in_report;
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: %s-param-overlap: "
              "memory ranges [%p,%p) and [%p, %p) overlap\n", \
              function, offset1, offset1 + length1, offset2, offset2 + length2);
+  Printf("%s", d.EndWarning());
   PrintStack(stack);
   DescribeAddress((uptr)offset1, length1);
   DescribeAddress((uptr)offset2, length2);
@@ -494,17 +615,21 @@ void __asan_report_error(uptr pc, uptr bp, uptr sp,
         break;
     }
   }
-
+  Decorator d;
+  Printf("%s", d.Warning());
   Report("ERROR: AddressSanitizer: %s on address "
              "%p at pc 0x%zx bp 0x%zx sp 0x%zx\n",
              bug_descr, (void*)addr, pc, bp, sp);
+  Printf("%s", d.EndWarning());
 
   u32 curr_tid = asanThreadRegistry().GetCurrentTidOrInvalid();
   char tname[128];
-  Printf("%s of size %zu at %p thread T%d%s\n",
-             access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
-             access_size, (void*)addr, curr_tid,
-             ThreadNameWithParenthesis(curr_tid, tname, sizeof(tname)));
+  Printf("%s%s of size %zu at %p thread T%d%s%s\n",
+         d.Access(),
+         access_size ? (is_write ? "WRITE" : "READ") : "ACCESS",
+         access_size, (void*)addr, curr_tid,
+         ThreadNameWithParenthesis(curr_tid, tname, sizeof(tname)),
+         d.EndAccess());
 
   GET_STACK_TRACE_FATAL(pc, bp);
   PrintStack(&stack);

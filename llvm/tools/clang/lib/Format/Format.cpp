@@ -37,6 +37,7 @@ struct TokenAnnotation {
     TT_OverloadedOperator,
     TT_PointerOrReference,
     TT_ConditionalExpr,
+    TT_CtorInitializerColon,
     TT_LineComment,
     TT_BlockComment
   };
@@ -73,7 +74,6 @@ FormatStyle getGoogleStyle() {
 }
 
 struct OptimizationParameters {
-  unsigned PenaltyExtraLine;
   unsigned PenaltyIndentLevel;
 };
 
@@ -83,13 +83,9 @@ public:
                          const UnwrappedLine &Line,
                          const std::vector<TokenAnnotation> &Annotations,
                          tooling::Replacements &Replaces, bool StructuralError)
-      : Style(Style),
-        SourceMgr(SourceMgr),
-        Line(Line),
-        Annotations(Annotations),
-        Replaces(Replaces),
+      : Style(Style), SourceMgr(SourceMgr), Line(Line),
+        Annotations(Annotations), Replaces(Replaces),
         StructuralError(StructuralError) {
-    Parameters.PenaltyExtraLine = 100;
     Parameters.PenaltyIndentLevel = 5;
   }
 
@@ -100,8 +96,6 @@ public:
     // Initialize state dependent on indent.
     IndentState State;
     State.Column = Indent;
-    State.CtorInitializerOnNewLine = false;
-    State.InCtorInitializer = false;
     State.ConsumedTokens = 0;
     State.Indent.push_back(Indent + 4);
     State.LastSpace.push_back(Indent);
@@ -110,11 +104,33 @@ public:
     // The first token has already been indented and thus consumed.
     moveStateToNextToken(State);
 
+    // Check whether the UnwrappedLine can be put onto a single line. If so,
+    // this is bound to be the optimal solution (by definition) and we don't
+    // need to analyze the entire solution space. 
+    unsigned Columns = State.Column;
+    bool FitsOnALine = true;
+    for (unsigned i = 1, n = Line.Tokens.size(); i != n; ++i) {
+      Columns += (Annotations[i].SpaceRequiredBefore ? 1 : 0) +
+          Line.Tokens[i].Tok.getLength();
+      // A special case for the colon of a constructor initializer as this only
+      // needs to be put on a new line if the line needs to be split.
+      if (Columns > Style.ColumnLimit ||
+          (Annotations[i].MustBreakBefore &&
+           Annotations[i].Type != TokenAnnotation::TT_CtorInitializerColon)) {
+        FitsOnALine = false;
+        break;
+      }
+    }
+
     // Start iterating at 1 as we have correctly formatted of Token #0 above.
     for (unsigned i = 1, n = Line.Tokens.size(); i != n; ++i) {
-      unsigned NoBreak = calcPenalty(State, false, UINT_MAX);
-      unsigned Break = calcPenalty(State, true, NoBreak);
-      addTokenToState(Break < NoBreak, false, State);
+      if (FitsOnALine) {
+        addTokenToState(false, false, State);
+      } else {
+        unsigned NoBreak = calcPenalty(State, false, UINT_MAX);
+        unsigned Break = calcPenalty(State, true, NoBreak);
+        addTokenToState(Break < NoBreak, false, State);
+      }
     }
   }
 
@@ -145,9 +161,6 @@ private:
     /// Used to align "<<" operators. 0 if no such operator has been encountered
     /// on a level.
     std::vector<unsigned> FirstLessLess;
-
-    bool CtorInitializerOnNewLine;
-    bool InCtorInitializer;
 
     /// \brief Comparison operator to be able to used \c IndentState in \c map.
     bool operator<(const IndentState &Other) const {
@@ -198,7 +211,9 @@ private:
       else if (Current.Tok.is(tok::lessless) &&
                State.FirstLessLess[ParenLevel] != 0)
         State.Column = State.FirstLessLess[ParenLevel];
-      else if (Previous.Tok.is(tok::equal) && ParenLevel != 0)
+      else if (ParenLevel != 0 &&
+               (Previous.Tok.is(tok::equal) || Current.Tok.is(tok::arrow) ||
+                Current.Tok.is(tok::period)))
         // Indent and extra 4 spaces after '=' as it continues an expression.
         // Don't do that on the top level, as we already indent 4 there.
         State.Column = State.Indent[ParenLevel] + 4;
@@ -210,11 +225,8 @@ private:
 
       State.LastSpace[ParenLevel] = State.Indent[ParenLevel];
       if (Current.Tok.is(tok::colon) &&
-          Annotations[Index].Type != TokenAnnotation::TT_ConditionalExpr) {
+          Annotations[Index].Type != TokenAnnotation::TT_ConditionalExpr)
         State.Indent[ParenLevel] += 2;
-        State.CtorInitializerOnNewLine = true;
-        State.InCtorInitializer = true;
-      }
     } else {
       unsigned Spaces = Annotations[Index].SpaceRequiredBefore ? 1 : 0;
       if (Annotations[Index].Type == TokenAnnotation::TT_LineComment)
@@ -226,10 +238,7 @@ private:
       if (Previous.Tok.is(tok::l_paren) ||
           Annotations[Index - 1].Type == TokenAnnotation::TT_TemplateOpener)
         State.Indent[ParenLevel] = State.Column;
-      if (Current.Tok.is(tok::colon)) {
-        State.Indent[ParenLevel] = State.Column + 3;
-        State.InCtorInitializer = true;
-      }
+
       // Top-level spaces are exempt as that mostly leads to better results.
       State.Column += Spaces;
       if (Spaces > 0 && ParenLevel != 0)
@@ -271,14 +280,21 @@ private:
     ++State.ConsumedTokens;
   }
 
-  unsigned splitPenalty(const FormatToken &Token) {
-    if (Token.Tok.is(tok::semi))
+  /// \brief Calculate the panelty for splitting after the token at \p Index.
+  unsigned splitPenalty(unsigned Index) {
+    assert(Index < Line.Tokens.size() &&
+           "Tried to calculate penalty for splitting after the last token");
+    const FormatToken &Left = Line.Tokens[Index];
+    const FormatToken &Right = Line.Tokens[Index + 1];
+    if (Left.Tok.is(tok::semi) || Left.Tok.is(tok::comma))
       return 0;
-    if (Token.Tok.is(tok::comma))
-      return 1;
-    if (Token.Tok.is(tok::equal) || Token.Tok.is(tok::l_paren) ||
-        Token.Tok.is(tok::pipepipe) || Token.Tok.is(tok::ampamp))
+    if (Left.Tok.is(tok::equal) || Left.Tok.is(tok::l_paren) ||
+        Left.Tok.is(tok::pipepipe) || Left.Tok.is(tok::ampamp))
       return 2;
+
+    if (Right.Tok.is(tok::arrow) || Right.Tok.is(tok::period))
+      return 200;
+
     return 3;
   }
 
@@ -302,19 +318,10 @@ private:
     if (NewLine && !Annotations[State.ConsumedTokens].CanBreakBefore)
       return UINT_MAX;
 
-    if (State.ConsumedTokens > 0 && !NewLine &&
-        State.CtorInitializerOnNewLine &&
-        Line.Tokens[State.ConsumedTokens - 1].Tok.is(tok::comma))
-      return UINT_MAX;
-
-    if (NewLine && State.InCtorInitializer && !State.CtorInitializerOnNewLine)
-      return UINT_MAX;
-
     unsigned CurrentPenalty = 0;
     if (NewLine) {
       CurrentPenalty += Parameters.PenaltyIndentLevel * State.Indent.size() +
-          Parameters.PenaltyExtraLine +
-          splitPenalty(Line.Tokens[State.ConsumedTokens - 1]);
+          splitPenalty(State.ConsumedTokens - 1);
     }
 
     addTokenToState(NewLine, true, State);
@@ -335,17 +342,21 @@ private:
       // - are now computing for a smaller or equal StopAt.
       unsigned SavedResult = I->second.first;
       unsigned SavedStopAt = I->second.second;
-      if (SavedResult != UINT_MAX || StopAt <= SavedStopAt)
-        return SavedResult;
+      if (SavedResult != UINT_MAX)
+        return SavedResult + CurrentPenalty;
+      else if (StopAt <= SavedStopAt)
+        return UINT_MAX;
     }
 
     unsigned NoBreak = calcPenalty(State, false, StopAt);
     unsigned WithBreak = calcPenalty(State, true, std::min(StopAt, NoBreak));
     unsigned Result = std::min(NoBreak, WithBreak);
-    if (Result != UINT_MAX)
-      Result += CurrentPenalty;
+
+    // We have to store 'Result' without adding 'CurrentPenalty' as the latter
+    // can depend on 'NewLine'.
     Memory[State] = std::pair<unsigned, unsigned>(Result, StopAt);
-    return Result;
+
+    return Result == UINT_MAX ? UINT_MAX : Result + CurrentPenalty;
   }
 
   /// \brief Replaces the whitespace in front of \p Tok. Only call once for
@@ -399,9 +410,7 @@ class TokenAnnotator {
 public:
   TokenAnnotator(const UnwrappedLine &Line, const FormatStyle &Style,
                  SourceManager &SourceMgr)
-      : Line(Line),
-        Style(Style),
-        SourceMgr(SourceMgr) {
+      : Line(Line), Style(Style), SourceMgr(SourceMgr) {
   }
 
   /// \brief A parser that gathers additional information about tokens.
@@ -413,9 +422,7 @@ public:
   public:
     AnnotatingParser(const SmallVector<FormatToken, 16> &Tokens,
                      std::vector<TokenAnnotation> &Annotations)
-        : Tokens(Tokens),
-          Annotations(Annotations),
-          Index(0) {
+        : Tokens(Tokens), Annotations(Annotations), Index(0) {
     }
 
     bool parseAngle() {
@@ -482,6 +489,10 @@ public:
       switch (Tokens[CurrentIndex].Tok.getKind()) {
       case tok::l_paren:
         parseParens();
+        if (Index < Tokens.size() && Tokens[Index].Tok.is(tok::colon)) {
+          Annotations[Index].Type = TokenAnnotation::TT_CtorInitializerColon;
+          next();
+        }
         break;
       case tok::l_square:
         parseSquare();
@@ -543,7 +554,10 @@ public:
       Annotation.CanBreakBefore =
           canBreakBetween(Line.Tokens[i - 1], Line.Tokens[i]);
 
-      if (Line.Tokens[i].Tok.is(tok::colon)) {
+      if (Annotation.Type == TokenAnnotation::TT_CtorInitializerColon) {
+        Annotation.MustBreakBefore = true;
+        Annotation.SpaceRequiredBefore = true;
+      } else if (Line.Tokens[i].Tok.is(tok::colon)) {
         Annotation.SpaceRequiredBefore =
             Line.Tokens[0].Tok.isNot(tok::kw_case) && i != e - 1;
       } else if (Annotations[i - 1].Type == TokenAnnotation::TT_UnaryOperator) {
@@ -734,15 +748,15 @@ private:
   }
 
   bool canBreakBetween(const FormatToken &Left, const FormatToken &Right) {
-    if (Right.Tok.is(tok::r_paren))
+    if (Right.Tok.is(tok::r_paren) || Right.Tok.is(tok::l_brace) ||
+        Right.Tok.is(tok::comment) || Right.Tok.is(tok::greater))
       return false;
-    if (isBinaryOperator(Left))
+    if (isBinaryOperator(Left) || Right.Tok.is(tok::lessless) ||
+        Right.Tok.is(tok::arrow) || Right.Tok.is(tok::period))
       return true;
-    if (Right.Tok.is(tok::lessless))
-      return true;
-    return Right.Tok.is(tok::colon) || Left.Tok.is(tok::comma) ||
-        Left.Tok.is(tok::semi) || Left.Tok.is(tok::equal) ||
-        Left.Tok.is(tok::ampamp) || Left.Tok.is(tok::pipepipe) ||
+    return Right.Tok.is(tok::colon) || Left.Tok.is(tok::comma) || Left.Tok.is(
+        tok::semi) || Left.Tok.is(tok::equal) || Left.Tok.is(tok::ampamp) ||
+        Left.Tok.is(tok::pipepipe) || Left.Tok.is(tok::l_brace) ||
         (Left.Tok.is(tok::l_paren) && !Right.Tok.is(tok::r_paren));
   }
 
@@ -755,9 +769,7 @@ private:
 class LexerBasedFormatTokenSource : public FormatTokenSource {
 public:
   LexerBasedFormatTokenSource(Lexer &Lex, SourceManager &SourceMgr)
-      : GreaterStashed(false),
-        Lex(Lex),
-        SourceMgr(SourceMgr),
+      : GreaterStashed(false), Lex(Lex), SourceMgr(SourceMgr),
         IdentTable(Lex.getLangOpts()) {
     Lex.SetKeepWhitespaceMode(true);
   }
@@ -817,10 +829,7 @@ class Formatter : public UnwrappedLineConsumer {
 public:
   Formatter(const FormatStyle &Style, Lexer &Lex, SourceManager &SourceMgr,
             const std::vector<CharSourceRange> &Ranges)
-      : Style(Style),
-        Lex(Lex),
-        SourceMgr(SourceMgr),
-        Ranges(Ranges),
+      : Style(Style), Lex(Lex), SourceMgr(SourceMgr), Ranges(Ranges),
         StructuralError(false) {
   }
 

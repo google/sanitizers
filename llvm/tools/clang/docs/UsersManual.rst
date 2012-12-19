@@ -19,9 +19,8 @@ Site <http://llvm.org>`_.
 This document describes important notes about using Clang as a compiler
 for an end-user, documenting the supported features, command line
 options, etc. If you are interested in using Clang to build a tool that
-processes code, please see `the Clang Internals
-Manual <InternalsManual.html>`_. If you are interested in the `Clang
-Static Analyzer <http://clang-analyzer.llvm.org>`_, please see its web
+processes code, please see :doc:`InternalsManual`. If you are interested in the
+`Clang Static Analyzer <http://clang-analyzer.llvm.org>`_, please see its web
 page.
 
 Clang is designed to support the C family of programming languages,
@@ -685,6 +684,8 @@ influenced by the user via changes to the source code. See the available
 analyzer's `FAQ
 page <http://clang-analyzer.llvm.org/faq.html#exclude_code>`_ for more
 information.
+
+.. _usersmanual-precompiled-headers:
 
 Precompiled Headers
 -------------------

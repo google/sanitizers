@@ -45,7 +45,8 @@ MCObjectStreamer::~MCObjectStreamer() {
 }
 
 void MCObjectStreamer::reset() {
-  Assembler->reset();
+  if (Assembler)
+    Assembler->reset();
   MCStreamer::reset();
 }
 
@@ -131,6 +132,10 @@ void MCObjectStreamer::EmitLabel(MCSymbol *Symbol) {
   assert(!SD.getFragment() && "Unexpected fragment on symbol data!");
   SD.setFragment(F);
   SD.setOffset(F->getContents().size());
+}
+
+void MCObjectStreamer::EmitDebugLabel(MCSymbol *Symbol) {
+  EmitLabel(Symbol);
 }
 
 void MCObjectStreamer::EmitULEB128Value(const MCExpr *Value) {

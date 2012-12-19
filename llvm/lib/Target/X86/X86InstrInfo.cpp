@@ -562,7 +562,23 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::VBROADCASTSSYrr, X86::VBROADCASTSSYrm,     TB_NO_REVERSE },
     { X86::VBROADCASTSDYrr, X86::VBROADCASTSDYrm,     TB_NO_REVERSE },
 
-    // BMI/BMI2 foldable instructions
+    // BMI/BMI2/LZCNT/POPCNT foldable instructions
+    { X86::BEXTR32rr,       X86::BEXTR32rm,           0 },
+    { X86::BEXTR64rr,       X86::BEXTR64rm,           0 },
+    { X86::BLSI32rr,        X86::BLSI32rm,            0 },
+    { X86::BLSI64rr,        X86::BLSI64rm,            0 },
+    { X86::BLSMSK32rr,      X86::BLSMSK32rm,          0 },
+    { X86::BLSMSK64rr,      X86::BLSMSK64rm,          0 },
+    { X86::BLSR32rr,        X86::BLSR32rm,            0 },
+    { X86::BLSR64rr,        X86::BLSR64rm,            0 },
+    { X86::BZHI32rr,        X86::BZHI32rm,            0 },
+    { X86::BZHI64rr,        X86::BZHI64rm,            0 },
+    { X86::LZCNT16rr,       X86::LZCNT16rm,           0 },
+    { X86::LZCNT32rr,       X86::LZCNT32rm,           0 },
+    { X86::LZCNT64rr,       X86::LZCNT64rm,           0 },
+    { X86::POPCNT16rr,      X86::POPCNT16rm,          0 },
+    { X86::POPCNT32rr,      X86::POPCNT32rm,          0 },
+    { X86::POPCNT64rr,      X86::POPCNT64rm,          0 },
     { X86::RORX32ri,        X86::RORX32mi,            0 },
     { X86::RORX64ri,        X86::RORX64mi,            0 },
     { X86::SARX32rr,        X86::SARX32rm,            0 },
@@ -571,6 +587,9 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::SHRX64rr,        X86::SHRX64rm,            0 },
     { X86::SHLX32rr,        X86::SHLX32rm,            0 },
     { X86::SHLX64rr,        X86::SHLX64rm,            0 },
+    { X86::TZCNT16rr,       X86::TZCNT16rm,           0 },
+    { X86::TZCNT32rr,       X86::TZCNT32rm,           0 },
+    { X86::TZCNT64rr,       X86::TZCNT64rm,           0 },
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl1); i != e; ++i) {
@@ -1156,8 +1175,14 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::VFMSUBADDPD4rrY,   X86::VFMSUBADDPD4mrY,    TB_ALIGN_32 },
 
     // BMI/BMI2 foldable instructions
+    { X86::ANDN32rr,          X86::ANDN32rm,            0 },
+    { X86::ANDN64rr,          X86::ANDN64rm,            0 },
     { X86::MULX32rr,          X86::MULX32rm,            0 },
     { X86::MULX64rr,          X86::MULX64rm,            0 },
+    { X86::PDEP32rr,          X86::PDEP32rm,            0 },
+    { X86::PDEP64rr,          X86::PDEP64rm,            0 },
+    { X86::PEXT32rr,          X86::PEXT32rm,            0 },
+    { X86::PEXT64rr,          X86::PEXT64rm,            0 },
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl2); i != e; ++i) {
@@ -3152,19 +3177,15 @@ inline static bool isDefConvertible(MachineInstr *MI) {
   case X86::SUB8ri:    case X86::SUB64rr:  case X86::SUB32rr:
   case X86::SUB16rr:   case X86::SUB8rr:   case X86::SUB64rm:
   case X86::SUB32rm:   case X86::SUB16rm:  case X86::SUB8rm:
-  case X86::DEC64r:  case X86::DEC32r:  case X86::DEC16r: case X86::DEC8r:
-  case X86::DEC64m:  case X86::DEC32m:  case X86::DEC16m: case X86::DEC8m:
+  case X86::DEC64r:    case X86::DEC32r:   case X86::DEC16r: case X86::DEC8r:
   case X86::DEC64_32r: case X86::DEC64_16r:
-  case X86::DEC64_32m: case X86::DEC64_16m:
   case X86::ADD64ri32: case X86::ADD64ri8: case X86::ADD32ri:
   case X86::ADD32ri8:  case X86::ADD16ri:  case X86::ADD16ri8:
   case X86::ADD8ri:    case X86::ADD64rr:  case X86::ADD32rr:
   case X86::ADD16rr:   case X86::ADD8rr:   case X86::ADD64rm:
   case X86::ADD32rm:   case X86::ADD16rm:  case X86::ADD8rm:
-  case X86::INC64r:  case X86::INC32r:  case X86::INC16r: case X86::INC8r:
-  case X86::INC64m:  case X86::INC32m:  case X86::INC16m: case X86::INC8m:
+  case X86::INC64r:    case X86::INC32r:   case X86::INC16r: case X86::INC8r:
   case X86::INC64_32r: case X86::INC64_16r:
-  case X86::INC64_32m: case X86::INC64_16m:
   case X86::AND64ri32: case X86::AND64ri8: case X86::AND32ri:
   case X86::AND32ri8:  case X86::AND16ri:  case X86::AND16ri8:
   case X86::AND8ri:    case X86::AND64rr:  case X86::AND32rr:
@@ -3180,6 +3201,8 @@ inline static bool isDefConvertible(MachineInstr *MI) {
   case X86::OR8ri:     case X86::OR64rr:   case X86::OR32rr:
   case X86::OR16rr:    case X86::OR8rr:    case X86::OR64rm:
   case X86::OR32rm:    case X86::OR16rm:   case X86::OR8rm:
+  case X86::ANDN32rr:  case X86::ANDN32rm:
+  case X86::ANDN64rr:  case X86::ANDN64rm:
     return true;
   }
 }
@@ -3840,7 +3863,7 @@ MachineInstr* X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
   // Unless optimizing for size, don't fold to avoid partial
   // register update stalls
   if (!MF.getFunction()->getFnAttributes().
-        hasAttribute(Attributes::OptimizeForSize) &&
+        hasAttribute(Attribute::OptimizeForSize) &&
       hasPartialRegUpdate(MI->getOpcode()))
     return 0;
 
@@ -3882,7 +3905,7 @@ MachineInstr* X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF,
   // Unless optimizing for size, don't fold to avoid partial
   // register update stalls
   if (!MF.getFunction()->getFnAttributes().
-        hasAttribute(Attributes::OptimizeForSize) &&
+        hasAttribute(Attribute::OptimizeForSize) &&
       hasPartialRegUpdate(MI->getOpcode()))
     return 0;
 
