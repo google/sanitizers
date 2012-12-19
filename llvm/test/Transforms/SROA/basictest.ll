@@ -1176,3 +1176,50 @@ entry:
   %baz = load i1* %a.i1, align 1
   ret void
 }
+
+define <3 x i8> @PR14572.1(i32 %x) {
+; Ensure that a split integer store which is wider than the type size of the
+; alloca (relying on the alloc size padding) doesn't trigger an assert.
+; CHECK: @PR14572.1
+
+entry:
+  %a = alloca <3 x i8>, align 4
+; CHECK-NOT: alloca
+
+  %cast = bitcast <3 x i8>* %a to i32*
+  store i32 %x, i32* %cast, align 1
+  %y = load <3 x i8>* %a, align 4
+  ret <3 x i8> %y
+; CHECK: ret <3 x i8>
+}
+
+define i32 @PR14572.2(<3 x i8> %x) {
+; Ensure that a split integer load which is wider than the type size of the
+; alloca (relying on the alloc size padding) doesn't trigger an assert.
+; CHECK: @PR14572.2
+
+entry:
+  %a = alloca <3 x i8>, align 4
+; CHECK-NOT: alloca
+
+  store <3 x i8> %x, <3 x i8>* %a, align 1
+  %cast = bitcast <3 x i8>* %a to i32*
+  %y = load i32* %cast, align 4
+  ret i32 %y
+; CHECK: ret i32
+}
+
+define i32 @PR14601(i32 %x) {
+; Don't try to form a promotable integer alloca when there is a variable length
+; memory intrinsic.
+; CHECK: @PR14601
+
+entry:
+  %a = alloca i32
+; CHECK: alloca
+
+  %a.i8 = bitcast i32* %a to i8*
+  call void @llvm.memset.p0i8.i32(i8* %a.i8, i8 0, i32 %x, i32 1, i1 false)
+  %v = load i32* %a
+  ret i32 %v
+}

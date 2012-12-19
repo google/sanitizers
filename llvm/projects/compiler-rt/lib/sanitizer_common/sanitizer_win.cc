@@ -15,6 +15,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #include <stdlib.h>
+#include <io.h>
 #include <windows.h>
 
 #include "sanitizer_common.h"
@@ -185,7 +186,7 @@ int internal_close(fd_t fd) {
 }
 
 int internal_isatty(fd_t fd) {
-  UNIMPLEMENTED();
+  return _isatty(fd);
 }
 
 fd_t internal_open(const char *filename, bool write) {

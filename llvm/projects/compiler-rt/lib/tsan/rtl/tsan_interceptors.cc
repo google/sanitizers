@@ -177,8 +177,8 @@ ScopedInterceptor::~ScopedInterceptor() {
     StatInc(thr, StatInt_##func); \
     const uptr caller_pc = GET_CALLER_PC(); \
     ScopedInterceptor si(thr, #func, caller_pc); \
-    /* Subtract one from pc as we need current instruction address */ \
-    const uptr pc = __sanitizer::StackTrace::GetCurrentPc() - 1; \
+    const uptr pc = __sanitizer::StackTrace::GetPreviousInstructionPc( \
+        __sanitizer::StackTrace::GetCurrentPc()); \
     (void)pc; \
 /**/
 
@@ -1128,6 +1128,31 @@ TSAN_INTERCEPTOR(int, eventfd, unsigned initval, int flags) {
   return fd;
 }
 
+TSAN_INTERCEPTOR(int, signalfd, int fd, void *mask, int flags) {
+  SCOPED_TSAN_INTERCEPTOR(signalfd, fd, mask, flags);
+  FdClose(thr, pc, fd);
+  fd = REAL(signalfd)(fd, mask, flags);
+  if (fd >= 0)
+    FdSignalCreate(thr, pc, fd);
+  return fd;
+}
+
+TSAN_INTERCEPTOR(int, inotify_init, int fake) {
+  SCOPED_TSAN_INTERCEPTOR(inotify_init, fake);
+  int fd = REAL(inotify_init)(fake);
+  if (fd >= 0)
+    FdInotifyCreate(thr, pc, fd);
+  return fd;
+}
+
+TSAN_INTERCEPTOR(int, inotify_init1, int flags) {
+  SCOPED_TSAN_INTERCEPTOR(inotify_init1, flags);
+  int fd = REAL(inotify_init1)(flags);
+  if (fd >= 0)
+    FdInotifyCreate(thr, pc, fd);
+  return fd;
+}
+
 TSAN_INTERCEPTOR(int, socket, int domain, int type, int protocol) {
   SCOPED_TSAN_INTERCEPTOR(socket, domain, type, protocol);
   int fd = REAL(socket)(domain, type, protocol);
@@ -1146,6 +1171,7 @@ TSAN_INTERCEPTOR(int, socketpair, int domain, int type, int protocol, int *fd) {
 
 TSAN_INTERCEPTOR(int, connect, int fd, void *addr, unsigned addrlen) {
   SCOPED_TSAN_INTERCEPTOR(connect, fd, addr, addrlen);
+  FdSocketConnecting(thr, pc, fd);
   int res = REAL(connect)(fd, addr, addrlen);
   if (res == 0)
     FdSocketConnect(thr, pc, fd);
@@ -1591,6 +1617,19 @@ TSAN_INTERCEPTOR(int, munlockall, void) {
   return 0;
 }
 
+TSAN_INTERCEPTOR(int, fork, int fake) {
+  SCOPED_TSAN_INTERCEPTOR(fork, fake);
+  // It's intercepted merely to process pending signals.
+  int pid = REAL(fork)(fake);
+  if (pid == 0) {
+    // child
+    FdOnFork(thr, pc);
+  } else if (pid > 0) {
+    // parent
+  }
+  return pid;
+}
+
 namespace __tsan {
 
 void ProcessPendingSignals(ThreadState *thr) {
@@ -1742,6 +1781,9 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(dup2);
   TSAN_INTERCEPT(dup3);
   TSAN_INTERCEPT(eventfd);
+  TSAN_INTERCEPT(signalfd);
+  TSAN_INTERCEPT(inotify_init);
+  TSAN_INTERCEPT(inotify_init1);
   TSAN_INTERCEPT(socket);
   TSAN_INTERCEPT(socketpair);
   TSAN_INTERCEPT(connect);
@@ -1796,6 +1838,8 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(munlock);
   TSAN_INTERCEPT(mlockall);
   TSAN_INTERCEPT(munlockall);
+
+  TSAN_INTERCEPT(fork);
 
   // Need to setup it, because interceptors check that the function is resolved.
   // But atexit is emitted directly into the module, so can't be resolved.

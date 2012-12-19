@@ -22,6 +22,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Function.h"        // To access Function attributes
 using namespace llvm;
 
 STATISTIC(NumNarrows,  "Number of 32-bit instrs reduced to 16-bit ones");
@@ -175,13 +176,21 @@ namespace {
                         bool LiveCPSR, MachineInstr *CPSRDef,
                         bool IsSelfLoop);
 
+    /// ReduceMI - Attempt to reduce MI, return true on success.
+    bool ReduceMI(MachineBasicBlock &MBB, MachineInstr *MI,
+                  bool LiveCPSR, MachineInstr *CPSRDef,
+                  bool IsSelfLoop);
+
     /// ReduceMBB - Reduce width of instructions in the specified basic block.
     bool ReduceMBB(MachineBasicBlock &MBB);
+
+    bool MinimizeSize;
   };
   char Thumb2SizeReduce::ID = 0;
 }
 
 Thumb2SizeReduce::Thumb2SizeReduce() : MachineFunctionPass(ID) {
+  MinimizeSize = false;
   for (unsigned i = 0, e = array_lengthof(ReduceTable); i != e; ++i) {
     unsigned FromOpc = ReduceTable[i].WideOpc;
     if (!ReduceOpcodeMap.insert(std::make_pair(FromOpc, i)).second)
@@ -216,8 +225,8 @@ static bool HasImplicitCPSRDef(const MCInstrDesc &MCID) {
 bool
 Thumb2SizeReduce::canAddPseudoFlagDep(MachineInstr *Def, MachineInstr *Use,
                                       bool FirstInSelfLoop) {
-  // FIXME: Disable check for -Oz (aka OptimizeForSizeHarder).
-  if (!STI->avoidCPSRPartialUpdate())
+  // Disable the check for -Oz (aka OptimizeForSizeHarder).
+  if (MinimizeSize || !STI->avoidCPSRPartialUpdate())
     return false;
 
   if (!Def)
@@ -841,6 +850,32 @@ static bool UpdateCPSRUse(MachineInstr &MI, bool LiveCPSR) {
   return LiveCPSR;
 }
 
+bool Thumb2SizeReduce::ReduceMI(MachineBasicBlock &MBB, MachineInstr *MI,
+                                bool LiveCPSR, MachineInstr *CPSRDef,
+                                bool IsSelfLoop) {
+  unsigned Opcode = MI->getOpcode();
+  DenseMap<unsigned, unsigned>::iterator OPI = ReduceOpcodeMap.find(Opcode);
+  if (OPI == ReduceOpcodeMap.end())
+    return false;
+  const ReduceEntry &Entry = ReduceTable[OPI->second];
+
+  // Don't attempt normal reductions on "special" cases for now.
+  if (Entry.Special)
+    return ReduceSpecial(MBB, MI, Entry, LiveCPSR, CPSRDef, IsSelfLoop);
+
+  // Try to transform to a 16-bit two-address instruction.
+  if (Entry.NarrowOpc2 &&
+      ReduceTo2Addr(MBB, MI, Entry, LiveCPSR, CPSRDef, IsSelfLoop))
+    return true;
+
+  // Try to transform to a 16-bit non-two-address instruction.
+  if (Entry.NarrowOpc1 &&
+      ReduceToNarrow(MBB, MI, Entry, LiveCPSR, CPSRDef, IsSelfLoop))
+    return true;
+
+  return false;
+}
+
 bool Thumb2SizeReduce::ReduceMBB(MachineBasicBlock &MBB) {
   bool Modified = false;
 
@@ -865,40 +900,20 @@ bool Thumb2SizeReduce::ReduceMBB(MachineBasicBlock &MBB) {
 
     LiveCPSR = UpdateCPSRUse(*MI, LiveCPSR);
 
-    unsigned Opcode = MI->getOpcode();
-    DenseMap<unsigned, unsigned>::iterator OPI = ReduceOpcodeMap.find(Opcode);
-    if (OPI != ReduceOpcodeMap.end()) {
-      const ReduceEntry &Entry = ReduceTable[OPI->second];
-      // Ignore "special" cases for now.
-      if (Entry.Special) {
-        if (ReduceSpecial(MBB, MI, Entry, LiveCPSR, CPSRDef, IsSelfLoop)) {
-          Modified = true;
-          MachineBasicBlock::instr_iterator I = prior(NextMII);
-          MI = &*I;
-        }
-        goto ProcessNext;
-      }
+    // Does NextMII belong to the same bundle as MI?
+    bool NextInSameBundle = NextMII != E && NextMII->isBundledWithPred();
 
-      // Try to transform to a 16-bit two-address instruction.
-      if (Entry.NarrowOpc2 &&
-          ReduceTo2Addr(MBB, MI, Entry, LiveCPSR, CPSRDef, IsSelfLoop)) {
-        Modified = true;
-        MachineBasicBlock::instr_iterator I = prior(NextMII);
-        MI = &*I;
-        goto ProcessNext;
-      }
-
-      // Try to transform to a 16-bit non-two-address instruction.
-      if (Entry.NarrowOpc1 &&
-          ReduceToNarrow(MBB, MI, Entry, LiveCPSR, CPSRDef, IsSelfLoop)) {
-        Modified = true;
-        MachineBasicBlock::instr_iterator I = prior(NextMII);
-        MI = &*I;
-      }
+    if (ReduceMI(MBB, MI, LiveCPSR, CPSRDef, IsSelfLoop)) {
+      Modified = true;
+      MachineBasicBlock::instr_iterator I = prior(NextMII);
+      MI = &*I;
+      // Removing and reinserting the first instruction in a bundle will break
+      // up the bundle. Fix the bundling if it was broken.
+      if (NextInSameBundle && !NextMII->isBundledWithPred())
+        NextMII->bundleWithPred();
     }
 
-  ProcessNext:
-    if (NextMII != E && MI->isInsideBundle() && !NextMII->isInsideBundle()) {
+    if (!NextInSameBundle && MI->isInsideBundle()) {
       // FIXME: Since post-ra scheduler operates on bundles, the CPSR kill
       // marker is only on the BUNDLE instruction. Process the BUNDLE
       // instruction as we finish with the bundled instruction to work around
@@ -930,6 +945,10 @@ bool Thumb2SizeReduce::runOnMachineFunction(MachineFunction &MF) {
   const TargetMachine &TM = MF.getTarget();
   TII = static_cast<const Thumb2InstrInfo*>(TM.getInstrInfo());
   STI = &TM.getSubtarget<ARMSubtarget>();
+
+  // When -Oz is set, the function carries MinSize attribute.
+  MinimizeSize =
+    MF.getFunction()->getFnAttributes().hasAttribute(Attribute::MinSize);
 
   bool Modified = false;
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I)

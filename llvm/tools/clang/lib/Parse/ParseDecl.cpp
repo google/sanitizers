@@ -142,7 +142,7 @@ void Parser::ParseGNUAttributes(ParsedAttributes &attrs,
             new LateParsedAttribute(this, *AttrName, AttrNameLoc);
           LateAttrs->push_back(LA);
 
-          // Attributes in a class are parsed at the end of the class, along
+          // Attribute in a class are parsed at the end of the class, along
           // with other late-parsed declarations.
           if (!ClassStack.empty() && !LateAttrs->parseSoon())
             getCurrentClass().LateParsedDeclarations.push_back(LA);
@@ -824,7 +824,7 @@ void Parser::ParseAvailabilityAttribute(IdentifierInfo &Availability,
 }
 
 
-// Late Parsed Attributes:
+// Late Parsed Attribute:
 // See other examples of late parsing in lib/Parse/ParseCXXInlineMethods
 
 void Parser::LateParsedDeclaration::ParseLexedAttributes() {}
@@ -2753,6 +2753,30 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     case tok::kw___pixel:
       isInvalid = DS.SetTypeAltiVecPixel(true, Loc, PrevSpec, DiagID);
       break;
+    case tok::kw_image1d_t:
+       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image1d_t, Loc,
+                                      PrevSpec, DiagID);
+      break;
+    case tok::kw_image1d_array_t:
+       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image1d_array_t, Loc,
+                                      PrevSpec, DiagID);
+      break;
+    case tok::kw_image1d_buffer_t:
+       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image1d_buffer_t, Loc,
+                                      PrevSpec, DiagID);
+      break;
+    case tok::kw_image2d_t:
+       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image2d_t, Loc,
+                                      PrevSpec, DiagID);
+      break;
+    case tok::kw_image2d_array_t:
+       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image2d_array_t, Loc,
+                                      PrevSpec, DiagID);
+      break;
+    case tok::kw_image3d_t:
+      isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image3d_t, Loc,
+                                     PrevSpec, DiagID);
+      break;
     case tok::kw___unknown_anytype:
       isInvalid = DS.SetTypeSpecType(TST_unknown_anytype, Loc,
                                      PrevSpec, DiagID);
@@ -2769,15 +2793,15 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       // These are attributes following class specifiers.
       // To produce better diagnostic, we parse them when
       // parsing class specifier.
-      ParsedAttributesWithRange Attributes(AttrFactory);
+      ParsedAttributesWithRange Attribute(AttrFactory);
       ParseClassSpecifier(Kind, Loc, DS, TemplateInfo, AS,
-                          EnteringContext, DSContext, Attributes);
+                          EnteringContext, DSContext, Attribute);
 
       // If there are attributes following class specifier,
       // take them over and handle them here.
-      if (!Attributes.empty()) {
+      if (!Attribute.empty()) {
         AttrsLastTime = true;
-        attrs.takeAllFrom(Attributes);
+        attrs.takeAllFrom(Attribute);
       }
       continue;
     }
@@ -2925,7 +2949,7 @@ ParseStructDeclaration(ParsingDeclSpec &DS, FieldCallback &Fields) {
     ParsingFieldDeclarator DeclaratorInfo(*this, DS);
     DeclaratorInfo.D.setCommaLoc(CommaLoc);
 
-    // Attributes are only allowed here on successive declarators.
+    // Attribute are only allowed here on successive declarators.
     if (!FirstDeclarator)
       MaybeParseGNUAttributes(DeclaratorInfo.D);
 
@@ -3138,7 +3162,7 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
     IsScopedUsingClassTag = Tok.is(tok::kw_class);
     ScopedEnumKWLoc = ConsumeToken();
 
-    // Attributes are not allowed between these keywords.  Diagnose,
+    // Attribute are not allowed between these keywords.  Diagnose,
     // but then just treat them like they appeared in the right place.
     ProhibitAttributes(attrs);
 
@@ -3596,6 +3620,14 @@ bool Parser::isKnownToBeTypeSpecifier(const Token &Tok) const {
   case tok::kw__Decimal128:
   case tok::kw___vector:
 
+    // OpenCL specific types:
+  case tok::kw_image1d_t:
+  case tok::kw_image1d_array_t:
+  case tok::kw_image1d_buffer_t:
+  case tok::kw_image2d_t:
+  case tok::kw_image2d_array_t:
+  case tok::kw_image3d_t:
+
     // struct-or-union-specifier (C99) or class-specifier (C++)
   case tok::kw_class:
   case tok::kw_struct:
@@ -3667,6 +3699,14 @@ bool Parser::isTypeSpecifierQualifier() {
   case tok::kw__Decimal64:
   case tok::kw__Decimal128:
   case tok::kw___vector:
+
+    // OpenCL specific types:
+  case tok::kw_image1d_t:
+  case tok::kw_image1d_array_t:
+  case tok::kw_image1d_buffer_t:
+  case tok::kw_image2d_t:
+  case tok::kw_image2d_array_t:
+  case tok::kw_image3d_t:
 
     // struct-or-union-specifier (C99) or class-specifier (C++)
   case tok::kw_class:
@@ -3811,6 +3851,14 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw__Decimal64:
   case tok::kw__Decimal128:
   case tok::kw___vector:
+
+    // OpenCL specific types:
+  case tok::kw_image1d_t:
+  case tok::kw_image1d_array_t:
+  case tok::kw_image1d_buffer_t:
+  case tok::kw_image2d_t:
+  case tok::kw_image2d_array_t:
+  case tok::kw_image3d_t:
 
     // struct-or-union-specifier (C99) or class-specifier (C++)
   case tok::kw_class:

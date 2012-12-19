@@ -8,14 +8,15 @@ ifeq ($(DEBUG), 0)
 	CXXFLAGS += -O3
 endif
 ifeq ($(CXX), clang++)
-  CXXFLAGS+= -Wno-unused-private-field -Wno-static-in-inline
+  CXXFLAGS+= -Wno-unused-private-field -Wno-static-in-inline -Wgnu
 endif
 
 LIBTSAN=rtl/libtsan.a
 GTEST_ROOT=third_party/googletest
 GTEST_INCLUDE=-I$(GTEST_ROOT)/include
 GTEST_BUILD_DIR=$(GTEST_ROOT)/build
-GTEST_LIB=$(GTEST_BUILD_DIR)/gtest-all.o
+GTEST_LIB_NAME=gtest-all.o
+GTEST_LIB=$(GTEST_BUILD_DIR)/$(GTEST_LIB_NAME)
 
 SANITIZER_COMMON_TESTS_SRC=$(wildcard ../sanitizer_common/tests/*_test.cc)
 SANITIZER_COMMON_TESTS_OBJ=$(patsubst %.cc,%.o,$(SANITIZER_COMMON_TESTS_SRC))
@@ -35,7 +36,7 @@ help:
 	@ echo "  make install_deps  # Install third-party dependencies required for building"
 	@ echo "  make presubmit     # Run it every time before committing"
 	@ echo
-	@ echo "For more info, see http://code.google.com/p/data-race-test/wiki/ThreadSanitizer2"
+	@ echo "For more info, see http://code.google.com/p/thread-sanitizer/wiki/Development"
 
 $(LIBTSAN): libtsan
 
@@ -56,6 +57,7 @@ run: all
 	./lit_tests/test_output.sh
 
 presubmit:
+	../sanitizer_common/scripts/check_lint.sh
 	# Debug build with clang.
 	$(MAKE) -f Makefile.old clean
 	$(MAKE) -f Makefile.old run DEBUG=1 -j 16 CC=clang CXX=clang++
@@ -83,7 +85,7 @@ install_deps:
 $(GTEST_LIB):
 	mkdir -p $(GTEST_BUILD_DIR) && \
 	cd $(GTEST_BUILD_DIR) && \
-	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS)" CFLAGS="$(CFLAGS)" CC=$(CC) CXX=$(CXX)
+	$(MAKE) -f ../make/Makefile CXXFLAGS="$(CXXFLAGS)" CFLAGS="$(CFLAGS)" CC=$(CC) CXX=$(CXX) $(GTEST_LIB_NAME)
 
 clean:
 	rm -f asm_*.s libtsan.nm libtsan.objdump */*.o tsan_test

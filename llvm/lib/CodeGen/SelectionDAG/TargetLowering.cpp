@@ -428,29 +428,29 @@ RTLIB::Libcall RTLIB::getSINTTOFP(EVT OpVT, EVT RetVT) {
   if (OpVT == MVT::i32) {
     if (RetVT == MVT::f32)
       return SINTTOFP_I32_F32;
-    else if (RetVT == MVT::f64)
+    if (RetVT == MVT::f64)
       return SINTTOFP_I32_F64;
-    else if (RetVT == MVT::f80)
+    if (RetVT == MVT::f80)
       return SINTTOFP_I32_F80;
-    else if (RetVT == MVT::ppcf128)
+    if (RetVT == MVT::ppcf128)
       return SINTTOFP_I32_PPCF128;
   } else if (OpVT == MVT::i64) {
     if (RetVT == MVT::f32)
       return SINTTOFP_I64_F32;
-    else if (RetVT == MVT::f64)
+    if (RetVT == MVT::f64)
       return SINTTOFP_I64_F64;
-    else if (RetVT == MVT::f80)
+    if (RetVT == MVT::f80)
       return SINTTOFP_I64_F80;
-    else if (RetVT == MVT::ppcf128)
+    if (RetVT == MVT::ppcf128)
       return SINTTOFP_I64_PPCF128;
   } else if (OpVT == MVT::i128) {
     if (RetVT == MVT::f32)
       return SINTTOFP_I128_F32;
-    else if (RetVT == MVT::f64)
+    if (RetVT == MVT::f64)
       return SINTTOFP_I128_F64;
-    else if (RetVT == MVT::f80)
+    if (RetVT == MVT::f80)
       return SINTTOFP_I128_F80;
-    else if (RetVT == MVT::ppcf128)
+    if (RetVT == MVT::ppcf128)
       return SINTTOFP_I128_PPCF128;
   }
   return UNKNOWN_LIBCALL;
@@ -462,29 +462,29 @@ RTLIB::Libcall RTLIB::getUINTTOFP(EVT OpVT, EVT RetVT) {
   if (OpVT == MVT::i32) {
     if (RetVT == MVT::f32)
       return UINTTOFP_I32_F32;
-    else if (RetVT == MVT::f64)
+    if (RetVT == MVT::f64)
       return UINTTOFP_I32_F64;
-    else if (RetVT == MVT::f80)
+    if (RetVT == MVT::f80)
       return UINTTOFP_I32_F80;
-    else if (RetVT == MVT::ppcf128)
+    if (RetVT == MVT::ppcf128)
       return UINTTOFP_I32_PPCF128;
   } else if (OpVT == MVT::i64) {
     if (RetVT == MVT::f32)
       return UINTTOFP_I64_F32;
-    else if (RetVT == MVT::f64)
+    if (RetVT == MVT::f64)
       return UINTTOFP_I64_F64;
-    else if (RetVT == MVT::f80)
+    if (RetVT == MVT::f80)
       return UINTTOFP_I64_F80;
-    else if (RetVT == MVT::ppcf128)
+    if (RetVT == MVT::ppcf128)
       return UINTTOFP_I64_PPCF128;
   } else if (OpVT == MVT::i128) {
     if (RetVT == MVT::f32)
       return UINTTOFP_I128_F32;
-    else if (RetVT == MVT::f64)
+    if (RetVT == MVT::f64)
       return UINTTOFP_I128_F64;
-    else if (RetVT == MVT::f80)
+    if (RetVT == MVT::f80)
       return UINTTOFP_I128_F80;
-    else if (RetVT == MVT::ppcf128)
+    if (RetVT == MVT::ppcf128)
       return UINTTOFP_I128_PPCF128;
   }
   return UNKNOWN_LIBCALL;
@@ -989,7 +989,7 @@ unsigned TargetLowering::getVectorTypeBreakdown(LLVMContext &Context, EVT VT,
 /// type of the given function.  This does not require a DAG or a return value,
 /// and is suitable for use before any DAGs for the function are constructed.
 /// TODO: Move this out of TargetLowering.cpp.
-void llvm::GetReturnInfo(Type* ReturnType, Attributes attr,
+void llvm::GetReturnInfo(Type* ReturnType, Attribute attr,
                          SmallVectorImpl<ISD::OutputArg> &Outs,
                          const TargetLowering &TLI) {
   SmallVector<EVT, 4> ValueVTs;
@@ -1001,9 +1001,9 @@ void llvm::GetReturnInfo(Type* ReturnType, Attributes attr,
     EVT VT = ValueVTs[j];
     ISD::NodeType ExtendKind = ISD::ANY_EXTEND;
 
-    if (attr.hasAttribute(Attributes::SExt))
+    if (attr.hasAttribute(Attribute::SExt))
       ExtendKind = ISD::SIGN_EXTEND;
-    else if (attr.hasAttribute(Attributes::ZExt))
+    else if (attr.hasAttribute(Attribute::ZExt))
       ExtendKind = ISD::ZERO_EXTEND;
 
     // FIXME: C calling convention requires the return type to be promoted to
@@ -1021,13 +1021,13 @@ void llvm::GetReturnInfo(Type* ReturnType, Attributes attr,
 
     // 'inreg' on function refers to return value
     ISD::ArgFlagsTy Flags = ISD::ArgFlagsTy();
-    if (attr.hasAttribute(Attributes::InReg))
+    if (attr.hasAttribute(Attribute::InReg))
       Flags.setInReg();
 
     // Propagate extension type if any
-    if (attr.hasAttribute(Attributes::SExt))
+    if (attr.hasAttribute(Attribute::SExt))
       Flags.setSExt();
-    else if (attr.hasAttribute(Attributes::ZExt))
+    else if (attr.hasAttribute(Attribute::ZExt))
       Flags.setZExt();
 
     for (unsigned i = 0; i < NumParts; ++i)
@@ -1161,7 +1161,8 @@ TargetLowering::TargetLoweringOpt::ShrinkDemandedOp(SDValue Op,
   // Search for the smallest integer type with free casts to and from
   // Op's type. For expedience, just check power-of-2 integer types.
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-  unsigned SmallVTBits = BitWidth - Demanded.countLeadingZeros();
+  unsigned DemandedSize = BitWidth - Demanded.countLeadingZeros();
+  unsigned SmallVTBits = DemandedSize;
   if (!isPowerOf2_32(SmallVTBits))
     SmallVTBits = NextPowerOf2(SmallVTBits);
   for (; SmallVTBits < BitWidth; SmallVTBits = NextPowerOf2(SmallVTBits)) {
@@ -1174,7 +1175,9 @@ TargetLowering::TargetLoweringOpt::ShrinkDemandedOp(SDValue Op,
                                           Op.getNode()->getOperand(0)),
                               DAG.getNode(ISD::TRUNCATE, dl, SmallVT,
                                           Op.getNode()->getOperand(1)));
-      SDValue Z = DAG.getNode(ISD::ZERO_EXTEND, dl, Op.getValueType(), X);
+      bool NeedZext = DemandedSize > SmallVTBits;
+      SDValue Z = DAG.getNode(NeedZext ? ISD::ZERO_EXTEND : ISD::ANY_EXTEND,
+                              dl, Op.getValueType(), X);
       return CombineTo(Op, Z);
     }
   }
@@ -2110,7 +2113,7 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
         EVT newVT = N0.getOperand(0).getValueType();
         if (DCI.isBeforeLegalizeOps() ||
             (isOperationLegal(ISD::SETCC, newVT) &&
-              getCondCodeAction(Cond, newVT)==Legal))
+             getCondCodeAction(Cond, newVT.getSimpleVT())==Legal))
           return DAG.getSetCC(dl, VT, N0.getOperand(0),
                               DAG.getConstant(C1.trunc(InSize), newVT),
                               Cond);
@@ -2206,9 +2209,10 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
           Cond = (Cond == ISD::SETEQ) ? ISD::SETNE : ISD::SETEQ;
           return DAG.getSetCC(dl, VT, Op0.getOperand(0), Op0.getOperand(1),
                               Cond);
-        } else if (Op0.getOpcode() == ISD::AND &&
-                isa<ConstantSDNode>(Op0.getOperand(1)) &&
-                cast<ConstantSDNode>(Op0.getOperand(1))->getAPIntValue() == 1) {
+        }
+        if (Op0.getOpcode() == ISD::AND &&
+            isa<ConstantSDNode>(Op0.getOperand(1)) &&
+            cast<ConstantSDNode>(Op0.getOperand(1))->getAPIntValue() == 1) {
           // If this is (X&1) == / != 1, normalize it to (X&1) != / == 0.
           if (Op0.getValueType().bitsGT(VT))
             Op0 = DAG.getNode(ISD::AND, dl, VT,
@@ -2223,6 +2227,11 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
                               DAG.getConstant(0, Op0.getValueType()),
                               Cond == ISD::SETEQ ? ISD::SETNE : ISD::SETEQ);
         }
+        if (Op0.getOpcode() == ISD::AssertZext &&
+            cast<VTSDNode>(Op0.getOperand(1))->getVT() == MVT::i1)
+          return DAG.getSetCC(dl, VT, Op0,
+                              DAG.getConstant(0, Op0.getValueType()),
+                              Cond == ISD::SETEQ ? ISD::SETNE : ISD::SETEQ);
       }
     }
 
@@ -2275,7 +2284,7 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
                           DAG.getConstant(MinVal, N0.getValueType()),
                           ISD::SETEQ);
     // If we have setugt X, Max-1, turn it into seteq X, Max
-    else if ((Cond == ISD::SETGT || Cond == ISD::SETUGT) && C1 == MaxVal-1)
+    if ((Cond == ISD::SETGT || Cond == ISD::SETUGT) && C1 == MaxVal-1)
       return DAG.getSetCC(dl, VT, N0,
                           DAG.getConstant(MaxVal, N0.getValueType()),
                           ISD::SETEQ);
@@ -2405,36 +2414,36 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
 
     // If the condition is not legal, see if we can find an equivalent one
     // which is legal.
-    if (!isCondCodeLegal(Cond, N0.getValueType())) {
+    if (!isCondCodeLegal(Cond, N0.getSimpleValueType())) {
       // If the comparison was an awkward floating-point == or != and one of
       // the comparison operands is infinity or negative infinity, convert the
       // condition to a less-awkward <= or >=.
       if (CFP->getValueAPF().isInfinity()) {
         if (CFP->getValueAPF().isNegative()) {
           if (Cond == ISD::SETOEQ &&
-              isCondCodeLegal(ISD::SETOLE, N0.getValueType()))
+              isCondCodeLegal(ISD::SETOLE, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOLE);
           if (Cond == ISD::SETUEQ &&
-              isCondCodeLegal(ISD::SETOLE, N0.getValueType()))
+              isCondCodeLegal(ISD::SETOLE, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETULE);
           if (Cond == ISD::SETUNE &&
-              isCondCodeLegal(ISD::SETUGT, N0.getValueType()))
+              isCondCodeLegal(ISD::SETUGT, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETUGT);
           if (Cond == ISD::SETONE &&
-              isCondCodeLegal(ISD::SETUGT, N0.getValueType()))
+              isCondCodeLegal(ISD::SETUGT, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOGT);
         } else {
           if (Cond == ISD::SETOEQ &&
-              isCondCodeLegal(ISD::SETOGE, N0.getValueType()))
+              isCondCodeLegal(ISD::SETOGE, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOGE);
           if (Cond == ISD::SETUEQ &&
-              isCondCodeLegal(ISD::SETOGE, N0.getValueType()))
+              isCondCodeLegal(ISD::SETOGE, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETUGE);
           if (Cond == ISD::SETUNE &&
-              isCondCodeLegal(ISD::SETULT, N0.getValueType()))
+              isCondCodeLegal(ISD::SETULT, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETULT);
           if (Cond == ISD::SETONE &&
-              isCondCodeLegal(ISD::SETULT, N0.getValueType()))
+              isCondCodeLegal(ISD::SETULT, N0.getSimpleValueType()))
             return DAG.getSetCC(dl, VT, N0, N1, ISD::SETOLT);
         }
       }
@@ -2468,7 +2477,7 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
     // if it is not already.
     ISD::CondCode NewCond = UOF == 0 ? ISD::SETO : ISD::SETUO;
     if (NewCond != Cond && (DCI.isBeforeLegalizeOps() ||
-          getCondCodeAction(NewCond, N0.getValueType()) == Legal))
+          getCondCodeAction(NewCond, N0.getSimpleValueType()) == Legal))
       return DAG.getSetCC(dl, VT, N0, N1, NewCond);
   }
 
@@ -2549,7 +2558,7 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
           if (DAG.isCommutativeBinOp(N0.getOpcode()))
             return DAG.getSetCC(dl, VT, N0.getOperand(0),
                                 DAG.getConstant(0, N0.getValueType()), Cond);
-          else if (N0.getNode()->hasOneUse()) {
+          if (N0.getNode()->hasOneUse()) {
             assert(N0.getOpcode() == ISD::SUB && "Unexpected operation!");
             // (Z-X) == X  --> Z == X<<1
             SDValue SH = DAG.getNode(ISD::SHL, dl, N1.getValueType(), N1,
@@ -2565,14 +2574,14 @@ TargetLowering::SimplifySetCC(EVT VT, SDValue N0, SDValue N1,
     if (N1.getOpcode() == ISD::ADD || N1.getOpcode() == ISD::SUB ||
         N1.getOpcode() == ISD::XOR) {
       // Simplify  X == (X+Z) -->  Z == 0
-      if (N1.getOperand(0) == N0) {
+      if (N1.getOperand(0) == N0)
         return DAG.getSetCC(dl, VT, N1.getOperand(1),
                         DAG.getConstant(0, N1.getValueType()), Cond);
-      } else if (N1.getOperand(1) == N0) {
-        if (DAG.isCommutativeBinOp(N1.getOpcode())) {
+      if (N1.getOperand(1) == N0) {
+        if (DAG.isCommutativeBinOp(N1.getOpcode()))
           return DAG.getSetCC(dl, VT, N1.getOperand(0),
                           DAG.getConstant(0, N1.getValueType()), Cond);
-        } else if (N1.getNode()->hasOneUse()) {
+        if (N1.getNode()->hasOneUse()) {
           assert(N1.getOpcode() == ISD::SUB && "Unexpected operation!");
           // X == (Z-X)  --> X<<1 == Z
           SDValue SH = DAG.getNode(ISD::SHL, dl, N1.getValueType(), N0,
@@ -2829,6 +2838,9 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
   // Remove the braces from around the name.
   StringRef RegName(Constraint.data()+1, Constraint.size()-2);
 
+  std::pair<unsigned, const TargetRegisterClass*> R =
+    std::make_pair(0u, static_cast<const TargetRegisterClass*>(0));
+
   // Figure out which register class contains this reg.
   const TargetRegisterInfo *RI = TM.getRegisterInfo();
   for (TargetRegisterInfo::regclass_iterator RCI = RI->regclass_begin(),
@@ -2842,12 +2854,22 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 
     for (TargetRegisterClass::iterator I = RC->begin(), E = RC->end();
          I != E; ++I) {
-      if (RegName.equals_lower(RI->getName(*I)))
-        return std::make_pair(*I, RC);
+      if (RegName.equals_lower(RI->getName(*I))) {
+        std::pair<unsigned, const TargetRegisterClass*> S =
+          std::make_pair(*I, RC);
+
+        // If this register class has the requested value type, return it,
+        // otherwise keep searching and return the first class found
+        // if no other is found which explicitly has the requested type.
+        if (RC->hasType(VT))
+          return S;
+        else if (!R.second)
+          R = S;
+      }
     }
   }
 
-  return std::make_pair(0u, static_cast<const TargetRegisterClass*>(0));
+  return R;
 }
 
 //===----------------------------------------------------------------------===//

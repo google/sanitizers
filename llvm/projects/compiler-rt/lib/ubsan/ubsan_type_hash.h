@@ -19,6 +19,30 @@ namespace __ubsan {
 
 typedef uptr HashValue;
 
+/// \brief Information about the dynamic type of an object (extracted from its
+/// vptr).
+class DynamicTypeInfo {
+  const char *MostDerivedTypeName;
+  sptr Offset;
+  const char *SubobjectTypeName;
+
+public:
+  DynamicTypeInfo(const char *MDTN, sptr Offset, const char *STN)
+    : MostDerivedTypeName(MDTN), Offset(Offset), SubobjectTypeName(STN) {}
+
+  /// Determine whether the object had a valid dynamic type.
+  bool isValid() const { return MostDerivedTypeName; }
+  /// Get the name of the most-derived type of the object.
+  const char *getMostDerivedTypeName() const { return MostDerivedTypeName; }
+  /// Get the offset from the most-derived type to this base class.
+  sptr getOffset() const { return Offset; }
+  /// Get the name of the most-derived type at the specified offset.
+  const char *getSubobjectTypeName() const { return SubobjectTypeName; }
+};
+
+/// \brief Get information about the dynamic type of an object.
+DynamicTypeInfo getDynamicTypeInfo(void *Object);
+
 /// \brief Check whether the dynamic type of \p Object has a \p Type subobject
 /// at offset 0.
 /// \return \c true if the type matches, \c false if not.

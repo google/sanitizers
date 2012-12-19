@@ -37,6 +37,8 @@ def L : Flag<["-"], "L">,
   HelpText<"Save temporary labels in the symbol table. "
            "Note this may change .s semantics, it should almost never be used "
            "on compiler generated code!">;
+def main_file_name : Separate<["-"], "main-file-name">,
+  HelpText<"Main file name to use for debug info">;
 
 //===----------------------------------------------------------------------===//
 // Frontend Options
@@ -85,6 +87,9 @@ def fatal_warnings : Flag<["--"], "fatal-warnings">,
     HelpText<"Consider warnings as errors">;
 
 def g : Flag<["-"], "g">, HelpText<"Generate source level debug information">;
+
+def fdebug_compilation_dir : Separate<["-"], "fdebug-compilation-dir">,
+  HelpText<"The compilation directory to embed in the debug info.">;
 
 def dwarf_debug_flags : Separate<["-"], "dwarf-debug-flags">,
   HelpText<"The string to embed in the Dwarf debug flags record.">;

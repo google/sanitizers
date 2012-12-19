@@ -14,9 +14,6 @@
 #include "llvm/Support/YAMLTraits.h"
 #include "gtest/gtest.h"
 
-// To keep build bots going, disable tests until I figure out 
-// why gcc complains there is no match for these traits.
-#if 0
 
 using llvm::yaml::Input;
 using llvm::yaml::Output;
@@ -205,7 +202,7 @@ TEST(YAMLIO, TestReadBuiltInTypes) {
   EXPECT_FALSE(yin.error());
   EXPECT_TRUE(map.str.equals("hello there"));
   EXPECT_EQ(map.u64, 5000000000ULL);
-  EXPECT_EQ(map.u32, 4000000000);
+  EXPECT_EQ(map.u32, 4000000000U);
   EXPECT_EQ(map.u16, 65000);
   EXPECT_EQ(map.u8,  255);
   EXPECT_EQ(map.b,   false);
@@ -230,12 +227,12 @@ TEST(YAMLIO, TestReadWriteBuiltInTypes) {
   {
     BuiltInTypes map;
     map.str = "one two";
-    map.u64 = 6000000000;
-    map.u32 = 3000000000;
+    map.u64 = 6000000000ULL;
+    map.u32 = 3000000000U;
     map.u16 = 50000;
     map.u8  = 254;
     map.b   = true;
-    map.s64 = -6000000000;
+    map.s64 = -6000000000LL;
     map.s32 = -2000000000;
     map.s16 = -32000;
     map.s8  = -128;
@@ -243,7 +240,7 @@ TEST(YAMLIO, TestReadWriteBuiltInTypes) {
     map.d   = -2.8625;
     map.h8  = 254;
     map.h16 = 50000;
-    map.h32 = 3000000000;
+    map.h32 = 3000000000U;
     map.h64 = 6000000000LL;
 
     llvm::raw_string_ostream ostr(intermediate);
@@ -259,7 +256,7 @@ TEST(YAMLIO, TestReadWriteBuiltInTypes) {
     EXPECT_FALSE(yin.error());
     EXPECT_TRUE(map.str.equals("one two"));
     EXPECT_EQ(map.u64,      6000000000ULL);
-    EXPECT_EQ(map.u32,      3000000000UL);
+    EXPECT_EQ(map.u32,      3000000000U);
     EXPECT_EQ(map.u16,      50000);
     EXPECT_EQ(map.u8,       254);
     EXPECT_EQ(map.b,        true);
@@ -271,7 +268,7 @@ TEST(YAMLIO, TestReadWriteBuiltInTypes) {
     EXPECT_EQ(map.d,        -2.8625);
     EXPECT_EQ(map.h8,       Hex8(254));
     EXPECT_EQ(map.h16,      Hex16(50000));
-    EXPECT_EQ(map.h32,      Hex32(3000000000));
+    EXPECT_EQ(map.h32,      Hex32(3000000000U));
     EXPECT_EQ(map.h64,      Hex64(6000000000LL));
   }
 }
@@ -801,9 +798,9 @@ TEST(YAMLIO, TestReadKindAndFlagsSequence) {
   EXPECT_FALSE(yin.error());
   EXPECT_EQ(seq.size(), 2UL);
   EXPECT_EQ(seq[0].kind,  kindA);
-  EXPECT_EQ(seq[0].flags, a2);
+  EXPECT_EQ(seq[0].flags, (uint32_t)a2);
   EXPECT_EQ(seq[1].kind,  kindB);
-  EXPECT_EQ(seq[1].flags, b1);
+  EXPECT_EQ(seq[1].flags, (uint32_t)b1);
 }
 
 //
@@ -831,15 +828,15 @@ TEST(YAMLIO, TestReadWriteKindAndFlagsSequence) {
     EXPECT_FALSE(yin.error());
     EXPECT_EQ(seq2.size(), 5UL);
     EXPECT_EQ(seq2[0].kind,  kindA);
-    EXPECT_EQ(seq2[0].flags, a1);
+    EXPECT_EQ(seq2[0].flags, (uint32_t)a1);
     EXPECT_EQ(seq2[1].kind,  kindB);
-    EXPECT_EQ(seq2[1].flags, b1);
+    EXPECT_EQ(seq2[1].flags, (uint32_t)b1);
     EXPECT_EQ(seq2[2].kind,  kindA);
-    EXPECT_EQ(seq2[2].flags, a2);
+    EXPECT_EQ(seq2[2].flags, (uint32_t)a2);
     EXPECT_EQ(seq2[3].kind,  kindB);
-    EXPECT_EQ(seq2[3].flags, b2);
+    EXPECT_EQ(seq2[3].flags, (uint32_t)b2);
     EXPECT_EQ(seq2[4].kind,  kindA);
-    EXPECT_EQ(seq2[4].flags, a3);
+    EXPECT_EQ(seq2[4].flags, (uint32_t)a3);
   }
 }
 
@@ -1288,5 +1285,3 @@ TEST(YAMLIO, TestReadBuiltInTypesHex64Error) {
   EXPECT_TRUE(yin.error());
 }
 
-
-#endif

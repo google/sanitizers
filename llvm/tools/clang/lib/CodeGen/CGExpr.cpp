@@ -538,8 +538,15 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
 
   // If possible, check that the vptr indicates that there is a subobject of
   // type Ty at offset zero within this object.
+  //
+  // C++11 [basic.life]p5,6:
+  //   [For storage which does not refer to an object within its lifetime]
+  //   The program has undefined behavior if:
+  //    -- the [pointer or glvalue] is used to access a non-static data member
+  //       or call a non-static member function
   CXXRecordDecl *RD = Ty->getAsCXXRecordDecl();
-  if (getLangOpts().SanitizeVptr && TCK != TCK_ConstructorCall &&
+  if (getLangOpts().SanitizeVptr &&
+      (TCK == TCK_MemberAccess || TCK == TCK_MemberCall) &&
       RD && RD->hasDefinition() && RD->isDynamicClass()) {
     // Compute a hash of the mangled name of the type.
     //
@@ -1193,7 +1200,7 @@ RValue CodeGenFunction::EmitLoadOfBitfieldLValue(LValue LV) {
   } else {
     if (Info.Offset)
       Val = Builder.CreateLShr(Val, Info.Offset, "bf.lshr");
-    if (Info.Offset + Info.Size < Info.StorageSize)
+    if (static_cast<unsigned>(Info.Offset) + Info.Size < Info.StorageSize)
       Val = Builder.CreateAnd(Val, llvm::APInt::getLowBitsSet(Info.StorageSize,
                                                               Info.Size),
                               "bf.clear");
@@ -1394,7 +1401,7 @@ void CodeGenFunction::EmitStoreThroughBitfieldLValue(RValue Src, LValue Dst,
 
     ResultVal = Builder.CreateIntCast(ResultVal, ResLTy, Info.IsSigned,
                                       "bf.result.cast");
-    *Result = ResultVal;
+    *Result = EmitFromMemory(ResultVal, Dst.getType());
   }
 }
 
@@ -1973,7 +1980,15 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
   llvm::BasicBlock *Cont = createBasicBlock("cont");
 
   llvm::BasicBlock *Handler = createBasicBlock("handler." + CheckName);
-  Builder.CreateCondBr(Checked, Cont, Handler);
+
+  llvm::Instruction *Branch = Builder.CreateCondBr(Checked, Cont, Handler);
+
+  // Give hint that we very much don't expect to execute the handler
+  // Value chosen to match UR_NONTAKEN_WEIGHT, see BranchProbabilityInfo.cpp
+  llvm::MDBuilder MDHelper(getLLVMContext());
+  llvm::MDNode *Node = MDHelper.createBranchWeights((1U << 20) - 1, 1);
+  Branch->setMetadata(llvm::LLVMContext::MD_prof, Node);
+
   EmitBlock(Handler);
 
   llvm::Constant *Info = llvm::ConstantStruct::getAnon(StaticArgs);
@@ -2005,10 +2020,10 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
     llvm::FunctionType::get(CGM.VoidTy, ArgTypes, false);
   llvm::AttrBuilder B;
   if (!Recover) {
-    B.addAttribute(llvm::Attributes::NoReturn)
-     .addAttribute(llvm::Attributes::NoUnwind);
+    B.addAttribute(llvm::Attribute::NoReturn)
+     .addAttribute(llvm::Attribute::NoUnwind);
   }
-  B.addAttribute(llvm::Attributes::UWTable);
+  B.addAttribute(llvm::Attribute::UWTable);
 
   // Checks that have two variants use a suffix to differentiate them
   bool NeedsAbortSuffix = (RecoverKind != CRK_Unrecoverable) &&
@@ -2017,7 +2032,7 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
                               (NeedsAbortSuffix? "_abort" : "")).str();
   llvm::Value *Fn =
     CGM.CreateRuntimeFunction(FnType, FunctionName,
-                              llvm::Attributes::get(getLLVMContext(), B));
+                              llvm::Attribute::get(getLLVMContext(), B));
   llvm::CallInst *HandlerCall = Builder.CreateCall(Fn, Args);
   if (Recover) {
     Builder.CreateBr(Cont);

@@ -83,6 +83,8 @@ struct AssemblerInvocation {
   unsigned SaveTemporaryLabels : 1;
   unsigned GenDwarfForAssembly : 1;
   std::string DwarfDebugFlags;
+  std::string DebugCompilationDir;
+  std::string MainFileName;
 
   /// @}
   /// @name Frontend Options
@@ -181,6 +183,8 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   Opts.SaveTemporaryLabels = Args->hasArg(OPT_L);
   Opts.GenDwarfForAssembly = Args->hasArg(OPT_g);
   Opts.DwarfDebugFlags = Args->getLastArgValue(OPT_dwarf_debug_flags);
+  Opts.DebugCompilationDir = Args->getLastArgValue(OPT_fdebug_compilation_dir);
+  Opts.MainFileName = Args->getLastArgValue(OPT_main_file_name);
 
   // Frontend Options
   if (Args->hasArg(OPT_INPUT)) {
@@ -305,6 +309,10 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     Ctx.setGenDwarfForAssembly(true);
   if (!Opts.DwarfDebugFlags.empty())
     Ctx.setDwarfDebugFlags(StringRef(Opts.DwarfDebugFlags));
+  if (!Opts.DebugCompilationDir.empty())
+    Ctx.setCompilationDir(Opts.DebugCompilationDir);
+  if (!Opts.MainFileName.empty())
+    Ctx.setMainFileName(StringRef(Opts.MainFileName));
 
   // Build up the feature string from the target feature list.
   std::string FS;

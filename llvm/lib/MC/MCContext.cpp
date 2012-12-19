@@ -21,6 +21,7 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/SourceMgr.h"
 using namespace llvm;
@@ -32,10 +33,11 @@ typedef StringMap<const MCSectionCOFF*> COFFUniqueMapTy;
 
 MCContext::MCContext(const MCAsmInfo &mai, const MCRegisterInfo &mri,
                      const MCObjectFileInfo *mofi, const SourceMgr *mgr,
-                     bool DoAutoReset ) :
+                     bool DoAutoReset) :
   SrcMgr(mgr), MAI(mai), MRI(mri), MOFI(mofi),
   Allocator(), Symbols(Allocator), UsedNames(Allocator),
-  NextUniqueID(0), 
+  NextUniqueID(0),
+  CompilationDir(llvm::sys::Path::GetCurrentDirectory().str()),
   CurrentDwarfLoc(0,0,0,DWARF2_FLAG_IS_STMT,0,0), 
   DwarfLocSeen(false), GenDwarfForAssembly(false), GenDwarfFileNumber(0),
   AllowTemporaryLabels(true), AutoReset(DoAutoReset) {
@@ -47,6 +49,11 @@ MCContext::MCContext(const MCAsmInfo &mai, const MCRegisterInfo &mri,
   SecureLogFile = getenv("AS_SECURE_LOG_FILE");
   SecureLog = 0;
   SecureLogUsed = false;
+
+  if (SrcMgr && SrcMgr->getNumBuffers() > 0)
+    MainFileName = SrcMgr->getMemoryBuffer(0)->getBufferIdentifier();
+  else
+    MainFileName = "";
 }
 
 MCContext::~MCContext() {

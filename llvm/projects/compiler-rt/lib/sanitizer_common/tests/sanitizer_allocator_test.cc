@@ -17,6 +17,7 @@
 #include "gtest/gtest.h"
 
 #include <stdlib.h>
+#include <pthread.h>
 #include <algorithm>
 #include <vector>
 
@@ -84,24 +85,30 @@ void TestSizeClassAllocator() {
   a->Init();
 
   static const uptr sizes[] = {1, 16, 30, 40, 100, 1000, 10000,
-    50000, 60000, 100000, 300000, 500000, 1000000, 2000000};
+    50000, 60000, 100000, 120000, 300000, 500000, 1000000, 2000000};
 
   std::vector<void *> allocated;
 
   uptr last_total_allocated = 0;
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 3; i++) {
     // Allocate a bunch of chunks.
     for (uptr s = 0; s < ARRAY_SIZE(sizes); s++) {
       uptr size = sizes[s];
       if (!a->CanAllocate(size, 1)) continue;
       // printf("s = %ld\n", size);
-      uptr n_iter = std::max((uptr)2, 1000000 / size);
+      uptr n_iter = std::max((uptr)6, 10000000 / size);
+      // fprintf(stderr, "size: %ld iter: %ld\n", size, n_iter);
       for (uptr i = 0; i < n_iter; i++) {
-        void *x = a->Allocate(size, 1);
+        char *x = (char*)a->Allocate(size, 1);
+        x[0] = 0;
+        x[size - 1] = 0;
+        x[size / 2] = 0;
         allocated.push_back(x);
         CHECK_EQ(x, a->GetBlockBegin(x));
-        CHECK_EQ(x, a->GetBlockBegin((char*)x + size - 1));
+        CHECK_EQ(x, a->GetBlockBegin(x + size - 1));
         CHECK(a->PointerIsMine(x));
+        CHECK(a->PointerIsMine(x + size - 1));
+        CHECK(a->PointerIsMine(x + size / 2));
         CHECK_GE(a->GetActuallyAllocatedSize(x), size);
         uptr class_id = a->GetSizeClass(x);
         CHECK_EQ(class_id, Allocator::SizeClassMapT::ClassID(size));
@@ -261,16 +268,16 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
   a.Init();
 
   static const int kNumAllocs = 100;
-  void *allocated[kNumAllocs];
+  char *allocated[kNumAllocs];
   static const uptr size = 1000;
   // Allocate some.
   for (int i = 0; i < kNumAllocs; i++) {
-    allocated[i] = a.Allocate(size, 1);
+    allocated[i] = (char *)a.Allocate(size, 1);
   }
   // Deallocate all.
   CHECK_GT(a.TotalMemoryUsed(), size * kNumAllocs);
   for (int i = 0; i < kNumAllocs; i++) {
-    void *p = allocated[i];
+    char *p = allocated[i];
     CHECK(a.PointerIsMine(p));
     a.Deallocate(p);
   }
@@ -279,7 +286,7 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
 
   // Allocate some more, also add metadata.
   for (int i = 0; i < kNumAllocs; i++) {
-    void *x = a.Allocate(size, 1);
+    char *x = (char *)a.Allocate(size, 1);
     CHECK_GE(a.GetActuallyAllocatedSize(x), size);
     uptr *meta = reinterpret_cast<uptr*>(a.GetMetaData(x));
     *meta = i;
@@ -289,7 +296,7 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
   // Deallocate all in reverse order.
   for (int i = 0; i < kNumAllocs; i++) {
     int idx = kNumAllocs - i - 1;
-    void *p = allocated[idx];
+    char *p = allocated[idx];
     uptr *meta = reinterpret_cast<uptr*>(a.GetMetaData(p));
     CHECK_EQ(*meta, idx);
     CHECK(a.PointerIsMine(p));
@@ -300,9 +307,11 @@ TEST(SanitizerCommon, LargeMmapAllocator) {
   for (uptr alignment = 8; alignment <= max_alignment; alignment *= 2) {
     for (int i = 0; i < kNumAllocs; i++) {
       uptr size = ((i % 10) + 1) * 4096;
-      allocated[i] = a.Allocate(size, alignment);
+      char *p = allocated[i] = (char *)a.Allocate(size, alignment);
+      CHECK_EQ(p, a.GetBlockBegin(p));
+      CHECK_EQ(p, a.GetBlockBegin(p + size - 1));
+      CHECK_EQ(p, a.GetBlockBegin(p + size / 2));
       CHECK_EQ(0, (uptr)allocated[i] % alignment);
-      char *p = (char*)allocated[i];
       p[0] = p[size - 1] = 0;
     }
     for (int i = 0; i < kNumAllocs; i++) {
@@ -429,6 +438,36 @@ TEST(SanitizerCommon, SizeClassAllocator32CompactLocalCache) {
   TestSizeClassAllocatorLocalCache<
       SizeClassAllocatorLocalCache<Allocator32Compact> >();
 }
+
+#if SANITIZER_WORDSIZE == 64
+typedef SizeClassAllocatorLocalCache<Allocator64> AllocatorCache;
+static THREADLOCAL AllocatorCache static_allocator_cache;
+
+void *AllocatorLeakTestWorker(void *arg) {
+  typedef AllocatorCache::Allocator Allocator;
+  Allocator *a = (Allocator*)(arg);
+  static_allocator_cache.Allocate(a, 10);
+  static_allocator_cache.Drain(a);
+  return 0;
+}
+
+TEST(SanitizerCommon, AllocatorLeakTest) {
+  typedef AllocatorCache::Allocator Allocator;
+  Allocator a;
+  a.Init();
+  uptr total_used_memory = 0;
+  for (int i = 0; i < 100; i++) {
+    pthread_t t;
+    EXPECT_EQ(0, pthread_create(&t, 0, AllocatorLeakTestWorker, &a));
+    EXPECT_EQ(0, pthread_join(t, 0));
+    if (i == 0)
+      total_used_memory = a.TotalMemoryUsed();
+    EXPECT_EQ(a.TotalMemoryUsed(), total_used_memory);
+  }
+
+  a.TestOnlyUnmap();
+}
+#endif
 
 TEST(Allocator, Basic) {
   char *p = (char*)InternalAlloc(10);

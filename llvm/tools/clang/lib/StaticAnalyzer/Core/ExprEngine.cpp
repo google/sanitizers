@@ -782,16 +782,23 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
 
     case Stmt::CXXNewExprClass: {
       Bldr.takeNodes(Pred);
-      const CXXNewExpr *NE = cast<CXXNewExpr>(S);
-      VisitCXXNewExpr(NE, Pred, Dst);
+      ExplodedNodeSet PostVisit;
+      VisitCXXNewExpr(cast<CXXNewExpr>(S), Pred, PostVisit);
+      getCheckerManager().runCheckersForPostStmt(Dst, PostVisit, S, *this);
       Bldr.addNodes(Dst);
       break;
     }
 
     case Stmt::CXXDeleteExprClass: {
       Bldr.takeNodes(Pred);
+      ExplodedNodeSet PreVisit;
       const CXXDeleteExpr *CDE = cast<CXXDeleteExpr>(S);
-      VisitCXXDeleteExpr(CDE, Pred, Dst);
+      getCheckerManager().runCheckersForPreStmt(PreVisit, Pred, S, *this);
+
+      for (ExplodedNodeSet::iterator i = PreVisit.begin(), 
+                                     e = PreVisit.end(); i != e ; ++i)
+        VisitCXXDeleteExpr(CDE, *i, Dst);
+
       Bldr.addNodes(Dst);
       break;
     }
@@ -1217,8 +1224,8 @@ void ExprEngine::processBranch(const Stmt *Condition, const Stmt *Term,
     if (PredI->isSink())
       continue;
 
-    ProgramStateRef PrevState = Pred->getState();
-    SVal X = PrevState->getSVal(Condition, Pred->getLocationContext());
+    ProgramStateRef PrevState = PredI->getState();
+    SVal X = PrevState->getSVal(Condition, PredI->getLocationContext());
 
     if (X.isUnknownOrUndef()) {
       // Give it a chance to recover from unknown.
@@ -1230,7 +1237,7 @@ void ExprEngine::processBranch(const Stmt *Condition, const Stmt *Term,
           // underlying value and use that instead.
           SVal recovered = RecoverCastedSymbol(getStateManager(),
                                                PrevState, Condition,
-                                               Pred->getLocationContext(),
+                                               PredI->getLocationContext(),
                                                getContext());
 
           if (!recovered.isUnknown()) {

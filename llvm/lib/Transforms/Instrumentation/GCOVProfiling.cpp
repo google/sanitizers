@@ -48,10 +48,11 @@ namespace {
           UseExtraChecksum(false), NoRedZone(false) {
       initializeGCOVProfilerPass(*PassRegistry::getPassRegistry());
     }
-    GCOVProfiler(bool EmitNotes, bool EmitData, bool use402Format = false,
-                 bool useExtraChecksum = false, bool NoRedZone = false)
+    GCOVProfiler(bool EmitNotes, bool EmitData, bool use402Format,
+                 bool useExtraChecksum, bool NoRedZone_)
         : ModulePass(ID), EmitNotes(EmitNotes), EmitData(EmitData),
-          Use402Format(use402Format), UseExtraChecksum(useExtraChecksum) {
+          Use402Format(use402Format), UseExtraChecksum(useExtraChecksum),
+          NoRedZone(NoRedZone_) {
       assert((EmitNotes || EmitData) && "GCOVProfiler asked to do nothing?");
       initializeGCOVProfilerPass(*PassRegistry::getPassRegistry());
     }
@@ -641,9 +642,9 @@ void GCOVProfiler::insertCounterWriteout(
     WriteoutF = Function::Create(WriteoutFTy, GlobalValue::InternalLinkage,
                                  "__llvm_gcov_writeout", M);
   WriteoutF->setUnnamedAddr(true);
-  WriteoutF->addFnAttr(Attributes::NoInline);
+  WriteoutF->addFnAttr(Attribute::NoInline);
   if (NoRedZone)
-    WriteoutF->addFnAttr(Attributes::NoRedZone);
+    WriteoutF->addFnAttr(Attribute::NoRedZone);
 
   BasicBlock *BB = BasicBlock::Create(*Ctx, "entry", WriteoutF);
   IRBuilder<> Builder(BB);
@@ -688,9 +689,9 @@ void GCOVProfiler::insertCounterWriteout(
                                  "__llvm_gcov_init", M);
   F->setUnnamedAddr(true);
   F->setLinkage(GlobalValue::InternalLinkage);
-  F->addFnAttr(Attributes::NoInline);
+  F->addFnAttr(Attribute::NoInline);
   if (NoRedZone)
-    F->addFnAttr(Attributes::NoRedZone);
+    F->addFnAttr(Attribute::NoRedZone);
 
   BB = BasicBlock::Create(*Ctx, "entry", F);
   Builder.SetInsertPoint(BB);
@@ -709,9 +710,9 @@ void GCOVProfiler::insertIndirectCounterIncrement() {
     cast<Function>(GCOVProfiler::getIncrementIndirectCounterFunc());
   Fn->setUnnamedAddr(true);
   Fn->setLinkage(GlobalValue::InternalLinkage);
-  Fn->addFnAttr(Attributes::NoInline);
+  Fn->addFnAttr(Attribute::NoInline);
   if (NoRedZone)
-    Fn->addFnAttr(Attributes::NoRedZone);
+    Fn->addFnAttr(Attribute::NoRedZone);
 
   Type *Int32Ty = Type::getInt32Ty(*Ctx);
   Type *Int64Ty = Type::getInt64Ty(*Ctx);
@@ -768,9 +769,9 @@ insertFlush(ArrayRef<std::pair<GlobalVariable*, MDNode*> > CountersBySP) {
   else
     FlushF->setLinkage(GlobalValue::InternalLinkage);
   FlushF->setUnnamedAddr(true);
-  FlushF->addFnAttr(Attributes::NoInline);
+  FlushF->addFnAttr(Attribute::NoInline);
   if (NoRedZone)
-    FlushF->addFnAttr(Attributes::NoRedZone);
+    FlushF->addFnAttr(Attribute::NoRedZone);
 
   BasicBlock *Entry = BasicBlock::Create(*Ctx, "entry", FlushF);
 

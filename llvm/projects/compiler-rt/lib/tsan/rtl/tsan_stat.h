@@ -184,6 +184,9 @@ enum StatType {
   StatInt_dup2,
   StatInt_dup3,
   StatInt_eventfd,
+  StatInt_signalfd,
+  StatInt_inotify_init,
+  StatInt_inotify_init1,
   StatInt_socket,
   StatInt_socketpair,
   StatInt_connect,
@@ -230,6 +233,7 @@ enum StatType {
   StatInt_usleep,
   StatInt_nanosleep,
   StatInt_gettimeofday,
+  StatInt_fork,
 
   // Dynamic annotations.
   StatAnnotation,

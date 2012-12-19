@@ -150,7 +150,9 @@ public:
   }
 
   void setFlags(unsigned flags) {
-    Flags = flags;
+    // Filter out the automatically maintained flags.
+    unsigned Mask = BundledPred | BundledSucc;
+    Flags = (Flags & Mask) | (flags & ~Mask);
   }
 
   /// clearFlag - Clear a MI flag.
@@ -198,18 +200,11 @@ public:
     return getFlag(BundledPred);
   }
 
-  /// setIsInsideBundle - Set InsideBundle bit.
-  ///
-  void setIsInsideBundle(bool Val = true) {
-    if (Val)
-      setFlag(BundledPred);
-    else
-      clearFlag(BundledPred);
-  }
-
   /// isBundled - Return true if this instruction part of a bundle. This is true
   /// if either itself or its following instruction is marked "InsideBundle".
-  bool isBundled() const;
+  bool isBundled() const {
+    return isBundledWithPred() || isBundledWithSucc();
+  }
 
   /// Return true if this instruction is part of a bundle, and it is not the
   /// first instruction in the bundle.
@@ -590,13 +585,32 @@ public:
   bool isIdenticalTo(const MachineInstr *Other,
                      MICheckType Check = CheckDefs) const;
 
-  /// removeFromParent - This method unlinks 'this' from the containing basic
-  /// block, and returns it, but does not delete it.
+  /// Unlink 'this' from the containing basic block, and return it without
+  /// deleting it.
+  ///
+  /// This function can not be used on bundled instructions, use
+  /// removeFromBundle() to remove individual instructions from a bundle.
   MachineInstr *removeFromParent();
 
-  /// eraseFromParent - This method unlinks 'this' from the containing basic
-  /// block and deletes it.
+  /// Unlink this instruction from its basic block and return it without
+  /// deleting it.
+  ///
+  /// If the instruction is part of a bundle, the other instructions in the
+  /// bundle remain bundled.
+  MachineInstr *removeFromBundle();
+
+  /// Unlink 'this' from the containing basic block and delete it.
+  ///
+  /// If this instruction is the header of a bundle, the whole bundle is erased.
+  /// This function can not be used for instructions inside a bundle, use
+  /// eraseFromBundle() to erase individual bundled instructions.
   void eraseFromParent();
+
+  /// Unlink 'this' form its basic block and delete it.
+  ///
+  /// If the instruction is part of a bundle, the other instructions in the
+  /// bundle remain bundled.
+  void eraseFromBundle();
 
   /// isLabel - Returns true if the MachineInstr represents a label.
   ///

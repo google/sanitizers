@@ -1932,11 +1932,7 @@ Sema::ActOnCXXInClassMemberInitializer(Decl *D, SourceLocation InitLoc,
   }
 
   ExprResult Init = InitExpr;
-  if (!FD->getType()->isDependentType() && !InitExpr->isTypeDependent() &&
-      !FD->getDeclContext()->isDependentContext()) {
-    // Note: We don't type-check when we're in a dependent context, because
-    // the initialization-substitution code does not properly handle direct
-    // list initialization. We have the same hackaround for ctor-initializers.
+  if (!FD->getType()->isDependentType() && !InitExpr->isTypeDependent()) {
     if (isa<InitListExpr>(InitExpr) && isStdInitializerList(FD->getType(), 0)) {
       Diag(FD->getLocation(), diag::warn_dangling_std_initializer_list)
         << /*at end of ctor*/1 << InitExpr->getSourceRange();
@@ -2119,10 +2115,10 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
     // Look for a member, first.
     DeclContext::lookup_result Result
       = ClassDecl->lookup(MemberOrBase);
-    if (Result.first != Result.second) {
+    if (!Result.empty()) {
       ValueDecl *Member;
-      if ((Member = dyn_cast<FieldDecl>(*Result.first)) ||
-          (Member = dyn_cast<IndirectFieldDecl>(*Result.first))) {
+      if ((Member = dyn_cast<FieldDecl>(Result.front())) ||
+          (Member = dyn_cast<IndirectFieldDecl>(Result.front()))) {
         if (EllipsisLoc.isValid())
           Diag(EllipsisLoc, diag::err_pack_expansion_member_init)
             << MemberOrBase
@@ -2318,10 +2314,13 @@ Sema::BuildMemberInitializer(ValueDecl *Member, Expr *Init,
   if (ParenListExpr *ParenList = dyn_cast<ParenListExpr>(Init)) {
     Args = ParenList->getExprs();
     NumArgs = ParenList->getNumExprs();
-  } else {
-    InitListExpr *InitList = cast<InitListExpr>(Init);
+  } else if (InitListExpr *InitList = dyn_cast<InitListExpr>(Init)) {
     Args = InitList->getInits();
     NumArgs = InitList->getNumInits();
+  } else {
+    // Template instantiation doesn't reconstruct ParenListExprs for us.
+    Args = &Init;
+    NumArgs = 1;
   }
 
   if (getDiagnostics().getDiagnosticLevel(diag::warn_field_is_uninit, IdLoc)
@@ -2382,19 +2381,8 @@ Sema::BuildMemberInitializer(ValueDecl *Member, Expr *Init,
     if (MemberInit.isInvalid())
       return true;
 
-    // If we are in a dependent context, template instantiation will
-    // perform this type-checking again. Just save the arguments that we
-    // received.
-    // FIXME: This isn't quite ideal, since our ASTs don't capture all
-    // of the information that we have about the member
-    // initializer. However, deconstructing the ASTs is a dicey process,
-    // and this approach is far more likely to get the corner cases right.
-    if (CurContext->isDependentContext()) {
-      // The existing Init will do fine.
-    } else {
-      Init = MemberInit.get();
-      CheckForDanglingReferenceOrPointer(*this, Member, Init, IdLoc);
-    }
+    Init = MemberInit.get();
+    CheckForDanglingReferenceOrPointer(*this, Member, Init, IdLoc);
   }
 
   if (DirectMember) {
@@ -3956,9 +3944,10 @@ void Sema::CheckCompletedCXXClass(CXXRecordDecl *Record) {
     // C++ [class.mem]p14:
     //   In addition, if class T has a user-declared constructor (12.1), every 
     //   non-static data member of class T shall have a name different from T.
-    for (DeclContext::lookup_result R = Record->lookup(Record->getDeclName());
-         R.first != R.second; ++R.first) {
-      NamedDecl *D = *R.first;
+    DeclContext::lookup_result R = Record->lookup(Record->getDeclName());
+    for (DeclContext::lookup_iterator I = R.begin(), E = R.end(); I != E;
+         ++I) {
+      NamedDecl *D = *I;
       if ((isa<FieldDecl>(D) && Record->hasUserDeclaredConstructor()) ||
           isa<IndirectFieldDecl>(D)) {
         Diag(D->getLocation(), diag::err_member_name_of_class)
@@ -5283,9 +5272,9 @@ static bool FindHiddenVirtualMethod(const CXXBaseSpecifier *Specifier,
   bool foundSameNameMethod = false;
   SmallVector<CXXMethodDecl *, 8> overloadedMethods;
   for (Path.Decls = BaseRecord->lookup(Name);
-       Path.Decls.first != Path.Decls.second;
-       ++Path.Decls.first) {
-    NamedDecl *D = *Path.Decls.first;
+       !Path.Decls.empty();
+       Path.Decls = Path.Decls.slice(1)) {
+    NamedDecl *D = Path.Decls.front();
     if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(D)) {
       MD = MD->getCanonicalDecl();
       foundSameNameMethod = true;
@@ -5337,10 +5326,10 @@ void Sema::DiagnoseHiddenVirtualMethods(CXXRecordDecl *DC, CXXMethodDecl *MD) {
 
   // Keep the base methods that were overriden or introduced in the subclass
   // by 'using' in a set. A base method not in this set is hidden.
-  for (DeclContext::lookup_result res = DC->lookup(MD->getDeclName());
-       res.first != res.second; ++res.first) {
-    NamedDecl *ND = *res.first;
-    if (UsingShadowDecl *shad = dyn_cast<UsingShadowDecl>(*res.first))
+  DeclContext::lookup_result R = DC->lookup(MD->getDeclName());
+  for (DeclContext::lookup_iterator I = R.begin(), E = R.end(); I != E; ++I) {
+    NamedDecl *ND = *I;
+    if (UsingShadowDecl *shad = dyn_cast<UsingShadowDecl>(*I))
       ND = shad->getTargetDecl();
     if (CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(ND))
       AddMostOverridenMethods(MD, Data.OverridenAndUsingBaseMethods);
@@ -6025,11 +6014,11 @@ Decl *Sema::ActOnStartNamespaceDef(Scope *NamespcScope,
     Decl::IDNS_Type | Decl::IDNS_Using | Decl::IDNS_Tag | 
     Decl::IDNS_Namespace;
     NamedDecl *PrevDecl = 0;
-    for (DeclContext::lookup_result R 
-         = CurContext->getRedeclContext()->lookup(II);
-         R.first != R.second; ++R.first) {
-      if ((*R.first)->getIdentifierNamespace() & IDNS) {
-        PrevDecl = *R.first;
+    DeclContext::lookup_result R = CurContext->getRedeclContext()->lookup(II);
+    for (DeclContext::lookup_iterator I = R.begin(), E = R.end(); I != E;
+         ++I) {
+      if ((*I)->getIdentifierNamespace() & IDNS) {
+        PrevDecl = *I;
         break;
       }
     }
@@ -9393,8 +9382,8 @@ bool Sema::isImplicitlyDeleted(FunctionDecl *FD) {
 static void markLambdaCallOperatorUsed(Sema &S, CXXRecordDecl *Lambda) {
   CXXMethodDecl *CallOperator 
     = cast<CXXMethodDecl>(
-        *Lambda->lookup(
-          S.Context.DeclarationNames.getCXXOperatorName(OO_Call)).first);
+        Lambda->lookup(
+          S.Context.DeclarationNames.getCXXOperatorName(OO_Call)).front());
   CallOperator->setReferenced();
   CallOperator->setUsed();
 }
@@ -9416,7 +9405,7 @@ void Sema::DefineImplicitLambdaToFunctionPointerConversion(
   // Return the address of the __invoke function.
   DeclarationName InvokeName = &Context.Idents.get("__invoke");
   CXXMethodDecl *Invoke 
-    = cast<CXXMethodDecl>(*Lambda->lookup(InvokeName).first);
+    = cast<CXXMethodDecl>(Lambda->lookup(InvokeName).front());
   Expr *FunctionRef = BuildDeclRefExpr(Invoke, Invoke->getType(),
                                        VK_LValue, Conv->getLocation()).take();
   assert(FunctionRef && "Can't refer to __invoke function?");
@@ -9514,6 +9503,7 @@ Sema::BuildCXXConstructExpr(SourceLocation ConstructLoc, QualType DeclInitType,
                             CXXConstructorDecl *Constructor,
                             MultiExprArg ExprArgs,
                             bool HadMultipleCandidates,
+                            bool IsListInitialization,
                             bool RequiresZeroInit,
                             unsigned ConstructKind,
                             SourceRange ParenRange) {
@@ -9537,7 +9527,8 @@ Sema::BuildCXXConstructExpr(SourceLocation ConstructLoc, QualType DeclInitType,
 
   return BuildCXXConstructExpr(ConstructLoc, DeclInitType, Constructor,
                                Elidable, ExprArgs, HadMultipleCandidates,
-                               RequiresZeroInit, ConstructKind, ParenRange);
+                               IsListInitialization, RequiresZeroInit,
+                               ConstructKind, ParenRange);
 }
 
 /// BuildCXXConstructExpr - Creates a complete call to a constructor,
@@ -9547,37 +9538,17 @@ Sema::BuildCXXConstructExpr(SourceLocation ConstructLoc, QualType DeclInitType,
                             CXXConstructorDecl *Constructor, bool Elidable,
                             MultiExprArg ExprArgs,
                             bool HadMultipleCandidates,
+                            bool IsListInitialization,
                             bool RequiresZeroInit,
                             unsigned ConstructKind,
                             SourceRange ParenRange) {
   MarkFunctionReferenced(ConstructLoc, Constructor);
   return Owned(CXXConstructExpr::Create(Context, DeclInitType, ConstructLoc,
                                         Constructor, Elidable, ExprArgs,
-                                        HadMultipleCandidates, /*FIXME*/false,
-                                        RequiresZeroInit,
+                                        HadMultipleCandidates,
+                                        IsListInitialization, RequiresZeroInit,
               static_cast<CXXConstructExpr::ConstructionKind>(ConstructKind),
                                         ParenRange));
-}
-
-bool Sema::InitializeVarWithConstructor(VarDecl *VD,
-                                        CXXConstructorDecl *Constructor,
-                                        MultiExprArg Exprs,
-                                        bool HadMultipleCandidates) {
-  // FIXME: Provide the correct paren SourceRange when available.
-  ExprResult TempResult =
-    BuildCXXConstructExpr(VD->getLocation(), VD->getType(), Constructor,
-                          Exprs, HadMultipleCandidates, false,
-                          CXXConstructExpr::CK_Complete, SourceRange());
-  if (TempResult.isInvalid())
-    return true;
-
-  Expr *Temp = TempResult.takeAs<Expr>();
-  CheckImplicitConversions(Temp, VD->getLocation());
-  MarkFunctionReferenced(VD->getLocation(), Constructor);
-  Temp = MaybeCreateExprWithCleanups(Temp);
-  VD->setInit(Temp);
-
-  return false;
 }
 
 void Sema::FinalizeVarWithDestructor(VarDecl *VD, const RecordType *Record) {
