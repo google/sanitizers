@@ -965,10 +965,12 @@ bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
   return true;
 }
 
-/// RemoveUnreachableBlocks - Remove all blocks that can not be reached from the
-/// function's entry.
+/// \\brief - Remove all blocks that can not be reached from the function's
+/// entry.
+///
+/// Returns true if any basic block was removed.
 bool llvm::removeUnreachableBlocks(Function &F) {
-  SmallPtrSet<BasicBlock*, 128> Reachable;
+  SmallPtrSet<BasicBlock*, 16> Reachable;
   SmallVector<BasicBlock*, 128> Worklist;
   Worklist.push_back(&F.getEntryBlock());
   Reachable.insert(&F.getEntryBlock());
@@ -983,27 +985,27 @@ bool llvm::removeUnreachableBlocks(Function &F) {
     return false;
 
   assert(Reachable.size() < F.size());
-  for (Function::iterator BB = llvm::next(F.begin()), E = F.end();
-       BB != E; ++BB) {
-    if (Reachable.count(BB))
+  for (Function::iterator I = llvm::next(F.begin()), E = F.end();
+       I != E; ++I) {
+    if (Reachable.count(I))
       continue;
 
-    // Remove BB as predecessor of all its reachable successors.
+    // Remove the block as predecessor of all its reachable successors.
     // Unreachable successors don't matter as they'll soon be removed, too.
-    for (succ_iterator SI = succ_begin(BB), SE = succ_end(BB); SI != SE; ++SI)
+    for (succ_iterator SI = succ_begin(I), SE = succ_end(I); SI != SE; ++SI)
       if (Reachable.count(*SI))
-        (*SI)->removePredecessor(BB);
+        (*SI)->removePredecessor(I);
 
-    // Zap all instructions in BB.
-    while (!BB->empty()) {
-      Instruction &I = BB->back();
-      if (!I.use_empty())
-        I.replaceAllUsesWith(UndefValue::get(I.getType()));
-      BB->getInstList().pop_back();
+    // Zap all instructions in this basic block.
+    while (!I->empty()) {
+      Instruction &Inst = I->back();
+      if (!Inst.use_empty())
+        Inst.replaceAllUsesWith(UndefValue::get(Inst.getType()));
+      I->getInstList().pop_back();
     }
 
-    --BB;
-    llvm::next(BB)->eraseFromParent();
+    --I;
+    llvm::next(I)->eraseFromParent();
   }
   return true;
 }
