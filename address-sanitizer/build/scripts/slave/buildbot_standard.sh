@@ -8,6 +8,7 @@ set -u
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
+  rm -rf llvm-build
 fi
 
 echo @@@BUILD_STEP update@@@
@@ -36,10 +37,13 @@ else
 fi
 
 echo @@@BUILD_STEP build llvm@@@
-rm -rf llvm-build
-mkdir llvm-build
-cd llvm-build
-../llvm/configure --enable-optimized
+if [ ! -d llvm-build ]; then
+  mkdir llvm-build
+  cd llvm-build
+  ../llvm/configure --enable-optimized
+else
+  cd llvm-build
+fi
 make -j$MAKE_JOBS
 cd ..
 BUILD_ROOT=`pwd`
