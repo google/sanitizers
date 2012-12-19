@@ -6,6 +6,7 @@ set -u
 
 ROOT=`pwd`
 PLATFORM=`uname`
+export PATH="/usr/local/bin:$PATH"
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
