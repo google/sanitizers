@@ -74,7 +74,7 @@ CLANG_PATH=${ROOT}/clang_build/bin
 export CC=${CLANG_PATH}/clang
 export CXX=${CLANG_PATH}/clang++
 # Build self-hosted tree with -Werror
-CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_FLAGS=-Werror -DCMAKE_CXX_FLAGS=-Werror"
+CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DLLVM_ENABLE_WERROR=ON"
 BUILD_TYPE=Release
 
 echo @@@BUILD_STEP build 64-bit llvm using clang@@@
