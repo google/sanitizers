@@ -12,7 +12,7 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
   rm -rf llvm_build64
-  rm -rf llvm_build32
+  rm -rf clang_build
 fi
 
 echo @@@BUILD_STEP update@@@
@@ -85,14 +85,6 @@ fi
     ${CMAKE_CLANG_OPTIONS} $LLVM_CHECKOUT)
 (cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
-echo @@@BUILD_STEP build 32-bit llvm using clang@@@
-if [ ! -d llvm_build32 ]; then
-  mkdir llvm_build32
-fi
-(cd llvm_build32 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    -DLLVM_BUILD_32_BITS=ON ${CMAKE_CLANG_OPTIONS} $LLVM_CHECKOUT)
-(cd llvm_build32 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
-
 echo @@@BUILD_STEP run asan tests@@@
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
@@ -120,19 +112,15 @@ if [ "$PLATFORM" == "Linux" ]; then
   ./llvm_build64/$TSAN_UNIT_TEST_BINARY
 fi
 
+echo @@@BUILD_STEP run sanitizer_common tests@@@
 SANITIZER_COMMON_PATH=projects/compiler-rt/lib/sanitizer_common
 SANITIZER_COMMON_TESTS=$SANITIZER_COMMON_PATH/tests
-SANITIZER_COMMON_TEST_BINARY=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/SanitizerUnitTest
-
-echo @@@BUILD_STEP run 64-bit sanitizer tests@@@
+SANITIZER_COMMON_TEST_BINARY_64=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/Sanitizer-x86_64-Test
+SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/Sanitizer-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
-# Run unit test binary in a single shard.
-./llvm_build64/${SANITIZER_COMMON_TEST_BINARY}
-
-echo @@@BUILD_STEP run 32-bit sanitizer tests@@@
-(cd llvm_build32 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
-# Run unit test binary in a single shard.
-./llvm_build32/${SANITIZER_COMMON_TEST_BINARY}
+# Run unit test binaries in a single shard.
+./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_64}
+./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
 
 BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
