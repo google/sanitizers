@@ -12,6 +12,7 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
   rm -rf llvm_build64
+  rm -rf llvm_build_ninja
   rm -rf clang_build
 fi
 
@@ -71,10 +72,8 @@ fi
 
 ### From now on we use just-built Clang as a host compiler ###
 CLANG_PATH=${ROOT}/clang_build/bin
-export CC=${CLANG_PATH}/clang
-export CXX=${CLANG_PATH}/clang++
-# Build self-hosted tree with -Werror
-CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DLLVM_ENABLE_WERROR=ON"
+# Build self-hosted tree with fresh Clang and -Werror.
+CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++ -DLLVM_ENABLE_WERROR=ON"
 BUILD_TYPE=Release
 
 echo @@@BUILD_STEP build 64-bit llvm using clang@@@
@@ -121,6 +120,21 @@ SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/Sanitize
 # Run unit test binaries in a single shard.
 ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_64}
 ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
+
+if [ "$PLATFORM" == "Linux" ]; then
+  echo @@@BUILD_STEP run tests in ninja build tree@@@
+  if [ ! -d llvm_build_ninja ]; then
+    mkdir llvm_build_ninja
+  fi
+  CMAKE_NINJA_OPTIONS="${CMAKE_CLANG_OPTIONS} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -G Ninja"
+  (cd llvm_build_ninja && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+      ${CMAKE_NINJA_OPTIONS} $LLVM_CHECKOUT)
+  ln -s llvm_build_ninja/compile_commands.json $LLVM_CHECKOUT
+  (cd llvm_build_ninja && ninja check-asan) || echo @@@STEP_FAILURE@@@
+  (cd llvm_build_ninja && ninja check-sanitizer) || echo @@@STEP_FAILURE@@@
+  (cd llvm_build_ninja && ninja check-tsan) || echo @@@STEP_WARNINGS@@@
+  (cd llvm_build_ninja && ninja check-ubsan) || echo @@@STEP_WARNINGS@@@
+fi
 
 BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
