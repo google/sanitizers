@@ -965,7 +965,7 @@ bool llvm::replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
   return true;
 }
 
-/// \\brief - Remove all blocks that can not be reached from the function's
+/// \brief Remove all blocks that can not be reached from the function's
 /// entry.
 ///
 /// Returns true if any basic block was removed.
