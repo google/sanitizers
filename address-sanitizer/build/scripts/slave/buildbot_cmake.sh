@@ -129,7 +129,7 @@ if [ "$PLATFORM" == "Linux" ]; then
   CMAKE_NINJA_OPTIONS="${CMAKE_CLANG_OPTIONS} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -G Ninja"
   (cd llvm_build_ninja && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
       ${CMAKE_NINJA_OPTIONS} $LLVM_CHECKOUT)
-  ln -s llvm_build_ninja/compile_commands.json $LLVM_CHECKOUT
+  ln -sf llvm_build_ninja/compile_commands.json $LLVM_CHECKOUT
   (cd llvm_build_ninja && ninja check-asan) || echo @@@STEP_FAILURE@@@
   (cd llvm_build_ninja && ninja check-sanitizer) || echo @@@STEP_FAILURE@@@
   (cd llvm_build_ninja && ninja check-tsan) || echo @@@STEP_WARNINGS@@@
