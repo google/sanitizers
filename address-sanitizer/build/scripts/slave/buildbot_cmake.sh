@@ -109,7 +109,7 @@ if [ "$PLATFORM" == "Linux" ]; then
   MSAN_UNIT_TEST_BINARY=$MSAN_PATH/tests/$BUILD_TYPE/Msan-x86_64-Test
   (cd llvm_build64 && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
   # Run msan unit test binaries.
-  ./llvm_build64/$TSAN_UNIT_TEST_BINARY
+  ./llvm_build64/$MSAN_UNIT_TEST_BINARY
 fi
 
 if [ "$PLATFORM" == "Linux" ]; then
