@@ -24,13 +24,14 @@ fi
 
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 
-if [ -d llvm ]; then
+if [ -d llvm -a -d llvm/projects/libcxx ]; then
   svn up llvm $REV_ARG
   if [ "$REV_ARG" == "" ]; then
     REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
   fi
   svn up llvm/tools/clang $REV_ARG
   svn up llvm/projects/compiler-rt $REV_ARG
+  svn up llvm/projects/libcxx $REV_ARG
 else
   svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm $REV_ARG
   if [ "$REV_ARG" == "" ]; then
@@ -38,6 +39,7 @@ else
   fi
   svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang $REV_ARG
   svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
+  svn co http://llvm.org/svn/llvm-project/libcxx/trunk llvm/projects/libcxx $REV_ARG
 fi
 LLVM_CHECKOUT=$ROOT/llvm
 
@@ -66,6 +68,7 @@ if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run sanitizer tests in gcc build@@@
   (cd clang_build && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
+  (cd clang_build && make -j$MAKE_JOBS check-msan) || echo @@@STEP_WARNINGS@@@
   (cd clang_build && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-ubsan) || echo @@@STEP_WARNINGS@@@
 fi
@@ -98,6 +101,15 @@ if [ "$PLATFORM" == "Darwin" ]; then
   echo @@@BUILD_STEP build asan dynamic runtime@@@
   # Building a fat binary for both 32 and 64 bits.
   (cd llvm_build64/$ASAN_PATH && make -j$MAKE_JOBS clang_rt.asan_osx_dynamic) || echo @@@STEP_FAILURE@@@
+fi
+
+if [ "$PLATFORM" == "Linux" ]; then
+  echo @@@BUILD_STEP run msan unit tests@@@
+  MSAN_PATH=projects/compiler-rt/lib/msan
+  MSAN_UNIT_TEST_BINARY=$MSAN_PATH/tests/$BUILD_TYPE/Msan-x86_64-Test
+  (cd llvm_build64 && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
+  # Run msan unit test binaries.
+  ./llvm_build64/$TSAN_UNIT_TEST_BINARY
 fi
 
 if [ "$PLATFORM" == "Linux" ]; then
