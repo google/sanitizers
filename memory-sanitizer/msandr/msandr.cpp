@@ -608,8 +608,8 @@ DR_EXPORT void dr_init(client_id_t id) {
 
   drmgr_register_bb_app2app_event(event_basic_block_app2app, &priority);
   drmgr_register_bb_instru2instru_event(event_basic_block, &priority);
-  dr_register_module_load_event(event_module_load);
-  dr_register_module_unload_event(event_module_unload);
+  drmgr_register_module_load_event(event_module_load);
+  drmgr_register_module_unload_event(event_module_unload);
 #if defined(VERBOSE)
   dr_printf("==DRMSAN== Starting!\n");
 #endif
