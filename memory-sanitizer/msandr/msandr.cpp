@@ -20,6 +20,7 @@
 #include "dr_api.h"
 #include "drutil.h"
 #include "drmgr.h"
+#include "drsyscall.h"
 
 #include <sys/mman.h>
 

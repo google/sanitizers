@@ -2,12 +2,13 @@ Experimental DynamoRIO-MSAN plugin.
 
 Building:
   1. First, download and build DynamoRIO:
-     (svn co https://dynamorio.googlecode.com/svn/trunk dr && \
-      cd dr && mkdir build && cd build && \
-      cmake .. && make -j10)
+     (svn co http://drmemory.googlecode.com/svn/trunk/ drmemory && \
+      cd drmemory && mkdir build && cd build && \
+      cmake .. && make -j35)
   2. Now, build the tool
      (mkdir build && cd build && \
-      cmake -DDynamoRIO_DIR=`pwd`/../dr/build/cmake .. && make -j10)
+      cmake -DDynamoRIO_DIR=`pwd`/../drmemory/build/dynamorio/cmake \
+            -DDrMemoryFramework_DIR=`pwd`/../drmemory/build/drmf .. && make)
 
 Running:
   LD_USE_LOAD_BIAS=1 ./dr/build/bin/drrun -client ./build/libmsandr.so 0 "" -- test
