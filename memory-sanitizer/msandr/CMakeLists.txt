@@ -24,9 +24,4 @@ use_DynamoRIO_extension(msandr drmf_drsyscall drmgr drutil)
 
 target_link_libraries(msandr drmgr drutil)
 
-set(DynamoRIO_RPATH ON) # does not seem to do anything
 configure_DynamoRIO_client(msandr)
-
-# Add rpath to drsyscalls.so
-append_property_string(TARGET msandr LINK_FLAGS
-  "-Wl,-rpath=${CMAKE_CURRENT_LIST_DIR}/drmemory/build/drmf/lib64/release")

@@ -4,7 +4,7 @@ Building:
   1. First, download and build DynamoRIO:
      (svn co http://drmemory.googlecode.com/svn/trunk/ drmemory && \
       cd drmemory && mkdir build && cd build && \
-      cmake .. && make -j35)
+      cmake -DDR_EXT_DRSYSCALL_STATIC=ON .. && make -j35)
   2. Now, build the tool
      (mkdir build && cd build && \
       cmake -DDynamoRIO_DIR=`pwd`/../drmemory/build/dynamorio/cmake \
