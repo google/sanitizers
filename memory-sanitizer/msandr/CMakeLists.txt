@@ -9,19 +9,20 @@ include_directories("drmemory/dynamorio/ext/drutil"
                     "drmemory/build/drmf/include"
                     )
 
-add_library(msandr SHARED msandr.cpp)
-
 find_package(DynamoRIO)
-
-find_package(DrMemoryFramework)
 
 find_package(DynamoRIO)
 if (NOT DynamoRIO_FOUND)
   message(FATAL_ERROR "DynamoRIO package required to build")
 endif(NOT DynamoRIO_FOUND)
 
-use_DynamoRIO_extension(msandr drmf_drsyscall drmgr drutil)
+add_library(drmf_drsyscall STATIC IMPORTED)
+set_target_properties(drmf_drsyscall PROPERTIES
+  IMPORTED_LINK_INTERFACE_LANGUAGES "ASM;C"
+  IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/drmemory/build/drmf/lib64/release/libdrsyscall.a"
+  )
 
-target_link_libraries(msandr drmgr drutil)
+add_library(msandr SHARED msandr.cpp)
+target_link_libraries(msandr drmgr drutil drmf_drsyscall)
 
 configure_DynamoRIO_client(msandr)
