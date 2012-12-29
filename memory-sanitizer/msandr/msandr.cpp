@@ -28,6 +28,7 @@
 #include <string>
 #include <set>
 #include <vector>
+#include <string.h>
 
 using std::string;
 
@@ -131,7 +132,7 @@ void InitializeMSanCallbacks() {
 
 // typedef unsigned long uptr;
 
-// #define MEM_TO_SHADOW(mem) ((mem) & ~0x400000000000ULL)
+#define MEM_TO_SHADOW(mem) ((mem) & ~0x400000000000ULL)
 // static const uptr kMemBeg     = 0x7f0000000000;
 // static const uptr kMemEnd     = 0x7fffffffffff;
 // static const uptr kShadowBeg  = MEM_TO_SHADOW(kMemBeg);
@@ -562,11 +563,158 @@ void event_exit() {
 #endif
 }
 
+bool event_filter_syscall(void *drcontext, int sysnum)
+{
+  // FIXME: only intercept syscalls with memory effects.
+  return true; /* intercept everything */
+}
+
+bool drsys_iter_arg_cb(drsys_arg_t *arg, void *user_data)
+{
+  drmf_status_t res;
+  drsys_sysnum_t sysnum_full;
+  const char* name;
+
+  drsys_syscall_t *syscall = (drsys_syscall_t*)user_data;
+  res = drsys_syscall_number(syscall, &sysnum_full);
+  CHECK(res == DRMF_SUCCESS);
+
+  res = drsys_syscall_name(syscall, &name);
+  CHECK(res == DRMF_SUCCESS);
+
+  // dr_printf("syscall '%s' arg %d '%s' '%s', value %llx, size %llx\n",
+  //     name, arg->ordinal, arg->arg_name,
+  //     arg->type_name,
+  //     (unsigned long long)arg->value,
+  //     (unsigned long long)arg->size);
+  return true;
+}
+
+bool drsys_iter_memarg_cb(drsys_arg_t *arg, void *user_data)
+{
+  CHECK(arg->valid);
+
+  if (arg->pre)
+    return true;
+  if (arg->mode != DRSYS_PARAM_OUT)
+    return true;
+
+  // dr_printf("  arg %d '%s' '%s' (containing type %d) writes %llu bytes at %p\n", arg->ordinal,
+  //     arg->arg_name, arg->type_name, arg->containing_type,
+  //     arg->size, arg->start_addr);
+
+  size_t sz = arg->size;
+
+  if (sz > 0xFFFFFFFF) {
+    drmf_status_t res;
+    drsys_syscall_t *syscall = (drsys_syscall_t*)user_data;
+    const char* name;
+    res = drsys_syscall_name(syscall, &name);
+    CHECK(res == DRMF_SUCCESS);
+
+    dr_printf("SANITY: syscall '%s' arg %d writes %llu bytes memory?!"
+        " Clipping to %llu.\n", 
+        name, arg->ordinal, (unsigned long long)sz,
+        (unsigned long long)(sz & 0xFFFFFFFF));
+    sz = sz & 0xFFFFFFFF; // clip; see http://code.google.com/p/drmemory/issues/detail?id=1108
+  }
+
+  void* p = (void*)MEM_TO_SHADOW((ptr_uint_t)arg->start_addr);
+  memset(p, 0, sz);
+  // dr_printf("memset %p, %llx\n", p, (unsigned long long)sz);
+
+  return true; /* keep going */
+}
+
+bool event_pre_syscall(void *drcontext, int sysnum)
+{
+  drsys_syscall_t *syscall;
+  drsys_sysnum_t sysnum_full;
+  bool known;
+  drsys_param_type_t ret_type;
+  drmf_status_t res;
+  const char* name;
+
+  // // nanosleep and futex
+  // if (sysnum == 35 || sysnum == 202)
+  //   return false;
+
+  res = drsys_cur_syscall(drcontext, &syscall);
+  CHECK(res == DRMF_SUCCESS);
+
+  res = drsys_syscall_number(syscall, &sysnum_full);
+  CHECK(res == DRMF_SUCCESS);
+  CHECK(sysnum == sysnum_full.number);
+
+  res = drsys_syscall_is_known(syscall, &known);
+  CHECK(res == DRMF_SUCCESS);
+
+  res = drsys_syscall_name(syscall, &name);
+  CHECK(res == DRMF_SUCCESS);
+
+  res = drsys_syscall_return_type(syscall, &ret_type);
+  CHECK(res == DRMF_SUCCESS);
+  CHECK(ret_type != DRSYS_TYPE_INVALID);
+  CHECK(!known || ret_type != DRSYS_TYPE_UNKNOWN);
+
+  // dr_printf("PRE_SYSCALL: %s (%d:%d), ret_type %d%s\n",
+  //     name, sysnum_full.number,
+  //     sysnum_full.secondary, ret_type, known ? "" : ", UNKNOWN");
+
+  // if (known) {
+    // res = drsys_iterate_args(drcontext, drsys_iter_arg_cb, (void*)syscall);
+    // CHECK(res == DRMF_SUCCESS);
+
+    res = drsys_iterate_memargs(drcontext, drsys_iter_memarg_cb, NULL);
+    CHECK(res == DRMF_SUCCESS);
+  // }
+
+  return true;
+}
+
+void event_post_syscall(void *drcontext, int sysnum)
+{
+  drsys_syscall_t *syscall;
+  drsys_sysnum_t sysnum_full;
+  bool success = false;
+  drmf_status_t res;
+
+  res = drsys_cur_syscall(drcontext, &syscall);
+  CHECK(res == DRMF_SUCCESS);
+
+  res = drsys_syscall_number(syscall, &sysnum_full);
+  CHECK(res == DRMF_SUCCESS);
+  CHECK(sysnum == sysnum_full.number);
+
+  res = drsys_syscall_succeeded(syscall, dr_syscall_get_result(drcontext), &success);
+  CHECK(res == DRMF_SUCCESS);
+
+  // if (!success)
+  //   dr_printf("  ... FAILED :(\n");
+
+  if (success) {
+    res = drsys_iterate_memargs(drcontext, drsys_iter_memarg_cb, (void*)syscall);
+    CHECK(res == DRMF_SUCCESS);
+  }
+}
+
 }  // namespace
 
 DR_EXPORT void dr_init(client_id_t id) {
+  drmf_status_t res;
+
   drmgr_init();
   drutil_init();
+
+  drsys_options_t ops = { sizeof(ops), 0, };
+  res = drsys_init(id, &ops);
+  CHECK(res == DRMF_SUCCESS);
+
+  dr_register_filter_syscall_event(event_filter_syscall);
+  drmgr_register_pre_syscall_event(event_pre_syscall);
+  drmgr_register_post_syscall_event(event_post_syscall);
+  res = drsys_filter_all_syscalls();
+  CHECK(res == DRMF_SUCCESS);
 
   string app_name = dr_get_application_name();
   // This blacklist will still run these apps through DR's code cache.  On the
