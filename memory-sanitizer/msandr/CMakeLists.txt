@@ -23,6 +23,6 @@ set_target_properties(drmf_drsyscall PROPERTIES
   )
 
 add_library(msandr SHARED msandr.cpp)
-target_link_libraries(msandr drmgr drutil drmf_drsyscall)
+target_link_libraries(msandr drmgr drutil drmf_drsyscall drcontainers)
 
 configure_DynamoRIO_client(msandr)
