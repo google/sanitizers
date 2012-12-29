@@ -16,10 +16,16 @@ if (NOT DynamoRIO_FOUND)
   message(FATAL_ERROR "DynamoRIO package required to build")
 endif(NOT DynamoRIO_FOUND)
 
+if (DEBUG)
+  set(build_type "debug")
+else (DEBUG)
+  set(build_type "release")
+endif (DEBUG)
+
 add_library(drmf_drsyscall STATIC IMPORTED)
 set_target_properties(drmf_drsyscall PROPERTIES
   IMPORTED_LINK_INTERFACE_LANGUAGES "ASM;C"
-  IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/drmemory/build/drmf/lib64/release/libdrsyscall.a"
+  IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/drmemory/build/drmf/lib64/${build_type}/libdrsyscall.a"
   )
 
 add_library(msandr SHARED msandr.cpp)
