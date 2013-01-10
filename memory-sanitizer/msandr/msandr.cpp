@@ -433,7 +433,7 @@ dr_emit_flags_t event_basic_block_app2app(void *drcontext, void *tag, instrlist_
   if (ShouldInstrumentPc(pc, NULL))
     CHECK(drutil_expand_rep_string(drcontext, bb));
 
-  return DR_EMIT_DEFAULT;
+  return DR_EMIT_PERSISTABLE;
 }
 
 dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
@@ -442,7 +442,7 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   ModuleData* mod_data;
 
   if (!ShouldInstrumentPc(pc, &mod_data))
-    return DR_EMIT_DEFAULT;
+    return DR_EMIT_PERSISTABLE;
 
 #if defined(VERBOSE)
 # if defined(VERBOSE_VERBOSE)
@@ -517,7 +517,7 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", pc);
   instrlist_disassemble(drcontext, pc, bb, STDOUT);
 #endif
-  return DR_EMIT_DEFAULT;
+  return DR_EMIT_PERSISTABLE;
 }
 
 void event_module_load(void *drcontext, const module_data_t *info, bool loaded) {
