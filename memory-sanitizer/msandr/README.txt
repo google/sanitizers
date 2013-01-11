@@ -2,21 +2,31 @@ Experimental DynamoRIO-MSAN plugin.
 
 Building:
   1. First, download and build DynamoRIO:
+     (svn co https://dynamorio.googlecode.com/svn/trunk dr && \
+      cd dr && mkdir build && cd build && \
+      cmake -DDR_EXT_DRMGR_STATIC=ON -DDR_EXT_DRSYMS_STATIC=ON \
+            -DDR_EXT_DRUTIL_STATIC=ON -DDR_EXT_DRWRAP_STATIC=ON .. && \
+      make -j10)
+
+  2. Download and build DrMemory (for DrSyscall extension:)
      (svn co http://drmemory.googlecode.com/svn/trunk/ drmemory && \
       cd drmemory && mkdir build && cd build && \
-      cmake -DDR_EXT_DRSYSCALL_STATIC=ON .. && make -j35 -k; make drsyscall drutil drmgr drpreload -j35)
-     Yes, full build with static drsyscall fails. Yes, parallel build of the 4
-     targets above fails, too - but for different reasons, and not after a full
-     build has been attempted!
-  2. Now, build the tool
+      cmake -DDynamoRIO_DIR=`pwd`/../../dr/exports/cmake \
+            -DDR_EXT_DRSYSCALL_STATIC=ON .. && \
+      make -j10)
+
+  3. Now, build the tool
      (mkdir build && cd build && \
-      cmake -DDynamoRIO_DIR=`pwd`/../drmemory/build/dynamorio/cmake .. && make)
+      cmake -DDynamoRIO_DIR=`pwd`/../dr/exports/cmake \
+            -DDrMemoryFramework_DIR=`pwd`/../dr/exports/drmf .. && \
+      make)
 
 Running:
-  LD_USE_LOAD_BIAS=1 ./dr/build/bin/drrun -client ./build/libmsandr.so 0 "" -- test
+  LD_USE_LOAD_BIAS=1 ./dr/exports/bin64/drrun -c ./build/libmsandr.so -- test
 
 Debugging:
-  Add -DCMAKE_BUILD_TYPE=Debug to the first cmake invocation.
-  Add -DDEBUG=ON to the second cmake invocation.
-  Add -debug -v to drrun invocation line (right before -client).
+  Add -DCMAKE_BUILD_TYPE=Debug to the first and/or second cmake invocation(s).
+  Add -DDEBUG=ON to the last cmake invocation.
+  Add -debug -v to drrun invocation line (right before -c).
+  Add -checklevel 1 to drrun (as the first argument) to make debug DR faster.
 
