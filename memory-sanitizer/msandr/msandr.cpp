@@ -706,6 +706,18 @@ DR_EXPORT void dr_init(client_id_t id) {
   drmgr_init();
   drutil_init();
 
+  string app_name = dr_get_application_name();
+  // This blacklist will still run these apps through DR's code cache.  On the
+  // other hand, we are able to follow children of these apps.
+  // TODO(rnk): Once DR has detach, we could just detach here.  Alternatively,
+  // if DR had a fork or exec hook to let us decide there, that would be nice.
+  // TODO: make the blacklist cmd-adjustable.
+  if (app_name == "python" ||app_name == "python2.7" ||
+      app_name == "bash" || app_name == "sh" ||
+      app_name == "true" || app_name == "exit" ||
+      app_name == "yes" || app_name == "echo")
+    return;
+
   drsys_options_t ops = { sizeof(ops), 0, };
   res = drsys_init(id, &ops);
   CHECK(res == DRMF_SUCCESS);
@@ -715,18 +727,6 @@ DR_EXPORT void dr_init(client_id_t id) {
   drmgr_register_post_syscall_event(event_post_syscall);
   res = drsys_filter_all_syscalls();
   CHECK(res == DRMF_SUCCESS);
-
-  string app_name = dr_get_application_name();
-  // This blacklist will still run these apps through DR's code cache.  On the
-  // other hand, we are able to follow children of these apps.
-  // TODO(rnk): Once DR has detach, we could just detach here.  Alternatively,
-  // if DR had a fork or exec hook to let us decide there, that would be nice.
-  // TODO: make the blacklist cmd-adjustable.
-  if (app_name == "python" ||
-      app_name == "bash" || app_name == "sh" ||
-      app_name == "true" || app_name == "exit" ||
-      app_name == "yes" || app_name == "echo")
-    return;
 
   InitializeMSanCallbacks();
   // FIXME: the shadow is initialized earlier when DR calls one of our wrapper functions
