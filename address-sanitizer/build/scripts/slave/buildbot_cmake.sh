@@ -165,12 +165,13 @@ if [ $BUILD_ANDROID == 1 ] ; then
         -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
         ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT)
-    (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS AsanUnitTests) || echo @@@STEP_FAILURE@@@
+    (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS \
+        AsanUnitTests SanitizerUnitTests) || echo @@@STEP_FAILURE@@@
 fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
 if [ $RUN_ANDROID == 1 ] ; then
-    echo @@@BUILD_STEP run Android tests@@@
+    echo @@@BUILD_STEP reboot device@@@
     ADB=$ROOT/../../../android-sdk-linux/platform-tools/adb
     DEVICE_ROOT=/data/local/asan_test
 
@@ -186,6 +187,18 @@ if [ $RUN_ANDROID == 1 ] ; then
     sleep 5
     $ADB shell rm -rf $DEVICE_ROOT
     $ADB shell mkdir $DEVICE_ROOT
+
+
+    echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
+
+    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/sanitizer_common/tests/Release/SanitizerTest $DEVICE_ROOT/
+
+    $ADB shell "$DEVICE_ROOT/SanitizerTest; \
+        echo \$? >$DEVICE_ROOT/error_code"
+    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+
+
+    echo @@@BUILD_STEP run asan tests [Android]@@@
 
     ASAN_RT_LIB=libclang_rt.asan-arm-android.so
     ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
