@@ -6,19 +6,19 @@ Building:
       cd dr && mkdir build && cd build && \
       cmake -DDR_EXT_DRMGR_STATIC=ON -DDR_EXT_DRSYMS_STATIC=ON \
             -DDR_EXT_DRUTIL_STATIC=ON -DDR_EXT_DRWRAP_STATIC=ON .. && \
-      make -j10)
+      make -j10 && make install)
 
   2. Download and build DrMemory (for DrSyscall extension:)
      (svn co http://drmemory.googlecode.com/svn/trunk/ drmemory && \
       cd drmemory && mkdir build && cd build && \
       cmake -DDynamoRIO_DIR=`pwd`/../../dr/exports/cmake \
             -DDR_EXT_DRSYSCALL_STATIC=ON .. && \
-      make -j10)
+      make -j10 && make install)
 
   3. Now, build the tool
      (mkdir build && cd build && \
       cmake -DDynamoRIO_DIR=`pwd`/../dr/exports/cmake \
-            -DDrMemoryFramework_DIR=`pwd`/../dr/exports/drmf .. && \
+            -DDrMemoryFramework_DIR=`pwd`/../drmemory/exports64/drmf .. && \
       make)
 
 Running:
