@@ -51,7 +51,7 @@ cd %ROOT%
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-fsanitize=address -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../llvm/projects/compiler-rt/lib/asan/asan_rtl.lib || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-fsanitize=address -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../llvm/projects/compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
