@@ -30,8 +30,7 @@ del llvm-build\CMakeCache.txt
 cd llvm-build
 cmake ..\llvm || goto :DIE
 echo @@@BUILD_STEP build llvm@@@
-devenv LLVM.sln /Build Debug /Project clang || goto :DIE
-devenv LLVM.sln /Build Debug /Project FileCheck || goto :DIE
+cmake --build . || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP test llvm@@@
