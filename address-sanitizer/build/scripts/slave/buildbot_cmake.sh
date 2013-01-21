@@ -211,5 +211,5 @@ if [ $RUN_ANDROID == 1 ] ; then
         $DEVICE_ROOT/AsanTest \
         --gtest_filter=-AddressSanitizer.MemsetWildAddressTest; \
         echo \$? >$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+    $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
 fi
