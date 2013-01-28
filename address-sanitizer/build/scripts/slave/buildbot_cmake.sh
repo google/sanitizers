@@ -90,8 +90,8 @@ fi
 echo @@@BUILD_STEP run asan tests@@@
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
-ASAN_TEST_BINARY_64=$ASAN_TESTS_PATH/$BUILD_TYPE/Asan-x86_64-Test
-ASAN_TEST_BINARY_32=$ASAN_TESTS_PATH/$BUILD_TYPE/Asan-i386-Test
+ASAN_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Test
+ASAN_TEST_BINARY_32=$ASAN_TESTS_PATH/Asan-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 # Run unit test binaries in a single shard.
 ./llvm_build64/$ASAN_TEST_BINARY_64
@@ -106,7 +106,7 @@ fi
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run msan unit tests@@@
   MSAN_PATH=projects/compiler-rt/lib/msan
-  MSAN_UNIT_TEST_BINARY=$MSAN_PATH/tests/$BUILD_TYPE/Msan-x86_64-Test
+  MSAN_UNIT_TEST_BINARY=$MSAN_PATH/tests/Msan-x86_64-Test
   (cd llvm_build64 && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
   # Run msan unit test binaries.
   ./llvm_build64/$MSAN_UNIT_TEST_BINARY
@@ -115,8 +115,8 @@ fi
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
   TSAN_PATH=projects/compiler-rt/lib/tsan
-  TSAN_RTL_TEST_BINARY=$TSAN_PATH/tests/rtl/$BUILD_TYPE/TsanRtlTest
-  TSAN_UNIT_TEST_BINARY=$TSAN_PATH/tests/unit/$BUILD_TYPE/TsanUnitTest
+  TSAN_RTL_TEST_BINARY=$TSAN_PATH/tests/rtl/TsanRtlTest
+  TSAN_UNIT_TEST_BINARY=$TSAN_PATH/tests/unit/TsanUnitTest
   (cd llvm_build64 && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
   # Run tsan unit test binaries.
   ./llvm_build64/$TSAN_RTL_TEST_BINARY
@@ -126,8 +126,8 @@ fi
 echo @@@BUILD_STEP run sanitizer_common tests@@@
 SANITIZER_COMMON_PATH=projects/compiler-rt/lib/sanitizer_common
 SANITIZER_COMMON_TESTS=$SANITIZER_COMMON_PATH/tests
-SANITIZER_COMMON_TEST_BINARY_64=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/Sanitizer-x86_64-Test
-SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/${BUILD_TYPE}/Sanitizer-i386-Test
+SANITIZER_COMMON_TEST_BINARY_64=${SANITIZER_COMMON_TESTS}/Sanitizer-x86_64-Test
+SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/Sanitizer-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
 # Run unit test binaries in a single shard.
 ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_64}
