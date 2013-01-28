@@ -191,7 +191,7 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
 
-    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/sanitizer_common/tests/Release/SanitizerTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
 
     $ADB shell "$DEVICE_ROOT/SanitizerTest; \
         echo \$? >$DEVICE_ROOT/error_code"
@@ -204,7 +204,7 @@ if [ $RUN_ANDROID == 1 ] ; then
     ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
     echo "ASan runtime: $ASAN_RT_LIB_PATH"
     $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
-    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/Release/AsanTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanTest $DEVICE_ROOT/
 
     $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
         LD_LIBRARY_PATH=$DEVICE_ROOT \
