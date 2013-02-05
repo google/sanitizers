@@ -39,11 +39,9 @@ fi
 echo @@@BUILD_STEP build llvm@@@
 if [ ! -d llvm-build ]; then
   mkdir llvm-build
-  cd llvm-build
-  ../llvm/configure --enable-optimized
-else
-  cd llvm-build
 fi
+cd llvm-build
+../llvm/configure --enable-optimized
 make -j$MAKE_JOBS
 cd ..
 BUILD_ROOT=`pwd`
