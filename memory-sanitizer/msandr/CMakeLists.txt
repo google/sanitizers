@@ -4,7 +4,7 @@ find_package(DynamoRIO)
 find_package(DrMemoryFramework)
 
 
-add_library(msandr SHARED msandr.cpp)
+add_library(msandr SHARED msandr.cc)
 configure_DynamoRIO_client(msandr)
 
 use_DynamoRIO_extension(msandr drutil)
