@@ -26,7 +26,7 @@ int main(void) {
 // CHECK-NOT: This code should be unreachable
 
 // CHECK: AddressSanitizer: stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
-// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK: WRITE of size 6 at [[ADDR]] thread T0
 // CHECK:   #0 {{.*}} __asan_report_error
 // CHECK:   #1 {{.*}} wrap_memcpy
 // CHECK:   #2 {{.*}} main
