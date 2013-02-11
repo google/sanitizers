@@ -521,7 +521,7 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   if (!mod_data->should_instrument_) {
     dr_fprintf(STDERR, "WTF? should_instrument_==false in %s, module=`%s`\n",
                __FUNCTION__, mod_path.c_str());
-    return DR_EMIT_DEFAULT;
+    return DR_EMIT_PERSISTABLE;
   }
 #if defined(VERBOSE)
 # if defined(VERBOSE_VERBOSE)
@@ -566,6 +566,9 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
         // Don't instrument reads in libX for now.  XChangeProperty has a small
         // buffer overread.
         && mod_path.find("libX") == string::npos
+        // Don't instrument reads in libfontconfig,
+        // https://bugs.kde.org/show_bug.cgi?id=269172 is blocking.
+        && mod_path.find("libfontconfig") == string::npos
         ) {
       // Instrument memory reads
       bool instrumented_anything = false;
@@ -603,7 +606,11 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
   dr_printf("\nFinished instrumenting dynamorio_basic_block(PC="PFX")\n", pc);
   instrlist_disassemble(drcontext, pc, bb, STDOUT);
 #endif
-  return DR_EMIT_DEFAULT;
+
+  // TODO(timurrrr): We've added a clean call which might not be persistable
+  // (e.g. if the main binary is PIC/PIE) but don't bother for now as we're
+  // only perf-testing persist atm.
+  return DR_EMIT_PERSISTABLE;
 }
 
 void event_module_load(void *drcontext, const module_data_t *info, bool loaded) {
