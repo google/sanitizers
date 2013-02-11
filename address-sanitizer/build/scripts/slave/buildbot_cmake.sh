@@ -68,7 +68,7 @@ if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run sanitizer tests in gcc build@@@
   (cd clang_build && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
-  (cd clang_build && make -j$MAKE_JOBS check-msan) || echo @@@STEP_WARNINGS@@@
+  (cd clang_build && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-ubsan) || echo @@@STEP_WARNINGS@@@
 fi
