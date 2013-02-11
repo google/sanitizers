@@ -17,4 +17,4 @@ Building:
 Running:
   1. See ../pin/README.txt on how to build the test app
   2. Run it with DR-ASan:
-     ./dr/exports/bin64/drrun -client ./build/libdr_asan.so 0 "" -- ../pin/a.out
+     ./dr/exports/bin64/drrun -c ./build/libdr_asan.so -- ../pin/a.out
