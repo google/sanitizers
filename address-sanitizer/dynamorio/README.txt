@@ -7,10 +7,12 @@ Building:
   1. First, download and build DynamoRIO:
      (svn co https://dynamorio.googlecode.com/svn/trunk dr && \
       cd dr && mkdir build && cd build && \
-      cmake .. && make -j10)
+      cmake -DDR_EXT_DRMGR_STATIC=ON  -DDR_EXT_DRSYMS_STATIC=ON \
+            -DDR_EXT_DRUTIL_STATIC=ON -DDR_EXT_DRWRAP_STATIC=ON .. && \
+      make -j10 && make install)
   2. Now, build the tool
      (mkdir build && cd build && \
-      cmake -DDynamoRIO_DIR=`pwd`/../dr/build/cmake .. && make -j10)
+      cmake -DDynamoRIO_DIR=`pwd`/../dr/exports/cmake .. && make -j10)
 
 Running:
   1. See ../pin/README.txt on how to build the test app
