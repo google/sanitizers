@@ -36,11 +36,16 @@ CLANGXX=`pwd`/_clang++
 LIBCXX=$LLVM/projects/libcxx
 LIBCXXABI=$LLVM/projects/libcxxabi
 
-FLAGS="-fPIC -fno-omit-frame-pointer -w -O1 -g -fno-inline-functions -fno-inline -stdlib=libc++ -I$LIBCXX/include \
+# FLAGS="-fPIC -fno-omit-frame-pointer -w -O1 -g -fno-inline-functions -fno-inline -stdlib=libc++ -I$LIBCXX/include \
+# -I$LIBCXXABI/include \
+# -L$LIBCXX/lib -Wl,-R$LIBCXX/lib -L$LIBCXXABI/lib -Wl,-R$LIBCXXABI/lib -lc++abi \
+# $FLAGS"
+
+
+FLAGS="-fPIC -w -g -fno-omit-frame-pointer -stdlib=libc++ -I$LIBCXX/include \
 -I$LIBCXXABI/include \
 -L$LIBCXX/lib -Wl,-R$LIBCXX/lib -L$LIBCXXABI/lib -Wl,-R$LIBCXXABI/lib -lc++abi \
 $FLAGS"
-
 
 set -x
 CC="$CLANG" \
