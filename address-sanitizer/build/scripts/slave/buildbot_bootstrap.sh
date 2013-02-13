@@ -42,6 +42,9 @@ CLANG_PATH=llvm_build0/bin
 CMAKE_STAGE2_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DLLVM_ENABLE_WERROR=ON"
 CMAKE_MSAN_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++"
 
+if [ ! -d libcxx_build_msan ]; then
+  mkdir libcxx_build_msan
+fi
 (cd libcxx_build_msan &&
     LLVM_BIN=$CLANG_PATH $HERE/bootstrap/build_libcxx.sh --msan $LLVM) ||
 echo @@@STEP_FAILURE@@@
