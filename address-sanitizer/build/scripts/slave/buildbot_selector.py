@@ -28,6 +28,7 @@ BOT_ADDITIONAL_ENV = {
     'win': {},
     'linux': { 'CHECK_TSAN': '1' },
     'linux-cmake': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
+    'linux-bootstrap': {},
     'mac10.6': { 'MAX_MAKE_JOBS': '2' },
     'mac10.7': { 'MAX_MAKE_JOBS': '4' },
     'mac10.7-cmake': { 'MAX_MAKE_JOBS': '4' },
