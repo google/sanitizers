@@ -33,7 +33,7 @@ echo @@@BUILD_STEP build stage1 clang@@@
 if [ ! -d llvm_build0 ]; then
   mkdir llvm_build0
 fi
-(cd llvm_build0 && cmake ${CMAKE_STAGE1_OPTIONS} $LLVM_CHECKOUT && ninja) || \
+(cd llvm_build0 && cmake ${CMAKE_STAGE1_OPTIONS} $LLVM && ninja) || \
   echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP build libcxxabi/msan@@@
