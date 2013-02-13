@@ -48,3 +48,17 @@ fi
 (cd libcxx_build_msan &&
     LLVM_BIN=$CLANG_PATH $HERE/bootstrap/build_libcxx.sh --msan $LLVM) ||
 echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP build clang/msan@@@
+
+if [ ! -d llvm_build_msan ]; then
+  mkdir llvm_build_msan
+fi
+(cd llvm_build_msan && \
+    LLVM_BIN=$CLANG_PATH \
+    LIBCXX=$ROOT/libcxx_build_msan \
+    $HERE/bootstrap/build_llvm.sh --msan $LLVM) ||
+echo @@@STEP_FAILURE@@@
+(cd llvm_build_msan && ninja clang) || echo @@@STEP_FAILURE@@@
+
