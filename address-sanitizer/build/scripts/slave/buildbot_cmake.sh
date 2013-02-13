@@ -27,7 +27,7 @@ fi
 
 
 echo @@@BUILD_STEP update@@@
-buildbot_update()
+buildbot_update
 
 
 echo @@@BUILD_STEP lint@@@

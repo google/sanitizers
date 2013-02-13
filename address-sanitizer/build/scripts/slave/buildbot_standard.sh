@@ -16,7 +16,7 @@ MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 CHECK_TSAN=${CHECK_TSAN:-0}
 
 echo @@@BUILD_STEP update@@@
-buildbot_update()
+buildbot_update
 
 echo @@@BUILD_STEP build llvm@@@
 if [ ! -d llvm-build ]; then

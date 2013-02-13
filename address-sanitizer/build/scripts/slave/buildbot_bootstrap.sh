@@ -24,7 +24,7 @@ CMAKE_COMMON_OPTIONS="-GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTION
 CMAKE_STAGE1_OPTIONS="${CMAKE_COMMON_OPTIONS}"
 
 echo @@@BUILD_STEP update@@@
-buildbot_update()
+buildbot_update
 
 
 echo @@@BUILD_STEP build stage1 clang@@@
