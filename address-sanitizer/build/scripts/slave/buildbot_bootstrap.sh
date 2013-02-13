@@ -4,7 +4,7 @@ set -x
 set -e
 set -u
 
-HERE="$(dirname $0)"
+HERE="$(cd $(dirname $0) && pwd)"
 . ${HERE}/buildbot_functions.sh
 
 ROOT=`pwd`
