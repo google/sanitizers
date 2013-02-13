@@ -4,7 +4,8 @@ set -x
 set -e
 set -u
 
-. buildbot_functions.sh
+HERE="$(dirname $0)"
+. ${HERE}/buildbot_functions.sh
 
 ROOT=`pwd`
 PLATFORM=`uname`
