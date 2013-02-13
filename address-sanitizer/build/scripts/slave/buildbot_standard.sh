@@ -4,6 +4,7 @@ set -x
 set -e
 set -u
 
+. buildbot_functions.sh
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
@@ -11,30 +12,11 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   rm -rf llvm-build
 fi
 
-echo @@@BUILD_STEP update@@@
-REV_ARG=
-if [ "$BUILDBOT_REVISION" != "" ]; then
-  REV_ARG="-r$BUILDBOT_REVISION"
-fi
-
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 CHECK_TSAN=${CHECK_TSAN:-0}
 
-if [ -d llvm ]; then
-  svn up llvm $REV_ARG
-  if [ "$REV_ARG" == "" ]; then
-    REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
-  fi
-  svn up llvm/tools/clang $REV_ARG
-  svn up llvm/projects/compiler-rt $REV_ARG
-else
-  svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm $REV_ARG
-  if [ "$REV_ARG" == "" ]; then
-    REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
-  fi
-  svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang $REV_ARG
-  svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
-fi
+echo @@@BUILD_STEP update@@@
+buildbot_update()
 
 echo @@@BUILD_STEP build llvm@@@
 if [ ! -d llvm-build ]; then

@@ -17,6 +17,7 @@ BOT_ASSIGNMENT = {
     'win': cmd_call('buildbot_standard.bat'),
     'linux': bash('buildbot_standard.sh'),
     'linux-cmake': bash('buildbot_cmake.sh'),
+    'linux-bootstrap': bash('buildbot_bootstrap.sh'),
     'mac10.6': bash('buildbot_standard.sh'),
     'mac10.7': bash('buildbot_standard.sh'),
     'mac10.7-cmake': bash('buildbot_cmake.sh'),

@@ -4,6 +4,8 @@ set -x
 set -e
 set -u
 
+. buildbot_functions.sh
+
 ROOT=`pwd`
 PLATFORM=`uname`
 export PATH="/usr/local/bin:$PATH"
@@ -16,37 +18,17 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   rm -rf clang_build
 fi
 
-echo @@@BUILD_STEP update@@@
-REV_ARG=
-if [ "$BUILDBOT_REVISION" != "" ]; then
-  REV_ARG="-r$BUILDBOT_REVISION"
-fi
-
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
-
-if [ -d llvm -a -d llvm/projects/libcxx ]; then
-  svn up llvm $REV_ARG
-  if [ "$REV_ARG" == "" ]; then
-    REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
-  fi
-  svn up llvm/tools/clang $REV_ARG
-  svn up llvm/projects/compiler-rt $REV_ARG
-  svn up llvm/projects/libcxx $REV_ARG
-else
-  svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm $REV_ARG
-  if [ "$REV_ARG" == "" ]; then
-    REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
-  fi
-  svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang $REV_ARG
-  svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
-  svn co http://llvm.org/svn/llvm-project/libcxx/trunk llvm/projects/libcxx $REV_ARG
-fi
 LLVM_CHECKOUT=$ROOT/llvm
-
 CMAKE_COMMON_OPTIONS="-DLLVM_ENABLE_ASSERTIONS=ON"
 if [ "$PLATFORM" == "Darwin" ]; then
   CMAKE_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DPYTHON_EXECUTABLE=/usr/bin/python"
 fi
+
+
+echo @@@BUILD_STEP update@@@
+buildbot_update()
+
 
 echo @@@BUILD_STEP lint@@@
 CHECK_LINT=${LLVM_CHECKOUT}/projects/compiler-rt/lib/sanitizer_common/scripts/check_lint.sh
