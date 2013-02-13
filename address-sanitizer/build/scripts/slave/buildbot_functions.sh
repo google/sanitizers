@@ -6,7 +6,7 @@ function buildbot_update {
         REV_ARG="-r$BUILDBOT_REVISION"
     fi
 
-    if [ -d llvm -a -d llvm/projects/libcxx ]; then
+    if [ -d llvm -a -d llvm/projects/libcxxabi ]; then
         svn up llvm $REV_ARG
         if [ "$REV_ARG" == "" ]; then
             REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
@@ -14,6 +14,7 @@ function buildbot_update {
         svn up llvm/tools/clang $REV_ARG
         svn up llvm/projects/compiler-rt $REV_ARG
         svn up llvm/projects/libcxx $REV_ARG
+        svn up llvm/projects/libcxxabi $REV_ARG
     else
         svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm $REV_ARG
         if [ "$REV_ARG" == "" ]; then
@@ -22,5 +23,6 @@ function buildbot_update {
         svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang $REV_ARG
         svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt $REV_ARG
         svn co http://llvm.org/svn/llvm-project/libcxx/trunk llvm/projects/libcxx $REV_ARG
+        svn co http://llvm.org/svn/llvm-project/libcxxabi/trunk llvm/projects/libcxxabi $REV_ARG
     fi
 }
