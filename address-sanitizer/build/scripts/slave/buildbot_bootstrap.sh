@@ -64,12 +64,12 @@ echo @@@STEP_FAILURE@@@
 (cd llvm_build_msan && ninja clang) || echo @@@STEP_FAILURE@@@
 
 
-echo @@@BUILD_STEP test check-llvm/msan@@@
+echo @@@BUILD_STEP check-llvm msan@@@
 
 (cd llvm_build_msan && ninja check-llvm) || echo @@@STEP_FAILURE@@@
 
 
-echo @@@BUILD_STEP test check-clang/msan@@@
+echo @@@BUILD_STEP check-clang msan@@@
 
 (cd llvm_build_msan && ninja check-clang) || echo @@@STEP_FAILURE@@@
 
@@ -88,6 +88,6 @@ CMAKE_STAGE3_MSAN_OPTIONS="${CMAKE_STAGE3_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${C
   echo @@@STEP_FAILURE@@@
 
 
-echo @@@BUILD_STEP test stage3/msan clang@@@
+echo @@@BUILD_STEP check-all stage3/msan@@@
 
 (cd llvm_build2_msan && ninja check-all) || echo @@@STEP_FAILURE@@@
