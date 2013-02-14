@@ -62,3 +62,7 @@ fi
 echo @@@STEP_FAILURE@@@
 (cd llvm_build_msan && ninja clang) || echo @@@STEP_FAILURE@@@
 
+
+echo @@@BUILD_STEP test clang/msan@@@
+
+(cd llvm_build_msan && ninja check-llvm check-clang) || echo @@@STEP_FAILURE@@@
