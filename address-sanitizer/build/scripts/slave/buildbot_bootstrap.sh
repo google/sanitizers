@@ -15,12 +15,16 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
   rm -rf llvm_build0
-  rm -rf libcxx_build_msan
-  rm -rf llvm_build_msan
-  rm -rf llvm_build2_msan
-  rm -rf llvm_build_asan
-  rm -rf llvm_build2_asan
 fi
+
+# CMake does not notice that the compiler itself has changed.
+# Anyway, incremental builds of stage2 and stage3 compilers don't make sense.
+# Clobber the build trees.
+rm -rf libcxx_build_msan
+rm -rf llvm_build_msan
+rm -rf llvm_build2_msan
+rm -rf llvm_build_asan
+rm -rf llvm_build2_asan
 
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM=$ROOT/llvm
