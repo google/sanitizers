@@ -17,6 +17,7 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   rm -rf llvm_build0
   rm -rf libcxx_build_msan
   rm -rf llvm_build_msan
+  rm -rf llvm_build2_msan
 fi
 
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
@@ -63,6 +64,30 @@ echo @@@STEP_FAILURE@@@
 (cd llvm_build_msan && ninja clang) || echo @@@STEP_FAILURE@@@
 
 
-echo @@@BUILD_STEP test clang/msan@@@
+echo @@@BUILD_STEP test check-llvm/msan@@@
 
-(cd llvm_build_msan && ninja check-llvm check-clang) || echo @@@STEP_FAILURE@@@
+(cd llvm_build_msan && ninja check-llvm) || echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP test check-clang/msan@@@
+
+(cd llvm_build_msan && ninja check-clang) || echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP build stage3/msan clang@@@
+
+if [ ! -d llvm_build2_msan ]; then
+  mkdir llvm_build2_msan
+fi
+
+CLANG_MSAN_PATH=$ROOT/llvm_build_msan/bin
+CMAKE_STAGE3_COMMON_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS}"
+CMAKE_STAGE3_MSAN_OPTIONS="${CMAKE_STAGE3_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_MSAN_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_MSAN_PATH}/clang++"
+
+(cd llvm_build2_msan && cmake ${CMAKE_STAGE3_MSAN_OPTIONS} $LLVM && ninja) || \
+  echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP test stage3/msan clang@@@
+
+(cd llvm_build2_msan && ninja check-all) || echo @@@STEP_FAILURE@@@
