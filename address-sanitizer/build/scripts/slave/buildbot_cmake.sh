@@ -61,7 +61,7 @@ CLANG_PATH=${ROOT}/clang_build/bin
 # Build self-hosted tree with fresh Clang and -Werror.
 CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++ -DLLVM_ENABLE_WERROR=ON"
 # TODO: Remove this warning suppression when LLVM r173643 is fixed/reverted.
-CMAKE_CLANG_OPTIONS='${CMAKE_CLANG_OPTIONS} -DCMAKE_C_FLAGS=-Wno-nested-anon-types -DCMAKE_CXX_FLAGS=-Wno-nested-anon-types'
+CMAKE_CLANG_OPTIONS="${CMAKE_CLANG_OPTIONS} -DCMAKE_C_FLAGS=-Wno-nested-anon-types -DCMAKE_CXX_FLAGS=-Wno-nested-anon-types"
 BUILD_TYPE=Release
 
 echo @@@BUILD_STEP build 64-bit llvm using clang@@@
