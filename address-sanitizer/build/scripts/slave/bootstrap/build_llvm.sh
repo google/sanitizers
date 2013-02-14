@@ -3,8 +3,15 @@
 ARG=$1
 shift
 
+WITH_LIBCXX=
+
 if [ "z$ARG" == "z--msan" ]; then
   FLAGS="-fsanitize=memory -fsanitize-memory-track-origins -pie"
+  WITH_LIBCXX=1
+  ARG=$1
+  shift
+elif [ "z$ARG" == "z--asan" ]; then
+  FLAGS="-fsanitize=address -pie"
   ARG=$1
   shift
 fi
@@ -17,13 +24,15 @@ fi
 LLVM=$ARG
 
 if [ "z$LLVM_BIN" == "z" ]; then
-  echo "Please set \$LLVM_BIN to the location of msan-enabled 'clang' binary."
+  echo "Please set \$LLVM_BIN to the location of sanitizer-enabled 'clang' binary."
   exit 1
 fi
 
-if [ "z$LIBCXX" == "z" ]; then
-  echo "Please set \$LIBCXX to the location of msan-enabled libcxx/libcxxabi library."
-  exit 1
+if [ "z$WITH_LIBCXX" != "z" ]; then
+    if [ "z$LIBCXX" == "z" ]; then
+        echo "Please set \$LIBCXX to the location of msan-enabled libcxx/libcxxabi library."
+        exit 1
+    fi
 fi
 
 HERE=$(cd $(dirname $0) && pwd)
@@ -34,20 +43,15 @@ chmod +x _clang _clang++
 
 CLANG=`pwd`/_clang
 CLANGXX=`pwd`/_clang++
-LIBCXX_INCLUDE=$LLVM/projects/libcxx
-LIBCXXABI=$LLVM/projects/libcxxabi
+FLAGS="-fPIC -w -g -fno-omit-frame-pointer $FLAGS"
 
-# FLAGS="-fPIC -fno-omit-frame-pointer -w -O1 -g -fno-inline-functions -fno-inline -stdlib=libc++ -I$LIBCXX/include \
-# -I$LIBCXXABI/include \
-# -L$LIBCXX/lib -Wl,-R$LIBCXX/lib -L$LIBCXXABI/lib -Wl,-R$LIBCXXABI/lib -lc++abi \
-# $FLAGS"
-
-
-FLAGS="-fPIC -w -g -fno-omit-frame-pointer -stdlib=libc++ \
+if [ "z$WITH_LIBCXX" != "z" ]; then
+    FLAGS="-stdlib=libc++ \
 -I$LLVM/projects/libcxx/include \
 -I$LLVM/projects/libcxxabi/include \
 -L$LIBCXX -Wl,-R$LIBCXX -lc++abi \
 $FLAGS"
+fi
 
 set -x
 CC="$CLANG" \

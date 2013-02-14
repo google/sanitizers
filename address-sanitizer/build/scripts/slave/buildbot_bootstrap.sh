@@ -18,6 +18,8 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   rm -rf libcxx_build_msan
   rm -rf llvm_build_msan
   rm -rf llvm_build2_msan
+  rm -rf llvm_build_asan
+  rm -rf llvm_build2_asan
 fi
 
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
@@ -29,6 +31,7 @@ CMAKE_STAGE1_OPTIONS="${CMAKE_COMMON_OPTIONS}"
 echo @@@BUILD_STEP update@@@
 buildbot_update
 
+# Stage 1
 
 echo @@@BUILD_STEP build stage1 clang@@@
 if [ ! -d llvm_build0 ]; then
@@ -36,6 +39,9 @@ if [ ! -d llvm_build0 ]; then
 fi
 (cd llvm_build0 && cmake ${CMAKE_STAGE1_OPTIONS} $LLVM && ninja) || \
   echo @@@STEP_FAILURE@@@
+
+
+# Stage 2 / MemorySanitizer
 
 echo @@@BUILD_STEP build libcxxabi/msan@@@
 
@@ -74,6 +80,8 @@ echo @@@BUILD_STEP check-clang msan@@@
 (cd llvm_build_msan && ninja check-clang) || echo @@@STEP_FAILURE@@@
 
 
+# Stage 3 / MemorySanitizer
+
 echo @@@BUILD_STEP build stage3/msan clang@@@
 
 if [ ! -d llvm_build2_msan ]; then
@@ -91,3 +99,53 @@ CMAKE_STAGE3_MSAN_OPTIONS="${CMAKE_STAGE3_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${C
 echo @@@BUILD_STEP check-all stage3/msan@@@
 
 (cd llvm_build2_msan && ninja check-all) || echo @@@STEP_FAILURE@@@
+
+
+# Stage 2 / AddressSanitizer
+
+echo @@@BUILD_STEP build clang/asan@@@
+
+CMAKE_ASAN_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS} \
+-DCMAKE_C_COMPILER=${CLANG_PATH}/clang \
+-DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++"
+
+if [ ! -d llvm_build_asan ]; then
+  mkdir llvm_build_asan
+fi
+
+(cd llvm_build_asan && \
+    LLVM_BIN=$CLANG_PATH \
+    $HERE/bootstrap/build_llvm.sh --asan $LLVM) ||
+echo @@@STEP_FAILURE@@@
+(cd llvm_build_asan && ninja clang) || echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP check-llvm asan@@@
+
+(cd llvm_build_asan && ninja check-llvm) || echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP check-clang asan@@@
+
+(cd llvm_build_asan && ninja check-clang) || echo @@@STEP_FAILURE@@@
+
+
+# Stage 3 / AddressSanitizer
+
+echo @@@BUILD_STEP build stage3/asan clang@@@
+
+if [ ! -d llvm_build2_asan ]; then
+  mkdir llvm_build2_asan
+fi
+
+CLANG_ASAN_PATH=$ROOT/llvm_build_asan/bin
+CMAKE_STAGE3_COMMON_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS}"
+CMAKE_STAGE3_ASAN_OPTIONS="${CMAKE_STAGE3_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_ASAN_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_ASAN_PATH}/clang++"
+
+(cd llvm_build2_asan && cmake ${CMAKE_STAGE3_ASAN_OPTIONS} $LLVM && ninja) || \
+  echo @@@STEP_FAILURE@@@
+
+
+echo @@@BUILD_STEP check-all stage3/asan@@@
+
+(cd llvm_build2_asan && ninja check-all) || echo @@@STEP_FAILURE@@@
