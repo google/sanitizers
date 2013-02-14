@@ -45,7 +45,7 @@ LIBCXXABI=$LLVM/projects/libcxxabi
 
 FLAGS="-fPIC -w -g -fno-omit-frame-pointer -stdlib=libc++ \
 -I$LLVM/projects/libcxx/include \
--I$LLVM/projects/libcxxabi/includ \
+-I$LLVM/projects/libcxxabi/include \
 -L$LIBCXX -Wl,-R$LIBCXX -lc++abi \
 $FLAGS"
 
