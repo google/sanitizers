@@ -51,7 +51,7 @@ for source in ${LIBCXXABI}/src/*.cpp; do
     obj=$(basename ${source%.cpp}.o)
     echo "CXX $obj"
     $CLANGXX -c $LIBCXXABI_CFLAGS $source
-    LIBCXXABI_OBJS="$OBJS $obj"
+    LIBCXXABI_OBJS="$LIBCXXABI_OBJS $obj"
 done
 
 LIBCXXABI_LDFLAGS="\
@@ -93,7 +93,7 @@ for source in ${LIBCXX}/src/*.cpp; do
     obj=$(basename ${source%.cpp}.o)
     echo "CXX $obj"
     $CLANGXX -c $LIBCXX_CFLAGS $source
-    LIBCXX_OBJS="$OBJS $obj"
+    LIBCXX_OBJS="$LIBCXX_OBJS $obj"
 done
 
 LIBCXX_LDFLAGS="\
