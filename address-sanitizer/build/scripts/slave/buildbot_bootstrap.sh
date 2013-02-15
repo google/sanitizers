@@ -57,7 +57,7 @@ if [ ! -d libcxx_build_msan ]; then
   mkdir libcxx_build_msan
 fi
 (cd libcxx_build_msan &&
-    LLVM_BIN=$CLANG_PATH $HERE/bootstrap/build_libcxx.sh --msan $LLVM) ||
+    LLVM_BIN=$CLANG_PATH $HERE/bootstrap/build_libcxx.sh --msan-origins $LLVM) ||
 echo @@@STEP_FAILURE@@@
 
 

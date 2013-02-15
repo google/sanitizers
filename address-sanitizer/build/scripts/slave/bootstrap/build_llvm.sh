@@ -5,8 +5,13 @@ shift
 
 WITH_LIBCXX=
 
-if [ "z$ARG" == "z--msan" ]; then
+if [ "z$ARG" == "z--msan-origins" ]; then
   FLAGS="-fsanitize=memory -fsanitize-memory-track-origins -pie"
+  WITH_LIBCXX=1
+  ARG=$1
+  shift
+elif [ "z$ARG" == "z--msan" ]; then
+  FLAGS="-fsanitize=memory -pie"
   WITH_LIBCXX=1
   ARG=$1
   shift
