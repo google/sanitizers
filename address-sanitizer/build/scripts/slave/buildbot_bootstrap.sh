@@ -69,7 +69,7 @@ fi
 (cd llvm_build_msan && \
     LLVM_BIN=$CLANG_PATH \
     LIBCXX=$ROOT/libcxx_build_msan \
-    $HERE/bootstrap/build_llvm.sh --msan $LLVM) ||
+    $HERE/bootstrap/build_llvm.sh --msan-origins $LLVM) ||
 echo @@@STEP_FAILURE@@@
 (cd llvm_build_msan && ninja clang) || echo @@@STEP_FAILURE@@@
 
