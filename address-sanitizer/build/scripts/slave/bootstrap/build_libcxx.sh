@@ -6,12 +6,12 @@ ARG=$1
 shift
 
 if [ "z$ARG" == "z--msan-origins" ]; then
-  CFLAGS="-fsanitize=memory"
+  CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
   LDFLAGS="-fsanitize=memory -pie"
   ARG=$1
   shift
 elif [ "z$ARG" == "z--msan" ]; then
-  CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
+  CFLAGS="-fsanitize=memory"
   LDFLAGS="-fsanitize=memory -pie"
   ARG=$1
   shift
