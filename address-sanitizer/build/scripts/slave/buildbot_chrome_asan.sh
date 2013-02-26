@@ -100,7 +100,7 @@ do
   (
     set +x
     cd $CHROME_CHECKOUT/src
-    out/Release/$test_name 2>&1 | tools/valgrind/asan/asan_symbolize.py | c++filt 
+    xvfb-run out/Release/$test_name 2>&1 | tools/valgrind/asan/asan_symbolize.py | c++filt 
     ((${PIPESTATUS[0]})) && echo @@@STEP_FAILURE@@@ || true
   )
 done
