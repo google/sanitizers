@@ -106,9 +106,45 @@
   {% endif %}
 {% endmacro %}
 
-{% macro force_build(force_url, authz, on_all=False, on_selected=False, builders=[]) %}
-<form method="post" name="force_build" action="{{ force_url }}" class="command forcebuild">
 
+
+{% macro force_build_scheduler_parameter(f, authz, request, sch, default_props) %}
+    {% if f and not f.hide %}
+    <div class="row{% for subtype in f.type %} force-{{subtype}}{%endfor%}"{% if f.name %} id="force-{{sch.name}}-{{f.fullName}}"{% endif %}>
+    {% if 'text' in f.type or 'int' in f.type %}
+       <span class="label">{{f.label}}</span>
+       <input type='text' size='{{f.size}}' name='{{f.fullName}}' value='{{default_props[sch.name+"."+f.fullName]}}' />
+    {% elif 'bool' in f.type%}
+       <input type='checkbox' name='checkbox' value='{{f.fullName}}' {{default_props[sch.name+"."+f.fullName]}} />
+       <span class="label">{{f.label}}</span>
+    {% elif 'textarea' in f.type %}
+       <span class="label">{{f.label}}</span>
+       <textarea name='{{f.fullName}}' rows={{f.rows}} cols={{f.cols}}>{{default_props[sch.name+"."+f.fullName]}}</textarea>
+    {% elif 'list' in f.type %}
+       <span class="label">{{f.label}}</span>
+       <span class="select">
+       <select name='{{f.fullName}}' {{ f.multiple and "multiple" or ""}}>
+         {% for c in f.choices %}
+         <option {{(c in default_props[sch.name+"."+f.fullName]) and "selected" or ""}}>{{c}}</option>
+         {% endfor %}
+       </select>
+       </span>
+    {% elif 'nested' in f.type %}
+      {% if f.label %}<span class="label">{{f.label}}</span>{% endif %}
+      {% for subfield in f.fields %}
+        {{ force_build_scheduler_parameter(subfield, authz, request, sch, default_props) }}
+      {% endfor %}
+    {% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+
+
+{% macro force_build_one_scheduler(force_url, authz, request, on_all, on_selected, builders, sch, default_props) %}
+ <form method="post" name="force_build" action="{{ force_url }}" class="command_forcebuild">
+
+  <h3>{{ sch.name|e }}</h3>
   {% if on_all %}
      <p>To force a build on <strong>all Builders</strong>, fill out the following fields
           and push the 'Force Build' button</p>
@@ -119,10 +155,12 @@
 
      <table>
      {% for b in builders %}
+     {% if b.name in sch.builderNames %}
        <tr>
          <td align="center"><input type="checkbox" name="selected" value="{{ b.name }}"></td>
          <td class="box"><a href="{{ b.link }}">{{ b.name|e }}</a></td>
        </tr>
+       {% endif %}
      {% endfor %}
      </table>
 
@@ -130,34 +168,24 @@
      <p>To force a build, fill out the following fields and
         push the 'Force Build' button</p>
   {% endif %}
-  
-<table>
-  <tr>
-    <td>Your name:</td>
-    <td><input type="text" name="username"/></td>
-  </tr>
-  
-  <tr>
-     <td>Reason for build:</td>
-     <td><input type='text' name='comments' /></td>
-  </tr>
-  <tr>
-     <td>Branch to build:</td>
-     <td><input type='text' name='branch' /></td>
-  </tr>
-  <tr>
-     <td>Revision to build:</td>
-     <td><input type='text' name='revision' /></td>
-  </tr>
-  <tr>
-    <td>Clobber:</td>
-    <td><input type='checkbox' name='property1name' value='clobber' /></td>
-  </tr>
-  
-  <tr><td><input type="submit" value="Force Build" /></td></tr>
-</table>
-</form>
+  <input type='hidden' name='forcescheduler' value='{{sch.name}}' />
+  {% for f in sch.all_fields %}
+    {{ force_build_scheduler_parameter(f, authz, request, sch, default_props) }}
+  {% endfor %}
+
+  <input type="submit" value="Force Build" />
+ </form>
 {% endmacro %}
+
+
+{% macro force_build(force_url, authz, request, on_all=False, on_selected=False, builders=[], force_schedulers={},default_props={}) %}
+  {% for name, sch in force_schedulers.items() %}
+    {{ force_build_one_scheduler(force_url, authz, request, on_all, on_selected, builders, sch, default_props=default_props) }}
+  {% endfor %}
+
+{% endmacro %}
+
+
 
 {% macro graceful_shutdown(shutdown_url, authz) %}
   <form method="post" action="{{ shutdown_url }}" class='command graceful_shutdown'>

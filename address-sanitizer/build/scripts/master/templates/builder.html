@@ -93,9 +93,9 @@
   {{ forms.ping_builder(builder_url+"/ping", authz) }}
 {% endif %}
 
-{% if authz.advertiseAction('forceBuild', request) %}
+{% if authz.advertiseAction('forceBuild', request) and force_schedulers != {} %}
   <h2>Force build</h2>
-  {{ forms.force_build(builder_url+"/force", authz, False) }}
+  {{ forms.force_build(builder_url+"/force", authz, False, force_schedulers=force_schedulers,default_props=default_props) }}
 {% endif %}
 
 </div>
