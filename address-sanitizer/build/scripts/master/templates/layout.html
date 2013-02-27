@@ -1,0 +1,63 @@
+{%- block doctype -%}
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+{% endblock %}
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    {% block head %}
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    {% if metatags %}
+      {{ metatags }}
+    {% endif %}
+    {% if refresh %}
+      <meta http-equiv="refresh" content="{{ refresh|e }}"/>
+    {% endif %}
+    <title>{{ pageTitle|e }}</title>
+    <link rel="stylesheet" href="{{ stylesheet }}" type="text/css" />
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="{{ path_to_root }}rss">
+    {% endblock %}
+  </head>
+  <body class="interface">
+    {% block header -%}
+    <div class="header">
+        <a href="{{ path_to_root or '.' }}">Home</a>
+        - <a href="{{ path_to_root }}waterfall">Waterfall</a>
+        <a href="{{ path_to_root }}grid">Grid</a>
+        <a href="{{ path_to_root }}tgrid">T-Grid</a>
+        <a href="{{ path_to_root }}console">Console</a>
+        <a href="{{ path_to_root }}builders">Builders</a>
+        <a href="{{ path_to_root }}one_line_per_build">Recent Builds</a>
+        <a href="{{ path_to_root }}buildslaves">Buildslaves</a>
+        <a href="{{ path_to_root }}changes">Changesources</a>
+        - <a href="{{ path_to_root }}json/help">JSON API</a>
+        - <a href="{{ path_to_root }}about">About</a>
+    </div>
+    {% endblock %}
+
+    {%- block barecontent -%}
+
+    <div class="content">
+      {%- block content -%}     
+      {%- endblock -%}
+    </div>
+    {%- endblock -%}
+
+    {%- block footer -%} 
+    <div class="footer" style="clear:both">
+      <hr/>
+      <a href="http://buildbot.net/">BuildBot</a> ({{version}})
+      {% if title -%}
+        working for the&nbsp;
+        {%- if title_url -%}
+          <a href="{{ title_url }}">{{ title }}</a>
+        {%- else -%}
+          {{ title }}
+        {%- endif -%}
+        &nbsp;project.
+      {%- endif -%}
+      <br/>
+      Page built: <b>{{ time }}</b> ({{ tz }})
+    </div>
+    {% endblock -%}
+  </body>
+</html>

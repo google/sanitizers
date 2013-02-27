@@ -1,0 +1,226 @@
+{% macro auth() %}
+  <div class="row">
+    <span class="label">Your username:</span>
+    <input type="text" name="username"/>
+  </div>
+  
+  <div class="row">
+    <span class="label">Your password:</span>
+    <input type="password" name="passwd"/>
+  </div>
+{% endmacro %}
+
+{% macro auth_row() %}
+  <tr>
+    <td>Your username:</td>
+    <td><input type="text" name="username"/></td>
+  </tr>
+  <tr>
+    <td>Your password:</td>
+    <td><input type="password" name="passwd"/></td>
+  </tr>
+{% endmacro %}
+
+{% macro cancel_pending_build(cancel_url, authz, short=False, id='all') %}
+  {% if not short %}
+    <form method="post" name="cancel" action="{{ cancel_url }}" class='command cancelbuild'
+               {{ 'style="display:inline"' if short else '' }}>
+      {% if not short %}
+        {% if on_all %}
+          <p>To cancel all builds, fill out the following fields and
+            push the 'Cancel' button</p>
+        {% else %}
+          <p>To cancel this build, fill out the following fields and
+            push the 'Cancel' button</p>
+        {% endif %}
+      {% endif %}
+      
+      {% if not short %}
+        <p>To cancel individual builds, click the 'Cancel' buttons above.</p>
+      {% endif %}
+      
+      <input type="hidden" name="id" value="{{ id }}" />
+      <input type="submit" value="Cancel" />
+    </form>
+  {% endif %}
+{% endmacro %}
+
+{% macro stop_change_builds(stopchange_url, changenum, authz) %}
+  {% if not changenum %}
+    <form method="post" action="{{ stopchange_url }}" class='command stopchange'>
+      {% if changenum %}
+        <p>To cancel all builds for this change, push the 'Cancel' button</p>
+      {% else %}
+        <p>To cancel builds for this builder for a given change, fill out all
+          fields and push the 'Cancel' button</p>
+      {% endif %}
+
+      {% if changenum %}
+        <input type="hidden" name="change" value="{{ changenum }}" />
+      {% else %}
+        <div class="row">
+          <span class="label">Change #:</span>
+          <input type="text" name="change"/>
+        </div>
+      {% endif %}
+      <input type="submit" value="Cancel" />
+    </form>
+  {% endif %}
+{% endmacro %}
+
+{% macro stop_build(stop_url, authz, on_all=False, on_selected=False, builders=[], short=False, label="Build") %}
+  {% if not short %}
+    <form method="post" name="stop_build" action="{{ stop_url }}" class='command stopbuild'
+               {{ 'style="display:inline"' if short else '' }}>
+      {% if not short %}
+        {% if on_all %}
+          <p>To stop all builds, fill out the following field and
+          push the <i>Stop {{ label }}</i> button</p>
+        {% elif on_selected %}
+          <p>To stop selected builds, select the builders, fill out the
+          following field and push the <i>Stop {{ label }}</i> button</p>
+          <table>
+          {% for b in builders %}
+            <tr>
+              <td align="center"><input type="checkbox" name="selected" value="{{ b.name }}"></td>
+              <td class="box"><a href="{{ b.link }}">{{ b.name|e }}</a></td>
+            </tr>
+          {% endfor %}
+          </table>
+
+        {% else %}
+          <p>To stop this build, fill out the following field and
+          push the <i>Stop {{ label }}</i> button</p>
+        {% endif %}
+      {% endif %}
+      
+      {% if not short %}
+        <div class="row">
+          <span class="label">Reason:</span>
+          <input type="text" name="comments"/>
+        </div>
+      {% endif %}
+  
+      <input type="submit" value="Stop {{ label }}" />
+    </form>
+  {% endif %}
+{% endmacro %}
+
+{% macro force_build(force_url, authz, on_all=False, on_selected=False, builders=[]) %}
+<form method="post" name="force_build" action="{{ force_url }}" class="command forcebuild">
+
+  {% if on_all %}
+     <p>To force a build on <strong>all Builders</strong>, fill out the following fields
+          and push the 'Force Build' button</p>
+  {% elif on_selected %}
+     <p>To force a build on <strong>certain Builders</strong>, select the
+        builders, fill out the following fields and push the
+        'Force Build' button</p>
+
+     <table>
+     {% for b in builders %}
+       <tr>
+         <td align="center"><input type="checkbox" name="selected" value="{{ b.name }}"></td>
+         <td class="box"><a href="{{ b.link }}">{{ b.name|e }}</a></td>
+       </tr>
+     {% endfor %}
+     </table>
+
+  {% else %}
+     <p>To force a build, fill out the following fields and
+        push the 'Force Build' button</p>
+  {% endif %}
+  
+<table>
+  <tr>
+    <td>Your name:</td>
+    <td><input type="text" name="username"/></td>
+  </tr>
+  
+  <tr>
+     <td>Reason for build:</td>
+     <td><input type='text' name='comments' /></td>
+  </tr>
+  <tr>
+     <td>Branch to build:</td>
+     <td><input type='text' name='branch' /></td>
+  </tr>
+  <tr>
+     <td>Revision to build:</td>
+     <td><input type='text' name='revision' /></td>
+  </tr>
+  <tr>
+    <td>Clobber:</td>
+    <td><input type='checkbox' name='property1name' value='clobber' /></td>
+  </tr>
+  
+  <tr><td><input type="submit" value="Force Build" /></td></tr>
+</table>
+</form>
+{% endmacro %}
+
+{% macro graceful_shutdown(shutdown_url, authz) %}
+  <form method="post" action="{{ shutdown_url }}" class='command graceful_shutdown'>
+  
+  <p>To cause this slave to shut down gracefully when it is idle,
+    push the 'Graceful Shutdown' button</p>
+  <input type="submit" value="Graceful Shutdown" /> 
+ </form>
+{% endmacro %}
+
+{% macro clean_shutdown(shutdown_url, authz) %}
+  <form method="post" action="{{ shutdown_url }}" class='command clean_shutdown'>
+  <p>To cause this master to shut down cleanly, push the 'Clean Shutdown' button.</p>
+  <p>No other builds will be started on this master, and the master will
+  stop once all current builds are finished.</p>
+  <input type="submit" value="Clean Shutdown" />
+ </form>
+{% endmacro %}
+
+{% macro cancel_clean_shutdown(cancel_shutdown_url, authz) %}
+  <form method="post" action="{{ cancel_shutdown_url }}" class='command cancel_clean_shutdown'>
+  <p>To cancel a previously initiated shutdown, push the 'Cancel Shutdown' button.</p>
+  <input type="submit" value="Cancel Shutdown" />
+ </form>
+{% endmacro %}
+
+{% macro ping_builder(ping_url, authz) %}
+  <form method="post" action="{{ ping_url }}" class='command ping_builder'>
+    <p>To ping the buildslave(s), push the 'Ping' button</p>
+    <input type="submit" value="Ping Builder" />
+  </form>
+{% endmacro %}
+
+{% macro rebuild_build(rebuild_url, authz, exactly, ss) %}
+ <form method="post" action="{{ rebuild_url }}" class="command rebuild">  
+  
+    {% if exactly %}
+      <p>This tree was built from a specific set of
+          source files, and can be rebuilt exactly</p>
+    {% else %}
+      <p>This tree was built from the most recent revision
+      {% if ss.branch %}
+        (along branch {{ ss.branch }})
+      {% endif %}            
+      and thus it might not be possible to rebuild it
+      exactly. <br/>Any changes that have been committed 
+      after this build was started <b>will</b> be 
+      included in a rebuild.</p>
+    {% endif %}
+
+
+  {% if on_all %}
+     <p>To force a build on <strong>all Builders</strong>, fill out the following fields
+          and push the 'Force Build' button</p>
+  {% else %}
+     <p>To force a build, fill out the following fields and
+        push the 'Force Build' button</p>
+  {% endif %}
+  
+   <tr>
+     <td>Reason for re-running build:</td>
+     <input type='text' name='comments' />
+   </tr>       
+   <input type="submit" value="Rebuild" />
+ </form>
+{% endmacro %}

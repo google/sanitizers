@@ -1,0 +1,38 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+<title>BuildBot Index page</title>
+<script>
+  var redirect_to = "/console";
+
+  function create_redirect_url(url) {
+    var url_no_index = url.replace(/\/index.html$/, "");
+    var args = "";
+    var index_of_arg = url_no_index.indexOf("?");
+    if (index_of_arg != -1) {
+      args = url_no_index.slice(index_of_arg);
+      url_no_index = url_no_index.slice(0, index_of_arg);
+    }
+    var url_no_slash = url_no_index.replace(/\/+$/, "");
+    var possible = url_no_slash.slice(url_no_slash.length - redirect_to.length);
+    if (possible == redirect_to) {
+      alert("There was an error redirecting you.  Please try again later.");
+      return;
+    }
+
+    new_url = url_no_slash.replace(/$/, redirect_to) + args;
+
+    // Redirect the chromium console to the appengine cache.
+    if (new_url == 'http://build.chromium.org/p/chromium/console') {
+      new_url = 'https://chromium-build.appspot.com/p/chromium/console'
+    }
+
+    document.write("<meta http-equiv='REFRESH' content='0;url=" + new_url +
+                   "'>");
+  }
+  create_redirect_url(location.href);
+</script>
+</HEAD>
+<BODY>
+</BODY>
+</HTML>

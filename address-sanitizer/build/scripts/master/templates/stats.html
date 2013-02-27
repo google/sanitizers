@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+
+{% macro DisplayGraph(name, layout, width, height, color, data_variable, options) %}
+  <div><canvas id="canvas{{ name }}" height="{{ height }}" width="{{ width }}"></canvas></div>
+  <script>
+    var options{{ name }} = {
+      "colorScheme": PlotKit.Base.palette(PlotKit.Base.baseColors()[{{ color }}]),
+      {% for k, v in options.iteritems() %}"{{ k }}": {{ v }},
+{% endfor %}
+    };
+
+    function draw{{ name }}() {
+      var layout = new PlotKit.Layout("{{ layout }}", options{{ name }});
+      layout.addDataset("data", {{ data_variable }});
+      layout.evaluate();
+      var canvas = MochiKit.DOM.getElement("canvas{{ name }}");
+      var plotter = new PlotKit.SweetCanvasRenderer(canvas, layout, options{{ name }});
+      plotter.render();
+    }
+
+    MochiKit.DOM.addLoadEvent(draw{{ name }});
+  </script>
+{% endmacro %}
+
+{% block header -%}
+{{ super() }}
+<script type="text/javascript" src="/mochikit/MochiKit.js"></script>
+<script type="text/javascript" src="/plotkit/Base.js"></script>
+<script type="text/javascript" src="/plotkit/Layout.js"></script>
+<script type="text/javascript" src="/plotkit/Canvas.js"></script>
+<script type="text/javascript" src="/plotkit/SweetCanvas.js"></script>
+{% endblock header %}
+
+{% block content %}
+<script>
+  var averageTime = [
+    {% for val in builderTimes %}[{{ loop.index0 }}, {{ val }}]{% if not loop.last %},
+    {% endif %}{% endfor %}];
+
+  var ratioFailures = [
+    {% for val in builderFailures %}[{{ loop.index0 }}, {{ val*100.0 }}]{% if not loop.last %},
+    {% endif %}{% endfor %}];
+
+  var nameMapping = [
+    {% for val in builderNames %}{v:{{ loop.index0 }}, label:A({href:"./stats/{{ val|quote }}", text:"aaa"}, "{{ val }}")}{% if not loop.last %},
+    {% endif %}{% endfor %}];
+</script>
+<center>
+  <table>
+    <tr>
+      <td width=200></td>
+      <td width=500><h2> Average time to cycle </h2></td>
+      <td width=500><h2> Percentage of failures </h2></td>
+    </tr>
+  </table>
+  <table>
+    <tr>
+      <td>{{ DisplayGraph("averageTimeBar", "bar", 700, (builderNames|length)*15, 0, "averageTime", {"xTicks": "nameMapping", "barOrientation": "'horizontal'", "padding": "{left: 200, right:5, top: 5, bottom: 10}"}) }}</td>
+      <td>{{ DisplayGraph("ratioFailuresBar", "bar", 500, (builderNames|length)*15, 1, "ratioFailures", {"yAxis": "[0.00, 100.00]", "yTicks": "[{v:0, label:'0'},{v:10, label:'10'},{v:20, label:'20'}, {v:30, label:'30'},{v:40, label:'40'},{v:50, label:'50'}, {v:60, label:'60'},{v:70, label:'70'},{v:80, label:'80'}, {v:90, label:'90'},{v:100, label:'100'}]", "drawYAxis": "false", "barOrientation": "'horizontal'", "padding": "{left: 2, right: 20, top: 5, bottom: 10}"}) }}</td>
+    </tr>
+  </table>
+</center>
+{% endblock content %}

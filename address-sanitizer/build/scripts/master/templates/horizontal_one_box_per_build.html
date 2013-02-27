@@ -1,0 +1,22 @@
+{%- block doctype -%}
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+{% endblock %}
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+{% block head %}
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title>Buildbot</title>
+    <link href="default.css" rel="stylesheet" type="text/css" />
+{% endblock %}
+  </head>
+  <body vlink="#800080">
+{% block content %}
+    <table style="width: 100%"><tr>
+      {% for b in builders %}
+        <td valign=bottom class=mini-box><a href='{{ b.url }}' class='{{ b.outcome }}' title='{{ b.name }}' target=_blank> {{ b.name if b.show_name else '' }} </a></td>
+      {% endfor %}
+    </tr></table>
+{% endblock content %}
+  </body>
+</html>

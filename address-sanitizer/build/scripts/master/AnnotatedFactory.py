@@ -21,9 +21,9 @@ f1.addStep(ShellCommand(command='svn up ../../../scripts %s' % svn_flags,
                         name='update scripts',
                         description='update scripts'))
 
-f1.addStep(chromium_step.AnnotatedCommand,
+f1.addStep(chromium_step.AnnotatedCommand(
            name='annotate',
            description='annotate',
            timeout=1200,
            haltOnFailure=True,
-           command='python ../../../scripts/slave/buildbot_selector.py')
+           command='python ../../../scripts/slave/buildbot_selector.py'))
