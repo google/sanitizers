@@ -23,16 +23,9 @@ CLANG=${CLANG:-clang}
 BIT=${BIT:-64}
 OPT_LEVEL=${OPT_LEVEL:-"-O2"}
 
-# Ignore file for known  bugs in spec.
-cat <<EOF > asan_spec.ignore
-fun:Perl_sv_setpvn
-fun:SATD
-fun:biari_init_context
-EOF
-
 rm -rf config/$name.*
 
-COMMON_FLAGS="$F_ASAN -m$BIT "
+COMMON_FLAGS="$F_ASAN -m$BIT -g"
 CC="$CLANG     -std=gnu89 $COMMON_FLAGS"
 CXX="${CLANG}++           $COMMON_FLAGS"
 
@@ -74,5 +67,7 @@ CXXPORTABILITY= -DSPEC_CPU_LINUX -include string.h
 CXXPORTABILITY= -include string.h -include stdlib.h -include cstddef
 EOF
 
+# Don't report alloc-dealloc-mismatch bugs (there is on in 471.omnetpp)
+export ASAN_OPTIONS=alloc_dealloc_mismatch=0
 . shrc
 runspec -c $name -a run -I -l --size $size -n $NUM_RUNS $@
