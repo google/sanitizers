@@ -193,7 +193,7 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
         LD_LIBRARY_PATH=$DEVICE_ROOT \
-        $DEVICE_ROOT/AsanTest \
+        $DEVICE_ROOT/AsanTest; \
         echo \$? >$DEVICE_ROOT/error_code"
     $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
 fi
