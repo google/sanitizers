@@ -337,6 +337,22 @@ document.addEventListener("DOMContentLoaded", SetupView, false);
 <div align="center">
 <table width="96%" class="ConsoleData">
   
+{% if categories|length > 1 %}
+  <tr>
+    <td width="1%">
+    </td>
+    <td width="1%">
+    </td>
+  {% for c in categories %}
+      <td class='DevStatus {{ alt_class.next() }} {{ "first" if loop.first else '' }} {{ "last" if loop.last else '' }}' width='{{ c.size }}%'>
+        {{ c.name|e }}
+      </td>
+  {% endfor %}
+  </tr>
+  <tr class='DevStatusSpacing'>
+  </tr>
+{% endif %}
+
 
 {% if slaves %}
   <tr>
