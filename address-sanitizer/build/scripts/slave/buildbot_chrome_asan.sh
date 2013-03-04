@@ -46,7 +46,7 @@ cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT
 ninja clang || echo @@@STEP_FAILURE@@@
 # TODO(glider): build other targets depending on the platform.
 # See https://code.google.com/p/address-sanitizer/wiki/HowToBuild.
-ninja clang_rt.asan-x86_64 clang_rt.asan-i386
+ninja clang_rt.asan-x86_64 clang_rt.asan-i386 llvm-symbolizer || echo @@@STEP_FAILURE@@@
 )
 
 
@@ -100,6 +100,8 @@ do
   (
     set +x
     cd $CHROME_CHECKOUT/src
+    export LLVM_SYMBOLIZER_PATH=$CLANG_BUILD/bin/llvm-symbolizer
+    export ASAN_OPTIONS="strict_memcmp=0"
     xvfb-run out/Release/$test_name 2>&1 | tools/valgrind/asan/asan_symbolize.py | c++filt 
     ((${PIPESTATUS[0]})) && echo @@@STEP_FAILURE@@@ || true
   )
