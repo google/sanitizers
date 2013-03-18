@@ -191,9 +191,14 @@ if [ $RUN_ANDROID == 1 ] ; then
     $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
     $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanTest $DEVICE_ROOT/
 
-    $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
-        LD_LIBRARY_PATH=$DEVICE_ROOT \
-        $DEVICE_ROOT/AsanTest; \
-        echo \$? >$DEVICE_ROOT/error_code"
+    NUM_SHARDS=7
+    for ((SHARD=0; SHARD < $NUM_SHARDS; SHARD++)); do
+        $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
+          LD_LIBRARY_PATH=$DEVICE_ROOT \
+          GTEST_TOTAL_SHARDS=$NUM_SHARDS \
+          GTEST_SHARD_INDEX=$SHARD \
+          $DEVICE_ROOT/AsanTest; \
+          echo \$? >$DEVICE_ROOT/error_code"
+    done
     $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
 fi
