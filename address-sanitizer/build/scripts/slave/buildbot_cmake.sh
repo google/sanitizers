@@ -199,6 +199,6 @@ if [ $RUN_ANDROID == 1 ] ; then
           GTEST_SHARD_INDEX=$SHARD \
           $DEVICE_ROOT/AsanTest; \
           echo \$? >$DEVICE_ROOT/error_code"
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
     done
-    $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
 fi
