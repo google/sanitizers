@@ -52,9 +52,8 @@ FLAGS="-fPIC -w -g -fno-omit-frame-pointer $FLAGS"
 
 if [ "z$WITH_LIBCXX" != "z" ]; then
     FLAGS="-stdlib=libc++ \
--I$LLVM/projects/libcxx/include \
--I$LLVM/projects/libcxxabi/include \
--L$LIBCXX -Wl,-R$LIBCXX -lc++abi \
+-I$LIBCXX/include \
+-L$LIBCXX/lib -Wl,-R$LIBCXX/lib -lc++abi \
 $FLAGS"
 fi
 

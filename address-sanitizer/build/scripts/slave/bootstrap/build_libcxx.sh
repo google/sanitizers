@@ -74,11 +74,6 @@ echo "SOLINK libc++abi.so.1.0"
 
 $CLANG $LIBCXXABI_OBJS $LIBCXXABI_LDFLAGS
 
-echo "SYMLINKS"
-
-ln -sf libc++abi.so.1.0 libc++abi.so.1
-ln -sf libc++abi.so.1 libc++abi.so
-
 # Now build libcxx.
 
 LIBCXX_CFLAGS="\
@@ -116,7 +111,18 @@ echo "SOLINK libc++.so.1.0"
 
 $CLANG $LIBCXX_OBJS $LIBCXX_LDFLAGS
 
-ln -sf libc++.so.1.0 libc++.so.1
-ln -sf libc++.so.1 libc++.so
+echo "INSTALL"
+
+mkdir lib
+cp libc++abi.so.1.0 libc++.so.1.0 lib/
+ln -sf libc++abi.so.1.0 lib/libc++abi.so.1
+ln -sf libc++abi.so.1 lib/libc++abi.so
+ln -sf libc++.so.1.0 lib/libc++.so.1
+ln -sf libc++.so.1 lib/libc++.so
+
+echo "COPY HEADERS"
+
+tar --exclude-vcs -cf - -C $LIBCXXABI include | tar -xf -
+tar --exclude-vcs -cf - -C $LIBCXX include | tar -xf -
 
 echo "SUCCESS"
