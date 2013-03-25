@@ -28,6 +28,7 @@ int main(void) {
 // CHECK: AddressSanitizer: stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 1 at [[ADDR]] thread T0
 // CHECK:   #0 {{.*}} main
-// CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame <main>
+// CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame
+// CHECK: main
   return 0;
 }
