@@ -42,6 +42,7 @@ endif
 CC_OUT=-c -o
 EXTRA_CFLAGS=
 FILECHECK=
+RM_F=del -Q
 
 RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,$(wildcard *.cpp))
 
@@ -49,7 +50,7 @@ all: run_all_tests
 .PHONY: all
 
 clean:
-	rm -rf *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
+	$(RM_F) *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean
 
 run_%_pass_test: %_pass_test.exe
