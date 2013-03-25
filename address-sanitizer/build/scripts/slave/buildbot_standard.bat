@@ -50,7 +50,7 @@ cd %ROOT%
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows clean || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-fsanitize=address -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
 cd %ROOT%
 
