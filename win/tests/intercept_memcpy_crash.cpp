@@ -30,5 +30,5 @@ int main(void) {
 // CHECK:   #0 {{.*}} __asan_report_error
 // CHECK:   #1 {{.*}} wrap_memcpy
 // CHECK:   #2 {{.*}} main
-// CHECK: Address [[ADDR]] is located at offset {{.*}} in frame <main>
+// CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame <main>
 }
