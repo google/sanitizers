@@ -1,28 +1,43 @@
 #!/bin/bash
 
-if [ "z$LLVM" == "z" ]; then
-  echo "Please set \$LLVM to the LLVM source root path."
+ARG=$1
+shift
+
+WITH_LIBCXX=
+
+if [ "z$ARG" == "z--msan-origins" ]; then
+  FLAGS="-fsanitize=memory -fsanitize-memory-track-origins -pie"
+  WITH_LIBCXX=1
+  ARG=$1
+  shift
+elif [ "z$ARG" == "z--msan" ]; then
+  FLAGS="-fsanitize=memory -pie"
+  WITH_LIBCXX=1
+  ARG=$1
+  shift
+elif [ "z$ARG" == "z--asan" ]; then
+  FLAGS="-fsanitize=address -pie"
+  ARG=$1
+  shift
+fi
+
+if [ "z$ARG" == "z" ]; then
+  echo "Usage: $0 [--msan] llvmsrcpath"
   exit 1
 fi
+
+LLVM=$ARG
 
 if [ "z$LLVM_BIN" == "z" ]; then
-  echo "Please set \$LLVM_BIN to the location of msan-enabled 'clang' binary."
+  echo "Please set \$LLVM_BIN to the location of sanitizer-enabled 'clang' binary."
   exit 1
 fi
 
-if ! [ -e $LLVM/LLVMBuild.txt ]; then
-  echo "Please run me from LLVM/build directory."
-  exit 1
-fi
-
-if ! [ -e $LLVM/projects/libcxx/lib/libc++.so ]; then
-  echo "Please run build_libcxx.sh first."
-  exit 1
-fi
-
-if ! [ -e $LLVM/projects/libcxxabi/lib/libc++abi.so ]; then
-  echo "Please run build_libcxxabi.sh first."
-  exit 1
+if [ "z$WITH_LIBCXX" != "z" ]; then
+    if [ "z$LIBCXX" == "z" ]; then
+        echo "Please set \$LIBCXX to the location of msan-enabled libcxx/libcxxabi library."
+        exit 1
+    fi
 fi
 
 HERE=$(cd $(dirname $0) && pwd)
@@ -33,19 +48,14 @@ chmod +x _clang _clang++
 
 CLANG=`pwd`/_clang
 CLANGXX=`pwd`/_clang++
-LIBCXX=$LLVM/projects/libcxx
-LIBCXXABI=$LLVM/projects/libcxxabi
+FLAGS="-fPIC -w -g -fno-omit-frame-pointer $FLAGS"
 
-# FLAGS="-fPIC -fno-omit-frame-pointer -w -O1 -g -fno-inline-functions -fno-inline -stdlib=libc++ -I$LIBCXX/include \
-# -I$LIBCXXABI/include \
-# -L$LIBCXX/lib -Wl,-R$LIBCXX/lib -L$LIBCXXABI/lib -Wl,-R$LIBCXXABI/lib -lc++abi \
-# $FLAGS"
-
-
-FLAGS="-fPIC -w -g -fno-omit-frame-pointer -stdlib=libc++ -I$LIBCXX/include \
--I$LIBCXXABI/include \
--L$LIBCXX/lib -Wl,-R$LIBCXX/lib -L$LIBCXXABI/lib -Wl,-R$LIBCXXABI/lib -lc++abi \
+if [ "z$WITH_LIBCXX" != "z" ]; then
+    FLAGS="-stdlib=libc++ \
+-I$LIBCXX/include \
+-L$LIBCXX/lib -Wl,-R$LIBCXX/lib -lc++abi \
 $FLAGS"
+fi
 
 set -x
 CC="$CLANG" \
@@ -56,4 +66,3 @@ cmake -GNinja \
     -DCMAKE_C_FLAGS="$FLAGS" \
     -DCMAKE_CXX_FLAGS="$FLAGS" \
     $LLVM
-

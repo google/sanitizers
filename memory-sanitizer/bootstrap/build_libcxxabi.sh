@@ -2,6 +2,17 @@
 
 set -e
 
+ARG=$1
+shift
+
+if [ "z$ARG" == "z--msan" ]; then
+  CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
+  LDFLAGS="-fsanitize=memory -pie"
+elif [ "z$ARG" != "z" ]; then
+  echo "Unrecognized argument: $ARG"
+  exit 1
+fi
+
 if ! [ -e LLVMBuild.txt ]; then
   echo "Please run me from LLVM source root."
   exit 1

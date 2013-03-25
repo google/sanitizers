@@ -2,38 +2,101 @@
 
 set -e
 
-if ! [ -e LLVMBuild.txt ]; then
-  echo "Please run me from LLVM source root."
+ARG=$1
+shift
+
+if [ "z$ARG" == "z--msan-origins" ]; then
+  CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
+  LDFLAGS="-fsanitize=memory -pie"
+  ARG=$1
+  shift
+elif [ "z$ARG" == "z--msan" ]; then
+  CFLAGS="-fsanitize=memory"
+  LDFLAGS="-fsanitize=memory -pie"
+  ARG=$1
+  shift
+fi
+
+if [ "z$ARG" == "z" ]; then
+  echo "Usage: $0 [--msan] llvmsrcpath"
   exit 1
 fi
 
-cd projects/libcxx/lib
+LLVM=$ARG
 
-LLVM=../../..
-CLANG=$LLVM/build/bin/clang
-CLANGXX=$LLVM/build/bin/clang++
+if [ "z$LLVM_BIN" == "z" ]; then
+  echo "Please set \$LLVM_BIN to the location of msan-enabled 'clang' binary."
+  exit 1
+fi
 
-CFLAGS="\
+CLANG=$LLVM_BIN/clang
+CLANGXX=$LLVM_BIN/clang++
+
+LIBCXXABI=$LLVM/projects/libcxxabi
+LIBCXX=$LLVM/projects/libcxx
+
+# Build libcxxabi.
+
+LIBCXXABI_CFLAGS="\
+-g -O3 -fPIC \
+-std=c++0x \
+-fstrict-aliasing \
+-Wstrict-aliasing=2 -Wsign-conversion -Wshadow -Wconversion -Wunused-variable \
+-Wmissing-field-initializers -Wchar-subscripts -Wmismatched-tags \
+-Wmissing-braces -Wshorten-64-to-32 -Wsign-compare -Wstrict-aliasing=2 \
+-Wstrict-overflow=4 -Wunused-parameter -Wnewline-eof \
+-I${LIBCXXABI}/include \
+-I${LIBCXX}/include \
+-I/usr/lib/gcc/x86_64-linux-gnu/4.6/include \
+$CFLAGS \
+"
+
+LIBCXXABI_OBJS=
+for source in ${LIBCXXABI}/src/*.cpp; do
+    obj=$(basename ${source%.cpp}.o)
+    echo "CXX $obj"
+    $CLANGXX -c $LIBCXXABI_CFLAGS $source
+    LIBCXXABI_OBJS="$LIBCXXABI_OBJS $obj"
+done
+
+LIBCXXABI_LDFLAGS="\
+-o libc++abi.so.1.0 \
+-shared \
+-nodefaultlibs \
+-Wl,-soname,libc++abi.so.1 \
+-lpthread \
+-lrt \
+-lc \
+$LDFLAGS \
+"
+
+echo "SOLINK libc++abi.so.1.0"
+
+$CLANG $LIBCXXABI_OBJS $LIBCXXABI_LDFLAGS
+
+# Now build libcxx.
+
+LIBCXX_CFLAGS="\
 -g -Os -fPIC \
 -std=c++0x \
 -fstrict-aliasing \
 -Wall -Wextra -Wshadow -Wconversion -Wnewline-eof -Wpadded \
 -Wmissing-prototypes -Wstrict-aliasing=2 -Wstrict-overflow=4 \
 -nostdinc++ \
--I../include \
--I../../libcxxabi/include \
+-I${LIBCXXABI}/include \
+-I${LIBCXX}/include \
 $CFLAGS \
 "
 
-OBJS=
-for source in ../src/*.cpp; do
+LIBCXX_OBJS=
+for source in ${LIBCXX}/src/*.cpp; do
     obj=$(basename ${source%.cpp}.o)
     echo "CXX $obj"
-    $CLANGXX -c $CFLAGS $source
-    OBJS="$OBJS $obj"
+    $CLANGXX -c $LIBCXX_CFLAGS $source
+    LIBCXX_OBJS="$LIBCXX_OBJS $obj"
 done
 
-LDFLAGS="\
+LIBCXX_LDFLAGS="\
 -o libc++.so.1.0 \
 -shared \
 -nodefaultlibs \
@@ -46,11 +109,20 @@ $LDFLAGS \
 
 echo "SOLINK libc++.so.1.0"
 
-$CLANG $OBJS $LDFLAGS
+$CLANG $LIBCXX_OBJS $LIBCXX_LDFLAGS
 
-echo "SYMLINKS"
+echo "INSTALL"
 
-ln -sf libc++.so.1.0 libc++.so.1
-ln -sf libc++.so.1 libc++.so
+mkdir lib
+cp libc++abi.so.1.0 libc++.so.1.0 lib/
+ln -sf libc++abi.so.1.0 lib/libc++abi.so.1
+ln -sf libc++abi.so.1 lib/libc++abi.so
+ln -sf libc++.so.1.0 lib/libc++.so.1
+ln -sf libc++.so.1 lib/libc++.so
+
+echo "COPY HEADERS"
+
+tar --exclude-vcs -cf - -C $LIBCXXABI include | tar -xf -
+tar --exclude-vcs -cf - -C $LIBCXX include | tar -xf -
 
 echo "SUCCESS"
