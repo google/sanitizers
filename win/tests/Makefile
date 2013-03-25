@@ -28,7 +28,6 @@ ifeq ($(PLATFORM), Windows)
 	LINK_FLAGS=/debug /nologo /incremental:no
 	LINK_OUT=/out:
 	EXTRA_OBJ=
-	RM_F=del -Q
 else ifeq ($(PLATFORM), Linux)
 	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
 	# Currently, I run
@@ -39,7 +38,6 @@ else ifeq ($(PLATFORM), Linux)
 	LINK_FLAGS=
 	LINK_OUT=-o
 	EXTRA_OBJ=
-	RM_F=rm -f
 endif
 CC_OUT=-c -o
 EXTRA_CFLAGS=
@@ -51,7 +49,7 @@ all: run_all_tests
 .PHONY: all
 
 clean:
-	$(RM_F) *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
+	rm -rf *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean
 
 run_%_pass_test: %_pass_test.exe
