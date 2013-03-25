@@ -42,7 +42,7 @@ endif
 CC_OUT=-c -o
 EXTRA_CFLAGS=
 FILECHECK=
-RM_F=del -Q
+RM_F=rm -f
 
 RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,$(wildcard *.cpp))
 
