@@ -59,18 +59,19 @@ CMAKE_STAGE2_COMMON_OPTIONS="\
 # Prebuilt libstdc++ with MSan instrumentation.
 # This will break if MSan ABI is changed.
 LIBSTDCXX_DIR=$ROOT/../../../libstdc++-msan-origins
+CMAKE_MSAN_EXE_LINKER_FLAGS="-Wl,--rpath=${LIBSTDCXX_DIR} -L${LIBSTDCXX_DIR}"
 CMAKE_MSAN_OPTIONS=" \
   ${CMAKE_STAGE2_COMMON_OPTIONS} \
   -DLLVM_USE_SANITIZER=Memory \
-  -DCMAKE_EXE_LINKER_FLAGS=\"-Wl,--rpath=${LIBSTDCXX_DIR} -L${LIBSTDCXX_DIR}\" \
   "
 
 if [ ! -d llvm_build_msan ]; then
   mkdir llvm_build_msan
 fi
 
-(cd llvm_build_msan && cmake ${CMAKE_MSAN_OPTIONS} $LLVM && ninja clang) || \
-  echo @@@STEP_FAILURE@@@
+(cd llvm_build_msan && \
+ cmake ${CMAKE_MSAN_OPTIONS} -DCMAKE_EXE_LINKER_FLAGS="${CMAKE_MSAN_EXE_LINKER_FLAGS}" $LLVM && \
+ ninja clang) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP check-llvm msan@@@
 
