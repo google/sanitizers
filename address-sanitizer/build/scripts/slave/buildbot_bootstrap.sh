@@ -108,17 +108,18 @@ echo @@@BUILD_STEP check-all stage3/msan@@@
 
 echo @@@BUILD_STEP build clang/asan@@@
 
-CMAKE_ASAN_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS}"
+CMAKE_ASAN_OPTIONS=" \
+  ${CMAKE_STAGE2_COMMON_OPTIONS} \
+  -DLLVM_USE_SANITIZER=Address \
+  "
 
 if [ ! -d llvm_build_asan ]; then
   mkdir llvm_build_asan
 fi
 
 (cd llvm_build_asan && \
-    LLVM_BIN=$CLANG_PATH \
-    $HERE/bootstrap/build_llvm.sh --asan $LLVM) ||
-echo @@@STEP_FAILURE@@@
-(cd llvm_build_asan && ninja clang) || echo @@@STEP_FAILURE@@@
+ cmake ${CMAKE_ASAN_OPTIONS} $LLVM && \
+ ninja clang) || echo @@@STEP_FAILURE@@@
 
 
 echo @@@BUILD_STEP check-llvm asan@@@
