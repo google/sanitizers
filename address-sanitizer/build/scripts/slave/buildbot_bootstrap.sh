@@ -47,32 +47,30 @@ fi
 
 # Stage 2 / MemorySanitizer
 
-echo @@@BUILD_STEP build libcxxabi/msan@@@
+echo @@@BUILD_STEP build clang/msan@@@
 
 CLANG_PATH=$ROOT/llvm_build0/bin
-CMAKE_STAGE2_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DLLVM_ENABLE_WERROR=ON"
-CMAKE_MSAN_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++"
-
-if [ ! -d libcxx_build_msan ]; then
-  mkdir libcxx_build_msan
-fi
-(cd libcxx_build_msan &&
-    LLVM_BIN=$CLANG_PATH $HERE/bootstrap/build_libcxx.sh --msan-origins $LLVM) ||
-echo @@@STEP_FAILURE@@@
-
-
-echo @@@BUILD_STEP build clang/msan@@@
+CMAKE_STAGE2_COMMON_OPTIONS="\
+  ${CMAKE_COMMON_OPTIONS} \
+  -DLLVM_ENABLE_WERROR=ON \
+  -DCMAKE_C_COMPILER=${CLANG_PATH}/clang \
+  -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++ \
+  "
+# Prebuilt libstdc++ with MSan instrumentation.
+# This will break if MSan ABI is changed.
+LIBSTDCXX_DIR=$ROOT/../../../libstdc++-msan-origins
+CMAKE_MSAN_OPTIONS=" \
+  ${CMAKE_STAGE2_COMMON_OPTIONS} \
+  -DLLVM_USE_SANITIZER=Memory \
+  -DCMAKE_EXE_LINKER_FLAGS=\"-Wl,--rpath=${LIBSTDCXX_DIR} -L${LIBSTDCXX_DIR}\" \
+  "
 
 if [ ! -d llvm_build_msan ]; then
   mkdir llvm_build_msan
 fi
-(cd llvm_build_msan && \
-    LLVM_BIN=$CLANG_PATH \
-    LIBCXX=$ROOT/libcxx_build_msan \
-    $HERE/bootstrap/build_llvm.sh --msan-origins $LLVM) ||
-echo @@@STEP_FAILURE@@@
-(cd llvm_build_msan && ninja clang) || echo @@@STEP_FAILURE@@@
 
+(cd llvm_build_msan && cmake ${CMAKE_MSAN_OPTIONS} $LLVM && ninja clang) || \
+  echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP check-llvm msan@@@
 
@@ -93,7 +91,7 @@ if [ ! -d llvm_build2_msan ]; then
 fi
 
 CLANG_MSAN_PATH=$ROOT/llvm_build_msan/bin
-CMAKE_STAGE3_COMMON_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS}"
+CMAKE_STAGE3_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DLLVM_ENABLE_WERROR=ON"
 CMAKE_STAGE3_MSAN_OPTIONS="${CMAKE_STAGE3_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_MSAN_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_MSAN_PATH}/clang++"
 
 (cd llvm_build2_msan && cmake ${CMAKE_STAGE3_MSAN_OPTIONS} $LLVM && ninja) || \
@@ -109,9 +107,7 @@ echo @@@BUILD_STEP check-all stage3/msan@@@
 
 echo @@@BUILD_STEP build clang/asan@@@
 
-CMAKE_ASAN_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS} \
--DCMAKE_C_COMPILER=${CLANG_PATH}/clang \
--DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++"
+CMAKE_ASAN_OPTIONS="${CMAKE_STAGE2_COMMON_OPTIONS}"
 
 if [ ! -d llvm_build_asan ]; then
   mkdir llvm_build_asan
