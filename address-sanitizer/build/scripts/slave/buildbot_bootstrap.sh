@@ -44,7 +44,6 @@ fi
 (cd llvm_build0 && cmake ${CMAKE_STAGE1_OPTIONS} $LLVM && ninja) || \
   echo @@@STEP_FAILURE@@@
 
-
 # Stage 2 / MemorySanitizer
 
 echo @@@BUILD_STEP build clang/msan@@@
@@ -56,6 +55,8 @@ CMAKE_STAGE2_COMMON_OPTIONS="\
   -DCMAKE_C_COMPILER=${CLANG_PATH}/clang \
   -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++ \
   "
+export ASAN_SYMBOLIZER_PATH=${CLANG_PATH}/llvm-symbolizer
+export MSAN_SYMBOLIZER_PATH=${CLANG_PATH}/llvm-symbolizer
 # Prebuilt libstdc++ with MSan instrumentation.
 # This will break if MSan ABI is changed.
 LIBSTDCXX_DIR=$ROOT/../../../libstdc++-msan-origins
