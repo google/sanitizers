@@ -19,9 +19,7 @@ BOT_ASSIGNMENT = {
     'linux-cmake': bash('buildbot_cmake.sh'),
     'linux-bootstrap': bash('buildbot_bootstrap.sh'),
     'linux-chrome-asan': bash('buildbot_chrome_asan.sh'),
-    'mac10.6': bash('buildbot_standard.sh'),
-    'mac10.7': bash('buildbot_standard.sh'),
-    'mac10.7-cmake': bash('buildbot_cmake.sh'),
+    'mac10.8-cmake': bash('buildbot_cmake.sh'),
     'mac10.8': bash('buildbot_standard.sh'),
 }
 
@@ -31,9 +29,7 @@ BOT_ADDITIONAL_ENV = {
     'linux-cmake': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
     'linux-bootstrap': {},
     'linux-chrome-asan': {},
-    'mac10.6': { 'MAX_MAKE_JOBS': '2' },
-    'mac10.7': { 'MAX_MAKE_JOBS': '4' },
-    'mac10.7-cmake': { 'MAX_MAKE_JOBS': '4' },
+    'mac10.8-cmake': { 'MAX_MAKE_JOBS': '4' },
     'mac10.8': { 'MAX_MAKE_JOBS': '2' },
 }
 
