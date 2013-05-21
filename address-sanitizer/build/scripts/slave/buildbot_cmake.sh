@@ -51,6 +51,7 @@ if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run sanitizer tests in gcc build@@@
   (cd clang_build && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
+  (cd clang_build && make -j$MAKE_JOBS check-lsan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-ubsan) || echo @@@STEP_WARNINGS@@@
@@ -108,6 +109,15 @@ if [ "$PLATFORM" == "Linux" ]; then
   ./llvm_build64/$TSAN_UNIT_TEST_BINARY
 fi
 
+if [ "$PLATFORM" == "Linux" ]; then
+  echo @@@BUILD_STEP run 64-bit lsan unit tests@@@
+  LSAN_PATH=projects/compiler-rt/lib/lsan
+  LSAN_UNIT_TEST_BINARY=$LSAN_PATH/tests/Lsan-x86_64-Test
+  (cd llvm_build64 && make -j$MAKE_JOBS check-lsan) || echo @@@STEP_FAILURE@@@
+  # Run msan unit test binaries.
+  ./llvm_build64/$MSAN_UNIT_TEST_BINARY
+fi
+
 echo @@@BUILD_STEP run sanitizer_common tests@@@
 SANITIZER_COMMON_PATH=projects/compiler-rt/lib/sanitizer_common
 SANITIZER_COMMON_TESTS=$SANITIZER_COMMON_PATH/tests
@@ -131,6 +141,8 @@ if [ "$PLATFORM" == "Linux" ]; then
   (cd llvm_build_ninja && ninja check-sanitizer) || echo @@@STEP_FAILURE@@@
   (cd llvm_build_ninja && ninja check-tsan) || echo @@@STEP_WARNINGS@@@
   (cd llvm_build_ninja && ninja check-ubsan) || echo @@@STEP_WARNINGS@@@
+  (cd llvm_build_ninja && ninja check-msan) || echo @@@STEP_WARNINGS@@@
+  (cd llvm_build_ninja && ninja check-lsan) || echo @@@STEP_WARNINGS@@@
 fi
 
 BUILD_ANDROID=${BUILD_ANDROID:-0}
