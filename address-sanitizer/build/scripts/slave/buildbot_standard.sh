@@ -35,6 +35,14 @@ echo @@@BUILD_STEP test llvm@@@
 cd llvm-build
 make check-all || echo @@@STEP_WARNINGS@@@
 
+echo @@@BUILD_STEP sanity check for sanitizer tools@@@
+CLANGXX_BINARY=$CLANG_BUILD/bin/clang++
+echo -e "#include <stdio.h>\nint main(){ return 0; }" > temp.cc
+for $xsan in address thread memory undefined; do
+  $CLANGXX_BINARY -fsanitize=$xsan temp.cc -o a.out
+  ./a.out
+done
+
 if [ $CHECK_TSAN == 1 ] ; then
   echo @@@BUILD_STEP prepare for testing tsan@@@
 
