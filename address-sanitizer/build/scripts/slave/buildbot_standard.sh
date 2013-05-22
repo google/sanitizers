@@ -38,8 +38,12 @@ make check-all || echo @@@STEP_WARNINGS@@@
 echo @@@BUILD_STEP sanity check for sanitizer tools@@@
 CLANGXX_BINARY=$CLANG_BUILD/bin/clang++
 echo -e "#include <stdio.h>\nint main(){ return 0; }" > temp.cc
-for $xsan in address thread memory undefined; do
+for xsan in address thread memory undefined; do
   $CLANGXX_BINARY -fsanitize=$xsan temp.cc -o a.out
+  ./a.out
+done
+for xsan in address undefined; do
+  $CLANGXX_BINARY -fsanitize=$xsan -m32 temp.cc -o a.out
   ./a.out
 done
 
