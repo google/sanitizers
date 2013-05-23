@@ -101,8 +101,12 @@ do
     set +x
     cd $CHROME_CHECKOUT/src
     export LLVM_SYMBOLIZER_PATH=$CLANG_BUILD/bin/llvm-symbolizer
-    export ASAN_OPTIONS="strict_memcmp=0"
-    xvfb-run out/Release/$test_name 2>&1 | tools/valgrind/asan/asan_symbolize.py | c++filt 
+    # See http://dev.chromium.org/developers/testing/addresssanitizer for the
+    # instructions to run ASan.
+    export ASAN_OPTIONS="strict_memcmp=0 replace_intrin=0 symbolize=false"
+    # Without --server-args="-screen 0 1024x768x24" at least some of the Chrome
+    # tests hang: http://crbug.com/242486
+    xvfb-run --server-args="-screen 0 1024x768x24" out/Release/$test_name 2>&1 | tools/valgrind/asan/asan_symbolize.py | c++filt 
     ((${PIPESTATUS[0]})) && echo @@@STEP_FAILURE@@@ || true
   )
 done
