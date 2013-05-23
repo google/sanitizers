@@ -13,6 +13,7 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   rm -rf llvm-build
 fi
 
+PLATFORM=`uname`
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 CHECK_TSAN=${CHECK_TSAN:-0}
 
@@ -38,14 +39,18 @@ make check-all || echo @@@STEP_WARNINGS@@@
 echo @@@BUILD_STEP sanity check for sanitizer tools@@@
 CLANGXX_BINARY=$CLANG_BUILD/bin/clang++
 echo -e "#include <stdio.h>\nint main(){ return 0; }" > temp.cc
-for xsan in address thread memory undefined; do
-  $CLANGXX_BINARY -fsanitize=$xsan temp.cc -o a.out
-  ./a.out
-done
 for xsan in address undefined; do
+  $CLANGXX_BINARY -fsanitize=$xsan -m64 temp.cc -o a.out
+  ./a.out
   $CLANGXX_BINARY -fsanitize=$xsan -m32 temp.cc -o a.out
   ./a.out
 done
+if [ "$PLATFORM" == "Linux" ]; then
+  for xsan in thread memory; do
+    $CLANGXX_BINARY -fsanitize=$xsan -m64 temp.cc -o a.out
+    ./a.out
+  done
+fi
 
 if [ $CHECK_TSAN == 1 ] ; then
   echo @@@BUILD_STEP prepare for testing tsan@@@
