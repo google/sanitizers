@@ -42,11 +42,11 @@ cd %ASAN_PATH% || goto :DIE
 del *.pdb *.obj *.lib || goto :DIE
 
 :: /WX <- treat warnings as errors
-:: /W2 <- warnings level 2
+:: /W3 <- warnings level 3
 :: /MP <- parallel buidling (currently disabled)
 :: /MT <- Multi-Threaded CRT with static linking
 :: /Zi <- generate debug info
-cl /nologo /WX /W2 /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
+cl /nologo /WX /W3 /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
 cd %ROOT%
 
