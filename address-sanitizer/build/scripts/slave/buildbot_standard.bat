@@ -41,10 +41,11 @@ cd %ASAN_PATH% || goto :DIE
 :: This only compiles, not links.
 del *.pdb *.obj *.lib || goto :DIE
 
+:: /WX <- treat warnings as errors
 :: /MP <- parallel buidling (currently disabled)
 :: /MT <- Multi-Threaded CRT with static linking
 :: /Zi <- generate debug info
-cl /nologo /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
+cl /nologo /WX /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
 cd %ROOT%
 
