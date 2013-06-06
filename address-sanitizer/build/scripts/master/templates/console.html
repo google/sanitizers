@@ -271,6 +271,12 @@ function unmerge() {
 }
 
 function SetupView() {
+    if (document.location.search.search('merge')) {                                                                   
+       createCookie('merged', 'true', 30)                                                                             
+    }                                                                                                                 
+    if (document.location.search.search('collapse')) {                                                                
+       createCookie('collapsed', 'true', 30)                                                                          
+    }                                    
     if (readCookie('merged')) {
         merge();
     } else if (readCookie('collapsed')) {
