@@ -28,7 +28,7 @@ mkdir llvm-build
 :: TODO(timurrrr): Is this enough to force a full re-configure?
 del llvm-build\CMakeCache.txt
 cd llvm-build
-cmake ..\llvm || goto :DIE
+cmake -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
 echo @@@BUILD_STEP build llvm@@@
 cmake --build . || goto :DIE
 cd %ROOT%
@@ -64,4 +64,6 @@ echo "ALL DONE"
 goto :EOF
 
 :DIE
-exit /b %ERRORLEVEL%
+:: TODO(timurrrr) : get the current process's PID?
+taskkill /F /IM cmake.exe /T
+exit /b 42
