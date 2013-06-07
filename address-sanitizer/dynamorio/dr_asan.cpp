@@ -54,6 +54,8 @@ using std::string;
 
 namespace {
 
+ptr_int_t kShadowOffset;
+
 struct AsanCallbacks {
   typedef void (*Report)(void*);
   Report report[2 /* load/store */][5 /* 1,2,4,8,16 */];
@@ -120,9 +122,12 @@ void InitializeAsanCallbacks() {
   // call __asan_init, which is a nop if it's already initialized. We also use
   // this pointer to detect modules that use asan instrumentation.
   void (*app_asan_init)(void);
-  app_asan_init = dr_get_proc_address(app->handle, "__asan_init");
-  if (app_asan_init == NULL) {
-    dr_fprintf(STDERR, "FATAL: Couldn't find __asan_init in the application"
+  if (app_asan_init = dr_get_proc_address(app->handle, "__asan_init_v3")) {
+    kShadowOffset = IF_X64_ELSE(0x00007fff8000, 0x20000000);
+  } else if (app_asan_init = dr_get_proc_address(app->handle, "__asan_init")) {
+    kShadowOffset = IF_X64_ELSE(1ull << 44, 1 << 29);
+  } else {
+    dr_fprintf(STDERR, "FATAL: Couldn't find __asan_init* in the application"
                " binary! (%s)\nAre you sure it's instrumented by ASan?\n",
                app->full_path);
     dr_abort();
@@ -309,8 +314,9 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   if (!address_in_R1)
     CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
+    dr_fprintf(STDERR, "ZZZ %p ZZZ\n", kShadowOffset);
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
-                 OPND_CREATE_INTPTR(IF_X64_ELSE(1ull << 44, 1 << 29))));
+                 OPND_CREATE_INTPTR(kShadowOffset)));
   PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
   PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(0)));
 

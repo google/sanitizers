@@ -5,7 +5,7 @@ Don't expect anything here to *really work*.
 
 Building:
   1. First, download and build DynamoRIO:
-     (svn co https://dynamorio.googlecode.com/svn/trunk dr && \
+     (svn co -r2108 https://dynamorio.googlecode.com/svn/trunk dr && \
       cd dr && mkdir build && cd build && \
       cmake -DDR_EXT_DRMGR_STATIC=ON  -DDR_EXT_DRSYMS_STATIC=ON \
             -DDR_EXT_DRUTIL_STATIC=ON -DDR_EXT_DRWRAP_STATIC=ON .. && \
