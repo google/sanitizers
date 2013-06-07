@@ -314,7 +314,6 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   if (!address_in_R1)
     CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
-    dr_fprintf(STDERR, "ZZZ %p ZZZ\n", kShadowOffset);
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
                  OPND_CREATE_INTPTR(kShadowOffset)));
   PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
