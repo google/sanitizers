@@ -39,6 +39,7 @@ BOT_ADDITIONAL_ENV = {
 
 def Main():
   builder = os.environ.get('BUILDBOT_BUILDERNAME')
+  print "builder name: %s" % (builder)
   cmd = BOT_ASSIGNMENT.get(builder)
   if not cmd:
     sys.stderr.write('ERROR - unset/invalid builder name\n')
