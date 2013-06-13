@@ -19,6 +19,7 @@ if [ "$BUILDBOT_CLOBBER" != "" ]; then
   rm -rf clang_build
 fi
 
+SUPPORTS_32_BITS=${SUPPORTS_32_BITS:-1}
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM_CHECKOUT=$ROOT/llvm
 CMAKE_COMMON_OPTIONS="-DLLVM_ENABLE_ASSERTIONS=ON"
@@ -81,7 +82,9 @@ ASAN_TEST_BINARY_32=$ASAN_TESTS_PATH/Asan-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 # Run unit test binaries in a single shard.
 ./llvm_build64/$ASAN_TEST_BINARY_64
-./llvm_build64/$ASAN_TEST_BINARY_32
+if [ $SUPPORTS_32_BITS == 1 ]; then
+  ./llvm_build64/$ASAN_TEST_BINARY_32
+fi
 
 if [ "$PLATFORM" == "Darwin" ]; then
   echo @@@BUILD_STEP build asan dynamic runtime@@@
@@ -126,7 +129,9 @@ SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/Sanitizer-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
 # Run unit test binaries in a single shard.
 ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_64}
-./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
+if [ $SUPPORTS_32_BITS == 1 ]; then
+  ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
+fi
 
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run tests in ninja build tree@@@
