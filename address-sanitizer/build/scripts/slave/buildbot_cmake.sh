@@ -131,7 +131,8 @@ if [ $SUPPORTS_32_BITS == 1 ]; then
   ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
 fi
 
-if [ "$PLATFORM" == "Linux" ]; then
+HAVE_NINJA=${HAVE_NINJA:-1}
+if [ "$PLATFORM" == "Linux" -a $HAVE_NINJA == 1 ]; then
   echo @@@BUILD_STEP run tests in ninja build tree@@@
   if [ ! -d llvm_build_ninja ]; then
     mkdir llvm_build_ninja
