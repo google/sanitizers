@@ -61,7 +61,7 @@ fi
 ### From now on we use just-built Clang as a host compiler ###
 CLANG_PATH=${ROOT}/clang_build/bin
 # Build self-hosted tree with fresh Clang and -Werror.
-CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++ -DLLVM_ENABLE_WERROR=ON"
+CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++"
 BUILD_TYPE=Release
 
 echo @@@BUILD_STEP build 64-bit llvm using clang@@@
