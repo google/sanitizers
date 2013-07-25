@@ -26,3 +26,7 @@ function buildbot_update {
         svn co http://llvm.org/svn/llvm-project/libcxxabi/trunk llvm/projects/libcxxabi $REV_ARG
     fi
 }
+
+function set_chrome_suid_sandbox {
+  export CHROME_DEVEL_SANDBOX=/usr/local/sbin/chrome-devel-sandbox
+}
