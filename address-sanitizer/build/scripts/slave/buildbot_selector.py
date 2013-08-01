@@ -35,7 +35,7 @@ BOT_ADDITIONAL_ENV = {
     'linux-chrome-tsan': {},
     'linux-perf-asan': {},
     'mac10.8-cmake': { 'MAX_MAKE_JOBS': '4' },
-    'mac10.8': { 'MAX_MAKE_JOBS': '2' },
+    'mac10.8': { 'MAX_MAKE_JOBS': '4' },
     'sanitizer-x86_64-linux': {},
 }
 
