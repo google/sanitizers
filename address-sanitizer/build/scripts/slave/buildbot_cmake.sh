@@ -56,6 +56,7 @@ if [ "$PLATFORM" == "Linux" ]; then
   (cd clang_build && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
   (cd clang_build && make -j$MAKE_JOBS check-ubsan) || echo @@@STEP_WARNINGS@@@
+  (cd clang_build && make -j$MAKE_JOBS check-dfsan) || echo @@@STEP_WARNINGS@@@
 fi
 
 ### From now on we use just-built Clang as a host compiler ###
@@ -143,10 +144,11 @@ if [ "$PLATFORM" == "Linux" -a $HAVE_NINJA == 1 ]; then
   ln -sf llvm_build_ninja/compile_commands.json $LLVM_CHECKOUT
   (cd llvm_build_ninja && ninja check-asan) || echo @@@STEP_FAILURE@@@
   (cd llvm_build_ninja && ninja check-sanitizer) || echo @@@STEP_FAILURE@@@
-  (cd llvm_build_ninja && ninja check-tsan) || echo @@@STEP_WARNINGS@@@
+  (cd llvm_build_ninja && ninja check-tsan) || echo @@@STEP_FAILURE@@@
+  (cd llvm_build_ninja && ninja check-msan) || echo @@@STEP_FAILURE@@@
+  (cd llvm_build_ninja && ninja check-lsan) || echo @@@STEP_FAILURE@@@
   (cd llvm_build_ninja && ninja check-ubsan) || echo @@@STEP_WARNINGS@@@
-  (cd llvm_build_ninja && ninja check-msan) || echo @@@STEP_WARNINGS@@@
-  (cd llvm_build_ninja && ninja check-lsan) || echo @@@STEP_WARNINGS@@@
+  (cd llvm_build_ninja && ninja check-dfsan) || echo @@@STEP_WARNINGS@@@
 fi
 
 BUILD_ANDROID=${BUILD_ANDROID:-0}
