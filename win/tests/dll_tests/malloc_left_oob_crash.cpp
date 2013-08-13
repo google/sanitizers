@@ -1,4 +1,4 @@
-/* Copyright 2012 Google Inc.
+/* Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,30 +15,22 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-// NOTE: Don't put <windows.h> here as it's large and not needed for tiny tests.
+#include "../common.h"
 
-#include <assert.h>
-#include <malloc.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+DLLEXPORT int test_function() {
+  volatile char *buffer = (char*)malloc(42);
+  buffer[-1] = 42;
 
-#define CHECK(x) do { if (!(x)) { \
-  printf("Oops: %s @ %s:%d\n", #x, __FILE__, __LINE__); abort(); \
-} } while(0)
+  UNREACHABLE();
+// CHECK-NOT: This code should be unreachable
 
-#define DLLEXPORT extern "C" __declspec(dllexport)
-
-__declspec(noinline)
-void* ident(volatile void *p) {
-  return (void*)p;
-}
-
-void free_noopt(volatile void *p) {
-  free(ident(p));
-}
-
-void UNREACHABLE() {
-  printf("This code should be unreachable\n");
-  fflush(stdout);
+// CHECK: AddressSanitizer: heap-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
+// CHECK: WRITE of size 1 at [[ADDR]] thread T0
+// CHECK:   #0 {{.*}} __asan_report_store1
+// CHECK:   #1 {{.*}} test_function
+// CHECK: [[ADDR]] is located 1 bytes to the left of 42-byte region
+// CHECK: allocated by thread T0 here:
+// CHECK:   #0 {{.*}} malloc
+  free_noopt(buffer);
+  return 0;
 }

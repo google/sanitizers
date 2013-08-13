@@ -48,5 +48,5 @@ all: default
 .PHONY: default
 
 clean:
-	$(RM_F) *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
+	$(RM_F) *.exe *.dll *.obj *.obj-* *.pdb *.ilk *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean

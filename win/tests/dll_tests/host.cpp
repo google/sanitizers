@@ -1,4 +1,4 @@
-/* Copyright 2012 Google Inc.
+/* Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,30 +15,34 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-// NOTE: Don't put <windows.h> here as it's large and not needed for tiny tests.
-
-#include <assert.h>
-#include <malloc.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <windows.h>
 
-#define CHECK(x) do { if (!(x)) { \
-  printf("Oops: %s @ %s:%d\n", #x, __FILE__, __LINE__); abort(); \
-} } while(0)
+int main(int argc, char **argv) {
+  if (argc != 2) {
+    printf("Usage: %s [client].dll\n", argv[0]);
+    return 1;
+  }
 
-#define DLLEXPORT extern "C" __declspec(dllexport)
+  const char *dll_name = argv[1];
 
-__declspec(noinline)
-void* ident(volatile void *p) {
-  return (void*)p;
-}
+  HMODULE h = LoadLibrary(dll_name);
+  if (!h) {
+    printf("Could not load DLL: %s (code: %lu)!\n",
+           dll_name, GetLastError());
+    return 2;
+  }
 
-void free_noopt(volatile void *p) {
-  free(ident(p));
-}
+  typedef int (*test_function)();
+  test_function gf = (test_function)GetProcAddress(h, "test_function");
+  if (!gf) {
+    printf("Could not locate test_function in the DLL!\n");
+    FreeLibrary(h);
+    return 13;
+  }
 
-void UNREACHABLE() {
-  printf("This code should be unreachable\n");
-  fflush(stdout);
+  int ret = gf();
+
+  FreeLibrary(h);
+  return ret;
 }
