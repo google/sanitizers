@@ -14,44 +14,12 @@
 
 # This file is a part of AddressSanitizer, an address sanity checker.
 
-ifeq ($(PLATFORM), )
-	PLATFORM=$(shell uname -s | sed -e "s/CYGWIN.*/Windows/" | sed -e "s/Darwin/Mac/")
-endif
-
-ifeq ($(PLATFORM), Windows)
-	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
-	# Currently, I run
-	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-faddress-sanitizer EXTRA_OBJ=<path_to_rtl>/asan_rtl.lib -j
-	CC=cl
-	CFLAGS=/TC /Zi /nologo
-	LINK=link
-	LINK_FLAGS=/debug /nologo /incremental:no
-	LINK_OUT=/out:
-	EXTRA_OBJ=
-else ifeq ($(PLATFORM), Linux)
-	# TODO(timurrrr): auto-adjust when using `clang -faddress-sanitizer`?
-	# Currently, I run
-	# make CC=clang CFLAGS=-faddress-sanitizer EXTRA_OBJ="<path_to_rtl>/libasan64.so -lpthread -ldl" -j
-	CC=g++
-	CFLAGS=-g
-	LINK=g++
-	LINK_FLAGS=
-	LINK_OUT=-o
-	EXTRA_OBJ=
-endif
-CC_OUT=-c -o
-EXTRA_CFLAGS=
-FILECHECK=
-RM_F=rm -f
+include common.mk
 
 RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,$(wildcard *.cpp))
 
-all: run_all_tests
+default: run_all_tests
 .PHONY: all
-
-clean:
-	$(RM_F) *.pdb *.ilk *.exe *.obj *.obj-* *.exe.manifest *.exp *.lib *.suo *.output
-.PHONY: clean
 
 run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
