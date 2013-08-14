@@ -43,7 +43,6 @@ FILECHECK=
 RM_F=rm -f
 
 run_all_tests: $(RUN_TEST_TARGETS)
-	echo $(RUN_TEST_TARGETS)
 	@echo "========================================"
 	@echo "ALL TESTS PASSED!"
 	@echo "Please note that the crash reports above are expected, e.g. glibc printing to tty"
