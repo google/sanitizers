@@ -14,22 +14,25 @@
 
 # This file is a part of AddressSanitizer, an address sanity checker.
 
+RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,\
+                   $(filter-out host.cpp,$(wildcard *.cpp)))
 include ../common.mk
 
 EXTRA_HOST_LIBS=
 EXTRA_GUEST_LIBS=
 
-default: malloc_left_oob_crash.dll host.exe
-	./host.exe $<
-	@echo "ALL GOOD"
+run_%_pass_test: %_pass.dll host.exe
+	@  $(TEST_COMMAND_PREFIX) ./host.exe $< || ! echo "ERROR: $< - FAILED!" >&2
+
+%_crash_test.output: %_crash.dll host.exe
+	@! $(TEST_COMMAND_PREFIX) ./host.exe $< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 
 host.exe: host.obj
 	link -nologo -debug -out:$@ $< $(EXTRA_HOST_LIBS)
 
-# TODO: generalize to support multiple tests
-# TODO: add output checking
-malloc_left_oob_crash.dll: malloc_left_oob_crash.obj
+%.dll: %.obj $(EXTRA_GUEST_LIBS)
 	link -nologo -debug -dll -out:$@ $< $(EXTRA_GUEST_LIBS)
 
-%.obj: %.cpp
+%.obj: %.cpp ../common.h
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
+	@# Automatically removes the file at the end of the run? Oh wow!

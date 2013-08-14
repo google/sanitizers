@@ -27,7 +27,6 @@ ifeq ($(PLATFORM), Windows)
 	LINK=link
 	LINK_FLAGS=-debug -nologo -incremental:no
 	LINK_OUT=-out:
-	EXTRA_OBJ=
 else ifeq ($(PLATFORM), Linux)
 	# TODO(timurrrr): auto-adjust when using `clang -fsanitize=address`?
 	# Currently, I run
@@ -37,16 +36,35 @@ else ifeq ($(PLATFORM), Linux)
 	LINK=g++
 	LINK_FLAGS=
 	LINK_OUT=-o
-	EXTRA_OBJ=
 endif
 CC_OUT=-c -o
 EXTRA_CFLAGS=
 FILECHECK=
 RM_F=rm -f
 
-all: default
-.PHONY: default
+run_all_tests: $(RUN_TEST_TARGETS)
+	echo $(RUN_TEST_TARGETS)
+	@echo "========================================"
+	@echo "ALL TESTS PASSED!"
+	@echo "Please note that the crash reports above are expected, e.g. glibc printing to tty"
+	@echo "Cleaning up..."
+.PHONY: run_all_tests
 
 clean:
 	$(RM_F) *.exe *.dll *.obj *.obj-* *.pdb *.ilk *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean
+
+######### Utility macros
+
+run_%_crash_test: %_crash_test.output
+	@cat $^
+	@echo "$< - CRASHED AS EXPECTED"
+
+check_%_crash_test: %_crash_test.output %_crash.cpp
+	@$(FILECHECK) -input-file=$^
+	@echo "$< - PASSED (CRASHED WITH THE CORRECT OUTPUT)"
+
+check_%_pass_test: run_%_pass_test
+	@echo "$< - PASSED"
+
+.PHONY: run_%_test

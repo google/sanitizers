@@ -14,35 +14,21 @@
 
 # This file is a part of AddressSanitizer, an address sanity checker.
 
-include common.mk
-
 RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,$(wildcard *.cpp))
 
-default: run_all_tests
-.PHONY: all
+include common.mk
+
+EXTRA_OBJ=
 
 run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 
-check_%_pass_test: run_%_pass_test
-	@echo "$< - PASSED"
+%_crash_test.output: %_crash_test.exe
+	@! $(TEST_COMMAND_PREFIX) ./$< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 
 run_%_stress_test: %_stress_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
-
-%_crash_test.output: %_crash_test.exe
-	@! $(TEST_COMMAND_PREFIX) ./$< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
-
-run_%_crash_test: %_crash_test.output
-	@cat $^
-	@echo "$< - CRASHED AS EXPECTED"
-
-check_%_crash_test: %_crash_test.output %_crash.cpp
-	@$(FILECHECK) -input-file=$^
-	@echo "$< - PASSED (CRASHED WITH THE CORRECT OUTPUT)"
-
-.PHONY: run_%_test
 
 %_test.exe: %.obj $(EXTRA_OBJ)
 	$(LINK) $(LINK_FLAGS) $(LINK_OUT)$@ $< $(EXTRA_OBJ)
@@ -50,10 +36,3 @@ check_%_crash_test: %_crash_test.output %_crash.cpp
 %.obj: %.cpp common.h
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!
-
-run_all_tests: $(RUN_TEST_TARGETS)
-	@echo "========================================"
-	@echo "ALL TESTS PASSED!"
-	@echo "Please note that the crash reports above are expected, e.g. glibc printing to tty"
-	@echo "Cleaning up..."
-.PHONY: run_all_tests
