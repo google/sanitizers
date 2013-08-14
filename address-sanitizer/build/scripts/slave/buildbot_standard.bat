@@ -48,17 +48,22 @@ del *.pdb *.obj *.lib || goto :DIE
 :: /Zi <- generate debug info
 cl /nologo /WX /W3 /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
+cl /nologo /WX /W3 /MT /Zi /DASAN_DLL_THUNK /c asan_dll_thunk.cc || goto :DIE
+lib /nologo /OUT:asan_dll_thunk.lib asan_dll_thunk.obj
 cd %ROOT%
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++.exe FILECHECK=../llvm-build/bin/Debug/FileCheck.exe CFLAGS="-fsanitize=address -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang++ FILECHECK=../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
+
+echo @@@BUILD_STEP asan DLL thunk test@@@
+cd dll_tests || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/Debug/clang++ FILECHECK=../../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address -Xclang -cxx-abi -Xclang microsoft -g" EXTRA_HOST_LIBS=../../compiler-rt/lib/asan/asan_rtl.lib EXTRA_GUEST_LIBS="../../compiler-rt/lib/asan/asan_dll_thunk.lib" -k || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
-
-:: TODO(timurrrr) echo @@@BUILD_STEP asan output_tests@@@
 
 echo "ALL DONE"
 goto :EOF
