@@ -37,7 +37,7 @@ else ifeq ($(PLATFORM), Linux)
 	LINK_FLAGS=
 	LINK_OUT=-o
 endif
-CC_OUT=-c -o
+CC_OUT=-c -Fo
 EXTRA_CFLAGS=
 FILECHECK=
 RM_F=rm -f

@@ -15,8 +15,6 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-#define _MT  // needed to make _beginthreadex available.
-
 #include <windows.h>
 #include <process.h>
 
