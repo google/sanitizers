@@ -325,7 +325,7 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, shr(drcontext, opnd_create_reg(R1), OPND_CREATE_INT8(3)));
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
                  OPND_CREATE_INTPTR(kShadowOffset)));
-  PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
+  PRE(i, add(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
 
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
   if (access_type == ROUGH_READ) {
