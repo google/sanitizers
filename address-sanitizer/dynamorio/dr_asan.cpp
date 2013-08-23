@@ -73,6 +73,7 @@ class ModuleData {
   // Full path to the module.
   string path_;
   bool should_instrument_;
+  bool should_use_rough_reads_;
   bool executed_;
 };
 
@@ -92,6 +93,7 @@ ModuleData::ModuleData()
     end_(NULL),
     path_(""),
     should_instrument_(false),
+    should_use_rough_reads_(false),
     executed_(false)
 {}
 
@@ -99,8 +101,9 @@ ModuleData::ModuleData(const module_data_t *info)
   : start_(info->start),
     end_(info->end),
     path_(info->full_path),
-    // We'll check the black/white lists later and adjust this.
+    // We'll check the black/white lists later and adjust these.
     should_instrument_(true),
+    should_use_rough_reads_(false),
     executed_(false)
 {}
 
@@ -233,8 +236,14 @@ bool WantToInstrument(instr_t *instr) {
 #define PRE(at, what) instrlist_meta_preinsert(bb, at, INSTR_CREATE_##what);
 #define PREF(at, what) instrlist_meta_preinsert(bb, at, what);
 
+enum AccessType {
+  WRITE,
+  READ,
+  ROUGH_READ,
+};
+
 void InstrumentMops(void *drcontext, instrlist_t *bb,
-                           instr_t *i, opnd_t op, bool is_write)
+                    instr_t *i, opnd_t op, AccessType access_type)
 {
   bool need_to_restore_eflags = false;
   uint flags = instr_get_arith_flags(i);
@@ -317,15 +326,20 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, mov_imm(drcontext, opnd_create_reg(R2),
                  OPND_CREATE_INTPTR(kShadowOffset)));
   PRE(i, or(drcontext, opnd_create_reg(R2), opnd_create_reg(R1)));
-  PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(0)));
 
-  // TODO: Idea: look at lea + jecxz instruction to avoid flags usage.  Might be
-  // too complicated to always get ecx if it's the base reg, though.  Also,
-  // jecxz is an old instruction, we need to double check it's performance on
-  // new microarchitectures.
-  // TODO: move the slow path to the end of the BB to improve the ICache usage.
   instr_t *OK_label = INSTR_CREATE_label(drcontext);
-  PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
+  if (access_type == ROUGH_READ) {
+    PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(8)));
+    PRE(i, jcc(drcontext, OP_jb_short, opnd_create_instr(OK_label)));
+  } else {
+    PRE(i, cmp(drcontext, OPND_CREATE_MEM8(R2,0), OPND_CREATE_INT8(0)));
+    // TODO: Idea: look at lea + jecxz instruction to avoid flags usage.  Might be
+    // too complicated to always get ecx if it's the base reg, though.  Also,
+    // jecxz is an old instruction, we need to double check it's performance on
+    // new microarchitectures.
+    // TODO: move the slow path to the end of the BB to improve the ICache usage.
+    PRE(i, jcc(drcontext, OP_je_short, opnd_create_instr(OK_label)));
+  }
 
   opnd_size_t op_size = opnd_get_size(op);
   CHECK(op_size != OPSZ_NA);
@@ -335,7 +349,7 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
     access_size = 8;
   }
 
-  if (access_size < 8) {
+  if (access_size < 8 && access_type != ROUGH_READ) {
     // TODO: the second memory load in not necessary, see the prev load.
     PRE(i, mov_ld(drcontext, opnd_create_reg(R1), OPND_CREATE_MEMPTR(R2,0)));
     PRE(i, mov_ld(drcontext, opnd_create_reg(R2_8), opnd_create_reg(R1_8)));
@@ -389,7 +403,8 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
     }
   }
   CHECK(sz_idx < 5);
-  AsanCallbacks::Report *on_error = &g_callbacks.report[is_write][sz_idx];
+  AsanCallbacks::Report *on_error =
+      &g_callbacks.report[access_type == WRITE][sz_idx];
   // TODO: this trashes the stack, likely debugger-unfriendly.
   // TODO: enforce on_error != NULL when we link the RTL in the binary.
   // TODO: Align the stack.
@@ -484,6 +499,20 @@ bool ShouldInstrumentNonModuleCode() {
   return false;  // TODO(rnk): Should be a flag.
 }
 
+bool ShouldUseRoughReadChecks(ModuleData *mod_data) {
+  const string &path = mod_data->path_;
+
+  // XChangeProperty has a small buffer overread.
+  if (path.find("/libX") != string::npos)
+    return true;
+
+  // https://bugs.kde.org/show_bug.cgi?id=269172
+  if (path.find("/libfontconfig") != string::npos)
+    return true;
+
+  return false;
+}
+
 bool ShouldInstrumentModule(ModuleData *mod_data) {
   // TODO(rnk): Flags for blacklist would get wired in here.
   const string &path = mod_data->path_;
@@ -567,14 +596,7 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
     // TODO: Some instructions (e.g. lock xadd) may read & write the same memory
     // location. Optimize the instrumentation to only check the write.
 
-    if (instr_reads_memory(i)
-        // Don't instrument reads in libX for now.  XChangeProperty has a small
-        // buffer overread.
-        && mod_path.find("libX") == string::npos
-        // Don't instrument reads in libfontconfig,
-        // https://bugs.kde.org/show_bug.cgi?id=269172 is blocking.
-        && mod_path.find("libfontconfig") == string::npos
-        ) {
+    if (instr_reads_memory(i)) {
       // Instrument memory reads
       bool instrumented_anything = false;
       for (int s = 0; s < instr_num_srcs(i); s++) {
@@ -586,7 +608,9 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
         // Probably, should use drutil_expand_rep_string
         CHECK(!instrumented_anything);
         instrumented_anything = true;
-        InstrumentMops(drcontext, bb, i, op, false);
+        InstrumentMops(drcontext, bb, i, op,
+                       mod_data->should_use_rough_reads_ ? ROUGH_READ : READ);
+
       }
     }
 
@@ -600,7 +624,7 @@ dr_emit_flags_t event_basic_block(void *drcontext, void *tag, instrlist_t *bb,
 
         CHECK(!instrumented_anything);
         instrumented_anything = true;
-        InstrumentMops(drcontext, bb, i, op, true);
+        InstrumentMops(drcontext, bb, i, op, WRITE);
       }
     }
   }
@@ -630,6 +654,8 @@ void event_module_load(void *drcontext, const module_data_t *info, bool loaded) 
   if (!it->should_instrument_) {
     dr_module_set_should_instrument(info->handle, false);
   }
+
+  it->should_use_rough_reads_ = ShouldUseRoughReadChecks(&*it);
 
 #if defined(VERBOSE)
   dr_printf("==DRASAN== Loaded module: %s [%p...%p], instrumentation is %s\n",
