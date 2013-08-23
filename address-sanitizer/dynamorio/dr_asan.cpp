@@ -407,7 +407,6 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
       &g_callbacks.report[access_type == WRITE][sz_idx];
   // TODO: this trashes the stack, likely debugger-unfriendly.
   // TODO: enforce on_error != NULL when we link the RTL in the binary.
-  // TODO: Align the stack.
 #if __WORDSIZE == 32
   // Push the app PC as the return address:
   //   push instr_get_app_pc(i)
@@ -415,6 +414,15 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, push(drcontext, OPND_CREATE_INT32(instr_get_app_pc(i))));
   PRE(i, jmp(drcontext, opnd_create_pc((byte*)*on_error)));
 #else
+  // Align the stack by 16 bytes dropping the 4 least significant bits of SP.
+  // Scratches XAX, but it's not needed anyways as we're going to crash soon.
+  PRE(i, mov_ld(drcontext, opnd_create_reg(DR_REG_XAX),
+                opnd_create_reg(DR_REG_XSP)));
+  // DR doesn't has OPND_CREATE_UINT8, thus use a negative number.
+  PRE(i, and(drcontext, opnd_create_reg(DR_REG_AL), OPND_CREATE_INT8(-16)));
+  PRE(i, mov_ld(drcontext, opnd_create_reg(DR_REG_XSP),
+                opnd_create_reg(DR_REG_XAX)));
+
   // 64-bit has two problems: reachability, and no 64-bit immediate push.  So,
   // we split the push into a push+mov_st, and jump through the client's memory,
   // which DR guarantees to be reachable from the code cache.
