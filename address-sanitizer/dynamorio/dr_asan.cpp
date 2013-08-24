@@ -415,13 +415,8 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, jmp(drcontext, opnd_create_pc((byte*)*on_error)));
 #else
   // Align the stack by 16 bytes dropping the 4 least significant bits of SP.
-  // Scratches XAX, but it's not needed anyways as we're going to crash soon.
-  PRE(i, mov_ld(drcontext, opnd_create_reg(DR_REG_XAX),
-                opnd_create_reg(DR_REG_XSP)));
   // DR doesn't has OPND_CREATE_UINT8, thus use a negative number.
-  PRE(i, and(drcontext, opnd_create_reg(DR_REG_AL), OPND_CREATE_INT8(-16)));
-  PRE(i, mov_ld(drcontext, opnd_create_reg(DR_REG_XSP),
-                opnd_create_reg(DR_REG_XAX)));
+  PRE(i, and(drcontext, opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT8(-16)));
 
   // 64-bit has two problems: reachability, and no 64-bit immediate push.  So,
   // we split the push into a push+mov_st, and jump through the client's memory,
