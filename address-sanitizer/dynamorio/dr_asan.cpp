@@ -505,12 +505,12 @@ bool ShouldInstrumentNonModuleCode() {
 bool ShouldUseRoughReadChecks(ModuleData *mod_data) {
   const string &path = mod_data->path_;
 
-  // XChangeProperty has a small buffer overread.
-  if (path.find("/libX") != string::npos)
-    return true;
-
   // https://bugs.kde.org/show_bug.cgi?id=269172
   if (path.find("/libfontconfig") != string::npos)
+    return true;
+
+  // Valgrind detects weird reads in LD as well...
+  if (path.find("/ld-") != string::npos)
     return true;
 
   return false;
@@ -523,27 +523,23 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
     return should_instrument_app;
   }
 
-  // TODO(timurrrr): investigate each exclusion.
-  if (path.find("/libc-") != string::npos ||
-      path.find("/ld-") != string::npos ||
-      path.find("/libpthread") != string::npos) {
-    // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
-    // can't map to the shadow space.
+  // TODO(rnk): Instrument libc.  The ASan RTL calls libc on addresses that we
+  // can't map to the shadow space.
+  if (path.find("/libc-") != string::npos)
     return false;
-  }
-  if (path.find("/libosmesa") != string::npos) {
-    // Don't instrument Mesa as it crashes DRT under DRASan. Might be related to
-    // the DRT/Mesa problems we see under Valgrind...
-    // TODO(timurrrr): investigate.
+
+  // Don't instrument Mesa as it crashes DRT under DRASan. Might be related to
+  // the DRT/Mesa problems we see under Valgrind... TODO(timurrrr): investigate.
+  if (path.find("/libosmesa") != string::npos)
     return false;
-  }
-  if (path.find("/libppGoogleNaClPluginChrome") != string::npos) {
-    // TODO(rnk): Don't instrument modules which were already instrumented by
-    // the compiler ASan. We can check if the module imports __asan_init, but
-    // we'll need DR support or a bunch of ELF parsing routines in dr_asan.
-    // See http://code.google.com/p/address-sanitizer/issues/detail?id=80
+
+  // TODO(rnk): Don't instrument modules which were already instrumented by
+  // the compiler ASan. We can check if the module imports __asan_init, but
+  // we'll need DR support or a bunch of ELF parsing routines in dr_asan.
+  // See http://code.google.com/p/address-sanitizer/issues/detail?id=80
+  if (path.find("/libppGoogleNaClPluginChrome") != string::npos)
     return false;
-  }
+
   return true;
 }
 
