@@ -24,6 +24,7 @@ BOT_ASSIGNMENT = {
     'mac10.8-cmake': bash('buildbot_cmake.sh'),
     'mac10.8': bash('buildbot_standard.sh'),
     'sanitizer-x86_64-linux': bash('buildbot_cmake.sh'),
+    'sanitizer-x86_64-linux-bootstrap': bash('buildbot_bootstrap.sh'),
 }
 
 BOT_ADDITIONAL_ENV = {
@@ -37,6 +38,7 @@ BOT_ADDITIONAL_ENV = {
     'mac10.8-cmake': { 'MAX_MAKE_JOBS': '4' },
     'mac10.8': { 'MAX_MAKE_JOBS': '4' },
     'sanitizer-x86_64-linux': {},
+    'sanitizer-x86_64-linux-bootstrap': {},
 }
 
 def Main():
