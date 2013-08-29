@@ -56,6 +56,8 @@ def Main():
   add_env = BOT_ADDITIONAL_ENV.get(builder)
   for var in add_env:
     bot_env[var] = add_env[var]
+  if 'TMPDIR' in bot_env:
+    del bot_env['TMPDIR']
 
   retcode = subprocess.call(cmd, env=bot_env, shell=True)
   sys.exit(retcode)
