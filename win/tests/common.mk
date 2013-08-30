@@ -50,7 +50,7 @@ run_all_tests: $(RUN_TEST_TARGETS)
 .PHONY: run_all_tests
 
 clean:
-	$(RM_F) *.exe *.dll *.obj *.obj-* *.pdb *.ilk *.exe.manifest *.exp *.lib *.suo *.output
+	$(RM_F) *.exe *.dll *.obj *.obj-* *.o *.o-* *.pdb *.ilk *.exe.manifest *.exp *.lib *.suo *.output
 .PHONY: clean
 
 ######### Utility macros
