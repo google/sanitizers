@@ -17,17 +17,23 @@
 
 #include "common.h"
 
+void call_memcpy(void* (__cdecl *f)(void *, const void *, size_t),
+                 void *a, void *b, size_t c) {
+  f(a, b, c);
+}
+
 int main(void) {
-  volatile char buff1[6] = "Hello",
-                buff2[5];
-  memcpy(ident(buff2), ident(buff1), 6);
+  char buff1[6] = "Hello", buff2[5];
+  call_memcpy(&memcpy, buff2, buff1, 6);
 
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
 
 // CHECK: AddressSanitizer: stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 6 at [[ADDR]] thread T0
-// CHECK:   #{{[02]}} {{.*}} main
+// CHECK:   wrap_memcpy
+// CHECK:   call_memcpy
+// CHECK:   main
 // CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame
-// CHECK: main
+// CHECK:   #0 {{.*}} main
 }

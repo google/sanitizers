@@ -34,6 +34,11 @@ void* ident(volatile void *p) {
   return (void*)p;
 }
 
+__declspec(noinline)
+int ident(volatile int x) {
+  return x;
+}
+
 void free_noopt(volatile void *p) {
   free(ident(p));
 }
