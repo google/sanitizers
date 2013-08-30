@@ -18,7 +18,7 @@ if NOT "%BUILDBOT_REVISION%" == "" set REV_ARG="-r%BUILDBOT_REVISION%"
 :: call -> because "svn" might be a batch script, ouch
 call svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm %REV_ARG% || goto :DIE
 call svn co http://llvm.org/svn/llvm-project/cfe/trunk llvm/tools/clang %REV_ARG% || goto :DIE
-call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk llvm/projects/compiler-rt %REV_ARG% || goto :DIE
+call svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk compiler-rt %REV_ARG% || goto :DIE
 call svn co http://address-sanitizer.googlecode.com/svn/trunk/win/tests win_tests || echo "Failed to update Windows tests, alas..."
 
 set ROOT=%cd%
@@ -26,7 +26,7 @@ set ROOT=%cd%
 echo @@@BUILD_STEP build asan RTL@@@
 :: TODO(timurrrr): Only needed to build asan_thunk.dll actually.
 :: Still useful to detect build errors early...
-set ASAN_PATH=llvm\projects\compiler-rt\lib\asan
+set ASAN_PATH=compiler-rt\lib\asan
 cd %ASAN_PATH% || goto :DIE
 :: This only compiles, not links.
 del *.pdb *.obj *.lib || goto :DIE
@@ -57,12 +57,12 @@ cd %ROOT%
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang-cl FILECHECK=../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_OBJ=../llvm/projects/compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang-cl FILECHECK=../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
 
 echo @@@BUILD_STEP asan DLL thunk test@@@
 cd dll_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/Debug/clang-cl FILECHECK=../../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_HOST_LIBS=../../llvm/projects/compiler-rt/lib/asan/asan_rtl.lib EXTRA_GUEST_LIBS="../../llvm/projects/compiler-rt/lib/asan/asan_dll_thunk.lib" -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/Debug/clang-cl FILECHECK=../../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_HOST_LIBS=../../compiler-rt/lib/asan/asan_rtl.lib EXTRA_GUEST_LIBS="../../compiler-rt/lib/asan/asan_dll_thunk.lib" -k || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
