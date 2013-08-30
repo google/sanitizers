@@ -73,4 +73,5 @@ goto :EOF
 :DIE
 :: TODO(timurrrr) : get the current process's PID?
 taskkill /F /IM cmake.exe /T
+taskkill /F /IM MSBuild.exe /T
 exit /b 42
