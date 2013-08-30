@@ -55,12 +55,12 @@ cd %ROOT%
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-:: TODO(timurrrr): Should simplify to avoid EXTRA_OBJ dependency.
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang-cl FILECHECK=../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang-cl FILECHECK=../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" -k || goto :DIE
 
 echo @@@BUILD_STEP asan DLL thunk test@@@
 cd dll_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
+:: TODO(timurrrr): clang-cl should automatically link the needed parts of the RTL.
 C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/Debug/clang-cl FILECHECK=../../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_HOST_LIBS=../../compiler-rt/lib/asan/asan_rtl.lib EXTRA_GUEST_LIBS="../../compiler-rt/lib/asan/asan_dll_thunk.lib" -k || goto :DIE
 cd %ROOT%
 
