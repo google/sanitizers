@@ -47,9 +47,9 @@ mkdir llvm-build
 :: TODO(timurrrr): Is this enough to force a full re-configure?
 del llvm-build\CMakeCache.txt
 cd llvm-build
-cmake -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
+cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
 echo @@@BUILD_STEP build llvm@@@
-cmake --build . || goto :DIE
+ninja || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP test llvm@@@
@@ -57,12 +57,12 @@ cd %ROOT%
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/Debug/clang-cl FILECHECK=../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/clang-cl FILECHECK=../llvm-build/bin/FileCheck CFLAGS="-fsanitize=address" EXTRA_OBJ=../compiler-rt/lib/asan/asan_rtl.lib -k || goto :DIE
 
 echo @@@BUILD_STEP asan DLL thunk test@@@
 cd dll_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/Debug/clang-cl FILECHECK=../../llvm-build/bin/Debug/FileCheck CFLAGS="-fsanitize=address" EXTRA_HOST_LIBS=../../compiler-rt/lib/asan/asan_rtl.lib EXTRA_GUEST_LIBS="../../compiler-rt/lib/asan/asan_dll_thunk.lib" -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/clang-cl FILECHECK=../../llvm-build/bin/FileCheck CFLAGS="-fsanitize=address" EXTRA_HOST_LIBS=../../compiler-rt/lib/asan/asan_rtl.lib EXTRA_GUEST_LIBS="../../compiler-rt/lib/asan/asan_dll_thunk.lib" -k || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
