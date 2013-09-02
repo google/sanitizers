@@ -30,9 +30,6 @@ run_%_stress_test: %_stress_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
 
-%_test.exe: %.obj $(EXTRA_OBJ)
-	$(LINK) $(LINK_FLAGS) $(LINK_OUT)$@ $< $(EXTRA_OBJ)
-
-%.obj: %.cpp common.h
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
+%_test.exe: %.cpp common.h
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!
