@@ -42,7 +42,7 @@ lib /nologo /OUT:asan_dll_thunk.lib asan_dll_thunk.obj
 cd %ROOT%
 
 echo @@@BUILD_STEP cmake llvm@@@
-mkdir llvm-build || goto :DIE
+mkdir llvm-build
 cd llvm-build || goto :DIE
 
 :: TODO(timurrrr): Is this enough to force a full re-configure?
