@@ -4,18 +4,16 @@ instrument with clang (e.g. system libraries).
 Don't expect anything here to *really work*.
 
 Building:
-  1. First, download and build DynamoRIO:
-     (svn co -r2239 https://dynamorio.googlecode.com/svn/trunk dr && \
-      cd dr && mkdir build && cd build && \
-      cmake -DDR_EXT_DRMGR_STATIC=ON  -DDR_EXT_DRSYMS_STATIC=ON \
-            -DDR_EXT_DRUTIL_STATIC=ON -DDR_EXT_DRWRAP_STATIC=ON .. && \
-      make -j10 && make install)
+  1. First, download DynamoRIO from
+       http://build.chromium.org/p/client.dynamorio/builds/
+     and extract it as 'dr'.
+
   2. Now, build the tool
      (mkdir build && cd build && \
-      cmake -DDynamoRIO_DIR=`pwd`/../dr/exports/cmake .. && make -j10) &&
-     ln -s ../../build/libdr_asan.so dr/exports/
+      cmake -DDynamoRIO_DIR=`pwd`/../dr/cmake .. && make -j10) &&
+     ln -s ../build/libdr_asan.so dr/
 
 Running:
   1. See ../pin/README.txt on how to build the test app
   2. Run it with DR-ASan:
-     ./dr/exports/bin64/drrun -disable_traces -c ./dr/exports/libdr_asan.so -- ../pin/a.out
+     ./dr/bin64/drrun -disable_traces -c ./dr/libdr_asan.so -- ../pin/a.out
