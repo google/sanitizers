@@ -18,7 +18,6 @@ RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,\
                    $(filter-out host.cpp,$(wildcard *.cpp)))
 include ../common.mk
 
-EXTRA_HOST_LIBS=
 EXTRA_GUEST_LIBS=
 
 run_%_pass_test: %_pass.dll host.exe
@@ -27,8 +26,8 @@ run_%_pass_test: %_pass.dll host.exe
 %_crash_test.output: %_crash.dll host.exe
 	@! $(TEST_COMMAND_PREFIX) ./host.exe $< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 
-host.exe: host.obj
-	link -nologo -debug -out:$@ $< $(EXTRA_HOST_LIBS)
+host.exe: host.cpp ../common.h
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE)$@ $<
 
 %.dll: %.obj $(EXTRA_GUEST_LIBS)
 	link -nologo -debug -dll -out:$@ $< $(EXTRA_GUEST_LIBS)
