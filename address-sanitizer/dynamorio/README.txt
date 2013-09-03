@@ -12,9 +12,10 @@ Building:
       make -j10 && make install)
   2. Now, build the tool
      (mkdir build && cd build && \
-      cmake -DDynamoRIO_DIR=`pwd`/../dr/exports/cmake .. && make -j10)
+      cmake -DDynamoRIO_DIR=`pwd`/../dr/exports/cmake .. && make -j10) &&
+     ln -s ../../build/libdr_asan.so dr/exports/
 
 Running:
   1. See ../pin/README.txt on how to build the test app
   2. Run it with DR-ASan:
-     ./dr/exports/bin64/drrun -disable_traces -c ./build/libdr_asan.so -- ../pin/a.out
+     ./dr/exports/bin64/drrun -disable_traces -c ./dr/exports/libdr_asan.so -- ../pin/a.out
