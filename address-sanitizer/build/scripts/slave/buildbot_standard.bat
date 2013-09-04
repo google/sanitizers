@@ -73,7 +73,7 @@ cd %ROOT%
 
 echo @@@BUILD_STEP build asan RTL with clang@@@
 cd %ASAN_PATH% || goto :DIE
-..\..\..\..\llvm-build\bin\clang-cl /GR- /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
+%ROOT%\llvm-build\bin\clang-cl /GR- /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 
 echo "ALL DONE"
 goto :EOF
