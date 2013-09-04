@@ -71,9 +71,11 @@ cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
 
-echo @@@BUILD_STEP build asan RTL with clang@@@
-cd %ASAN_PATH% || goto :DIE
-%ROOT%\llvm-build\bin\clang-cl /GR- /I.. /I../../include /c *.cc ..\interception\*.cc ..\sanitizer_common\*.cc || goto :DIE
+:: TODO(timurrrr): Re-enable once http://llvm.org/PR17098 is fixed
+:: echo @@@BUILD_STEP build asan RTL with clang@@@
+:: cd %ASAN_PATH% || goto :DIE
+:: %ROOT%\llvm-build\bin\clang-cl /GR- /I.. /I../../include /c *.cc ..\interception\*.cc ..\sanitizer_common\*.cc || goto :DIE
+:: cd %ROOT%
 
 echo "ALL DONE"
 goto :EOF
