@@ -19,6 +19,7 @@ RUN_TEST_TARGETS=$(patsubst %.cpp,check_%_test,$(wildcard *.cpp))
 include common.mk
 
 EXTRA_OBJ=
+UAR_FLAG=
 
 run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
@@ -29,6 +30,9 @@ run_%_pass_test: %_pass_test.exe
 run_%_stress_test: %_stress_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
+
+%_use_after_return_crash_test.exe: %_use_after_return_crash.cpp common.h
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(UAR_FLAG) $(CC_EXE)$@ $<
 
 %_test.exe: %.cpp common.h
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE)$@ $<

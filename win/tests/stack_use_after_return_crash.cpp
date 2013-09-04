@@ -19,26 +19,23 @@
 
 #include "common.h"
 
-volatile char *other_thread_stack_object = NULL;
+char *x;
 
-DWORD WINAPI thread_proc(void *context) {
-  volatile char stack_buffer[42];
-  other_thread_stack_object = &stack_buffer[13];
-  // TODO: Do we need an extra test for ExitThread(0); ?
-  return 0;
+void foo() {
+  char stack_buffer[42];
+  x = &stack_buffer[13];
 }
 
 int main(void) {
-  HANDLE thr = CreateThread(NULL, 0, thread_proc, NULL, 0, NULL);
-  CHECK(thr > 0);
-  CHECK(WAIT_OBJECT_0 == WaitForSingleObject(thr, INFINITE));
-  CHECK(other_thread_stack_object != NULL);
+  foo();
+  *x = 42;
 
-  // TODO: ASan doesn't generate a crash stack here at the momoent.
-  printf("TODO: no output!\n");
-  fflush(stdout);
-// CHECK: TODO: no output
-  *other_thread_stack_object = 42;
+// CHECK: AddressSanitizer: stack-use-after-return
+// CHECK: WRITE of size 1 at {{.*}} thread T0
+// CHECK-NEXT: main
+// CHECK: is located in stack of thread T0
+// CHECK-NEXT: foo
+// CHECK: 'stack_buffer' {{.*}} is inside this variable
 
   UNREACHABLE();
 // CHECK-NOT: This code should be unreachable
