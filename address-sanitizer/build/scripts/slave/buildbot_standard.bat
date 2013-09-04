@@ -52,6 +52,9 @@ rmdir /S /Q CMakeFiles
 cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
 echo @@@BUILD_STEP build llvm@@@
 ninja || goto :DIE
+:: TODO(timurrrr): Run ninja second time to work around
+:: http://public.kitware.com/Bug/view.php?id=14167
+ninja || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP test llvm@@@
