@@ -27,8 +27,7 @@ echo @@@BUILD_STEP build asan RTL@@@
 :: Build the RTL manually - useful to detect RTL build errors early.
 set ASAN_PATH=llvm\projects\compiler-rt\lib\asan
 cd %ASAN_PATH% || goto :DIE
-:: This only compiles, not links.
-del *.pdb *.obj *.lib || goto :DIE
+del *.pdb *.o *.obj *.lib || goto :DIE
 
 :: /WX <- treat warnings as errors
 :: /W3 <- warnings level 3
@@ -71,6 +70,10 @@ C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/clang-cl FILECHEC
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
+
+echo @@@BUILD_STEP build asan RTL with clang@@@
+cd %ASAN_PATH% || goto :DIE
+../../../../llvm-build/bin/clang-cl /GR- /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 
 echo "ALL DONE"
 goto :EOF
