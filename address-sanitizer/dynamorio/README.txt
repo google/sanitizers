@@ -11,7 +11,7 @@ Building:
   2. Now, build the tool
      (mkdir build && cd build && \
       cmake -DDynamoRIO_DIR=`pwd`/../dr/cmake .. && make -j10) &&
-     ln -s ../build/libdr_asan.so dr/
+     ln -s ../build/libdr_asan.so dr/ && ln -s ../run.sh dr
 
 Running:
   1. See ../pin/README.txt on how to build the test app
