@@ -503,6 +503,8 @@ bool ShouldInstrumentNonModuleCode() {
 }
 
 bool ShouldUseRoughReadChecks(ModuleData *mod_data) {
+  // TODO(timurrrr): add a new flag to ASAN_OPTIONS to adjust the
+  // strictness of instrumentation of the listed modules.
   const string &path = mod_data->path_;
 
   // https://bugs.kde.org/show_bug.cgi?id=269172
@@ -537,7 +539,12 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   // the compiler ASan. We can check if the module imports __asan_init, but
   // we'll need DR support or a bunch of ELF parsing routines in dr_asan.
   // See http://code.google.com/p/address-sanitizer/issues/detail?id=80
+  // TODO(timurrrr): add a new flag to ASAN_OPTIONS to disable instrumentation
+  // of the listed modules.
   if (path.find("/libppGoogleNaClPluginChrome") != string::npos)
+    return false;
+
+  if (path.find("/libffmpegsumo") != string::npos)
     return false;
 
   return true;
