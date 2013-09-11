@@ -24,7 +24,9 @@ ifeq ($(PLATFORM), Windows)
 	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-fsanitize=address EXTRA_OBJ=<path_to_rtl>/asan_rtl.lib -j
 	CC=cl
 	CFLAGS=-TC -Zi -nologo
-	CC_EXE=-Fe
+	CC_DLL=-LD
+	CC_DLL_OUT=-Fe
+	CC_EXE_OUT=-Fe
 	LINK=link
 	LINK_FLAGS=-debug -nologo -incremental:no
 	LINK_OUT=-out:
@@ -34,12 +36,13 @@ else ifeq ($(PLATFORM), Linux)
 	# make CC=clang CFLAGS=-faddress-sanitizer EXTRA_OBJ="<path_to_rtl>/libasan64.so -lpthread -ldl" -j
 	CC=g++
 	CFLAGS=-g
-	CC_EXE=-o
+	CC_DLL=
+	CC_DLL_OUT=-o
+	CC_EXE_OUT=-o
 	LINK=g++
 	LINK_FLAGS=
 	LINK_OUT=-o
 endif
-CC_OUT=-c -Fo
 EXTRA_CFLAGS=
 FILECHECK=
 RM_F=rm -f

@@ -27,11 +27,8 @@ run_%_pass_test: %_pass.dll host.exe
 	@! $(TEST_COMMAND_PREFIX) ./host.exe $< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 
 host.exe: host.cpp ../common.h
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE)$@ $<
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE_OUT)$@ $<
 
-%.dll: %.obj $(EXTRA_GUEST_LIBS)
-	link -nologo -debug -dll -out:$@ $< $(EXTRA_GUEST_LIBS)
-
-%.obj: %.cpp ../common.h
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_OUT)$@ $<
+%.dll: %.cpp ../common.h
+	$(CC) $(CC_DLL) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_DLL_OUT)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!

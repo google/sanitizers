@@ -32,8 +32,8 @@ run_%_stress_test: %_stress_test.exe
 	@echo "$< - PASSED"
 
 %_use_after_return_crash_test.exe: %_use_after_return_crash.cpp common.h
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(UAR_FLAG) $(CC_EXE)$@ $<
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(UAR_FLAG) $(CC_EXE_OUT)$@ $<
 
 %_test.exe: %.cpp common.h
-	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE)$@ $<
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(CC_EXE_OUT)$@ $<
 	@# Automatically removes the file at the end of the run? Oh wow!
