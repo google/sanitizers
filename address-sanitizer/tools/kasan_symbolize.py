@@ -5,11 +5,11 @@ import subprocess
 import re
 
 regexp = re.compile(
-  '(?P<prefix>.+)(?P<number>#[0-9]+) (?P<addr>[0-9A-Fa-f]+)(?P<suffix>.+)'
+  '^  (?P<number>#[0-9]+) (?P<addr>[0-9A-Fa-f]+) (?P<suffix>.+)$'
 )
 
 def print_usage():
-  print 'Usage: %s <vmlinux path> <report path>' % sys.argv[0]
+  print 'Usage: %s <vmlinux path>' % sys.argv[0]
 
 class Symbolizer:
   def __init__(self, vmlinux_path):
@@ -32,6 +32,9 @@ class Symbolizer:
       func = self.proc.stdout.readline().rstrip()
       fileline = self.proc.stdout.readline().rstrip()
       if func == '??':
+        if len(result) == 0:
+          self.proc.stdout.readline()
+          self.proc.stdout.readline()
         return result
       result.append((func, fileline))
 
@@ -39,38 +42,38 @@ class Symbolizer:
     self.proc.kill()
     self.proc.wait()
 
-def process_report(vmlinux_path, report_path):
-  with Symbolizer(vmlinux_path) as symb:
-    with open(report_path, 'r') as report:
-      for line in report:
-        m = regexp.match(line)
-        if m == None:
-          print line,
-        else:
-          prefix = m.group('prefix')
-          number = m.group('number')
-          addr = m.group('addr')
-          suffix = m.group('suffix').rstrip()
-          frames = symb.Process(addr)
+def print_frame(number, addr, func, fileline, suffix):
+  print '  %s %s %s %s' % (number, addr, suffix, fileline)
 
-          for i in xrange(len(frames)):
-            frame = frames[i]
-            if i != len(frames) - 1:
-              print '%s%s      inlined     %s %s' % \
-                    (prefix, number, frame[0], frame[1]) 
-            else:
-              print '%s%s %s%s %s' % \
-                    (prefix, number, addr, suffix, frame[1])
+def print_inlined_frame(number, addr, func, fileline, suffix):
+  addr = '     inlined    ';
+  print '  %s %s %s %s %s' % (number, addr, suffix, func, fileline) 
+
+def process_report(vmlinux_path):
+  with Symbolizer(vmlinux_path) as symb:
+    for line in sys.stdin:
+      line = line.partition(']')[2][1:]
+      match = regexp.match(line)
+      if match == None:
+        print line.rstrip()
+      else:
+        number = match.group('number')
+        addr = match.group('addr')
+        suffix = match.group('suffix')
+        frames = symb.Process(addr)
+        if len(frames) == 0:
+          print line.rstrip()
+        else:
+          for frame in frames[:-1]:
+            print_inlined_frame(number, addr, frame[0], frame[1], suffix)
+          print_frame(number, addr, frames[-1][0], frames[-1][1], suffix)
 
 def main():
-  if len(sys.argv) != 3:
+  if len(sys.argv) != 2:
     print_usage()
     sys.exit(1)
-
   vmlinux_path = sys.argv[1]
-  report_path = sys.argv[2]
-
-  process_report(vmlinux_path, report_path)
+  process_report(vmlinux_path)
   sys.exit(0)
 
 if __name__ == '__main__':
