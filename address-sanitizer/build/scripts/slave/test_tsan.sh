@@ -52,7 +52,7 @@ SUPPRESS_WARNINGS="-Wno-format-security -Wno-null-dereference -Wno-unused-privat
 EXTRA_COMPILER_FLAGS="-fsanitize=thread -DTHREAD_SANITIZER -fPIC -g -O2 $SUPPRESS_WARNINGS"
 (cd $RACECHECK_UNITTEST_PATH && \
 make clean && \
-OMIT_DYNAMIC_ANNOTATIONS_IMPL=1 LIBS=$LIBTSAN_A make l64 -j16 CC=clang CXX=clang++ LDOPT="-pie -ldl -Wl,--whole-archive $LIBTSAN_A -Wl,--no-whole-archive" OMIT_CPP0X=1 EXTRA_CFLAGS="$EXTRA_COMPILER_FLAGS" EXTRA_CXXFLAGS="$EXTRA_COMPILER_FLAGS" && \
+OMIT_DYNAMIC_ANNOTATIONS_IMPL=1 make l64 -j16 CC=clang CXX=clang++ LDOPT="-pie -ldl -Wl,--whole-archive $LIBTSAN_A -Wl,--no-whole-archive" OMIT_CPP0X=1 EXTRA_CFLAGS="$EXTRA_COMPILER_FLAGS" EXTRA_CXXFLAGS="$EXTRA_COMPILER_FLAGS" && \
 bin/racecheck_unittest-linux-amd64-O0 --gtest_filter=-*Ignore*:*Suppress*:*EnableRaceDetectionTest*:*Rep*Test*:*NotPhb*:*Barrier*:*Death*:*PositiveTests_RaceInSignal*:StressTests.FlushStateTest:*Mmap84GTest:*.LibcStringFunctions)
 
 #Ignore: ignores do not work yet
