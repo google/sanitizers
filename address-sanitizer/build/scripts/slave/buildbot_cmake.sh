@@ -77,12 +77,16 @@ echo @@@BUILD_STEP run asan tests@@@
 ASAN_PATH=projects/compiler-rt/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
 ASAN_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Test
+ASAN_NOINST_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Noinst-Test
 ASAN_TEST_BINARY_32=$ASAN_TESTS_PATH/Asan-i386-Test
+ASAN_NOINST_TEST_BINARY_32=$ASAN_TESTS_PATH/Asan-i386-Noinst-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 # Run unit test binaries in a single shard.
 ./llvm_build64/$ASAN_TEST_BINARY_64
+./llvm_build64/$ASAN_NOINST_TEST_BINARY_64
 if [ $SUPPORTS_32_BITS == 1 ]; then
   ./llvm_build64/$ASAN_TEST_BINARY_32
+  ./llvm_build64/$ASAN_NOINST_TEST_BINARY_32
 fi
 
 if [ "$PLATFORM" == "Darwin" ]; then
@@ -208,6 +212,7 @@ if [ $RUN_ANDROID == 1 ] ; then
     echo "ASan runtime: $ASAN_RT_LIB_PATH"
     $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
     $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
 
     NUM_SHARDS=7
     for ((SHARD=0; SHARD < $NUM_SHARDS; SHARD++)); do
@@ -216,6 +221,12 @@ if [ $RUN_ANDROID == 1 ] ; then
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
           $DEVICE_ROOT/AsanTest; \
+          echo \$? >$DEVICE_ROOT/error_code"
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+        $ADB shell "LD_LIBRARY_PATH=$DEVICE_ROOT \
+          GTEST_TOTAL_SHARDS=$NUM_SHARDS \
+          GTEST_SHARD_INDEX=$SHARD \
+          $DEVICE_ROOT/AsanNoinstTest; \
           echo \$? >$DEVICE_ROOT/error_code"
         $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
     done
