@@ -59,7 +59,7 @@ def process_report(vmlinux_path):
       else:
         number = match.group('number')
         addr = match.group('addr')
-        suffix = match.group('suffix')
+        suffix = match.group('suffix').rstrip()
         frames = symb.Process(addr)
         if len(frames) == 0:
           print line.rstrip()
