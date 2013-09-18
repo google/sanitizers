@@ -5,19 +5,23 @@ import subprocess
 import re
 
 time_re = re.compile(
-  '^(?P<time>\[[ ]*[0-9\.]+\]) (?P<suffix>.+)$'
+  '^(?P<time>\[[ ]*[0-9\.]+\]) ?(?P<suffix>.+)$'
 )
 
 frame_re = re.compile(
   '^  (?P<number>#[0-9]+) (?P<addr>[0-9A-Fa-f]+) (?P<offset>.+)$'
 )
 
+offset_re = re.compile(
+  '^\([^ ]+ \[(?P<module>.+)\]\)$'
+)
+
 def print_usage():
   print 'Usage: %s <vmlinux path>' % sys.argv[0]
 
 class Symbolizer:
-  def __init__(self, vmlinux_path):
-    self.proc = subprocess.Popen(['addr2line', '-f', '-i', '-e', vmlinux_path],
+  def __init__(self, binary_path):
+    self.proc = subprocess.Popen(['addr2line', '-f', '-i', '-e', binary_path],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
   def __enter__(self):
@@ -64,13 +68,21 @@ def print_frames(line, symb):
   if match == None:
     print line.rstrip()
     return
+
   number = match.group('number')
   addr = match.group('addr')
   offset = match.group('offset').rstrip()
+
+  match = offset_re.match(offset)
+  if match != None:
+    print line.rstrip()
+    return
+
   frames = symb.Process(hex(int(addr, 16) - 1))
   if len(frames) == 0:
     print line.rstrip()
     return
+
   for frame in frames[:-1]:
     print_inlined_frame(number, addr, frame[0], frame[1], offset)
   print_frame(number, addr, frames[-1][0], frames[-1][1], offset)
