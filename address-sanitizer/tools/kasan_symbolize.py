@@ -67,7 +67,7 @@ def print_frames(line, symb):
   number = match.group('number')
   addr = match.group('addr')
   offset = match.group('offset').rstrip()
-  frames = symb.Process(addr)
+  frames = symb.Process(hex(int(addr, 16) - 1))
   if len(frames) == 0:
     print line.rstrip()
     return
