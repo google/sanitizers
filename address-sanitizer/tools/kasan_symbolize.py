@@ -4,8 +4,12 @@ import sys
 import subprocess
 import re
 
-regexp = re.compile(
-  '^  (?P<number>#[0-9]+) (?P<addr>[0-9A-Fa-f]+) (?P<suffix>.+)$'
+time_re = re.compile(
+  '^(?P<time>\[[ ]*[0-9\.]+\]) (?P<suffix>.+)$'
+)
+
+frame_re = re.compile(
+  '^  (?P<number>#[0-9]+) (?P<addr>[0-9A-Fa-f]+) (?P<offset>.+)$'
 )
 
 def print_usage():
@@ -42,31 +46,40 @@ class Symbolizer:
     self.proc.kill()
     self.proc.wait()
 
-def print_frame(number, addr, func, fileline, suffix):
-  print '  %s %s %s %s' % (number, addr, suffix, fileline)
+def strip_time(line):
+  match = time_re.match(line)
+  if match != None:
+    line = match.group('suffix')
+  return line
 
-def print_inlined_frame(number, addr, func, fileline, suffix):
+def print_frame(number, addr, func, fileline, offset):
+  print '  %s %s %s %s' % (number, addr, offset, fileline)
+
+def print_inlined_frame(number, addr, func, fileline, offset):
   addr = '     inlined    ';
-  print '  %s %s %s %s %s' % (number, addr, suffix, func, fileline) 
+  print '  %s %s %s %s %s' % (number, addr, offset, func, fileline) 
+
+def print_frames(line, symb):
+  match = frame_re.match(line)
+  if match == None:
+    print line.rstrip()
+    return
+  number = match.group('number')
+  addr = match.group('addr')
+  offset = match.group('offset').rstrip()
+  frames = symb.Process(addr)
+  if len(frames) == 0:
+    print line.rstrip()
+    return
+  for frame in frames[:-1]:
+    print_inlined_frame(number, addr, frame[0], frame[1], offset)
+  print_frame(number, addr, frames[-1][0], frames[-1][1], offset)
 
 def process_report(vmlinux_path):
   with Symbolizer(vmlinux_path) as symb:
     for line in sys.stdin:
-      line = line.partition(']')[2][1:]
-      match = regexp.match(line)
-      if match == None:
-        print line.rstrip()
-      else:
-        number = match.group('number')
-        addr = match.group('addr')
-        suffix = match.group('suffix').rstrip()
-        frames = symb.Process(addr)
-        if len(frames) == 0:
-          print line.rstrip()
-        else:
-          for frame in frames[:-1]:
-            print_inlined_frame(number, addr, frame[0], frame[1], suffix)
-          print_frame(number, addr, frames[-1][0], frames[-1][1], suffix)
+      line = strip_time(line)
+      print_frames(line, symb)
 
 def main():
   if len(sys.argv) != 2:
