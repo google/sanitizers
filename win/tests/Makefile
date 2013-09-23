@@ -20,9 +20,13 @@ include common.mk
 
 EXTRA_OBJ=
 UAR_FLAG=
+UAR_ENV=ASAN_OPTIONS=detect_stack_use_after_return=1
 
 run_%_pass_test: %_pass_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
+
+%_use_after_return_crash_test.output: %_use_after_return_crash_test.exe
+	@! $(UAR_ENV) $(TEST_COMMAND_PREFIX) ./$< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 
 %_crash_test.output: %_crash_test.exe
 	@! $(TEST_COMMAND_PREFIX) ./$< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
@@ -31,6 +35,7 @@ run_%_stress_test: %_stress_test.exe
 	@  $(TEST_COMMAND_PREFIX) ./$< || ! echo "ERROR: $< - FAILED!" >&2
 	@echo "$< - PASSED"
 
+# TODO(timurrrr): Can remove it when the "UAR by default" patch lands.
 %_use_after_return_crash_test.exe: %_use_after_return_crash.cpp common.h
 	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $(UAR_FLAG) $(CC_EXE_OUT)$@ $<
 
