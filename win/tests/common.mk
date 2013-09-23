@@ -43,6 +43,7 @@ else ifeq ($(PLATFORM), Linux)
 	LINK_FLAGS=
 	LINK_OUT=-o
 endif
+UAR_ENV=ASAN_OPTIONS=detect_stack_use_after_return=1
 EXTRA_CFLAGS=
 FILECHECK=
 RM_F=rm -f

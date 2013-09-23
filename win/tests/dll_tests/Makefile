@@ -23,6 +23,9 @@ EXTRA_GUEST_LIBS=
 run_%_pass_test: %_pass.dll host.exe
 	@  $(TEST_COMMAND_PREFIX) ./host.exe $< || ! echo "ERROR: $< - FAILED!" >&2
 
+%_use_after_return_crash_test.output: %_use_after_return_crash.dll host.exe
+	@! $(UAR_ENV) $(TEST_COMMAND_PREFIX) ./host.exe $< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
+
 %_crash_test.output: %_crash.dll host.exe
 	@! $(TEST_COMMAND_PREFIX) ./host.exe $< >$@ 2>&1 || ! echo "ERROR: $< - FAILED TO CRASH!" >&2
 
