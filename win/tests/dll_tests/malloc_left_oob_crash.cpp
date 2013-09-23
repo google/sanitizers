@@ -26,11 +26,14 @@ DLLEXPORT int test_function() {
 
 // CHECK: AddressSanitizer: heap-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 1 at [[ADDR]] thread T0
-// CHECK:   #0 {{.*}} __asan_report_store1
-// CHECK:   #1 {{.*}} test_function
+// CHECK:   test_function
+// CHECK:   main
 // CHECK: [[ADDR]] is located 1 bytes to the left of 42-byte region
 // CHECK: allocated by thread T0 here:
-// CHECK:   #0 {{.*}} malloc
+// CHECK:   malloc
+// CHECK:   test_function
+// CHECK:   main
+// CHECK: Shadow bytes around the buggy address
   free_noopt(buffer);
   return 0;
 }

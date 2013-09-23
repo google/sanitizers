@@ -29,12 +29,12 @@ DWORD WINAPI thread_proc(void *context) {
 
 // CHECK: AddressSanitizer: stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 1 at [[ADDR]] thread T1
-// CHECK:   #0 {{.*}} __asan_report_store1
-// CHECK:   #1 {{.*}} thread_proc
+// CHECK:   thread_proc
 // CHECK: Address [[ADDR]] is located in stack of thread T1 at offset {{.*}} in frame
-// CHECK-TODO: thread_proc
+// CHECK:   thread_proc
 // CHECK: Thread T1 created by T0 here:
-// CHECK:   #{{[01]}} {{.*}} test_function
+// CHECK:   test_function
+// CHECK:   main
   return 0;
 }
 

@@ -30,8 +30,8 @@ DLLEXPORT int test_function() {
 
 // CHECK: AddressSanitizer: stack-use-after-return
 // CHECK: WRITE of size 1 at {{.*}} thread T0
-// CHECK-NEXT: #0 {{.*}} __asan_report_store1
-// CHECK-NEXT: #1 {{.*}} test_function
+// CHECK:   test_function
+// CHECK:   main
 // CHECK: is located in stack of thread T0
 // CHECK-NEXT: #0 {{.*}} foo
 // CHECK: 'stack_buffer' {{.*}} is inside this variable
