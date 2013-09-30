@@ -10,7 +10,15 @@ time_re = re.compile(
 )
 
 frame_re = re.compile(
-  '^  (?P<number>#[0-9]+) (?P<addr>[0-9A-Fa-f]+) (?P<suffix>\((?P<function>[^\+]+)\+0x(?P<offset>[0-9A-Fa-f]+)/0x(?P<size>[0-9A-Fa-f]+)( \[(?P<module>.+)\])?\))$'
+  '^ \[\<(?P<addr>[0-9A-Fa-f]+)\>\] ' +
+  '(?P<suffix>'                       +
+    '(?P<function>[^\+]+)'            +
+    '\+'                              +
+    '0x(?P<offset>[0-9A-Fa-f]+)'      +
+    '/'                               +
+    '0x(?P<size>[0-9A-Fa-f]+)'        +
+    '( \[(?P<module>.+)\])?'          +
+  ')$'
 )
 
 nm_re = re.compile(
@@ -95,7 +103,6 @@ class ReportProcesser:
       print line
       return
 
-    number = match.group('number')
     addr = match.group('addr')
     suffix = match.group('suffix')
 
@@ -131,8 +138,8 @@ class ReportProcesser:
       return
 
     for frame in frames[:-1]:
-      self.PrintInlinedFrame(number, addr, frame[0], frame[1], suffix)
-    self.PrintFrame(number, addr, frames[-1][0], frames[-1][1], suffix)
+      self.PrintInlinedFrame(addr, frame[0], frame[1], suffix)
+    self.PrintFrame(addr, frames[-1][0], frames[-1][1], suffix)
 
   def LoadModule(self, module):
     if not self.modules_path:
@@ -149,12 +156,12 @@ class ReportProcesser:
     self.module_offset_loaders[module] = SymbolOffsetLoader(module_path)
     return True
 
-  def PrintFrame(self, number, addr, func, fileline, suffix):
-    print '  %s %s %s %s' % (number, addr, suffix, fileline)
+  def PrintFrame(self, addr, func, fileline, suffix):
+    print ' [<%s>] %s %s' % (addr, suffix, fileline)
 
-  def PrintInlinedFrame(self, number, addr, func, fileline, suffix):
+  def PrintInlinedFrame(self, addr, func, fileline, suffix):
     addr = '     inlined    ';
-    print '  %s %s %s %s %s' % (number, addr, suffix, func, fileline) 
+    print ' [<%s>] %s %s %s' % (addr, suffix, func, fileline) 
 
   def Finalize(self):
     self.vmlinux_symbolizer.Close()
