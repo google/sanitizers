@@ -41,7 +41,8 @@ echo @@@BUILD_STEP build stage1 clang@@@
 if [ ! -d llvm_build0 ]; then
   mkdir llvm_build0
 fi
-(cd llvm_build0 && cmake ${CMAKE_STAGE1_OPTIONS} $LLVM && ninja) || \
+(cd llvm_build0 && cmake ${CMAKE_STAGE1_OPTIONS} $LLVM && \
+  ninja clang && ninja compiler-rt && ninja llvm-symbolizer) || \
   echo @@@STEP_FAILURE@@@
 
 # Stage 2 / MemorySanitizer
