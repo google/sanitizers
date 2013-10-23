@@ -10,20 +10,35 @@ LIBRARIES=(libdbus-1-3 libgdk-pixbuf2.0-0 libdbus-glib-1-2 libatk1.0-0 libgconf-
            libpixman-1-0 libxcomposite1 libxcursor1 libxdamage1
            libxdmcp6 libxfixes3 libk5crypto3 libkeyutils1 libselinux1
            libpcre3 libp11-kit0 libbz2-1.0 libgpg-error0
-           libnss3 libgcrypt11 libglib2.0-0 libtasn1-3 libnspr4 liborbit2 libgnutls26)
+           libnss3 libgcrypt11 libglib2.0-0 libtasn1-3 libnspr4 libgnutls26)
 
-INSTALL_DIR=$(pwd)/INSTALL
+
+INSTALL_DIR=$(pwd)/asan
+PATCHES_DIR=$(pwd)
 
 # should be without spaces to pass it to dpkg-buildpackage!
 MAKEJOBS="-j14"
 
-export CC=clang
-export CXX=clang++
+if [ -z "$CC" ]; then
+  export CC=clang
+fi
+
+if [ -z "$CXX" ]; then
+  export CXX=clang++
+fi
+
 export CFLAGS="-fsanitize=address -g -fPIC -w"
 export CXXFLAGS="-fsanitize=address -g -fPIC -w"
-export LDFLAGS="-Wl,-z,muldefs"
+export LDFLAGS="-Wl,-z,muldefs -Wl,-z,origin -Wl,-R,XORIGIN/."
 
-PATCHES_DIR=$(pwd)
+
+declare -A ADDITIONAL_CONFIGURE_FLAGS
+ADDITIONAL_CONFIGURE_FLAGS=(
+  ["libgconf-2-4"]="--with-gtk=3.0 --disable-orbit"
+  ["libgdk-pixbuf2.0-0"]="--with-libjasper --with-x11 --enable-introspection"
+  ["libgnutls26"]="--without-lzo --disable-guile --enable-ld-version-script --enable-cxx --with-libgcrypt"
+  ["libpango1.0-0"]="--with-included-modules=yes"
+)
 
 # -----------------------------
 
@@ -39,6 +54,11 @@ function echo_red {
 
 function echo_green {
   echo -e "${green}$1${NC}"
+}
+
+# fixes rpath from XORIGIN to $ORIGIN in the single file $1
+function fix_rpath {
+   chrpath -r $(chrpath $1 | cut -d " " -f 2 | sed s/XORIGIN/\$ORIGIN/g | sed s/RPATH=//g) $1
 }
 
 # parsing args
@@ -65,8 +85,8 @@ START_TIME=$(date +%s)
 
 function default_workflow {
     echo_green "Building: ${lib}"
-    ./configure --prefix=$INSTALL_DIR
-    make $MAKEJOBS
+    ./configure --prefix=$INSTALL_DIR ${ADDITIONAL_CONFIGURE_FLAGS[$lib]}
+    make $MAKEJOBS VERBOSE=1
     echo_green "Installing: ${lib}"
     make install
 }
@@ -80,8 +100,11 @@ rm -rf ${LIBRARIES[@]}
 
 mkdir -p $INSTALL_DIR
 
-echo_green "Installing all dependencies: ${LIBRARIES[@]}"
-sudo apt-get -y build-dep ${LIBRARIES[@]}
+for lib in ${LIBRARIES[@]}
+do
+  echo_green "Installing all dependencies: $lib"
+  sudo apt-get -y --no-remove build-dep $lib
+done
 
 LIBS_COUNTER=$(count_libs)
 declare -A LIBS_COUNTERS
@@ -184,10 +207,6 @@ do
     export CFLAGS="$CFLAGS -Wno-return-type"
     patch -p1 -i $PATCHES_DIR/libgtk2.0-0.patch
     default_workflow
-  elif [ "$lib" == "libgconf-2-4" ]
-  then
-    sudo apt-get install liborbit2-dev
-    default_workflow
   else
     default_workflow
   fi
@@ -197,6 +216,12 @@ do
   LIBS_ADDED=$(($NEW_LIBS_COUNTER - $LIBS_COUNTER))
   LIBS_COUNTERS[$lib]=$LIBS_ADDED
   LIBS_COUNTER=$NEW_LIBS_COUNTER
+done
+
+# fixing rpath in all compiled libraries
+for i in $(find $INSTALL_DIR | grep "\.so$")
+do
+  fix_rpath $i
 done
 
 END_TIME=$(date +%s)
