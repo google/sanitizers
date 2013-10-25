@@ -12,8 +12,8 @@ LIBRARIES=(libdbus-1-3 libgdk-pixbuf2.0-0 libdbus-glib-1-2 libatk1.0-0 libgconf-
            libpcre3 libp11-kit0 libbz2-1.0 libgpg-error0
            libnss3 libgcrypt11 libglib2.0-0 libtasn1-3 libnspr4 libgnutls26)
 
-
 INSTALL_DIR=$(pwd)/asan
+
 PATCHES_DIR=$(pwd)
 
 # should be without spaces to pass it to dpkg-buildpackage!
@@ -63,7 +63,7 @@ function fix_rpath {
 
 # parsing args
 
-while getopts ":d" opt; do
+while getopts ":di:ph" opt; do
   case $opt in
     d)
       echo_green "Only deleting folders"
@@ -72,6 +72,23 @@ while getopts ":d" opt; do
       echo_green Done
       exit
       ;;
+    p)
+      echo_green "Only installing dependencies (requires root access)"
+      for lib in ${LIBRARIES[@]}
+      do
+        echo_green "Installing all dependencies: $lib"
+        sudo apt-get -y --no-remove build-dep $lib
+      done
+      exit
+      ;;
+    h)
+     echo "Possible flags: -d - delete temporary folders, -p - install dependencies for packages, -h - this help, -i - sets relative INSTALL_DIR."
+     echo "Affected envs: CC and CXX"
+     exit
+     ;;
+    i)
+     INSTALL_DIR="$(pwd)/$OPTARG"
+     ;;
     \?)
       echo "Invalid option: -$OPTARG" >&2
       exit
@@ -102,8 +119,14 @@ mkdir -p $INSTALL_DIR
 
 for lib in ${LIBRARIES[@]}
 do
-  echo_green "Installing all dependencies: $lib"
-  sudo apt-get -y --no-remove build-dep $lib
+  echo_green "Checking if $lib needs any dependencies..."
+  NEEDED_DEPS=$(apt-get -s build-dep $lib | grep Inst | cut -d " " -f 2)
+  if [ -n "$NEEDED_DEPS" ]
+  then
+    echo_red "Library $lib needs dependencies: $NEEDED_DEPS"
+    echo_red "Please, install dependencies using: ./download_build_install -p"
+    exit 1
+  fi
 done
 
 LIBS_COUNTER=$(count_libs)
@@ -218,6 +241,7 @@ do
   LIBS_COUNTER=$NEW_LIBS_COUNTER
 done
 
+echo "-----------------------------------------"
 # fixing rpath in all compiled libraries
 for i in $(find $INSTALL_DIR | grep "\.so$")
 do
