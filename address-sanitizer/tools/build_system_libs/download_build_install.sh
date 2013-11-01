@@ -145,7 +145,7 @@ do
 
   if [ "$lib" == "libfreetype6" ]
   then
-    echo_red "Shitty package, need additional archive extraction: ${lib}"
+    echo_red "Strange package, need additional archive extraction: ${lib}"
     ARCHIVE_NAME=$(ls . | grep "${PWD##*/}\.tar.*")
     echo_red "Trying to extract: ${ARCHIVE_NAME}"
     tar -xzf $ARCHIVE_NAME
@@ -154,7 +154,7 @@ do
     default_workflow
   elif [ "$lib" == "libkeyutils1" ]
   then   
-    # THIS SHIT IS NOT WORKING YET    
+    # THIS SECTION IS NOT WORKING YET    
 
     # This package has an ancient Makefile, so we need to add our CFLAGS to it
     # and set DEST_DIR to our INSTALL_DIR
@@ -163,7 +163,7 @@ do
     make CFLAGS+="$CFLAGS" DESTDIR="$INSTALL_DIR" install
   elif [ "$lib" == "libselinux1" ]
   then
-    # This shit has ancient Makefile and adds -z,defs to the end of compile command
+    # This package has ancient Makefile and adds -z,defs to the end of compile command
     # so we cannot override it. We well use 'sed' to replace it
     sed -i "s/z,defs/z,nodefs/g" src/Makefile
     export DESTDIR=$INSTALL_DIR
