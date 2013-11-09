@@ -30,6 +30,7 @@ int main(void) {
 // CHECK: [[ADDR]] is located 0 bytes to the right of 42-byte region
 // CHECK: allocated by thread T0 here:
 // CHECK:   #0 {{.*}} malloc
+// CHECK:   #1 {{.*}} main
   free_noopt(buffer);
   return 0;
 }
