@@ -32,5 +32,6 @@ int main(void) {
 // CHECK: allocated by thread T0 here:
 // CHECK:   #0 {{.*}} malloc
 // CHECK:   #1 {{.*}} _strdup
+// CHECK:   #2 {{.*}} main
   free_noopt(ptr);
 }

@@ -33,7 +33,7 @@ DWORD WINAPI thread_proc(void *context) {
 // CHECK: Address [[ADDR]] is located in stack of thread T1 at offset {{.*}} in frame
 // CHECK: thread_proc
 // CHECK: Thread T1 created by T0 here:
-// CHECK:   #{{[01]}} {{.*}} main
+// CHECK:   #{{[01] .*}} main
   return 0;
 }
 

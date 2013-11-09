@@ -30,6 +30,7 @@ int main(void) {
 // CHECK: [[ADDR]] is located 0 bytes to the right of 42-byte region
 // CHECK: allocated by thread T0 here:
 // CHECK:   #0 {{.*}} operator new[]
+// CHECK:   #1 {{.*}} main
   delete [] buffer;
   return 0;
 }

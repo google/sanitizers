@@ -33,8 +33,10 @@ int main(void) {
 // CHECK: [[ADDR]] is located 0 bytes inside of 32-byte region
 // CHECK: freed by thread T0 here:
 // CHECK:   #0 {{.*}} realloc
+// CHECK:   #1 {{.*}} main
 // CHECK: previously allocated by thread T0 here:
 // CHECK:   #0 {{.*}} realloc
+// CHECK:   #1 {{.*}} main
   free_noopt(buffer);
   return 0;
 }

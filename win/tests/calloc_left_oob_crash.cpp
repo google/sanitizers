@@ -30,6 +30,7 @@ int main(void) {
 // CHECK: [[ADDR]] is located 4 bytes to the left of 168-byte region
 // CHECK: allocated by thread T0 here:
 // CHECK:   #0 {{.*}} calloc
+// CHECK:   #1 {{.*}} main
   free_noopt(buffer);
   return 0;
 }

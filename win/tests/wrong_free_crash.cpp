@@ -27,6 +27,6 @@ int main(void) {
 
 // CHECK: AddressSanitizer: attempting free on address which was not malloc()-ed
 // CHECK:   #0 {{.*}} free
-// CHECK:   #{{[12]}} {{.*}} main
+// CHECK:   #{{[12] .*}} main
   return 0;
 }

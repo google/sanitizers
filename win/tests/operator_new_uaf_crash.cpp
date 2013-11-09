@@ -31,7 +31,9 @@ int main(void) {
 // CHECK: [[ADDR]] is located 0 bytes inside of 1-byte region
 // CHECK: freed by thread T0 here:
 // CHECK:   #0 {{.*}} operator delete
+// CHECK:   #1 {{.*}} main
 // CHECK: previously allocated by thread T0 here:
 // CHECK:   #0 {{.*}} operator new
+// CHECK:   #1 {{.*}} main
   return 0;
 }

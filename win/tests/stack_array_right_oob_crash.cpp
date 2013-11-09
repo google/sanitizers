@@ -29,6 +29,6 @@ int main(void) {
 // CHECK: WRITE of size 1 at [[ADDR]] thread T0
 // CHECK:   #0 {{.*}} main
 // CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame
-// CHECK: main
+// CHECK:   #0 {{.*}} main
   return 0;
 }

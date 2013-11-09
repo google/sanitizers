@@ -28,8 +28,8 @@ int main(void) {
 // CHECK: AddressSanitizer: stack-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // FIXME: Should be READ of size 1, see issue 155.
 // CHECK: READ of size {{[0-9]+}} at [[ADDR]] thread T0
-// CHECK:   #{{[01]}} {{.*}}strlen
-// CHECK:   #{{[12]}} {{.*}} main
+// CHECK:   #{{[01] .*}}strlen
+// CHECK:   #{{[12] .*}} main
 // CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame
 // CHECK: main
 }

@@ -38,6 +38,6 @@ int main(void) {
 // CHECK: [[ADDR]] is located 0 bytes inside of 4-byte region
 // CHECK: freed by thread T0 here:
 // CHECK:   #0 {{.*}} free
-// CHECK:   {{#[0-9]+}} {{.*}} main
+// CHECK:   #{{[12] .*}} main
   return 0;
 }
