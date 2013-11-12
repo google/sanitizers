@@ -1,0 +1,16 @@
+Set gnu gold as the system linker.
+
+Checkout llvm, llvm/tools/clang, llvm/project/compiler-rt, llvm/projects/libcxx, llvm/projects/libcxxabi.
+
+Build clang with gold support on the side:
+  cmake -DLLVM_BINUTILS_INCDIR=$HOME/build/binutils-2.23.2/include
+  this requires  binutils headers (just checkout binutils source)
+
+Checkout zlib source (no need to build it).
+
+CLANG_DIR=/path/to/llvm/build/bin LLVM_CHECKOUT=/path/to/llvm/source ZLIB_CHECKOUT=/path/to/zlib/source ./build_internal_symbolizer.sh
+
+If all goes well, this will print a directory path at the end.
+Find sanitizer_internal_symbolizer64.a, sanitizer_internal_symbolizer32.a under it.
+Linking one of those with a sanitized binary should make it pick up the symbolizer.
+
