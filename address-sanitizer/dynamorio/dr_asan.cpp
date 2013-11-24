@@ -405,13 +405,20 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   CHECK(sz_idx < 5);
   AsanCallbacks::Report *on_error =
       &g_callbacks.report[access_type == WRITE][sz_idx];
+  CHECK(on_error);
   // TODO: this trashes the stack, likely debugger-unfriendly.
   // TODO: enforce on_error != NULL when we link the RTL in the binary.
 #if __WORDSIZE == 32
   // Push the app PC as the return address:
   //   push instr_get_app_pc(i)
   //   jmp __asan_report_XXX
+# if 0  // TODO(timurrrr): Why doesn't this work?
   PRE(i, push(drcontext, OPND_CREATE_INT32(instr_get_app_pc(i))));
+# else
+  PRE(i, mov_st(drcontext, opnd_create_reg(DR_REG_XAX),
+                OPND_CREATE_INTPTR(instr_get_app_pc(i))));
+  PRE(i, push(drcontext, opnd_create_reg(DR_REG_XAX)));
+# endif
   PRE(i, jmp(drcontext, opnd_create_pc((byte*)*on_error)));
 #else
   // Align the stack by 16 bytes dropping the 4 least significant bits of SP.
