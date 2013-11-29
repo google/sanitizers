@@ -142,8 +142,8 @@ void InitializeAsanCallbacks() {
 
   if (dr_get_proc_address(app->handle, "__asan_address_is_poisoned") == NULL) {
     // Special case: we do want to instrument the main binary if it is not
-    // instruemnted. However, it's rather tricky to check.
-    // Instead, we can link the non-instruemnted binary with a fake runtime
+    // instrumented. However, it's rather tricky to check.
+    // Instead, we can link the non-instrumented binary with a fake runtime
     // which only maps shadow memory and nothing else. Such a runtime will never
     // export __asan_address_is_poisoned which is exported by the real asanified
     // binaries.
