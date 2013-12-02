@@ -277,36 +277,29 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
 #endif
 
   reg_id_t R1;
-  bool address_in_R1;
+  bool address_in_R1 = false;
   if (opnd_is_base_disp(op) && opnd_get_index(op) == DR_REG_NULL &&
       opnd_get_disp(op) == 0) {
     // If this is a simple access with no offset or index,
     // we can try to just use the base for R1.
     R1 = opnd_get_base(op);
-  }
-  // Can only use R1 if it's down-size'able to 8 bytes.
-  // TODO(timurrrr): is there a handy helper function around?
-  switch (R1) {
-  case DR_REG_XAX: case DR_REG_XBX: case DR_REG_XCX: case DR_REG_XDX:
+
+    // Can only use R1 if it's down-size'able to 8 bytes.
+    // TODO(timurrrr): is there a handy helper function around?
+    switch (R1) {
+    case DR_REG_XAX: case DR_REG_XBX: case DR_REG_XCX: case DR_REG_XDX:
 #if __WORDSIZE == 64
-  case DR_REG_R8: case DR_REG_R9: case DR_REG_R10: case DR_REG_R11:
-  case DR_REG_R12: case DR_REG_R13: case DR_REG_R14: case DR_REG_R15:
+    case DR_REG_R8: case DR_REG_R9: case DR_REG_R10: case DR_REG_R11:
+    case DR_REG_R12: case DR_REG_R13: case DR_REG_R14: case DR_REG_R15:
 #endif
-    address_in_R1 = true;
-    break;
-  default:
-    address_in_R1 = false;
+      address_in_R1 = true;
+    }
   }
   if (!address_in_R1) {
     // Otherwise, we need to compute the addr into R1.
     // TODO: reuse some spare register? e.g. r15 on x64
     // TODO: might be used as a non-mem-ref register?
     R1 = DR_REG_XAX;
-  }
-  if (!reg_is_pointer_sized(R1)) {
-    // This happened for OP_prefetcht0.
-    instr_disassemble(drcontext, i, STDERR);
-    dr_fprintf(STDERR, "\n");
   }
   CHECK(reg_is_pointer_sized(R1));  // otherwise R1_8 and R2 may be wrong.
   reg_id_t R1_8 = reg_32_to_opsz(IF_X64_ELSE(reg_64_to_32(R1), R1), OPSZ_1);
