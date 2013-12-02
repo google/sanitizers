@@ -437,7 +437,9 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, push_imm(drcontext, OPND_CREATE_INT32(lo)));
   PRE(i, mov_st(drcontext, OPND_CREATE_MEM32(DR_REG_XSP, 4),
                 OPND_CREATE_INT32(hi)));
-  PRE(i, jmp_ind(drcontext, opnd_create_rel_addr((byte*)on_error, OPSZ_PTR)));
+  PRE(i, mov_imm(drcontext, opnd_create_reg(DR_REG_XAX),
+                 OPND_CREATE_INTPTR((void *)*on_error)));
+  PRE(i, jmp_ind(drcontext, opnd_create_reg(DR_REG_XAX)));
 #endif
   // TODO: we end up with no symbols in the ASan report stacks because we do
   // post-process symbolization and the DRASan frames have PCs not present in
