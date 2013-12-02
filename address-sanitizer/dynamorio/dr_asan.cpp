@@ -52,6 +52,12 @@ using std::string;
 # define BINARY_INSTRUMENTED 1
 #endif
 
+#if WINDOWS
+# define IF_WINDOWS_ELSE(x,y) (x)
+#else
+# define IF_WINDOWS_ELSE(x,y) (y)
+#endif
+
 namespace {
 
 ptr_int_t kShadowOffset;
@@ -387,16 +393,21 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
     dr_restore_reg(drcontext, bb, i, R2, SPILL_SLOT_2);
     CHECK(drutil_insert_get_mem_addr(drcontext, bb, i, op, R1, R2));
   }
-  // 2) Pass the original address as an argument...
+
+  // 2) Align the stack by 16 bytes before making a call.
+  // This is done by dropping the 4 least significant bits of SP.
+  PRE(i, and(drcontext, opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT8(-16)));
+
+  // 3) Pass the original address as an argument...
 #if __WORDSIZE == 32
   PRE(i, push(drcontext, opnd_create_reg(R1)));
 #else
-  // timurrrr: You've meant IF_WINDOWS_ELSE(DR_REG_RCX, DR_REG_RDI)?
-  reg_id_t regparm_0 = IF_X64_ELSE(DR_REG_RDI, DR_REG_RCX);
+  reg_id_t regparm_0 = IF_WINDOWS_ELSE(DR_REG_RCX, DR_REG_RDI);
   if (R1 != regparm_0)
     PRE(i, mov_ld(drcontext, opnd_create_reg(regparm_0), opnd_create_reg(R1)));
 #endif
-  // 3) Call the right __asan_report_{load,store}{1,2,4,8}
+
+  // 4) Call the right __asan_report_{load,store}{1,2,4,8}
   int sz_idx = 0;
   // Log2-analog below.
   // TODO: in rare weird cases like OPSZ_6 we'll be reporting wrong access
@@ -421,22 +432,14 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   PRE(i, push_imm(drcontext, OPND_CREATE_INT32(instr_get_app_pc(i))));
   PRE(i, jmp(drcontext, opnd_create_pc((byte*)*on_error)));
 #else
-  // Align the stack by 16 bytes dropping the 4 least significant bits of SP.
-  // DR doesn't has OPND_CREATE_UINT8, thus use a negative number.
-  PRE(i, and(drcontext, opnd_create_reg(DR_REG_XSP), OPND_CREATE_INT8(-16)));
 
-  // 64-bit has two problems: reachability, and no 64-bit immediate push.  So,
-  // we split the push into a push+mov_st, and jump through the client's memory,
-  // which DR guarantees to be reachable from the code cache.
-  //   push (uint32_t)app_pc
-  //   mov  (uint32_t)(app_pc >> 32) %(rsp,4)
-  //   jmp  g_callbacks_report_XXX(%rip)
-  app_pc pc = instr_get_app_pc(i);
-  int lo = (int)(ptr_int_t)pc;
-  int hi = (int)((ptr_int_t)pc >> 32);
-  PRE(i, push_imm(drcontext, OPND_CREATE_INT32(lo)));
-  PRE(i, mov_st(drcontext, OPND_CREATE_MEM32(DR_REG_XSP, 4),
-                OPND_CREATE_INT32(hi)));
+  // 64-bit can't encode indirect jumps outside +-2GB, so use %rax as an
+  // intermediate register.
+  //   push instr_get_app_pc(i)
+  //   mov  %rax, __asan_report_XXX
+  //   jmp  %rax
+  instrlist_insert_push_immed_ptrsz(drcontext, (ptr_int_t)instr_get_app_pc(i),
+                                    bb, i, 0, 0);
   PRE(i, mov_imm(drcontext, opnd_create_reg(DR_REG_XAX),
                  OPND_CREATE_INTPTR((void *)*on_error)));
   PRE(i, jmp_ind(drcontext, opnd_create_reg(DR_REG_XAX)));
@@ -447,7 +450,6 @@ void InstrumentMops(void *drcontext, instrlist_t *bb,
   // We may want to get back to ud2a handling in the RTL as we did before as we
   // can set translation field to the original instruction in DR and make stacks
   // look very sane.
-  //
 
   PREF(i, OK_label);
   // Restore the registers and flags.
