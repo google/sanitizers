@@ -82,7 +82,7 @@ cd $CHROME_CHECKOUT/src
 # Clobber Chromium to catch possible LLVM regressions early.
 rm -rf out/Release
 
-export GYP_DEFINES="clang_use_chrome_plugins=0 asan=1 linux_use_tcmalloc=0  component=static_library lsan=1"
+export GYP_DEFINES="use_aura=1 clang_use_chrome_plugins=0 asan=1 linux_use_tcmalloc=0  component=static_library lsan=1"
 export GYP_GENERATORS=ninja
 export ASAN_BIN=$CLANG_BUILD/bin
 export CC="$ASAN_BIN/clang"

@@ -82,7 +82,7 @@ cd $CHROME_CHECKOUT/src
 rm -rf out/Release
 
 # See http://dev.chromium.org/developers/testing/threadsanitizer-tsan-v2
-export GYP_DEFINES="clang_use_chrome_plugins=0 tsan=1 linux_use_tcmalloc=0 disable_nacl=1"
+export GYP_DEFINES="use_aura=1 clang_use_chrome_plugins=0 tsan=1 linux_use_tcmalloc=0 disable_nacl=1"
 export GYP_GENERATORS=ninja
 export TSAN_BIN=$CLANG_BUILD/bin
 export CC="$TSAN_BIN/clang"
