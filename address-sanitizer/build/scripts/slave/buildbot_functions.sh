@@ -11,10 +11,11 @@ function buildbot_update {
         if [ "$REV_ARG" == "" ]; then
             REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
         fi
-        svn up llvm/tools/clang $REV_ARG
-        svn up llvm/projects/compiler-rt $REV_ARG
-        svn up llvm/projects/libcxx $REV_ARG
-        svn up llvm/projects/libcxxabi $REV_ARG
+        for subtree in llvm/tools/clang llvm/projects/compiler-rt llvm/projects/libcxx llvm/projects/libcxxabi
+        do
+          svn cleanup "${subtree}"
+          svn up "${subtree}" $REV_ARG
+        done
     else
         svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm $REV_ARG
         if [ "$REV_ARG" == "" ]; then
