@@ -7,6 +7,7 @@ function buildbot_update {
     fi
 
     if [ -d llvm -a -d llvm/projects/libcxxabi ]; then
+        svn cleanup llvm
         svn up llvm $REV_ARG
         if [ "$REV_ARG" == "" ]; then
             REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
