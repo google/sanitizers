@@ -110,7 +110,7 @@ echo @@@BUILD_STEP check-all stage3/msan@@@
 echo @@@BUILD_STEP build clang/asan@@@
 
 # Turn on init-order checker as ASan runtime option.
-export ASAN_OPTIONS="check_initialization_order=true"
+export ASAN_OPTIONS="check_initialization_order=true:detect_stack_use_after_return=1"
 CMAKE_ASAN_OPTIONS=" \
   ${CMAKE_STAGE2_COMMON_OPTIONS} \
   -DLLVM_USE_SANITIZER=Address \
