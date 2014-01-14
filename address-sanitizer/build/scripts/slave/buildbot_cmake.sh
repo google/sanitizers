@@ -43,6 +43,7 @@ if [ ! -d clang_build ]; then
   mkdir clang_build
 fi
 (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
     ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
 (cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
