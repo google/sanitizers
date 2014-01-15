@@ -44,7 +44,9 @@ if [ ! -d $CLANG_BUILD ]; then
 fi
 cd $CLANG_BUILD
 export PATH="$PATH:$ROOT/../../../ninja"
-cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT
+cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} \
+  -DCMAKE_C_COMPILER=$(which gcc) -DCMAKE_CXX_COMPILER=$(which g++) \
+  $LLVM_CHECKOUT
 ninja clang || echo @@@STEP_FAILURE@@@
 # TODO(glider): build other targets depending on the platform.
 # See https://code.google.com/p/address-sanitizer/wiki/HowToBuild.

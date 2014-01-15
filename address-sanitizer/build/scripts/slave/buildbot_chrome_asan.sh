@@ -20,6 +20,8 @@ TESTS_MAYBE_SANDBOX="browser_tests content_browsertests"
 TESTS_NEED_SANDBOX="sandbox_linux_unittests"
 CHROME_TESTS="${TESTS_NO_SANDBOX} ${TESTS_MAYBE_SANDBOX} ${TESTS_NEED_SANDBOX}"
 
+type -a gcc
+type -a g++
 CMAKE_COMMON_OPTIONS="-GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON"
 
 echo @@@BUILD_STEP update@@@
@@ -45,7 +47,9 @@ if [ ! -d $CLANG_BUILD ]; then
 fi
 cd $CLANG_BUILD
 export PATH="$PATH:$ROOT/../../../ninja"
-cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT
+cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} \
+  -DCMAKE_C_COMPILER=$(which gcc) -DCMAKE_CXX_COMPILER=$(which g++) \
+  $LLVM_CHECKOUT
 ninja clang || echo @@@STEP_FAILURE@@@
 # TODO(glider): build other targets depending on the platform.
 # See https://code.google.com/p/address-sanitizer/wiki/HowToBuild.
