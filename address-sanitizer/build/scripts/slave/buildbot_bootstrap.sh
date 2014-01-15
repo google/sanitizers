@@ -29,8 +29,10 @@ rm -rf llvm_build2_asan
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM=$ROOT/llvm
 
+type -a gcc
+type -a g++
 CMAKE_COMMON_OPTIONS="-GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON"
-CMAKE_STAGE1_OPTIONS="${CMAKE_COMMON_OPTIONS}"
+CMAKE_STAGE1_OPTIONS="${CMAKE_COMMON_OPTIONS} -DCMAKE_C_COMPILER=$(which gcc) -DCMAKE_CXX_COMPILER=$(which g++)"
 
 echo @@@BUILD_STEP update@@@
 buildbot_update
