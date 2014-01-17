@@ -34,3 +34,4 @@ function set_chrome_suid_sandbox {
 }
 
 export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
+export HOST_GCC_PATH=/usr/local/gcc-4.8.2
