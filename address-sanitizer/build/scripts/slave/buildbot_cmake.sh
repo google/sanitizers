@@ -22,7 +22,7 @@ fi
 SUPPORTS_32_BITS=${SUPPORTS_32_BITS:-1}
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM_CHECKOUT=$ROOT/llvm
-CMAKE_COMMON_OPTIONS="-DLLVM_ENABLE_ASSERTIONS=ON -DGCC_INSTALL_PREFIX=$HOST_GCC_PATH"
+CMAKE_COMMON_OPTIONS="-DLLVM_ENABLE_ASSERTIONS=ON"
 if [ "$PLATFORM" == "Darwin" ]; then
   CMAKE_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DPYTHON_EXECUTABLE=/usr/bin/python"
 fi
@@ -42,10 +42,7 @@ echo @@@BUILD_STEP build fresh clang@@@
 if [ ! -d clang_build ]; then
   mkdir clang_build
 fi
-type -a gcc
-type -a g++
 (cd clang_build && cmake -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=$HOST_GCC_PATH/bin/gcc -DCMAKE_CXX_COMPILER=$HOST_GCC_PATH/bin/g++ \
     ${CMAKE_COMMON_OPTIONS} $LLVM_CHECKOUT)
 (cd clang_build && make clang -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 

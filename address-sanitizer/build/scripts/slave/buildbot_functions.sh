@@ -33,5 +33,3 @@ function set_chrome_suid_sandbox {
   export CHROME_DEVEL_SANDBOX=/usr/local/sbin/chrome-devel-sandbox
 }
 
-export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
-export HOST_GCC_PATH=/usr/local/gcc-4.8.2
