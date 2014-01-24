@@ -7,6 +7,8 @@ set -u
 HERE="$(dirname $0)"
 . ${HERE}/buildbot_functions.sh
 
+export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
+
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
   rm -rf llvm
