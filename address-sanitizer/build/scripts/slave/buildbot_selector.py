@@ -30,14 +30,14 @@ BOT_ASSIGNMENT = {
 BOT_ADDITIONAL_ENV = {
     'win': {},
     'linux': { 'CHECK_TSAN': '1' },
-    'linux-cmake': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
+    'linux-cmake': {},
     'linux-bootstrap': {},
     'linux-chrome-asan': {},
     'linux-chrome-tsan': {},
     'linux-perf-asan': {},
     'mac10.8-cmake': { 'MAX_MAKE_JOBS': '4' },
     'mac10.8': { 'MAX_MAKE_JOBS': '4' },
-    'sanitizer-x86_64-linux': {},
+    'sanitizer-x86_64-linux': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
     'sanitizer-x86_64-linux-bootstrap': {},
 }
 
