@@ -21,8 +21,8 @@ BOT_ASSIGNMENT = {
     'linux-chrome-asan': bash('buildbot_chrome_asan.sh'),
     'linux-chrome-tsan': bash('buildbot_chrome_tsan.sh'),
     'linux-perf-asan': bash('buildbot_perf_asan.sh'),
-    'mac10.8-cmake': bash('buildbot_cmake.sh'),
-    'mac10.8': bash('buildbot_standard.sh'),
+    'mac10.9-cmake': bash('buildbot_cmake.sh'),
+    'mac10.9': bash('buildbot_standard.sh'),
     'sanitizer-x86_64-linux': bash('buildbot_cmake.sh'),
     'sanitizer-x86_64-linux-bootstrap': bash('buildbot_bootstrap.sh'),
 }
@@ -35,8 +35,8 @@ BOT_ADDITIONAL_ENV = {
     'linux-chrome-asan': {},
     'linux-chrome-tsan': {},
     'linux-perf-asan': {},
-    'mac10.8-cmake': { 'MAX_MAKE_JOBS': '4' },
-    'mac10.8': { 'MAX_MAKE_JOBS': '4' },
+    'mac10.9-cmake': { 'MAX_MAKE_JOBS': '8' },
+    'mac10.9': { 'MAX_MAKE_JOBS': '8' },
     'sanitizer-x86_64-linux': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
     'sanitizer-x86_64-linux-bootstrap': {},
 }
