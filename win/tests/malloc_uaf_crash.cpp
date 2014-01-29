@@ -27,13 +27,14 @@ int main(void) {
 
 // CHECK: AddressSanitizer: heap-use-after-free on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 1 at [[ADDR]] thread T0
-// CHECK:   #0 {{.*}} main
+// CHECK:   #0 {{.*}} main {{.*}}\malloc_uaf_crash.cpp:23
 // CHECK: [[ADDR]] is located 0 bytes inside of 42-byte region
 // CHECK: freed by thread T0 here:
 // CHECK:   #0 {{.*}} free
-// CHECK:   #{{[12] .*}} main
+// CHECK:   #1 {{.*}} free_noopt {{.*}}\common.h:43
+// CHECK:   #2 {{.*}} main {{.*}}\malloc_uaf_crash.cpp:22
 // CHECK: previously allocated by thread T0 here:
 // CHECK:   #0 {{.*}} malloc
-// CHECK:   #1 {{.*}} main
+// CHECK:   #1 {{.*}} main {{.*}}\malloc_uaf_crash.cpp:21
   return 0;
 }

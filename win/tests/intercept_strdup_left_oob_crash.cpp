@@ -27,10 +27,11 @@ int main(void) {
 
 // CHECK: AddressSanitizer: heap-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: WRITE of size 1 at [[ADDR]] thread T0
-// CHECK:   #0 {{.*}} main
+// CHECK:   #0 {{.*}} main {{.*}}\intercept_strdup_left_oob_crash.cpp:23
 // CHECK: [[ADDR]] is located 1 bytes to the left of 6-byte region
 // CHECK: allocated by thread T0 here:
 // CHECK:   #0 {{.*}} malloc
 // CHECK:   #1 {{.*}} _strdup
+// CHECK:   #2 {{.*}} main {{.*}}\intercept_strdup_left_oob_crash.cpp:21
   free_noopt(ptr);
 }

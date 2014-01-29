@@ -27,11 +27,13 @@ int main(void) {
 
 // CHECK: AddressSanitizer: attempting double-free on [[ADDR:0x[0-9a-f]+]]
 // CHECK:   #0 {{.*}} free
-// CHECK:   #{{[12] .*}} main
+// CHECK:   #{{[12] .*}} main {{.*}}\double_free_crash.cpp:23
 // CHECK: [[ADDR]] is located 0 bytes inside of 168-byte region
 // CHECK-LABEL: freed by thread T0 here:
 // CHECK:   #0 {{.*}} free
+// CHECK:   #{{[12] .*}} main {{.*}}\double_free_crash.cpp:22
 // CHECK-LABEL: previously allocated by thread T0 here:
 // CHECK:   #0 {{.*}} malloc
+// CHECK:   #1 {{.*}} main {{.*}}\double_free_crash.cpp:21
   return 0;
 }

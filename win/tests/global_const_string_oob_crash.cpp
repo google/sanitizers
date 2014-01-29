@@ -28,7 +28,7 @@ int main(void) {
 
 // CHECK: AddressSanitizer: global-buffer-overflow on address [[ADDR:0x[0-9a-f]+]]
 // CHECK: READ of size 1 at [[ADDR]] thread T0
-// CHECK:   #0 {{.*}} main
-// CHECK: [[ADDR]] is located 5 bytes to the right of global variable {{.*}} of size 11
+// CHECK:   #0 {{.*}} main {{.*}}\global_const_string_oob_crash.cpp:22
+// CHECK: [[ADDR]] is located 5 bytes to the right of global variable {{.*}} from 'global_const_string_oob_crash.cpp' {{.*}} of size 11
   return 0;
 }

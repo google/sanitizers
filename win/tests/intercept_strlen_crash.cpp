@@ -29,7 +29,7 @@ int main(void) {
 // FIXME: Should be READ of size 1, see issue 155.
 // CHECK: READ of size {{[0-9]+}} at [[ADDR]] thread T0
 // CHECK:   #{{[01] .*}}strlen
-// CHECK:   #{{[12] .*}} main
+// CHECK:   #{{[12] .*}} main {{.*}}\intercept_strlen_crash.cpp:23
 // CHECK: Address [[ADDR]] is located in stack of thread T0 at offset {{.*}} in frame
-// CHECK: main
+// CHECK: main {{.*}}\intercept_strlen_crash.cpp:20
 }
