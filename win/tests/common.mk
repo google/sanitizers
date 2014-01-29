@@ -23,7 +23,7 @@ ifeq ($(PLATFORM), Windows)
 	# Currently, I run
 	# make CC=clang.exe CC_OUT="-c -o" CFLAGS=-fsanitize=address EXTRA_OBJ=<path_to_rtl>/asan_rtl.lib -j
 	CC=cl
-	CFLAGS=-TC -Zi -nologo
+	CFLAGS=-TP -Zi -nologo
 	CC_DLL=-LD
 	CC_DLL_OUT=-Fe
 	CC_EXE_OUT=-Fe
