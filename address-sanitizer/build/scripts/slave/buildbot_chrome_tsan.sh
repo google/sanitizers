@@ -3,7 +3,7 @@
 # TODO(glider): merge this with buildbot_chrome_asan.sh
 
 set -x
-set -e
+# set -e # terminate if someone returns 1
 set -u
 
 HERE="$(cd $(dirname $0) && pwd)"
@@ -11,12 +11,13 @@ HERE="$(cd $(dirname $0) && pwd)"
 
 ROOT=`pwd`
 PLATFORM=`uname`
+# for CMake
 export PATH="/usr/local/bin:$PATH"
 
 LLVM_CHECKOUT=$ROOT/llvm
 CLANG_BUILD=$ROOT/clang_build
 CHROME_CHECKOUT=$ROOT/chrome
-CHROME_TESTS="base_unittests net_unittests remoting_unittests media_unittests unit_tests browser_tests content_browsertests"
+CHROME_TESTS="base_unittests net_unittests remoting_unittests media_unittests unit_tests browser_tests content_browsertests cast_unittests"
 #CHROME_TESTS="base_unittests net_unittests"
 
 CMAKE_COMMON_OPTIONS="-GNinja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON"
@@ -50,7 +51,7 @@ cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} \
 ninja clang || echo @@@STEP_FAILURE@@@
 # TODO(glider): build other targets depending on the platform.
 # See https://code.google.com/p/address-sanitizer/wiki/HowToBuild.
-ninja clang_rt.tsan-x86_64 || echo @@@STEP_FAILURE@@@
+ninja clang_rt.tsan-x86_64 llvm-symbolizer compiler-rt-headers || echo @@@STEP_FAILURE@@@
 )
 
 
@@ -100,6 +101,7 @@ export TSAN_OPTIONS=report_thread_leaks=0  # suppress reports in the host binari
 ninja -C out/Release $CHROME_TESTS
 )
 
+GTEST_FLAGS="--brave-new-test-launcher --test-launcher-bot-mode --test-launcher-batch-limit=1 --verbose --test-launcher-print-test-stdio=always --gtest_print_time"
 for test_name in $CHROME_TESTS
 do
   echo @@@BUILD_STEP running $test_name@@@
@@ -111,7 +113,7 @@ do
     export TSAN_OPTIONS="external_symbolizer_path=third_party/llvm-build/Release+Asserts/bin/llvm-symbolizer suppressions=tools/valgrind/tsan_v2/suppressions.txt report_signal_unsafe=0 report_thread_leaks=0" 
     # Without --server-args="-screen 0 1024x768x24" at least some of the Chrome
     # tests hang: http://crbug.com/242486
-    xvfb-run --server-args="-screen 0 1024x768x24" out/Release/$test_name --no-sandbox 2>&1
+    xvfb-run --server-args="-screen 0 1024x768x24" out/Release/$test_name ${GTEST_FLAGS} --no-sandbox --child-clean-exit 2>&1
     ((${PIPESTATUS[0]})) && echo @@@STEP_FAILURE@@@ || true
   )
 done
