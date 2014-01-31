@@ -35,9 +35,9 @@ del *.pdb *.o *.obj *.lib || goto :DIE
 :: /MT <- Multi-Threaded CRT with static linking
 :: /Zi <- generate debug info
 cl /nologo /WX /W3 /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
-lib /nologo /OUT:asan_rtl.lib *.obj || goto :DIE
+lib /nologo /ignore:4221 /OUT:asan_rtl.lib *.obj || goto :DIE
 cl /nologo /WX /W3 /MT /Zi /DASAN_DLL_THUNK /c asan_dll_thunk.cc || goto :DIE
-lib /nologo /OUT:asan_dll_thunk.lib asan_dll_thunk.obj
+lib /nologo /ignore:4221 /OUT:asan_dll_thunk.lib asan_dll_thunk.obj
 cd %ROOT%
 
 echo @@@BUILD_STEP cmake llvm@@@
