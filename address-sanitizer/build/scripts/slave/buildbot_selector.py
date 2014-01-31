@@ -16,7 +16,6 @@ def cmd_call(path):
 BOT_ASSIGNMENT = {
     'win': cmd_call('buildbot_standard.bat'),
     'linux': bash('buildbot_standard.sh'),
-    'linux-cmake': bash('buildbot_cmake.sh'),
     'linux-bootstrap': bash('buildbot_bootstrap.sh'),
     'linux-chrome-asan': bash('buildbot_chrome_asan.sh'),
     'linux-chrome-tsan': bash('buildbot_chrome_tsan.sh'),
@@ -30,7 +29,6 @@ BOT_ASSIGNMENT = {
 BOT_ADDITIONAL_ENV = {
     'win': {},
     'linux': { 'CHECK_TSAN': '1' },
-    'linux-cmake': {},
     'linux-bootstrap': {},
     'linux-chrome-asan': {},
     'linux-chrome-tsan': {},
