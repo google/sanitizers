@@ -192,7 +192,7 @@ if [ $RUN_ANDROID == 1 ] ; then
     ASAN_RT_LIB=libclang_rt.asan-arm-android.so
     ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
     echo "ASan runtime: $ASAN_RT_LIB_PATH"
-    $LLVM_CHECKOUT/projects/compiler-rt/lib/asan/scripts/asan_device_setup.sh \
+    ADB=$ADB $LLVM_CHECKOUT/projects/compiler-rt/lib/asan/scripts/asan_device_setup.sh \
         --lib $ASAN_RT_LIB_PATH
     sleep 2
 
