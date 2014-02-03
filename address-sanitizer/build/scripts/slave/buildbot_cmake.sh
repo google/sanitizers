@@ -178,7 +178,7 @@ fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
 if [ $RUN_ANDROID == 1 ] ; then
-    echo @@@BUILD_STEP reboot device@@@
+    echo @@@BUILD_STEP device setup@@@
     ADB=$ROOT/../../../android-sdk-linux/platform-tools/adb
     DEVICE_ROOT=/data/local/asan_test
 
@@ -189,9 +189,13 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     $ADB devices
 
-    $ADB root
+    ASAN_RT_LIB=libclang_rt.asan-arm-android.so
+    ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
+    echo "ASan runtime: $ASAN_RT_LIB_PATH"
+    $LLVM_CHECKOUT/projects/compiler-rt/lib/asan/scripts/asan_device_setup.sh \
+        --lib $ASAN_RT_LIB_PATH
+    sleep 2
 
-    sleep 5
     $ADB shell rm -rf $DEVICE_ROOT
     $ADB shell mkdir $DEVICE_ROOT
 
@@ -207,26 +211,21 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     echo @@@BUILD_STEP run asan tests [Android]@@@
 
-    ASAN_RT_LIB=libclang_rt.asan-arm-android.so
-    ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
-    echo "ASan runtime: $ASAN_RT_LIB_PATH"
-    $ADB push $ASAN_RT_LIB_PATH $DEVICE_ROOT/
     $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanTest $DEVICE_ROOT/
     $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
 
     NUM_SHARDS=7
     for ((SHARD=0; SHARD < $NUM_SHARDS; SHARD++)); do
-        $ADB shell "LD_PRELOAD=$DEVICE_ROOT/$ASAN_RT_LIB \
-          LD_LIBRARY_PATH=$DEVICE_ROOT \
+        $ADB shell "ASAN_OPTIONS=start_deactivated=1 \
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
-          $DEVICE_ROOT/AsanTest; \
+          asanwrapper $DEVICE_ROOT/AsanTest; \
           echo \$? >$DEVICE_ROOT/error_code"
         $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
-        $ADB shell "LD_LIBRARY_PATH=$DEVICE_ROOT \
+        $ADB shell "ASAN_OPTIONS=start_deactivated=1 \
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
-          $DEVICE_ROOT/AsanNoinstTest; \
+          asanwrapper $DEVICE_ROOT/AsanNoinstTest; \
           echo \$? >$DEVICE_ROOT/error_code"
         $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
     done
