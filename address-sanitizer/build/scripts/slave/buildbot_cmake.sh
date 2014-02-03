@@ -222,10 +222,10 @@ if [ $RUN_ANDROID == 1 ] ; then
           asanwrapper $DEVICE_ROOT/AsanTest; \
           echo \$? >$DEVICE_ROOT/error_code"
         $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
-        $ADB shell "ASAN_OPTIONS=start_deactivated=1 \
+        $ADB shell " \
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
-          asanwrapper $DEVICE_ROOT/AsanNoinstTest; \
+          $DEVICE_ROOT/AsanNoinstTest; \
           echo \$? >$DEVICE_ROOT/error_code"
         $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
     done
