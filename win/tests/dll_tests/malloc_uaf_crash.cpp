@@ -33,7 +33,7 @@ DLLEXPORT int test_function() {
 // CHECK: freed by thread T0 here:
 // CHECK:   free
 // CHECK:   free_noopt {{.*}}\common.h:43
-// CHECK:   function {{.*}}\malloc_uaf_crash.cpp:22
+// CHECK:   test_function {{.*}}\malloc_uaf_crash.cpp:22
 // CHECK:   main
 // CHECK: previously allocated by thread T0 here:
 // CHECK:   malloc
