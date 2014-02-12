@@ -61,12 +61,12 @@ cd %ROOT%
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/clang-cl FILECHECK=../llvm-build/bin/FileCheck CFLAGS="-fsanitize=address -Xclang -g" UAR_FLAG="-fsanitize=use-after-return" -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../llvm-build/bin/clang-cl FILECHECK=../llvm-build/bin/FileCheck CFLAGS="-fsanitize=address -Zi" UAR_FLAG="-fsanitize=use-after-return" -k || goto :DIE
 
 echo @@@BUILD_STEP asan DLL thunk test@@@
 cd dll_tests || goto :DIE
 C:\cygwin\bin\make -s PLATFORM=Windows RM_F="/cygdrive/c/cygwin/bin/rm -f" clean || goto :DIE
-C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/clang-cl FILECHECK=../../llvm-build/bin/FileCheck CFLAGS="-fsanitize=address -Xclang -g" -k || goto :DIE
+C:\cygwin\bin\make -s PLATFORM=Windows CC=../../llvm-build/bin/clang-cl FILECHECK=../../llvm-build/bin/FileCheck CFLAGS="-fsanitize=address -Zi" -k || goto :DIE
 cd %ROOT%
 
 :: TODO(timurrrr) echo @@@BUILD_STEP asan test64@@@
