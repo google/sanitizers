@@ -37,7 +37,7 @@ echo @@@BUILD_STEP tsan test release-gcc@@@
 ./tsan_test
 
 echo @@@BUILD_STEP tsan output_tests@@@
-(cd lit_tests && ./test_output.sh)
+(cd ../../test/tsan && ./test_output.sh)
 
 echo @@@BUILD_STEP tsan analyze@@@
 ./check_analyze.sh
