@@ -715,9 +715,15 @@ DR_EXPORT void dr_init(client_id_t id) {
   // TODO(rnk): Once DR has detach, we could just detach here.  Alternatively,
   // if DR had a fork or exec hook to let us decide there, that would be nice.
   // TODO: make the blacklist cmd-adjustable.
-  if (app_name == "python" || app_name == "ps" ||
-      app_name == "grep" ||
+  if (app_name == "python" || app_name == "python2.7" ||
+      app_name == "ps" || app_name == "env" ||
+      app_name == "rm" || app_name == "sed" ||
+      app_name == "grep" || app_name == "basename" ||
       app_name == "bash" || app_name == "sh" ||
+      app_name == "cat" || app_name == "touch" ||
+      app_name == "mkdir" || app_name == "cut" ||
+      app_name == "gawk" || app_name == "dbus-launch" ||
+      app_name == "mktemp" || app_name == "chmod" ||
       app_name == "true" || app_name == "exit" ||
       app_name == "yes" || app_name == "echo")
     return;
