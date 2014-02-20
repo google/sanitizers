@@ -546,16 +546,14 @@ bool ShouldInstrumentModule(ModuleData *mod_data) {
   if (path.find("/libosmesa") != string::npos)
     return false;
 
-  // TODO(rnk): Don't instrument modules which were already instrumented by
-  // the compiler ASan. We can check if the module imports __asan_init, but
+  // TODO: We don't want to instrument modules which were already instrumented
+  // by the compiler ASan. We can check if the module imports __asan_init, but
   // we'll need DR support or a bunch of ELF parsing routines in dr_asan.
+  // For the time being, only instrument /lib and /usr/lib.
   // See http://code.google.com/p/address-sanitizer/issues/detail?id=80
-  // TODO(timurrrr): add a new flag to ASAN_OPTIONS to disable instrumentation
+  // We may also consider adding a new flag to ASAN_OPTIONS to disable instrumentation
   // of the listed modules.
-  if (path.find("/libppGoogleNaClPluginChrome") != string::npos)
-    return false;
-
-  if (path.find("/libffmpegsumo") != string::npos)
+  if (path.substr(0, 4) != "/lib" && path.substr(0, 8) != "/usr/lib")
     return false;
 
   return true;
