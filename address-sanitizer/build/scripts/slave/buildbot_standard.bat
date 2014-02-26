@@ -34,9 +34,9 @@ del *.pdb *.o *.obj *.lib || goto :DIE
 :: /MP <- parallel buidling (currently disabled)
 :: /MT <- Multi-Threaded CRT with static linking
 :: /Zi <- generate debug info
-cl /nologo /WX /W3 /MT /Zi /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
+cl /nologo /WX /W3 /MT /Zi /D__func__=__FUNCTION__ /I.. /I../../include /c *.cc ../interception/*.cc ../sanitizer_common/*.cc || goto :DIE
 lib /nologo /ignore:4221 /OUT:asan_rtl.lib *.obj || goto :DIE
-cl /nologo /WX /W3 /MT /Zi /DASAN_DLL_THUNK /c asan_dll_thunk.cc || goto :DIE
+cl /nologo /WX /W3 /MT /Zi /D__func__=__FUNCTION__ /DASAN_DLL_THUNK /c asan_dll_thunk.cc || goto :DIE
 lib /nologo /ignore:4221 /OUT:asan_dll_thunk.lib asan_dll_thunk.obj
 cd %ROOT%
 
