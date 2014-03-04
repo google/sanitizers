@@ -118,10 +118,7 @@ fi
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run 64-bit lsan unit tests@@@
   LSAN_PATH=projects/compiler-rt/lib/lsan
-  LSAN_UNIT_TEST_BINARY=$LSAN_PATH/tests/Lsan-x86_64-Test
   (cd llvm_build64 && make -j$MAKE_JOBS check-lsan) || echo @@@STEP_FAILURE@@@
-  # Run msan unit test binaries.
-  ./llvm_build64/$LSAN_UNIT_TEST_BINARY
 fi
 
 echo @@@BUILD_STEP run sanitizer_common tests@@@
