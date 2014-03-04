@@ -28,7 +28,7 @@ BOT_ASSIGNMENT = {
 
 BOT_ADDITIONAL_ENV = {
     'win': {},
-    'linux': { 'CHECK_TSAN': '1' },
+    'linux': { 'CHECK_TSAN': '1', 'BUILD_ASAN_ANDROID' : '1' },
     'linux-bootstrap': {},
     'linux-chrome-asan': {},
     'linux-chrome-tsan': {},
