@@ -133,11 +133,12 @@ echo @@@BUILD_STEP build standalone compiler-rt@@@
 if [ ! -d compiler_rt_build ]; then
   mkdir compiler_rt_build
 fi
-(PATH=$PATH:$FRESH_CLANG_PATH cd compiler_rt_build && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-  -DCMAKE_C_COMPILER=${FRESH_CLANG_PATH}/clang
-  -DCMAKE_CXX_COMPILER=${FRESH_CLANG_PATH}/clang++
+(cd compiler_rt_build && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+  -DCMAKE_C_COMPILER=${FRESH_CLANG_PATH}/clang \
+  -DCMAKE_CXX_COMPILER=${FRESH_CLANG_PATH}/clang++ \
   -DCOMPILER_RT_INCLUDE_TESTS=ON \
   -DCOMPILER_RT_ENABLE_WERROR=ON \
+  -DLLVM_CONFIG_PATH=${FRESH_CLANG_PATH}/llvm-config \
   $COMPILER_RT_CHECKOUT)
 (cd compiler_rt_build && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 
