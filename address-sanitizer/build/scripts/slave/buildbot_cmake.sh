@@ -22,6 +22,7 @@ fi
 SUPPORTS_32_BITS=${SUPPORTS_32_BITS:-1}
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM_CHECKOUT=$ROOT/llvm
+COMPILER_RT_CHECKOUT=$LLVM_CHECKOUT/projects/compiler-rt
 CMAKE_COMMON_OPTIONS="-DLLVM_ENABLE_ASSERTIONS=ON"
 if [ "$PLATFORM" == "Darwin" ]; then
   CMAKE_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DPYTHON_EXECUTABLE=/usr/bin/python"
@@ -33,7 +34,7 @@ buildbot_update
 
 
 echo @@@BUILD_STEP lint@@@
-CHECK_LINT=${LLVM_CHECKOUT}/projects/compiler-rt/lib/sanitizer_common/scripts/check_lint.sh
+CHECK_LINT=${COMPILER_RT_CHECKOUT}/lib/sanitizer_common/scripts/check_lint.sh
 (LLVM_CHECKOUT=${LLVM_CHECKOUT} ${CHECK_LINT}) || echo @@@STEP_WARNINGS@@@
 
 # Use both gcc and just-built Clang as a host compiler for sanitizer tests.
@@ -89,12 +90,6 @@ if [ $SUPPORTS_32_BITS == 1 ]; then
   ./llvm_build64/$ASAN_NOINST_TEST_BINARY_32
 fi
 
-if [ "$PLATFORM" == "Darwin" ]; then
-  echo @@@BUILD_STEP build asan dynamic runtime@@@
-  # Building a fat binary for both 32 and 64 bits.
-  (cd llvm_build64/$ASAN_PATH && make -j$MAKE_JOBS clang_rt.asan_osx_dynamic) || echo @@@STEP_FAILURE@@@
-fi
-
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run msan unit tests@@@
   MSAN_PATH=projects/compiler-rt/lib/msan
@@ -132,6 +127,20 @@ SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/Sanitizer-i386-Test
 if [ $SUPPORTS_32_BITS == 1 ]; then
   ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
 fi
+
+echo @@@BUILD_STEP build standalone compiler-rt@@@
+if [ ! -d compiler_rt_build ]; then
+  mkdir compiler_rt_build
+fi
+(cd compiler_rt_build && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+  -DCOMPILER_RT_INCLUDE_TESTS=ON \
+  -DCOMPILER_RT_ENABLE_WERROR=ON \
+  -DLLVM_CONFIG_PATH=${CLANG_PATH}/llvm-config \
+  $COMPILER_RT_CHECKOUT)
+(cd compiler_rt_build && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
+
+echo @@@BUILD_STEP test standalone compiler-rt@@@
+(cd compiler_rt_build && make -j$MAKE_JOBS check-all) || echo @@@STEP_FAILURE@@@
 
 HAVE_NINJA=${HAVE_NINJA:-1}
 if [ "$PLATFORM" == "Linux" -a $HAVE_NINJA == 1 ]; then
