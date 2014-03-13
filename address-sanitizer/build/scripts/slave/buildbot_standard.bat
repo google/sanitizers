@@ -26,11 +26,6 @@ set ROOT=%cd%
 echo @@@BUILD_STEP cmake llvm@@@
 mkdir llvm-build
 cd llvm-build || goto :DIE
-
-:: TODO(timurrrr): Is this enough to force a full re-configure?
-del CMakeCache.txt
-rmdir /S /Q CMakeFiles
-
 cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
 
 echo @@@BUILD_STEP build compiler-rt@@@
