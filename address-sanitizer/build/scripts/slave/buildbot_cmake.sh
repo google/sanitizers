@@ -66,17 +66,18 @@ CLANG_PATH=${ROOT}/clang_build/bin
 CMAKE_CLANG_OPTIONS="${CMAKE_COMMON_OPTIONS} -DLLVM_ENABLE_WERROR=ON -DCMAKE_C_COMPILER=${CLANG_PATH}/clang -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++"
 BUILD_TYPE=Release
 
-echo @@@BUILD_STEP build 64-bit llvm using clang@@@
+echo @@@BUILD_STEP bootstrap clang@@@
 if [ ! -d llvm_build64 ]; then
   mkdir llvm_build64
 fi
 (cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    ${CMAKE_CLANG_OPTIONS} $LLVM_CHECKOUT)
+    ${CMAKE_CLANG_OPTIONS} -DLLVM_BUILD_EXTERNAL_COMPILER_RT=ON $LLVM_CHECKOUT)
 (cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 FRESH_CLANG_PATH=${ROOT}/llvm_build64/bin
+COMPILER_RT_BUILD_PATH=projects/compiler-rt/src/compiler-rt-build
 
 echo @@@BUILD_STEP run asan tests@@@
-ASAN_PATH=projects/compiler-rt/lib/asan
+ASAN_PATH=$COMPILER_RT_BUILD_PATH/lib/asan
 ASAN_TESTS_PATH=$ASAN_PATH/tests
 ASAN_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Test
 ASAN_NOINST_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Noinst-Test
@@ -93,7 +94,7 @@ fi
 
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run msan unit tests@@@
-  MSAN_PATH=projects/compiler-rt/lib/msan
+  MSAN_PATH=$COMPILER_RT_BUILD_PATH/lib/msan
   MSAN_UNIT_TEST_BINARY=$MSAN_PATH/tests/Msan-x86_64-Test
   (cd llvm_build64 && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
   # Run msan unit test binaries.
@@ -102,7 +103,7 @@ fi
 
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
-  TSAN_PATH=projects/compiler-rt/lib/tsan
+  TSAN_PATH=$COMPILER_RT_BUILD_PATH/lib/tsan
   TSAN_RTL_TEST_BINARY=$TSAN_PATH/tests/rtl/TsanRtlTest
   TSAN_UNIT_TEST_BINARY=$TSAN_PATH/tests/unit/TsanUnitTest
   (cd llvm_build64 && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
@@ -113,12 +114,11 @@ fi
 
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run 64-bit lsan unit tests@@@
-  LSAN_PATH=projects/compiler-rt/lib/lsan
   (cd llvm_build64 && make -j$MAKE_JOBS check-lsan) || echo @@@STEP_FAILURE@@@
 fi
 
 echo @@@BUILD_STEP run sanitizer_common tests@@@
-SANITIZER_COMMON_PATH=projects/compiler-rt/lib/sanitizer_common
+SANITIZER_COMMON_PATH=$COMPILER_RT_BUILD_PATH/lib/sanitizer_common
 SANITIZER_COMMON_TESTS=$SANITIZER_COMMON_PATH/tests
 SANITIZER_COMMON_TEST_BINARY_64=${SANITIZER_COMMON_TESTS}/Sanitizer-x86_64-Test
 SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/Sanitizer-i386-Test
