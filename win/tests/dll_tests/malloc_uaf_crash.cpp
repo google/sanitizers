@@ -32,7 +32,7 @@ DLLEXPORT int test_function() {
 // CHECK: [[ADDR]] is located 0 bytes inside of 42-byte region
 // CHECK: freed by thread T0 here:
 // CHECK:   free
-// CHECK:   free_noopt {{.*}}\common.h:43
+// CHECK:   free_noopt {{.*}}\common.h:47
 // CHECK:   test_function {{.*}}\malloc_uaf_crash.cpp:22
 // CHECK:   main
 // CHECK: previously allocated by thread T0 here:

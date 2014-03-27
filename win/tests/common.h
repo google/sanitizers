@@ -27,6 +27,10 @@
   printf("Oops: %s @ %s:%d\n", #x, __FILE__, __LINE__); abort(); \
 } } while(0)
 
+void CHECK_ALIGNED(volatile void *ptr, size_t alignment) {
+  CHECK(((uintptr_t)ptr % alignment) == 0);
+}
+
 #define DLLEXPORT extern "C" __declspec(dllexport)
 
 __declspec(noinline)
@@ -41,6 +45,10 @@ int ident(volatile int x) {
 
 void free_noopt(volatile void *p) {
   free(ident(p));
+}
+
+void _aligned_free_noopt(volatile void *p) {
+  _aligned_free(ident(p));
 }
 
 void UNREACHABLE() {

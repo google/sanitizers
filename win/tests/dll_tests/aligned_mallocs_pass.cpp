@@ -1,4 +1,4 @@
-/* Copyright 2012 Google Inc.
+/* Copyright 2013 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,31 +15,21 @@
 
 // This file is a part of AddressSanitizer, an address sanity checker.
 
-#include "common.h"
+#include "../common.h"
 
-int main(void) {
-  volatile int *p = (int*)malloc(1024 * sizeof(int));
+DLLEXPORT int test_function() {
+  volatile int *p = (int*)_aligned_malloc(1024 * sizeof(int), 32);
+  CHECK_ALIGNED(p, 32);
   p[512] = 0;
-  free_noopt(p);
+  _aligned_free_noopt(p);
 
-  p = (int*)malloc(128);
-  p = (int*)realloc(ident(p), 2048 * sizeof(int));
+  p = (int*)_aligned_malloc(128, 128);
+  CHECK_ALIGNED(p, 128);
+  p = (int*)_aligned_realloc(ident(p), 2048 * sizeof(int), 128);
+  CHECK_ALIGNED(p, 128);
   p[1024] = 0;
-  free_noopt(p);
-
-  p = (int*)calloc(16, sizeof(int));
-  CHECK(p[8] == 0);
-  p[15]++;
-  CHECK(16 * sizeof(int) == _msize(ident(p)));
-  free_noopt(p);
-
-  p = new int;
-  *p = 42;
-  delete p;
-
-  p = new int[42];
-  p[15]++;
-  delete [] p;
+  CHECK(_aligned_msize((int*)p, 128, 0) == 2048 * sizeof(int));
+  _aligned_free_noopt(p);
 
   return 0;
 }

@@ -31,7 +31,7 @@ int main(void) {
 // CHECK: [[ADDR]] is located 0 bytes inside of 42-byte region
 // CHECK: freed by thread T0 here:
 // CHECK:   #0 {{.*}} free
-// CHECK:   #1 {{.*}} free_noopt {{.*}}\common.h:43
+// CHECK:   #1 {{.*}} free_noopt {{.*}}\common.h:47
 // CHECK:   #2 {{.*}} main {{.*}}\malloc_uaf_crash.cpp:22
 // CHECK: previously allocated by thread T0 here:
 // CHECK:   #0 {{.*}} malloc
