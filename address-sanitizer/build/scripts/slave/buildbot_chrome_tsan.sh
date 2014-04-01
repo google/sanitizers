@@ -13,6 +13,7 @@ ROOT=`pwd`
 PLATFORM=`uname`
 # for CMake
 export PATH="/usr/local/bin:$PATH"
+export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
 
 LLVM_CHECKOUT=$ROOT/llvm
 CLANG_BUILD=$ROOT/clang_build
@@ -99,7 +100,7 @@ echo @@@BUILD_STEP clean Chromium build@@@
 cd $CHROME_CHECKOUT/src
 export TSAN_OPTIONS=report_thread_leaks=0  # suppress reports in the host binaries
 ninja -C out/Release $CHROME_TESTS
-)
+) || exit 1
 
 GTEST_FLAGS="--brave-new-test-launcher --test-launcher-bot-mode --test-launcher-batch-limit=1 --verbose --test-launcher-print-test-stdio=always --gtest_print_time"
 for test_name in $CHROME_TESTS

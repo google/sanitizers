@@ -11,6 +11,7 @@ ROOT=`pwd`
 PLATFORM=`uname`
 # for CMake
 export PATH="/usr/local/bin:$PATH"
+export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
 
 LLVM_CHECKOUT=$ROOT/llvm
 CLANG_BUILD=$ROOT/clang_build
@@ -100,7 +101,7 @@ echo @@@BUILD_STEP clean Chromium build@@@
 (
 cd $CHROME_CHECKOUT/src
 ninja -C out/Release $CHROME_TESTS
-)
+) || exit 1
 
 set_chrome_suid_sandbox
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/debug
