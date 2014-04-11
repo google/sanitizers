@@ -1,7 +1,9 @@
 set -xe
 CLANG_BIN=path_to_clang
+
 JOBS=-j32
 SERVER_PORT=8080
+COMMON_CFLAGS="-O2 -gline-tables-only"
 
 function build_dir {
   echo "build-$1"
@@ -10,7 +12,8 @@ function build_dir {
 function fix_config {
   config=conf/httpd.conf
   cp $config $config.orig
-  cat $config.orig | sed "s/Listen 80$/Listen $SERVER_PORT/" > $config
+  THREAD_CONFIG="ThreadsPerChild 16\nStartServers 1\nServerLimit 1\nMaxConnectionsPerChild 0\n"
+  cat $config.orig | sed "s/Listen 80$/Listen $SERVER_PORT\n${THREAD_CONFIG}/" > $config
 }
 
 function configure_make_install {
@@ -18,9 +21,9 @@ function configure_make_install {
   builddir=$(build_dir $1)
   custom_cflags=$2
   if [ "$1" == "tsan-v2" ]; then
-    ./configure CC=$CLANG_BIN/clang CFLAGS="-fPIC -fsanitize=thread -gline-tables-only $custom_cflags" LDFLAGS='-pie -fsanitize=thread -gline-tables-only' --prefix=`pwd`/$builddir
+    ./configure CC=$CLANG_BIN/clang CFLAGS="$COMMON_CFLAGS -fPIC -fsanitize=thread $custom_cflags" LDFLAGS='-pie -fsanitize=thread -gline-tables-only' --prefix=`pwd`/$builddir --with-mpm=worker
   elif [ "$1" == "clang" ]; then
-    ./configure CC=$CLANG_BIN/clang CFLAGS='-gline-tables-only' LDFLAGS='-gline-tables-only' --prefix=`pwd`/$builddir
+    ./configure CC=$CLANG_BIN/clang CFLAGS="$COMMON_CFLAGS " LDFLAGS='-gline-tables-only' --prefix=`pwd`/$builddir --with-mpm=worker
   fi
   make $JOBS && make $JOBS install
 }
@@ -33,7 +36,7 @@ function build_httpd {
 }
 
 function run_ab() {
-  $(build_dir clang)/bin/ab -n 30000 -c 20 http://127.0.0.1:$SERVER_PORT/
+  $(build_dir clang)/bin/ab -n 300000 -c 20 http://127.0.0.1:$SERVER_PORT/
 }
 
 function test_httpd {
