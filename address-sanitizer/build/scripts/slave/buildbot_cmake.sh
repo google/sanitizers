@@ -77,39 +77,16 @@ FRESH_CLANG_PATH=${ROOT}/llvm_build64/bin
 COMPILER_RT_BUILD_PATH=projects/compiler-rt/src/compiler-rt-build
 
 echo @@@BUILD_STEP run asan tests@@@
-ASAN_PATH=$COMPILER_RT_BUILD_PATH/lib/asan
-ASAN_TESTS_PATH=$ASAN_PATH/tests
-ASAN_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Test
-ASAN_NOINST_TEST_BINARY_64=$ASAN_TESTS_PATH/Asan-x86_64-Noinst-Test
-ASAN_TEST_BINARY_32=$ASAN_TESTS_PATH/Asan-i386-Test
-ASAN_NOINST_TEST_BINARY_32=$ASAN_TESTS_PATH/Asan-i386-Noinst-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
-# Run unit test binaries in a single shard.
-./llvm_build64/$ASAN_TEST_BINARY_64
-./llvm_build64/$ASAN_NOINST_TEST_BINARY_64
-if [ $SUPPORTS_32_BITS == 1 ]; then
-  ./llvm_build64/$ASAN_TEST_BINARY_32
-  ./llvm_build64/$ASAN_NOINST_TEST_BINARY_32
-fi
 
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run msan unit tests@@@
-  MSAN_PATH=$COMPILER_RT_BUILD_PATH/lib/msan
-  MSAN_UNIT_TEST_BINARY=$MSAN_PATH/tests/Msan-x86_64-Test
   (cd llvm_build64 && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
-  # Run msan unit test binaries.
-  ./llvm_build64/$MSAN_UNIT_TEST_BINARY
 fi
 
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
-  TSAN_PATH=$COMPILER_RT_BUILD_PATH/lib/tsan
-  TSAN_RTL_TEST_BINARY=$TSAN_PATH/tests/rtl/TsanRtlTest
-  TSAN_UNIT_TEST_BINARY=$TSAN_PATH/tests/unit/TsanUnitTest
   (cd llvm_build64 && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
-  # Run tsan unit test binaries.
-  ./llvm_build64/$TSAN_RTL_TEST_BINARY
-  ./llvm_build64/$TSAN_UNIT_TEST_BINARY
 fi
 
 if [ "$PLATFORM" == "Linux" ]; then
@@ -118,16 +95,7 @@ if [ "$PLATFORM" == "Linux" ]; then
 fi
 
 echo @@@BUILD_STEP run sanitizer_common tests@@@
-SANITIZER_COMMON_PATH=$COMPILER_RT_BUILD_PATH/lib/sanitizer_common
-SANITIZER_COMMON_TESTS=$SANITIZER_COMMON_PATH/tests
-SANITIZER_COMMON_TEST_BINARY_64=${SANITIZER_COMMON_TESTS}/Sanitizer-x86_64-Test
-SANITIZER_COMMON_TEST_BINARY_32=${SANITIZER_COMMON_TESTS}/Sanitizer-i386-Test
 (cd llvm_build64 && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
-# Run unit test binaries in a single shard.
-./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_64}
-if [ $SUPPORTS_32_BITS == 1 ]; then
-  ./llvm_build64/${SANITIZER_COMMON_TEST_BINARY_32}
-fi
 
 echo @@@BUILD_STEP build standalone compiler-rt@@@
 if [ ! -d compiler_rt_build ]; then
