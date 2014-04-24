@@ -34,6 +34,7 @@ cd ..
 BUILD_ROOT=`pwd`
 CLANG_BUILD=$BUILD_ROOT/llvm-build/Release+Asserts
 GCC_BUILD=$BUILD_ROOT/../../../gcc
+export LD_LIBRARY_PATH=$GCC_BUILD/lib64
 
 echo @@@BUILD_STEP test llvm@@@
 cd llvm-build
@@ -68,7 +69,6 @@ if [ $CHECK_TSAN == 1 ] ; then
   (cd $TSAN_PATH && make -f Makefile.old install_deps)
 
   export PATH=$CLANG_BUILD/bin:$GCC_BUILD/bin:$PATH
-  export LD_LIBRARY_PATH=$GCC_BUILD/lib64
   export MAKEFLAGS=-j$MAKE_JOBS
   gcc -v 2>tmp && grep "version" tmp
   clang -v 2>tmp && grep "version" tmp
