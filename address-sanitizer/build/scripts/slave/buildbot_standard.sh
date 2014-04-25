@@ -9,6 +9,7 @@ HERE="$(dirname $0)"
 
 GCC_BUILD=/usr/local/gcc-4.8.2
 export PATH="$GCC_BUILD/bin:$PATH"
+export LD_LIBRARY_PATH=$GCC_BUILD/lib64
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
@@ -34,7 +35,6 @@ make -j$MAKE_JOBS
 cd ..
 BUILD_ROOT=`pwd`
 CLANG_BUILD=$BUILD_ROOT/llvm-build/Release+Asserts
-export LD_LIBRARY_PATH=$GCC_BUILD/lib64
 
 echo @@@BUILD_STEP test llvm@@@
 cd llvm-build
