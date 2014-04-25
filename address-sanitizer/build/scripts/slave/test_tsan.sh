@@ -53,7 +53,7 @@ EXTRA_COMPILER_FLAGS="-fsanitize=thread -DTHREAD_SANITIZER -fPIC -g -O2 $SUPPRES
 (cd $RACECHECK_UNITTEST_PATH && \
 make clean && \
 OMIT_DYNAMIC_ANNOTATIONS_IMPL=1 make l64 -j16 CC=clang CXX=clang++ LDOPT="-pie -Wl,--whole-archive $LIBTSAN_A -Wl,--no-whole-archive -ldl" OMIT_CPP0X=1 EXTRA_CFLAGS="$EXTRA_COMPILER_FLAGS" EXTRA_CXXFLAGS="$EXTRA_COMPILER_FLAGS" && \
-bin/racecheck_unittest-linux-amd64-O0 --gtest_filter=-*Ignore*:*Suppress*:*EnableRaceDetectionTest*:*Rep*Test*:*NotPhb*:*Barrier*:*Death*:*PositiveTests_RaceInSignal*:StressTests.FlushStateTest:*Mmap84GTest:*.LibcStringFunctions)
+bin/racecheck_unittest-linux-amd64-O0 --gtest_filter=-*Ignore*:*Suppress*:*EnableRaceDetectionTest*:*Rep*Test*:*NotPhb*:*Barrier*:*Death*:*PositiveTests_RaceInSignal*:StressTests.FlushStateTest:*Mmap84GTest:*.LibcStringFunctions:LockTests.UnlockingALockHeldByAnotherThread:LockTests.UnlockTwice)
 
 #Ignore: ignores do not work yet
 #Suppress: suppressions do not work yet
@@ -65,4 +65,6 @@ bin/racecheck_unittest-linux-amd64-O0 --gtest_filter=-*Ignore*:*Suppress*:*Enabl
 #PositiveTests_RaceInSignal: signal() is not intercepted yet
 #StressTests.FlushStateTest: uses suppressions
 #Mmap84GTest: too slow, causes paging
+#LockTests.UnlockingALockHeldByAnotherThread: causes tsan report and non-zero exit code
+#LockTests.UnlockTwice: causes tsan report and non-zero exit code
 
