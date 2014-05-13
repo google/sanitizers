@@ -35,9 +35,11 @@ ninja compiler-rt
 
 echo @@@BUILD_STEP build llvm@@@
 ninja || goto :DIE
-cd %ROOT%
 
-:: TODO(timurrrr) echo @@@BUILD_STEP test llvm@@@
+echo @@@BUILD_STEP run upstream tests@@@
+ninja check-asan check-sanitizer || goto :DIE
+
+cd %ROOT%
 
 echo @@@BUILD_STEP asan test@@@
 cd win_tests || goto :DIE
