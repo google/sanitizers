@@ -12,6 +12,7 @@ PLATFORM=`uname`
 # for CMake
 export PATH="/usr/local/bin:$PATH"
 export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
+export LD_LIBRARY_PATH=$GCC_BUILD/lib64
 
 LLVM_CHECKOUT=$ROOT/llvm
 CLANG_BUILD=$ROOT/clang_build
@@ -88,11 +89,12 @@ cd $CHROME_CHECKOUT/src
 # Clobber Chromium to catch possible LLVM regressions early.
 rm -rf out/Release
 
-export GYP_DEFINES="use_aura=1 clang_use_chrome_plugins=0 asan=1 linux_use_tcmalloc=0  component=static_library lsan=1"
+export COMMON_GYP_DEFINES="use_allocator=none use_aura=1 clang_use_chrome_plugins=0 component=static_library"
+export GYP_DEFINES="asan=1 lsan=1 $COMMON_GYP_DEFINES"
 export GYP_GENERATORS=ninja
-export ASAN_BIN=$CLANG_BUILD/bin
-export CC="$ASAN_BIN/clang"
-export CXX="$ASAN_BIN/clang++"
+export CLANG_BIN=$CLANG_BUILD/bin
+export CC="$CLANG_BIN/clang"
+export CXX="$CLANG_BIN/clang++"
 
 gclient runhooks
 )
@@ -104,7 +106,7 @@ ninja -C out/Release $CHROME_TESTS
 ) || exit 1
 
 set_chrome_suid_sandbox
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/debug
+#export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/debug
 
 GTEST_FLAGS="--brave-new-test-launcher --test-launcher-bot-mode --test-launcher-batch-limit=1 --verbose --test-launcher-print-test-stdio=always --gtest_print_time"
 for test_name in ${TESTS_NO_SANDBOX} ${TESTS_MAYBE_SANDBOX}

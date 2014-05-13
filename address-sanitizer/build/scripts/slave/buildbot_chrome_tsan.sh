@@ -14,6 +14,7 @@ PLATFORM=`uname`
 # for CMake
 export PATH="/usr/local/bin:$PATH"
 export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
+export LD_LIBRARY_PATH=$GCC_BUILD/lib64
 
 LLVM_CHECKOUT=$ROOT/llvm
 CLANG_BUILD=$ROOT/clang_build
@@ -86,11 +87,12 @@ cd $CHROME_CHECKOUT/src
 rm -rf out/Release
 
 # See http://dev.chromium.org/developers/testing/threadsanitizer-tsan-v2
-export GYP_DEFINES="use_aura=1 clang_use_chrome_plugins=0 tsan=1 linux_use_tcmalloc=0 disable_nacl=1"
+export COMMON_GYP_DEFINES="use_allocator=none use_aura=1 clang_use_chrome_plugins=0 component=static_library"
+export GYP_DEFINES="tsan=1 disable_nacl=1 $COMMON_GYP_DEFINES"
 export GYP_GENERATORS=ninja
-export TSAN_BIN=$CLANG_BUILD/bin
-export CC="$TSAN_BIN/clang"
-export CXX="$TSAN_BIN/clang++"
+export CLANG_BIN=$CLANG_BUILD/bin
+export CC="$CLANG_BIN/clang"
+export CXX="$CLANG_BIN/clang++"
 
 gclient runhooks
 )
@@ -107,11 +109,11 @@ for test_name in $CHROME_TESTS
 do
   echo @@@BUILD_STEP running $test_name@@@
   (
-    set +x
+    set -e
     cd $CHROME_CHECKOUT/src
     # See http://dev.chromium.org/developers/testing/threadsanitizer-tsan-v2
     # for the instructions to run TSan.
-    export TSAN_OPTIONS="external_symbolizer_path=third_party/llvm-build/Release+Asserts/bin/llvm-symbolizer suppressions=tools/valgrind/tsan_v2/suppressions.txt report_signal_unsafe=0 report_thread_leaks=0" 
+    export TSAN_OPTIONS="history_size=7 external_symbolizer_path=third_party/llvm-build/Release+Asserts/bin/llvm-symbolizer suppressions=tools/valgrind/tsan_v2/suppressions.txt report_signal_unsafe=0 report_thread_leaks=0" 
     # Without --server-args="-screen 0 1024x768x24" at least some of the Chrome
     # tests hang: http://crbug.com/242486
     xvfb-run --server-args="-screen 0 1024x768x24" out/Release/$test_name ${GTEST_FLAGS} --no-sandbox --child-clean-exit 2>&1
