@@ -11,7 +11,8 @@ ROOT=`pwd`
 PLATFORM=`uname`
 # for CMake
 export PATH="/usr/local/bin:$PATH"
-export PATH="/usr/local/gcc-4.8.2/bin:$PATH"
+GCC_BUILD=/usr/local/gcc-4.8.2
+export PATH="$GCC_BUILD/bin:$PATH"
 export LD_LIBRARY_PATH=$GCC_BUILD/lib64
 
 LLVM_CHECKOUT=$ROOT/llvm
@@ -56,7 +57,7 @@ cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} \
 ninja clang || echo @@@STEP_FAILURE@@@
 # TODO(glider): build other targets depending on the platform.
 # See https://code.google.com/p/address-sanitizer/wiki/HowToBuild.
-ninja clang_rt.asan-x86_64 clang_rt.asan-i386 llvm-symbolizer compiler-rt-headers || echo @@@STEP_FAILURE@@@
+ninja clang_rt.asan-x86_64 clang_rt.asan-i386 clang_rt.asan_cxx-x86_64.a clang_rt.asan_cxx-i386.a llvm-symbolizer compiler-rt-headers || echo @@@STEP_FAILURE@@@
 )
 
 
