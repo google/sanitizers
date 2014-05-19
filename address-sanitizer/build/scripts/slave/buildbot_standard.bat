@@ -47,6 +47,9 @@ goto :EOF
 
 :DIE
 :: TODO(timurrrr) : get the current process's PID?
+taskkill /F /IM cl.exe /T 2>err
+taskkill /F /IM clang.exe /T 2>err
+taskkill /F /IM clang-cl.exe /T 2>err
 taskkill /F /IM cmake.exe /T 2>err
 taskkill /F /IM MSBuild.exe /T 2>err
 exit /b 42
