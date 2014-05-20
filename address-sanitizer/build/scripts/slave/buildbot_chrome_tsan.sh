@@ -32,14 +32,7 @@ buildbot_update
 # LLVM build also requires ninja.
 
 echo @@@BUILD_STEP fetch depot_tools@@@
-(
-  cd $ROOT
-  if [ ! -d depot_tools ]; then
-    git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-  fi
-)
-export PATH="$ROOT/depot_tools:$PATH"
-
+fetch_depot_tools $ROOT
 
 echo @@@BUILD_STEP build fresh clang@@@
 (
@@ -59,44 +52,12 @@ ninja clang_rt.tsan-x86_64 llvm-symbolizer compiler-rt-headers || echo @@@STEP_F
 
 
 echo @@@BUILD_STEP check out Chromium@@@
-(
-if [ ! -d $CHROME_CHECKOUT ]; then
-  mkdir $CHROME_CHECKOUT
-fi
-
-cd $CHROME_CHECKOUT
-
-if [ ! -e .gclient ]; then
-  gclient config https://chromium.googlesource.com/chromium/src.git --git-deps
-  gclient sync --nohooks
-fi
-
-# Sync to LKGR, see http://crbug.com/109191
-mv .gclient .gclient-tmp
-cat .gclient-tmp  | \
-    sed 's/"safesync_url": ""/"safesync_url": "https:\/\/chromium-status.appspot.com\/git-lkgr"/' > .gclient
-rm .gclient-tmp
-
-gclient sync --nohooks
-)
+check_out_chromium $CHROME_CHECKOUT
 
 echo @@@BUILD_STEP gclient runhooks@@@
-(
-cd $CHROME_CHECKOUT/src
-
-# Clobber Chromium to catch possible LLVM regressions early.
-rm -rf out/Release
-
 # See http://dev.chromium.org/developers/testing/threadsanitizer-tsan-v2
-export COMMON_GYP_DEFINES="use_allocator=none use_aura=1 clang_use_chrome_plugins=0 component=static_library"
-export GYP_DEFINES="tsan=1 disable_nacl=1 $COMMON_GYP_DEFINES"
-export GYP_GENERATORS=ninja
-export CLANG_BIN=$CLANG_BUILD/bin
-export CC="$CLANG_BIN/clang"
-export CXX="$CLANG_BIN/clang++"
-
-gclient runhooks
-)
+CUSTOM_GYP_DEFINES="tsan=1 disable_nacl=1"
+gclient_runhooks $CHROME_CHECKOUT $CLANG_BUILD "$CUSTOM_GYP_DEFINES"
 
 echo @@@BUILD_STEP clean Chromium build@@@
 (

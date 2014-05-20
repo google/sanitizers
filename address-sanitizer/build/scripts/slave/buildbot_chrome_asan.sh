@@ -35,14 +35,7 @@ buildbot_update
 # LLVM build also requires ninja.
 
 echo @@@BUILD_STEP fetch depot_tools@@@
-(
-  cd $ROOT
-  if [ ! -d depot_tools ]; then
-    git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-  fi
-)
-export PATH="$ROOT/depot_tools:$PATH"
-
+fetch_depot_tools $ROOT
 
 echo @@@BUILD_STEP build fresh clang@@@
 (
@@ -57,48 +50,16 @@ cmake -DCMAKE_BUILD_TYPE=Release ${CMAKE_COMMON_OPTIONS} \
 ninja clang || echo @@@STEP_FAILURE@@@
 # TODO(glider): build other targets depending on the platform.
 # See https://code.google.com/p/address-sanitizer/wiki/HowToBuild.
-ninja clang_rt.asan-x86_64 clang_rt.asan-i386 clang_rt.asan_cxx-x86_64.a clang_rt.asan_cxx-i386.a llvm-symbolizer compiler-rt-headers || echo @@@STEP_FAILURE@@@
+ninja clang_rt.asan-x86_64 clang_rt.asan-i386 clang_rt.asan_cxx-x86_64 clang_rt.asan_cxx-i386 llvm-symbolizer compiler-rt-headers || echo @@@STEP_FAILURE@@@
 )
 
 
 echo @@@BUILD_STEP check out Chromium@@@
-(
-if [ ! -d $CHROME_CHECKOUT ]; then
-  mkdir $CHROME_CHECKOUT
-fi
-
-cd $CHROME_CHECKOUT
-
-if [ ! -e .gclient ]; then
-  gclient config https://chromium.googlesource.com/chromium/src.git --git-deps
-  gclient sync --nohooks
-fi
-
-# Sync to LKGR, see http://crbug.com/109191
-mv .gclient .gclient-tmp
-cat .gclient-tmp  | \
-    sed 's/"safesync_url": ""/"safesync_url": "https:\/\/chromium-status.appspot.com\/git-lkgr"/' > .gclient
-rm .gclient-tmp
-
-gclient sync --nohooks
-)
+check_out_chromium $CHROME_CHECKOUT
 
 echo @@@BUILD_STEP gclient runhooks@@@
-(
-cd $CHROME_CHECKOUT/src
-
-# Clobber Chromium to catch possible LLVM regressions early.
-rm -rf out/Release
-
-export COMMON_GYP_DEFINES="use_allocator=none use_aura=1 clang_use_chrome_plugins=0 component=static_library"
-export GYP_DEFINES="asan=1 lsan=1 $COMMON_GYP_DEFINES"
-export GYP_GENERATORS=ninja
-export CLANG_BIN=$CLANG_BUILD/bin
-export CC="$CLANG_BIN/clang"
-export CXX="$CLANG_BIN/clang++"
-
-gclient runhooks
-)
+CUSTOM_GYP_DEFINES="asan=1 lsan=1"
+gclient_runhooks $CHROME_CHECKOUT $CLANG_BUILD "$CUSTOM_GYP_DEFINES"
 
 echo @@@BUILD_STEP clean Chromium build@@@
 (
@@ -119,7 +80,7 @@ do
     export LLVM_SYMBOLIZER_PATH=$CLANG_BUILD/bin/llvm-symbolizer
     # See http://dev.chromium.org/developers/testing/addresssanitizer for the
     # instructions to run ASan.
-    export ASAN_OPTIONS="strict_memcmp=0 replace_intrin=0 detect_leaks=1"
+    export ASAN_OPTIONS="strict_memcmp=0 replace_intrin=0 detect_leaks=1 symbolize=1"
     export LSAN_OPTIONS="verbosity=1:suppressions=tools/lsan/suppressions.txt"
     export ASAN_SYMBOLIZER_PATH="${LLVM_SYMBOLIZER_PATH}"
     # Without --server-args="-screen 0 1024x768x24" at least some of the Chrome

@@ -33,3 +33,56 @@ function set_chrome_suid_sandbox {
   export CHROME_DEVEL_SANDBOX=/usr/local/sbin/chrome-devel-sandbox
 }
 
+function fetch_depot_tools {
+  ROOT=$1
+  (
+    cd $ROOT
+    if [ ! -d depot_tools ]; then
+      git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+    fi
+  )
+  export PATH="$ROOT/depot_tools:$PATH"
+}
+
+function check_out_chromium {
+  CHROME_CHECKOUT=$1
+  (
+  if [ ! -d $CHROME_CHECKOUT ]; then
+    mkdir $CHROME_CHECKOUT
+    pushd $CHROME_CHECKOUT
+    fetch --nohooks chromium --nosvn=True 
+
+    # Sync to LKGR, see http://crbug.com/109191
+    mv .gclient .gclient-tmp
+    cat .gclient-tmp  | \
+        sed 's/"safesync_url": ""/"safesync_url": "https:\/\/chromium-status.appspot.com\/git-lkgr"/' > .gclient
+    rm .gclient-tmp
+    popd
+  fi
+  cd $CHROME_CHECKOUT/src
+  git checkout master
+  git pull
+  gclient sync --nohooks --jobs=16
+  )
+}
+
+function gclient_runhooks {
+  CHROME_CHECKOUT=$1
+  CLANG_BUILD=$2
+  CUSTOM_GYP_DEFINES=$3
+  (
+  cd $CHROME_CHECKOUT/src
+  
+  # Clobber Chromium to catch possible LLVM regressions early.
+  rm -rf out/Release
+  
+  export COMMON_GYP_DEFINES="use_allocator=none use_aura=1 clang_use_chrome_plugins=0 component=static_library"
+  export GYP_DEFINES="$CUSTOM_GYP_DEFINES $COMMON_GYP_DEFINES"
+  export GYP_GENERATORS=ninja
+  export CLANG_BIN=$CLANG_BUILD/bin
+  export CC="$CLANG_BIN/clang"
+  export CXX="$CLANG_BIN/clang++"
+  
+  gclient runhooks
+  )
+}
