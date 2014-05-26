@@ -159,6 +159,10 @@ if [ $RUN_ANDROID == 1 ] ; then
     ADB=$ROOT/../../../android-sdk-linux/platform-tools/adb
     DEVICE_ROOT=/data/local/asan_test
 
+    echo "Restarting the ADB server"
+    $ADB kill-server
+    $ADB start-server
+
     echo "Rebooting the device"
     $ADB reboot
     $ADB wait-for-device
