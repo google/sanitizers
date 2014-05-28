@@ -176,6 +176,15 @@ if [ $RUN_ANDROID == 1 ] ; then
     $ADB shell rm -rf $DEVICE_ROOT
     $ADB shell mkdir $DEVICE_ROOT
 
+    # Copy asan-rt into toolchain build dir.
+    # Eventually this should be done in the build system.
+    ASAN_RT_INSTALL_DIR=$(ls -d llvm_build64/lib/clang/*/lib/linux/ | tail -1)
+    cp $ASAN_RT_LIB_PATH $ASAN_RT_INSTALL_DIR
+
+    echo @@@BUILD_STEP run asan lit tests [Android]@@@
+
+    (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS check-asan) || \
+        echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
 
