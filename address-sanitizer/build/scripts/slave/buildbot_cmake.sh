@@ -192,7 +192,7 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     echo @@@BUILD_STEP run asan lit tests [Android]@@@
 
-    (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS check-asan) || \
+    (cd $ANDROID_BUILD_DIR && ninja check-asan) || \
         echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
