@@ -157,7 +157,7 @@ if [ $BUILD_ANDROID == 1 ] ; then
         -DCOMPILER_RT_TEST_TARGET_TRIPLE=arm-linux-androideabi \
         -DCOMPILER_RT_TEST_COMPILER_CFLAGS="$ANDROID_FLAGS" \
         ${CMAKE_COMMON_OPTIONS} \
-        $LLVM_CHECKOUT)
+        $LLVM_CHECKOUT/projects/compiler-rt)
     (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS \
         AsanUnitTests SanitizerUnitTests) || echo @@@STEP_WARNINGS@@@
 fi
