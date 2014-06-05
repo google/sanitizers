@@ -136,21 +136,30 @@ BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
     ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
-    ANDROID_BUILD_DIR=llvm_build64/android
+    ANDROID_BUILD_DIR=compiler_rt_build_android
 
     # Always clobber android build tree.
     # It has a hidden dependency on clang (through CXX) which is not known to
     # the build system.
     rm -rf $ANDROID_BUILD_DIR
     mkdir $ANDROID_BUILD_DIR
+    ANDROID_FLAGS="--target=arm-linux-androideabi --sysroot=$ANDROID_TOOLCHAIN/sysroot -B$ANDROID_TOOLCHAIN"
     (cd $ANDROID_BUILD_DIR && \
-        cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-        -DLLVM_ANDROID_TOOLCHAIN_DIR=$ANDROID_TOOLCHAIN \
-        -DCMAKE_TOOLCHAIN_FILE=$LLVM_CHECKOUT/cmake/platforms/Android.cmake \
+        cmake -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+        -DCMAKE_C_COMPILER=$ROOT/llvm_build64/bin/clang \
+        -DCMAKE_CXX_COMPILER=$ROOT/llvm_build64/bin/clang++ \
+        -DLLVM_CONFIG_PATH=$ROOT/llvm_build64/bin/llvm-config \
+        -DCOMPILER_RT_INCLUDE_TESTS=ON \
+        -DCOMPILER_RT_ENABLE_WERROR=ON \
+        -DCMAKE_C_FLAGS="$ANDROID_FLAGS" \
+        -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
+        -DANDROID=1 \
+        -DCOMPILER_RT_TEST_TARGET_TRIPLE=arm-linux-androideabi \
+        -DCOMPILER_RT_TEST_COMPILER_CFLAGS="$ANDROID_FLAGS" \
         ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT)
     (cd $ANDROID_BUILD_DIR && make -j$MAKE_JOBS \
-        AsanUnitTests SanitizerUnitTests) || echo @@@STEP_FAILURE@@@
+        AsanUnitTests SanitizerUnitTests) || echo @@@STEP_WARNINGS@@@
 fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
@@ -188,17 +197,16 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
 
-    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
 
     $ADB shell "$DEVICE_ROOT/SanitizerTest; \
         echo \$? >$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
-
+    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run asan tests [Android]@@@
 
-    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanTest $DEVICE_ROOT/
-    $ADB push $ANDROID_BUILD_DIR/projects/compiler-rt/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/lib/asan/tests/AsanTest $DEVICE_ROOT/
+    $ADB push $ANDROID_BUILD_DIR/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
 
     NUM_SHARDS=7
     for ((SHARD=0; SHARD < $NUM_SHARDS; SHARD++)); do
@@ -207,12 +215,12 @@ if [ $RUN_ANDROID == 1 ] ; then
           GTEST_SHARD_INDEX=$SHARD \
           asanwrapper $DEVICE_ROOT/AsanTest; \
           echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
         $ADB shell " \
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
           $DEVICE_ROOT/AsanNoinstTest; \
           echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
     done
 fi
