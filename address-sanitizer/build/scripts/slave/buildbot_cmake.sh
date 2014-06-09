@@ -162,7 +162,7 @@ if [ $BUILD_ANDROID == 1 ] ; then
         ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT/projects/compiler-rt)
     (cd $ANDROID_BUILD_DIR && ninja AsanUnitTests SanitizerUnitTests) || \
-        echo @@@STEP_WARNINGS@@@
+        echo @@@STEP_FAILURE@@@
 fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
@@ -196,7 +196,7 @@ if [ $RUN_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP run asan lit tests [Android]@@@
 
     (cd $ANDROID_BUILD_DIR && ninja check-asan) || \
-        echo @@@STEP_WARNINGS@@@
+        echo @@@STEP_FAILURE@@@
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
 
@@ -204,7 +204,7 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     $ADB shell "$DEVICE_ROOT/SanitizerTest; \
         echo \$? >$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
+    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
 
     echo @@@BUILD_STEP run asan tests [Android]@@@
 
@@ -218,12 +218,12 @@ if [ $RUN_ANDROID == 1 ] ; then
           GTEST_SHARD_INDEX=$SHARD \
           asanwrapper $DEVICE_ROOT/AsanTest; \
           echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
         $ADB shell " \
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
           $DEVICE_ROOT/AsanNoinstTest; \
           echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
     done
 fi
