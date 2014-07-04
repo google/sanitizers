@@ -1,0 +1,239 @@
+Index: gcc/builtins.def
+===================================================================
+--- gcc/builtins.def	(revision 203101)
++++ gcc/builtins.def	(working copy)
+@@ -161,8 +161,8 @@
+ #define DEF_SANITIZER_BUILTIN(ENUM, NAME, TYPE, ATTRS) \
+   DEF_BUILTIN (ENUM, "__builtin_" NAME, BUILT_IN_NORMAL, TYPE, TYPE,    \
+ 	       true, true, true, ATTRS, true, \
+-	      (flag_sanitize & (SANITIZE_ADDRESS | SANITIZE_THREAD \
+-				| SANITIZE_UNDEFINED)))
++	      (flag_sanitize & (SANITIZE_ADDRESS | SANITIZE_KERNEL_ADDRESS \
++				| SANITIZE_THREAD | SANITIZE_UNDEFINED)))
+ 
+ #undef DEF_CILKPLUS_BUILTIN
+ #define DEF_CILKPLUS_BUILTIN(ENUM, NAME, TYPE, ATTRS)  \
+Index: gcc/gcc.c
+===================================================================
+--- gcc/gcc.c	(revision 203101)
++++ gcc/gcc.c	(working copy)
+@@ -8129,6 +8129,8 @@
+ 
+   if (strcmp (argv[0], "address") == 0)
+     return (flag_sanitize & SANITIZE_ADDRESS) ? "" : NULL;
++  if (strcmp (argv[0], "kernel-address") == 0)
++    return (flag_sanitize & SANITIZE_KERNEL_ADDRESS) ? "" : NULL;
+   if (strcmp (argv[0], "thread") == 0)
+     return (flag_sanitize & SANITIZE_THREAD) ? "" : NULL;
+   if (strcmp (argv[0], "undefined") == 0)
+Index: gcc/opts.c
+===================================================================
+--- gcc/opts.c	(revision 203101)
++++ gcc/opts.c	(working copy)
+@@ -1433,6 +1433,8 @@
+ 	    } spec[] =
+ 	    {
+ 	      { "address", SANITIZE_ADDRESS, sizeof "address" - 1 },
++	      { "kernel-address", SANITIZE_KERNEL_ADDRESS,
++		sizeof "kernel-address" - 1 },
+ 	      { "thread", SANITIZE_THREAD, sizeof "thread" - 1 },
+ 	      { "shift", SANITIZE_SHIFT, sizeof "shift" - 1 },
+ 	      { "integer-divide-by-zero", SANITIZE_DIVIDE,
+Index: gcc/flag-types.h
+===================================================================
+--- gcc/flag-types.h	(revision 203101)
++++ gcc/flag-types.h	(working copy)
+@@ -204,12 +204,14 @@
+ enum sanitize_code {
+   /* AddressSanitizer.  */
+   SANITIZE_ADDRESS = 1 << 0,
++  /* AddressSanitizer for Linux kernel.  */
++  SANITIZE_KERNEL_ADDRESS = 1 << 1,
+   /* ThreadSanitizer.  */
+-  SANITIZE_THREAD = 1 << 1,
++  SANITIZE_THREAD = 1 << 2,
+   /* UndefinedBehaviorSanitizer.  */
+-  SANITIZE_SHIFT = 1 << 2,
+-  SANITIZE_DIVIDE = 1 << 3,
+-  SANITIZE_UNREACHABLE = 1 << 4,
++  SANITIZE_SHIFT = 1 << 3,
++  SANITIZE_DIVIDE = 1 << 4,
++  SANITIZE_UNREACHABLE = 1 << 5,
+   SANITIZE_UNDEFINED = SANITIZE_SHIFT | SANITIZE_DIVIDE | SANITIZE_UNREACHABLE
+ };
+ 
+Index: gcc/tsan.c
+===================================================================
+--- gcc/tsan.c	(revision 203101)
++++ gcc/tsan.c	(working copy)
+@@ -41,6 +41,11 @@
+ #include "tsan.h"
+ #include "asan.h"
+ 
++/* This pass is also used by AddressSanitizer for Linux kernel because
++   the instrumentation is not finalized yet and we would like to have
++   function calls instead of inlined instrumentation.
++   In future AddessSanitizer for Linux kernel will likely move to asan.c  */
++
+ /* Number of instrumented memory accesses in the current function.  */
+ 
+ /* Builds the following decl
+@@ -51,21 +56,42 @@
+ {
+   enum built_in_function fcode;
+ 
+-  if (size <= 1)
+-    fcode = is_write ? BUILT_IN_TSAN_WRITE1
+-		     : BUILT_IN_TSAN_READ1;
+-  else if (size <= 3)
+-    fcode = is_write ? BUILT_IN_TSAN_WRITE2
+-		     : BUILT_IN_TSAN_READ2;
+-  else if (size <= 7)
+-    fcode = is_write ? BUILT_IN_TSAN_WRITE4
+-		     : BUILT_IN_TSAN_READ4;
+-  else if (size <= 15)
+-    fcode = is_write ? BUILT_IN_TSAN_WRITE8
+-		     : BUILT_IN_TSAN_READ8;
++  if ((flag_sanitize & SANITIZE_KERNEL_ADDRESS) == 0)
++    {
++      if (size <= 1)
++	fcode = is_write ? BUILT_IN_TSAN_WRITE1
++			 : BUILT_IN_TSAN_READ1;
++      else if (size <= 3)
++	fcode = is_write ? BUILT_IN_TSAN_WRITE2
++			 : BUILT_IN_TSAN_READ2;
++      else if (size <= 7)
++	fcode = is_write ? BUILT_IN_TSAN_WRITE4
++			 : BUILT_IN_TSAN_READ4;
++      else if (size <= 15)
++	fcode = is_write ? BUILT_IN_TSAN_WRITE8
++			 : BUILT_IN_TSAN_READ8;
++      else
++	fcode = is_write ? BUILT_IN_TSAN_WRITE16
++			 : BUILT_IN_TSAN_READ16;
++    }
+   else
+-    fcode = is_write ? BUILT_IN_TSAN_WRITE16
+-		     : BUILT_IN_TSAN_READ16;
++    {
++      if (size <= 1)
++	fcode = is_write ? BUILT_IN_KASAN_WRITE1
++			 : BUILT_IN_KASAN_READ1;
++      else if (size <= 3)
++	fcode = is_write ? BUILT_IN_KASAN_WRITE2
++			 : BUILT_IN_KASAN_READ2;
++      else if (size <= 7)
++	fcode = is_write ? BUILT_IN_KASAN_WRITE4
++			 : BUILT_IN_KASAN_READ4;
++      else if (size <= 15)
++	fcode = is_write ? BUILT_IN_KASAN_WRITE8
++			 : BUILT_IN_KASAN_READ8;
++      else
++	fcode = is_write ? BUILT_IN_KASAN_WRITE16
++			 : BUILT_IN_KASAN_READ16;
++    }
+ 
+   return builtin_decl_implicit (fcode);
+ }
+@@ -700,7 +726,8 @@
+ tsan_pass (void)
+ {
+   initialize_sanitizer_builtins ();
+-  if (instrument_memory_accesses ())
++  if (instrument_memory_accesses ()
++      && (flag_sanitize & SANITIZE_KERNEL_ADDRESS) == 0)
+     {
+       instrument_func_entry ();
+       instrument_func_exit ();
+@@ -713,7 +740,7 @@
+ static bool
+ tsan_gate (void)
+ {
+-  return (flag_sanitize & SANITIZE_THREAD) != 0;
++  return (flag_sanitize & (SANITIZE_THREAD | SANITIZE_KERNEL_ADDRESS)) != 0;
+ }
+ 
+ /* Inserts __tsan_init () into the list of CTORs.  */
+@@ -724,11 +751,14 @@
+   tree ctor_statements = NULL_TREE;
+ 
+   initialize_sanitizer_builtins ();
+-  tree init_decl = builtin_decl_implicit (BUILT_IN_TSAN_INIT);
+-  append_to_statement_list (build_call_expr (init_decl, 0),
+-			    &ctor_statements);
+-  cgraph_build_static_cdtor ('I', ctor_statements,
+-			     MAX_RESERVED_INIT_PRIORITY - 1);
++  if ((flag_sanitize & SANITIZE_KERNEL_ADDRESS) == 0)
++    {
++      tree init_decl = builtin_decl_implicit (BUILT_IN_TSAN_INIT);
++      append_to_statement_list (build_call_expr (init_decl, 0),
++				&ctor_statements);
++      cgraph_build_static_cdtor ('I', ctor_statements,
++				 MAX_RESERVED_INIT_PRIORITY - 1);
++    }
+ }
+ 
+ /* The pass descriptor.  */
+Index: gcc/doc/invoke.texi
+===================================================================
+--- gcc/doc/invoke.texi	(revision 203101)
++++ gcc/doc/invoke.texi	(working copy)
+@@ -5231,6 +5231,12 @@
+ out-of-bounds and use-after-free bugs.
+ See @uref{http://code.google.com/p/address-sanitizer/} for more details.
+ 
++@item -fsanitize=kernel-address
++Enable AddressSanitizer for Linux kernel, a fast memory error detector.
++Memory access instructions will be instrumented to detect
++out-of-bounds and use-after-free bugs.
++See @uref{http://code.google.com/p/address-sanitizer/wiki/AddressSanitizerForKernel} for more details.
++
+ @item -fsanitize=thread
+ Enable ThreadSanitizer, a fast data race detector.
+ Memory access instructions will be instrumented to detect
+Index: gcc/toplev.c
+===================================================================
+--- gcc/toplev.c	(revision 203101)
++++ gcc/toplev.c	(working copy)
+@@ -576,7 +576,7 @@
+       if (flag_sanitize & SANITIZE_ADDRESS)
+         asan_finish_file ();
+ 
+-      if (flag_sanitize & SANITIZE_THREAD)
++      if (flag_sanitize & (SANITIZE_THREAD | SANITIZE_KERNEL_ADDRESS))
+ 	tsan_finish_file ();
+ 
+       output_shared_constant_pool ();
+Index: gcc/sanitizer.def
+===================================================================
+--- gcc/sanitizer.def	(revision 203101)
++++ gcc/sanitizer.def	(working copy)
+@@ -61,6 +61,28 @@
+ 		      "__asan_handle_no_return",
+ 		      BT_FN_VOID, ATTR_TMPURE_NOTHROW_LEAF_LIST)
+ 
++/* Address Sanitizer for Linux kernel */
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_READ1, "__kasan_read1",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_READ2, "__kasan_read2",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_READ4, "__kasan_read4",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_READ8, "__kasan_read8",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_READ16, "__kasan_read16",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_WRITE1, "__kasan_write1",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_WRITE2, "__kasan_write2",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_WRITE4, "__kasan_write4",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_WRITE8, "__kasan_write8",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++DEF_SANITIZER_BUILTIN(BUILT_IN_KASAN_WRITE16, "__kasan_write16",
++		      BT_FN_VOID_PTR, ATTR_NOTHROW_LEAF_LIST)
++
+ /* Thread Sanitizer */
+ DEF_SANITIZER_BUILTIN(BUILT_IN_TSAN_INIT, "__tsan_init", 
+ 		      BT_FN_VOID, ATTR_NOTHROW_LEAF_LIST)
