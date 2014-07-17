@@ -22,6 +22,7 @@ BOT_ASSIGNMENT = {
     'linux-perf-asan': bash('buildbot_perf_asan.sh'),
     'mac10.9-cmake': bash('buildbot_cmake.sh'),
     'mac10.9': bash('buildbot_standard.sh'),
+    'sanitizer-ppc64-linux1': bash('buildbot_cmake.sh'),
     'sanitizer-x86_64-linux': bash('buildbot_cmake.sh'),
     'sanitizer-x86_64-linux-bootstrap': bash('buildbot_bootstrap.sh'),
 }
@@ -35,6 +36,7 @@ BOT_ADDITIONAL_ENV = {
     'linux-perf-asan': {},
     'mac10.9-cmake': { 'MAX_MAKE_JOBS': '8' },
     'mac10.9': { 'MAX_MAKE_JOBS': '8' },
+    'sanitizer-ppc64-linux1': {},
     'sanitizer-x86_64-linux': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
     'sanitizer-x86_64-linux-bootstrap': {},
 }
