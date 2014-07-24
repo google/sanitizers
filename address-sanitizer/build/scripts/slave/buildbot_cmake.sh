@@ -9,6 +9,7 @@ HERE="$(dirname $0)"
 
 ROOT=`pwd`
 PLATFORM=`uname`
+ARCH=`uname -m`
 export PATH="/usr/local/bin:$PATH"
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
@@ -82,17 +83,17 @@ COMPILER_RT_BUILD_PATH=projects/compiler-rt/src/compiler-rt-build
 echo @@@BUILD_STEP run asan tests@@@
 (cd llvm_build64 && make -j$MAKE_JOBS check-asan) || echo @@@STEP_FAILURE@@@
 
-if [ "$PLATFORM" == "Linux" ]; then
+if [ "$PLATFORM" == "Linux" -a "$ARCH" == "x86_64" ]; then
   echo @@@BUILD_STEP run msan unit tests@@@
   (cd llvm_build64 && make -j$MAKE_JOBS check-msan) || echo @@@STEP_FAILURE@@@
 fi
 
-if [ "$PLATFORM" == "Linux" ]; then
+if [ "$PLATFORM" == "Linux" -a "$ARCH" == "x86_64" ]; then
   echo @@@BUILD_STEP run 64-bit tsan unit tests@@@
   (cd llvm_build64 && make -j$MAKE_JOBS check-tsan) || echo @@@STEP_FAILURE@@@
 fi
 
-if [ "$PLATFORM" == "Linux" ]; then
+if [ "$PLATFORM" == "Linux" -a "$ARCH" == "x86_64" ]; then
   echo @@@BUILD_STEP run 64-bit lsan unit tests@@@
   (cd llvm_build64 && make -j$MAKE_JOBS check-lsan) || echo @@@STEP_FAILURE@@@
 fi

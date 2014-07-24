@@ -36,7 +36,7 @@ BOT_ADDITIONAL_ENV = {
     'linux-perf-asan': {},
     'mac10.9-cmake': { 'MAX_MAKE_JOBS': '8' },
     'mac10.9': { 'MAX_MAKE_JOBS': '8' },
-    'sanitizer-ppc64-linux1': {},
+    'sanitizer-ppc64-linux1': { 'HAVE_NINJA': '0' },
     'sanitizer-x86_64-linux': { 'BUILD_ANDROID' : '1', 'RUN_ANDROID' : '1' },
     'sanitizer-x86_64-linux-bootstrap': {},
 }
