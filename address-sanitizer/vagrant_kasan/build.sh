@@ -3,11 +3,10 @@ set -o pipefail
 set -eux
 
 function get_gcc() {
-  svn checkout -r 203101 svn://gcc.gnu.org/svn/gcc/trunk gcc_kasan
-  # wget https://address-sanitizer.googlecode.com/files/gcc-r203101-kasan.patch
+  svn checkout -r 212893 svn://gcc.gnu.org/svn/gcc/trunk gcc_kasan
 
   cd gcc_kasan
-  patch -p0 -i /vagrant/gcc-r203101-kasan.patch
+  patch -p0 -i /vagrant/gcc-r212893-kasan-stack.patch
 }
 
 function make_gcc() {

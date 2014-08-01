@@ -5,18 +5,21 @@ Vagrant.configure("2") do |config|
   config.vm.box = "ubuntu/trusty64"
   config.vm.hostname = "vagrant-kasan"
 
-  # Disable default synced folder (asan kernel doesn't have Virtualbox modules)
+  # Disable default synced folder (asan kernel doesn't have Virtualbox modules).
   #config.vm.synced_folder ".", "/vagrant", disabled: true
 
   config.vm.provider :virtualbox do |vb|
     vb.cpus = 4
     vb.memory = 2048
 
-    # Enable gui to be able to enter GRUB
+    # Enable gui to be able to enter GRUB.
     #vb.gui = true
 
-    # Enable console logging to file
+    # Enable serial logging to a file.
     #vb.customize ["modifyvm", :id, "--uart1", "0x03f8", "4", "--uartmode1", "file", File.join(Dir.pwd, "serial.log")]
+
+    # Enable serial redirection to a pipe. Use with socat to debug kernel with kgdb.
+    #vb.customize ["modifyvm", :id, "--uart1", "0x03f8", "4", "--uartmode1", "server", File.join(Dir.pwd, "serial.pipe")]
   end
 
   config.vm.provision "shell", inline: <<-EOF
