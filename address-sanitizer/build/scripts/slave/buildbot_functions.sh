@@ -5,16 +5,23 @@ function buildbot_update {
     if [ "$BUILDBOT_REVISION" != "" ]; then
         REV_ARG="-r$BUILDBOT_REVISION"
     fi
+    if [ -d llvm ]; then
+        svn cleanup llvm
+    fi
+    for subtree in llvm/tools/clang llvm/projects/compiler-rt llvm/projects/libcxx llvm/projects/libcxxabi
+    do
+      if [ -d ${subtree} ]; then
+        svn cleanup "${subtree}"
+      fi
+    done
 
     if [ -d llvm -a -d llvm/projects/libcxxabi ]; then
-        svn cleanup llvm
         svn up llvm $REV_ARG
         if [ "$REV_ARG" == "" ]; then
             REV_ARG="-r"$(svn info llvm | grep '^Revision:' | awk '{print $2}')
         fi
         for subtree in llvm/tools/clang llvm/projects/compiler-rt llvm/projects/libcxx llvm/projects/libcxxabi
         do
-          svn cleanup "${subtree}"
           svn up "${subtree}" $REV_ARG
         done
     else
