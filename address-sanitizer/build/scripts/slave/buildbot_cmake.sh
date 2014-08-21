@@ -34,7 +34,6 @@ if [ "$PLATFORM" == "Darwin" ]; then
   ENABLE_LIBCXX_FLAG="-DLLVM_ENABLE_LIBCXX=ON"
 fi
 
-
 echo @@@BUILD_STEP update@@@
 buildbot_update
 
@@ -58,7 +57,6 @@ if [ ! -z ${ENABLE_LIBCXX_FLAG} ]; then
 (cd clang_build && make -C ${LLVM_CHECKOUT}/projects/libcxx installheaders \
   HEADER_DIR=${PWD}/include) || echo @@@STEP_FAILURE@@@
 fi
-
 
 # Do a sanity check on Linux: build and test sanitizers using gcc as a host
 # compiler.
@@ -86,6 +84,16 @@ fi
 (cd llvm_build64 && cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     ${CMAKE_CLANG_OPTIONS} -DLLVM_BUILD_EXTERNAL_COMPILER_RT=ON \
     ${ENABLE_LIBCXX_FLAG} $LLVM_CHECKOUT)
+# First, build only Clang.
+(cd llvm_build64 && make -j$MAKE_JOBS clang) || echo @@@STEP_FAILURE@@@
+
+# If needed, install the headers to clang_build/include.
+if [ ! -z ${ENABLE_LIBCXX_FLAG} ]; then
+(cd llvm_build64 && make -C ${LLVM_CHECKOUT}/projects/libcxx installheaders \
+  HEADER_DIR=${PWD}/include) || echo @@@STEP_FAILURE@@@
+fi
+
+# Now build everything else.
 (cd llvm_build64 && make -j$MAKE_JOBS) || echo @@@STEP_FAILURE@@@
 FRESH_CLANG_PATH=${ROOT}/llvm_build64/bin
 COMPILER_RT_BUILD_PATH=projects/compiler-rt/src/compiler-rt-build
