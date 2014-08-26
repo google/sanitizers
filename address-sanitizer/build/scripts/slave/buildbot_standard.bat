@@ -24,11 +24,13 @@ set ROOT=%cd%
 echo @@@BUILD_STEP cmake llvm@@@
 mkdir llvm-build
 cd llvm-build || goto :DIE
-cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
+cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DCOMPILER_RT_BUILD_SHARED_ASAN=ON ..\llvm || goto :DIE
 
 echo @@@BUILD_STEP build compiler-rt@@@
-:: Build compiler-rt separately first, as this should help us find ASan RTL
+:: Clean compiler-rt to get all the compile-time warnings,
+:: then rebuild it separately before anything else to help us find ASan RTL
 :: compile-time bugs quicker.
+ninja -t clean compiler-rt
 ninja compiler-rt
 
 echo @@@BUILD_STEP build llvm@@@
