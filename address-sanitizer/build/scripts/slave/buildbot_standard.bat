@@ -24,7 +24,7 @@ set ROOT=%cd%
 echo @@@BUILD_STEP cmake llvm@@@
 mkdir llvm-build
 cd llvm-build || goto :DIE
-cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DCOMPILER_RT_BUILD_SHARED_ASAN=ON ..\llvm || goto :DIE
+cmake -GNinja -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 ..\llvm || goto :DIE
 
 echo @@@BUILD_STEP build compiler-rt@@@
 :: Clean compiler-rt to get all the compile-time warnings,
