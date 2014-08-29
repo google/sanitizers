@@ -25,6 +25,7 @@ rm -rf llvm_build_msan
 rm -rf llvm_build2_msan
 rm -rf llvm_build_asan
 rm -rf llvm_build2_asan
+rm -rf llvm_build_ubsan
 
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM=$ROOT/llvm
@@ -57,8 +58,9 @@ CMAKE_STAGE2_COMMON_OPTIONS="\
   -DCMAKE_C_COMPILER=${CLANG_PATH}/clang \
   -DCMAKE_CXX_COMPILER=${CLANG_PATH}/clang++ \
   "
-export ASAN_SYMBOLIZER_PATH=${CLANG_PATH}/llvm-symbolizer
-export MSAN_SYMBOLIZER_PATH=${CLANG_PATH}/llvm-symbolizer
+LLVM_SYMBOLIZER_PATH=${CLANG_PATH}/llvm-symbolizer
+export ASAN_SYMBOLIZER_PATH=${LLVM_SYMBOLIZER_PATH}
+export MSAN_SYMBOLIZER_PATH=${LLVM_SYMBOLIZER_PATH}
 # Prebuilt libstdc++ with MSan instrumentation.
 # This will break if MSan ABI is changed.
 LIBSTDCXX_DIR=$ROOT/../../../libstdc++-msan-origins
@@ -156,3 +158,27 @@ CMAKE_STAGE3_ASAN_OPTIONS="${CMAKE_STAGE3_COMMON_OPTIONS} -DCMAKE_C_COMPILER=${C
 echo @@@BUILD_STEP check-all stage3/asan@@@
 
 (cd llvm_build2_asan && ninja check-all) || echo @@@STEP_FAILURE@@@
+
+# Stage 2 / UndefinedBehaviorSanitizer
+echo @@@BUILD_STEP build clang/ubsan@@@
+
+export UBSAN_OPTIONS="external_symbolizer_path=${LLVM_SYMBOLIZER_PATH}:print_stacktrace=1"
+CMAKE_UBSAN_OPTIONS=" \
+  ${CMAKE_STAGE2_COMMON_OPTIONS} \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DLLVM_USE_SANITIZER=Undefined \
+  "
+
+if [ ! -d llvm_build_ubsan ]; then
+  mkdir llvm_build_ubsan
+fi
+
+(cd llvm_build_ubsan &&
+  cmake ${CMAKE_UBSAN_OPTIONS} $LLVM && \
+  ninja clang) || echo @@@STEP_FAILURE@@@
+
+echo @@@BUILD_STEP check-llvm ubsan@@@
+(cd llvm_build_ubsan && ninja check-llvm) || echo @@@STEP_WARNINGS@@@
+
+echo @@@BUILD_STEP check-clang ubsan@@@
+(cd llvm_build_ubsan && ninja check-clang) || echo @@@STEP_WARNINGS@@@
