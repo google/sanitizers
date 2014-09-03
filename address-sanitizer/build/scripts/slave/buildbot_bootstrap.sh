@@ -29,6 +29,7 @@ rm -rf llvm_build_ubsan
 
 MAKE_JOBS=${MAX_MAKE_JOBS:-16}
 LLVM=$ROOT/llvm
+LIBCXX=$LLVM/projects/libcxx
 
 type -a gcc
 type -a g++
@@ -48,10 +49,6 @@ fi
   ninja clang && ninja compiler-rt && ninja llvm-symbolizer) || \
   echo @@@STEP_FAILURE@@@
 
-# Stage 2 / MemorySanitizer
-
-echo @@@BUILD_STEP build clang/msan@@@
-
 CLANG_PATH=$ROOT/llvm_build0/bin
 CMAKE_STAGE2_COMMON_OPTIONS="\
   ${CMAKE_COMMON_OPTIONS} \
@@ -61,27 +58,44 @@ CMAKE_STAGE2_COMMON_OPTIONS="\
 LLVM_SYMBOLIZER_PATH=${CLANG_PATH}/llvm-symbolizer
 export ASAN_SYMBOLIZER_PATH=${LLVM_SYMBOLIZER_PATH}
 export MSAN_SYMBOLIZER_PATH=${LLVM_SYMBOLIZER_PATH}
-# Prebuilt libstdc++ with MSan instrumentation.
-# This will break if MSan ABI is changed.
-LIBSTDCXX_DIR=$ROOT/../../../libstdc++-msan-origins
-CMAKE_MSAN_EXE_LINKER_FLAGS="-Wl,--rpath=${LIBSTDCXX_DIR} -L${LIBSTDCXX_DIR}"
-CMAKE_MSAN_OPTIONS=" \
-  ${CMAKE_STAGE2_COMMON_OPTIONS} \
-  -DLLVM_USE_SANITIZER=Memory \
-  "
 
+# Stage 2 / Memory Sanitizer
+
+echo @@@BUILD_STEP build libcxx/msan@@@
+if [ ! -d libcxx_build_msan ]; then
+  mkdir libcxx_build_msan
+fi
+
+LIBCXX_INST=${LIBCXX}/inst
+(cd libcxx_build_msan && \
+  cmake ${CMAKE_STAGE2_COMMON_OPTIONS} \
+    -DLLVM_USE_SANITIZER=Memory \
+    -DLIBCXX_CXX_ABI=libstdc++ \
+    -DLIBCXX_LIBSUPCXX_INCLUDE_PATHS="/usr/local/include/c++/4.9.1;/usr/local/include/c++/4.9.1/x86_64-unknown-linux-gnu" \
+    -DCMAKE_INSTALL_PREFIX=${LIBCXX_INST} \
+    ${LIBCXX} && \
+  ninja install) || echo @@@STEP_FAILURE@@@
+
+echo @@@BUILD_STEP build clang/msan@@@
 if [ ! -d llvm_build_msan ]; then
   mkdir llvm_build_msan
 fi
 
+MSAN_INCLUDE_FLAGS="-I${LIBCXX_INST}/include/c++/v1"
+MSAN_LINK_FLAGS="-lc++ -Wl,--rpath=${LIBCXX_INST}/lib -L${LIBCXX_INST}/lib"
+
 (cd llvm_build_msan && \
- cmake ${CMAKE_MSAN_OPTIONS} -DCMAKE_EXE_LINKER_FLAGS="${CMAKE_MSAN_EXE_LINKER_FLAGS}" $LLVM && \
+ cmake ${CMAKE_STAGE2_COMMON_OPTIONS} \
+   -DLLVM_USE_SANITIZER=Memory \
+   -DCMAKE_C_FLAGS="${MSAN_INCLUDE_FLAGS}" \
+   -DCMAKE_CXX_FLAGS="${MSAN_INCLUDE_FLAGS}" \
+   -DCMAKE_EXE_LINKER_FLAGS="${MSAN_LINK_FLAGS}" \
+   $LLVM && \
  ninja clang) || echo @@@STEP_FAILURE@@@
 
 echo @@@BUILD_STEP check-llvm msan@@@
 
 (cd llvm_build_msan && ninja check-llvm) || echo @@@STEP_FAILURE@@@
-
 
 echo @@@BUILD_STEP check-clang msan@@@
 
