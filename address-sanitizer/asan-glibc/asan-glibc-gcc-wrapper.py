@@ -5,21 +5,12 @@ import sys
 
 blacklist=["rtld", "/dl-", "elf/", "string/mem", "time/time",
            "time/gettimeofday", "time/timegm", "time/timespec_get",
-           "nptl/libc_pthread_init", "nptl/register-atfork", "string/strstr"]
-#whitelist=[
-#  "csu/", "iconv/", "locale/", "assert/", "ctype/",
-#  "intl/", "catgets/", "math/", "setjmp/", "signal/",
-#  "stdlib/", "stdio-common/", "libio/", "malloc/",
-#  "string/", "wcsmbs/", "time/", "dirent/", "grp/", "pwd/", "posix/",
-#  "io/", "termios/", "resource/", "misc/", "socket/", "sysvipc/", "gmon/",
-#  "wctype/", "shadow/", "gshadow/", "argp/", "nptl/", "debug/", "inet/",
-#  "resolv/", "nss/", "sunrpc/", "nis/", "nscd/", "streams/", "login/"]
+           "nptl/libc_pthread_init", "nptl/register-atfork", "string/strstr",
+           "string/strcasestr"]
 
 def AllowAsan(obj):
   for b in blacklist:
     if re.search(b, obj): return False
-#  for b in whitelist:
-#    if re.search(b, obj): return True
   return True
 
 if __name__ == '__main__':
