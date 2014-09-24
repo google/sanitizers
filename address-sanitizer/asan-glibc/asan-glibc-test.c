@@ -28,6 +28,14 @@ int main(int argc, char **argv) {
     printf("strstr: %s\n", strstr(str, "zzz"));
     return 0;
   }
+  if (argc == 7) {
+    char *s1 = strdup("aaa");
+    char *s2 = strdup("abc");
+    printf("strcspn: %zd\n", strcspn(s1, s2));
+    free(s1);
+    free(s2);
+    return 0;
+  }
   char *tok = strsep(&s, " ");
   printf("tok %p\n", tok);
   printf("tok: |%s|; s: |%s|\n", tok, s);
