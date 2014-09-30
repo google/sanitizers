@@ -159,6 +159,8 @@ if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
     ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
     ANDROID_BUILD_DIR=compiler_rt_build_android
+    ANDROID_LIBRARY_OUTPUT_DIR=$(ls -d $ROOT/llvm_build64/lib/clang/* | tail -1)
+    ANDROID_EXEC_OUTPUT_DIR=$ROOT/llvm_build64/bin
 
     # Always clobber android build tree.
     # It has a hidden dependency on clang (through CXX) which is not known to
@@ -177,9 +179,12 @@ if [ $BUILD_ANDROID == 1 ] ; then
         -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
         -DANDROID=1 \
         -DCOMPILER_RT_TEST_TARGET_TRIPLE=arm-linux-androideabi \
-        -DCOMPILER_RT_TEST_COMPILER_CFLAGS="$ANDROID_FLAGS" \
+        -DCOMPILER_RT_OUTPUT_DIR="$ANDROID_LIBRARY_OUTPUT_DIR" \
+        -DCOMPILER_RT_EXEC_OUTPUT_DIR="$ANDROID_EXEC_OUTPUT_DIR" \
         ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT/projects/compiler-rt)
+    (cd $ANDROID_BUILD_DIR && ninja asan) || echo @@@STEP_WARNINGS@@@
+    ls "$ANDROID_LIBRARY_OUTPUT_DIR"
     (cd $ANDROID_BUILD_DIR && ninja AsanUnitTests SanitizerUnitTests) || \
         echo @@@STEP_WARNINGS@@@
 fi
@@ -197,20 +202,11 @@ if [ $RUN_ANDROID == 1 ] ; then
 
     $ADB devices
 
-    ASAN_RT_LIB=libclang_rt.asan-arm-android.so
-    ASAN_RT_LIB_PATH=`find $ANDROID_BUILD_DIR/lib -name $ASAN_RT_LIB`
-    echo "ASan runtime: $ASAN_RT_LIB_PATH"
-    ADB=$ADB $LLVM_CHECKOUT/projects/compiler-rt/lib/asan/scripts/asan_device_setup \
-        --lib $ASAN_RT_LIB_PATH
+    ADB=$ADB $ROOT/llvm_build64/bin/asan_device_setup
     sleep 2
 
     $ADB shell rm -rf $DEVICE_ROOT
     $ADB shell mkdir $DEVICE_ROOT
-
-    # Copy asan-rt into toolchain build dir.
-    # Eventually this should be done in the build system.
-    ASAN_RT_INSTALL_DIR=$(ls -d llvm_build64/lib/clang/*/lib/linux/ | tail -1)
-    cp $ASAN_RT_LIB_PATH $ASAN_RT_INSTALL_DIR
 
     echo @@@BUILD_STEP run asan lit tests [Android]@@@
 
