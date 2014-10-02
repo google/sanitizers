@@ -38,7 +38,7 @@ function build_android { # ARCH triple
     # It has a hidden dependency on clang (through CXX) which is not known to
     # the build system.
     rm -rf compiler_rt_build_android_$_arch
-    mkdircompiler_rt_build_android_$_arch
+    mkdir compiler_rt_build_android_$_arch
     cd compiler_rt_build_android_$_arch
 
     cmake -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
