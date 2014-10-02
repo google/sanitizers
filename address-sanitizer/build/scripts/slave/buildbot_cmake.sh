@@ -158,37 +158,12 @@ fi
 BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
-    ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone
-    ANDROID_BUILD_DIR=compiler_rt_build_android
-    ANDROID_LIBRARY_OUTPUT_DIR=$(ls -d $ROOT/llvm_build64/lib/clang/* | tail -1)
-    ANDROID_EXEC_OUTPUT_DIR=$ROOT/llvm_build64/bin
 
-    # Always clobber android build tree.
-    # It has a hidden dependency on clang (through CXX) which is not known to
-    # the build system.
-    rm -rf $ANDROID_BUILD_DIR
-    mkdir $ANDROID_BUILD_DIR
-    ANDROID_FLAGS="--target=arm-linux-androideabi --sysroot=$ANDROID_TOOLCHAIN/sysroot -B$ANDROID_TOOLCHAIN"
-    (cd $ANDROID_BUILD_DIR && \
-        cmake -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-        -DCMAKE_C_COMPILER=$ROOT/llvm_build64/bin/clang \
-        -DCMAKE_CXX_COMPILER=$ROOT/llvm_build64/bin/clang++ \
-        -DLLVM_CONFIG_PATH=$ROOT/llvm_build64/bin/llvm-config \
-        -DCOMPILER_RT_INCLUDE_TESTS=ON \
-        -DCOMPILER_RT_ENABLE_WERROR=ON \
-        -DCMAKE_C_FLAGS="$ANDROID_FLAGS" \
-        -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
-        -DANDROID=1 \
-        -DCOMPILER_RT_TEST_COMPILER_CFLAGS="$ANDROID_FLAGS" \
-        -DCOMPILER_RT_TEST_TARGET_TRIPLE=arm-linux-androideabi \
-        -DCOMPILER_RT_OUTPUT_DIR="$ANDROID_LIBRARY_OUTPUT_DIR" \
-        -DCOMPILER_RT_EXEC_OUTPUT_DIR="$ANDROID_EXEC_OUTPUT_DIR" \
-        ${CMAKE_COMMON_OPTIONS} \
-        $LLVM_CHECKOUT/projects/compiler-rt)
-    (cd $ANDROID_BUILD_DIR && ninja asan) || echo @@@STEP_FAILURE@@@
-    ls "$ANDROID_LIBRARY_OUTPUT_DIR"
-    (cd $ANDROID_BUILD_DIR && ninja AsanUnitTests SanitizerUnitTests) || \
-        echo @@@STEP_FAILURE@@@
+    build_android arm arm-linux-androideabi
+    build_llvm_symbolizer arm arm-linux-androideabi
+    
+    build_android x86 i686-linux-android
+    build_llvm_symbolizer x86 i686-linux-android
 fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}

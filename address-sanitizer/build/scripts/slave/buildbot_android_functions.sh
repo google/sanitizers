@@ -1,6 +1,71 @@
+function build_llvm_symbolizer { # ARCH triple
+    local _arch=$1
+    local _triple=$2
+    
+    rm -rf llvm_build_android_$_arch
+    mkdir llvm_build_android_$_arch
+    cd llvm_build_android_$_arch
+
+    local ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone-$_arch
+    local ANDROID_FLAGS="--target=$_triple --sysroot=$ANDROID_TOOLCHAIN/sysroot -B$ANDROID_TOOLCHAIN"
+    cmake -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLVM_ENABLE_WERROR=OFF \
+        -DCMAKE_C_COMPILER=$ROOT/llvm_build64/bin/clang \
+        -DCMAKE_CXX_COMPILER=$ROOT/llvm/build/bin/clang++ \
+        -DCMAKE_C_FLAGS="$ANDROID_FLAGS" \
+        -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
+        -DANDROID=1 \
+        -DLLVM_BUILD_RUNTIME=OFF \
+        -DLLVM_TABLEGEN=$ROOT/bin/llvm-tblgen \
+        ${CMAKE_COMMON_OPTIONS} \
+        $LLVM_CHECKOUT || echo @@@STEP_WARNINGS@@@
+    ninja llvm-symbolizer || echo @@@STEP_WARNINGS@@@
+
+    cd ..
+}
+
+function build_android { # ARCH triple
+    local _arch=$1
+    local _triple=$2
+
+    local ANDROID_TOOLCHAIN=$ROOT/../../../android-ndk/standalone-$_arch
+    local ANDROID_LIBRARY_OUTPUT_DIR=$(ls -d $ROOT/llvm_build64/lib/clang/* | tail -1)
+    local ANDROID_EXEC_OUTPUT_DIR=$ROOT/llvm_build64/bin
+    local ANDROID_FLAGS="--target=$_triple --sysroot=$ANDROID_TOOLCHAIN/sysroot -B$ANDROID_TOOLCHAIN"
+
+    # Always clobber android build tree.
+    # It has a hidden dependency on clang (through CXX) which is not known to
+    # the build system.
+    rm -rf compiler_rt_build_android_$_arch
+    mkdircompiler_rt_build_android_$_arch
+    cd compiler_rt_build_android_$_arch
+
+    cmake -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+        -DCMAKE_C_COMPILER=$ROOT/llvm_build64/bin/clang \
+        -DCMAKE_CXX_COMPILER=$ROOT/llvm_build64/bin/clang++ \
+        -DLLVM_CONFIG_PATH=$ROOT/llvm_build64/bin/llvm-config \
+        -DCOMPILER_RT_INCLUDE_TESTS=ON \
+        -DCOMPILER_RT_ENABLE_WERROR=ON \
+        -DCMAKE_C_FLAGS="$ANDROID_FLAGS" \
+        -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
+        -DANDROID=1 \
+        -DCOMPILER_RT_TEST_COMPILER_CFLAGS="$ANDROID_FLAGS" \
+        -DCOMPILER_RT_TEST_TARGET_TRIPLE=arm-linux-androideabi \
+        -DCOMPILER_RT_OUTPUT_DIR="$ANDROID_LIBRARY_OUTPUT_DIR" \
+        -DCOMPILER_RT_EXEC_OUTPUT_DIR="$ANDROID_EXEC_OUTPUT_DIR" \
+        ${CMAKE_COMMON_OPTIONS} \
+        $LLVM_CHECKOUT/projects/compiler-rt || echo @@@STEP_WARNINGS@@@
+    ninja asan || echo @@@STEP_WARNINGS@@@
+    ls "$ANDROID_LIBRARY_OUTPUT_DIR"
+    ninja AsanUnitTests SanitizerUnitTests || echo @@@STEP_WARNINGS@@@
+
+    cd ..
+}
+
 function test_android {
     ANDROID_SDK=$ROOT/../../../android-sdk-linux/
-    SYMBOLIZER_BIN=$ROOT/../../../llvm-symbolizer
+    SYMBOLIZER_BIN=$ROOT/compiler_rt_build_android_arm/bin/llvm-symbolizer
     ADB=$ANDROID_SDK/platform-tools/adb
     DEVICE_ROOT=/data/local/asan_test
 
@@ -25,7 +90,7 @@ function test_android {
     echo @@@BUILD_STEP run asan lit tests [Android]@@@
 
     (cd $ANDROID_BUILD_DIR && ninja check-asan) || \
-        echo @@@STEP_FAILURE@@@
+        echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
 
@@ -33,7 +98,7 @@ function test_android {
 
     $ADB shell "$DEVICE_ROOT/SanitizerTest; \
         echo \$? >$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run asan tests [Android]@@@
 
@@ -47,13 +112,13 @@ function test_android {
           GTEST_SHARD_INDEX=$SHARD \
           asanwrapper $DEVICE_ROOT/AsanTest; \
           echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
         $ADB shell " \
           GTEST_TOTAL_SHARDS=$NUM_SHARDS \
           GTEST_SHARD_INDEX=$SHARD \
           $DEVICE_ROOT/AsanNoinstTest; \
           echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
+        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
     done
 
     echo "Killing emulator"
