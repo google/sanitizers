@@ -6,6 +6,7 @@ set -u
 
 HERE="$(dirname $0)"
 . ${HERE}/buildbot_functions.sh
+. ${HERE}/buildbot_android_functions.sh
 
 ROOT=`pwd`
 PLATFORM=`uname`
@@ -192,54 +193,5 @@ fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
 if [ $RUN_ANDROID == 1 ] ; then
-    echo @@@BUILD_STEP device setup@@@
-    ADB=$ROOT/../../../android-sdk-linux/platform-tools/adb
-    DEVICE_ROOT=/data/local/asan_test
-
-    echo "Rebooting the device"
-    $ADB reboot
-    $ADB wait-for-device
-    sleep 5
-
-    $ADB devices
-
-    ADB=$ADB $ROOT/llvm_build64/bin/asan_device_setup
-    sleep 2
-
-    $ADB shell rm -rf $DEVICE_ROOT
-    $ADB shell mkdir $DEVICE_ROOT
-
-    echo @@@BUILD_STEP run asan lit tests [Android]@@@
-
-    (cd $ANDROID_BUILD_DIR && ninja check-asan) || \
-        echo @@@STEP_FAILURE@@@
-
-    echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
-
-    $ADB push $ANDROID_BUILD_DIR/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
-
-    $ADB shell "$DEVICE_ROOT/SanitizerTest; \
-        echo \$? >$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
-
-    echo @@@BUILD_STEP run asan tests [Android]@@@
-
-    $ADB push $ANDROID_BUILD_DIR/lib/asan/tests/AsanTest $DEVICE_ROOT/
-    $ADB push $ANDROID_BUILD_DIR/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
-
-    NUM_SHARDS=7
-    for ((SHARD=0; SHARD < $NUM_SHARDS; SHARD++)); do
-        $ADB shell "ASAN_OPTIONS=start_deactivated=1 \
-          GTEST_TOTAL_SHARDS=$NUM_SHARDS \
-          GTEST_SHARD_INDEX=$SHARD \
-          asanwrapper $DEVICE_ROOT/AsanTest; \
-          echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
-        $ADB shell " \
-          GTEST_TOTAL_SHARDS=$NUM_SHARDS \
-          GTEST_SHARD_INDEX=$SHARD \
-          $DEVICE_ROOT/AsanNoinstTest; \
-          echo \$? >$DEVICE_ROOT/error_code"
-        $ADB pull $DEVICE_ROOT/error_code error_code && echo && (exit `cat error_code`) || echo @@@STEP_FAILURE@@@
-    done
+    test_android
 fi
