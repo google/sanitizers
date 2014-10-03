@@ -81,10 +81,10 @@ function test_android { # ARCH emulator
 
     sleep 2
 
-    $ADB push $SYMBOLIZER_BIN /system/bin/
     ADB=$ADB $ROOT/llvm_build64/bin/asan_device_setup
     sleep 2
 
+    $ADB push $SYMBOLIZER_BIN /system/bin/
     $ADB shell rm -rf $DEVICE_ROOT
     $ADB shell mkdir $DEVICE_ROOT
 
