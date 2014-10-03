@@ -10,11 +10,6 @@ env
 HERE="$(dirname $0)"
 . ${HERE}/buildbot_functions.sh
 
-if [ $BUILD_ANDROID == 1 -o $RUN_ANDROID == 1 ] ; then
-  . ${HERE}/buildbot_android_functions.sh
-  trap "android_emulator_cleanup" EXIT
-fi
-
 ROOT=`pwd`
 PLATFORM=`uname`
 ARCH=`uname -m`
@@ -42,6 +37,14 @@ if [ "$PLATFORM" == "Darwin" ]; then
   CMAKE_COMMON_OPTIONS="${CMAKE_COMMON_OPTIONS} -DPYTHON_EXECUTABLE=/usr/bin/python"
   ENABLE_LIBCXX_FLAG="-DLLVM_ENABLE_LIBCXX=ON"
 fi
+
+BUILD_ANDROID=${BUILD_ANDROID:-0}
+RUN_ANDROID=${RUN_ANDROID:-0}
+if [ $BUILD_ANDROID == 1 -o $RUN_ANDROID == 1 ] ; then
+  . ${HERE}/buildbot_android_functions.sh
+  trap "android_emulator_cleanup" EXIT
+fi
+
 
 echo @@@BUILD_STEP update@@@
 buildbot_update
@@ -163,7 +166,6 @@ if [ "$PLATFORM" == "Linux" -a $HAVE_NINJA == 1 ]; then
   (cd llvm_build_ninja && ninja check-dfsan) || echo @@@STEP_WARNINGS@@@
 fi
 
-BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
 
@@ -174,7 +176,6 @@ if [ $BUILD_ANDROID == 1 ] ; then
     build_llvm_symbolizer x86 i686-linux-android
 fi
 
-RUN_ANDROID=${RUN_ANDROID:-0}
 if [ $RUN_ANDROID == 1 ] ; then
     test_android arm arm-K
 fi
