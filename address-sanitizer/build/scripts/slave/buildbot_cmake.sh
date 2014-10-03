@@ -42,7 +42,6 @@ BUILD_ANDROID=${BUILD_ANDROID:-0}
 RUN_ANDROID=${RUN_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 -o $RUN_ANDROID == 1 ] ; then
   . ${HERE}/buildbot_android_functions.sh
-  trap "android_emulator_cleanup" EXIT
 fi
 
 
@@ -177,5 +176,6 @@ if [ $BUILD_ANDROID == 1 ] ; then
 fi
 
 if [ $RUN_ANDROID == 1 ] ; then
+    trap "android_emulator_cleanup" EXIT
     test_android arm arm-K
 fi
