@@ -70,8 +70,8 @@ if [ ! -z ${ENABLE_LIBCXX_FLAG} ]; then
   HEADER_DIR=${PWD}/include) || echo @@@STEP_FAILURE@@@
 fi
 
-Do a sanity check on Linux: build and test sanitizers using gcc as a host
-compiler.
+# Do a sanity check on Linux: build and test sanitizers using gcc as a host
+# compiler.
 if [ "$PLATFORM" == "Linux" ]; then
   echo @@@BUILD_STEP run sanitizer tests in gcc build@@@
   (cd clang_build && make -j$MAKE_JOBS check-sanitizer) || echo @@@STEP_FAILURE@@@
