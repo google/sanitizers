@@ -65,7 +65,7 @@ function build_compiler_rt { # ARCH triple
 
 function test_android { # ARCH emulator
     ANDROID_SDK=$ROOT/../../../android-sdk-linux/
-    SYMBOLIZER_BIN=$ROOT/compiler_rt_build_android_arm/bin/llvm-symbolizer
+    SYMBOLIZER_BIN=$ROOT/llvm_build_android_arm/bin/llvm-symbolizer
     ADB=$ANDROID_SDK/platform-tools/adb
     DEVICE_ROOT=/data/local/asan_test
 
