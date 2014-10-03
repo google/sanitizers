@@ -12,7 +12,7 @@ function build_llvm_symbolizer { # ARCH triple
         -DCMAKE_BUILD_TYPE=Release \
         -DLLVM_ENABLE_WERROR=OFF \
         -DCMAKE_C_COMPILER=$ROOT/llvm_build64/bin/clang \
-        -DCMAKE_CXX_COMPILER=$ROOT/llvm/build/bin/clang++ \
+        -DCMAKE_CXX_COMPILER=$ROOT/llvm/build64/bin/clang++ \
         -DCMAKE_C_FLAGS="$ANDROID_FLAGS" \
         -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
         -DANDROID=1 \
