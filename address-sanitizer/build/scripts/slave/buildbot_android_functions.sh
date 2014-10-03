@@ -17,7 +17,7 @@ function build_llvm_symbolizer { # ARCH triple
         -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
         -DANDROID=1 \
         -DLLVM_BUILD_RUNTIME=OFF \
-        -DLLVM_TABLEGEN=$ROOT/bin/llvm-tblgen \
+        -DLLVM_TABLEGEN=$ROOT/llvm_build64/bin/llvm-tblgen \
         ${CMAKE_COMMON_OPTIONS} \
         $LLVM_CHECKOUT || echo @@@STEP_WARNINGS@@@
     ninja llvm-symbolizer || echo @@@STEP_WARNINGS@@@
