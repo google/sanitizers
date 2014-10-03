@@ -4,6 +4,11 @@ set -x
 set -e
 set -u
 
+# dump buildbot env
+env
+
+export ANDROID_SDK_HOME=$ROOT/../../..
+
 HERE="$(dirname $0)"
 . ${HERE}/buildbot_functions.sh
 . ${HERE}/buildbot_android_functions.sh
