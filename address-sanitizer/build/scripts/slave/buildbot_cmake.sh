@@ -7,8 +7,6 @@ set -u
 # dump buildbot env
 env
 
-export ANDROID_SDK_HOME=$ROOT/../../..
-
 HERE="$(dirname $0)"
 . ${HERE}/buildbot_functions.sh
 . ${HERE}/buildbot_android_functions.sh
@@ -17,6 +15,7 @@ ROOT=`pwd`
 PLATFORM=`uname`
 ARCH=`uname -m`
 export PATH="/usr/local/bin:$PATH"
+export ANDROID_SDK_HOME=$ROOT/../../..
 
 if [ "$BUILDBOT_CLOBBER" != "" ]; then
   echo @@@BUILD_STEP clobber@@@
