@@ -9,7 +9,11 @@ env
 
 HERE="$(dirname $0)"
 . ${HERE}/buildbot_functions.sh
-. ${HERE}/buildbot_android_functions.sh
+
+if [ $BUILD_ANDROID == 1 -o $RUN_ANDROID == 1 ] ; then
+  . ${HERE}/buildbot_android_functions.sh
+  trap "android_emulator_cleanup" EXIT
+fi
 
 ROOT=`pwd`
 PLATFORM=`uname`

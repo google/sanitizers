@@ -128,3 +128,7 @@ function test_android { # ARCH emulator
 
     $ADB devices
 }
+
+function android_emulator_cleanup {
+    $ADB emu kill || true
+}
