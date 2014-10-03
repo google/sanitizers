@@ -72,7 +72,8 @@ function test_android {
     echo @@@BUILD_STEP device setup@@@
 
     $ADB devices # should be empty
-    $ANDROID_SDK/tools/emulator -avd arm-K -no-window -noaudio -no-boot-anim
+    $ANDROID_SDK/tools/emulator -avd arm-K -no-window -noaudio -no-boot-anim &
+    sleep 10
     $ADB wait-for-device
 
     echo "Device is up"
