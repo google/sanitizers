@@ -163,14 +163,14 @@ BUILD_ANDROID=${BUILD_ANDROID:-0}
 if [ $BUILD_ANDROID == 1 ] ; then
     echo @@@BUILD_STEP build Android runtime and tests@@@
 
-    build_android arm arm-linux-androideabi
+    build_compiler_rt arm arm-linux-androideabi
     build_llvm_symbolizer arm arm-linux-androideabi
     
-    build_android x86 i686-linux-android
+    build_compiler_rt x86 i686-linux-android
     build_llvm_symbolizer x86 i686-linux-android
 fi
 
 RUN_ANDROID=${RUN_ANDROID:-0}
 if [ $RUN_ANDROID == 1 ] ; then
-    test_android
+    test_android arm arm-K
 fi

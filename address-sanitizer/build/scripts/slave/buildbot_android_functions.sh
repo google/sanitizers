@@ -12,7 +12,7 @@ function build_llvm_symbolizer { # ARCH triple
         -DCMAKE_BUILD_TYPE=Release \
         -DLLVM_ENABLE_WERROR=OFF \
         -DCMAKE_C_COMPILER=$ROOT/llvm_build64/bin/clang \
-        -DCMAKE_CXX_COMPILER=$ROOT/llvm/build64/bin/clang++ \
+        -DCMAKE_CXX_COMPILER=$ROOT/llvm_build64/bin/clang++ \
         -DCMAKE_C_FLAGS="$ANDROID_FLAGS" \
         -DCMAKE_CXX_FLAGS="$ANDROID_FLAGS" \
         -DANDROID=1 \
@@ -25,7 +25,7 @@ function build_llvm_symbolizer { # ARCH triple
     cd ..
 }
 
-function build_android { # ARCH triple
+function build_compiler_rt { # ARCH triple
     local _arch=$1
     local _triple=$2
 
@@ -63,7 +63,7 @@ function build_android { # ARCH triple
     cd ..
 }
 
-function test_android {
+function test_android { # ARCH emulator
     ANDROID_SDK=$ROOT/../../../android-sdk-linux/
     SYMBOLIZER_BIN=$ROOT/compiler_rt_build_android_arm/bin/llvm-symbolizer
     ADB=$ANDROID_SDK/platform-tools/adb
