@@ -97,13 +97,13 @@ function test_android { # ARCH AVD STEP_FAILURE
 
     (cd $COMPILER_RT_BUILD_DIR && ninja check-asan) || echo $_step_failure
 
-    echo @@@BUILD_STEP run sanitizer_common tests [Android/$_avd]@@@
+    # echo @@@BUILD_STEP run sanitizer_common tests [Android/$_avd]@@@
 
-    $ADB push $COMPILER_RT_BUILD_DIR/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
+    # $ADB push $COMPILER_RT_BUILD_DIR/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
 
-    $ADB shell "$DEVICE_ROOT/SanitizerTest; \
-        echo \$? >$DEVICE_ROOT/error_code"
-    $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
+    # $ADB shell "$DEVICE_ROOT/SanitizerTest; \
+    #     echo \$? >$DEVICE_ROOT/error_code"
+    # $ADB pull $DEVICE_ROOT/error_code error_code && (exit `cat error_code`) || echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run asan tests [Android/$_avd]@@@
 
