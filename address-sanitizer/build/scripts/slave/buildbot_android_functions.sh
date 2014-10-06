@@ -63,16 +63,20 @@ function build_compiler_rt { # ARCH triple
     cd ..
 }
 
-function test_android { # ARCH emulator
+function test_android { # ARCH AVD
+    local _arch=$1
+    local _avd=$2
+
     ANDROID_SDK=$ROOT/../../../android-sdk-linux/
-    SYMBOLIZER_BIN=$ROOT/llvm_build_android_arm/bin/llvm-symbolizer
+    SYMBOLIZER_BIN=$ROOT/llvm_build_android_$_arch/bin/llvm-symbolizer
+    COMPILER_RT_BUILD_DIR=$ROOT/compiler_rt_build_android_$_arch
     ADB=$ANDROID_SDK/platform-tools/adb
     DEVICE_ROOT=/data/local/asan_test
 
     echo @@@BUILD_STEP device setup@@@
 
     $ADB devices # should be empty
-    $ANDROID_SDK/tools/emulator -avd arm-K -no-window -noaudio -no-boot-anim &
+    $ANDROID_SDK/tools/emulator -avd $_avd -no-window -noaudio -no-boot-anim &
     sleep 10
     $ADB wait-for-device
 
@@ -90,12 +94,12 @@ function test_android { # ARCH emulator
 
     echo @@@BUILD_STEP run asan lit tests [Android]@@@
 
-    (cd $ANDROID_BUILD_DIR && ninja check-asan) || \
+    (cd $COMPILER_RT_BUILD_DIR && ninja check-asan) || \
         echo @@@STEP_WARNINGS@@@
 
     echo @@@BUILD_STEP run sanitizer_common tests [Android]@@@
 
-    $ADB push $ANDROID_BUILD_DIR/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
+    $ADB push $COMPILER_RT_BUILD_DIR/lib/sanitizer_common/tests/SanitizerTest $DEVICE_ROOT/
 
     $ADB shell "$DEVICE_ROOT/SanitizerTest; \
         echo \$? >$DEVICE_ROOT/error_code"
@@ -103,8 +107,8 @@ function test_android { # ARCH emulator
 
     echo @@@BUILD_STEP run asan tests [Android]@@@
 
-    $ADB push $ANDROID_BUILD_DIR/lib/asan/tests/AsanTest $DEVICE_ROOT/
-    $ADB push $ANDROID_BUILD_DIR/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
+    $ADB push $COMPILER_RT_BUILD_DIR/lib/asan/tests/AsanTest $DEVICE_ROOT/
+    $ADB push $COMPILER_RT_BUILD_DIR/lib/asan/tests/AsanNoinstTest $DEVICE_ROOT/
 
     NUM_SHARDS=7
     for ((SHARD=0; SHARD < $NUM_SHARDS; SHARD++)); do
