@@ -26,7 +26,7 @@ nm_re = re.compile(
 )
 
 def print_usage():
-  print 'Usage: %s <vmlinux path> [<modules path>]' % sys.argv[0]
+  print 'Usage: %s <vmlinux path> [<strip path>] [<modules path>]' % sys.argv[0]
 
 class Symbolizer:
   def __init__(self, binary_path):
@@ -78,8 +78,9 @@ class SymbolOffsetLoader:
     return self.offsets.get(symbol)
 
 class ReportProcesser:
-  def __init__(self, vmlinux_path, modules_path):
+  def __init__(self, vmlinux_path, strip_path, modules_path):
     self.vmlinux_path = vmlinux_path
+    self.strip_path = strip_path
     self.modules_path = modules_path
     self.vmlinux_symbolizer = Symbolizer(vmlinux_path)
     self.module_symbolizers = {}
@@ -157,9 +158,13 @@ class ReportProcesser:
     return True
 
   def PrintFrame(self, addr, func, fileline, suffix):
+    if self.strip_path != None:
+      fileline = fileline.split(self.strip_path)[1]
     print ' [<%s>] %s %s' % (addr, suffix, fileline)
 
   def PrintInlinedFrame(self, addr, func, fileline, suffix):
+    if self.strip_path != None:
+      fileline = fileline.split(self.strip_path)[1]
     addr = '     inlined    ';
     print ' [<%s>] %s %s %s' % (addr, suffix, func, fileline) 
 
@@ -169,12 +174,13 @@ class ReportProcesser:
       symbolizer.Close()
 
 def main():
-  if len(sys.argv) not in [2, 3]:
+  if len(sys.argv) not in [2, 3, 4]:
     print_usage()
     sys.exit(1)
   vmlinux_path = sys.argv[1]
-  modules_path = sys.argv[2] if len(sys.argv) == 3 else None
-  processer = ReportProcesser(vmlinux_path, modules_path)
+  strip_path = sys.argv[2] if len(sys.argv) >= 3 else None
+  modules_path = sys.argv[3] if len(sys.argv) == 4 else None
+  processer = ReportProcesser(vmlinux_path, strip_path, modules_path)
   processer.ProcessInput()
   processer.Finalize()
   sys.exit(0)
