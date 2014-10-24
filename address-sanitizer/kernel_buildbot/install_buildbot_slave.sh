@@ -7,7 +7,7 @@ virtualenv --no-site-packages sandbox
 source ./sandbox/bin/activate
 easy_install buildbot-slave
 
-master_host_port=localhost:9990
+master_host_port=dmitryc-z620.msk:9990
 
 buildslave create-slave slave $master_host_port kasan-slave kasan
 buildslave start slave

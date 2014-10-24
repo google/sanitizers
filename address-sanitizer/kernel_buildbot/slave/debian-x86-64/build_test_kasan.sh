@@ -5,17 +5,17 @@ set -eux
 echo @@@BUILD_STEP Make Kernel@@@
 echo
 
-make clean
+#make clean
 
 make defconfig
 make kvmconfig
-cat add_config >> .config
+cat ../add_config >> .config
 
 make LOCALVERSION=-asan CC=/media/bigdisk/dmitryc/kasan/gcc/gcc_install/bin/gcc -j64
 
 mkdir -p mod_install
 rm -rf mod_install/*
-INSTALL_MOD_PATH=mod_install make modules_install LOCALVERSION=-asan
+INSTALL_MOD_PATH=mod_install make modules_install LOCALVERSION=-asan CC=/media/bigdisk/dmitryc/kasan/gcc/gcc_install/bin/gcc
 chmod -R a+rwx mod_install
 
 echo @@@BUILD_STEP Boot VM@@@
@@ -37,7 +37,7 @@ VM_PID=$!
 
 trap "killall qemu-system-x86_64 ; cat vm_log; exit 1" EXIT
 
-sleep 1
+sleep 10
 
 kill -0 $VM_PID
 
@@ -52,16 +52,15 @@ ssh -i ssh/id_rsa -p 10022 root@localhost "mkdir -p mod_install && mount -t 9p -
 ssh -i ssh/id_rsa -p 10022 root@localhost "insmod mod_install/lib/modules/*/kernel/lib/test_kasan.ko" &> insmod_log || grep "Resource temporarily unavailable" insmod_log
 
 
+cat vm_log | python ../../../../tools/kernel_test_parse.py --annotate --assert_candidates 5
+
 echo @@@BUILD_STEP VM Log@@@
 echo
-
-cat vm_log
 
 kill $VM_PID
 killall qemu-system-x86_64
 
 trap "" EXIT
 
-
-
+cat vm_log
 
