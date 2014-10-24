@@ -78,8 +78,8 @@ function test_android { # ARCH AVD STEP_FAILURE
 
     $ADB devices # should be empty
     $ANDROID_SDK/tools/emulator -avd $_avd -no-window -noaudio -no-boot-anim &
-    sleep 10
     $ADB wait-for-device
+    sleep 60
 
     echo "Device is up"
     $ADB devices
