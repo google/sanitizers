@@ -5,7 +5,7 @@ set -eux
 echo @@@BUILD_STEP Make Kernel@@@
 echo
 
-#make clean
+make clean
 
 make defconfig
 make kvmconfig
@@ -38,11 +38,11 @@ VM_PID=$!
 trap "killall qemu-system-x86_64 ; cat vm_log; exit 1" EXIT
 
 sleep 10
-
 kill -0 $VM_PID
 
-cp -rf ../../../ssh ./
+( tail -n +0 -f vm_log &) | timeout 600 grep -q "Starting.*sshd"
 
+cp -rf ../../../ssh ./
 ssh -v -i ssh/id_rsa -p 10022 -o ConnectionAttempts=10 -o ConnectTimeout=60 root@localhost "uname -a"
 
 echo @@@BUILD_STEP Run Tests@@@
