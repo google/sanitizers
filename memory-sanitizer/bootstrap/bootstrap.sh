@@ -1,7 +1,8 @@
 #!/bin/bash
 
 HERE=$PWD
-CLANG=/code/llvm/build/bin/clang
+
+[ -x "$CLANG" ] || echo "\$CLANG unset or missing or non-executable"; exit 1
 
 # Build libc++ and libc++abi with MSan.
 mkdir build-msan-libs && cd build-msan-libs
