@@ -78,48 +78,88 @@ def FindAssertFailures(lines):
         failed_asserts.append(current_assert_re.pattern)
   return failed_asserts
 
-def PrintTestReport(test, lines, failures, failed_asserts):
-  if failed_asserts or failures:
-    print >> sys.stderr, "TEST %s: FAILED" % test
-    if args.brief:
-      return
-    for f in failures:
-      print >> sys.stderr, "  Failed: %s" % s
-    for a in failed_asserts:
-      print >> sys.stderr, "  Failed assert: %s" % a
-      if args.assert_candidates:
-        print >> sys.stderr, "  Closest matches:"
-        for match in difflib.get_close_matches(a, lines, args.assert_candidates):
-          if not ASSERT_RE.search(match):
-            print  >> sys.stderr, "    " + match
-    if args.failed_log:
-      print "Test log:"
-      for l in lines:
-        print >> sys.stderr, "    " + l
+def PrintTestReport(test, run_reports):
+  passed = 0
+  failed = 0
+  for result, _, _, _ in run_reports:
+    if result:
+      passed += 1
+    else:
+      failed += 1
+  if passed and not failed:
+    total_result = "PASSED (%d runs)" % passed
+  elif failed and not passed:
+    total_result = "FAILED (%d runs)" % failed
   else:
-    print "TEST %s: PASSED" % test
+    total_result = "FLAKY (%d passed, %d failed, %d total)" % (passed, failed, passed + failed)
+  
+  print "TEST %s: %s" % (test, total_result)  
+  if args.brief:
+    return
+  for index, (_, failures, failed_asserts, lines) in enumerate(run_reports):
+    if not failures and not failed_asserts:
+      continue
+    print "  Run %d"   % index
+    for f in failures:
+      print "    Failed: %s" % s
+    missing_matches = not args.assert_candidates
+    for a in failed_asserts:
+      print "    Failed assert: %s" % a
+      if args.assert_candidates:
+        print "    Closest matches:"
+        matches =  difflib.get_close_matches(a, lines, args.assert_candidates, 0.4)
+        matches = [match for match in matches if not ASSERT_RE.search(match)]
+        for match in matches:
+          print "    " + match
+        if not matches:
+          missing_matches = True
+    if args.failed_log and (failures or missing_matches):
+      print "    Test log:"
+      for l in lines:
+        print "        " + l
 
-def PrintBuildBotAnnotation(passed, failed):
-  print "@@@STEP_TEXT@tests: %d  passed: %d  failed: %d@@@" % (passed + failed, passed, failed)
+def PrintBuildBotAnnotation(passed, failed, flaky):
+  print "@@@STEP_TEXT@tests: %d  passed: %d  failed: %d  flaky %d@@@" % (passed + failed + flaky, passed, failed, flaky)
   if failed:
     print "@@@STEP_FAILURE@@@"
 
+def GroupTests(tests):
+  result = {}
+  for test, lines in tests:
+    if test not in result:
+      result[test] = []
+    result[test].append(lines)
+  return result  
+
 def main():
   all_tests = ExtractTestLogs(sys.stdin)
+  grouped_tests = GroupTests(all_tests)
 
-  passed = 0
-  failed = 0
-  for test, lines in all_tests:
-    failed_asserts = FindAssertFailures(lines)
-    failures = FindFailures(lines)
-    if failed_asserts or failures:
-      failed += 1
+  total_passed = 0
+  total_failed = 0
+  total_flaky = 0
+  for test, runs in grouped_tests.iteritems():
+    passed = 0
+    failed = 0
+    run_reports = []
+    for lines in runs:
+      failed_asserts = FindAssertFailures(lines)
+      failures = FindFailures(lines)
+      if failed_asserts or failures:
+        failed += 1
+      else:
+        passed += 1
+      run_reports.append((not failed_asserts and not failures, failures, failed_asserts, lines))
+    if passed and not failed:
+      total_passed += 1
+    elif failed and not passed:
+      total_failed += 1
     else:
-      passed += 1
-    PrintTestReport(test, lines, failures, failed_asserts)
+      total_flaky += 1
+    PrintTestReport(test, run_reports)
 
   if args.annotate:
-    PrintBuildBotAnnotation(passed, failed)
+    PrintBuildBotAnnotation(total_passed, total_failed, total_flaky)
 
 if __name__ == '__main__':
   main()
