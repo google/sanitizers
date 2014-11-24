@@ -31,6 +31,8 @@ parser.add_argument("--assert_candidates", type = int, metavar = "N",
                     help = "output N closest candidates to fit the failed assert.")
 parser.add_argument("--annotate", action = "store_true",
                     help = "special output for buildbot annotator")
+parser.add_argument("--allow_flaky", nargs = '*', metavar = "name",
+                    help = "allow the listed tests to be flaky")
 args = parser.parse_args()
 
 def ExtractTestLogs(kernel_log):
@@ -91,7 +93,8 @@ def PrintTestReport(test, run_reports):
   elif failed and not passed:
     total_result = "FAILED (%d runs)" % failed
   else:
-    total_result = "FLAKY (%d passed, %d failed, %d total)" % (passed, failed, passed + failed)
+    total_result = "FLAKY (%d passed, %d failed, %d total)" % (
+                   passed, failed, passed + failed)
   
   print "TEST %s: %s" % (test, total_result)  
   if args.brief:
@@ -118,9 +121,9 @@ def PrintTestReport(test, run_reports):
       for l in lines:
         print "        " + l
 
-def PrintBuildBotAnnotation(passed, failed, flaky):
-  print "@@@STEP_TEXT@tests: %d  passed: %d  failed: %d  flaky %d@@@" % (passed + failed + flaky, passed, failed, flaky)
-  if failed:
+def PrintBuildBotAnnotation(passed, failed, flaky, flaky_not_allowed):
+  print "@@@STEP_TEXT@tests:%d  passed:%d  failed:%d  flaky:%d@@@" % (passed + failed + flaky, passed, failed, flaky)
+  if failed or flaky_not_allowed:
     print "@@@STEP_FAILURE@@@"
 
 def GroupTests(tests):
@@ -138,6 +141,7 @@ def main():
   total_passed = 0
   total_failed = 0
   total_flaky = 0
+  flaky_not_allowed = False
   for test, runs in grouped_tests.iteritems():
     passed = 0
     failed = 0
@@ -156,10 +160,12 @@ def main():
       total_failed += 1
     else:
       total_flaky += 1
+      if not args.allow_flaky or (test not in args.allow_flaky):
+	flaky_not_allowed = True
     PrintTestReport(test, run_reports)
 
   if args.annotate:
-    PrintBuildBotAnnotation(total_passed, total_failed, total_flaky)
+    PrintBuildBotAnnotation(total_passed, total_failed, total_flaky, flaky_not_allowed)
 
 if __name__ == '__main__':
   main()
