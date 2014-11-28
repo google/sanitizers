@@ -2,15 +2,14 @@
 
 set -eux
 
-rm -rf gcc_src gcc_build gcc_install
-svn checkout -r 216458 svn://gcc.gnu.org/svn/gcc/trunk gcc_src
-cd gcc_src
-patch -p0 < ../gcc-216546.patch
-cd ../
+rm -rf gcc*
+
+curl -o gcc-4.9.2.tar.bz2 http://mirrors-ru.go-parts.com/gcc/releases/gcc-4.9.2/gcc-4.9.2.tar.bz2 
+tar -xf gcc-4.9.2.tar.bz2
 
 mkdir -p gcc_build
 cd gcc_build
-../gcc_src/configure --disable-multilib --disable-bootstrap --enable-languages=c,c++ --prefix=${PWD}/../gcc_install
+../gcc-4.9.2/configure --disable-multilib --disable-bootstrap --enable-languages=c,c++ --prefix=${PWD}/../gcc_install
 
 make -j64
 make install
