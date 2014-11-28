@@ -122,6 +122,9 @@ def PrintTestReport(test, run_reports):
         print "        " + l
 
 def PrintBuildBotAnnotation(passed, failed, flaky, flaky_not_allowed):
+  if not passed and not failed and not flaky:
+    print "@@@STEP_TEXT: NO TESTS WERE RUN@@@"
+    print "@@@STEP_FAILURE@@@"
   print "@@@STEP_TEXT@tests:%d  passed:%d  failed:%d  flaky:%d@@@" % (passed + failed + flaky, passed, failed, flaky)
   if failed or flaky_not_allowed:
     print "@@@STEP_FAILURE@@@"
