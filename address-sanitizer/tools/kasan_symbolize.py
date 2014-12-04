@@ -10,7 +10,8 @@ time_re = re.compile(
 )
 
 frame_re = re.compile(
-  '^ \[\<(?P<addr>[0-9A-Fa-f]+)\>\] ' +
+  '^ \[\<(?P<addr>[0-9A-Fa-f]+)\>\] ' + 
+  '(\? )?'                            +
   '(?P<suffix>'                       +
     '(?P<function>[^\+]+)'            +
     '\+'                              +
@@ -26,7 +27,7 @@ nm_re = re.compile(
 )
 
 def print_usage():
-  print 'Usage: %s <vmlinux path> [<strip path>] [<modules path>]' % sys.argv[0]
+  print 'Usage: %s <linux path> [<strip path>]' % sys.argv[0]
 
 class Symbolizer:
   def __init__(self, binary_path):
@@ -78,11 +79,9 @@ class SymbolOffsetLoader:
     return self.offsets.get(symbol)
 
 class ReportProcesser:
-  def __init__(self, vmlinux_path, strip_path, modules_path):
-    self.vmlinux_path = vmlinux_path
+  def __init__(self, linux_path, strip_path):
     self.strip_path = strip_path
-    self.modules_path = modules_path
-    self.vmlinux_symbolizer = Symbolizer(vmlinux_path)
+    self.linux_path = linux_path
     self.module_symbolizers = {}
     self.module_offset_loaders = {}
 
@@ -112,27 +111,29 @@ class ReportProcesser:
     size = match.group('size')
     module = match.group('module')
 
+    if module == None:
+      module = 'vmlinux'
+    else:
+      module += '.ko'
+
     frames = []
 
-    if module == None:
-      frames = self.vmlinux_symbolizer.Process(hex(int(addr, 16) - 1))
-    else:
-      if not self.LoadModule(module):
-        print line
-        return
+    if not self.LoadModule(module):
+      print line
+      return
 
-      symbolizer = self.module_symbolizers[module]
-      loader = self.module_offset_loaders[module]
+    symbolizer = self.module_symbolizers[module]
+    loader = self.module_offset_loaders[module]
 
-      symbol_offset = loader.LookupOffset(function)
-      if not symbol_offset:
-        print line
-        return
+    symbol_offset = loader.LookupOffset(function)
+    if not symbol_offset:
+      print line
+      return
 
-      instruction_offset = int(offset, 16)
-      module_addr = hex(symbol_offset + instruction_offset - 1);
+    instruction_offset = int(offset, 16)
+    module_addr = hex(symbol_offset + instruction_offset - 1);
 
-      frames = symbolizer.Process(module_addr)
+    frames = symbolizer.Process(module_addr)
 
     if len(frames) == 0:
       print line
@@ -143,13 +144,10 @@ class ReportProcesser:
     self.PrintFrame(addr, frames[-1][0], frames[-1][1], suffix)
 
   def LoadModule(self, module):
-    if not self.modules_path:
-      return False
-
     if module in self.module_symbolizers.keys():
       return True
 
-    module_path = FindFile(self.modules_path, module + '.ko')
+    module_path = FindFile(self.linux_path, module)
     if module_path == None:
       return False
 
@@ -159,28 +157,30 @@ class ReportProcesser:
 
   def PrintFrame(self, addr, func, fileline, suffix):
     if self.strip_path != None:
-      fileline = fileline.split(self.strip_path)[1]
+      fileline_parts = fileline.split(self.strip_path)
+      if len(fileline_parts) >= 2:
+        fileline = fileline_parts[1].lstrip('/')
     print ' [<%s>] %s %s' % (addr, suffix, fileline)
 
   def PrintInlinedFrame(self, addr, func, fileline, suffix):
     if self.strip_path != None:
-      fileline = fileline.split(self.strip_path)[1]
+      fileline_parts = fileline.split(self.strip_path)
+      if len(fileline_parts) >= 2:
+        fileline = fileline_parts[1].lstrip('/')
     addr = '     inlined    ';
     print ' [<%s>] %s %s %s' % (addr, suffix, func, fileline) 
 
   def Finalize(self):
-    self.vmlinux_symbolizer.Close()
     for module, symbolizer in self.module_symbolizers.items():
       symbolizer.Close()
 
 def main():
-  if len(sys.argv) not in [2, 3, 4]:
+  if len(sys.argv) not in [2, 3]:
     print_usage()
     sys.exit(1)
-  vmlinux_path = sys.argv[1]
-  strip_path = sys.argv[2] if len(sys.argv) >= 3 else None
-  modules_path = sys.argv[3] if len(sys.argv) == 4 else None
-  processer = ReportProcesser(vmlinux_path, strip_path, modules_path)
+  linux_path = sys.argv[1]
+  strip_path = sys.argv[2] if len(sys.argv) == 3 else None
+  processer = ReportProcesser(linux_path, strip_path)
   processer.ProcessInput()
   processer.Finalize()
   sys.exit(0)
