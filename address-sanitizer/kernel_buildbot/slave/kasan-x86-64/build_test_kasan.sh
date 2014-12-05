@@ -29,7 +29,7 @@ qemu-system-x86_64 \
   -m 4G -smp 4 \
   -net user,hostfwd=tcp::10022-:22 -net nic \
   -nographic \
-  -kernel arch/x86/boot/bzImage -append "console=ttyS0 root=/dev/sda debug earlyprintk=serial slub_debug=UZ"\
+  -kernel arch/x86/boot/bzImage -append "console=ttyS0 root=/dev/sda debug earlyprintk=serial slub_debug=QZ"\
   -virtfs local,id=r,path=mod_install,security_model=none,writeout=immediate,mount_tag=mount_host \
   -enable-kvm \
   -pidfile vm_pid \
@@ -52,7 +52,7 @@ echo
 ssh -i ssh/id_rsa -p 10022 root@localhost "mkdir -p mod_install && mount -t 9p -o trans=virtio mount_host mod_install/ -oversion=9p2000.L,posixacl,cache=loose"
 ssh -i ssh/id_rsa -p 10022 root@localhost "for run in {1..30}; do insmod mod_install/lib/modules/*/kernel/lib/test_kasan.ko || echo "test";  done"
 
-cat vm_log | python ../../../../tools/kernel_test_parse.py --annotate --assert_candidates 5 --failed_log --allow_flaky kmalloc_oob_left kmalloc_uaf2
+cat vm_log | python ../../../../tools/kernel_test_parse.py --annotate --assert_candidates 5 --failed_log --allow_flaky kmalloc_oob_left
 
 echo @@@BUILD_STEP Run Trinity@@@
 echo
