@@ -57,9 +57,14 @@ else
 fi
 rm -rf config/$name.*
 
+if test -z "$FC"; then
+  FC=echo
+fi
+
 COMMON_FLAGS="$F_ASAN -m$BIT -g"
 CC="$CLANG    -std=gnu89 $COMMON_FLAGS"
 CXX="$CLANGXX            $COMMON_FLAGS"
+FC="$FC     $COMMON_FLAGS"
 
 cat << EOF > config/$name.cfg
 monitor_wrapper = $SPEC_WRAPPER  \$command
@@ -77,7 +82,7 @@ default=default=default=default:
 CC  = $CC
 CXX = $CXX
 EXTRA_LIBS = $EXTRA_LIBS
-FC         = echo
+FC         = $FC
 
 default=base=default=default:
 COPTIMIZE   = $OPT_LEVEL
