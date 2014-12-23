@@ -57,10 +57,10 @@ ssh -v -i ssh/id_rsa -p 10022 -o ConnectionAttempts=10 -o ConnectTimeout=60 root
 echo @@@BUILD_STEP Run Tests@@@
 echo
 
-#ssh -i ssh/id_rsa -p 10022 root@localhost "mkdir -p mod_install && mount -t 9p -o trans=virtio mount_host mod_install/ -oversion=9p2000.L,posixacl,cache=loose"
-#ssh -i ssh/id_rsa -p 10022 root@localhost "for run in {1..30}; do insmod mod_install/lib/modules/*/kernel/lib/test_kasan.ko || echo "test";  done"
+ssh -i ssh/id_rsa -p 10022 root@localhost "mkdir -p mod_install && mount -t 9p -o trans=virtio mount_host mod_install/ -oversion=9p2000.L,posixacl,cache=loose"
+ssh -i ssh/id_rsa -p 10022 root@localhost "for run in {1..30}; do insmod mod_install/lib/modules/*/kernel/lib/test_kasan.ko || echo "test";  done"
 
-#cat vm_log | python ../../../../tools/kernel_test_parse.py --annotate --assert_candidates 5 --failed_log
+cat vm_log | python ../../../../tools/kernel_test_parse.py --annotate --assert_candidates 5 --failed_log
 
 echo @@@BUILD_STEP Benchmarks@@@
 
@@ -76,14 +76,14 @@ ssh -i ssh/id_rsa -p 10022 root@localhost "/usr/bin/time -p ./bench_readv temp 6
 
 echo @@@STEP_TEXT@ACCESS $(grep "sys" bench2) @@@
 
-#ssh -i ssh/id_rsa -p 10022 root@localhost "time sysbench --test=threads --num-threads=512 --thread-locks=4 --thread-yields=1000  run" | tee bench2
-#echo @@@STEP_TEXT@ THREAD $(cat bench2 | grep "avg:")@@@
+ssh -i ssh/id_rsa -p 10022 root@localhost "time sysbench --test=threads --num-threads=512 --thread-locks=4 --thread-yields=1000  run" | tee bench2
+echo @@@STEP_TEXT@ THREAD $(cat bench2 | grep "avg:")@@@
 
 echo @@@BUILD_STEP Run Trinity@@@
 echo
 
 
-#ssh -i ssh/id_rsa -p 10022 root@localhost "trinity -C 20 -N 20000 -s 27 --dropprivs"
+ssh -i ssh/id_rsa -p 10022 root@localhost "trinity -C 20 -N 20000 -s 27 --dropprivs"
 
 echo @@@BUILD_STEP VM Log@@@
 echo
