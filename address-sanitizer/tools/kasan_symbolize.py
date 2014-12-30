@@ -157,14 +157,14 @@ class ReportProcesser:
 
   def PrintFrame(self, addr, func, fileline, suffix):
     if self.strip_path != None:
-      fileline_parts = fileline.split(self.strip_path)
+      fileline_parts = fileline.split(self.strip_path, 1)
       if len(fileline_parts) >= 2:
         fileline = fileline_parts[1].lstrip('/')
     print ' [<%s>] %s %s' % (addr, suffix, fileline)
 
   def PrintInlinedFrame(self, addr, func, fileline, suffix):
     if self.strip_path != None:
-      fileline_parts = fileline.split(self.strip_path)
+      fileline_parts = fileline.split(self.strip_path, 1)
       if len(fileline_parts) >= 2:
         fileline = fileline_parts[1].lstrip('/')
     addr = '     inlined    ';
