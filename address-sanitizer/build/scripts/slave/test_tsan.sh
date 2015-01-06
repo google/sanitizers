@@ -22,13 +22,6 @@ make -f Makefile.old DEBUG=1 CC=clang CXX=clang++ CFLAGS=-DTSAN_SHADOW_COUNT=4
 echo @@@BUILD_STEP tsan test SHADOW_COUNT=4@@@
 ./tsan_test
 
-echo @@@BUILD_STEP tsan build SHADOW_COUNT=2@@@
-make -f Makefile.old clean
-make -f Makefile.old DEBUG=1 CC=clang CXX=clang++ CFLAGS=-DTSAN_SHADOW_COUNT=2
-
-echo @@@BUILD_STEP tsan test SHADOW_COUNT=2@@@
-./tsan_test
-
 echo @@@BUILD_STEP tsan build release-gcc@@@
 make -f Makefile.old clean
 make -f Makefile.old DEBUG=0 CC=gcc CXX=g++
