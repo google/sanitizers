@@ -59,8 +59,7 @@ fi
 if [ $BUILD_ASAN_ANDROID == 1 ] ; then
   echo @@@BUILD_STEP build asan/android runtime@@@
   make -j$MAKE_JOBS -C tools/clang/runtime/ \
-      LLVM_ANDROID_TOOLCHAIN_DIR=$BUILD_ROOT/../../../android-ndk/standalone \
-      || echo @@@STEP_WARNINGS@@@
+      LLVM_ANDROID_TOOLCHAIN_DIR=$BUILD_ROOT/../../../android-ndk/standalone
 fi
 
 if [ $CHECK_TSAN == 1 ] ; then
