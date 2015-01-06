@@ -38,13 +38,6 @@ if [ "$PLATFORM" == "Darwin" ]; then
   ENABLE_LIBCXX_FLAG="-DLLVM_ENABLE_LIBCXX=ON"
 fi
 
-BUILD_ANDROID=${BUILD_ANDROID:-0}
-RUN_ANDROID=${RUN_ANDROID:-0}
-if [ $BUILD_ANDROID == 1 -o $RUN_ANDROID == 1 ] ; then
-  . ${HERE}/buildbot_android_functions.sh
-fi
-
-
 echo @@@BUILD_STEP update@@@
 buildbot_update
 
@@ -163,20 +156,4 @@ if [ "$PLATFORM" == "Linux" -a $HAVE_NINJA == 1 ]; then
   (cd llvm_build_ninja && ninja check-lsan) || echo @@@STEP_FAILURE@@@
   (cd llvm_build_ninja && ninja check-ubsan) || echo @@@STEP_WARNINGS@@@
   (cd llvm_build_ninja && ninja check-dfsan) || echo @@@STEP_WARNINGS@@@
-fi
-
-if [ $BUILD_ANDROID == 1 ] ; then
-    echo @@@BUILD_STEP build Android runtime and tests@@@
-
-    build_compiler_rt arm arm-linux-androideabi
-    build_llvm_symbolizer arm arm-linux-androideabi
-    
-    build_compiler_rt x86 i686-linux-android
-    build_llvm_symbolizer x86 i686-linux-android
-fi
-
-if [ $RUN_ANDROID == 1 ] ; then
-    trap "android_emulator_cleanup" EXIT
-    test_android arm arm-K @@@STEP_FAILURE@@@
-    test_android x86 x86-K @@@STEP_WARNINGS@@@
 fi
