@@ -7,8 +7,8 @@ set -u
 echo @@@BUILD_STEP sync@@@
 
 root_dir=$(pwd)
-src_dir="${root}/glibc"
-build_dir="${root}/build"
+src_dir="${root_dir}/glibc"
+build_dir="${root_dir}/build"
 
 if [ -d ${src_dir} ]; then
   git clone git://sourceware.org/git/glibc.git ${src_dir}
