@@ -43,7 +43,7 @@ def getGlibcAnnotatedFactory(
                   mode='update',
                   svnurl='http://address-sanitizer.googlecode.com/svn/trunk/'
                          'glibc_buildbot/scripts',
-                  workdir='../scripts',
+                  workdir='scripts',
                   alwaysUseLatest=True))
 
     selector_script = os.path.join('..', 'scripts', 'slave', 'buildbot_selector.py')
