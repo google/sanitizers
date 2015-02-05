@@ -1,4 +1,4 @@
 #!/usr/bin/python
 
 def slave_password():
-    return open('slavepasswd').read()
+    return open('slavepasswd').read().strip()
