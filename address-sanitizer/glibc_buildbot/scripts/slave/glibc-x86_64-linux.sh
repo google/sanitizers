@@ -13,7 +13,7 @@ build_dir="${root_dir}/build"
 if [ -d ${src_dir} ]; then
   cd ${src_dir}
   git pull
-  cd ${root}
+  cd ${root_dir}
 else
   git clone git://sourceware.org/git/glibc.git ${src_dir}
 fi
