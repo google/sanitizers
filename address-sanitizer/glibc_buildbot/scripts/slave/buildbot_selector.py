@@ -12,6 +12,7 @@ def bash(path):
 
 BOT_ASSIGNMENT = {
     'glibc-x86_64-linux': bash('glibc-x86_64-linux.sh'),
+    'glibc-i686-linux': bash('glibc-i686-linux.sh'),
 }
 
 BOT_ADDITIONAL_ENV = {
