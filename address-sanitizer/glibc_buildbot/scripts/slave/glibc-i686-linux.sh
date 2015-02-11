@@ -8,6 +8,12 @@ set -x
 set -e
 set -u
 
+nproc=$(getconf _NPROCESSORS_ONLN)
+
+num_jobs_build=$nproc
+# Some make bug makes it often wedge in parallel mode.
+num_jobs_check=1
+
 echo @@@BUILD_STEP sync@@@
 
 root_dir=$(pwd)
@@ -30,13 +36,10 @@ cd $build_dir
 ${src_dir}/configure --prefix=/usr --enable-add-ons \
   CC='gcc -m32' CXX='g++ -m32' --build=i686-linux
 
-num_jobs=$(getconf _NPROCESSORS_ONLN)
-
-
 echo @@@BUILD_STEP make@@@
 
-make -j${num_jobs} -k
+make -j${num_jobs_build} -k
 
 echo @@@BUILD_STEP check@@@
 
-make -j${num_jobs} -k check
+make -j${num_jobs_check} -k check
