@@ -7,12 +7,16 @@ import sys
 THIS_DIR=os.path.dirname(sys.argv[0])
 
 
-def bash(path):
-    return 'bash ' + os.path.join(THIS_DIR, path)
+def bash(script, args=[]):
+    return ['bash', os.path.join(THIS_DIR, script)] + args
 
 BOT_ASSIGNMENT = {
-    'glibc-x86_64-linux': bash('glibc-x86_64-linux.sh'),
-    'glibc-i686-linux': bash('glibc-i686-linux.sh'),
+    'glibc-x86_64-linux': bash('glibc-native.sh'),
+    'glibc-i686-linux': bash('glibc-native.sh', [
+        '--build=i686-linux',
+        'CC=gcc -m32',
+        'CXX=g++ -m32',
+    ]),
 }
 
 BOT_ADDITIONAL_ENV = {
@@ -26,17 +30,15 @@ def Main():
     sys.stderr.write('ERROR - unset/invalid builder name\n')
     sys.exit(1)
 
-  print "%s runs: %s\n" % (builder, cmd)
+  print "%s runs: %r\n" % (builder, cmd)
   sys.stdout.flush()
 
   bot_env = os.environ
-  add_env = BOT_ADDITIONAL_ENV.get(builder, dict())
-  for var in add_env:
-    bot_env[var] = add_env[var]
+  bot_env.update(BOT_ADDITIONAL_ENV.get(builder, {}))
   if 'TMPDIR' in bot_env:
     del bot_env['TMPDIR']
 
-  retcode = subprocess.call(cmd, env=bot_env, shell=True)
+  retcode = subprocess.call(cmd, env=bot_env)
   sys.exit(retcode)
 
 

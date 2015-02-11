@@ -1,9 +1,13 @@
 #!/bin/bash
 
 set -x
-set -e
 set -u
 
+configure_args=(
+  --prefix=/usr
+  --enable-add-ons
+  "$@"
+)
 
 nproc=$(getconf _NPROCESSORS_ONLN)
 
@@ -16,9 +20,8 @@ num_jobs_build=$nproc
 num_jobs_check=1
 
 clobber=false
-annotate_clobber=''
 
-annotate_step() {
+start_step() {
   local say_clobber=
   if $clobber; then
     say_clobber=' (clobber)'
@@ -26,31 +29,41 @@ annotate_step() {
   echo "@@@BUILD_STEP $*${say_clobber}@@@"
 }
 
+end_step() {
+  local rc=$?
+  if [ $rc -ne 0 ]; then
+    echo '@@@STEP_FAILURE@@@'
+  fi
+  return $rc
+}
+
 do_sync() {
-  annotate_step sync
+  start_step sync
   if [ -d "${src_dir}" ]; then
     (cd "${src_dir}"; git pull)
   else
     git clone git://sourceware.org/git/glibc.git ${src_dir}
   fi
+  end_step
 }
 
 do_configure() {
-  annotate_step configure
+  start_step configure
   mkdir -p "$build_dir"
-  (cd "$build_dir" &&
-   "${src_dir}"/configure --prefix=/usr --enable-add-ons
-  )
+  (cd "$build_dir" && "${src_dir}"/configure "${configure_args[@]}")
+  end_step
 }
 
 do_build() {
-  annotate_step make
+  start_step make
   make -C "${build_dir}" -j${num_jobs_build} -k
+  end_step
 }
 
 do_check() {
-  annotate_step check
+  start_step check
   make -C "${build_dir}" -j${num_jobs_check} -k check
+  end_step
 }
 
 do_clobber() {
@@ -76,6 +89,12 @@ else
   need_clobber=false
 fi
 
-do_whole_build || {
-  $need_clobber && do_clobber && do_whole_build
-}
+do_whole_build
+rc=$?
+
+if [ $rc -ne 0 ] && $need_clobber; then
+  do_clobber && do_whole_build
+  rc=$?
+fi
+
+exit $rc
