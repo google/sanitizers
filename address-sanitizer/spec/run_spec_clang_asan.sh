@@ -45,15 +45,16 @@ ulimit -s 8092  # stack
 
 SPEC_J=${SPEC_J:-20}
 NUM_RUNS=${NUM_RUNS:-1}
-CLANG=${CLANG:-clang}
+CC=${CC:-clang}
 BIT=${BIT:-64}
 OPT_LEVEL=${OPT_LEVEL:-"-O2"}
-if $CLANG --version 2>&1 | grep -q clang; then
+if $CC --version 2>&1 | grep -q clang; then
   F_ASAN=-fsanitize=address
-  CLANGXX=${CLANGXX:-$CLANG++}
+  CXX=${CXX:-$(echo $CC | sed -e 's/clang$/clang++/')}
 else
   F_ASAN='-fsanitize=address -static-libasan'
-  CLANGXX=${CLANGXX:-$(echo $CLANG | sed -e 's/gcc$/g++/')}
+  CXX=${CXX:-$(echo $CC | sed -e 's/gcc$/g++/')}
+  export LD_LIBRARY_PATH=$($CC -print-search-dirs | sed -ne 's/^libraries: =//p')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 fi
 rm -rf config/$name.*
 
@@ -62,12 +63,13 @@ if test -z "$FC"; then
 fi
 
 COMMON_FLAGS="$F_ASAN -m$BIT -g"
-CC="$CLANG    -std=gnu89 $COMMON_FLAGS"
-CXX="$CLANGXX            $COMMON_FLAGS"
+CC="$CC    -std=gnu89 $COMMON_FLAGS"
+CXX="$CXX             $COMMON_FLAGS"
 FC="$FC     $COMMON_FLAGS"
 
 cat << EOF > config/$name.cfg
 monitor_wrapper = $SPEC_WRAPPER  \$command
+monitor_specrun_wrapper = $SPECRUN_WRAPPER  \$command
 ignore_errors = yes
 tune          = base
 ext           = $name
