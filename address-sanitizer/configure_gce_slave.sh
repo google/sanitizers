@@ -3,7 +3,11 @@
 echo "Installing build dependencies..."
 sudo dpkg --add-architecture i386
 sudo apt-get update
-sudo apt-get install -y g++ clang++ make buildbot subversion git vim zip libstdc++6:i386
+sudo apt-get install -y g++ clang make buildbot subversion git vim zip libstdc++6:i386
+
+echo "Installing tmpreaper..."
+sudo apt-get install tmpreaper -y
+sudo sed -i "s/SHOWWARNING=true/SWOWWARNING=false/" /etc/tmpreaper.conf
 
 echo "Getting fresh cmake..."
 cd
