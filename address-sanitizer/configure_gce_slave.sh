@@ -3,7 +3,7 @@
 echo "Installing build dependencies..."
 sudo dpkg --add-architecture i386
 sudo apt-get update
-sudo apt-get install -y g++ clang make buildbot subversion git vim zip libstdc++6:i386
+sudo apt-get install -y g++ clang make buildbot subversion git vim zip libstdc++6:i386 binutils-dev binutils-gold
 
 echo "Installing tmpreaper..."
 sudo apt-get install tmpreaper -y
