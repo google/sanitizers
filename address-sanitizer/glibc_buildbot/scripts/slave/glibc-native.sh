@@ -40,7 +40,7 @@ end_step() {
 do_sync() {
   start_step sync
   if [ -d "${src_dir}" ]; then
-    (cd "${src_dir}"; git pull)
+    (cd "${src_dir}" && git remote prune origin && git pull)
   else
     git clone git://sourceware.org/git/glibc.git ${src_dir}
   fi
