@@ -17,6 +17,10 @@ BOT_ASSIGNMENT = {
         'CC=gcc -m32',
         'CXX=g++ -m32',
     ]),
+    'glibc-power8-linux': bash('glibc-native.sh', [
+        '--with-cpu=power8',
+        '--enable-lock-elision',
+    ])
 }
 
 BOT_ADDITIONAL_ENV = {
