@@ -1,0 +1,24 @@
+#!/usr/bin/python
+
+import os
+import sys
+
+log = open('/tmp/log', 'a')
+log.write(' '.join(sys.argv))
+log.write('\n\n')
+log.close()
+
+
+llvm_bin = '@LLVM_BIN@'
+argv = sys.argv
+if ('-pie' in argv) and ('-shared' in argv):
+    argv.remove('-pie')
+if argv[0].endswith('clang'):
+    argv[0] = llvm_bin + '/clang'
+elif argv[0].endswith('clang++'):
+    argv[0] = llvm_bin + '/clang++'
+else:
+    print >>sys.stderr, 'Unknown compiler name'
+    sys.exit(1)
+
+os.execl(argv[0], *argv)
