@@ -175,7 +175,7 @@ class ReportProcesser:
       if len(fileline_parts) >= 2:
         fileline = fileline_parts[1].lstrip('/')
     addr = '     inlined    ';
-    print '%s[<%s>] %s %s %s' % (prefix, addr, body, func, fileline)
+    print '%s[<%s>] %s %s' % (prefix, addr, func, fileline)
 
   def Finalize(self):
     for module, symbolizer in self.module_symbolizers.items():
