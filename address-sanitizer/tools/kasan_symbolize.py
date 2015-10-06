@@ -151,6 +151,7 @@ class ReportProcesser:
     for i, frame in enumerate(frames):
       inlined = (i + 1 != len(frames))
       func, fileline = frame[0], frame[1]
+      fileline = fileline.split(' (')[0] # strip ' (discriminator N)'
       self.PrintFrame(inlined, precise, prefix, addr, func, fileline, body)
       self.PrintLines(fileline, lines_before, lines_after)
 
