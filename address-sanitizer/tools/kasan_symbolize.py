@@ -240,7 +240,6 @@ def main():
   lines_before = None
   lines_after = None
 
-  print opts
   for opt, arg in opts:
     if opt in ('-l', '--linux'):
       linux_path = arg
