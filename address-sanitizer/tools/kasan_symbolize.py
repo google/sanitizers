@@ -205,8 +205,10 @@ class ReportProcesser:
       linenum = int(linenum)
     except:
       return
-    assert linenum >= 1
-    linenum -= 1
+    assert linenum >= 0
+    if linenum == 0: # addr2line failed to restore correct line info
+      return
+    linenum -= 1 # addr2line reports line numbers starting with 1
 
     start = max(0, linenum - lines_before)
     end = linenum + lines_after + 1
