@@ -213,8 +213,9 @@ class ReportProcesser:
     lines = self.LoadFile(filename)
     if not lines:
       return
-    for line in lines[start:end]:
-      print line,
+
+    for i, line in enumerate(lines[start:end]):
+      print '  {0:5d} {1}'.format(i + start + 1, line),
 
   def Finalize(self):
     for module, symbolizer in self.module_symbolizers.items():
