@@ -1,17 +1,10 @@
 <html>
     <head>
-       <meta http-equiv=”refresh” content=”60" />
+         <script> setTimeout(function(){window.location.reload(1);}, 1000 * 60 * 3);</script>
     </head>
     <frameset cols="50%,50%">
         <frame src="http://lab.llvm.org:8011/console?category=sanitizer">
         <frame src="http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer">
     </frameset>
-    <script>
-        function refresh() {
-            window.location.reload(true);
-            setTimeout(refresh, 1000);
-        }
-        setTimeout(refresh, 1000);
-    </script>
 </html>
 
