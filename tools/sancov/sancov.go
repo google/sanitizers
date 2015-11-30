@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"flag"
@@ -93,8 +94,10 @@ func print(files []string) error {
 		return err
 	}
 
+	buf := bufio.NewWriter(os.Stdout)
+	defer buf.Flush()
 	for _, addr := range data {
-		fmt.Printf("0x%x\n", addr)
+		fmt.Fprintf(buf, "0x%x\n", addr)
 	}
 
 	return nil
@@ -119,6 +122,6 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Printf("Error: %q", err)
+		fmt.Printf("Error: %v\n", err)
 	}
 }
