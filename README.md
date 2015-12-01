@@ -1,3 +1,4 @@
 # sanitizers
-We have just migrated from code.google.com to github, 
-most links will be broken. Please have patience.
+We have recently migrated from code.google.com to github, 
+many links will be broken.
+Most of the documentation is in the [wiki](../../wiki).
