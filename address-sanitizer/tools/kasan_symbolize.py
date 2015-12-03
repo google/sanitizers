@@ -88,11 +88,11 @@ class ReportProcesser:
     self.module_offset_loaders = {}
     self.loaded_files = {}
 
-  def ProcessInput(self, lines_before, lines_after):
+  def ProcessInput(self, lines_before, lines_after, questionable):
     for line in sys.stdin:
       line = line.rstrip()
       line = self.StripTime(line)
-      self.ProcessLine(line, lines_before, lines_after)
+      self.ProcessLine(line, lines_before, lines_after, questionable)
 
   def StripTime(self, line):
     match = time_re.match(line)
@@ -100,7 +100,7 @@ class ReportProcesser:
       line = match.group('body')
     return line
 
-  def ProcessLine(self, line, lines_before, lines_after):
+  def ProcessLine(self, line, lines_before, lines_after, questionable):
     match = frame_re.match(line)
     if match == None:
       print line
@@ -114,6 +114,9 @@ class ReportProcesser:
     precise = match.group('precise')
     assert precise == None or precise == '?'
     precise = True if precise == None else False
+    # Don't print frames with '?' until user asked otherwise.
+    if not precise and not questionable:
+      return
 
     function = match.group('function')
     offset = match.group('offset')
@@ -228,20 +231,22 @@ def print_usage():
   print '[--strip=<strip path>]',
   print '[--before=<lines before>]',
   print '[--after=<lines after>]',
+  print '[--questionable]',
   print
 
 def main():
   try:
-    opts, args = getopt.getopt(sys.argv[1:], 'l:s:b:a:',
-		    ['linux=', 'strip=', 'before=', 'after='])
+    opts, args = getopt.getopt(sys.argv[1:], 'l:s:b:a:q:',
+		    ['linux=', 'strip=', 'before=', 'after=', 'questionable'])
   except:
     print_usage()
     sys.exit(1)
 
-  linux_path = None
-  strip_path = None
+  linux_path = os.getcwd()
+  strip_path = os.getcwd()
   lines_before = None
   lines_after = None
+  questionable = False
 
   for opt, arg in opts:
     if opt in ('-l', '--linux'):
@@ -252,10 +257,8 @@ def main():
       lines_before = arg
     elif opt in ('-a', '--after'):
       lines_after = arg
-
-  if not linux_path:
-    print_usage()
-    sys.exit(1)
+    elif opt in ('-q', '--questionable'):
+      questionable = True
 
   try:
     lines_before = None if lines_before == None else int(lines_before)
@@ -265,7 +268,7 @@ def main():
     sys.exit(1)
 
   processer = ReportProcesser(linux_path, strip_path)
-  processer.ProcessInput(lines_before, lines_after)
+  processer.ProcessInput(lines_before, lines_after, questionable)
   processer.Finalize()
 
   sys.exit(0)
