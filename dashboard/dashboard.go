@@ -124,7 +124,7 @@ func main() {
 <table>
 `)
 	for i := range bots {
-		fmt.Println("<tr><td><font color=white face=arial size=10>")
+		fmt.Println("<tr><td><font color=white face=arial size=6>")
 		fmt.Println(statuses[i].date[len(statuses[i].date)-5:])
 		if statuses[i].statuses[0] == "success" {
 			fmt.Println("<font color=green>")
@@ -135,9 +135,9 @@ func main() {
 		fmt.Println("</font></font></td><td>")
 		for j := 1; j != len(statuses[i].statuses) && j != 5; j++ {
 			if statuses[i].statuses[j] == "success" {
-				fmt.Println("<font color=green face=arial size=10>&nbsp;&nbsp;&#x2713;</font>")
+				fmt.Println("<font color=green face=arial size=6>&nbsp;&nbsp;&#x2713;</font>")
 			} else {
-				fmt.Println("<font color=red face=arial size=10>&nbsp;&nbsp;&#x2717;</font>")
+				fmt.Println("<font color=red face=arial size=6>&nbsp;&nbsp;&#x2717;</font>")
 			}
 		}
 		fmt.Println("</td></tr>")
