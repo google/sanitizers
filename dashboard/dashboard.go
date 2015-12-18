@@ -22,7 +22,11 @@ type status struct {
 }
 
 func GetStatus(url string) (status, error) {
-	resp, err := http.Get(url)
+	if url == "" {
+		return *new(status), nil
+	}
+
+	resp, err := http.Get(url + "?numbuilds=30")
 	if err != nil {
 		return *new(status), err
 	}
@@ -74,26 +78,22 @@ func main() {
 	bots := []struct {
 		name, url string
 	}{
+		{"CFI", ""},
 		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
 		{"CFI Linux CF", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20CF"},
+		{"Sanitizers", ""},
 		{"sanitizer-windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
 		{"sanitizer-x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
 		{"sanitizer-x86_64-linux-bootstrap", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
 		{"sanitizer-x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
 		{"sanitizer-x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
 		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"sanitizer_x86_64-freebsd", "http://lab.llvm.org:8011/builders/sanitizer_x86_64-freebsd"},
 		{"sanitizer-ppc64-linux1", "http://lab.llvm.org:8011/builders/sanitizer-ppc64-linux1"},
 		{"sanitizer-ppc64le-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64le-linux"},
 		{"sanitizer-windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
 		{"clang-cmake-armv7-a15-full", "http://lab.llvm.org:8011/builders/clang-cmake-armv7-a15-full"},
 		{"clang-cmake-thumbv7-a15-full-sh", "http://lab.llvm.org:8011/builders/clang-cmake-thumbv7-a15-full-sh"},
-		{"clang-cmake-aarch64-full", "http://lab.llvm.org:8011/builders/clang-cmake-aarch64-full"},
-		{"clang-cmake-aarch64-42vma", "http://lab.llvm.org:8011/builders/clang-cmake-aarch64-42vma"},
-		{"clang-native-aarch64-full", "http://lab.llvm.org:8011/builders/clang-native-aarch64-full"},
-		{"clang-cmake-mips", "http://lab.llvm.org:8011/builders/clang-cmake-mips"},
-		{"clang-cmake-mipsel", "http://lab.llvm.org:8011/builders/clang-cmake-mipsel"},
 	}
 
 	statuses := make([]status, len(bots))
@@ -118,12 +118,30 @@ func main() {
 	}
 
 	fmt.Println(`
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+   "http://www.w3.org/TR/html4/loose.dtd">
 <html>
+<head>
+<title>dashboard</title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="300">
+<style type="text/css">
+a {
+	color: inherit;
+	text-decoration: none;
+}
+</style>
+</head>
 <body bgcolor=black>
 <table>
 `)
 	for i := range bots {
+		if bots[i].url == "" {
+			fmt.Println("<tr><td><font color=white face=arial size=5>")
+			fmt.Println(bots[i].name)
+			fmt.Println("</font></td><td></td></tr>")
+			continue
+		}
 		fmt.Println("<tr><td><font color=white face=arial size=6>")
 		fmt.Println(statuses[i].date[len(statuses[i].date)-5:])
 		if statuses[i].statuses[0] == "success" {
@@ -131,16 +149,17 @@ func main() {
 		} else {
 			fmt.Println("<font color=red>")
 		}
+		fmt.Println("<a href=\"" + bots[i].url + "\">")
 		fmt.Println(bots[i].name)
-		fmt.Println("</font></font></td><td>")
-		for j := 1; j != len(statuses[i].statuses) && j != 5; j++ {
-			if statuses[i].statuses[j] == "success" {
-				fmt.Println("<font color=green face=arial size=6>&nbsp;&nbsp;&#x2713;</font>")
+		fmt.Println("</a></font></font></td>")
+		for _, s := range statuses[i].statuses {
+			if s == "success" {
+				fmt.Println("<td><font color=green face=arial size=6>&nbsp;&#x2713;</font></td>")
 			} else {
-				fmt.Println("<font color=red face=arial size=6>&nbsp;&nbsp;&#x2717;</font>")
+				fmt.Println("<td><font color=red face=arial size=6>&nbsp;&#x2717;</font></td>")
 			}
 		}
-		fmt.Println("</td></tr>")
+		fmt.Println("</tr>")
 	}
 	fmt.Println(`
 </table>
