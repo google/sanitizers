@@ -94,7 +94,8 @@ func main() {
 		{"clang-cmake-thumbv7-a15-full-sh", "http://lab.llvm.org:8011/builders/clang-cmake-thumbv7-a15-full-sh"},
 		{"LibFuzzer", ""},
 		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"chromium-x86_64-linux-fuzzer", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux"},
+		{"chromium-x86_64-linux-fuzzer-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
+		{"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
 	}
 
 	statuses := make([]status, len(bots))
