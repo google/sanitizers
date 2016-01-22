@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"golang.org/x/net/html"
 	"net/http"
@@ -67,11 +66,7 @@ func GetStatus(url string) (status, error) {
 		return *new(status)
 	}
 
-	s := f(doc)
-	if s.date == "" {
-		return *new(status), errors.New("Could not find status in document")
-	}
-	return s, nil
+	return f(doc), nil
 }
 
 func main() {
@@ -146,20 +141,28 @@ a {
 			continue
 		}
 		fmt.Println("<tr><td><font color=white face=arial size=6>")
-		fmt.Println(statuses[i].date[len(statuses[i].date)-5:])
-		if statuses[i].statuses[0] == "success" {
-			fmt.Println("<font color=green>")
+		if statuses[i].date == "" {
+			fmt.Println("??:??<font color=red>")
 		} else {
-			fmt.Println("<font color=red>")
+			fmt.Println(statuses[i].date[len(statuses[i].date)-5:])
+			if statuses[i].statuses[0] == "success" {
+				fmt.Println("<font color=green>")
+			} else {
+				fmt.Println("<font color=red>")
+			}
 		}
 		fmt.Println("<a href=\"" + bots[i].url + "\">")
 		fmt.Println(bots[i].name)
 		fmt.Println("</a></font></font></td>")
-		for _, s := range statuses[i].statuses {
-			if s == "success" {
-				fmt.Println("<td><font color=green face=arial size=6>&nbsp;&#x2713;</font></td>")
-			} else {
-				fmt.Println("<td><font color=red face=arial size=6>&nbsp;&#x2717;</font></td>")
+		if statuses[i].date == "" {
+			fmt.Println("<td><font color=white face=arial size=6>&nbsp;?</font></td>")
+		} else {
+			for _, s := range statuses[i].statuses {
+				if s == "success" {
+					fmt.Println("<td><font color=green face=arial size=6>&nbsp;&#x2713;</font></td>")
+				} else {
+					fmt.Println("<td><font color=red face=arial size=6>&nbsp;&#x2717;</font></td>")
+				}
 			}
 		}
 		fmt.Println("</tr>")
