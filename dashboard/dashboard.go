@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"golang.org/x/net/html"
 	"net/http"
+	"time"
 )
 
 func class(n *html.Node) string {
@@ -169,6 +170,11 @@ a {
 	}
 	fmt.Println(`
 </table>
+<font color=white face=arial size=4>
+`)
+	fmt.Println(time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	fmt.Println(`
+</font>
 </body>
 </html>
 `)
