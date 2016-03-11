@@ -26,9 +26,12 @@ func GetStatus(url string) (status, error) {
 		return *new(status), nil
 	}
 
-	resp, err := http.Get(url + "?numbuilds=30")
+	client := http.Client{
+		Timeout: time.Duration(60 * time.Second),
+	}
+	resp, err := client.Get(url + "?numbuilds=30")
 	if err != nil {
-		return *new(status), err
+		return *new(status), nil
 	}
 
 	doc, err := html.Parse(resp.Body)
