@@ -75,10 +75,14 @@ class SymbolOffsetLoader:
     for line in output.split('\n'):
       match = nm_re.match(line)
       if match != None:
-        self.offsets[match.group('symbol')] = int(match.group('offset'), 16)
+        symbol = match.group('symbol')
+        offset = int(match.group('offset'), 16)
+        if not self.offsets.has_key(symbol):
+          self.offsets[symbol] = []
+        self.offsets[symbol].append(offset)
 
-  def LookupOffset(self, symbol):
-    return self.offsets.get(symbol)
+  def LookupOffsets(self, symbol):
+    return self.offsets.get(symbol, [])
 
 class ReportProcesser:
   def __init__(self, linux_path, strip_path):
@@ -137,13 +141,28 @@ class ReportProcesser:
     symbolizer = self.module_symbolizers[module]
     loader = self.module_offset_loaders[module]
 
-    symbol_offset = loader.LookupOffset(function)
-    if not symbol_offset:
+    symbol_offsets = loader.LookupOffsets(function)
+    if len(symbol_offsets) == 0:
       print line
       return
+    elif len(symbol_offsets) == 1:
+      symbol_addr = symbol_offsets[0]
+    else:
+      # If there are more than one symbol with the same name, best-effort guess
+      # the correct one by comparing 12 (log(min(PAGE_SIZE))) least significant
+      # bits of the address. We can't use the whole address for this, since it
+      # is subject to randomization.
+      symbol_addr = None
+      for symbol_offset in symbol_offsets:
+        if (int(addr, 16) % (1 << 12)) == (symbol_offset % (1 << 12)):
+          symbol_addr = symbol_offset
+          break
+      if not symbol_addr:
+        print line
+        return
 
     instruction_offset = int(offset, 16)
-    module_addr = hex(symbol_offset + instruction_offset - 1);
+    module_addr = hex(symbol_addr + instruction_offset - 1);
 
     frames = symbolizer.Process(module_addr)
 
