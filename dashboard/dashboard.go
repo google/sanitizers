@@ -5,46 +5,74 @@ import (
 	"golang.org/x/net/html"
 	"net/http"
 	"time"
+        "net/url"
 )
 
-func class(n *html.Node) string {
+func attr(n *html.Node, attrName string) string {
 	for _, a := range n.Attr {
-		if a.Key == "class" {
+		if a.Key == attrName {
 			return a.Val
 		}
 	}
 	return ""
 }
 
-type status struct {
-	date     string
-	statuses []string
+func class(n *html.Node) string {
+  return attr(n, "class")
 }
 
-func GetStatus(url string) (status, error) {
-	if url == "" {
-		return *new(status), nil
+func findSubtag(n *html.Node, tagName string) *html.Node {
+  for c := n.FirstChild; c != nil; c = c.NextSibling {
+    if c.Type == html.ElementNode && c.Data == tagName {
+      return c;
+    }
+  }
+
+  return nil;
+}
+
+type status struct {
+	buildUrl   string
+	success bool
+}
+
+type statusLine struct {
+	date     string
+	statuses []status
+}
+
+func GetStatus(buildUrl string) (statusLine, error) {
+	if buildUrl == "" {
+		return *new(statusLine), nil
 	}
 
 	client := http.Client{
 		Timeout: time.Duration(60 * time.Second),
 	}
-	resp, err := client.Get(url + "?numbuilds=30")
+	resp, err := client.Get(buildUrl + "?numbuilds=30")
 	if err != nil {
-		return *new(status), nil
+		return *new(statusLine), nil
 	}
 
+        baseUrl, err := url.Parse(buildUrl)
+	if err != nil {
+		return *new(statusLine), nil
+	}
+        
 	doc, err := html.Parse(resp.Body)
-	var f func(*html.Node) status
-	f = func(n *html.Node) status {
+	var f func(*html.Node) statusLine
+	f = func(n *html.Node) statusLine {
 		if n.Type == html.ElementNode && n.Data == "table" && class(n) == "info" {
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "tbody" {
 					date := ""
-					var statuses []string
+					var statuses []status
 					for c := c.FirstChild; c != nil; c = c.NextSibling {
 						if c.Type == html.ElementNode && c.Data == "tr" {
 							i := 0
+                                                        success := false
+                                                        buildUrl := ""
+
 							for c := c.FirstChild; c != nil; c = c.NextSibling {
 								if c.Type == html.ElementNode && c.Data == "td" {
 									i++
@@ -52,13 +80,20 @@ func GetStatus(url string) (status, error) {
 										date = c.FirstChild.Data
 									}
 									if i == 3 {
-										statuses = append(statuses, class(c))
+										success = class(c) == "success"
 									}
+                                                                        if i == 4 {
+                                                                          relUrl, err := url.Parse(attr(findSubtag(c, "a"), "href"));
+                                                                          if err ==  nil {
+                                                                            buildUrl =baseUrl.ResolveReference(relUrl).String();
+                                                                          }
+                                                                        }
 								}
 							}
+                                                        statuses = append(statuses, status{buildUrl, success})
 						}
 					}
-					return status{date, statuses}
+					return statusLine{date, statuses}
 				}
 			}
 		}
@@ -67,7 +102,7 @@ func GetStatus(url string) (status, error) {
 				return s
 			}
 		}
-		return *new(status)
+		return *new(statusLine)
 	}
 
 	return f(doc), nil
@@ -94,14 +129,14 @@ func main() {
 		{"LibFuzzer", ""},
 		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-x86_64-linux-fuzzer-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
-                {"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
-                {"chromium-x86_64-linux-fuzzer-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
+		{"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
+		{"chromium-x86_64-linux-fuzzer-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
 	}
 
-	statuses := make([]status, len(bots))
+	statuses := make([]statusLine, len(bots))
 	type status_ret struct {
-		n      int
-		status status
+		n    int
+		line statusLine
 	}
 	status_ch := make(chan status_ret)
 	for i := range bots {
@@ -116,7 +151,7 @@ func main() {
 
 	for range bots {
 		status := <-status_ch
-		statuses[status.n] = status.status
+		statuses[status.n] = status.line
 	}
 
 	fmt.Println(`
@@ -149,7 +184,7 @@ a {
 			fmt.Println("??:??<font color=red>")
 		} else {
 			fmt.Println(statuses[i].date[len(statuses[i].date)-5:])
-			if statuses[i].statuses[0] == "success" {
+			if statuses[i].statuses[0].success {
 				fmt.Println("<font color=green>")
 			} else {
 				fmt.Println("<font color=red>")
@@ -162,11 +197,11 @@ a {
 			fmt.Println("<td><font color=white face=arial size=6>&nbsp;?</font></td>")
 		} else {
 			for _, s := range statuses[i].statuses {
-				if s == "success" {
-					fmt.Println("<td><font color=green face=arial size=6>&nbsp;&#x2713;</font></td>")
-				} else {
-					fmt.Println("<td><font color=red face=arial size=6>&nbsp;&#x2717;</font></td>")
-				}
+                                color := "red"
+                                if s.success {
+                                  color = "green"
+                                }
+                                fmt.Printf("<td><font color=%s face=arial size=6><a href=\"%s\">&nbsp;&#x2713;</a></font></td>\n", color, s.buildUrl)
 			}
 		}
 		fmt.Println("</tr>")
