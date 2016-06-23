@@ -112,6 +112,8 @@ func main() {
 	bots := []struct {
 		name, url string
 	}{
+                {"Clang", ""},
+                {"clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
 		{"CFI", ""},
 		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
@@ -129,6 +131,7 @@ func main() {
 		{"LibFuzzer", ""},
 		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-x86_64-linux-fuzzer-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
+		{"chromium-x86_64-linux-fuzzer-asan-dbg", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan%20Debug"},
 		{"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
 		{"chromium-x86_64-linux-fuzzer-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
 	}
@@ -208,7 +211,7 @@ a {
 	}
 	fmt.Println(`
 </table>
-<font color=white face=arial size=4>
+<font color=white face=arial size=4>go/dynamic-tools-dashboard
 `)
 	fmt.Println(time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
 	fmt.Println(`
