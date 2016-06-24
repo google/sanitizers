@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"golang.org/x/net/html"
 	"net/http"
+	"net/url"
 	"time"
-        "net/url"
 )
 
 func attr(n *html.Node, attrName string) string {
@@ -18,22 +18,32 @@ func attr(n *html.Node, attrName string) string {
 }
 
 func class(n *html.Node) string {
-  return attr(n, "class")
+	return attr(n, "class")
 }
 
 func findSubtag(n *html.Node, tagName string) *html.Node {
-  for c := n.FirstChild; c != nil; c = c.NextSibling {
-    if c.Type == html.ElementNode && c.Data == tagName {
-      return c;
-    }
-  }
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == tagName {
+			return c
+		}
+	}
 
-  return nil;
+	return nil
+}
+
+func findSubtags(n *html.Node, tagName string) []*html.Node {
+	result := make([]*html.Node, 0)
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && c.Data == tagName {
+			result = append(result, c)
+		}
+	}
+	return result
 }
 
 type status struct {
-	buildUrl   string
-	success bool
+	buildUrl string
+	success  bool
 }
 
 type statusLine struct {
@@ -54,11 +64,11 @@ func GetStatus(buildUrl string) (statusLine, error) {
 		return *new(statusLine), nil
 	}
 
-        baseUrl, err := url.Parse(buildUrl)
+	baseUrl, err := url.Parse(buildUrl)
 	if err != nil {
 		return *new(statusLine), nil
 	}
-        
+
 	doc, err := html.Parse(resp.Body)
 	var f func(*html.Node) statusLine
 	f = func(n *html.Node) statusLine {
@@ -67,31 +77,31 @@ func GetStatus(buildUrl string) (statusLine, error) {
 				if c.Type == html.ElementNode && c.Data == "tbody" {
 					date := ""
 					var statuses []status
-					for c := c.FirstChild; c != nil; c = c.NextSibling {
-						if c.Type == html.ElementNode && c.Data == "tr" {
-							i := 0
-                                                        success := false
-                                                        buildUrl := ""
+					for i, c := range findSubtags(c, "tr") {
+						// ignore header row
+						if i == 0 {
+							continue
+						}
 
-							for c := c.FirstChild; c != nil; c = c.NextSibling {
-								if c.Type == html.ElementNode && c.Data == "td" {
-									i++
-									if i == 1 && date == "" {
-										date = c.FirstChild.Data
-									}
-									if i == 3 {
-										success = class(c) == "success"
-									}
-                                                                        if i == 4 {
-                                                                          relUrl, err := url.Parse(attr(findSubtag(c, "a"), "href"));
-                                                                          if err ==  nil {
-                                                                            buildUrl =baseUrl.ResolveReference(relUrl).String();
-                                                                          }
-                                                                        }
+						success := false
+						buildUrl := ""
+
+						for i, c := range findSubtags(c, "td") {
+							if i == 0 && date == "" {
+								date = c.FirstChild.Data
+							}
+							if i == 2 {
+								success = class(c) == "success"
+							}
+							if i == 3 {
+								relUrl, err := url.Parse(attr(findSubtag(c, "a"), "href"))
+								if err == nil {
+									buildUrl = baseUrl.ResolveReference(relUrl).String()
 								}
 							}
-                                                        statuses = append(statuses, status{buildUrl, success})
 						}
+
+						statuses = append(statuses, status{buildUrl, success})
 					}
 					return statusLine{date, statuses}
 				}
@@ -112,8 +122,8 @@ func main() {
 	bots := []struct {
 		name, url string
 	}{
-                {"Clang", ""},
-                {"clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
+		{"Clang", ""},
+		{"clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
 		{"CFI", ""},
 		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
@@ -200,11 +210,13 @@ a {
 			fmt.Println("<td><font color=white face=arial size=6>&nbsp;?</font></td>")
 		} else {
 			for _, s := range statuses[i].statuses {
-                                color := "red"
-                                if s.success {
-                                  color = "green"
-                                }
-                                fmt.Printf("<td><font color=%s face=arial size=6><a href=\"%s\">&nbsp;&#x2713;</a></font></td>\n", color, s.buildUrl)
+				color := "red"
+				text := "&nbsp;&#x2717;" // x sign
+				if s.success {
+					color = "green"
+					text = "&nbsp;&#x2713;" //checkmark
+				}
+				fmt.Printf("<td><font color=%s face=arial size=6><a href=\"%s\">%s</a></font></td>\n", color, s.buildUrl, text)
 			}
 		}
 		fmt.Println("</tr>")
