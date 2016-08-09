@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+from collections import defaultdict
 import getopt
 import os
 import re
@@ -27,7 +28,7 @@ frame_re = re.compile(
 )
 
 nm_re = re.compile(
-  '^(?P<offset>[0-9A-Fa-f]+) [a-zA-Z] (?P<symbol>[^ ]+)$'
+  '^(?P<offset>[0-9A-Fa-f]+) (?P<size>[0-9A-Fa-f]+) [a-zA-Z] (?P<symbol>[^ ]+)$'
 )
 
 class Symbolizer:
@@ -70,15 +71,22 @@ def FindFile(path, name):
 
 class SymbolOffsetLoader:
   def __init__(self, binary_path):
-    output = subprocess.check_output(['nm', binary_path])
-    self.offsets = {}
+    output = subprocess.check_output(['nm', '-S', binary_path])
+    self.offsets = defaultdict(dict)
     for line in output.split('\n'):
       match = nm_re.match(line)
       if match != None:
-        self.offsets[match.group('symbol')] = int(match.group('offset'), 16)
+        offset = int(match.group('offset'), 16)
+        size = int(match.group('size'), 16)
+        # There can be several functions with similar names, but different
+        # sizes.
+        self.offsets[match.group('symbol')][size] = offset
 
-  def LookupOffset(self, symbol):
-    return self.offsets.get(symbol)
+  def LookupOffset(self, symbol, size):
+    offsets = self.offsets.get(symbol)
+    if (offsets is None) or (size not in offsets):
+      return None
+    return offsets[size]
 
 class ReportProcesser:
   def __init__(self, linux_path, strip_path):
@@ -137,8 +145,8 @@ class ReportProcesser:
     symbolizer = self.module_symbolizers[module]
     loader = self.module_offset_loaders[module]
 
-    symbol_offset = loader.LookupOffset(function)
-    if not symbol_offset:
+    symbol_offset = loader.LookupOffset(function, int(size, 16))
+    if symbol_offset is None:
       print line
       return
 
