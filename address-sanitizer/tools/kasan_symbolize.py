@@ -119,11 +119,11 @@ class ReportProcesser:
     addr = match.group('addr')
     body = match.group('body')
 
-    precise = match.group('precise')
-    assert precise == None or precise == '?'
-    precise = True if precise == None else False
+    precise = not match.group('precise')
     # Don't print frames with '?' until user asked otherwise.
     if not precise and not questionable:
+      if '<EOI>' in match.group('prefix'):
+        print match.group('prefix')
       return
 
     function = match.group('function')
