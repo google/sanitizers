@@ -245,7 +245,7 @@ def print_usage():
 def main():
   try:
     opts, args = getopt.getopt(sys.argv[1:], 'l:s:b:a:q:',
-		    ['linux=', 'strip=', 'before=', 'after=', 'questionable'])
+        ['linux=', 'strip=', 'before=', 'after=', 'questionable'])
   except:
     print_usage()
     sys.exit(1)
