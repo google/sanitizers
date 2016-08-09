@@ -7,28 +7,56 @@ import re
 import sys
 import subprocess
 
+# A hexadecimal number without the leading 0x.
+hexnum = '[0-9A-Fa-f]+'
+
+# An address in the form [<ffffffff12345678>].
+frame_addr = (
+  '(\[\<(?P<addr>' + hexnum + ')\>\])?\s*'
+)
+
+# A function name with an offset and function size, plus an optional module
+# name, e.g.:
+# __asan_load8+0x64/0x66
+frame_body = (
+  '(?P<body>'                          +
+    '(?P<function>[^\+]+)'             +
+    '\+'                               +
+    '0x(?P<offset>' + hexnum + ')'     +
+    '/'                                +
+    '0x(?P<size>' + hexnum + ')'       +
+    '( \[(?P<module>.+)\])?'           +
+  ')')
+
+# Matches the timestamp prefix of a log line.
 time_re = re.compile(
   '^(?P<time>\[[ ]*[0-9\.]+\]) ?(?P<body>.*)$'
 )
 
+# Matches a single stacktrace frame.
 frame_re = re.compile(
   '^'                                  +
   '(?P<prefix>[^\[\t]*)'               +
-  '(\[\<(?P<addr>[0-9A-Fa-f]+)\>\])?'  +
+  frame_addr                           +
   '( |\t)'                             +
   '((?P<precise>\?) )?'                +
-  '(?P<body>'                          +
-    '(?P<function>[^\+]+)'             +
-    '\+'                               +
-    '0x(?P<offset>[0-9A-Fa-f]+)'       +
-    '/'                                +
-    '0x(?P<size>[0-9A-Fa-f]+)'         +
-    '( \[(?P<module>.+)\])?'           +
-  ')$'
+  frame_body                           +
+  '$'
 )
 
+# Matches the 'RIP:' line in BUG reports.
+rip_re = re.compile(
+  '^' +
+  '(?P<prefix>\s*RIP: ' + hexnum + ':\[[^]]+\]\s*)' +
+  frame_addr +
+  frame_body +
+  '$'
+)
+
+# Matches a single line of `nm -S` output.
 nm_re = re.compile(
-  '^(?P<offset>[0-9A-Fa-f]+) (?P<size>[0-9A-Fa-f]+) [a-zA-Z] (?P<symbol>[^ ]+)$'
+  '^(?P<offset>' + hexnum + ') (?P<size>' + hexnum + ')' +
+  ' [a-zA-Z] (?P<symbol>[^ ]+)$'
 )
 
 class Symbolizer:
@@ -109,7 +137,12 @@ class ReportProcesser:
     return line
 
   def ProcessLine(self, line, lines_before, lines_after, questionable):
-    match = frame_re.match(line)
+    # |rip_re| is less general than |frame_re|, so try it first.
+    match = None
+    for regexp in [rip_re, frame_re]:
+      match = regexp.match(line)
+      if match:
+        break
     if match == None:
       print line
       return
@@ -119,7 +152,9 @@ class ReportProcesser:
     addr = match.group('addr')
     body = match.group('body')
 
-    precise = not match.group('precise')
+    precise = True
+    if 'precise' in match.groupdict().keys():
+      precise = not match.group('precise')
     # Don't print frames with '?' until user asked otherwise.
     if not precise and not questionable:
       if '<EOI>' in match.group('prefix'):
