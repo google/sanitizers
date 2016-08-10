@@ -132,11 +132,11 @@ class ReportProcessor(object):
         self.module_offset_loaders = {}
         self.loaded_files = {}
 
-    def process_input(self, lines_before, lines_after, questionable):
+    def process_input(self, context_size, questionable):
         for line in sys.stdin:
             line = line.rstrip()
             line = self.strip_time(line)
-            self.process_line(line, lines_before, lines_after, questionable)
+            self.process_line(line, context_size, questionable)
 
     def strip_time(self, line):
         match = TIME_RE.match(line)
@@ -144,7 +144,7 @@ class ReportProcessor(object):
             line = match.group('body')
         return line
 
-    def process_line(self, line, lines_before, lines_after, questionable):
+    def process_line(self, line, context_size, questionable):
         # |RIP_RE| is less general than |FRAME_RE|, so try it first.
         match = None
         for regexp in [RIP_RE, FRAME_RE]:
@@ -203,8 +203,9 @@ class ReportProcessor(object):
             inlined = (i + 1 != len(frames))
             func, fileline = frame[0], frame[1]
             fileline = fileline.split(' (')[0] # strip ' (discriminator N)'
-            self.print_frame(inlined, precise, prefix, addr, func, fileline, body)
-            self.print_lines(fileline, lines_before, lines_after)
+            self.print_frame(inlined, precise, prefix, addr, func, fileline,
+                             body)
+            self.print_lines(fileline, context_size)
 
     def load_module(self, module):
         if module in self.module_symbolizers.keys():
@@ -241,12 +242,9 @@ class ReportProcessor(object):
         precise = '' if precise else '? '
         print '%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline)
 
-    def print_lines(self, fileline, lines_before, lines_after):
-        if lines_before == None and lines_after == None:
+    def print_lines(self, fileline, context_size):
+        if context_size == 0:
             return
-        lines_before = 0 if lines_before == None else lines_before
-        lines_after = 0 if lines_after == None else lines_after
-
         fileline = fileline.split(':')
         filename, linenum = fileline[0], fileline[1]
 
@@ -259,8 +257,8 @@ class ReportProcessor(object):
             return
         linenum -= 1 # addr2line reports line numbers starting with 1
 
-        start = max(0, linenum - lines_before)
-        end = linenum + lines_after + 1
+        start = max(0, linenum - context_size / 2)
+        end = start + context_size
         lines = self.load_file(filename)
         if not lines:
             return
@@ -284,16 +282,15 @@ def print_usage():
 
 def main():
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'l:s:b:a:q:',
-                ['linux=', 'strip=', 'before=', 'after=', 'questionable'])
+        opts, args = getopt.getopt(sys.argv[1:], 'l:s:c:q:',
+                ['linux=', 'strip=', 'context=', 'questionable'])
     except:
         print_usage()
         sys.exit(1)
 
     linux_path = os.getcwd()
     strip_path = os.getcwd()
-    lines_before = None
-    lines_after = None
+    context_size = 0
     questionable = False
 
     for opt, arg in opts:
@@ -301,22 +298,20 @@ def main():
             linux_path = arg
         elif opt in ('-s', '--strip'):
             strip_path = arg
-        elif opt in ('-b', '--before'):
-            lines_before = arg
-        elif opt in ('-a', '--after'):
-            lines_after = arg
+        elif opt in ('-c', '--context'):
+            context_size = arg
         elif opt in ('-q', '--questionable'):
             questionable = True
 
     try:
-        lines_before = None if lines_before == None else int(lines_before)
-        lines_after = None if lines_after == None else int(lines_after)
+        if isinstance(context_size, str):
+            context_size = int(context_size)
     except:
         print_usage()
         sys.exit(1)
 
     processor = ReportProcessor(linux_path, strip_path)
-    processor.process_input(lines_before, lines_after, questionable)
+    processor.process_input(context_size, questionable)
     processor.finalize()
 
     sys.exit(0)
