@@ -1,5 +1,8 @@
 #!/usr/bin/python
 
+# Tool for symbolizing stack traces in BUG reports, mainly those produced
+# by KASAN.
+
 from collections import defaultdict
 import getopt
 import os
