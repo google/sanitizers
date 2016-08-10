@@ -8,313 +8,316 @@ import sys
 import subprocess
 
 # A hexadecimal number without the leading 0x.
-hexnum = '[0-9A-Fa-f]+'
+HEXNUM = '[0-9A-Fa-f]+'
 
 # An address in the form [<ffffffff12345678>].
-frame_addr = (
-  '(\[\<(?P<addr>' + hexnum + ')\>\])?\s*'
+FRAME_ADDR = (
+    '(\[\<(?P<addr>' + HEXNUM + ')\>\])?\s*'
 )
 
 # A function name with an offset and function size, plus an optional module
 # name, e.g.:
 # __asan_load8+0x64/0x66
-frame_body = (
-  '(?P<body>'                          +
-    '(?P<function>[^\+]+)'             +
-    '\+'                               +
-    '0x(?P<offset>' + hexnum + ')'     +
-    '/'                                +
-    '0x(?P<size>' + hexnum + ')'       +
-    '( \[(?P<module>.+)\])?'           +
-  ')')
+FRAME_BODY = (
+    '(?P<body>' +
+        '(?P<function>[^\+]+)' +
+        '\+' +
+        '0x(?P<offset>' + HEXNUM + ')' +
+        '/' +
+        '0x(?P<size>' + HEXNUM + ')' +
+        '( \[(?P<module>.+)\])?' +
+    ')')
 
 # Matches the timestamp prefix of a log line.
-time_re = re.compile(
-  '^(?P<time>\[[ ]*[0-9\.]+\]) ?(?P<body>.*)$'
+TIME_RE = re.compile(
+    '^(?P<time>\[[ ]*[0-9\.]+\]) ?(?P<body>.*)$'
 )
 
 # Matches a single stacktrace frame.
-frame_re = re.compile(
-  '^'                                  +
-  '(?P<prefix>[^\[\t]*)'               +
-  frame_addr                           +
-  '( |\t)'                             +
-  '((?P<precise>\?) )?'                +
-  frame_body                           +
-  '$'
+FRAME_RE = re.compile(
+    '^' +
+    '(?P<prefix>[^\[\t]*)' +
+    FRAME_ADDR +
+    '( |\t)' +
+    '((?P<precise>\?) )?' +
+    FRAME_BODY +
+    '$'
 )
 
 # Matches the 'RIP:' line in BUG reports.
-rip_re = re.compile(
-  '^' +
-  '(?P<prefix>\s*RIP: ' + hexnum + ':\[[^]]+\]\s*)' +
-  frame_addr +
-  frame_body +
-  '$'
+RIP_RE = re.compile(
+    '^' +
+    '(?P<prefix>\s*RIP: ' + HEXNUM + ':\[[^]]+\]\s*)' +
+    FRAME_ADDR +
+    FRAME_BODY +
+    '$'
 )
 
 # Matches a single line of `nm -S` output.
-nm_re = re.compile(
-  '^(?P<offset>' + hexnum + ') (?P<size>' + hexnum + ')' +
-  ' [a-zA-Z] (?P<symbol>[^ ]+)$'
+NM_RE = re.compile(
+    '^(?P<offset>' + HEXNUM + ') (?P<size>' + HEXNUM + ')' +
+    ' [a-zA-Z] (?P<symbol>[^ ]+)$'
 )
 
-class Symbolizer:
-  def __init__(self, binary_path):
-    self.proc = subprocess.Popen(['addr2line', '-f', '-i', '-e', binary_path],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-  def __enter__(self):
-    return self
+class Symbolizer(object):
+    def __init__(self, binary_path):
+        self.proc = subprocess.Popen(
+            ['addr2line', '-f', '-i', '-e', binary_path],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-  def __exit__(self, type, value, traceback):
-    self.Close()
+    def __enter__(self):
+        return self
 
-  def Process(self, addr):
-    self.proc.stdin.write(addr + '\n')
-    self.proc.stdin.write('ffffffffffffffff\n')
-    self.proc.stdin.flush()
+    def __exit__(self, type, value, traceback):
+        self.close()
 
-    result = []
-    while True:
-      func = self.proc.stdout.readline().rstrip()
-      fileline = self.proc.stdout.readline().rstrip()
-      if func == '??':
-        if len(result) == 0:
-          self.proc.stdout.readline()
-          self.proc.stdout.readline()
-        return result
-      result.append((func, fileline))
+    def process(self, addr):
+        self.proc.stdin.write(addr + '\n')
+        self.proc.stdin.write('ffffffffffffffff\n')
+        self.proc.stdin.flush()
 
-  def Close(self):
-    self.proc.kill()
-    self.proc.wait()
+        result = []
+        while True:
+            func = self.proc.stdout.readline().rstrip()
+            fileline = self.proc.stdout.readline().rstrip()
+            if func == '??':
+                if len(result) == 0:
+                    self.proc.stdout.readline()
+                    self.proc.stdout.readline()
+                return result
+            result.append((func, fileline))
 
-def FindFile(path, name):
-  path = os.path.expanduser(path)
-  for root, dirs, files in os.walk(path):
-    if name in files:
-      return os.path.join(root, name)
-  return None
+    def close(self):
+        self.proc.kill()
+        self.proc.wait()
 
-class SymbolOffsetLoader:
-  def __init__(self, binary_path):
-    output = subprocess.check_output(['nm', '-S', binary_path])
-    self.offsets = defaultdict(dict)
-    for line in output.split('\n'):
-      match = nm_re.match(line)
-      if match != None:
-        offset = int(match.group('offset'), 16)
-        size = int(match.group('size'), 16)
-        # There can be several functions with similar names, but different
-        # sizes.
-        self.offsets[match.group('symbol')][size] = offset
 
-  def LookupOffset(self, symbol, size):
-    offsets = self.offsets.get(symbol)
-    if (offsets is None) or (size not in offsets):
-      return None
-    return offsets[size]
+def find_file(path, name):
+    path = os.path.expanduser(path)
+    for root, dirs, files in os.walk(path):
+        if name in files:
+            return os.path.join(root, name)
+    return None
 
-class ReportProcesser:
-  def __init__(self, linux_path, strip_path):
-    self.strip_path = strip_path
-    self.linux_path = linux_path
-    self.module_symbolizers = {}
-    self.module_offset_loaders = {}
-    self.loaded_files = {}
 
-  def ProcessInput(self, lines_before, lines_after, questionable):
-    for line in sys.stdin:
-      line = line.rstrip()
-      line = self.StripTime(line)
-      self.ProcessLine(line, lines_before, lines_after, questionable)
+class SymbolOffsetLoader(object):
+    def __init__(self, binary_path):
+        output = subprocess.check_output(['nm', '-S', binary_path])
+        self.offsets = defaultdict(dict)
+        for line in output.split('\n'):
+            match = NM_RE.match(line)
+            if match != None:
+                offset = int(match.group('offset'), 16)
+                size = int(match.group('size'), 16)
+                # There can be several functions with similar names, but
+                # different sizes.
+                self.offsets[match.group('symbol')][size] = offset
 
-  def StripTime(self, line):
-    match = time_re.match(line)
-    if match != None:
-      line = match.group('body')
-    return line
+    def lookup_offset(self, symbol, size):
+        offsets = self.offsets.get(symbol)
+        if (offsets is None) or (size not in offsets):
+            return None
+        return offsets[size]
 
-  def ProcessLine(self, line, lines_before, lines_after, questionable):
-    # |rip_re| is less general than |frame_re|, so try it first.
-    match = None
-    for regexp in [rip_re, frame_re]:
-      match = regexp.match(line)
-      if match:
-        break
-    if match == None:
-      print line
-      return
 
-    prefix = match.group('prefix')
+class ReportProcessor(object):
+    def __init__(self, linux_path, strip_path):
+        self.strip_path = strip_path
+        self.linux_path = linux_path
+        self.module_symbolizers = {}
+        self.module_offset_loaders = {}
+        self.loaded_files = {}
 
-    addr = match.group('addr')
-    body = match.group('body')
+    def process_input(self, lines_before, lines_after, questionable):
+        for line in sys.stdin:
+            line = line.rstrip()
+            line = self.strip_time(line)
+            self.process_line(line, lines_before, lines_after, questionable)
 
-    precise = True
-    if 'precise' in match.groupdict().keys():
-      precise = not match.group('precise')
-    # Don't print frames with '?' until user asked otherwise.
-    if not precise and not questionable:
-      if '<EOI>' in match.group('prefix'):
-        print match.group('prefix')
-      return
+    def strip_time(self, line):
+        match = TIME_RE.match(line)
+        if match != None:
+            line = match.group('body')
+        return line
 
-    function = match.group('function')
-    offset = match.group('offset')
-    size = match.group('size')
-    module = match.group('module')
+    def process_line(self, line, lines_before, lines_after, questionable):
+        # |RIP_RE| is less general than |FRAME_RE|, so try it first.
+        match = None
+        for regexp in [RIP_RE, FRAME_RE]:
+            match = regexp.match(line)
+            if match:
+                break
+        if match == None:
+            print line
+            return
 
-    if module == None:
-      module = 'vmlinux'
-    else:
-      module += '.ko'
+        prefix = match.group('prefix')
+        addr = match.group('addr')
+        body = match.group('body')
 
-    frames = []
+        precise = True
+        if 'precise' in match.groupdict().keys():
+            precise = not match.group('precise')
+        # Don't print frames with '?' until user asked otherwise.
+        if not precise and not questionable:
+            if '<EOI>' in match.group('prefix'):
+                print match.group('prefix')
+            return
 
-    if not self.LoadModule(module):
-      print line
-      return
+        function = match.group('function')
+        offset = match.group('offset')
+        size = match.group('size')
+        module = match.group('module')
 
-    symbolizer = self.module_symbolizers[module]
-    loader = self.module_offset_loaders[module]
+        if module == None:
+            module = 'vmlinux'
+        else:
+            module += '.ko'
 
-    symbol_offset = loader.LookupOffset(function, int(size, 16))
-    if symbol_offset is None:
-      print line
-      return
+        if not self.load_module(module):
+            print line
+            return
 
-    instruction_offset = int(offset, 16)
-    module_addr = hex(symbol_offset + instruction_offset - 1);
+        symbolizer = self.module_symbolizers[module]
+        loader = self.module_offset_loaders[module]
 
-    frames = symbolizer.Process(module_addr)
+        symbol_offset = loader.lookup_offset(function, int(size, 16))
+        if symbol_offset is None:
+            print line
+            return
 
-    if len(frames) == 0:
-      print line
-      return
+        instruction_offset = int(offset, 16)
+        module_addr = hex(symbol_offset + instruction_offset - 1);
 
-    for i, frame in enumerate(frames):
-      inlined = (i + 1 != len(frames))
-      func, fileline = frame[0], frame[1]
-      fileline = fileline.split(' (')[0] # strip ' (discriminator N)'
-      self.PrintFrame(inlined, precise, prefix, addr, func, fileline, body)
-      self.PrintLines(fileline, lines_before, lines_after)
+        frames = symbolizer.process(module_addr)
 
-  def LoadModule(self, module):
-    if module in self.module_symbolizers.keys():
-      return True
+        if len(frames) == 0:
+            print line
+            return
 
-    module_path = FindFile(self.linux_path, module)
-    if module_path == None:
-      return False
+        for i, frame in enumerate(frames):
+            inlined = (i + 1 != len(frames))
+            func, fileline = frame[0], frame[1]
+            fileline = fileline.split(' (')[0] # strip ' (discriminator N)'
+            self.print_frame(inlined, precise, prefix, addr, func, fileline, body)
+            self.print_lines(fileline, lines_before, lines_after)
 
-    self.module_symbolizers[module] = Symbolizer(module_path)
-    self.module_offset_loaders[module] = SymbolOffsetLoader(module_path)
-    return True
+    def load_module(self, module):
+        if module in self.module_symbolizers.keys():
+            return True
 
-  def LoadFile(self, path):
-    if path in self.loaded_files.keys():
-      return self.loaded_files[path]
-    try:
-      with open(path) as f:
-        self.loaded_files[path] = f.readlines()
-        return self.loaded_files[path]
-    except:
-      return None
+        module_path = find_file(self.linux_path, module)
+        if module_path == None:
+            return False
 
-  def PrintFrame(self, inlined, precise, prefix, addr, func, fileline, body):
-    if self.strip_path != None:
-      fileline_parts = fileline.split(self.strip_path, 1)
-      if len(fileline_parts) >= 2:
-        fileline = fileline_parts[1].lstrip('/')
-    if inlined:
-      addr = '     inline     ';
-    elif addr == None:
-      addr = '      none      ';
-    precise = '' if precise else '? '
-    if inlined:
-      print '%s[<%s>] %s%s %s' % (prefix, addr, precise, func, fileline)
-    else:
-      print '%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline)
+        self.module_symbolizers[module] = Symbolizer(module_path)
+        self.module_offset_loaders[module] = SymbolOffsetLoader(module_path)
+        return True
 
-  def PrintLines(self, fileline, lines_before, lines_after):
-    if lines_before == None and lines_after == None:
-      return
-    lines_before = 0 if lines_before == None else lines_before
-    lines_after = 0 if lines_after == None else lines_after
+    def load_file(self, path):
+        if path in self.loaded_files.keys():
+            return self.loaded_files[path]
+        try:
+            with open(path) as f:
+                self.loaded_files[path] = f.readlines()
+                return self.loaded_files[path]
+        except:
+            return None
 
-    fileline = fileline.split(':')
-    filename, linenum = fileline[0], fileline[1]
+    def print_frame(self, inlined, precise, prefix, addr, func, fileline, body):
+        if self.strip_path != None:
+            fileline_parts = fileline.split(self.strip_path, 1)
+            if len(fileline_parts) >= 2:
+                fileline = fileline_parts[1].lstrip('/')
+        if inlined:
+            addr = '     inline     ';
+            body = func
+        elif addr == None:
+            addr = '        none        ';
+        precise = '' if precise else '? '
+        print '%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline)
 
-    try:
-      linenum = int(linenum)
-    except:
-      return
-    assert linenum >= 0
-    if linenum == 0: # addr2line failed to restore correct line info
-      return
-    linenum -= 1 # addr2line reports line numbers starting with 1
+    def print_lines(self, fileline, lines_before, lines_after):
+        if lines_before == None and lines_after == None:
+            return
+        lines_before = 0 if lines_before == None else lines_before
+        lines_after = 0 if lines_after == None else lines_after
 
-    start = max(0, linenum - lines_before)
-    end = linenum + lines_after + 1
-    lines = self.LoadFile(filename)
-    if not lines:
-      return
+        fileline = fileline.split(':')
+        filename, linenum = fileline[0], fileline[1]
 
-    for i, line in enumerate(lines[start:end]):
-      print '  {0:5d} {1}'.format(i + start + 1, line),
+        try:
+            linenum = int(linenum)
+        except:
+            return
+        assert linenum >= 0
+        if linenum == 0: # addr2line failed to restore correct line info
+            return
+        linenum -= 1 # addr2line reports line numbers starting with 1
 
-  def Finalize(self):
-    for module, symbolizer in self.module_symbolizers.items():
-      symbolizer.Close()
+        start = max(0, linenum - lines_before)
+        end = linenum + lines_after + 1
+        lines = self.load_file(filename)
+        if not lines:
+            return
+
+        for i, line in enumerate(lines[start:end]):
+            print '    {0:5d} {1}'.format(i + start + 1, line),
+
+    def finalize(self):
+        for module, symbolizer in self.module_symbolizers.items():
+            symbolizer.close()
+
 
 def print_usage():
-  print 'Usage: {0} --linux=<linux path>'.format(sys.argv[0]),
-  print '[--strip=<strip path>]',
-  print '[--before=<lines before>]',
-  print '[--after=<lines after>]',
-  print '[--questionable]',
-  print
+    print 'Usage: {0} --linux=<linux path>'.format(sys.argv[0]),
+    print '[--strip=<strip path>]',
+    print '[--before=<lines before>]',
+    print '[--after=<lines after>]',
+    print '[--questionable]',
+    print
+
 
 def main():
-  try:
-    opts, args = getopt.getopt(sys.argv[1:], 'l:s:b:a:q:',
-        ['linux=', 'strip=', 'before=', 'after=', 'questionable'])
-  except:
-    print_usage()
-    sys.exit(1)
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'l:s:b:a:q:',
+                ['linux=', 'strip=', 'before=', 'after=', 'questionable'])
+    except:
+        print_usage()
+        sys.exit(1)
 
-  linux_path = os.getcwd()
-  strip_path = os.getcwd()
-  lines_before = None
-  lines_after = None
-  questionable = False
+    linux_path = os.getcwd()
+    strip_path = os.getcwd()
+    lines_before = None
+    lines_after = None
+    questionable = False
 
-  for opt, arg in opts:
-    if opt in ('-l', '--linux'):
-      linux_path = arg
-    elif opt in ('-s', '--strip'):
-      strip_path = arg
-    elif opt in ('-b', '--before'):
-      lines_before = arg
-    elif opt in ('-a', '--after'):
-      lines_after = arg
-    elif opt in ('-q', '--questionable'):
-      questionable = True
+    for opt, arg in opts:
+        if opt in ('-l', '--linux'):
+            linux_path = arg
+        elif opt in ('-s', '--strip'):
+            strip_path = arg
+        elif opt in ('-b', '--before'):
+            lines_before = arg
+        elif opt in ('-a', '--after'):
+            lines_after = arg
+        elif opt in ('-q', '--questionable'):
+            questionable = True
 
-  try:
-    lines_before = None if lines_before == None else int(lines_before)
-    lines_after = None if lines_after == None else int(lines_after)
-  except:
-    print_usage()
-    sys.exit(1)
+    try:
+        lines_before = None if lines_before == None else int(lines_before)
+        lines_after = None if lines_after == None else int(lines_after)
+    except:
+        print_usage()
+        sys.exit(1)
 
-  processer = ReportProcesser(linux_path, strip_path)
-  processer.ProcessInput(lines_before, lines_after, questionable)
-  processer.Finalize()
+    processor = ReportProcessor(linux_path, strip_path)
+    processor.process_input(lines_before, lines_after, questionable)
+    processor.finalize()
 
-  sys.exit(0)
+    sys.exit(0)
+
 
 if __name__ == '__main__':
-  main()
+    main()
