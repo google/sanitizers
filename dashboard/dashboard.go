@@ -5,6 +5,9 @@ import (
 	"golang.org/x/net/html"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,6 +46,7 @@ func findSubtags(n *html.Node, tagName string) []*html.Node {
 
 type status struct {
 	buildUrl string
+	rev      int64
 	success  bool
 }
 
@@ -56,17 +60,25 @@ func GetStatus(buildUrl string) (statusLine, error) {
 		return *new(statusLine), nil
 	}
 
-	client := http.Client{
-		Timeout: time.Duration(60 * time.Second),
+	var resp *http.Response
+	var err error
+	for i := 0; i < 3; i++ {
+		client := http.Client{
+			Timeout: time.Duration(120 * time.Second),
+		}
+		resp, err = client.Get(buildUrl + "?numbuilds=31")
+		if err == nil {
+			break
+		}
 	}
-	resp, err := client.Get(buildUrl + "?numbuilds=30")
+
 	if err != nil {
-		return *new(statusLine), nil
+		return *new(statusLine), err
 	}
 
 	baseUrl, err := url.Parse(buildUrl)
 	if err != nil {
-		return *new(statusLine), nil
+		return *new(statusLine), err
 	}
 
 	doc, err := html.Parse(resp.Body)
@@ -85,10 +97,14 @@ func GetStatus(buildUrl string) (statusLine, error) {
 
 						success := false
 						buildUrl := ""
+						var rev int64 = 0
 
 						for i, c := range findSubtags(c, "td") {
 							if i == 0 && date == "" {
 								date = c.FirstChild.Data
+							}
+							if i == 1 {
+								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
 							}
 							if i == 2 {
 								success = class(c) == "success"
@@ -101,7 +117,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{buildUrl, success})
+						statuses = append(statuses, status{buildUrl, rev, success})
 					}
 					return statusLine{date, statuses}
 				}
@@ -115,7 +131,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 		return *new(statusLine)
 	}
 
-	return f(doc), nil
+	return f(doc), err
 }
 
 func main() {
@@ -147,24 +163,31 @@ func main() {
 	}
 
 	statuses := make([]statusLine, len(bots))
+	errors := make([]error, len(bots))
 	type status_ret struct {
 		n    int
 		line statusLine
+		err  error
 	}
 	status_ch := make(chan status_ret)
 	for i := range bots {
 		go func(i int) {
 			s, err := GetStatus(bots[i].url)
 			if err != nil {
-				panic(err)
+				fmt.Fprintln(os.Stderr, err)
 			}
-			status_ch <- status_ret{i, s}
+			status_ch <- status_ret{i, s, err}
 		}(i)
 	}
 
+	maxStatuses := 0
 	for range bots {
 		status := <-status_ch
 		statuses[status.n] = status.line
+		errors[status.n] = status.err
+		if maxStatuses < len(status.line.statuses) {
+			maxStatuses = len(status.line.statuses)
+		}
 	}
 
 	fmt.Println(`
@@ -192,34 +215,60 @@ a {
 			fmt.Println("</font></td><td></td></tr>")
 			continue
 		}
-		fmt.Println("<tr><td><font color=white face=arial size=6>")
-		if statuses[i].date == "" {
-			fmt.Println("??:??<font color=red>")
-		} else {
-			fmt.Println(statuses[i].date[len(statuses[i].date)-5:])
-			if statuses[i].statuses[0].success {
-				fmt.Println("<font color=green>")
-			} else {
-				fmt.Println("<font color=red>")
-			}
+		tr := func(s string) string {
+			return fmt.Sprintf("<tr>%s</tr>", s)
 		}
-		fmt.Println("<a href=\"" + bots[i].url + "\">")
-		fmt.Println(bots[i].name)
-		fmt.Println("</a></font></font></td>")
-		if statuses[i].date == "" {
-			fmt.Println("<td><font color=white face=arial size=6>&nbsp;?</font></td>")
+
+		td := func(attrs string, s string) string {
+			return fmt.Sprintf("<td %s>%s</td>", attrs, s)
+		}
+
+		font := func(color string, s string) string {
+			return fmt.Sprintf("<font color=%s face=arial size=6>%s</font>", color, s)
+		}
+
+		a := func(url string, text string) string {
+			return fmt.Sprintf("<a href=\"%s\">%s</a>", url, text)
+		}
+
+		r := ""
+		date := "??:??"
+		if statuses[i].date != "" {
+			date = statuses[i].date[len(statuses[i].date)-5:]
+		}
+		r += td("", font("white", date))
+
+		color := "red"
+		if len(statuses[i].statuses) > 0 && statuses[i].statuses[0].success {
+			color = "green"
+		}
+		r += td("", font(color, a(bots[i].url, bots[i].name)))
+
+		if errors[i] != nil {
+			errStr := errors[i].Error()
+			trim := strings.LastIndex(errStr, ":")
+			if trim != -1 {
+				errStr = errStr[trim+1:]
+			}
+			r += td(fmt.Sprintf("colspan=%d", maxStatuses), font("white", errStr))
+		} else if statuses[i].date == "" {
+			r += td("", font("white", "?"))
 		} else {
-			for _, s := range statuses[i].statuses {
+			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
+				s := statuses[i].statuses[j]
 				color := "red"
-				text := "&nbsp;&#x2717;" // x sign
+				text := "&#x2717;" // x sign
 				if s.success {
 					color = "green"
-					text = "&nbsp;&#x2713;" //checkmark
+					text = "&#x2713;" //checkmark
 				}
-				fmt.Printf("<td><font color=%s face=arial size=6><a href=\"%s\">%s</a></font></td>\n", color, s.buildUrl, text)
+				// TODO: Make use of revisions
+				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
+				text = a(s.buildUrl, text)
+				r += td("align=\"right\" width=40", font(color, text))
 			}
 		}
-		fmt.Println("</tr>")
+		fmt.Println(tr(r))
 	}
 	fmt.Println(`
 </table>
