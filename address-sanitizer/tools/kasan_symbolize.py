@@ -58,7 +58,7 @@ RIP_RE = re.compile(
 
 # Matches a single line of `nm -S` output.
 NM_RE = re.compile(
-    '^(?P<offset>' + HEXNUM + ') (?P<size>' + HEXNUM + ')' +
+    '^(?P<offset>' + HEXNUM + ')( (?P<size>' + HEXNUM + '))?' +
     ' [a-zA-Z] (?P<symbol>[^ ]+)$'
 )
 
@@ -104,22 +104,40 @@ def find_file(path, name):
     return None
 
 
-class SymbolOffsetLoader(object):
+class SymbolOffsetTable(object):
+    """A table of symbol offsets.
+
+    There can be several symbols with similar names. The only possible way to
+    distinguish between them is by their size. For each symbol name we keep a
+    mapping from the sizes of symbols with that name to their offsets.
+    To conform with the kernel behavior, instead of the actual symbol size
+    returned by nm we store the difference between the next symbol's offset and
+    this symbol's offset.
+    """
     def __init__(self, binary_path):
-        output = subprocess.check_output(['nm', '-S', binary_path])
+        output = subprocess.check_output(['nm', '-Sn', binary_path])
         self.offsets = defaultdict(dict)
+        prev_symbol = None
+        prev_offset, prev_size = 0, 0
         for line in output.split('\n'):
             match = NM_RE.match(line)
             if match != None:
                 offset = int(match.group('offset'), 16)
-                size = int(match.group('size'), 16)
-                # There can be several functions with similar names, but
-                # different sizes.
-                self.offsets[match.group('symbol')][size] = offset
+                size = 0 if not match.group('size') else int(match.group('size'), 16)
+                if prev_symbol:
+                    ksyms_size = offset - prev_offset
+                    if ksyms_size >= prev_size:
+                        prev_size = ksyms_size
+                    self.offsets[prev_symbol][prev_size] = prev_offset
+                prev_symbol = match.group('symbol')
+                prev_offset, prev_size = offset, size
+        self.offsets[prev_symbol][0] = prev_offset
 
     def lookup_offset(self, symbol, size):
         offsets = self.offsets.get(symbol)
-        if (offsets is None) or (size not in offsets):
+        if offsets is None:
+            return None
+        if (size not in offsets):
             return None
         return offsets[size]
 
@@ -129,7 +147,7 @@ class ReportProcessor(object):
         self.strip_path = strip_path
         self.linux_path = linux_path
         self.module_symbolizers = {}
-        self.module_offset_loaders = {}
+        self.module_offset_tables = {}
         self.loaded_files = {}
 
     def process_input(self, context_size, questionable):
@@ -183,7 +201,7 @@ class ReportProcessor(object):
             return
 
         symbolizer = self.module_symbolizers[module]
-        loader = self.module_offset_loaders[module]
+        loader = self.module_offset_tables[module]
 
         symbol_offset = loader.lookup_offset(function, int(size, 16))
         if symbol_offset is None:
@@ -216,7 +234,7 @@ class ReportProcessor(object):
             return False
 
         self.module_symbolizers[module] = Symbolizer(module_path)
-        self.module_offset_loaders[module] = SymbolOffsetLoader(module_path)
+        self.module_offset_tables[module] = SymbolOffsetTable(module_path)
         return True
 
     def load_file(self, path):
