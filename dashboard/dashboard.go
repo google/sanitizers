@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/net/html"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 func attr(n *html.Node, attrName string) string {
@@ -92,7 +93,12 @@ func GetStatus(buildUrl string) (statusLine, error) {
 					for i, c := range findSubtags(c, "tr") {
 						// ignore header row
 						if i == 0 {
-							continue
+							// Does this look like the right table?
+							h := findSubtag(c, "th")
+							if h != nil && h.FirstChild != nil && h.FirstChild.Data == "Time" {
+								continue
+							}
+							return *new(statusLine)
 						}
 
 						success := false
