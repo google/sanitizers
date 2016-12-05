@@ -146,6 +146,7 @@ func main() {
 	}{
 		{"Clang", ""},
 		{"clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
+		{"chromium-x86_64-clang-tot-tester", "https://build.chromium.org/p/chromium.fyi/builders/ClangToTLinux%20tester"},
 		{"CFI", ""},
 		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
