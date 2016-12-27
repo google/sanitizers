@@ -296,7 +296,7 @@ h2 { margin: .5em 0; }
 		}
 
 		a := func(url string, text string) string {
-			return fmt.Sprintf("<a href=\"%s\">%s</a>", url, text)
+			return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
 		}
 
 		r := ""
