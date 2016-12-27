@@ -264,6 +264,7 @@ func main() {
 <style type="text/css">
 body { color: white; font-family: Arial; font-size: 26px; }
 a {	color: inherit; text-decoration: none; }
+h2 { margin: .5em 0; }
 .error { color: red; }
 .success { color: green; }
 .checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
