@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"io/ioutil"
 
 	"golang.org/x/net/html"
 )
@@ -140,6 +144,58 @@ func GetStatus(buildUrl string) (statusLine, error) {
 	return f(doc), err
 }
 
+type OssFuzzStatus struct {
+	Projects    []string `json:"projects"`
+	Successes   []string `json:"successes"`
+	Failures    []string `json:"failures"`
+	LastUpdated string   `json:"last_updated"`
+}
+
+func GetOssFuzzStatusString() string {
+	header := "<h2>OSS-Fuzz</h2>"
+
+	var resp *http.Response
+	var err error
+	for i := 0; i < 3; i++ {
+		client := http.Client{
+			Timeout: time.Duration(120 * time.Second),
+		}
+		resp, err = client.Get("https://oss-fuzz-build-logs.storage.googleapis.com/status.json")
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return fmt.Sprintf("%s<p><span class=error>%v</span></p>", header, err)
+	}
+
+	var status OssFuzzStatus
+	jsonBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Sprintf("%s<p><span class=error>%v</span></p>", header, err)
+	}
+
+	err = json.Unmarshal(jsonBytes, &status)
+	if err != nil {
+		return fmt.Sprintf("%s<p><span class=error>%v</span></p>", header, err)
+	}
+
+	htmlStatuses := ""
+	sort.Strings(status.Projects)
+	for i := range status.Projects {
+		class := "success"
+		for j := range status.Failures {
+			if status.Failures[j] == status.Projects[i] {
+				class = "error"
+			}
+		}
+		htmlStatuses += fmt.Sprintf("<span class=%s>%s&nbsp;</span> ", class, status.Projects[i])
+	}
+
+	return fmt.Sprintf("%s<p>%s</p>", header, htmlStatuses)
+}
+
 func main() {
 	bots := []struct {
 		name, url string
@@ -194,6 +250,8 @@ func main() {
 			maxStatuses = len(status.line.statuses)
 		}
 	}
+	ossfuzz_ch := make(chan string)
+	go func() { ossfuzz_ch <- GetOssFuzzStatusString() }()
 
 	fmt.Println(`
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
@@ -204,10 +262,11 @@ func main() {
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="300">
 <style type="text/css">
-a {
-	color: inherit;
-	text-decoration: none;
-}
+body { color: white; font-family: Arial; font-size: 26px; }
+a {	color: inherit; text-decoration: none; }
+.error { color: red; }
+.success { color: green; }
+.checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
 </style>
 </head>
 <body bgcolor=black>
@@ -215,9 +274,9 @@ a {
 `)
 	for i := range bots {
 		if bots[i].url == "" {
-			fmt.Println("<tr><td><font color=white face=arial size=5>")
+			fmt.Println("<tr><td colspan=3><h2>")
 			fmt.Println(bots[i].name)
-			fmt.Println("</font></td><td></td></tr>")
+			fmt.Println("</h2></td><td></td></tr>")
 			continue
 		}
 		tr := func(s string) string {
@@ -229,7 +288,10 @@ a {
 		}
 
 		font := func(color string, s string) string {
-			return fmt.Sprintf("<font color=%s face=arial size=6>%s</font>", color, s)
+			return fmt.Sprintf("<font color=%s>%s</font>", color, s)
+		}
+		span := func(class string, s string) string {
+			return fmt.Sprintf("<span class=%s>%s</span>", class, s)
 		}
 
 		a := func(url string, text string) string {
@@ -241,13 +303,13 @@ a {
 		if statuses[i].date != "" {
 			date = statuses[i].date[len(statuses[i].date)-5:]
 		}
-		r += td("", font("white", date))
+		r += td("", date+"&nbsp;")
 
 		color := "red"
 		if len(statuses[i].statuses) > 0 && statuses[i].statuses[0].success {
 			color = "green"
 		}
-		r += td("", font(color, a(bots[i].url, bots[i].name)))
+		r += td("width=30%", font(color, a(bots[i].url, bots[i].name)))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
@@ -259,25 +321,30 @@ a {
 		} else if statuses[i].date == "" {
 			r += td("", font("white", "?"))
 		} else {
+
+			cell := ""
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
-				color := "red"
+				style := "error"
 				text := "&#x2717;" // x sign
 				if s.success {
-					color = "green"
+					style = "success"
 					text = "&#x2713;" //checkmark
 				}
 				// TODO: Make use of revisions
 				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
 				text = a(s.buildUrl, text)
-				r += td("align=\"right\" width=40", font(color, text))
+				cell += span(style, text)
 			}
+			r += td("width=70%", "<span class=checkmarks>"+cell+"</span>")
 		}
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`
-</table>
-<font color=white face=arial size=4>go/dynamic-tools-dashboard
+</table>`)
+	fmt.Println(<-ossfuzz_ch)
+	fmt.Println(`
+<font size=".8em">go/dynamic-tools-dashboard
 `)
 	fmt.Println(time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
 	fmt.Println(`
