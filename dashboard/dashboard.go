@@ -193,7 +193,7 @@ func GetOssFuzzStatusString() string {
 		htmlStatuses += fmt.Sprintf("<span class=%s>%s&nbsp;</span> ", class, status.Projects[i])
 	}
 
-	return fmt.Sprintf("%s<p>%s</p>", header, htmlStatuses)
+	return fmt.Sprintf("%s %s", header, htmlStatuses)
 }
 
 func main() {
@@ -259,12 +259,13 @@ func main() {
 <html>
 <head>
 <title>dashboard</title>
+<link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="300">
 <style type="text/css">
-body { color: white; font-family: Arial; font-size: 26px; }
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 26px; }
 a {	color: inherit; text-decoration: none; }
-h2 { margin: .5em 0; }
+h2 { margin: .25em 0 .125em 0; }
 .error { color: red; }
 .success { color: green; }
 .checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
@@ -345,11 +346,11 @@ h2 { margin: .5em 0; }
 </table>`)
 	fmt.Println(<-ossfuzz_ch)
 	fmt.Println(`
-<font size=".8em">go/dynamic-tools-dashboard
+<p><font size=".8em">go/dynamic-tools-dashboard
 `)
 	fmt.Println(time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
 	fmt.Println(`
-</font>
+</font></p>
 </body>
 </html>
 `)
