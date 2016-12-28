@@ -263,9 +263,9 @@ func main() {
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="300">
 <style type="text/css">
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 26px; }
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a {	color: inherit; text-decoration: none; }
-h2 { margin: .25em 0 .125em 0; }
+h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
 .success { color: green; }
 .checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
