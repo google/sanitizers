@@ -148,6 +148,7 @@ type OssFuzzStatus struct {
 	Projects    []string `json:"projects"`
 	Successes   []string `json:"successes"`
 	Failures    []string `json:"failures"`
+	Unstable    []string `json:"unstable"`
 	LastUpdated string   `json:"last_updated"`
 }
 
@@ -185,6 +186,11 @@ func GetOssFuzzStatusString() string {
 	sort.Strings(status.Projects)
 	for i := range status.Projects {
 		class := "success"
+		for j := range status.Unstable {
+			if status.Unstable[j] == status.Projects[i] {
+				class = "warning"
+			}
+		}
 		for j := range status.Failures {
 			if status.Failures[j] == status.Projects[i] {
 				class = "error"
@@ -268,6 +274,7 @@ a {	color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
 .success { color: green; }
+.warning { color: yellow; }
 .checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
 </style>
 </head>
