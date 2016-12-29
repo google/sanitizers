@@ -267,7 +267,7 @@ func main() {
 <title>dashboard</title>
 <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-<meta http-equiv="refresh" content="300">
+<meta http-equiv="refresh" content="60">
 <style type="text/css">
 body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a {	color: inherit; text-decoration: none; }
