@@ -237,7 +237,7 @@ func main() {
 <html>
 <head>
 <title>dashboard</title>
-<link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Open+Sans|Inconsolata" rel="stylesheet">
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="60">
 <style type="text/css">
@@ -245,12 +245,12 @@ body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a {	color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
-.error::before { content: "\2717"; }
+.error::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .success { color: green; }
-.success:not(.nosymbol)::before { content: "\2713"; }
+.success:not(.nosymbol)::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .warning { color: yellow; }
-.warning::before {content: "?";}
-.checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
+.warning::before {content: "?"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.checkmarks { display: flex; justify-content: space-between; }
 </style>
 </head>
 <body bgcolor=black>
@@ -346,8 +346,7 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 				}
 				// TODO: Make use of revisions
 				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
-				text := a(s.buildUrl, "")
-				cell += span(style, text)
+				cell += a(s.buildUrl, span(style, ""))
 			}
 			r += td("width=70%", "<span class=checkmarks>"+cell+"</span>")
 		}
