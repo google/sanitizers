@@ -44,11 +44,6 @@ var (
 	}
 )
 
-const (
-	crossSymbol = "&#x2717;"
-	checkSymbol = "&#x2713;"
-)
-
 func attr(n *html.Node, attrName string) string {
 	for _, a := range n.Attr {
 		if a.Key == attrName {
@@ -218,7 +213,7 @@ func GetOssFuzzStatusString() string {
 	htmlStatuses := ""
 	sort.Strings(status.Projects)
 	for i := range status.Projects {
-		class := "success"
+		class := "success nosymbol"
 		for j := range status.Unstable {
 			if status.Unstable[j] == status.Projects[i] {
 				class = "warning"
@@ -229,7 +224,7 @@ func GetOssFuzzStatusString() string {
 				class = "error"
 			}
 		}
-		htmlStatuses += fmt.Sprintf("<span class=%s>%s&nbsp;</span> ", class, status.Projects[i])
+		htmlStatuses += fmt.Sprintf("<span class='%s'>%s&nbsp;</span> ", class, status.Projects[i])
 	}
 
 	return fmt.Sprintf("%s %s", header, htmlStatuses)
@@ -250,7 +245,9 @@ body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a {	color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
+.error::before { content: "\2717"; }
 .success { color: green; }
+.success:not(.nosymbol)::before { content: "\2713"; }
 .warning { color: yellow; }
 .warning::before {content: "?";}
 .checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
@@ -344,14 +341,12 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
 				style := "error"
-				text := crossSymbol
 				if s.success {
 					style = "success"
-					text = checkSymbol
 				}
 				// TODO: Make use of revisions
 				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
-				text = a(s.buildUrl, text)
+				text := a(s.buildUrl, "")
 				cell += span(style, text)
 			}
 			r += td("width=70%", "<span class=checkmarks>"+cell+"</span>")
