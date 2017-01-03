@@ -16,6 +16,39 @@ import (
 	"golang.org/x/net/html"
 )
 
+var (
+	bots = []struct {
+		name, url string
+	}{
+		{"Clang", ""},
+		{"(FYI) clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
+		{"Chromium", ""},
+		{"(FYI) Clang Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/ClangToTLinux%20tester"},
+		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
+		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
+		{"CFI Linux CF", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20CF"},
+		{"Sanitizers", ""},
+		{"sanitizer-windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
+		{"sanitizer-x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
+		{"sanitizer-x86_64-linux-bootstrap", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"sanitizer-x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
+		{"sanitizer-x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
+		{"sanitizer-ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
+		{"sanitizer-ppc64le-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64le-linux"},
+		{"LibFuzzer", ""},
+		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"chromium-x86_64-linux-fuzzer-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
+		{"chromium-x86_64-linux-fuzzer-asan-dbg", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan%20Debug"},
+		{"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
+		{"chromium-x86_64-linux-fuzzer-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
+	}
+)
+
+const (
+	crossSymbol = "&#x2717;"
+	checkSymbol = "&#x2713;"
+)
+
 func attr(n *html.Node, attrName string) string {
 	for _, a := range n.Attr {
 		if a.Key == attrName {
@@ -203,31 +236,29 @@ func GetOssFuzzStatusString() string {
 }
 
 func main() {
-	bots := []struct {
-		name, url string
-	}{
-		{"Clang", ""},
-		{"(FYI) clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
-		{"Chromium", ""},
-		{"(FYI) Clang Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/ClangToTLinux%20tester"},
-		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
-		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
-		{"CFI Linux CF", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20CF"},
-		{"Sanitizers", ""},
-		{"sanitizer-windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
-		{"sanitizer-x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
-		{"sanitizer-x86_64-linux-bootstrap", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
-		{"sanitizer-x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
-		{"sanitizer-x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
-		{"sanitizer-ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
-		{"sanitizer-ppc64le-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64le-linux"},
-		{"LibFuzzer", ""},
-		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"chromium-x86_64-linux-fuzzer-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
-		{"chromium-x86_64-linux-fuzzer-asan-dbg", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan%20Debug"},
-		{"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
-		{"chromium-x86_64-linux-fuzzer-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
-	}
+	fmt.Println(`
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+   "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<title>dashboard</title>
+<link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+<meta http-equiv="refresh" content="60">
+<style type="text/css">
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
+a {	color: inherit; text-decoration: none; }
+h2 { margin: .25em 0 0 0; font-size: 110%; }
+.error { color: red; }
+.success { color: green; }
+.warning { color: yellow; }
+.warning::before {content: "?";}
+.checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
+</style>
+</head>
+<body bgcolor=black>
+<table>
+`)
 
 	statuses := make([]statusLine, len(bots))
 	errors := make([]error, len(bots))
@@ -259,28 +290,6 @@ func main() {
 	ossfuzz_ch := make(chan string)
 	go func() { ossfuzz_ch <- GetOssFuzzStatusString() }()
 
-	fmt.Println(`
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
-   "http://www.w3.org/TR/html4/loose.dtd">
-<html>
-<head>
-<title>dashboard</title>
-<link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-<meta http-equiv="refresh" content="60">
-<style type="text/css">
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
-a {	color: inherit; text-decoration: none; }
-h2 { margin: .25em 0 0 0; font-size: 110%; }
-.error { color: red; }
-.success { color: green; }
-.warning { color: yellow; }
-.checkmarks { display: flex; justify-content: space-between; font-weight: bold; }
-</style>
-</head>
-<body bgcolor=black>
-<table>
-`)
 	for i := range bots {
 		if bots[i].url == "" {
 			fmt.Println("<tr><td colspan=3><h2>")
@@ -335,10 +344,10 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
 				style := "error"
-				text := "&#x2717;" // x sign
+				text := crossSymbol
 				if s.success {
 					style = "success"
-					text = "&#x2713;" //checkmark
+					text = checkSymbol
 				}
 				// TODO: Make use of revisions
 				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
