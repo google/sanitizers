@@ -371,17 +371,14 @@ $(function() {
 		}
 		fmt.Println(tr(r))
 	}
-	fmt.Println(`
-</table>`)
+	fmt.Println(`</table>`)
 	fmt.Println(<-ossfuzz_ch)
-	fmt.Println(`
-<p><font size=".8em">go/dynamic-tools-dashboard
-`)
+	fmt.Println(`<p><font size=".8em">go/dynamic-tools-dashboard, `)
 	tz, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		fmt.Println("err: ", err.Error())
 	}
-	fmt.Println(time.Now().In(tz).Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
 	fmt.Println(`
 </font></p>
 </body>
