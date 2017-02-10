@@ -20,27 +20,27 @@ var (
 	bots = []struct {
 		name, url string
 	}{
-		{"Clang", ""},
-		{"(FYI) clang-x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
+		{"Clang (FYI)", ""},
+		{"x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
 		{"Chromium", ""},
 		{"(FYI) Clang Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/ClangToTLinux%20tester"},
 		{"CFI Linux", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20ToT"},
 		{"CFI Linux CF", "https://build.chromium.org/p/chromium.fyi/builders/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
-		{"sanitizer-windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
-		{"sanitizer-x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
-		{"sanitizer-x86_64-linux-bootstrap", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
-		{"sanitizer-x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
-		{"sanitizer-x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
-		{"sanitizer-ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
-		{"sanitizer-ppc64le-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64le-linux"},
-		{"LibFuzzer", ""},
-		{"sanitizer-x86_64-linux-fuzzer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"chromium-x86_64-linux-fuzzer-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
-		{"chromium-x86_64-linux-fuzzer-asan-dbg", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan%20Debug"},
-		{"chromium-x86_64-linux-fuzzer-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
-		{"chromium-x86_64-linux-fuzzer-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
+		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
+		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
+		{"x86_64-linux-bootstrap", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
+		{"x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
+		{"ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
+		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64le-linux"},
+		{"LibFuzzer (x86_64-linux)", ""},
+		{"sanitizer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"chromium-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
+		{"chromium-asan-dbg", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan%20Debug"},
+		{"chromium-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
+		{"chromium-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
 	}
 )
 
@@ -80,7 +80,7 @@ func findSubtags(n *html.Node, tagName string) []*html.Node {
 type status struct {
 	buildUrl string
 	rev      int64
-	success  bool
+	success  int
 }
 
 type statusLine struct {
@@ -133,7 +133,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 							return *new(statusLine)
 						}
 
-						success := false
+						success := 0
 						buildUrl := ""
 						var rev int64 = 0
 
@@ -145,7 +145,13 @@ func GetStatus(buildUrl string) (statusLine, error) {
 								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
 							}
 							if i == 2 {
-								success = class(c) == "success"
+								if class(c) == "success" {
+									success = 1
+								}
+								if class(c) == "failure" {
+									success = -1
+								}
+								
 							}
 							if i == 3 {
 								relUrl, err := url.Parse(attr(findSubtag(c, "a"), "href"))
@@ -213,7 +219,7 @@ func GetOssFuzzStatusString() string {
 	htmlStatuses := ""
 	sort.Strings(status.Projects)
 	for i := range status.Projects {
-		class := "success nosymbol"
+		class := "success"
 		for j := range status.Unstable {
 			if status.Unstable[j] == status.Projects[i] {
 				class = "warning"
@@ -245,12 +251,16 @@ body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a {	color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
-.error::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.error.symbol::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .success { color: green; }
-.success:not(.nosymbol)::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.success.symbol::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .warning { color: yellow; }
-.warning::before {content: "?"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.checkmarks { display: flex; justify-content: space-between; }
+.warning.symbol::before {content: "?"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.other { color: #c6c; }
+.other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+table {
+   width: 100%;
+}
 </style>
 </head>
 <body bgcolor=black>
@@ -289,11 +299,12 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 
 	for i := range bots {
 		if bots[i].url == "" {
-			fmt.Println("<tr><td colspan=3><h2>")
+			fmt.Println(fmt.Sprintf("<tr><td colspan=%d><h2>", maxStatuses + 3))
 			fmt.Println(bots[i].name)
-			fmt.Println("</h2></td><td></td></tr>")
+			fmt.Println("</h2></td></tr>")
 			continue
 		}
+
 		tr := func(s string) string {
 			return fmt.Sprintf("<tr>%s</tr>", s)
 		}
@@ -302,15 +313,21 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 			return fmt.Sprintf("<td %s>%s</td>", attrs, s)
 		}
 
-		font := func(color string, s string) string {
-			return fmt.Sprintf("<font color=%s>%s</font>", color, s)
-		}
 		span := func(class string, s string) string {
-			return fmt.Sprintf("<span class=%s>%s</span>", class, s)
+			return fmt.Sprintf("<span class=\"%s\">%s</span>", class, s)
 		}
 
 		a := func(url string, text string) string {
 			return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
+		}
+
+		class := func(status int) string {
+			if status == 1 {
+				return "success"
+			} else if status == -1 {
+				return "error"
+			}
+			return "other"
 		}
 
 		r := ""
@@ -320,11 +337,12 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 		}
 		r += td("", date+"&nbsp;")
 
-		color := "red"
-		if len(statuses[i].statuses) > 0 && statuses[i].statuses[0].success {
-			color = "green"
+		style := class(0)
+		if len(statuses[i].statuses) > 0 {
+			style = class(statuses[i].statuses[0].success)
 		}
-		r += td("width=30%", font(color, a(bots[i].url, bots[i].name)))
+
+		r += td("", a(bots[i].url, span(style, bots[i].name)))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
@@ -332,23 +350,15 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 			if trim != -1 {
 				errStr = errStr[trim+1:]
 			}
-			r += td(fmt.Sprintf("colspan=%d", maxStatuses), font("white", errStr))
-		} else if statuses[i].date == "" {
-			r += td("", font("white", "?"))
-		} else {
-
-			cell := ""
+			r += td(fmt.Sprintf("colspan=%d", maxStatuses + 1), span(class(0), errStr))
+		} else if statuses[i].date != "" {
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
-				style := "error"
-				if s.success {
-					style = "success"
-				}
+				style := class(s.success)
 				// TODO: Make use of revisions
 				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
-				cell += a(s.buildUrl, span(style, ""))
+				r += td("", a(s.buildUrl, span(style + " symbol", "")))
 			}
-			r += td("width=70%", "<span class=checkmarks>"+cell+"</span>")
 		}
 		fmt.Println(tr(r))
 	}
