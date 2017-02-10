@@ -245,7 +245,7 @@ func main() {
 <title>dashboard</title>
 <link href="https://fonts.googleapis.com/css?family=Open+Sans|Inconsolata" rel="stylesheet">
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-<meta http-equiv="refresh" content="60">
+<meta http-equiv="refresh" content="43200">
 <style type="text/css">
 body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a {	color: inherit; text-decoration: none; }
@@ -262,6 +262,15 @@ table {
    width: 100%;
 }
 </style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
+<script>
+// Reload without flickering.
+$(function() { 
+  setTimeout(function() {
+    $.get('', function(data) { $(document.body).html(data); });
+  },60000); 
+});
+</script>
 </head>
 <body bgcolor=black>
 <table>
@@ -368,7 +377,11 @@ table {
 	fmt.Println(`
 <p><font size=".8em">go/dynamic-tools-dashboard
 `)
-	fmt.Println(time.Now().Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
+	tz, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		fmt.Println("err: ", err.Error())
+	}
+	fmt.Println(time.Now().In(tz).Format("Mon Jan 2 15:04:05 -0700 MST 2006"))
 	fmt.Println(`
 </font></p>
 </body>
