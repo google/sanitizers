@@ -178,13 +178,24 @@ func GetStatus(buildUrl string) (statusLine, error) {
 	return f(doc), err
 }
 
+type OssFuzzProject struct {
+  Name string `json:"name"`
+  BuildId string `json:"build_id"`
+}
+
 type OssFuzzStatus struct {
-	Projects    []string `json:"projects"`
-	Successes   []string `json:"successes"`
-	Failures    []string `json:"failures"`
-	Unstable    []string `json:"unstable"`
+	Projects    []OssFuzzProject
+	Successes   []OssFuzzProject
+	Failures    []OssFuzzProject
+	Unstable    []OssFuzzProject
 	LastUpdated string   `json:"last_updated"`
 }
+
+type ByName []OssFuzzProject
+
+func (a ByName) Len() int { return len(a) }
+func (a ByName) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
 
 func GetOssFuzzStatusString() string {
 	header := "<h2>OSS-Fuzz</h2>"
@@ -195,7 +206,7 @@ func GetOssFuzzStatusString() string {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get("https://oss-fuzz-build-logs.storage.googleapis.com/status.json")
+		resp, err = client.Get("https://oss-fuzz-gcb-logs.storage.googleapis.com/status.json")
 		if err == nil {
 			break
 		}
@@ -217,20 +228,22 @@ func GetOssFuzzStatusString() string {
 	}
 
 	htmlStatuses := ""
-	sort.Strings(status.Projects)
+	sort.Sort(ByName(status.Projects))
 	for i := range status.Projects {
 		class := "success"
 		for j := range status.Unstable {
-			if status.Unstable[j] == status.Projects[i] {
+			if status.Unstable[j].Name == status.Projects[i].Name {
 				class = "warning"
 			}
 		}
 		for j := range status.Failures {
-			if status.Failures[j] == status.Projects[i] {
+			if status.Failures[j].Name == status.Projects[i].Name {
 				class = "error"
 			}
 		}
-		htmlStatuses += fmt.Sprintf("<span class='%s'>%s&nbsp;</span> ", class, status.Projects[i])
+		htmlStatuses += fmt.Sprintf(
+                  "<span class='%s'><a href='https://oss-fuzz-gcb-logs.storage.googleapis.com/log-%s.txt'>%s</a>&nbsp;</span> ",
+                    class, status.Projects[i].BuildId, status.Projects[i].Name)
 	}
 
 	return fmt.Sprintf("%s %s", header, htmlStatuses)
