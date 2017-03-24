@@ -151,7 +151,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 								if class(c) == "failure" {
 									success = -1
 								}
-								
+
 							}
 							if i == 3 {
 								relUrl, err := url.Parse(attr(findSubtag(c, "a"), "href"))
@@ -179,8 +179,8 @@ func GetStatus(buildUrl string) (statusLine, error) {
 }
 
 type OssFuzzProject struct {
-  Name string `json:"name"`
-  BuildId string `json:"build_id"`
+	Name    string `json:"name"`
+	BuildId string `json:"build_id"`
 }
 
 type OssFuzzStatus struct {
@@ -188,13 +188,13 @@ type OssFuzzStatus struct {
 	Successes   []OssFuzzProject
 	Failures    []OssFuzzProject
 	Unstable    []OssFuzzProject
-	LastUpdated string   `json:"last_updated"`
+	LastUpdated string `json:"last_updated"`
 }
 
 type ByName []OssFuzzProject
 
-func (a ByName) Len() int { return len(a) }
-func (a ByName) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a ByName) Len() int           { return len(a) }
+func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
 
 func GetOssFuzzStatusString() string {
@@ -202,29 +202,30 @@ func GetOssFuzzStatusString() string {
 
 	var resp *http.Response
 	var err error
+	stausUrl := "https://oss-fuzz-build-logs.storage.googleapis.com"
 	for i := 0; i < 3; i++ {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get("https://oss-fuzz-gcb-logs.storage.googleapis.com/status.json")
+		resp, err = client.Get(stausUrl + "/status.json")
 		if err == nil {
 			break
 		}
 	}
 
 	if err != nil {
-		return fmt.Sprintf("%s<p><span class=error>%v</span></p>", header, err)
+		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
 	}
 
 	var status OssFuzzStatus
 	jsonBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Sprintf("%s<p><span class=error>%v</span></p>", header, err)
+		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
 	}
 
 	err = json.Unmarshal(jsonBytes, &status)
 	if err != nil {
-		return fmt.Sprintf("%s<p><span class=error>%v</span></p>", header, err)
+		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
 	}
 
 	htmlStatuses := ""
@@ -242,8 +243,8 @@ func GetOssFuzzStatusString() string {
 			}
 		}
 		htmlStatuses += fmt.Sprintf(
-                  "<span class='%s'><a href='https://oss-fuzz-gcb-logs.storage.googleapis.com/log-%s.txt'>%s</a>&nbsp;</span> ",
-                    class, status.Projects[i].BuildId, status.Projects[i].Name)
+			"<span class='%s'><a href='%s/log-%s.txt'>%s</a>&nbsp;</span> ",
+			class, stausUrl, status.Projects[i].BuildId, status.Projects[i].Name)
 	}
 
 	return fmt.Sprintf("%s %s", header, htmlStatuses)
@@ -321,7 +322,7 @@ $(function() {
 
 	for i := range bots {
 		if bots[i].url == "" {
-			fmt.Println(fmt.Sprintf("<tr><td colspan=%d><h2>", maxStatuses + 3))
+			fmt.Println(fmt.Sprintf("<tr><td colspan=%d><h2>", maxStatuses+3))
 			fmt.Println(bots[i].name)
 			fmt.Println("</h2></td></tr>")
 			continue
@@ -372,14 +373,14 @@ $(function() {
 			if trim != -1 {
 				errStr = errStr[trim+1:]
 			}
-			r += td(fmt.Sprintf("colspan=%d", maxStatuses + 1), span(class(0), errStr))
+			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
 		} else if statuses[i].date != "" {
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
 				style := class(s.success)
 				// TODO: Make use of revisions
 				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
-				r += td("", a(s.buildUrl, span(style + " symbol", "")))
+				r += td("", a(s.buildUrl, span(style+" symbol", "")))
 			}
 		}
 		fmt.Println(tr(r))
