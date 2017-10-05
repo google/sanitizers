@@ -34,7 +34,7 @@ var (
 		{"x86_64-linux-android", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-android"},
 		{"x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
 		{"ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
-		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64le-linux"},
+		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/clang-ppc64le-linux-lnt"},
 		{"LibFuzzer (x86_64-linux)", ""},
 		{"sanitizer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
