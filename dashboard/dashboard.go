@@ -24,6 +24,7 @@ var (
 		{"(FYI) Clang Linux ToT", "https://build.chromium.org/p/chromium.clang/builders/ToTLinux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20ToT"},
 		{"CFI Linux CF", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20CF"},
+		{"CFI Linux (icall)", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20%28icall%29"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
