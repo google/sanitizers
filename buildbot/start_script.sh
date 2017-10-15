@@ -15,6 +15,7 @@ apt-get install -y \
  binutils-dev \
  ninja-build \
  pkg-config \
+ libz-dev \
  gawk
  
 if [[ "$BOT_NAME" == "sanitizer-buildbot5" ]]; then
