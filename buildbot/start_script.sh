@@ -13,7 +13,19 @@ apt-get install -y \
  cmake \
  binutils-gold \
  binutils-dev \
- ninja-build
+ ninja-build \
+ gawk
+ 
+if [[ "$BOT_NAME" == "sanitizer-buildbot5" ]]; then
+ apt-get install -y \
+  git \
+  libtool \
+  m4 \
+  automake \
+  libgcrypt-dev \
+  liblzma-dev \
+  libssl-dev
+fi
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
