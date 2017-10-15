@@ -14,6 +14,7 @@ apt-get install -y \
  binutils-gold \
  binutils-dev \
  ninja-build \
+ pkg-config \
  gawk
  
 if [[ "$BOT_NAME" == "sanitizer-buildbot5" ]]; then
@@ -24,7 +25,8 @@ if [[ "$BOT_NAME" == "sanitizer-buildbot5" ]]; then
   automake \
   libgcrypt-dev \
   liblzma-dev \
-  libssl-dev
+  libssl-dev \
+  libgss-dev
 fi
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
