@@ -4,6 +4,8 @@ BOT_DIR=/b
 BOT_NAME=$1
 BOT_PASS=$2
 
+curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
+
 apt-get update -y
 apt-get upgrade -y
 apt-get install -y \
