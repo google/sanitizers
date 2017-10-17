@@ -20,8 +20,6 @@ var (
 	bots = []struct {
 		name, url string
 	}{
-		{"Clang (FYI)", ""},
-		{"x86_64-debian-fast", "http://lab.llvm.org:8011/builders/clang-x86_64-debian-fast"},
 		{"Chromium", ""},
 		{"(FYI) Clang Linux ToT", "https://build.chromium.org/p/chromium.clang/builders/ToTLinux"},
 		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20ToT"},
@@ -29,7 +27,9 @@ var (
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-bootstrap", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"x86_64-linux-asan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"x86_64-linux-msan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap-msan"},
+		{"x86_64-linux-ubsan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
 		{"x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
 		{"x86_64-linux-android", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-android"},
 		{"x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
