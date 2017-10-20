@@ -1,10 +1,10 @@
 #!/bin/bash
 
-BOT_DIR=/tmp/b
+BOT_DIR=/b
 BOT_NAME=$1
 BOT_PASS=$2
 
-mount -t tmpfs tmpfs -o size=80% /tmp
+mount -t tmpfs tmpfs -o size=80% /b
 
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
