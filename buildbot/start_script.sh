@@ -1,8 +1,10 @@
 #!/bin/bash
 
-BOT_DIR=/b
+BOT_DIR=/tmp/b
 BOT_NAME=$1
 BOT_PASS=$2
+
+sudo mount -t tmpfs tmpfs /tmp
 
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
