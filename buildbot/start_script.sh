@@ -4,7 +4,8 @@ BOT_DIR=/b
 BOT_NAME=$1
 BOT_PASS=$2
 
-mount -t tmpfs tmpfs -o size=80% /b
+mkdir -p $BOT_DIR
+mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
@@ -36,7 +37,6 @@ apt-get install -y \
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
-mkdir -p $BOT_DIR
 chown buildbot:buildbot $BOT_DIR
 
 buildslave create-slave $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
