@@ -20,17 +20,16 @@ apt-get install -y \
  gcc-multilib \
  gawk
  
-if [[ "$BOT_NAME" == "sanitizer-buildbot5" ]]; then
- apt-get install -y \
-  git \
-  libtool \
-  m4 \
-  automake \
-  libgcrypt-dev \
-  liblzma-dev \
-  libssl-dev \
-  libgss-dev
-fi
+# Neede only for fuzzing
+apt-get install -y \
+ git \
+ libtool \
+ m4 \
+ automake \
+ libgcrypt-dev \
+ liblzma-dev \
+ libssl-dev \
+ libgss-dev
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
