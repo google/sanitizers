@@ -4,8 +4,6 @@ BOT_DIR=/b
 BOT_NAME=$1
 BOT_PASS=$2
 
-echo "* soft nofile 10000" > /etc/security/limits.conf
-
 mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
@@ -39,6 +37,8 @@ apt-get install -y \
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
+
+systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
