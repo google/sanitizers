@@ -42,7 +42,7 @@ systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
-buildslave create-slave $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
+buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
 echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
@@ -61,4 +61,11 @@ SLAVE_OPTIONS[1]=\"\"
 SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 
 chown -R buildbot:buildbot $BOT_DIR
+systemctl daemon-reload
 service buildslave restart
+
+# GCE can restart instance after 24h in the middle of the build.
+# Gracefully restart before that happen.
+sleep 3600
+while pkill -SIGHUP buildslave; do sleep 5; done;
+shutdown now
