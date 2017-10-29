@@ -66,6 +66,6 @@ service buildslave restart
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
-sleep 3600
+sleep 72000
 while pkill -SIGHUP buildslave; do sleep 5; done;
 shutdown now
