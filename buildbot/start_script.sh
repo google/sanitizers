@@ -24,7 +24,7 @@ apt-get install -y \
  gcc-multilib \
  gawk
  
-# Neede only for fuzzing
+# Only for fuzzing
 apt-get install -y \
  git \
  libtool \
@@ -63,6 +63,9 @@ SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 chown -R buildbot:buildbot $BOT_DIR
 systemctl daemon-reload
 service buildslave restart
+
+sleep 30
+pgrep buildslave || shutdown now
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
