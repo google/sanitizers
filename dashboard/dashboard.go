@@ -356,7 +356,7 @@ $(function() {
 
 		r := ""
 		date := "??:??"
-		if statuses[i].date != "" {
+		if len(statuses[i].date) >= 5 {
 			date = statuses[i].date[len(statuses[i].date)-5:]
 		}
 		r += td("", date+"&nbsp;")
