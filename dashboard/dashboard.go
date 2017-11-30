@@ -146,10 +146,11 @@ func GetStatus(buildUrl string) (statusLine, error) {
 								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
 							}
 							if i == 2 {
-								if class(c) == "success" {
+								classC := class(c)
+								if classC == "success" || classC == "status-Success" {
 									success = 1
 								}
-								if class(c) == "failure" {
+								if classC == "failure" || classC == "status-Failure" {
 									success = -1
 								}
 
