@@ -21,10 +21,10 @@ var (
 		name, url string
 	}{
 		{"Chromium", ""},
-		{"(FYI) Clang Linux ToT", "https://build.chromium.org/p/chromium.clang/builders/ToTLinux"},
-		{"CFI Linux ToT", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20ToT"},
-		{"CFI Linux CF", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20CF"},
-		{"CFI Linux (icall)", "https://build.chromium.org/p/chromium.clang/builders/CFI%20Linux%20%28icall%29"},
+		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/buildbot/chromium.clang/ToTLinux/"},
+		{"CFI Linux ToT", "https://ci.chromium.org/buildbot/chromium.clang/CFI%20Linux%20ToT/"},
+		{"CFI Linux CF", "https://ci.chromium.org/buildbot/chromium.clang/CFI%20Linux%20CF/"},
+		{"CFI Linux (icall)", "https://ci.chromium.org/buildbot/chromium.clang/CFI%20Linux%20%28icall%29/"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
@@ -38,10 +38,10 @@ var (
 		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/clang-ppc64le-linux-lnt"},
 		{"LibFuzzer (x86_64-linux)", ""},
 		{"sanitizer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"chromium-asan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan"},
-		{"chromium-asan-dbg", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20ASan%20Debug"},
-		{"chromium-msan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20MSan"},
-		{"chromium-ubsan", "https://build.chromium.org/p/chromium.fyi/builders/Libfuzzer%20Upload%20Linux%20UBSan"},
+		{"chromium-asan", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20ASan/"},
+		{"chromium-asan-dbg", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
+		{"chromium-msan", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20MSan/"},
+		{"chromium-ubsan", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20UBSan/"},
 	}
 )
 
@@ -141,6 +141,14 @@ func GetStatus(buildUrl string) (statusLine, error) {
 						for i, c := range findSubtags(c, "td") {
 							if i == 0 && date == "" {
 								date = c.FirstChild.Data
+								// LUCI has slightly different layout/formatting than buildbot
+								if date == "span" {
+									strtime, err := strconv.ParseInt(attr(c.FirstChild, "data-timestamp"), 10, 64)
+									if err == nil {
+										time := time.Unix(strtime / 1000, 0)
+										date = time.Format("Jan 2 15:04")
+									}
+								}
 							}
 							if i == 1 {
 								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
