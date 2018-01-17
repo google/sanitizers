@@ -137,6 +137,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 						success := 0
 						buildUrl := ""
 						var rev int64 = 0
+						isLuci := false
 
 						for i, c := range findSubtags(c, "td") {
 							if i == 0 && date == "" {
@@ -150,10 +151,14 @@ func GetStatus(buildUrl string) (statusLine, error) {
 									}
 								}
 							}
-							if i == 1 {
-								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
+							if (!isLuci && i == 1) || (isLuci && i == 2) {
+								if strings.Contains(c.FirstChild.Data, "hrs") || strings.Contains(c.FirstChild.Data, "mins") {
+									isLuci = true
+								} else {
+									rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
+								}
 							}
-							if i == 2 {
+							if (!isLuci && i == 2) || (isLuci && i == 3) {
 								classC := class(c)
 								if classC == "success" || classC == "status-Success" {
 									success = 1
@@ -163,7 +168,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 								}
 
 							}
-							if i == 3 {
+							if (!isLuci && i == 3) || (isLuci && i == 4) {
 								relUrl, err := url.Parse(attr(findSubtag(c, "a"), "href"))
 								if err == nil {
 									buildUrl = baseUrl.ResolveReference(relUrl).String()
