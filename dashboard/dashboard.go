@@ -123,12 +123,20 @@ func GetStatus(buildUrl string) (statusLine, error) {
 				if c.Type == html.ElementNode && c.Data == "tbody" {
 					date := ""
 					var statuses []status
+					isLuci := false
 					for i, c := range findSubtags(c, "tr") {
 						// ignore header row
 						if i == 0 {
 							// Does this look like the right table?
 							h := findSubtag(c, "th")
 							if h != nil && h.FirstChild != nil && h.FirstChild.Data == "Time" {
+								h2 := h.NextSibling
+								if h2 != nil {
+									h2 = h2.NextSibling
+								}
+								if h2 != nil && h2.FirstChild != nil && h2.FirstChild.Data == "Duration" {
+									isLuci = true
+								}
 								continue
 							}
 							return *new(statusLine)
@@ -137,7 +145,6 @@ func GetStatus(buildUrl string) (statusLine, error) {
 						success := 0
 						buildUrl := ""
 						var rev int64 = 0
-						isLuci := false
 
 						for i, c := range findSubtags(c, "td") {
 							if i == 0 && date == "" {
@@ -146,17 +153,13 @@ func GetStatus(buildUrl string) (statusLine, error) {
 								if date == "span" {
 									strtime, err := strconv.ParseInt(attr(c.FirstChild, "data-timestamp"), 10, 64)
 									if err == nil {
-										time := time.Unix(strtime / 1000, 0)
+										time := time.Unix(strtime/1000, 0)
 										date = time.Format("Jan 2 15:04")
 									}
 								}
 							}
 							if (!isLuci && i == 1) || (isLuci && i == 2) {
-								if strings.Contains(c.FirstChild.Data, "hrs") || strings.Contains(c.FirstChild.Data, "mins") {
-									isLuci = true
-								} else {
-									rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
-								}
+								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
 							}
 							if (!isLuci && i == 2) || (isLuci && i == 3) {
 								classC := class(c)
