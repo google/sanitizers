@@ -68,13 +68,13 @@ while getopts ":di:ph" opt; do
     d)
       echo_green "Only deleting folders"
       rm -rf $INSTALL_DIR
-      rm -rf ${LIBRARIES[@]}
+      rm -rf "${LIBRARIES[@]}"
       echo_green Done
       exit
       ;;
     p)
       echo_green "Only installing dependencies (requires root access)"
-      for lib in ${LIBRARIES[@]}
+      for lib in "${LIBRARIES[@]}"
       do
         echo_green "Installing all dependencies: $lib"
         sudo apt-get -y --no-remove build-dep $lib
@@ -113,11 +113,11 @@ function count_libs {
 }
 
 rm -rf "${INSTALL_DIR:-sentinel}"/*
-rm -rf ${LIBRARIES[@]}
+rm -rf "${LIBRARIES[@]}"
 
 mkdir -p $INSTALL_DIR
 
-for lib in ${LIBRARIES[@]}
+for lib in "${LIBRARIES[@]}"
 do
   echo_green "Checking if $lib needs any dependencies..."
   NEEDED_DEPS=$(apt-get -s build-dep $lib | grep Inst | cut -d " " -f 2)
@@ -132,7 +132,7 @@ done
 LIBS_COUNTER=$(count_libs)
 declare -A LIBS_COUNTERS
 
-for lib in ${LIBRARIES[@]}
+for lib in "${LIBRARIES[@]}"
 do
   (
   echo_green "Downloading: ${lib}"
@@ -253,7 +253,7 @@ END_TIME=$(date +%s)
 # print libs counters:
 echo "-----------------------------------------"
 echo -e "so-s\tpackage"
-for lib in ${!LIBS_COUNTERS[@]}
+for lib in "${!LIBS_COUNTERS[@]}"
 do
   COUNTER=${LIBS_COUNTERS[$lib]}
   if [ $COUNTER == 0 ]
