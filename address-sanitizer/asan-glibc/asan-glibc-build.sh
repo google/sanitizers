@@ -39,7 +39,7 @@ build_asan() {
   gcc -c asan-init-stub.c -o asan-init-stub.o -fPIC
  
   python -m compileall $HERE 2>/dev/null
-  chmod +x *.pyc
+  chmod +x ./*.pyc
 
   rm -rf $ASAN_BUILD
   mkdir -p $ASAN_BUILD
