@@ -112,7 +112,7 @@ function count_libs {
   find $INSTALL_DIR | grep "\.so$" | wc -l
 }
 
-rm -rf $INSTALL_DIR/*
+rm -rf "${INSTALL_DIR:-sentinel}"/*
 rm -rf ${LIBRARIES[@]}
 
 mkdir -p $INSTALL_DIR
