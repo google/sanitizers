@@ -109,4 +109,4 @@ EOF
 # Don't report alloc-dealloc-mismatch bugs (there is on in 471.omnetpp) and leaks
 export ASAN_OPTIONS=alloc_dealloc_mismatch=0:detect_leaks=0${ASAN_OPTIONS:+:$ASAN_OPTIONS}
 . shrc
-runspec -c $name -a run -I -l --size $size -n $NUM_RUNS $@
+runspec -c $name -a run -I -l --size $size -n $NUM_RUNS "$@"
