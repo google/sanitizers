@@ -191,7 +191,7 @@ do
     # should rename folder with "+" to "_"
     cd .. 
     FOLDERNAME=$(ls -F |grep \/$)
-    mv $FOLDERNAME $(echo $FOLDERNAME | sed "s/+/_/g")
+    mv $FOLDERNAME ${FOLDERNAME//+/_}
     cd $(ls -F |grep \/$)
     sed -i "s/error=uninitialized//g" src/configure # ignore compile error of initialized variable.
                                                     # the bug is already fixed
