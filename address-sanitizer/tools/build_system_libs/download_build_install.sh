@@ -206,11 +206,11 @@ do
     make install CC="$CC" CFLAGS="$CFLAGS" PREFIX="$INSTALL_DIR"
   elif [ "$lib" == "libnss3" ]
   then
-    for file in $(grep -rl "= gcc" .)
+    grep -rl "= gcc" . | while IFS= read -r file
     do
       sed -i "s/= gcc/= $(echo $CC | sed "s/\//\\\\\//g") $CFLAGS/g" $file;
     done
-    for file in $(grep -rl "= \-Wl,\-z,defs" .)
+    grep -rl "= \-Wl,\-z,defs" . | while IFS= read -r file
     do 
       sed -i "s/z,defs/z,nodefs/g" $file;
     done
