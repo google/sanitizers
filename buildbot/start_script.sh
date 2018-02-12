@@ -51,11 +51,13 @@ buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_
 
 echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
-uname -a | head -n1 > $BOT_DIR/info/host
-cmake --version | head -n1 >> $BOT_DIR/info/host
-g++ --version | head -n1 >> $BOT_DIR/info/host
-ld --version | head -n1 >> $BOT_DIR/info/host
-date >> $BOT_DIR/info/host
+{
+  uname -a | head -n1
+  cmake --version | head -n1
+  g++ --version | head -n1
+  ld --version | head -n1
+  date
+} > $BOT_DIR/info/host
 
 echo "SLAVE_RUNNER=/usr/bin/buildslave
 SLAVE_ENABLED[1]=\"1\"
