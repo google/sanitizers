@@ -109,7 +109,7 @@ function default_workflow {
 }
 
 function count_libs {
-  find $INSTALL_DIR | grep "\.so$" | wc -l
+  find $INSTALL_DIR | grep -c "\.so$"
 }
 
 rm -rf "${INSTALL_DIR:-sentinel}"/*
