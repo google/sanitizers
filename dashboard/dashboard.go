@@ -129,7 +129,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 						if i == 0 {
 							// Does this look like the right table?
 							h := findSubtag(c, "th")
-							if h != nil && h.FirstChild != nil && h.FirstChild.Data == "Time" {
+							if h != nil && h.FirstChild != nil && strings.Contains(h.FirstChild.Data, "Time") {
 								h2 := h.NextSibling
 								if h2 != nil {
 									h2 = h2.NextSibling
