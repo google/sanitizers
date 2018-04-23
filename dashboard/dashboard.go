@@ -134,7 +134,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 								if h2 != nil {
 									h2 = h2.NextSibling
 								}
-								if h2 != nil && h2.FirstChild != nil && h2.FirstChild.Data == "Duration" {
+								if h2 != nil && h2.FirstChild != nil && strings.Contains(h2.FirstChild.Data, "Duration") {
 									isLuci = true
 								}
 								continue
