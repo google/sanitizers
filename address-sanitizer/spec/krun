@@ -148,4 +148,4 @@ EOF
 
 export ASAN_OPTIONS="malloc_context_size=0 redzone=32 delay_queue_size=10000 mt=0 $ASAN_OPTIONS"
 . shrc
-runspec -c $name -a run -I -l --size $size -n 1 $@
+runspec -c $name -a run -I -l --size $size -n 1 "$@"

@@ -68,13 +68,13 @@ while getopts ":di:ph" opt; do
     d)
       echo_green "Only deleting folders"
       rm -rf $INSTALL_DIR
-      rm -rf ${LIBRARIES[@]}
+      rm -rf "${LIBRARIES[@]}"
       echo_green Done
       exit
       ;;
     p)
       echo_green "Only installing dependencies (requires root access)"
-      for lib in ${LIBRARIES[@]}
+      for lib in "${LIBRARIES[@]}"
       do
         echo_green "Installing all dependencies: $lib"
         sudo apt-get -y --no-remove build-dep $lib
@@ -109,15 +109,15 @@ function default_workflow {
 }
 
 function count_libs {
-  find $INSTALL_DIR | grep "\.so$" | wc -l
+  find $INSTALL_DIR | grep -c "\.so$"
 }
 
-rm -rf $INSTALL_DIR/*
-rm -rf ${LIBRARIES[@]}
+rm -rf "${INSTALL_DIR:-sentinel}"/*
+rm -rf "${LIBRARIES[@]}"
 
 mkdir -p $INSTALL_DIR
 
-for lib in ${LIBRARIES[@]}
+for lib in "${LIBRARIES[@]}"
 do
   echo_green "Checking if $lib needs any dependencies..."
   NEEDED_DEPS=$(apt-get -s build-dep $lib | grep Inst | cut -d " " -f 2)
@@ -132,7 +132,7 @@ done
 LIBS_COUNTER=$(count_libs)
 declare -A LIBS_COUNTERS
 
-for lib in ${LIBRARIES[@]}
+for lib in "${LIBRARIES[@]}"
 do
   (
   echo_green "Downloading: ${lib}"
@@ -191,7 +191,7 @@ do
     # should rename folder with "+" to "_"
     cd .. 
     FOLDERNAME=$(ls -F |grep \/$)
-    mv $FOLDERNAME $(echo $FOLDERNAME | sed "s/+/_/g")
+    mv $FOLDERNAME ${FOLDERNAME//+/_}
     cd $(ls -F |grep \/$)
     sed -i "s/error=uninitialized//g" src/configure # ignore compile error of initialized variable.
                                                     # the bug is already fixed
@@ -206,11 +206,11 @@ do
     make install CC="$CC" CFLAGS="$CFLAGS" PREFIX="$INSTALL_DIR"
   elif [ "$lib" == "libnss3" ]
   then
-    for file in $(grep -rl "= gcc" .)
+    grep -rl "= gcc" . | while IFS= read -r file
     do
       sed -i "s/= gcc/= $(echo $CC | sed "s/\//\\\\\//g") $CFLAGS/g" $file;
     done
-    for file in $(grep -rl "= \-Wl,\-z,defs" .)
+    grep -rl "= \-Wl,\-z,defs" . | while IFS= read -r file
     do 
       sed -i "s/z,defs/z,nodefs/g" $file;
     done
@@ -253,7 +253,7 @@ END_TIME=$(date +%s)
 # print libs counters:
 echo "-----------------------------------------"
 echo -e "so-s\tpackage"
-for lib in ${!LIBS_COUNTERS[@]}
+for lib in "${!LIBS_COUNTERS[@]}"
 do
   COUNTER=${LIBS_COUNTERS[$lib]}
   if [ $COUNTER == 0 ]

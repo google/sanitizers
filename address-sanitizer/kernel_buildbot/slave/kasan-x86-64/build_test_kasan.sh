@@ -58,7 +58,7 @@ echo @@@BUILD_STEP Run Tests@@@
 echo
 
 ssh -i ssh/id_rsa -p 10022 root@localhost "mkdir -p mod_install && mount -t 9p -o trans=virtio mount_host mod_install/ -oversion=9p2000.L,posixacl,cache=loose"
-ssh -i ssh/id_rsa -p 10022 root@localhost "for run in {1..30}; do insmod mod_install/lib/modules/*/kernel/lib/test_kasan.ko || echo "test";  done"
+ssh -i ssh/id_rsa -p 10022 root@localhost "for run in {1..30}; do insmod mod_install/lib/modules/*/kernel/lib/test_kasan.ko || echo \"test\";  done"
 
 cat vm_log | python ../../../../tools/kernel_test_parse.py --annotate --assert_candidates 5 --failed_log
 
