@@ -15,6 +15,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
+dpkg --add-architecture i386
 apt-get update -y
 apt-get upgrade -y
 apt-get install -y \
@@ -27,7 +28,9 @@ apt-get install -y \
  ninja-build \
  pkg-config \
  gcc-multilib \
- gawk
+ g++-multilib \
+ gawk \
+ libxml2-dev
  
 # Only for fuzzing
 apt-get install -y \
