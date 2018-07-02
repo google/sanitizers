@@ -38,10 +38,10 @@ var (
 		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/clang-ppc64le-linux-lnt"},
 		{"LibFuzzer (x86_64-linux)", ""},
 		{"sanitizer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"chromium-asan", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20ASan/"},
-		{"chromium-asan-dbg", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
-		{"chromium-msan", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20MSan/"},
-		{"chromium-ubsan", "https://ci.chromium.org/buildbot/chromium.fyi/Libfuzzer%20Upload%20Linux%20UBSan/"},
+		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan/"},
+		{"chromium-asan-dbg", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
+		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20MSan/"},
+		{"chromium-ubsan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20UBSan/"},
 	}
 )
 
