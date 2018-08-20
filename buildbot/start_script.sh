@@ -50,8 +50,8 @@ systemctl set-property buildslave.service TasksMax=100000
 
 function create() {
  BOT_NAME=$1
- echo "\n\nCreating $BOT_NAME"
- if curl http://lab.llvm.org:8011/json/slaves | jq '."${BOT_NAME}".connected' | grep true ; then
+ echo "Creating $BOT_NAME"
+ if curl http://lab.llvm.org:8011/json/slaves | jq ".\"${BOT_NAME}\".connected" | grep "true" ; then
    echo "$BOT_NAME is already connected"
    return 1
  fi
