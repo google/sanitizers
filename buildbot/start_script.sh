@@ -48,8 +48,6 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
 systemctl set-property buildslave.service TasksMax=100000
 
-chown buildbot:buildbot $BOT_DIR
-
 function create() {
  BOT_NAME=$1
  echo "Creating $BOT_NAME"
@@ -58,6 +56,8 @@ function create() {
    return 1
  fi
 
+ rm -rf $BOT_DIR/*
+ chown buildbot:buildbot $BOT_DIR
  buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
  echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
