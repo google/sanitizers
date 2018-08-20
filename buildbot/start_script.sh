@@ -52,7 +52,11 @@ chown buildbot:buildbot $BOT_DIR
 
 function create() {
  BOT_NAME=$1
- curl http://lab.llvm.org:8011/json/slaves | jq '."${BOT_NAME}".connected' | ( grep true && return 1 )
+ echo "Creating $BOT_NAME"
+ if curl http://lab.llvm.org:8011/json/slaves | jq '."${BOT_NAME}".connected' | grep true ; then
+   echo "$BOT_NAME is already connected"
+   return 1
+ fi
 
  buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
