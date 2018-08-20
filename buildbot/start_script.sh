@@ -50,30 +50,37 @@ systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
-BOT_NAME=sanitizer-buildbot1
-buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
+function create() {
+ BOT_NAME=$1
+ curl http://lab.llvm.org:8011/json/slaves | jq '."${BOT_NAME}".connected' | ( grep true && return 1 )
 
-echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
+ buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
-{
-  uname -a | head -n1
-  cmake --version | head -n1
-  g++ --version | head -n1
-  ld --version | head -n1
-  date
-} > $BOT_DIR/info/host
+ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
-echo "SLAVE_RUNNER=/usr/bin/buildslave
-SLAVE_ENABLED[1]=\"1\"
-SLAVE_NAME[1]=\"buildslave1\"
-SLAVE_USER[1]=\"buildbot\"
-SLAVE_BASEDIR[1]=\"$BOT_DIR\"
-SLAVE_OPTIONS[1]=\"\"
-SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
+ {
+   uname -a | head -n1
+   cmake --version | head -n1
+   g++ --version | head -n1
+   ld --version | head -n1
+   date
+ } > $BOT_DIR/info/host
 
-chown -R buildbot:buildbot $BOT_DIR
-systemctl daemon-reload
-service buildslave restart
+ echo "SLAVE_RUNNER=/usr/bin/buildslave
+ SLAVE_ENABLED[1]=\"1\"
+ SLAVE_NAME[1]=\"buildslave1\"
+ SLAVE_USER[1]=\"buildbot\"
+ SLAVE_BASEDIR[1]=\"$BOT_DIR\"
+ SLAVE_OPTIONS[1]=\"\"
+ SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
+
+ chown -R buildbot:buildbot $BOT_DIR
+ systemctl daemon-reload
+ service buildslave restart
+}
+
+create sanitizer-buildbot1 || \
+create sanitizer-buildbot8 ||
 
 sleep 30
 pgrep buildslave || shutdown now
