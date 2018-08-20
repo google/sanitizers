@@ -84,6 +84,11 @@ function create() {
 }
 
 create sanitizer-buildbot1 || \
+create sanitizer-buildbot2 || \
+create sanitizer-buildbot3 || \
+create sanitizer-buildbot7 || \
+create sanitizer-buildbot4 || \
+create sanitizer-buildbot5 || \
 create sanitizer-buildbot8 ||
 
 sleep 30
