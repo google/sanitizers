@@ -6,8 +6,7 @@
 # the instance and reload the script.
 
 BOT_DIR=/b
-BOT_NAME=$1
-BOT_PASS=$2
+BOT_PASS=$1
 
 mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
@@ -30,7 +29,8 @@ apt-get install -y \
  gcc-multilib \
  g++-multilib \
  gawk \
- libxml2-dev
+ libxml2-dev \
+ jq
  
 # Only for fuzzing
 apt-get install -y \
@@ -50,6 +50,7 @@ systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
+BOT_NAME=sanitizer-buildbot1
 buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
 echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
