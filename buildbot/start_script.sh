@@ -48,7 +48,7 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
 systemctl set-property buildslave.service TasksMax=100000
 
-function create() {
+function try_create() {
  BOT_NAME=$1
  echo "Creating $BOT_NAME"
  if curl http://lab.llvm.org:8011/json/slaves | jq ".\"${BOT_NAME}\".connected" | grep "true" ; then
@@ -83,13 +83,15 @@ function create() {
  service buildslave restart
 }
 
-create sanitizer-buildbot1 || \
-create sanitizer-buildbot2 || \
-create sanitizer-buildbot3 || \
-create sanitizer-buildbot7 || \
-create sanitizer-buildbot4 || \
-create sanitizer-buildbot5 || \
-create sanitizer-buildbot8 ||
+# Order is important.
+# 1,2,3,7 are primary bots, 4,5,8 are backups.
+try_create sanitizer-buildbot1 || \
+try_create sanitizer-buildbot2 || \
+try_create sanitizer-buildbot3 || \
+try_create sanitizer-buildbot7 || \
+try_create sanitizer-buildbot4 || \
+try_create sanitizer-buildbot5 || \
+try_create sanitizer-buildbot8 || shutdown now
 
 sleep 30
 pgrep buildslave || shutdown now
