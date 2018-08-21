@@ -110,7 +110,8 @@ try_create sanitizer-buildbot3 || \
 try_create sanitizer-buildbot7 || \
 try_create sanitizer-buildbot4 || \
 try_create sanitizer-buildbot8 || \
-try_create sanitizer-buildbot5 || shutdown now
+try_create sanitizer-buildbot5 
+#|| shutdown now
 
 ShutdownIfNotAlive 30
 
