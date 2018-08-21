@@ -7,7 +7,7 @@
 
 function ShutdownIfNotAlive() {
   sleep $1
-  pgrep buildslave #|| shutdown now
+  pgrep buildslave || shutdown now
 }
 
 ShutdownIfNotAlive 300 &
