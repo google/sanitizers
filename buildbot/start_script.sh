@@ -90,10 +90,15 @@ function try_create() {
  if service buildslave restart ; then
    sleep 30
    if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".host" | grep " $BOT_NAME " ; then
+     echo "$BOT_NAME is connected"
      return 0
    else
+     echo "Another builder claimed $BOT_NAME"
      return 1
    fi
+ else
+   echo "Failed to restart $BOT_NAME"
+   return 1
  fi
 }
 
