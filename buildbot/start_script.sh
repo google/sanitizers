@@ -91,7 +91,7 @@ function try_create() {
  systemctl daemon-reload
  if service buildslave restart ; then
    sleep 30
-   if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".host" | grep " $BOT_NAME " ; then
+   if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".host" | grep " $HOSTNAME " ; then
      echo "$BOT_NAME is connected"
      return 0
    else
