@@ -49,7 +49,7 @@ apt-get install -y \
  libssl-dev \
  libgss-dev
  
-apt-get remove --purge buildbot-slave
+apt-get remove -y --purge buildbot-slave
 while pkill -SIGHUP buildslave; do sleep 5; done;
 apt-get install -y buildbot-slave
 
