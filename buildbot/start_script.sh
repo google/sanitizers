@@ -5,6 +5,13 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
+function ShutdownIfNotAlive() {
+  sleep $1
+  pgrep buildslave || shutdown now
+}
+
+ShutdownIfNotAlive 300 &
+
 BOT_DIR=/b
 BOT_PASS=$1
 
@@ -90,11 +97,10 @@ try_create sanitizer-buildbot2 || \
 try_create sanitizer-buildbot3 || \
 try_create sanitizer-buildbot7 || \
 try_create sanitizer-buildbot4 || \
-try_create sanitizer-buildbot5 || \
-try_create sanitizer-buildbot8 || shutdown now
+try_create sanitizer-buildbot8 || \
+try_create sanitizer-buildbot5 || shutdown now
 
-sleep 30
-pgrep buildslave || shutdown now
+ShutdownIfNotAlive 30
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
