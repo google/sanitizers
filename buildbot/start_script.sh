@@ -57,10 +57,31 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
 systemctl set-property buildslave.service TasksMax=100000
 
-function try_create() {
- while pkill -SIGHUP buildslave; do sleep 5; done;
+function claim_bot() {
+  BOT_NAME=$1
+  OLD_HOST="$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})"
+  if [[ "$OLD_HOST" != "$HOSTNAME" ]] ; then
+    if ping -c 1 "$OLD_HOST" ; then
+      return 1
+    fi
+    if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$OLD_HOST" ]] ; then
+      return 1
+    fi
+    echo $HOSTNAME | gsutil cp - gs://sanitizer-buildbot/${BOT_NAME}
+  fi
+  sleep 10
+  if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$HOSTNAME" ]] ; then
+    return 1
+  fi
+  echo "$BOT_NAME is claimed"
+}
 
+function try_create() {
+ #while pkill -SIGHUP buildslave; do sleep 5; done;
  BOT_NAME=$1
+ claim_bot $BOT_NAME
+}
+function try_create1() {
  echo "Creating $BOT_NAME"
  if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".connected" | grep "true" ; then
    echo "$BOT_NAME is already connected"
