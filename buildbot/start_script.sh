@@ -24,8 +24,10 @@ curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 dpkg --add-architecture i386
 apt-get update -y
 apt-get upgrade -y
+
+apt-get install -y buildbot-slave
+ 
 apt-get install -y \
- buildbot-slave \
  subversion \
  g++ \
  cmake \
