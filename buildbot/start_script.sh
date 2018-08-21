@@ -88,6 +88,7 @@ function try_create() {
  service buildslave restart
 }
 
+BOT_NAME=
 function claim_bot() {
   BOT_NAME=$1
   OLD_HOST="$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})"
@@ -105,7 +106,6 @@ function claim_bot() {
     return 1
   fi
   echo "$BOT_NAME is claimed"
-  try_create $BOT_NAME
 }
 
 
@@ -120,6 +120,8 @@ claim_bot sanitizer-buildbot4 || \
 claim_bot sanitizer-buildbot8 || \
 claim_bot sanitizer-buildbot5 
 #|| shutdown now
+
+try_create $BOT_NAME
 
 ShutdownIfNotAlive 30
 
