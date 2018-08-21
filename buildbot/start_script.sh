@@ -58,8 +58,9 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 systemctl set-property buildslave.service TasksMax=100000
 
 function try_create() {
+ while pkill -SIGHUP buildslave; do sleep 5; done;
+
  BOT_NAME=$1
- while pkill -SIGHUP buildslave
  echo "Creating $BOT_NAME"
  if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".connected" | grep "true" ; then
    echo "$BOT_NAME is already connected"
