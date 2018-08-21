@@ -25,8 +25,6 @@ dpkg --add-architecture i386
 apt-get update -y
 apt-get upgrade -y
 
-apt-get install -y buildbot-slave
- 
 apt-get install -y \
  subversion \
  g++ \
@@ -38,8 +36,7 @@ apt-get install -y \
  gcc-multilib \
  g++-multilib \
  gawk \
- libxml2-dev \
- jq
+ libxml2-dev
  
 # Only for fuzzing
 apt-get install -y \
@@ -51,45 +48,21 @@ apt-get install -y \
  liblzma-dev \
  libssl-dev \
  libgss-dev
+ 
+apt-get remove -purge buildbot-slave
+while pkill -SIGHUP buildslave; do sleep 5; done;
+apt-get install -y buildbot-slave
+
+rm -rf $BOT_DIR/*
+chown buildbot:buildbot $BOT_DIR
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
 systemctl set-property buildslave.service TasksMax=100000
 
-function claim_bot() {
-  BOT_NAME=$1
-  OLD_HOST="$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})"
-  if [[ "$OLD_HOST" != "$HOSTNAME" ]] ; then
-    if ping -c 1 "$OLD_HOST" ; then
-      return 1
-    fi
-    if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$OLD_HOST" ]] ; then
-      return 1
-    fi
-    echo $HOSTNAME | gsutil cp - gs://sanitizer-buildbot/${BOT_NAME}
-  fi
-  sleep 10
-  if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$HOSTNAME" ]] ; then
-    return 1
-  fi
-  echo "$BOT_NAME is claimed"
-}
-
 function try_create() {
- #while pkill -SIGHUP buildslave; do sleep 5; done;
  BOT_NAME=$1
- claim_bot $BOT_NAME
-}
-function try_create1() {
- echo "Creating $BOT_NAME"
- if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".connected" | grep "true" ; then
-   echo "$BOT_NAME is already connected"
-   return 1
- fi
-
- rm -rf $BOT_DIR/*
- chown buildbot:buildbot $BOT_DIR
  buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
  echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
@@ -112,30 +85,40 @@ function try_create1() {
 
  chown -R buildbot:buildbot $BOT_DIR
  systemctl daemon-reload
- if service buildslave restart ; then
-   sleep 30
-   if curl http://lab.llvm.org:8011/json/slaves/${BOT_NAME} | jq ".host" | grep " $HOSTNAME " ; then
-     echo "$BOT_NAME is connected"
-     return 0
-   else
-     echo "Another builder claimed $BOT_NAME"
-     return 1
-   fi
- else
-   echo "Failed to restart $BOT_NAME"
-   return 1
- fi
+ service buildslave restart
 }
+
+function claim_bot() {
+  BOT_NAME=$1
+  OLD_HOST="$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})"
+  if [[ "$OLD_HOST" != "$HOSTNAME" ]] ; then
+    if ping -c 1 "$OLD_HOST" ; then
+      return 1
+    fi
+    if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$OLD_HOST" ]] ; then
+      return 1
+    fi
+    echo $HOSTNAME | gsutil cp - gs://sanitizer-buildbot/${BOT_NAME}
+  fi
+  sleep 10
+  if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$HOSTNAME" ]] ; then
+    return 1
+  fi
+  echo "$BOT_NAME is claimed"
+  try_create $BOT_NAME
+}
+
+
 
 # Order is important.
 # 1,2,3,7 are primary bots, 4,5,8 are backups.
-try_create sanitizer-buildbot1 || \
-try_create sanitizer-buildbot2 || \
-try_create sanitizer-buildbot3 || \
-try_create sanitizer-buildbot7 || \
-try_create sanitizer-buildbot4 || \
-try_create sanitizer-buildbot8 || \
-try_create sanitizer-buildbot5 
+claim_bot sanitizer-buildbot1 || \
+claim_bot sanitizer-buildbot2 || \
+claim_bot sanitizer-buildbot3 || \
+claim_bot sanitizer-buildbot7 || \
+claim_bot sanitizer-buildbot4 || \
+claim_bot sanitizer-buildbot8 || \
+claim_bot sanitizer-buildbot5 
 #|| shutdown now
 
 ShutdownIfNotAlive 30
