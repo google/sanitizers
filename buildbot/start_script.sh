@@ -112,13 +112,13 @@ function claim_bot() {
 
 # Order is important.
 # 1,2,3,7 are primary bots, 4,5,8 are backups.
-claim_bot sanitizer-buildbot1 || \
-claim_bot sanitizer-buildbot2 || \
+#claim_bot sanitizer-buildbot1 || \
+#claim_bot sanitizer-buildbot2 || \
 claim_bot sanitizer-buildbot3 || \
 claim_bot sanitizer-buildbot7 || \
 claim_bot sanitizer-buildbot4 || \
 claim_bot sanitizer-buildbot8 || \
-claim_bot sanitizer-buildbot5 || \
+#claim_bot sanitizer-buildbot5 || \
 shutdown now
 
 try_create $BOT_NAME
