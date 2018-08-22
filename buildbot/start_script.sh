@@ -118,8 +118,8 @@ claim_bot sanitizer-buildbot3 || \
 claim_bot sanitizer-buildbot7 || \
 claim_bot sanitizer-buildbot4 || \
 claim_bot sanitizer-buildbot8 || \
-#claim_bot sanitizer-buildbot5 || \
 shutdown now
+#claim_bot sanitizer-buildbot5 || \
 
 try_create $BOT_NAME
 
