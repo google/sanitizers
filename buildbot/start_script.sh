@@ -19,7 +19,6 @@ dpkg --add-architecture i386
 apt-get update -y
 apt-get upgrade -y
 apt-get install -y \
- buildbot-slave \
  subversion \
  g++ \
  cmake \
@@ -42,6 +41,10 @@ apt-get install -y \
  liblzma-dev \
  libssl-dev \
  libgss-dev
+ 
+buildslave stop $BOT_DIR
+apt-get remove -y --purge buildbot-slave
+apt-get install -y buildbot-slave
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
