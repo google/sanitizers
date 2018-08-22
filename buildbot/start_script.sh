@@ -6,7 +6,8 @@
 # the instance and reload the script.
 
 BOT_DIR=/b
-BOT_PASS=$1
+BOT_NAME=$1
+BOT_PASS=$2
 
 mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
@@ -17,7 +18,6 @@ curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 dpkg --add-architecture i386
 apt-get update -y
 apt-get upgrade -y
-
 apt-get install -y \
  subversion \
  g++ \
@@ -46,74 +46,36 @@ buildslave stop $BOT_DIR
 apt-get remove -y --purge buildbot-slave
 apt-get install -y buildbot-slave
 
-chown buildbot:buildbot $BOT_DIR
-
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
 systemctl set-property buildslave.service TasksMax=100000
 
-function try_create() {
- BOT_NAME=$1
- buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
+chown buildbot:buildbot $BOT_DIR
 
- echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
+buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
 
- {
-   uname -a | head -n1
-   cmake --version | head -n1
-   g++ --version | head -n1
-   ld --version | head -n1
-   date
-   lscpu
- } > $BOT_DIR/info/host
+echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
- echo "SLAVE_RUNNER=/usr/bin/buildslave
- SLAVE_ENABLED[1]=\"1\"
- SLAVE_NAME[1]=\"buildslave1\"
- SLAVE_USER[1]=\"buildbot\"
- SLAVE_BASEDIR[1]=\"$BOT_DIR\"
- SLAVE_OPTIONS[1]=\"\"
- SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
+{
+  uname -a | head -n1
+  cmake --version | head -n1
+  g++ --version | head -n1
+  ld --version | head -n1
+  date
+  lscpu
+} > $BOT_DIR/info/host
 
- chown -R buildbot:buildbot $BOT_DIR
- buildslave restart $BOT_DIR
-}
+echo "SLAVE_RUNNER=/usr/bin/buildslave
+SLAVE_ENABLED[1]=\"1\"
+SLAVE_NAME[1]=\"buildslave1\"
+SLAVE_USER[1]=\"buildbot\"
+SLAVE_BASEDIR[1]=\"$BOT_DIR\"
+SLAVE_OPTIONS[1]=\"\"
+SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 
-BOT_NAME=
-function claim_bot() {
-  BOT_NAME=$1
-  OLD_HOST="$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})"
-  if [[ "$OLD_HOST" != "$HOSTNAME" ]] ; then
-    if ping -c 1 "$OLD_HOST" ; then
-      return 1
-    fi
-    if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$OLD_HOST" ]] ; then
-      return 1
-    fi
-    echo $HOSTNAME | gsutil cp - gs://sanitizer-buildbot/${BOT_NAME}
-  fi
-  sleep 10
-  if [[ "$(gsutil cat gs://sanitizer-buildbot/${BOT_NAME})" != "$HOSTNAME" ]] ; then
-    return 1
-  fi
-  echo "$BOT_NAME is claimed"
-}
-
-
-
-# Order is important.
-# 1,2,3,7 are primary bots, 4,5,8 are backups.
-#claim_bot sanitizer-buildbot1 || \
-#claim_bot sanitizer-buildbot2 || \
-claim_bot sanitizer-buildbot3 || \
-claim_bot sanitizer-buildbot7 || \
-claim_bot sanitizer-buildbot4 || \
-claim_bot sanitizer-buildbot8 || \
-shutdown now
-#claim_bot sanitizer-buildbot5 || \
-
-try_create $BOT_NAME
+chown -R buildbot:buildbot $BOT_DIR
+buildslave restart $BOT_DIR
 
 sleep 30
 cat $BOT_DIR/twistd.log
