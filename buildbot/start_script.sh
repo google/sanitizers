@@ -75,9 +75,9 @@ SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 
 chown -R buildbot:buildbot $BOT_DIR
 buildslave restart $BOT_DIR
-cat $BOT_DIR/twistd.log
 
 sleep 30
+cat $BOT_DIR/twistd.log
 pgrep buildslave || shutdown now
 
 # GCE can restart instance after 24h in the middle of the build.
