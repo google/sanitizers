@@ -71,8 +71,7 @@ SLAVE_OPTIONS[1]=\"\"
 SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 
 chown -R buildbot:buildbot $BOT_DIR
-systemctl daemon-reload
-service buildslave restart
+buildslave restart $BOT_DIR
 
 sleep 30
 pgrep buildslave || shutdown now
