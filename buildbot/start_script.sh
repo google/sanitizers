@@ -78,7 +78,7 @@ buildslave restart $BOT_DIR
 
 sleep 30
 cat $BOT_DIR/twistd.log
-pgrep buildslave || shutdown now
+grep "slave is ready" $BOT_DIR/twistd.log || shutdown now
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
