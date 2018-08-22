@@ -63,6 +63,7 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
   g++ --version | head -n1
   ld --version | head -n1
   date
+  lscpu
 } > $BOT_DIR/info/host
 
 echo "SLAVE_RUNNER=/usr/bin/buildslave
