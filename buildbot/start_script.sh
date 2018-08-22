@@ -72,6 +72,7 @@ SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 
 chown -R buildbot:buildbot $BOT_DIR
 buildslave restart $BOT_DIR
+cat $BOT_DIR/twistd.log
 
 sleep 30
 pgrep buildslave || shutdown now
