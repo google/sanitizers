@@ -75,7 +75,8 @@ SLAVE_OPTIONS[1]=\"\"
 SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
 
 chown -R buildbot:buildbot $BOT_DIR
-buildslave restart $BOT_DIR
+systemctl daemon-reload
+service buildslave restart
 
 sleep 30
 cat $BOT_DIR/twistd.log
