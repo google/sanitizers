@@ -29,7 +29,7 @@ apt-get install -y \
  gcc-multilib \
  g++-multilib \
  gawk \
- libxml2-dev
+ libxml2-dev || shutdown now
  
 # Only for fuzzing
 apt-get install -y \
@@ -40,7 +40,7 @@ apt-get install -y \
  libgcrypt-dev \
  liblzma-dev \
  libssl-dev \
- libgss-dev
+ libgss-dev || shutdown now
  
 buildslave stop $BOT_DIR
 apt-get remove -y --purge buildbot-slave
