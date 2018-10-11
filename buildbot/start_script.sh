@@ -83,7 +83,7 @@ cat $BOT_DIR/twistd.log
 grep "slave is ready" $BOT_DIR/twistd.log || shutdown now
 
 # GCE can restart instance after 24h in the middle of the build.
-# Gracefully restart before that happen.
+# Gracefully restart before that happens.
 sleep 72000
 while pkill -SIGHUP buildslave; do sleep 5; done;
 shutdown now
