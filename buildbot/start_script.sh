@@ -15,6 +15,8 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
+export DEBIAN_FRONTEND=noninteractive 
+
 dpkg --add-architecture i386
 apt-get update -yq
 apt-get upgrade -yq
