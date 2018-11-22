@@ -16,9 +16,9 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
 dpkg --add-architecture i386
-apt-get update -y
-apt-get upgrade -y
-apt-get install -y \
+apt-get update -yq
+apt-get upgrade -yq
+apt-get install -yq \
  subversion \
  g++ \
  cmake \
@@ -32,7 +32,7 @@ apt-get install -y \
  libxml2-dev || shutdown now
  
 # Only for fuzzing
-apt-get install -y \
+apt-get install -yq \
  git \
  libtool \
  m4 \
@@ -43,8 +43,8 @@ apt-get install -y \
  libgss-dev || shutdown now
  
 buildslave stop $BOT_DIR
-apt-get remove -y --purge buildbot-slave
-apt-get install -y buildbot-slave
+apt-get remove -yq --purge buildbot-slave
+apt-get install -yq buildbot-slave
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
