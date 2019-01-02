@@ -13,10 +13,6 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
-# Temporarily workaround for buildslave issues fixed with r350268
-mkdir -p /home/llvmmaster
-chown buildbot:buildbot /home/llvmmaster
-
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
 dpkg --add-architecture i386
@@ -84,6 +80,10 @@ service buildslave restart
 sleep 30
 cat $BOT_DIR/twistd.log
 grep "slave is ready" $BOT_DIR/twistd.log || shutdown now
+
+# Temporarily workaround for buildslave issues fixed with r350268
+mkdir -p /home/llvmmaster
+chown buildbot:buildbot /home/llvmmaster
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
