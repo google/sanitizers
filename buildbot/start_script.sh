@@ -13,6 +13,10 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
+# Temporarily workaround for buildslave issues fixed with r350268
+mkdir -p /home/llvmmaster
+chown buildbot:buildbot /home/llvmmaster
+
 curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
 dpkg --add-architecture i386
