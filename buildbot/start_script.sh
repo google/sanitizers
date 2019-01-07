@@ -81,10 +81,6 @@ sleep 30
 cat $BOT_DIR/twistd.log
 grep "slave is ready" $BOT_DIR/twistd.log || shutdown now
 
-# Temporarily workaround for buildslave issues fixed with r350268
-mkdir -p /home/llvmmaster
-chown buildbot:buildbot /home/llvmmaster
-
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
 sleep 72000
