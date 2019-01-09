@@ -19,7 +19,7 @@ dpkg --add-architecture i386
 apt-get update -yq
 
 # Logs consume a lot of storage space.
-apt-get remove -yq --purge auditd
+apt-get remove -yq --purge auditd puppet-agent google-fluentd
 
 apt-get install -yq \
  subversion \
