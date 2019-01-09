@@ -18,7 +18,7 @@ curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 dpkg --add-architecture i386
 apt-get update -yq
 
-# Logs consume a lot of diskspace.
+# Logs consume a lot of storage space.
 apt-get remove -yq --purge auditd
 
 apt-get install -yq \
