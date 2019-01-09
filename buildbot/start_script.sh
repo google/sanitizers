@@ -17,6 +17,10 @@ curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
 dpkg --add-architecture i386
 apt-get update -yq
+
+# Logs consume a lot of diskspace.
+apt-get remove -yq --purge auditd
+
 apt-get install -yq \
  subversion \
  g++ \
