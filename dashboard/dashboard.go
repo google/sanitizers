@@ -383,10 +383,17 @@ $(function() {
 		r := ""
 		date := "??:??"
 		if !statuses[i].lastbuild.IsZero() {
-			if time.Now().Sub(statuses[i].lastbuild).Hours() <= 12 {
-				date = statuses[i].lastbuild.Format("15:04")
+			// Localize times to PST
+			lastbuild := statuses[i].lastbuild
+			loc, err := time.LoadLocation("America/Los_Angeles")
+			if err == nil {
+				lastbuild = lastbuild.In(loc)
+			}
+
+			if time.Now().Sub(lastbuild).Hours() <= 12 {
+				date = lastbuild.Format("15:04")
 			} else {
-				date = statuses[i].lastbuild.Format("<span class=other>Jan 2 15:04</span>")
+				date = lastbuild.Format("<span class=other>Jan 2 15:04</span>")
 			}
 		}
 		r += td("", date+"&nbsp;")
