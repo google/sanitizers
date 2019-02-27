@@ -84,8 +84,8 @@ type status struct {
 }
 
 type statusLine struct {
-	date     string
-	statuses []status
+	lastbuild time.Time
+	statuses  []status
 }
 
 func GetStatus(buildUrl string) (statusLine, error) {
@@ -120,7 +120,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 		if n.Type == html.ElementNode && n.Data == "table" && class(n) == "info" {
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "tbody" {
-					date := ""
+					lastbuild := time.Time{}
 					var statuses []status
 					isLuci := false
 					for i, c := range findSubtags(c, "tr") {
@@ -146,14 +146,24 @@ func GetStatus(buildUrl string) (statusLine, error) {
 						var rev int64 = 0
 
 						for i, c := range findSubtags(c, "td") {
-							if i == 0 && date == "" {
-								date = c.FirstChild.Data
+							if i == 0 && lastbuild.IsZero() {
 								// LUCI has slightly different layout/formatting than buildbot
-								if date == "span" {
+								if c.FirstChild.Data == "span" {
 									strtime, err := strconv.ParseInt(attr(c.FirstChild, "data-timestamp"), 10, 64)
 									if err == nil {
-										time := time.Unix(strtime/1000, 0)
-										date = time.Format("Jan 2 15:04")
+										lastbuild = time.Unix(strtime/1000, 0)
+									}
+								} else {
+									loc, err := time.LoadLocation("America/Los_Angeles")
+									if err == nil {
+										parsedtime, err := time.ParseInLocation("Jan 2 15:04", c.FirstChild.Data, loc)
+										if err == nil {
+											lastbuild = parsedtime.AddDate(time.Now().Year(), 0, 0)
+										} else {
+											fmt.Fprintf(os.Stderr, "Failed to parse: %s\n", err.Error())
+										}
+									} else {
+										fmt.Fprintf(os.Stderr, "Failed to load TZ: %s\n", err.Error())
 									}
 								}
 							}
@@ -180,12 +190,12 @@ func GetStatus(buildUrl string) (statusLine, error) {
 
 						statuses = append(statuses, status{buildUrl, rev, success})
 					}
-					return statusLine{date, statuses}
+					return statusLine{lastbuild, statuses}
 				}
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if s := f(c); s.date != "" {
+			if s := f(c); !s.lastbuild.IsZero() {
 				return s
 			}
 		}
@@ -372,8 +382,12 @@ $(function() {
 
 		r := ""
 		date := "??:??"
-		if len(statuses[i].date) >= 5 {
-			date = statuses[i].date[len(statuses[i].date)-5:]
+		if !statuses[i].lastbuild.IsZero() {
+			if time.Now().Sub(statuses[i].lastbuild).Hours() <= 12 {
+				date = statuses[i].lastbuild.Format("15:04")
+			} else {
+				date = statuses[i].lastbuild.Format("<span class=other>Jan 2 15:04</span>")
+			}
 		}
 		r += td("", date+"&nbsp;")
 
@@ -391,7 +405,7 @@ $(function() {
 				errStr = errStr[trim+1:]
 			}
 			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
-		} else if statuses[i].date != "" {
+		} else if !statuses[i].lastbuild.IsZero() {
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
 				style := class(s.success)
