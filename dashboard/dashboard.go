@@ -21,9 +21,9 @@ var (
 		name, url string
 	}{
 		{"Chromium", ""},
-		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/buildbot/chromium.clang/ToTLinux/"},
-		{"CFI Linux ToT", "https://ci.chromium.org/buildbot/chromium.clang/CFI%20Linux%20ToT/"},
-		{"CFI Linux CF", "https://ci.chromium.org/buildbot/chromium.clang/CFI%20Linux%20CF/"},
+		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/ToTLinux"},
+		{"CFI Linux ToT", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20ToT"},
+		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
