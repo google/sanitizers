@@ -7,6 +7,6 @@ The ocumentation for our tools:
 * [AddressSanitizer](../../wiki/AddressSanitizer) (detects addressability issues) and [LeakSanitizer](../../wiki/AddressSanitizerLeakSanitizer) (detects memory leaks)
 * ThreadSanitizer (detects data races and deadlocks) for [C++](../../wiki/ThreadSanitizerCppManual) and [Go](../../wiki/ThreadSanitizerGoManual)
 * [MemorySanitizer](../../wiki/MemorySanitizer) (detects use of uninitialized memory)
-* [HASAN](https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html), or Hardware-assisted AddressSanitizer, a newer variant of AddressSanitizer that consumes much less memory
+* [HWASAN](https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html), or Hardware-assisted AddressSanitizer, a newer variant of AddressSanitizer that consumes much less memory
 * [UBSan](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html), or UndefinedBehaviorSanitizer
 
