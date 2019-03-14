@@ -10,3 +10,6 @@ The ocumentation for our tools:
 * [HWASAN](https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html), or Hardware-assisted AddressSanitizer, a newer variant of AddressSanitizer that consumes much less memory
 * [UBSan](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html), or UndefinedBehaviorSanitizer
 
+Some of the sanitizers are also available for different OS Kernels:
+* [KASAN](https://www.kernel.org/doc/html/v4.12/dev-tools/kasan.html)
+* [KMSAN](https://github.com/google/kmsan)
