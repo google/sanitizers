@@ -224,6 +224,14 @@ func (a ByName) Len() int           { return len(a) }
 func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
 
+var OssFuzzOurProjects = map[string]bool{
+	"fuzzing-puzzles": true,
+	"libpng-proto": true,
+	"libprotobuf-mutator": true,
+	"llvm": true,
+	"llvm_libcxxabi": true,
+}
+
 func GetOssFuzzStatusString() string {
 	header := "<h2>OSS-Fuzz</h2>"
 
@@ -258,6 +266,9 @@ func GetOssFuzzStatusString() string {
 	htmlStatuses := ""
 	sort.Sort(ByName(status.Projects))
 	for i := range status.Projects {
+		if !OssFuzzOurProjects[status.Projects[i].Name] {
+			continue
+		}
 		class := "success"
 		for j := range status.Unstable {
 			if status.Unstable[j].Name == status.Projects[i].Name {
