@@ -67,6 +67,7 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
   ld --version | head -n1
   date
   lscpu
+  echo "How to reproduce locally: https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild"
 } > $BOT_DIR/info/host
 
 echo "SLAVE_RUNNER=/usr/bin/buildslave
