@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Script to configure GCE instance to run sanitizer build bots.
+
 # NOTE: GCE can wait up to 20 hours before reloading this file.
 # If some instance needs changes sooner just shutdown the instance 
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
