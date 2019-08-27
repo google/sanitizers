@@ -34,6 +34,7 @@ apt-get install -yq \
  gcc-multilib \
  g++-multilib \
  gawk \
+ dos2unix \
  libxml2-dev || shutdown now
  
 # Only for fuzzing
