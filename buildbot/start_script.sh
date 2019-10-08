@@ -8,8 +8,6 @@
 # the instance and reload the script.
 
 BOT_DIR=/b
-BOT_NAME=$1
-BOT_PASS=$2
 
 mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
@@ -59,7 +57,9 @@ systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
-buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 $BOT_NAME $BOT_PASS
+buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 \
+  "sanitizer-$(hostname | cut -d '-' -f2)" \
+  "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
 
 echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
