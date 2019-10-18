@@ -8,6 +8,7 @@
 # the instance and reload the script.
 
 MASTER_PORT=${MASTER_PORT:-9990}
+ON_ERROR=${ON_ERROR:-shutdown now}
 
 BOT_DIR=/b
 
@@ -61,7 +62,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
     ) && exit 0
   done
   exit 1
-) || shutdown now
+) || $ON_ERROR
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
@@ -101,10 +102,10 @@ service buildslave restart
 
 sleep 30
 cat $BOT_DIR/twistd.log
-grep "slave is ready" $BOT_DIR/twistd.log || shutdown now
+grep "slave is ready" $BOT_DIR/twistd.log || $ON_ERROR
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
 sleep 72000
 while pkill -SIGHUP buildslave; do sleep 5; done;
-shutdown now
+$ON_ERROR
