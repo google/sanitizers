@@ -18,7 +18,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 (
   SLEEP=0
-  for i in `seq 1..5`; do
+  for i in `seq 1 5`; do
     sleep $SLEEP
     SLEEP=$(( SLEEP + 10))
 
