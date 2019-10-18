@@ -15,42 +15,53 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
-dpkg --add-architecture i386
-apt-get update -yq
+(
+  local SLEEP=0
+  for i in `seq 1..5`
+    sleep $SLEEP
+    SLEEP=$(( SLEEP + 10))
 
-curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
+    (
+      set -e
+      dpkg --add-architecture i386
+      apt-get update -y
+      curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm 
 
-# Logs consume a lot of storage space.
-apt-get remove -yq --purge auditd puppet-agent google-fluentd
+      # Logs consume a lot of storage space.
+      apt-get remove -yq --purge auditd puppet-agent google-fluentd
 
-apt-get install -yq \
- subversion \
- g++ \
- cmake \
- binutils-gold \
- binutils-dev \
- ninja-build \
- pkg-config \
- gcc-multilib \
- g++-multilib \
- gawk \
- dos2unix \
- libxml2-dev || shutdown now
- 
-# Only for fuzzing
-apt-get install -yq \
- git \
- libtool \
- m4 \
- automake \
- libgcrypt-dev \
- liblzma-dev \
- libssl-dev \
- libgss-dev || shutdown now
- 
-buildslave stop $BOT_DIR
-apt-get remove -yq --purge buildbot-slave
-apt-get install -yq buildbot-slave
+      apt-get install -yq \
+        subversion \
+        g++ \
+        cmake \
+        binutils-gold \
+        binutils-dev \
+        ninja-build \
+        pkg-config \
+        gcc-multilib \
+        g++-multilib \
+        gawk \
+        dos2unix \
+        libxml2-dev
+
+      # Only for fuzzing
+      apt-get install -yq \
+        git \
+        libtool \
+        m4 \
+        automake \
+        libgcrypt-dev \
+        liblzma-dev \
+        libssl-dev \
+        libgss-dev
+
+      buildslave stop $BOT_DIR
+      apt-get remove -yq --purge buildbot-slave
+      apt-get install -yq buildbot-slave
+    ) && exit 0
+  done
+  exit 1
+) || shutdown now
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
