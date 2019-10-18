@@ -7,6 +7,8 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
+MASTER_PORT=${MASTER_PORT:-9990}
+
 BOT_DIR=/b
 
 mount -t tmpfs tmpfs /tmp
@@ -57,7 +59,7 @@ systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
-buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:9990 \
+buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
   "sanitizer-$(hostname | cut -d '-' -f2)" \
   "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
 
