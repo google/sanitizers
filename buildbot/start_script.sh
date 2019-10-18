@@ -16,7 +16,7 @@ mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 (
-  local SLEEP=0
+  SLEEP=0
   for i in `seq 1..5`; do
     sleep $SLEEP
     SLEEP=$(( SLEEP + 10))
