@@ -15,10 +15,10 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
-curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
-
 dpkg --add-architecture i386
 apt-get update -yq
+
+curl "https://repo.stackdriver.com/stack-install.sh" | bash -s -- --write-gcm
 
 # Logs consume a lot of storage space.
 apt-get remove -yq --purge auditd puppet-agent google-fluentd
