@@ -26,17 +26,17 @@ var (
 		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
-		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-asan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
-		{"x86_64-linux-msan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap-msan"},
-		{"x86_64-linux-ubsan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
-		{"x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-android"},
-		{"x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
-		{"ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
-		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/clang-ppc64le-linux-lnt"},
+		{"x86_64-linux", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux"},
+		{"x86_64-linux-asan", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"x86_64-linux-msan", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-bootstrap-msan"},
+		{"x86_64-linux-ubsan", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
+		{"x86_64-linux-fast", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-fast"},
+		{"x86_64-linux-android", "http://lab.llvm.org:8010/builders/sanitizer-x86_64-linux-android"},
+		{"x86_64-linux-autoconf", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-autoconf"},
+		{"ppc64be-linux", "http://lab.llvm.org:8014/builders/sanitizer-ppc64be-linux"},
+		{"ppc64le-linux", "http://lab.llvm.org:8014/builders/clang-ppc64le-linux-lnt"},
 		{"LibFuzzer (x86_64-linux)", ""},
-		{"sanitizer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"sanitizer", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan/"},
 		{"chromium-asan-dbg", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
 		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20MSan/"},
@@ -222,11 +222,11 @@ func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
 
 var OssFuzzOurProjects = map[string]bool{
-	"fuzzing-puzzles": true,
-	"libpng-proto": true,
+	"fuzzing-puzzles":     true,
+	"libpng-proto":        true,
 	"libprotobuf-mutator": true,
-	"llvm": true,
-	"llvm_libcxxabi": true,
+	"llvm":                true,
+	"llvm_libcxxabi":      true,
 }
 
 func GetOssFuzzStatusString() string {
