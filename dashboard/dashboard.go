@@ -31,7 +31,7 @@ var (
 		{"x86_64-linux-msan", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-bootstrap-msan"},
 		{"x86_64-linux-ubsan", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
 		{"x86_64-linux-fast", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org:8010/builders/sanitizer-x86_64-linux-android"},
+		{"x86_64-linux-android", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-android"},
 		{"x86_64-linux-autoconf", "http://lab.llvm.org:8014/builders/sanitizer-x86_64-linux-autoconf"},
 		{"ppc64be-linux", "http://lab.llvm.org:8014/builders/sanitizer-ppc64be-linux"},
 		{"ppc64le-linux", "http://lab.llvm.org:8014/builders/clang-ppc64le-linux-lnt"},
