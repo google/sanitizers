@@ -26,7 +26,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
       set -e
       dpkg --add-architecture i386
       apt-get update -y
-      curl "https://dl.google.com/cloudagents/install-logging-agent.sh" | bash -s -- --write-gcm 
+      curl "https://dl.google.com/cloudagents/install-logging-agent.sh" | bash -s --
 
       # Logs consume a lot of storage space.
       apt-get remove -yq --purge auditd puppet-agent google-fluentd
