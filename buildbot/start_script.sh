@@ -16,6 +16,23 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
+if lsb_release -a | grep "buster" ; then
+
+  cat <<EOF >/etc/apt/sources.list.d/stretch.list
+deb http://deb.debian.org/debian/ stretch main
+deb-src http://deb.debian.org/debian/ stretch main
+deb http://security.debian.org/ stretch/updates main
+deb-src http://security.debian.org/ stretch/updates main
+deb http://deb.debian.org/debian/ stretch-updates main
+deb-src http://deb.debian.org/debian/ stretch-updates main
+EOF
+
+  cat <<EOF >/etc/apt/apt.conf.d/99stretch
+APT::Default-Release "buster";
+EOF
+
+fi
+
 (
   SLEEP=0
   for i in `seq 1 5`; do
@@ -23,16 +40,17 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
     SLEEP=$(( SLEEP + 10))
 
     (
-      set -e
+      set -ex
       dpkg --add-architecture i386
-      apt-get update -y
-      curl "https://dl.google.com/cloudagents/install-logging-agent.sh" | bash -s --
+      echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+      dpkg --configure -a
+      apt-get -qq -y update
+      #apt-get -qq -y upgrade
 
       # Logs consume a lot of storage space.
-      apt-get remove -yq --purge auditd puppet-agent google-fluentd
+      apt-get remove -qq -y --purge auditd puppet-agent google-fluentd
 
-      apt-get install -yq \
-        subversion \
+      apt-get install -qq -y \
         g++ \
         cmake \
         binutils-gold \
@@ -43,10 +61,9 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         g++-multilib \
         gawk \
         dos2unix \
-        libxml2-dev
-
-      # Only for fuzzing
-      apt-get install -yq \
+        libxml2-dev \
+        python3-distutils \
+        rsync \
         git \
         libtool \
         m4 \
@@ -56,9 +73,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         libssl-dev \
         libgss-dev
 
-      buildslave stop $BOT_DIR
-      apt-get remove -yq --purge buildbot-slave
-      apt-get install -yq buildbot-slave
+      apt-get install -qq -y -t stretch buildbot-slave
     ) && exit 0
   done
   exit 1
@@ -71,9 +86,14 @@ systemctl set-property buildslave.service TasksMax=100000
 
 chown buildbot:buildbot $BOT_DIR
 
-buildslave create-slave --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
+rm -f /b/buildbot.tac
+
+buildslave create-slave -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
   "sanitizer-$(hostname | cut -d '-' -f2)" \
   "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
+
+systemctl stop buildslave.service
+while pkill buildslave; do sleep 5; done;
 
 echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
@@ -81,24 +101,25 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
   echo "How to reproduce locally: https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild"
   echo
   uname -a | head -n1
+  date
   cmake --version | head -n1
   g++ --version | head -n1
   ld --version | head -n1
-  date
   lscpu
 } > $BOT_DIR/info/host
 
-echo "SLAVE_RUNNER=/usr/bin/buildslave
-SLAVE_ENABLED[1]=\"1\"
-SLAVE_NAME[1]=\"buildslave1\"
-SLAVE_USER[1]=\"buildbot\"
-SLAVE_BASEDIR[1]=\"$BOT_DIR\"
-SLAVE_OPTIONS[1]=\"\"
-SLAVE_PREFIXCMD[1]=\"\"" > /etc/default/buildslave
+cat <<EOF >/etc/default/buildslave
+SLAVE_ENABLED[1]=1
+SLAVE_NAME[1]="default"
+SLAVE_USER[1]="buildbot"
+SLAVE_BASEDIR[1]="$BOT_DIR"
+SLAVE_OPTIONS[1]=""
+SLAVE_PREFIXCMD[1]=""
+EOF
 
 chown -R buildbot:buildbot $BOT_DIR
 systemctl daemon-reload
-service buildslave restart
+systemctl start buildslave.service
 
 sleep 30
 cat $BOT_DIR/twistd.log
