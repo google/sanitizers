@@ -16,8 +16,12 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
-if lsb_release -a | grep "buster" ; then
+BUSTER_PACKAGES=
 
+if lsb_release -a | grep "buster" ; then
+  BUSTER_PACKAGES="python3-distutils"
+
+  # buildbot from "buster" does not work with llvm master.
   cat <<EOF >/etc/apt/sources.list.d/stretch.list
 deb http://deb.debian.org/debian/ stretch main
 deb-src http://deb.debian.org/debian/ stretch main
@@ -51,6 +55,7 @@ fi
       apt-get remove -qq -y --purge auditd puppet-agent google-fluentd
 
       apt-get install -qq -y \
+        $BUSTER_PACKAGES \
         g++ \
         cmake \
         binutils-gold \
@@ -62,7 +67,6 @@ fi
         gawk \
         dos2unix \
         libxml2-dev \
-        python3-distutils \
         rsync \
         git \
         libtool \
