@@ -75,7 +75,10 @@ fi
         libgcrypt-dev \
         liblzma-dev \
         libssl-dev \
-        libgss-dev
+        libgss-dev \
+        python-dev \
+        wget \
+        zlib1g-dev
 
       apt-get install -qq -y -t stretch buildbot-slave
     ) && exit 0
