@@ -3,6 +3,7 @@
 # Tool for symbolizing stack traces in BUG reports, mainly those produced
 # by KASAN.
 
+from __future__ import print_function
 from collections import defaultdict
 import getopt
 import os
@@ -170,7 +171,7 @@ class ReportProcessor(object):
             if match:
                 break
         if match == None:
-            print line
+            print(line)
             return
 
         prefix = match.group('prefix')
@@ -183,7 +184,7 @@ class ReportProcessor(object):
         # Don't print frames with '?' until user asked otherwise.
         if not precise and not questionable:
             if '<EOI>' in match.group('prefix'):
-                print match.group('prefix')
+                print(match.group('prefix'))
             return
 
         function = match.group('function')
@@ -197,7 +198,7 @@ class ReportProcessor(object):
             module += '.ko'
 
         if not self.load_module(module):
-            print line
+            print(line)
             return
 
         symbolizer = self.module_symbolizers[module]
@@ -205,7 +206,7 @@ class ReportProcessor(object):
 
         symbol_offset = loader.lookup_offset(function, int(size, 16))
         if symbol_offset is None:
-            print line
+            print(line)
             return
 
         instruction_offset = int(offset, 16)
@@ -214,7 +215,7 @@ class ReportProcessor(object):
         frames = symbolizer.process(module_addr)
 
         if len(frames) == 0:
-            print line
+            print(line)
             return
 
         for i, frame in enumerate(frames):
@@ -258,7 +259,7 @@ class ReportProcessor(object):
         elif addr == None:
             addr = '        none        ';
         precise = '' if precise else '? '
-        print '%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline)
+        print('%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline))
 
     def print_lines(self, fileline, context_size):
         if context_size == 0:
@@ -282,7 +283,7 @@ class ReportProcessor(object):
             return
 
         for i, line in enumerate(lines[start:end]):
-            print '    {0:5d} {1}'.format(i + start + 1, line),
+            print('    {0:5d} {1}'.format(i + start + 1, line), end=' ')
 
     def finalize(self):
         for module, symbolizer in self.module_symbolizers.items():
@@ -290,12 +291,12 @@ class ReportProcessor(object):
 
 
 def print_usage():
-    print 'Usage: {0} --linux=<linux path>'.format(sys.argv[0]),
-    print '[--strip=<strip path>]',
-    print '[--before=<lines before>]',
-    print '[--after=<lines after>]',
-    print '[--questionable]',
-    print
+    print('Usage: {0} --linux=<linux path>'.format(sys.argv[0]), end=' ')
+    print('[--strip=<strip path>]', end=' ')
+    print('[--before=<lines before>]', end=' ')
+    print('[--after=<lines after>]', end=' ')
+    print('[--questionable]', end=' ')
+    print()
 
 
 def main():
