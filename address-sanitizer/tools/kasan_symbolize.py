@@ -11,55 +11,70 @@ import re
 import sys
 import subprocess
 
+# Matches the timestamp or a thread/cpu number prefix of a log line.
+BRACKET_PREFIX_RE = re.compile(
+    '^(?P<time>\[ *[TC0-9\.]+\]) ?(?P<body>.*)$'
+)
+
 # A hexadecimal number without the leading 0x.
-HEXNUM = '[0-9A-Fa-f]+'
+HEXNUM_RE = '[0-9A-Fa-f]+'
 
 # An address in the form [<ffffffff12345678>].
-FRAME_ADDR = (
-    '(\[\<(?P<addr>' + HEXNUM + ')\>\])?\s*'
+FRAME_ADDR_RE = (
+    '((\[\<(?P<addr>' + HEXNUM_RE + ')\>\]) )'
 )
 
 # A function name with an offset and function size, plus an optional module
 # name, e.g.:
 # __asan_load8+0x64/0x66
-FRAME_BODY = (
+FRAME_BODY_RE = (
     '(?P<body>' +
         '(?P<function>[^\+]+)' +
         '\+' +
-        '0x(?P<offset>' + HEXNUM + ')' +
+        '0x(?P<offset>' + HEXNUM_RE + ')' +
         '/' +
-        '0x(?P<size>' + HEXNUM + ')' +
-        '( \[(?P<module>.+)\])?' +
-    ')')
-
-# Matches the timestamp prefix of a log line.
-TIME_RE = re.compile(
-    '^(?P<time>\[[ ]*[0-9\.]+\]) ?(?P<body>.*)$'
+        '0x(?P<size>' + HEXNUM_RE + ')' +
+    ')'
 )
 
-# Matches a single stacktrace frame.
+# Matches a single stacktrace frame (without time or thread/cpu number prefix).
 FRAME_RE = re.compile(
     '^' +
-    '(?P<prefix>[^\[\t]*)' +
-    FRAME_ADDR +
-    '( |\t)' +
+    '(?P<prefix> *)' +
+    FRAME_ADDR_RE + '?' +
     '((?P<precise>\?) )?' +
-    FRAME_BODY +
+    FRAME_BODY_RE +
+    '( \[(?P<module>.+)\])?' +
     '$'
 )
 
 # Matches the 'RIP:' line in BUG reports.
 RIP_RE = re.compile(
     '^' +
-    '(?P<prefix>\s*RIP: ' + HEXNUM + ':\[[^]]+\]\s*)' +
-    FRAME_ADDR +
-    FRAME_BODY +
+    '(?P<prefix>RIP: ' + HEXNUM_RE + ':)' +
+    FRAME_BODY_RE +
+    '$'
+)
+
+# Matches the 'lr :' and 'pc :' lines in BUG reports.
+LR_RE = re.compile(
+    '^' +
+    '(?P<prefix>(lr|pc) : )' +
+    FRAME_BODY_RE +
+    '$'
+)
+
+# Matches sanitizers' 'in fuction+0x42/0x420' headers.
+KSAN_RE = re.compile(
+    '^' +
+    '(?P<prefix>(BUG:).+in )' +
+    FRAME_BODY_RE +
     '$'
 )
 
 # Matches a single line of `nm -S` output.
 NM_RE = re.compile(
-    '^(?P<offset>' + HEXNUM + ')( (?P<size>' + HEXNUM + '))?' +
+    '^(?P<offset>' + HEXNUM_RE + ')( (?P<size>' + HEXNUM_RE + '))?' +
     ' [a-zA-Z] (?P<symbol>[^ ]+)$'
 )
 
@@ -158,7 +173,12 @@ class ReportProcessor(object):
             self.process_line(line, context_size, questionable)
 
     def strip_time(self, line):
-        match = TIME_RE.match(line)
+	# Strip time prefix if present.
+        match = BRACKET_PREFIX_RE.match(line)
+        if match != None:
+            line = match.group('body')
+	# Try to strip thread/cpu number prefix if present.
+        match = BRACKET_PREFIX_RE.match(line)
         if match != None:
             line = match.group('body')
         return line
@@ -166,7 +186,7 @@ class ReportProcessor(object):
     def process_line(self, line, context_size, questionable):
         # |RIP_RE| is less general than |FRAME_RE|, so try it first.
         match = None
-        for regexp in [RIP_RE, FRAME_RE]:
+        for regexp in [RIP_RE, LR_RE, KSAN_RE, FRAME_RE]:
             match = regexp.match(line)
             if match:
                 break
@@ -175,7 +195,10 @@ class ReportProcessor(object):
             return
 
         prefix = match.group('prefix')
-        addr = match.group('addr')
+	try:
+	    addr = match.group('addr')
+        except IndexError:
+            addr = None
         body = match.group('body')
 
         precise = True
@@ -190,7 +213,10 @@ class ReportProcessor(object):
         function = match.group('function')
         offset = match.group('offset')
         size = match.group('size')
-        module = match.group('module')
+	try:
+            module = match.group('module')
+        except IndexError:
+            module = None
 
         if module == None:
             module = 'vmlinux'
@@ -254,12 +280,14 @@ class ReportProcessor(object):
             if len(fileline_parts) >= 2:
                 fileline = fileline_parts[1].lstrip('/')
         if inlined:
-            addr = '     inline     ';
+            if addr != None:
+                addr = '     inline     ';
             body = func
-        elif addr == None:
-            addr = '        none        ';
         precise = '' if precise else '? '
-        print('%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline))
+        if addr != None:
+            print('%s[<%s>] %s%s %s' % (prefix, addr, precise, body, fileline))
+        else:
+            print('%s%s%s %s' % (prefix, precise, body, fileline))
 
     def print_lines(self, fileline, context_size):
         if context_size == 0:
