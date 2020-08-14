@@ -52,7 +52,8 @@ The not-so-good news is that MarkUs may have considerable overhead in CPU and/or
 The paper gives a detailed description of the overheads.
 Here is some "hand waving" based on my experiments. 
 
-* The time required for a single GC scan is proportional to the memory that needs to be scanned, which is *roughly* the speed of RAM access.
+* The time required for a single GC scan is proportional to the memory that needs to be scanned.
+The scan can be done *roughly* at the speed of access to RAM.
 So, a single-threaded application with a memory footprint of 1Gb may cause GC pauses of up to ~ `0.1s`
 * The frequency of the GC scan is proportional to the speed of heap allocation (how many bytes are `malloc`-ed in second). 
 So, a program that heap-allocates 100Mb per second, and can tolerate a 100Mb quarantine, will need to have a GC scan every second.  
