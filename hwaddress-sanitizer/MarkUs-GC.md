@@ -3,7 +3,7 @@ Thoughts on the paper [MarkUs: Drop-in use-after-free prevention for
 low-level languages](https://www.cl.cam.ac.uk/~tmj32/papers/docs/ainsworth20-sp.pdf).
 
 TL;DR: MarkUs sounds interesting, although often costly. 
-Combined with [Memory Tagging](hwaddress-sanitizer/MTE-iSecCon-2018.pdf) it becomes super interesting and much less costly. 
+Combined with [Memory Tagging](hwaddress-sanitizer/MTE-iSecCon-2018.pdf) it becomes super interesting and *much less costly*. 
 
 ## MarkUs GC
 The MarkUs paper suggests to use a GC-like mechanism to make heap-use-after-free (UAF) bugs unexploitable. 
@@ -58,9 +58,45 @@ So, a single-threaded application with a memory footprint of 1Gb may cause GC pa
 So, a program that heap-allocates 100Mb per second, and can tolerate a 100Mb quarantine, will need to have a GC scan every second.  
 * GC tends to parallelise well, but usually not linearly. 
 
+So, roughly, the MarkUs CPU overhead is `O(MemoryFootprint * HeapAllocationSpeed / NumberOfThreads)`.
+The RAM overhead of MarkUs depends on the qurantine and can be set by the user to an arbitrary value. 
+The smaller is the quarantine, the more often you need to run the GC scan, i.e. we can trade RAM for CPU. 
 
 ## Possible Optimizations
-TODO
+* Bypass quarantine when a certain allocation is statically known to be safe. 
+* Bypass quarantine when UAF-safety can be provided by some other means (e.g. for huge heap allocation we can use quarantine based on protecting parts of the virtual address space)
+* Do not scan allocations known to not contain any pointers (e.g. allocations done on behalf of `std::string`)
 
 ## MarkUs and Memory Tagging
-TODO
+The authors write:
+> ... MarkUs composes well with such techniques [memory tagging]. Not only
+> does MarkUs provide the security that tagged memory lacks,
+> and tagged memory the debug that MarkUs does not aim to
+> provide, but tagged memory can also make MarkUs more
+> efficient, by allowing reuse of memory multiple times, based
+> on incrementing the ID tag of each successive allocation,
+> before address space must be quarantined to ensure old IDs
+> have been eliminated and can be reallocated.
+
+Indeed so. With most implementations of memory tagging 
+([HWASAN](https://clang.llvm.org/docs/HardwareAssistedAddressSanitizerDesign.html), 
+[Arm MTE](https://developer.arm.com/-/media/Arm%20Developer%20Community/PDF/Arm_Memory_Tagging_Extension_Whitepaper.pdf), 
+[SPARC ADI](https://www.kernel.org/doc/Documentation/sparc/adi.rst)) the following scheme is possible: 
+* Every heap region is assigned a tag 0 on the first allocation. 
+* On deallocation, the memory tag is incremented. If the tag has overflown, the memory chunk is put into MarkUs quarantine, 
+otherwise it is returned to malloc free-lists and can be immediately reused. 
+
+Why does this prevent UAFs? 
+
+On the first allocation (`tag=0`), the given region of address space has not been used, so no UAF is possible. 
+On the second allocation, we know that there might be a danling pointer to the same region with `tag=0`, 
+but the current allocation uses `tag=1`, so an access thought the old danling pointer will generate a memory tagging trap.
+On the `MaxTag`th allocation (i.e. in case of Arm or SPARC, on ~ 15th, in case of HWASAN, on 255th), 
+we know that there are potentially danling pointers with the tags `0, 1, ... MaxTag-1`, but not yet with MaxTag.
+But as soon as we deallocate the `MaxTag`th allocation we can no longer assume complete UAF-safety because all the generations of this pointer are potentially danling. This is when we run a GC scan and evict from quanrantine only those allocations versions of which are not found in the live memory.  
+
+Thus, with e.g. Arm MTE, MarkUs will need 16x fewer scans, which makes MarkUs's perfomance compelling. 
+
+
+Such deterministic tags assignment may cause memory tagging to be less effective against heap buffer overflows. 
+The answer to that is to introduce some extra randomness into the tag creation. 
