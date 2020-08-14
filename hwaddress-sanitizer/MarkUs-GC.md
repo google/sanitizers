@@ -89,11 +89,11 @@ otherwise it is returned to malloc free-lists and can be immediately reused.
 Why does this prevent UAFs? 
 
 On the first allocation (`tag=0`), the given region of address space has not been used, so no UAF is possible. 
-On the second allocation, we know that there might be a danling pointer to the same region with `tag=0`, 
-but the current allocation uses `tag=1`, so an access thought the old danling pointer will generate a memory tagging trap.
+On the second allocation, we know that there might be a dangling pointer to the same region with `tag=0`, 
+but the current allocation uses `tag=1`, so an access throught the old dangling pointer will generate a memory tagging trap.
 On the `MaxTag`th allocation (i.e. in case of Arm or SPARC, on ~ 15th, in case of HWASAN, on 255th), 
-we know that there are potentially danling pointers with the tags `0, 1, ... MaxTag-1`, but not yet with MaxTag.
-But as soon as we deallocate the `MaxTag`th allocation we can no longer assume complete UAF-safety because all the generations of this pointer are potentially danling. This is when we run a GC scan and evict from quanrantine only those allocations versions of which are not found in the live memory.  
+we know that there are potentially dangling pointers with the tags `0, 1, ... MaxTag-1`, but not yet with MaxTag.
+But as soon as we deallocate the `MaxTag`th allocation we can no longer assume complete UAF-safety because all the generations of this pointer are potentially dangling. This is when we run a GC scan and evict from quanrantine only those allocations versions of which are not found in the live memory.  
 
 Thus, with e.g. Arm MTE, MarkUs will need 16x fewer scans, which makes MarkUs's perfomance compelling. 
 
