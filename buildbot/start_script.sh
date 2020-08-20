@@ -79,6 +79,7 @@ fi
         python-dev \
         wget \
         zlib1g-dev \
+        libtinfo5 \
         libtinfo-dev
 
       apt-get install -qq -y -t stretch buildbot-slave
@@ -86,9 +87,6 @@ fi
   done
   exit 1
 ) || $ON_ERROR
-
-# Workaround for Debian 10
-[[ -f /lib/x86_64-linux-gnu/libtinfo.so.5 ]] || ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
