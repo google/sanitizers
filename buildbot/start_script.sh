@@ -78,7 +78,8 @@ fi
         libgss-dev \
         python-dev \
         wget \
-        zlib1g-dev
+        zlib1g-dev \
+        libtinfo-dev
 
       apt-get install -qq -y -t stretch buildbot-slave
     ) && exit 0
