@@ -61,7 +61,10 @@ So, a program that heap-allocates 100Mb per second, and can tolerate a 100Mb qua
 
 So, roughly, the MarkUs CPU overhead is `O(MemoryFootprint * HeapAllocationSpeed / NumberOfThreads)`.
 The RAM overhead of MarkUs depends on the qurantine and can be set by the user to an arbitrary value. 
-The smaller is the quarantine, the more often you need to run the GC scan, i.e. we can trade RAM for CPU. 
+The smaller is the quarantine, the more often you need to run the GC scan, i.e. we can trade RAM for CPU.
+If the quarantine is set to a fixed percentage of the overal memory footprint 
+(as opposed to setting it to a fixed number of megabytes), 
+then the CPU overhead can be thought of as `O(HeapAllocationSpeed / NumberOfThreads)`
 
 ## Possible Optimizations
 * Bypass quarantine when a certain allocation is statically known to be safe. 
