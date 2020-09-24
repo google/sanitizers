@@ -1,0 +1,9 @@
+.gradle
+build
+
+app/.cxx
+app/build
+
+apks
+
+my-release-key.jks
