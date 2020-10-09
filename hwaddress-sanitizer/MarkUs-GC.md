@@ -60,7 +60,7 @@ So, a program that heap-allocates 100Mb per second, and can tolerate a 100Mb qua
 * GC tends to parallelise well, but usually not linearly. 
 
 So, roughly, the MarkUs CPU overhead is `O(MemoryFootprint * HeapAllocationSpeed / NumberOfThreads)`.
-The RAM overhead of MarkUs depends on the qurantine and can be set by the user to an arbitrary value. 
+The RAM overhead of MarkUs depends on the quarantine and can be set by the user to an arbitrary value. 
 The smaller is the quarantine, the more often you need to run the GC scan, i.e. we can trade RAM for CPU.
 If the quarantine is set to a fixed percentage of the overal memory footprint 
 (as opposed to setting it to a fixed number of megabytes), 
@@ -97,7 +97,7 @@ On the second allocation, we know that there might be a dangling pointer to the 
 but the current allocation uses `tag=1`, so an access throught the old dangling pointer will generate a memory tagging trap.
 On the `MaxTag`th allocation (i.e. in case of Arm or SPARC, on ~ 15th, in case of HWASAN, on 255th), 
 we know that there are potentially dangling pointers with the tags `0, 1, ... MaxTag-1`, but not yet with MaxTag.
-But as soon as we deallocate the `MaxTag`th allocation we can no longer assume complete UAF-safety because all the generations of this pointer are potentially dangling. This is when we have to put the deallocated region into qurantine. 
+But as soon as we deallocate the `MaxTag`th allocation we can no longer assume complete UAF-safety because all the generations of this pointer are potentially dangling. This is when we have to put the deallocated region into quarantine. 
 Once the quarantine reaches the threshold, we run a GC scan and evict from quanrantine 
 only those allocations versions of which are not found in the live memory.  
 
