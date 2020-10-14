@@ -25,18 +25,18 @@ var (
 		{"CFI Linux ToT", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20ToT"},
 		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
-		{"windows", "http://lab.llvm.org:8011/builders/sanitizer-windows"},
-		{"x86_64-linux", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-asan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap"},
-		{"x86_64-linux-msan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap-msan"},
-		{"x86_64-linux-ubsan", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
-		{"x86_64-linux-fast", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-android"},
-		{"x86_64-linux-autoconf", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-autoconf"},
-		{"ppc64be-linux", "http://lab.llvm.org:8011/builders/sanitizer-ppc64be-linux"},
-		{"ppc64le-linux", "http://lab.llvm.org:8011/builders/clang-ppc64le-linux-lnt"},
+		{"windows", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-windows"},
+		{"x86_64-linux", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux"},
+		{"x86_64-linux-asan", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"x86_64-linux-msan", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
+		{"x86_64-linux-ubsan", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
+		{"x86_64-linux-fast", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-fast"},
+		{"x86_64-linux-android", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-android"},
+		{"x86_64-linux-autoconf", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-autoconf"},
+		{"ppc64be-linux", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-ppc64le-linux"},
+		{"ppc64le-linux", "http://lab.llvm.org:8011/api/v2/builders/clang-ppc64le-linux-lnt"},
 		{"LibFuzzer (x86_64-linux)", ""},
-		{"sanitizer", "http://lab.llvm.org:8011/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"sanitizer", "http://lab.llvm.org:8014/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan/"},
 		{"chromium-asan-dbg", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
 		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20MSan/"},
@@ -79,18 +79,96 @@ func findSubtags(n *html.Node, tagName string) []*html.Node {
 
 type status struct {
 	buildUrl string
-	rev      int64
 	success  int
 }
 
 type statusLine struct {
-	lastbuild time.Time
-	statuses  []status
+	lastbuild  time.Time
+	statuses   []status
+	builderUrl string
+}
+
+type Builds struct {
+	Builds []struct {
+		Builderid  int  `json:"builderid"`
+		Buildid    int  `json:"buildid"`
+		Complete   bool `json:"complete"`
+		CompleteAt int  `json:"complete_at"`
+		Number     int  `json:"number"`
+		Results    int  `json:"results"`
+	} `json:"builds"`
+}
+
+func GetStatusFromJson(buildUrl string) (statusLine, error) {
+	if buildUrl == "" {
+		return *new(statusLine), nil
+	}
+
+	var resp *http.Response
+	var err error
+	for i := 0; i < 3; i++ {
+		client := http.Client{
+			Timeout: time.Duration(120 * time.Second),
+		}
+		resp, err = client.Get(buildUrl + "/builds")
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return *new(statusLine), err
+	}
+
+	baseUrl, err := url.Parse(buildUrl)
+	if err != nil {
+		return *new(statusLine), err
+	}
+
+	var builds Builds
+	defer resp.Body.Close()
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	err = json.Unmarshal(bodyBytes, &builds)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to parse JS: %s\n", err.Error())
+		return *new(statusLine), err
+	}
+	sort.SliceStable(builds.Builds, func(i, j int) bool {
+		return builds.Builds[i].Number > builds.Builds[j].Number
+	})
+	var sl statusLine
+	for _, b := range builds.Builds {
+		if !b.Complete {
+			continue
+		}
+		builder, _ := url.Parse(fmt.Sprintf("/#/builders/%d", b.Builderid))
+		sl.builderUrl = baseUrl.ResolveReference(builder).String()
+		time := time.Unix(int64(b.CompleteAt), 0)
+		if sl.lastbuild.Before(time) {
+			sl.lastbuild = time
+		}
+		success := 0
+		if b.Results < 2 {
+			success = 1
+		} else if b.Results == 2 {
+			success = -1
+		}
+		build, _ := url.Parse(fmt.Sprintf("/#/builders/%d/builds/%d", b.Builderid, b.Number))
+		sl.statuses = append(sl.statuses, status{baseUrl.ResolveReference(build).String(), success})
+		if len(sl.statuses) >= 31 {
+			break
+		}
+	}
+	return sl, nil
 }
 
 func GetStatus(buildUrl string) (statusLine, error) {
 	if buildUrl == "" {
 		return *new(statusLine), nil
+	}
+
+	if strings.Contains(buildUrl, "lab.llvm.org") {
+		return GetStatusFromJson(buildUrl)
 	}
 
 	var resp *http.Response
@@ -141,7 +219,6 @@ func GetStatus(buildUrl string) (statusLine, error) {
 
 						success := 0
 						buildUrl := ""
-						var rev int64 = 0
 
 						for i, c := range findSubtags(c, "td") {
 							if ((!isLuci && i == 0) || (isLuci && i == 1)) && lastbuild.IsZero() {
@@ -165,9 +242,6 @@ func GetStatus(buildUrl string) (statusLine, error) {
 									}
 								}
 							}
-							if (!isLuci && i == 1) || (isLuci && i == 3) {
-								rev, _ = strconv.ParseInt(c.FirstChild.Data, 10, 0)
-							}
 							if (!isLuci && i == 2) || (isLuci && i == 4) {
 								classC := class(c)
 								if strings.Contains(strings.ToLower(classC), "success") {
@@ -185,9 +259,9 @@ func GetStatus(buildUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{buildUrl, rev, success})
+						statuses = append(statuses, status{buildUrl, success})
 					}
-					return statusLine{lastbuild, statuses}
+					return statusLine{lastbuild, statuses, buildUrl}
 				}
 			}
 		}
@@ -222,11 +296,11 @@ func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
 
 var OssFuzzOurProjects = map[string]bool{
-	"fuzzing-puzzles": true,
-	"libpng-proto": true,
+	"fuzzing-puzzles":     true,
+	"libpng-proto":        true,
 	"libprotobuf-mutator": true,
-	"llvm": true,
-	"llvm_libcxxabi": true,
+	"llvm":                true,
+	"llvm_libcxxabi":      true,
 }
 
 func GetOssFuzzStatusString() string {
@@ -297,7 +371,7 @@ func main() {
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
 body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
-a {	color: inherit; text-decoration: none; }
+a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
 .error.symbol::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
@@ -339,6 +413,7 @@ $(function() {
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
+			bots[i].url = s.builderUrl
 			status_ch <- status_ret{i, s, err}
 		}(i)
 	}
@@ -424,8 +499,6 @@ $(function() {
 			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
 				s := statuses[i].statuses[j]
 				style := class(s.success)
-				// TODO: Make use of revisions
-				// text = fmt.Sprintf("%d", s.rev - statuses[i].statuses[j+1].rev)
 				r += td("", a(s.buildUrl, span(style+" symbol", "")))
 			}
 		}
