@@ -58,6 +58,7 @@ fi
         $BUSTER_PACKAGES \
         g++ \
         cmake \
+        ccache \
         binutils-gold \
         binutils-dev \
         ninja-build \
@@ -129,6 +130,11 @@ EOF
 chown -R buildbot:buildbot $BOT_DIR
 systemctl daemon-reload
 systemctl start buildslave.service
+
+cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
+max_size = 20.0G
+cache_dir = $BOT_DIR/.ccache
+EOF
 
 sleep 30
 cat $BOT_DIR/twistd.log
