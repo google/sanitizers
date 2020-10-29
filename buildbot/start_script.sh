@@ -133,7 +133,7 @@ systemctl start buildslave.service
 
 mkdir -p /var/lib/buildbot/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
-max_size = 20.0G
+max_size = 40.0G
 cache_dir = $BOT_DIR/.ccache
 EOF
 
