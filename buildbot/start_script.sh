@@ -131,6 +131,7 @@ chown -R buildbot:buildbot $BOT_DIR
 systemctl daemon-reload
 systemctl start buildslave.service
 
+mkdir -p /var/lib/buildbot/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
 max_size = 20.0G
 cache_dir = $BOT_DIR/.ccache
