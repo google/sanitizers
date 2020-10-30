@@ -16,27 +16,6 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
-BUSTER_PACKAGES=
-
-if lsb_release -a | grep "buster" ; then
-  BUSTER_PACKAGES="python3-distutils"
-
-  # buildbot from "buster" does not work with llvm master.
-  cat <<EOF >/etc/apt/sources.list.d/stretch.list
-deb http://deb.debian.org/debian/ stretch main
-deb-src http://deb.debian.org/debian/ stretch main
-deb http://security.debian.org/ stretch/updates main
-deb-src http://security.debian.org/ stretch/updates main
-deb http://deb.debian.org/debian/ stretch-updates main
-deb-src http://deb.debian.org/debian/ stretch-updates main
-EOF
-
-  cat <<EOF >/etc/apt/apt.conf.d/99stretch
-APT::Default-Release "buster";
-EOF
-
-fi
-
 (
   SLEEP=0
   for i in `seq 1 5`; do
@@ -55,7 +34,6 @@ fi
       apt-get remove -qq -y --purge auditd puppet-agent google-fluentd
 
       apt-get install -qq -y \
-        $BUSTER_PACKAGES \
         g++ \
         cmake \
         ccache \
@@ -81,9 +59,9 @@ fi
         wget \
         zlib1g-dev \
         libtinfo5 \
-        libtinfo-dev
+        libtinfo-dev \
+        buildbot-worker
 
-      apt-get install -qq -y -t stretch buildbot-slave
     ) && exit 0
   done
   exit 1
@@ -92,18 +70,20 @@ fi
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
-systemctl set-property buildslave.service TasksMax=100000
+SERVICE_NAME=buildbot-worker@b.service
+[[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
 
-chown buildbot:buildbot $BOT_DIR
+systemctl enable $SERVICE_NAME
+systemctl set-property $SERVICE_NAME TasksMax=100000
+
+systemctl stop $SERVICE_NAME || true
+while pkill buildworker; do sleep 5; done;
 
 rm -f /b/buildbot.tac
-
-buildslave create-slave -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
+buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
   "sanitizer-$(hostname | cut -d '-' -f2)" \
   "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
 
-systemctl stop buildslave.service
-while pkill buildslave; do sleep 5; done;
 
 echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
@@ -118,19 +98,6 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
   lscpu
 } > $BOT_DIR/info/host
 
-cat <<EOF >/etc/default/buildslave
-SLAVE_ENABLED[1]=1
-SLAVE_NAME[1]="default"
-SLAVE_USER[1]="buildbot"
-SLAVE_BASEDIR[1]="$BOT_DIR"
-SLAVE_OPTIONS[1]=""
-SLAVE_PREFIXCMD[1]=""
-EOF
-
-chown -R buildbot:buildbot $BOT_DIR
-systemctl daemon-reload
-systemctl start buildslave.service
-
 mkdir -p /var/lib/buildbot/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
 max_size = 40.0G
@@ -139,9 +106,14 @@ compression = true
 depend_mode = true
 EOF
 
+chown -R buildbot:buildbot $BOT_DIR
+systemctl daemon-reload
+systemctl start $SERVICE_NAME
+systemctl status $SERVICE_NAME
+
 sleep 30
 cat $BOT_DIR/twistd.log
-grep "slave is ready" $BOT_DIR/twistd.log || $ON_ERROR
+grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
