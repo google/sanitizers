@@ -56,6 +56,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         libssl-dev \
         libgss-dev \
         python-dev \
+        python3-distutils \
         wget \
         zlib1g-dev \
         libtinfo5 \
