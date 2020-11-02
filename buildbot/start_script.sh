@@ -101,8 +101,7 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
 mkdir -p /var/lib/buildbot/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
-max_size = 40.0G
-cache_dir = $BOT_DIR/.ccache
+max_size = 20.0G
 compression = true
 EOF
 
