@@ -57,6 +57,8 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         libgss-dev \
         python-dev \
         python3-distutils \
+        python-psutil \
+        python3-psutil \
         wget \
         zlib1g-dev \
         libtinfo5 \
