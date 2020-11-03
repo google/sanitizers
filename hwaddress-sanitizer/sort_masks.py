@@ -1,4 +1,3 @@
-from __future__ import print_function
 masks = [0,   1,   2,   3,   4,   6,   7,   8,   12,  14,  15, 16,  24,
          28,  30,  31,  32,  48,  56,  60,  62,  63,  64,  96, 112, 120,
          124, 126, 127, 128, 192, 224, 240, 248, 252, 254]
@@ -24,4 +23,4 @@ for i in range(0, 35):
       next_mask = m1
   new_masks += [next_mask]
 
-print(new_masks)
+print new_masks

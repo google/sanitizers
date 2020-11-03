@@ -8,7 +8,6 @@ Each test should write special messages to kernel log:
 ##### ASSERT '<regex>' - we should search for the regex in other lines of the
     test's output. If it's not found, the test fails
 """
-from __future__ import print_function
 
 import re
 import sys
@@ -97,38 +96,38 @@ def PrintTestReport(test, run_reports):
     total_result = "FLAKY (%d passed, %d failed, %d total)" % (
                    passed, failed, passed + failed)
   
-  print("TEST %s: %s" % (test, total_result))  
+  print "TEST %s: %s" % (test, total_result)  
   if args.brief:
     return
   for index, (_, failures, failed_asserts, lines) in enumerate(run_reports):
     if not failures and not failed_asserts:
       continue
-    print("  Run %d"   % index)
+    print "  Run %d"   % index
     for f in failures:
-      print("    Failed: %s" % s)
+      print "    Failed: %s" % s
     missing_matches = not args.assert_candidates
     for a in failed_asserts:
-      print("    Failed assert: %s" % a)
+      print "    Failed assert: %s" % a
       if args.assert_candidates:
-        print("    Closest matches:")
+        print "    Closest matches:"
         matches =  difflib.get_close_matches(a, lines, args.assert_candidates, 0.4)
         matches = [match for match in matches if not ASSERT_RE.search(match)]
         for match in matches:
-          print("    " + match)
+          print "    " + match
         if not matches:
           missing_matches = True
     if args.failed_log and (failures or missing_matches):
-      print("    Test log:")
+      print "    Test log:"
       for l in lines:
-        print("        " + l)
+        print "        " + l
 
 def PrintBuildBotAnnotation(passed, failed, flaky, flaky_not_allowed):
   if not passed and not failed and not flaky:
-    print("@@@STEP_TEXT: NO TESTS WERE RUN@@@")
-    print("@@@STEP_FAILURE@@@")
-  print("@@@STEP_TEXT@tests:%d  passed:%d  failed:%d  flaky:%d@@@" % (passed + failed + flaky, passed, failed, flaky))
+    print "@@@STEP_TEXT: NO TESTS WERE RUN@@@"
+    print "@@@STEP_FAILURE@@@"
+  print "@@@STEP_TEXT@tests:%d  passed:%d  failed:%d  flaky:%d@@@" % (passed + failed + flaky, passed, failed, flaky)
   if failed or flaky_not_allowed:
-    print("@@@STEP_FAILURE@@@")
+    print "@@@STEP_FAILURE@@@"
 
 def GroupTests(tests):
   result = {}
