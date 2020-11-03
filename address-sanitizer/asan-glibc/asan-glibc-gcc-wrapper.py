@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import print_function
+
 import os
 import re
 import shutil
@@ -94,14 +96,14 @@ if __name__ == '__main__':
   args = [arg for arg in args if arg != '-Wl,-z,defs']
 
   if AllowAsan(o()):
-    print >> sys.stderr, 'ASAN:', o()
+    print('ASAN:', o(), file=sys.stderr)
     args.append('-fsanitize=address')
     # Temporarily disable UAR. See comment asan-init-stub.c
     args.append('--param')
     args.append('asan-use-after-return=0')
 
   if re.search(r'.so(|.\d)$', o()):
-    print >>sys.stderr, "ADDING STUB:", o()
+    print("ADDING STUB:", o(), file=sys.stderr)
     args.append(ASAN_INIT_STUB)
 
   args.append('-fno-omit-frame-pointer')
