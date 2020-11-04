@@ -173,11 +173,11 @@ class ReportProcessor(object):
             self.process_line(line, context_size, questionable)
 
     def strip_time(self, line):
-	# Strip time prefix if present.
+        # Strip time prefix if present.
         match = BRACKET_PREFIX_RE.match(line)
         if match != None:
             line = match.group('body')
-	# Try to strip thread/cpu number prefix if present.
+        # Try to strip thread/cpu number prefix if present.
         match = BRACKET_PREFIX_RE.match(line)
         if match != None:
             line = match.group('body')
@@ -195,8 +195,8 @@ class ReportProcessor(object):
             return
 
         prefix = match.group('prefix')
-	try:
-	    addr = match.group('addr')
+        try:
+            addr = match.group('addr')
         except IndexError:
             addr = None
         body = match.group('body')
@@ -213,7 +213,7 @@ class ReportProcessor(object):
         function = match.group('function')
         offset = match.group('offset')
         size = match.group('size')
-	try:
+        try:
             module = match.group('module')
         except IndexError:
             module = None
