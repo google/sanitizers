@@ -80,7 +80,7 @@ systemctl enable $SERVICE_NAME
 systemctl set-property $SERVICE_NAME TasksMax=100000
 
 systemctl stop $SERVICE_NAME || true
-while pkill buildworker; do sleep 5; done;
+while pkill buildbot-worker; do sleep 5; done;
 
 rm -f /b/buildbot.tac
 buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
@@ -120,5 +120,5 @@ grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
 sleep 72000
-while pkill -SIGHUP buildworker; do sleep 5; done;
+while pkill -SIGHUP buildbot-worker; do sleep 5; done;
 $ON_ERROR
