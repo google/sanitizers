@@ -120,5 +120,5 @@ grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
 sleep 72000
-while pkill -SIGHUP buildslave; do sleep 5; done;
+while pkill -SIGHUP buildworker; do sleep 5; done;
 $ON_ERROR
