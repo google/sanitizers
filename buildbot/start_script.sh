@@ -101,11 +101,11 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
   lscpu
 } > $BOT_DIR/info/host
 
-mkdir -p /var/lib/buildbot/.ccache/
-chown -R buildbot:buildbot /var/lib/buildbot/.ccache
+mkdir -p $BOT_DIR/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
 max_size = 20.0G
 compression = true
+cache_dir = $BOT_DIR/.ccache
 EOF
 
 chown -R buildbot:buildbot $BOT_DIR
