@@ -25,18 +25,18 @@ var (
 		{"CFI Linux ToT", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20ToT"},
 		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
-		{"windows", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-windows"},
-		{"x86_64-linux", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-asan", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-bootstrap"},
-		{"x86_64-linux-msan", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
-		{"x86_64-linux-ubsan", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
-		{"x86_64-linux-fast", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-android"},
-		{"x86_64-linux-autoconf", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-autoconf"},
-		{"ppc64be-linux", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-ppc64le-linux"},
-		{"ppc64le-linux", "http://lab.llvm.org:8011/api/v2/builders/clang-ppc64le-linux-lnt"},
+		{"windows", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-windows"},
+		{"x86_64-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux"},
+		{"x86_64-linux-asan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-bootstrap"},
+		{"x86_64-linux-msan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
+		{"x86_64-linux-ubsan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
+		{"x86_64-linux-fast", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fast"},
+		{"x86_64-linux-android", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-android"},
+		{"x86_64-linux-autoconf", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-autoconf"},
+		{"ppc64be-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
+		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/clang-ppc64le-linux-lnt"},
 		{"LibFuzzer (x86_64-linux)", ""},
-		{"sanitizer", "http://lab.llvm.org:8011/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"sanitizer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan/"},
 		{"chromium-asan-dbg", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
 		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20MSan/"},
@@ -141,7 +141,7 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 		if !b.Complete {
 			continue
 		}
-		builder, _ := url.Parse(fmt.Sprintf("/#/builders/%d", b.Builderid))
+		builder, _ := url.Parse(fmt.Sprintf("/buildbot/#/builders/%d", b.Builderid))
 		sl.builderUrl = baseUrl.ResolveReference(builder).String()
 		time := time.Unix(int64(b.CompleteAt), 0)
 		if sl.lastbuild.Before(time) {
@@ -153,7 +153,7 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		build, _ := url.Parse(fmt.Sprintf("/#/builders/%d/builds/%d", b.Builderid, b.Number))
+		build, _ := url.Parse(fmt.Sprintf("/buildbot/#/builders/%d/builds/%d", b.Builderid, b.Number))
 		sl.statuses = append(sl.statuses, status{baseUrl.ResolveReference(build).String(), success})
 		if len(sl.statuses) >= 31 {
 			break
