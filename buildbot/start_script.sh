@@ -34,36 +34,41 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
       apt-get remove -qq -y --purge auditd puppet-agent google-fluentd
 
       apt-get install -qq -y \
-        g++ \
-        cmake \
-        ccache \
-        binutils-gold \
+        automake \
         binutils-dev \
-        ninja-build \
-        pkg-config \
-        gcc-multilib \
+        binutils-gold \
+        buildbot-worker \
+        ccache \
+        cmake \
+        dos2unix \
+        g++ \
         g++-multilib \
         gawk \
-        dos2unix \
-        libxml2-dev \
-        rsync \
+        gcc-multilib \
         git \
-        libtool \
-        m4 \
-        automake \
+        libfdt-dev \
         libgcrypt-dev \
-        liblzma-dev \
-        libssl-dev \
+        libglib2.0-dev \
         libgss-dev \
-        python-dev \
-        python3-distutils \
-        python-psutil \
-        python3-psutil \
-        wget \
-        zlib1g-dev \
-        libtinfo5 \
+        liblzma-dev \
+        libpixman-1-dev \
+        libssl-dev \
         libtinfo-dev \
-        buildbot-worker
+        libtinfo5 \
+        libtool \
+        libxml2-dev \
+        m4 \
+        ninja-build \
+        pkg-config \
+        python-dev \
+        python-psutil \
+        python3-distutils \
+        python3-psutil \
+        rsync \
+        wget \
+        zlib1g-dev
+        
+        
 
     ) && exit 0
   done
