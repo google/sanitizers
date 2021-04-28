@@ -58,6 +58,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         libtool \
         libxml2-dev \
         libstdc++-dev-arm64-cross \
+        libstdc++-dev-armhf-cross \
         m4 \
         ninja-build \
         pkg-config \
