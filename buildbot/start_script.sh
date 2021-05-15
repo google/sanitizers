@@ -70,7 +70,9 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         wget \
         zlib1g-dev
         
-        
+        curl -sSO https://dl.google.com/cloudagents/add-monitoring-agent-repo.sh
+        bash add-monitoring-agent-repo.sh --also-install
+        sudo service stackdriver-agent start
 
     ) && exit 0
   done
