@@ -59,7 +59,7 @@ function force_kill_qemu_after_timeout {
 }
 
 function on_exit {
-  (force_kill_qemu_after_timeout) &
+  force_kill_qemu_after_timeout &
   if kill "${QEMU_PID}"; then
     echo "Waiting for QEMU to shutdown..."
     wait "${QEMU_PID}" &>/dev/null || true
