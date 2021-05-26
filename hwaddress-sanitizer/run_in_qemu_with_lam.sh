@@ -6,8 +6,11 @@
 # Usage:  ./run_in_qemu_with_lam.sh binary-to-run [argument]...
 #
 # NOTE:  You also need to ensure the environment variables below point to the
-# necessary prerequisites: qemu-system-x86_64, qemu-img, debian-10.qcow2,
-# debian-10.key, bzImage, and llvm-symbolizer.
+# necessary prerequisites: qemu-system-x86_64, qemu-img, debian.img,
+# debian.id_rsa, bzImage, and llvm-symbolizer.
+#
+# A working debian.img and debian.id_rsa can be created with the
+# create_qemu_image.sh script in this directory.
 
 # Path to binary to run in QEMU.
 readonly BINARY_PATH="${1}"
@@ -21,11 +24,11 @@ readonly BINARY_ARGS="${@:2}"
 # Path to a qemu-img binary.
 : ${QEMU_IMG:="${PWD}/qemu/build/qemu-img"}
 
-# Path to a Debian 10 image configured with auto-login and SSH.
-: ${IMAGE:="${PWD}/debian-10.qcow2"}
+# Path to a raw Debian image configured with SSH.
+: ${IMAGE:="${PWD}/debian.img"}
 
 # Path to the SSH key for the root user of the Debian image.
-: ${SSH_KEY:="${PWD}/debian-10.key"}
+: ${SSH_KEY:="${PWD}/debian.id_rsa"}
 
 # The directory inside the Debian image where tests should run.  Must exist
 # prior to running this script.
@@ -43,7 +46,7 @@ readonly BINARY_ARGS="${@:2}"
 
 readonly QEMU_FORCE_KILL_TIMEOUT=3
 readonly HOST_TMPDIR="$(mktemp -d)"
-readonly DELTA_IMAGE="${HOST_TMPDIR}/delta.img"
+readonly DELTA_IMAGE="${HOST_TMPDIR}/delta.qcow2"
 readonly SSH_CONTROL_SOCKET="${HOST_TMPDIR}/ssh-control-socket"
 readonly BINARY_NAME="$(basename ${BINARY_PATH})"
 
@@ -75,7 +78,7 @@ function run_in_qemu {
 
 function boot_qemu {
   # Create a delta image to boot from.
-  "${QEMU_IMG}" create -f qcow2 -b "${IMAGE}" -F qcow2 "${DELTA_IMAGE}"
+  "${QEMU_IMG}" create -F raw -b "${IMAGE}" -f qcow2 "${DELTA_IMAGE}"
 
   echo "Booting QEMU..."
 
@@ -85,8 +88,8 @@ function boot_qemu {
     "${QEMU}" -hda "${DELTA_IMAGE}" -nographic \
       -net "user,host=10.0.2.10,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22" \
       -net "nic,model=e1000" -machine "type=q35,accel=tcg" \
-      -cpu "qemu64,+la57,+lam" -kernel "${KERNEL}" -append "root=/dev/sda1" \
-      -m "1G" &
+      -cpu "qemu64,+la57,+lam" -kernel "${KERNEL}" \
+      -append "root=/dev/sda net.ifnames=0" -m "1G" &
     QEMU_PID=$!
 
     # If QEMU is running, the port number worked.
