@@ -31,22 +31,22 @@ echo "nameserver 8.8.8.8" >> "${IMAGE_DIR}/etc/resolve.conf"
 echo "debian" > "${IMAGE_DIR}/etc/hostname"
 
 # Set up SSH.
-ssh-keygen -f "${RELEASE}.id_rsa" -t rsa -N ""
+ssh-keygen -f "debian.id_rsa" -t rsa -N ""
 mkdir -p "${IMAGE_DIR}/root/.ssh/"
-cat "${RELEASE}.id_rsa.pub" > "${IMAGE_DIR}/root/.ssh/authorized_keys"
+cat "debian.id_rsa.pub" > "${IMAGE_DIR}/root/.ssh/authorized_keys"
 
 # Configure for HWASan tests.
 mkdir -p "${IMAGE_DIR}/workspace"
 
 # Build disk image.
-dd if=/dev/zero of="${RELEASE}.img" bs=1M seek=2047 count=1
-mkfs.ext4 -F "${RELEASE}.img"
+dd if=/dev/zero of="debian.img" bs=1M seek=2047 count=1
+mkfs.ext4 -F "debian.img"
 mkdir -p "/mnt/${RELEASE}"
-mount -o loop "${RELEASE}.img" "/mnt/${RELEASE}"
+mount -o loop "debian.img" "/mnt/${RELEASE}"
 cp -a "${IMAGE_DIR}/." "/mnt/${RELEASE}/."
 umount "/mnt/${RELEASE}"
 rm -r "/mnt/${RELEASE}"
 
 # Allow non-root user to access outputs.
-chmod 644 "${RELEASE}.id_rsa"
-chmod 666 "${RELEASE}.img"
+chmod 644 "debian.id_rsa"
+chmod 666 "debian.img"

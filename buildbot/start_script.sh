@@ -51,17 +51,23 @@ EOF
 
       apt-get install -qq -y \
         automake \
+        bc \
         binutils-dev \
         binutils \
+        bison \
         buildbot-worker \
         ccache \
         cmake \
+        debootstrap \
         dos2unix \
+        e2fsprogs \
+        flex \
         g++ \
         g++-multilib \
         gawk \
         gcc-multilib \
         git \
+        libelf-dev \
         libfdt-dev \
         libgcrypt-dev \
         libglib2.0-dev \
@@ -75,7 +81,9 @@ EOF
         libxml2-dev \
         libstdc++-8-dev-*-cross \
         m4 \
+        make \
         ninja-build \
+        openssh-client \
         pkg-config \
         python-dev \
         python3-distutils \
@@ -95,6 +103,26 @@ sudo service stackdriver-agent start
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
+
+# Generate Debian image for QEMU bot.
+mkdir -p $BOT_DIR/qemu_image
+(
+  set -ux
+  cd $BOT_DIR/qemu_image
+
+  SLEEP=0
+  for i in `seq 1 5`; do
+    sleep $SLEEP
+    SLEEP=$(( SLEEP + 10))
+
+    rm -rf *
+    (
+      curl "https://raw.githubusercontent.com/google/sanitizers/master/hwaddress-sanitizer/create_qemu_image.sh" \
+        | bash
+    ) && exit 0
+  done
+  exit 1
+) || $ON_ERROR
 
 SERVICE_NAME=buildbot-worker@b.service
 [[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
