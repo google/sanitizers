@@ -35,17 +35,23 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
       apt-get install -qq -y \
         automake \
+        bc \
         binutils-dev \
         binutils-gold \
+        bison \
         buildbot-worker \
         ccache \
         cmake \
+        debootstrap \
         dos2unix \
+        e2fsprogs \
+        flex \
         g++ \
         g++-multilib \
         gawk \
         gcc-multilib \
         git \
+        libelf-dev \
         libfdt-dev \
         libgcrypt-dev \
         libglib2.0-dev \
@@ -59,7 +65,9 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         libxml2-dev \
         libstdc++-dev-*-cross \
         m4 \
+        make \
         ninja-build \
+        openssh-client \
         pkg-config \
         python-dev \
         python-psutil \
@@ -80,6 +88,26 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
+
+# Generate Debian image for QEMU bot.
+mkdir -p $BOT_DIR/qemu_image
+(
+  set -eux
+  cd $BOT_DIR/qemu_image
+
+  SLEEP=0
+  for i in `seq 1 5`; do
+    sleep $SLEEP
+    SLEEP=$(( SLEEP + 10))
+
+    rm -f *
+    (
+      curl "https://raw.githubusercontent.com/google/sanitizers/master/hwaddress-sanitizer/create_qemu_image.sh" \
+        | bash
+    ) && exit 0
+  done
+  exit 1
+) || $ON_ERROR
 
 SERVICE_NAME=buildbot-worker@b.service
 [[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
