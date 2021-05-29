@@ -45,6 +45,7 @@ EOF
       
       # Install MTE compartible glibc 2.33 from Ubuntu.
       apt-get -qq -y install software-properties-common || exit 1
+      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
       apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
       add-apt-repository -y 'deb http://mirrors.kernel.org/ubuntu hirsute main' || exit 1
       apt-get -qq -y update || exit 1
@@ -88,7 +89,7 @@ EOF
   exit 1
 ) || $ON_ERROR
 
-# Optional, ingore if it fails
+# Optional, ingore if it fails.
 curl -sSO https://dl.google.com/cloudagents/add-monitoring-agent-repo.sh
 bash add-monitoring-agent-repo.sh --also-install
 sudo service stackdriver-agent start
