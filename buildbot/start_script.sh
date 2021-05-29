@@ -16,7 +16,7 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
-cat <<EOF >>cat /etc/apt/preferences.d/99hirsute
+cat <<EOF >>/etc/apt/preferences.d/99hirsute
 Package: *
 Pin: release a=hirsute
 Pin-Priority: 1
@@ -50,7 +50,7 @@ EOF
       apt-get install -qq -y \
         automake \
         binutils-dev \
-        binutils-gold \
+        binutils \
         buildbot-worker \
         ccache \
         cmake \
