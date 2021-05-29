@@ -27,7 +27,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
       dpkg --add-architecture i386
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
-      apt-get -qq -y update
+      apt-get -qq -y update || exit 1
       #apt-get -qq -y upgrade
 
       # Logs consume a lot of storage space.
@@ -67,16 +67,16 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         python3-psutil \
         rsync \
         wget \
-        zlib1g-dev
-        
-        curl -sSO https://dl.google.com/cloudagents/add-monitoring-agent-repo.sh
-        bash add-monitoring-agent-repo.sh --also-install
-        sudo service stackdriver-agent start
-
+        zlib1g-dev || exit 1
     ) && exit 0
   done
   exit 1
 ) || $ON_ERROR
+
+# Optional, ingore if it fails
+curl -sSO https://dl.google.com/cloudagents/add-monitoring-agent-repo.sh
+bash add-monitoring-agent-repo.sh --also-install
+sudo service stackdriver-agent start
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
