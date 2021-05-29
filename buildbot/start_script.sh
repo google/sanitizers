@@ -23,6 +23,7 @@ Pin-Priority: 1
 
 Package: *-cross
 Pin: release a=hirsute
+Pin-Priority: 600
 EOF
 
 
