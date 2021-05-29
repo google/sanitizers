@@ -57,7 +57,7 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         libtinfo5 \
         libtool \
         libxml2-dev \
-        libstdc++-dev-*-cross \
+        libstdc++-8-dev-*-cross \
         m4 \
         ninja-build \
         pkg-config \
