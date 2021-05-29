@@ -16,6 +16,16 @@ mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
+cat <<EOF >>cat /etc/apt/preferences.d/99hirsute
+Package: *
+Pin: release a=hirsute
+Pin-Priority: 1
+
+Package: *-cross
+Pin: release a=hirsute
+EOF
+
+
 (
   SLEEP=0
   for i in `seq 1 5`; do
@@ -29,9 +39,15 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
       dpkg --configure -a
       apt-get -qq -y update || exit 1
       #apt-get -qq -y upgrade
-
+      
       # Logs consume a lot of storage space.
       apt-get remove -qq -y --purge auditd puppet-agent google-fluentd
+      
+      # Install MTE compartible glibc 2.33 from Ubuntu.
+      apt-get -qq -y install software-properties-common || exit 1
+      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
+      add-apt-repository -y 'deb http://mirrors.kernel.org/ubuntu hirsute main' || exit 1
+      apt-get -qq -y update || exit 1
 
       apt-get install -qq -y \
         automake \
