@@ -62,7 +62,6 @@ mount -t tmpfs tmpfs -o size=80% $BOT_DIR
         ninja-build \
         pkg-config \
         python-dev \
-        python-psutil \
         python3-distutils \
         python3-psutil \
         rsync \
