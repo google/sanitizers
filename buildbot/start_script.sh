@@ -34,6 +34,9 @@ EOF
 
     (
       set -ex
+      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
+      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
+
       dpkg --add-architecture i386
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
@@ -42,8 +45,6 @@ EOF
       
       # Install MTE compartible glibc 2.33 from Ubuntu.
       apt-get -qq -y install software-properties-common || exit 1
-      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
-      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
       add-apt-repository -y 'deb http://mirrors.kernel.org/ubuntu hirsute main' || exit 1
       apt-get -qq -y update || exit 1
 
