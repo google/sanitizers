@@ -40,9 +40,6 @@ EOF
       apt-get -qq -y update || exit 1
       #apt-get -qq -y upgrade
       
-      # Logs consume a lot of storage space.
-      apt-get remove -qq -y --purge auditd puppet-agent google-fluentd
-      
       # Install MTE compartible glibc 2.33 from Ubuntu.
       apt-get -qq -y install software-properties-common || exit 1
       apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
