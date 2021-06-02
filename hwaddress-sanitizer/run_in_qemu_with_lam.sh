@@ -18,29 +18,32 @@ readonly BINARY_PATH="${1}"
 # Arguments to pass the binary inside QEMU.
 readonly BINARY_ARGS="${@:2}"
 
+# Path from which all prerequisites can be found.
+: ${ROOT:="${PWD}"}
+
 # Path to a qemu-system-x86_64 binary built with LAM support.
-: ${QEMU:="${PWD}/qemu/build/qemu-system-x86_64"}
+: ${QEMU:="${ROOT}/lam_qemu_build/qemu-system-x86_64"}
 
 # Path to a qemu-img binary.
-: ${QEMU_IMG:="${PWD}/qemu/build/qemu-img"}
+: ${QEMU_IMG:="${ROOT}/lam_qemu_build/qemu-img"}
 
 # Path to a raw Debian image configured with SSH.
-: ${IMAGE:="${PWD}/debian.img"}
+: ${IMAGE:="${ROOT}/qemu_image/debian.img"}
 
 # Path to the SSH key for the root user of the Debian image.
-: ${SSH_KEY:="${PWD}/debian.id_rsa"}
+: ${SSH_KEY:="${ROOT}/qemu_image/debian.id_rsa"}
 
 # The directory inside the Debian image where tests should run.  Must exist
 # prior to running this script.
 : ${QEMU_WORKSPACE_PATH:="/workspace"}
 
 # Path to a Linux kernel bzImage built with LAM support.
-: ${KERNEL:="${PWD}/linux/build/arch/x86_64/boot/bzImage"}
+: ${KERNEL:="${ROOT}/lam_linux_build/arch/x86_64/boot/bzImage"}
 
 # Path to an llvm-symbolizer built with the following config:
 #   cmake -GNinja -DLLVM_BUILD_RUNTIME=OFF -DCMAKE_BUILD_TYPE=Release \
 #       -DLLVM_STATIC_LINK_CXX_STDLIB=ON ../llvm/
-: ${LLVM_SYMBOLIZER:="${PWD}/llvm-project/build/bin/llvm-symbolizer"}
+: ${LLVM_SYMBOLIZER:="${ROOT}/llvm_build2_x86_64_symbolizer/bin/llvm-symbolizer"}
 
 : ${HWASAN_OPTIONS:=""}
 
