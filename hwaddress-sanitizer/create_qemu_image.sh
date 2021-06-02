@@ -47,6 +47,5 @@ cp -a "${IMAGE_DIR}/." "/mnt/${RELEASE}/."
 umount "/mnt/${RELEASE}"
 rm -r "/mnt/${RELEASE}"
 
-# Allow non-root user to access outputs.
-chmod 644 "debian.id_rsa"
+# Allow non-root user to access image.
 chmod 666 "debian.img"
