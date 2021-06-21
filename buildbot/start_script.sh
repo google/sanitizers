@@ -12,9 +12,9 @@ ON_ERROR=${ON_ERROR:-shutdown now}
 
 BOT_DIR=/b
 
-mount -t tmpfs tmpfs /tmp
+#mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
-mount -t tmpfs tmpfs -o size=80% $BOT_DIR
+#mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 cat <<EOF >/etc/apt/preferences.d/99hirsute
 Package: *
