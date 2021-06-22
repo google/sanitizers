@@ -133,42 +133,48 @@ mkdir -p $BOT_DIR/qemu_image
   exit 1
 ) || $ON_ERROR
 
-SERVICE_NAME=buildbot-worker@b.service
-[[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
+function create_worker() {
+  local WORKER_NAME="$1"
+  local SERVICE_NAME=buildbot-worker@b.service
+  [[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
 
-systemctl enable $SERVICE_NAME
-systemctl set-property $SERVICE_NAME TasksMax=100000
+  systemctl enable $SERVICE_NAME
+  systemctl set-property $SERVICE_NAME TasksMax=100000
 
-systemctl stop $SERVICE_NAME || true
-while pkill buildbot-worker; do sleep 5; done;
+  systemctl stop $SERVICE_NAME || true
+  while pkill buildbot-worker; do sleep 5; done;
 
-rm -f /b/buildbot.tac
-buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
-  "sanitizer-$(hostname | cut -d '-' -f2)" \
-  "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
+  rm -f /b/buildbot.tac
+  buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
+    "$WORKER_NAME" \
+    "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
 
 
-echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
+  echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
-{
-  echo "How to reproduce locally: https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild"
-  echo
-  uname -a | head -n1
-  date
-  cmake --version | head -n1
-  g++ --version | head -n1
-  ld --version | head -n1
-  lscpu
-} > $BOT_DIR/info/host
+  {
+    echo "How to reproduce locally: https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild"
+    echo
+    uname -a | head -n1
+    date
+    cmake --version | head -n1
+    g++ --version | head -n1
+    ld --version | head -n1
+    lscpu
+  } > $BOT_DIR/info/host
 
-chown -R buildbot:buildbot $BOT_DIR
-systemctl daemon-reload
-systemctl start $SERVICE_NAME
-systemctl status $SERVICE_NAME
+  chown -R buildbot:buildbot $BOT_DIR
+  systemctl daemon-reload
+  systemctl start $SERVICE_NAME
+  systemctl status $SERVICE_NAME
+  sleep 30
+  cat $BOT_DIR/twistd.log
+  grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
+}
 
-sleep 30
-cat $BOT_DIR/twistd.log
-grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
+#create_worker "sanitizer-$(hostname | cut -d '-' -f2)"
+create_worker "sanitizer-buildbot8"
+
 
 # GCE can restart instance after 24h in the middle of the build.
 # Gracefully restart before that happen.
