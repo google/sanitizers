@@ -193,6 +193,7 @@ function try_worker() {
 }
 
 while true ; do
+  sleep 30
   for W in 1 3 7 2 4 8 ; do
     try_worker "sanitizer-buildbot${W}" && break
   done
