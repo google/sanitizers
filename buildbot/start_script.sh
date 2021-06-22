@@ -118,7 +118,7 @@ compression = true
 EOF
 
 # Generate Debian image for QEMU bot.
-true || (
+(
   set -ux
   rm -rf $BOT_DIR/qemu_image
   mkdir -p $BOT_DIR/qemu_image
