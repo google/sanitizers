@@ -105,6 +105,14 @@ sudo service stackdriver-agent start
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
+#mkdir -p $BOT_DIR/.ccache
+#cache_dir = $BOT_DIR/.ccache
+mkdir -p /var/lib/buildbot/.ccache
+cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
+max_size = 20.0G
+compression = true
+EOF
+
 # Generate Debian image for QEMU bot.
 mkdir -p $BOT_DIR/qemu_image
 (
@@ -152,14 +160,6 @@ echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
   ld --version | head -n1
   lscpu
 } > $BOT_DIR/info/host
-
-mkdir -p $BOT_DIR/.ccache
-mkdir -p /var/lib/buildbot/.ccache
-cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
-max_size = 20.0G
-compression = true
-cache_dir = $BOT_DIR/.ccache
-EOF
 
 chown -R buildbot:buildbot $BOT_DIR
 systemctl daemon-reload
