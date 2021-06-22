@@ -115,17 +115,16 @@ compression = true
 EOF
 
 # Generate Debian image for QEMU bot.
-mkdir -p $BOT_DIR/qemu_image
 (
   set -ux
+  rm -rf $BOT_DIR/qemu_image
+  mkdir -p $BOT_DIR/qemu_image
   cd $BOT_DIR/qemu_image
 
   SLEEP=0
   for i in `seq 1 5`; do
     sleep $SLEEP
     SLEEP=$(( SLEEP + 10))
-
-    rm -rf *
     $(dirname "$0")/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
   done
   exit 1
