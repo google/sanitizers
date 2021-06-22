@@ -126,10 +126,7 @@ mkdir -p $BOT_DIR/qemu_image
     SLEEP=$(( SLEEP + 10))
 
     rm -rf *
-    (
-      curl "https://raw.githubusercontent.com/google/sanitizers/master/hwaddress-sanitizer/create_qemu_image.sh" \
-        | bash
-    ) && exit 0
+    $(dirname "$0")/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
   done
   exit 1
 ) || $ON_ERROR
