@@ -45,7 +45,7 @@ mkdir -p "/mnt/${RELEASE}"
 mount -o loop "debian.img" "/mnt/${RELEASE}"
 cp -a "${IMAGE_DIR}/." "/mnt/${RELEASE}/."
 umount "/mnt/${RELEASE}"
-rm -r "/mnt/${RELEASE}"
+while ! rm -rf "/mnt/${RELEASE}" ; do sleep 5; done;
 
 # Allow non-root user to access image.
 chmod 666 "debian.img"
