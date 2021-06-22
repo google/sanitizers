@@ -67,6 +67,7 @@ EOF
         gawk \
         gcc-multilib \
         git \
+        jq \
         libelf-dev \
         libfdt-dev \
         libgcrypt-dev \
@@ -75,11 +76,11 @@ EOF
         liblzma-dev \
         libpixman-1-dev \
         libssl-dev \
+        libstdc++-8-dev-*-cross \
         libtinfo-dev \
         libtinfo5 \
         libtool \
         libxml2-dev \
-        libstdc++-8-dev-*-cross \
         m4 \
         make \
         ninja-build \
