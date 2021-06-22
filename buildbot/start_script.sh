@@ -168,7 +168,7 @@ function create_worker() {
   systemctl status $SERVICE_NAME
   sleep 30
   cat ${BOT_DIR}/twistd.log
-  grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
+  grep "worker is ready" $BOT_DIR/twistd.log
 }
 
 function is_worker_connected() {
@@ -180,21 +180,34 @@ function is_worker_connected() {
   )
 }
 
-#create_worker "sanitizer-$(hostname | cut -d '-' -f2)"
-function try_worker() {
+function is_worker_myself() {
+  local WORKER_NAME="$1"
+  for i in `seq 1 5`; do
+    (is_worker_connected ${WORKER_NAME} | grep " $HOSTNAME ") && return 0
+    sleep 30
+  done
+  return 1
+}
+
+function claim_worker() {
   local WORKER_NAME="$1"
   is_worker_connected ${WORKER_NAME} && return 1
-  create_worker "$WORKER_NAME"
+  create_worker "$WORKER_NAME" || return 2
   sleep 30
-  while is_worker_connected ${WORKER_NAME} | grep " $HOSTNAME " ; do
+  while is_worker_myself ${WORKER_NAME} ; do
     sleep 900
   done
+  # Notify caller that we've seen at least 1 disconnected worker.
   return 0
 }
 
 while true ; do
   sleep 30
-  for W in 1 3 7 2 4 8 ; do
-    try_worker "sanitizer-buildbot${W}" && break
-  done
+  (
+    for W in 1 3 7 2 4 8 ; do
+      claim_worker "sanitizer-buildbot${W}" && exit
+    done
+    # No unclaimed workers?
+    $ON_ERROR
+  )
 done
