@@ -8,6 +8,7 @@
 # the instance and reload the script.
 
 MASTER_PORT=${MASTER_PORT:-9994}
+API_PORT=${API_PORT:-8014}
 ON_ERROR=${ON_ERROR:-shutdown now}
 
 BOT_DIR=/b
@@ -174,7 +175,7 @@ function is_worker_connected() {
   local WORKER_NAME="$1"
   (
     set -o pipefail
-    curl http://lab.llvm.org:${MASTER_PORT}/api/v2/workers/${WORKER_NAME} \
+    curl http://lab.llvm.org:${API_PORT}/api/v2/workers/${WORKER_NAME} \
       | jq -e '.workers[] | select(.connected_to[] | length!=0)'
   )
 }
