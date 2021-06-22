@@ -143,11 +143,10 @@ function create_worker() {
   systemctl stop $SERVICE_NAME || true
   while pkill buildbot-worker; do sleep 5; done;
 
-  rm -f /b/buildbot.tac
+  rm -f ${BOT_DIR}/buildbot.tac ${BOT_DIR}/twistd.log
   buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
     "$WORKER_NAME" \
     "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
-
 
   echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
 
@@ -167,16 +166,30 @@ function create_worker() {
   systemctl start $SERVICE_NAME
   systemctl status $SERVICE_NAME
   sleep 30
-  cat $BOT_DIR/twistd.log
+  cat ${BOT_DIR}/twistd.log
   grep "worker is ready" $BOT_DIR/twistd.log || $ON_ERROR
 }
 
+function is_worker_connected() {
+  local WORKER_NAME="$1"
+  curl http://lab.llvm.org:${MASTER_PORT}/api/v2/workers/${WORKER_NAME} \
+    | jq -e '.workers[] | select(.connected_to[] | length!=0)'
+}
+
 #create_worker "sanitizer-$(hostname | cut -d '-' -f2)"
-create_worker "sanitizer-buildbot8"
+function try_worker() {
+  local WORKER_NAME="$1"
+  is_worker_connected ${WORKER_NAME} && return 1
+  create_worker "sanitizer-buildbot8"
+  sleep 30
+  while is_worker_connected ${WORKER_NAME} | grep " $HOSTNAME " ; do
+    sleep 900
+  done
+  return 0
+}
 
-
-# GCE can restart instance after 24h in the middle of the build.
-# Gracefully restart before that happen.
-sleep 72000
-while pkill -SIGHUP buildbot-worker; do sleep 5; done;
-$ON_ERROR
+while true ; do
+  for W in 1 3 7 2 4 8 ; do
+    try_worker "sanitizer-buildbot${W}" && break
+  done
+done
