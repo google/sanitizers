@@ -172,9 +172,11 @@ function create_worker() {
 
 function is_worker_connected() {
   local WORKER_NAME="$1"
-  curl http://lab.llvm.org:${MASTER_PORT}/api/v2/workers/${WORKER_NAME} \
-    | jq -e '.workers[] | select(.connected_to[] | length!=0)'
-  return $?
+  (
+    set -o pipefail
+    curl http://lab.llvm.org:${MASTER_PORT}/api/v2/workers/${WORKER_NAME} \
+      | jq -e '.workers[] | select(.connected_to[] | length!=0)'
+  )
 }
 
 #create_worker "sanitizer-$(hostname | cut -d '-' -f2)"
