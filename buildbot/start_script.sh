@@ -12,6 +12,8 @@ ON_ERROR=${ON_ERROR:-shutdown now}
 
 BOT_DIR=/b
 
+SCRIPT_DIR=$(dirname $(readlink -f "$0"))
+
 #mount -t tmpfs tmpfs /tmp
 mkdir -p $BOT_DIR
 #mount -t tmpfs tmpfs -o size=80% $BOT_DIR
@@ -125,7 +127,7 @@ EOF
   for i in `seq 1 5`; do
     sleep $SLEEP
     SLEEP=$(( SLEEP + 10))
-    $(dirname "$0")/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
+    ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
   done
   exit 1
 ) || $ON_ERROR
