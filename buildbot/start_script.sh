@@ -113,7 +113,7 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 mkdir -p /var/lib/buildbot/.ccache
 chown -R buildbot:buildbot /var/lib/buildbot/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
-max_size = 20.0G
+max_size = 50.0G
 compression = true
 EOF
 
