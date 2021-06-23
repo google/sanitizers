@@ -44,7 +44,6 @@ EOF
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
       apt-get -qq -y update || exit 1
-      #apt-get -qq -y upgrade
       
       # Install MTE compartible glibc 2.33 from Ubuntu.
       apt-get -qq -y install software-properties-common || exit 1
@@ -107,8 +106,6 @@ sudo service stackdriver-agent start
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
-#mkdir -p $BOT_DIR/.ccache
-#cache_dir = $BOT_DIR/.ccache
 mkdir -p /var/lib/buildbot/.ccache
 chown -R buildbot:buildbot /var/lib/buildbot/.ccache
 cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
