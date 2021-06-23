@@ -7,17 +7,16 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
-MASTER_PORT=${MASTER_PORT:-9994}
-API_PORT=${API_PORT:-8014}
+SERVER_PORT=${SERVER_PORT:-9990}
+API_PORT=${API_PORT:-8011}
 ON_ERROR=${ON_ERROR:-shutdown now}
 
 BOT_DIR=/b
 
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
-#mount -t tmpfs tmpfs /tmp
+rm -rf $BOT_DIR
 mkdir -p $BOT_DIR
-#mount -t tmpfs tmpfs -o size=80% $BOT_DIR
 
 cat <<EOF >/etc/apt/preferences.d/99hirsute
 Package: *
@@ -145,7 +144,7 @@ function create_worker() {
   while pkill buildbot-worker; do sleep 5; done;
 
   rm -f ${BOT_DIR}/buildbot.tac ${BOT_DIR}/twistd.log
-  buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
+  buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$SERVER_PORT \
     "$WORKER_NAME" \
     "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
 
