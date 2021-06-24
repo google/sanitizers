@@ -78,7 +78,7 @@ function is_worker_connected() {
   local WORKER_NAME="$1"
   (
     set -o pipefail
-    curl {API_URL}/${WORKER_NAME} \
+    curl ${API_URL}/${WORKER_NAME} \
       | jq -e '.workers[] | select(.connected_to[] | length!=0)'
   )
 }
