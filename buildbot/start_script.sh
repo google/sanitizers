@@ -86,11 +86,13 @@ function is_worker_connected() {
 
 function is_worker_myself() {
   local WORKER_NAME="$1"
-  for i in `seq 1 5`; do
-    (is_worker_connected ${WORKER_NAME} | grep " $HOSTNAME ") && return 0
-    sleep 30
-  done
-  return 1
+  (
+    for i in `seq 1 5`; do
+      is_worker_connected ${WORKER_NAME} && exit 0
+      sleep 30
+    done 
+    exit 1
+  ) | grep " $HOSTNAME "
 }
 
 function claim_worker() {
