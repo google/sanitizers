@@ -22,6 +22,9 @@ EOF
 
     (
       set -ex
+      apt-get -qq -y update || exit 1
+      apt-get install -qq -y gnupg || exit 1
+
       apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
       apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
 
