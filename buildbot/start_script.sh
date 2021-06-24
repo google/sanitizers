@@ -7,8 +7,12 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
+# Use 9994 for staging.
 SERVER_PORT=${SERVER_PORT:-9990}
-API_PORT=${API_PORT:-8011}
+
+# Use http://lab.llvm.org:8014/api/v2/workers for stating
+API_URL=${API_URL:-https://lab.llvm.org/buildbot/api/v2/workers}
+
 ON_ERROR=${ON_ERROR:-shutdown now}
 
 BOT_DIR=/b
@@ -75,7 +79,7 @@ function is_worker_connected() {
   local WORKER_NAME="$1"
   (
     set -o pipefail
-    curl http://lab.llvm.org:${API_PORT}/api/v2/workers/${WORKER_NAME} \
+    curl {API_URL}/${WORKER_NAME} \
       | jq -e '.workers[] | select(.connected_to[] | length!=0)'
   )
 }
