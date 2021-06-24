@@ -42,7 +42,6 @@ function create_worker() {
   local SERVICE_NAME=buildbot-worker@b.service
   [[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
 
-  systemctl enable $SERVICE_NAME
   systemctl set-property $SERVICE_NAME TasksMax=100000
 
   systemctl stop $SERVICE_NAME || true
