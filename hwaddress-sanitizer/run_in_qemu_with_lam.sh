@@ -28,10 +28,10 @@ readonly BINARY_ARGS="${@:2}"
 : ${QEMU_IMG:="${ROOT}/lam_qemu_build/qemu-img"}
 
 # Path to a raw Debian image configured with SSH.
-: ${IMAGE:="${ROOT}/qemu_image/debian.img"}
+: ${IMAGE:="${QEMU_IMAGE_DIR}/debian.img"}
 
 # Path to the SSH key for the root user of the Debian image.
-: ${SSH_KEY:="${ROOT}/qemu_image/debian.id_rsa"}
+: ${SSH_KEY:="${QEMU_IMAGE_DIR}/debian.id_rsa"}
 
 # The directory inside the Debian image where tests should run.  Must exist
 # prior to running this script.

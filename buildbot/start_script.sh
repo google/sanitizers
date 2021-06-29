@@ -3,7 +3,7 @@
 # Script to configure GCE instance to run sanitizer build bots.
 
 # NOTE: GCE can wait up to 20 hours before reloading this file.
-# If some instance needs changes sooner just shutdown the instance 
+# If some instance needs changes sooner just shutdown the instance
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
@@ -15,27 +15,25 @@ API_URL=${API_URL:-https://lab.llvm.org/buildbot/api/v2/workers}
 
 ON_ERROR=${ON_ERROR:-shutdown now}
 
-BOT_DIR=/b
-
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
 ${SCRIPT_DIR}/install_deps.sh
 
 # Generate Debian image for QEMU bot.
-(
+[[ -z "$QEMU_IMAGE_DIR" ]] || (
   set -ux
-  rm -rf $BOT_DIR/qemu_image
-  mkdir -p $BOT_DIR/qemu_image
-  cd $BOT_DIR/qemu_image
+  rm -rf $QEMU_IMAGE_DIR
+  mkdir -p $QEMU_IMAGE_DIR
+  cd $QEMU_IMAGE_DIR
 
   SLEEP=0
   for i in `seq 1 5`; do
     sleep $SLEEP
-    SLEEP=$(( SLEEP + 10))
+    SLEEP=$(( SLEEP + 10 ))
     ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
   done
-  exit 1
-) || $ON_ERROR
+  $ON_ERROR
+)
 
 function create_worker() {
   local WORKER_NAME="$1"
@@ -89,7 +87,7 @@ function is_worker_myself() {
     for i in `seq 1 5`; do
       is_worker_connected ${WORKER_NAME} && exit 0
       sleep 30
-    done 
+    done
     exit 1
   ) | grep " $HOSTNAME "
 }

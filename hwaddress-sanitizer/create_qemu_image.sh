@@ -48,4 +48,4 @@ umount "/mnt/${RELEASE}"
 while ! rm -rf "/mnt/${RELEASE}" ; do sleep 5; done;
 
 # Allow non-root user to access image.
-chmod 666 "debian.img"
+chmod 666 "debian.img" "debian.id_rsa" "debian.id_rsa.pub"
