@@ -14,7 +14,7 @@ SERVER_PORT=${SERVER_PORT:-9990}
 API_URL=${API_URL:-https://lab.llvm.org/buildbot/api/v2/workers}
 
 ON_ERROR=${ON_ERROR:-shutdown now}
-
+QEMU_IMAGE_DIR=${QEMU_IMAGE_DIR:-}
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
 ${SCRIPT_DIR}/install_deps.sh
