@@ -14,13 +14,14 @@ SERVER_PORT=${SERVER_PORT:-9990}
 API_URL=${API_URL:-https://lab.llvm.org/buildbot/api/v2/workers}
 
 ON_ERROR=${ON_ERROR:-shutdown now}
-QEMU_IMAGE_DIR=${QEMU_IMAGE_DIR:-}
+BOT_DIR=/b
+QEMU_IMAGE_DIR=${BOT_DIR}/qemu_image
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
 ${SCRIPT_DIR}/install_deps.sh
 
 # Generate Debian image for QEMU bot.
-[[ -z "$QEMU_IMAGE_DIR" ]] || (
+(
   set -ux
   rm -rf $QEMU_IMAGE_DIR
   mkdir -p $QEMU_IMAGE_DIR
