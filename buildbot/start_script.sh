@@ -10,7 +10,7 @@
 # Use 9994 for staging.
 SERVER_PORT=${SERVER_PORT:-9990}
 
-# Use http://lab.llvm.org:8014/api/v2/workers for stating
+# Use https://lab.llvm.org/staging/api/v2/workers for stating.
 API_URL=${API_URL:-https://lab.llvm.org/buildbot/api/v2/workers}
 
 ON_ERROR=${ON_ERROR:-shutdown now}
