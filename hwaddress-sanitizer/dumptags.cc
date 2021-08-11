@@ -1,5 +1,7 @@
 #include <assert.h>
+#include <dirent.h>
 #include <regex>
+#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -8,7 +10,10 @@
 #include <map>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
 #define PTRACE_PEEKMTETAGS 33
 
@@ -90,35 +95,67 @@ void read_maps(int pid, std::vector<Map*> &maps) {
     maps.push_back(current);
 }
 
-void dump_tags(const std::string prefix, int pid, Map *m) {
-  assert(m->start % 4096 == 0);
-  assert(m->end % 4096 == 0);
-  std::cerr << "dumping: " << (void *)m->start << " .. " << (void *)m->end << "  " << m->name << "\n";
-
-  uptr size = (m->end - m->start) / 16;
-  auto buf = std::make_unique<char[]>(size);
-  iovec iov = {buf.get(), size};
-  long res = ptrace(PTRACE_PEEKMTETAGS, pid, (void *)m->start, &iov);
-  if (res != 0) {
-    perror("peekmtetags");
+uint64_t get_pfn(int pagemapfd, size_t addr) {
+  size_t pagemap_offset = (addr / 4096) * 8;
+  uint64_t pagemap_entry;
+  if (pread(pagemapfd, &pagemap_entry, 8, pagemap_offset) != 8) {
+    perror("pread pagemap");
+    exit(1);
   }
-  assert(res == 0 && iov.iov_len == size);
 
-  std::string path = prefix + "/tags_" + std::to_string(pid) + "_" + hex_to_string(m->start);
-  std::ofstream out(path);
-  out.write(buf.get(), size);
+  if (!(pagemap_entry & (1ULL << 63))) {
+    return 0;
+  }
+
+  return pagemap_entry & ((1ULL << 55) - 1);
 }
 
-int main(int argc, char **argv) {
-  if (argc < 3) {
-    std::cerr << "arg required\n";
-    return 1;
-  }
-  int pid = atoi(argv[1]);
-  std::string prefix = argv[2];
-  int res;
+std::set<uint64_t> seen_pfns;
+int outfd;
 
-  res = ptrace(PTRACE_ATTACH, pid, nullptr, nullptr);
+void dump_map_tags(int pid, int pagemapfd, Map *m) {
+  assert(m->start % 4096 == 0);
+  assert(m->end % 4096 == 0);
+  std::cerr << "dumping: " << (void *)m->start << " .. " << (void *)m->end << "  " << m->name;
+
+  uint64_t total = 0, present = 0, dumped = 0;
+  for (uptr addr = m->start; addr != m->end; addr += 4096) {
+    ++total;
+    uint64_t pfn = get_pfn(pagemapfd, addr);
+    if (pfn == 0)
+      continue;
+    ++present;
+    if (!seen_pfns.insert(pfn).second)
+      continue;
+    ++dumped;
+
+    constexpr uptr size = 4096 / 16;
+    char buf[size];
+    iovec iov = {buf, size};
+    long res = ptrace(PTRACE_PEEKMTETAGS, pid, (void *)addr, &iov);
+    if (res != 0) {
+      perror("peekmtetags");
+      exit(1);
+    }
+    assert(res == 0 && iov.iov_len == size);
+
+    if (write(outfd, buf, size) != size) {
+      perror("write");
+      exit(1);
+    }
+  }
+
+  std::cerr << ": " << total << " pages, " << present << " present" << ", " << dumped << " dumped\n";
+}
+
+void dump_pid_tags(int pid) {
+  int pagemapfd = open(("/proc/" + std::to_string(pid) + "/pagemap").c_str(), O_RDONLY);
+  if (pagemapfd < 0) {
+    perror("open pagemap");
+    exit(1);
+  }
+
+  int res = ptrace(PTRACE_ATTACH, pid, nullptr, nullptr);
   if (res != 0) {
     perror("ptrace attach");
     exit(1);
@@ -130,7 +167,7 @@ int main(int argc, char **argv) {
   for (auto m : maps) {
     if (!m->mt)
       continue;
-    dump_tags(prefix, pid, m);
+    dump_map_tags(pid, pagemapfd, m);
   }
 
   res = ptrace(PTRACE_DETACH, pid, nullptr, nullptr);
@@ -138,4 +175,57 @@ int main(int argc, char **argv) {
     perror("ptrace attach");
     exit(1);
   }
+
+  close(pagemapfd);
+}
+
+int main(int argc, char **argv) {
+  if (argc != 2) {
+    std::cerr << "arg required\n";
+    return 1;
+  }
+  outfd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (outfd < 0) {
+    perror("open");
+    exit(1);
+  }
+
+  DIR *proc = opendir("/proc");
+  if (!proc) {
+    perror("opendir");
+    exit(1);
+  }
+
+  while (dirent *ent = readdir(proc)) {
+    char *end;
+    int pid = strtol(ent->d_name, &end, 10);
+    if (*end != 0) {
+      continue;
+    }
+    if (pid == getpid()) {
+      continue;
+    }
+    
+    char exe[256];
+    size_t exe_size = readlink(
+        ("/proc/" + std::to_string(pid) + "/exe").c_str(), exe, sizeof(exe));
+    if (exe_size == -1) {
+      // Skip kernel threads.
+      if (errno == ENOENT) {
+        continue;
+      }
+      perror("readlink");
+      exit(1);
+    }
+
+    if (exe_size >= sizeof(exe)) {
+      exe_size = sizeof(exe) - 1;
+    }
+    exe[exe_size] = 0;
+
+    std::cerr << "dumping pid " << pid << ": " << exe << '\n';
+    dump_pid_tags(pid);
+  }
+
+  closedir(proc);
 }
