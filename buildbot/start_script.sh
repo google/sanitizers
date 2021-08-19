@@ -34,7 +34,7 @@ ${SCRIPT_DIR}/install_deps.sh
     ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
   done
   $ON_ERROR
-)
+) &
 
 function create_worker() {
   local WORKER_NAME="$1"
@@ -62,6 +62,7 @@ function create_worker() {
     g++ --version | head -n1
     ld --version | head -n1
     lscpu
+    echo "Host: $HOSTNAME"
   } > $BOT_DIR/info/host
 
   chown -R buildbot:buildbot $BOT_DIR
@@ -79,6 +80,15 @@ function is_worker_connected() {
     set -o pipefail
     curl ${API_URL}/${WORKER_NAME} \
       | jq -e '.workers[] | select(.connected_to[] | length!=0)'
+  )
+}
+
+function get_worker_host() {
+  local WORKER_NAME="$1"
+  (
+    set -o pipefail
+    curl ${API_URL}/${WORKER_NAME} \
+      | jq -re '.workers[].workerinfo.host | capture("(?<p>Host): *(?<v>.*)").v'
   )
 }
 
@@ -105,12 +115,26 @@ function claim_worker() {
   return 0
 }
 
+BOTS=$(echo "1 3 7 2 4 8" | tr ' ' '\n' | shuf)
 while true ; do
   sleep 30
   (
-    for W in $(echo "1 3 7 2 4 8" | tr ' ' '\n' | shuf) ; do
+    # Try claim the same bot.
+    for W in $BOTS ; do
+      [[ "$(get_worker_host sanitizer-buildbot${W})" == "$HOSTNAME" ]] || continue
       claim_worker "sanitizer-buildbot${W}" && exit
     done
+
+    # Ignore bots with online hosts.
+    for W in $BOTS ; do
+      ping "$(get_worker_host sanitizer-buildbot${W})" -c3 && continue
+      claim_worker "sanitizer-buildbot${W}" && exit
+    done
+
+    for W in $BOTS ; do
+      claim_worker "sanitizer-buildbot${W}" && exit
+    done
+
     # No unclaimed workers?
     $ON_ERROR
   )
