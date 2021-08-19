@@ -31,8 +31,12 @@ ${SCRIPT_DIR}/install_deps.sh
   for i in `seq 1 5`; do
     sleep $SLEEP
     SLEEP=$(( SLEEP + 10 ))
-    ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && exit 0
+    ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && (
+      chown -R buildbot:buildbot $QEMU_IMAGE_DIR
+      exit 0
+    )
   done
+  
   $ON_ERROR
 ) &
 
