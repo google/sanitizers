@@ -31,7 +31,7 @@ echo "nameserver 8.8.8.8" >> "${IMAGE_DIR}/etc/resolve.conf"
 echo "debian" > "${IMAGE_DIR}/etc/hostname"
 
 # Set up SSH.
-ssh-keygen -f "debian.id_rsa" -t rsa -N ""
+ssh-keygen -q -f "debian.id_rsa" -t rsa -N ""
 mkdir -p "${IMAGE_DIR}/root/.ssh/"
 cat "debian.id_rsa.pub" > "${IMAGE_DIR}/root/.ssh/authorized_keys"
 
