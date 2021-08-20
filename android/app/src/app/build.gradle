@@ -1,0 +1,66 @@
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-android-extensions'
+
+android {
+    compileSdkVersion 31
+    buildToolsVersion "31.0.0"
+    defaultConfig {
+        applicationId "com.example.sanitizertest"
+        minSdkVersion 27
+        targetSdkVersion 31
+        versionCode 1
+        versionName "1.2"
+        manifestPlaceholders = [ gwpAsanMode: 'default', memtagMode: 'default' ]
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            debuggable true // Still allow compat features to be flipped.
+        }
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
+    }
+
+    flavorDimensions "sanitize"
+    productFlavors {
+        none {
+            applicationIdSuffix ".none"
+        }
+        gwp_asan {
+            applicationIdSuffix ".gwp_asan"
+            manifestPlaceholders = [ gwpAsanMode: 'always' ]
+        }
+        hwasan {
+            applicationIdSuffix ".hwasan"
+            externalNativeBuild {
+                cmake {
+                    arguments "-DHWASAN=1"
+                }
+            }
+        }
+        memtag_async {
+            applicationIdSuffix = ".memtag.async"
+            manifestPlaceholders = [ memtagMode: 'async' ]
+        }
+        memtag_sync {
+            applicationIdSuffix = ".memtag.sync"
+            manifestPlaceholders = [ memtagMode: 'sync' ]
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.3.0'
+    implementation 'androidx.core:core-ktx:1.6.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.0'
+}

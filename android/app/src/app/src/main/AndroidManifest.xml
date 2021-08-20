@@ -8,8 +8,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        android:gwpAsanMode="always">
-        <activity android:name=".MainActivity">
+        android:memtagMode="${memtagMode}"
+        android:gwpAsanMode="${gwpAsanMode}"
+        android:nativeHeapZeroInitialized="true">
+        <activity android:exported="true" android:name=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

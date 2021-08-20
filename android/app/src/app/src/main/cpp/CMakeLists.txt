@@ -44,6 +44,6 @@ target_link_libraries( # Specifies the target library.
         ${log-lib})
 
 if(ANDROID_ABI STREQUAL "arm64-v8a" AND HWASAN)
-  target_compile_options(native-lib PUBLIC -fsanitize=hwaddress -fsanitize-hwaddress-abi=platform -fno-omit-frame-pointer)
+  target_compile_options(native-lib PUBLIC -fsanitize=hwaddress -fno-omit-frame-pointer)
   set_target_properties(native-lib PROPERTIES LINK_FLAGS -fsanitize=hwaddress)
 endif()
