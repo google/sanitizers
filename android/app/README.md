@@ -1,24 +1,36 @@
-# Sanitizer Test Android Apps
+# Sanitizer Example Android Apps
 
-This repository currently contains a single test app. This app can be built for
-either [HWASan](https://developer.android.com/ndk/guides/hwasan) or
-[GWP-ASan](https://developer.android.com/ndk/guides/gwp-asan) usage.
+This repository contains an example Android app that is built with the following
+memory safety tools:
 
-Prebuilt apps can be found in the `prebuilt-apks` folder. These apps come fully
-signed in two variants, a HWASan and a GWP-ASan version. They can be installed
+ 1. [HWASan](https://developer.android.com/ndk/guides/hwasan),
+ 2. [GWP-ASan](https://developer.android.com/ndk/guides/gwp-asan),
+ 3. [MTE](https://security.googleblog.com/2019/08/adopting-arm-memory-tagging-extension.html)
+    (in both SYNChronous and ASYNChronous modes), or
+ 4. None of the above.
+
+Installing the Prebuilt Apps
+---
+
+Prebuilt apps can be found in the `prebuilt-apks` folder. They can be installed
 onto your device by `adb install prebuilt-apks/app-<variant>-release.apk`.
-Note: If you see errors along the lines of:
-`Failure [INSTALL_FAILED_VERIFICATION_FAILURE: Package Verification Result]`,
-you may need to `adb unroot` first. Once installed, the app will be visible
-in your app drawer under the name "Sanitizer Test App".
 
-To remove the app, you can:
- 1. Long press the app in the app drawer, and drag it to the top right of the
-    screen, into the "Uninstall" bin.
- 2. Using `adb uninstall com.example.sanitizertest`
+Note: If you see errors along the lines of: `Failure
+[INSTALL_FAILED_VERIFICATION_FAILURE: Package Verification Result]`, you may
+need to `adb unroot` first. Once installed, the app will be visible in your app
+drawer under the name "Sanitizer Test App".
 
-To build the app, simply `cd src && ./gradlew build`. This will build a debug
-(unsigned) variant of the app for both HWASan and GWP-ASan, present under
+Uninstalling the App
+---
+
+You can remove the app on-device by long pressing the app in the app drawer, and
+dragging it to the top right of the screen, into the "Uninstall" bin.
+
+Building the App Yourself
+---
+
+To build the app yourself, simply `cd src && ./gradlew build`. For each
+sanitizer, this will build a debug version of the app and place it under
 `app/build/outputs/apk/gwpAsan/release/app-<variant>-debug-unsigned.apk`.
 Installation instructions are the same as the prebuilts.
 
