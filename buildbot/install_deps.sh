@@ -65,7 +65,7 @@ EOF
         liblzma-dev \
         libpixman-1-dev \
         libssl-dev \
-        libstdc++-8-dev-*-cross \
+        libstdc++-dev-*-cross \
         libtinfo-dev \
         libtinfo5 \
         libtool \
@@ -88,7 +88,7 @@ EOF
 
 # Optional, ingore if it fails.
 curl -sSO https://dl.google.com/cloudagents/add-monitoring-agent-repo.sh
-bash add-monitoring-agent-repo.sh --also-install
+bash add-monitoring-agent-repo.sh --also-install --remove-repo
 sudo service stackdriver-agent start
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
