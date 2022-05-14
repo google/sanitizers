@@ -46,7 +46,14 @@ function create_worker() {
   [[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
 
   systemctl set-property $SERVICE_NAME TasksMax=100000
+  mkdir -p /etc/systemd/system/${SERVICE_NAME}.d
+  cat <<EOF >>/etc/systemd/system/{SERVICE_NAME}.d/limits.conf
+[Service]
+LimitNOFILE=1048576:1048576
+EOF
+  
 
+   
   systemctl stop $SERVICE_NAME || true
   while pkill buildbot-worker; do sleep 5; done;
 
