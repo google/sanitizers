@@ -47,7 +47,7 @@ function create_worker() {
 
   systemctl set-property $SERVICE_NAME TasksMax=100000
   mkdir -p /etc/systemd/system/${SERVICE_NAME}.d
-  cat <<EOF >>/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
+  cat <<EOF >/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
 [Service]
 LimitNOFILE=1048576:1048576
 EOF
