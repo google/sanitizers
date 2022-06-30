@@ -7,11 +7,13 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
-# Use 9994 for staging.
-SERVER_PORT=${SERVER_PORT:-9990}
-
-# Use https://lab.llvm.org/staging/api/v2/workers for stating.
-API_URL=${API_URL:-https://lab.llvm.org/buildbot/api/v2/workers}
+if [[ -v USE_STAGING ]] ; then
+  SERVER_PORT=9994
+  API_URL=https://lab.llvm.org/staging/api/v2/workers
+else
+  SERVER_PORT=9990
+  API_URL=https://lab.llvm.org/buildbot/api/v2/workers
+fi
 
 ON_ERROR=${ON_ERROR:-shutdown now}
 BOT_DIR=/b
