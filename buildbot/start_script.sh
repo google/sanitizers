@@ -73,7 +73,7 @@ EOF
     g++ --version | head -n1
     ld --version | head -n1
     lscpu
-    echo "Host: $HOSTNAME"
+    echo "Host: $(hostname -f)"
   } > $BOT_DIR/info/host
 
   chown -R buildbot:buildbot $BOT_DIR
