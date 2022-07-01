@@ -20,7 +20,7 @@ BOT_DIR=/b
 QEMU_IMAGE_DIR=${BOT_DIR}/qemu_image
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
-mountpoint /tmp     || mount -o noatime,nosuid -t tmpfs tmpfs /tmp || $ON_ERROR
+mountpoint /tmp     || mount -o nosuid -t tmpfs tmpfs /tmp || $ON_ERROR
 
 ${SCRIPT_DIR}/install_deps.sh
 
@@ -30,7 +30,7 @@ ${SCRIPT_DIR}/install_deps.sh
   mkfs.xfs /dev/md0
 }
 mkdir -p $BOT_DIR
-mountpoint $BOT_DIR || mount -o noatime,nosuid /dev/md0 $BOT_DIR || $ON_ERROR
+mountpoint $BOT_DIR || mount -o lazytime,nosuid /dev/md0 $BOT_DIR || $ON_ERROR
 
 # Move home to the scratch drive.
 usermod -d $BOT_DIR buildbot
