@@ -22,6 +22,19 @@ SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
 ${SCRIPT_DIR}/install_deps.sh
 
+rm -rf $BOT_DIR
+mkdir -p $BOT_DIR
+
+# Make sure /var/lib/buildbot/.cache/clang/ModuleCache/ does not grow over time.
+rm -rf /var/lib/buildbot/.cache/clang
+
+mkdir -p /var/lib/buildbot/.ccache
+chown -R buildbot:buildbot /var/lib/buildbot/.ccache
+cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
+max_size = 50.0G
+compression = true
+EOF
+
 # Generate Debian image for QEMU bot.
 (
   set -ux
