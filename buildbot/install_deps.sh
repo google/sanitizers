@@ -67,6 +67,7 @@ EOF
         libtinfo5 \
         libtool \
         libxml2-dev \
+        mdadm \
         m4 \
         make \
         ninja-build \
@@ -77,6 +78,7 @@ EOF
         python3-psutil \
         rsync \
         wget \
+        xfsprogs \
         zlib1g-dev || exit 1
     ) && exit 0
   done
