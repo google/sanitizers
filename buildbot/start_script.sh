@@ -20,20 +20,32 @@ BOT_DIR=/b
 QEMU_IMAGE_DIR=${BOT_DIR}/qemu_image
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 
+mountpoint /tmp     || mount -o noatime,nosuid,nodev -t tmpfs tmpfs /tmp || $ON_ERROR
+
 ${SCRIPT_DIR}/install_deps.sh
 
-rm -rf $BOT_DIR
+# Format and mount scratch drive.
+[[ -e /dev/md0 ]] || {
+  yes | mdadm --create /dev/md0 --level=0 -q -f --raid-devices=$(ls /dev/nvme*n* | wc -l) /dev/nvme*n*
+  mkfs.xfs /dev/md0
+}
 mkdir -p $BOT_DIR
+mountpoint $BOT_DIR || mount -o noatime,nosuid,nodev /dev/md0 $BOT_DIR || $ON_ERROR
 
-# Make sure /var/lib/buildbot/.cache/clang/ModuleCache/ does not grow over time.
-rm -rf /var/lib/buildbot/.cache/clang
+# Move home to the scratch drive.
+usermod -d $BOT_DIR buildbot
 
-mkdir -p /var/lib/buildbot/.ccache
-chown -R buildbot:buildbot /var/lib/buildbot/.ccache
-cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
-max_size = 50.0G
-compression = true
+# Make sure .cache/clang/ModuleCache/ does not grow over time.
+rm -rf $BOT_DIR/.cache
+
+mkdir -p $BOT_DIR/.ccache
+cat <<EOF >$BOT_DIR/.ccache/ccache.conf
+max_size = 200.0G
+compression = false
 EOF
+# TODO add file_clone
+
+chown -R buildbot:buildbot $BOT_DIR
 
 # Generate Debian image for QEMU bot.
 (
@@ -58,7 +70,8 @@ EOF
 function create_worker() {
   local WORKER_NAME="$1"
   local SERVICE_NAME=buildbot-worker@b.service
-  [[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
+
+  echo "Connecting as $WORKER_NAME"
 
   systemctl set-property $SERVICE_NAME TasksMax=100000
   mkdir -p /etc/systemd/system/${SERVICE_NAME}.d
@@ -67,17 +80,17 @@ function create_worker() {
 LimitNOFILE=1048576:1048576
 EOF
   
-
-   
   systemctl stop $SERVICE_NAME || true
   while pkill buildbot-worker; do sleep 5; done;
 
-  rm -f ${BOT_DIR}/buildbot.tac ${BOT_DIR}/twistd.log
-  buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$SERVER_PORT \
+  buildbot-worker create-worker -f --allow-shutdown=signal ${BOT_DIR} lab.llvm.org:$SERVER_PORT \
     "$WORKER_NAME" \
     "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
 
-  echo "Vitaly Buka <vitalybuka@google.com>" > $BOT_DIR/info/admin
+  mkdir -p /var/lib/buildbot/workers/b
+  ln -fs $BOT_DIR/buildbot.tac /var/lib/buildbot/workers/b/
+
+  echo "Vitaly Buka <vitalybuka@google.com>" > ${BOT_DIR}/info/admin
 
   {
     echo "How to reproduce locally: https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild"
@@ -89,9 +102,10 @@ EOF
     ld --version | head -n1
     lscpu
     echo "Host: $(hostname -f)"
-  } > $BOT_DIR/info/host
+  } > ${BOT_DIR}/info/host
 
   chown -R buildbot:buildbot $BOT_DIR
+
   systemctl daemon-reload
   systemctl start $SERVICE_NAME
   systemctl status $SERVICE_NAME
