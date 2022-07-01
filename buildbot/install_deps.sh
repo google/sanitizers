@@ -1,8 +1,5 @@
 #!/bin/bash
 
-rm -rf $BOT_DIR
-mkdir -p $BOT_DIR
-
 cat <<EOF >/etc/apt/preferences.d/99hirsute
 Package: *
 Pin: release a=hirsute
@@ -93,13 +90,3 @@ sudo service stackdriver-agent start
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
-
-# Make sure /var/lib/buildbot/.cache/clang/ModuleCache/ does not grow over time.
-rm -rf /var/lib/buildbot/.cache/clang
-
-mkdir -p /var/lib/buildbot/.ccache
-chown -R buildbot:buildbot /var/lib/buildbot/.ccache
-cat <<EOF >/var/lib/buildbot/.ccache/ccache.conf
-max_size = 50.0G
-compression = true
-EOF
