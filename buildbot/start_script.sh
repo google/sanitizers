@@ -19,6 +19,7 @@ ON_ERROR=${ON_ERROR:-shutdown now}
 BOT_DIR=/b
 QEMU_IMAGE_DIR=${BOT_DIR}/qemu_image
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
+FULL_HOSTNAME="$(hostname -f)"
 
 mountpoint /tmp     || mount -o nosuid -t tmpfs tmpfs /tmp || $ON_ERROR
 
@@ -101,7 +102,7 @@ EOF
     g++ --version | head -n1
     ld --version | head -n1
     lscpu
-    echo "Host: $(hostname -f)"
+    echo "Host: ${FULL_HOSTNAME}"
   } > ${BOT_DIR}/info/host
 
   chown -R buildbot:buildbot $BOT_DIR
@@ -140,7 +141,7 @@ function is_worker_myself() {
       sleep 30
     done
     exit 1
-  ) | grep " $HOSTNAME "
+  ) | grep " ${FULL_HOSTNAME}"
 }
 
 function claim_worker() {
@@ -161,7 +162,7 @@ while true ; do
   (
     # Try claim the same bot.
     for W in $BOTS ; do
-      [[ "$(get_worker_host sanitizer-buildbot${W})" == "$HOSTNAME" ]] || continue
+      [[ "$(get_worker_host sanitizer-buildbot${W})" == "${FULL_HOSTNAME}" ]] || continue
       claim_worker "sanitizer-buildbot${W}" && exit
     done
 
