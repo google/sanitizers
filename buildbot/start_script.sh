@@ -7,7 +7,7 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
-USE_STAGING=${USE_STAGING:-1}
+USE_STAGING=${USE_STAGING:-0}
 
 if [[ "${USE_STAGING}" == "1" ]] ; then
   SERVER_PORT=9994
