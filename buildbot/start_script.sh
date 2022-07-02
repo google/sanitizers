@@ -7,7 +7,9 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
-if [[ -v USE_STAGING ]] ; then
+USE_STAGING=${USE_STAGING:-1}
+
+if [[ "${USE_STAGING}" == "1" ]] ; then
   SERVER_PORT=9994
   API_URL=https://lab.llvm.org/staging/api/v2/workers
 else
