@@ -33,7 +33,7 @@ ${SCRIPT_DIR}/install_deps.sh
   mkfs.xfs /dev/md0
 }
 mkdir -p $BOT_DIR
-mountpoint $BOT_DIR || mount -o lazytime,nosuid /dev/md0 $BOT_DIR || $ON_ERROR
+mountpoint $BOT_DIR || mount -o nosuid /dev/md0 $BOT_DIR || $ON_ERROR
 
 # Move home to the scratch drive.
 usermod -d $BOT_DIR buildbot
