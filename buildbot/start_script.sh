@@ -52,6 +52,7 @@ chown -R buildbot:buildbot $BOT_DIR
 
 # Generate Debian image for QEMU bot.
 (
+  [[ -f ${QEMU_IMAGE_DIR}/debian.img ]] && exit 0
   set -ux
   rm -rf $QEMU_IMAGE_DIR
   mkdir -p $QEMU_IMAGE_DIR
