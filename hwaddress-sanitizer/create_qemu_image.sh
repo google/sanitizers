@@ -25,13 +25,13 @@ echo "T0:23:respawn:/sbin/getty -L ttyS0 115200 vt100" \
   >> "${IMAGE_DIR}/etc/inittab"
 
 # debian
-cat <<EOF >${IMAGE_DIR}/etc/network/interfaces
+[[ -d ${IMAGE_DIR}/etc/network ]] && cat <<EOF >${IMAGE_DIR}/etc/network/interfaces
 auto eth0
 iface eth0 inet dhcp
 EOF
 
 # ubuntu
-cat <<EOF >${IMAGE_DIR}/etc/netplan/config.yaml
+[[ -d ${IMAGE_DIR}/etc/netplan ]] && cat <<EOF >${IMAGE_DIR}/etc/netplan/config.yaml
 network:
     version: 2
     renderer: networkd
