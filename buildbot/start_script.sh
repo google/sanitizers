@@ -85,6 +85,7 @@ EOF
   
   systemctl stop $SERVICE_NAME || true
   while pkill buildbot-worker; do sleep 5; done;
+  rm -f ${BOT_DIR}/twistd.log ${BOT_DIR}/buildbot.tac
 
   buildbot-worker create-worker -f --allow-shutdown=signal ${BOT_DIR} lab.llvm.org:$SERVER_PORT \
     "$WORKER_NAME" \
