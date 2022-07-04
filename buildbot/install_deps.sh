@@ -53,6 +53,7 @@ EOF
         gawk \
         gcc-multilib \
         git \
+        inetutils-ping \
         jq \
         libelf-dev \
         libfdt-dev \
@@ -67,6 +68,7 @@ EOF
         libtinfo5 \
         libtool \
         libxml2-dev \
+        mc \
         mdadm \
         m4 \
         make \
@@ -76,6 +78,7 @@ EOF
         python-dev \
         python3-distutils \
         python3-psutil \
+        psmisc \
         rsync \
         wget \
         xfsprogs \
