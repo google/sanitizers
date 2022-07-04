@@ -7,24 +7,39 @@
 #
 # Outputs: the QEMU image and SSH keys in the current directory.
 
-: ${RELEASE:="buster"}
+. /etc/lsb-release
+
+: ${RELEASE:="${DISTRIB_CODENAME}"}
 : ${PREINSTALL_PKGS:="openssh-server"}  # Comma-separated list of packages.
-: ${MIRROR:="http://ftp.us.debian.org/debian"}
 
 readonly DIR="$(mktemp -d)"
 readonly IMAGE_DIR="${DIR}/${RELEASE}"
 
 # Generate base system.
 mkdir "${IMAGE_DIR}"
-debootstrap --include="${PREINSTALL_PKGS}" "${RELEASE}" "${IMAGE_DIR}" \
-  "${MIRROR}"
+debootstrap --include="${PREINSTALL_PKGS}" "${RELEASE}" "${IMAGE_DIR}"
 
 # Configure system to boot properly.
 sed -i "/^root/ { s/:x:/::/ }" "${IMAGE_DIR}/etc/passwd"
 echo "T0:23:respawn:/sbin/getty -L ttyS0 115200 vt100" \
   >> "${IMAGE_DIR}/etc/inittab"
-printf "\nauto eth0\niface eth0 inet dhcp\n" \
-  >> "${IMAGE_DIR}/etc/network/interfaces"
+
+# debian
+cat <<EOF >${IMAGE_DIR}/etc/network/interfaces
+auto eth0
+iface eth0 inet dhcp
+EOF
+
+# ubuntu
+cat <<EOF >${IMAGE_DIR}/etc/netplan/config.yaml
+network:
+    version: 2
+    renderer: networkd
+    ethernets:
+        eth0:
+            dhcp4: true
+EOF
+
 echo "/dev/root / ext4 defaults 0 0" >> "${IMAGE_DIR}/etc/fstab"
 echo -en "127.0.0.1\tlocalhost\n" > "${IMAGE_DIR}/etc/hosts"
 echo "nameserver 8.8.8.8" >> "${IMAGE_DIR}/etc/resolve.conf"
