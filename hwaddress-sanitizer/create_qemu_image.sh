@@ -7,9 +7,16 @@
 #
 # Outputs: the QEMU image and SSH keys in the current directory.
 
-. /etc/lsb-release
+if [[ -f /etc/lsb-release ]] ; then 
+  . /etc/lsb-release
+  RELEASE=${DISTRIB_CODENAME}
+fi
 
-: ${RELEASE:="${DISTRIB_CODENAME}"}
+if [[ -f /etc/os-release ]] ; then 
+  . /etc/os-release
+  RELEASE=${VERSION_CODENAME}
+fi
+
 : ${PREINSTALL_PKGS:="openssh-server"}  # Comma-separated list of packages.
 
 readonly DIR="$(mktemp -d)"
