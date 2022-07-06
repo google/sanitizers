@@ -45,8 +45,8 @@ mkdir -p $BOT_DIR/.ccache
 cat <<EOF >$BOT_DIR/.ccache/ccache.conf
 max_size = 200.0G
 compression = false
+file_clone = true
 EOF
-# TODO add file_clone
 
 chown -R buildbot:buildbot $BOT_DIR
 
