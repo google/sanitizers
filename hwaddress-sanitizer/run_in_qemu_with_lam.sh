@@ -115,7 +115,10 @@ function boot_qemu {
   done
 
   # Fail fast if SSH is not working.
-  run_in_qemu "echo" &>/dev/null
+  run_in_qemu "echo" &>/dev/null || {
+    echo "SSH is not ready"
+    exit 1
+  }
 }
 
 function copy_to_qemu {
