@@ -1,16 +1,5 @@
 #!/bin/bash
 
-cat <<EOF >/etc/apt/preferences.d/99hirsute
-Package: *
-Pin: release a=hirsute
-Pin-Priority: 1
-
-Package: *-cross
-Pin: release a=hirsute
-Pin-Priority: 600
-EOF
-
-
 (
   SLEEP=0
   for i in `seq 1 5`; do
@@ -22,19 +11,11 @@ EOF
       apt-get -qq -y update || exit 1
       apt-get install -qq -y gnupg || exit 1
 
-      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
-      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
-
       dpkg --add-architecture i386
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
       apt-get -qq -y update || exit 1
       
-      # Install MTE compartible glibc 2.33 from Ubuntu.
-      apt-get -qq -y install software-properties-common || exit 1
-      add-apt-repository -y 'deb http://mirrors.kernel.org/ubuntu hirsute main' || exit 1
-      apt-get -qq -y update || exit 1
-
       apt-get install -qq -y \
         automake \
         bc \
@@ -55,6 +36,10 @@ EOF
         git \
         inetutils-ping \
         jq \
+        libattr1-dev \
+        libc6-dev \
+        libc6-dev:i386 \
+        libcap-ng-dev \
         libelf-dev \
         libfdt-dev \
         libgcrypt-dev \
@@ -75,7 +60,8 @@ EOF
         ninja-build \
         openssh-client \
         pkg-config \
-        python-dev \
+        python-is-python3 \
+        python3-dev \
         python3-distutils \
         python3-psutil \
         psmisc \
