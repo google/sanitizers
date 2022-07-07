@@ -107,6 +107,8 @@ function boot_qemu {
   for i in {0..10}; do
     sleep 5
 
+    echo "SSH into VM, try ${i}"
+
     # Set up persistent SSH connection for faster command execution inside QEMU.
     ssh -p "${SSH_PORT}" -o "StrictHostKeyChecking=no" \
         -o "UserKnownHostsFile=/dev/null" -o "ControlPersist=30m" \
