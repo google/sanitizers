@@ -43,7 +43,7 @@ readonly BINARY_ARGS="${@:2}"
 # Path to an llvm-symbolizer built with the following config:
 #   cmake -GNinja -DLLVM_BUILD_RUNTIME=OFF -DCMAKE_BUILD_TYPE=Release \
 #       -DLLVM_STATIC_LINK_CXX_STDLIB=ON ../llvm/
-: ${LLVM_SYMBOLIZER:="${ROOT}/llvm_build2_x86_64_symbolizer/bin/llvm-symbolizer"}
+: ${LLVM_SYMBOLIZER:="${ROOT}/llvm_build2_x86_64_lam_qemu/bin/llvm-symbolizer"}
 
 : ${HWASAN_OPTIONS:=""}
 
@@ -136,7 +136,7 @@ trap on_exit EXIT
 boot_qemu
 
 # Copy llvm-symbolizer to QEMU.
-copy_to_qemu "${LLVM_SYMBOLIZER}" "/usr/bin"
+[[ -f "${LLVM_SYMBOLIZER}" ]] && copy_to_qemu "${LLVM_SYMBOLIZER}" "/usr/bin"
 
 # Copy binary to QEMU.
 run_in_qemu "rm -rf ${QEMU_WORKSPACE_PATH}/*"
