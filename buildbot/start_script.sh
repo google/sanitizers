@@ -50,6 +50,16 @@ EOF
 
 chown -R buildbot:buildbot $BOT_DIR
 
+# Suppress dmesg spam "Pid <N>(qemu-aarch64) over core_pipe_limit".
+cat <<EOF >/etc/sysctl.conf
+fs.suid_dumpable = 0
+kernel.core_pipe_limit = 0
+kernel.panic_on_oops = 0
+kernel.softlockup_panic = 0
+EOF
+
+sysctl -p
+
 # Generate Debian image for QEMU bot.
 (
   [[ -f ${QEMU_IMAGE_DIR}/debian.img ]] && exit 0
