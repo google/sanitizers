@@ -92,7 +92,7 @@ function boot_qemu {
       -net "user,host=10.0.2.10,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22" \
       -net "nic,model=e1000" -machine "type=q35,accel=tcg" \
       -cpu "qemu64,+la57,+lam" -kernel "${KERNEL}" \
-      -append "root=/dev/sda net.ifnames=0" -m "1G" &
+      -append "root=/dev/sda net.ifnames=0" -m "1G" &>/dev/null &
     QEMU_PID=$!
 
     # If QEMU is running, the port number worked.
