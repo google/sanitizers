@@ -64,17 +64,17 @@ function force_kill_qemu_after_timeout {
 function on_exit {
   force_kill_qemu_after_timeout &
   if kill "${QEMU_PID}"; then
-    echo "Waiting for QEMU to shutdown..."
+    echo "Waiting for QEMU to shutdown..." >&2
     wait "${QEMU_PID}" &>/dev/null || true
   fi
 
-  echo "Done!"
+  echo "Done!" >&2
 }
 
 function run_in_qemu {
   local command="${1}"
 
-  echo "Running command in QEMU: ${command}"
+  echo "Running command in QEMU: ${command}" >&2
 
   ssh -p "${SSH_PORT}" -S "${SSH_CONTROL_SOCKET}" root@localhost "${command}"
 }
@@ -83,7 +83,7 @@ function boot_qemu {
   # Create a delta image to boot from.
   "${QEMU_IMG}" create -F raw -b "${IMAGE}" -f qcow2 "${DELTA_IMAGE}"
 
-  echo "Booting QEMU..."
+  echo "Booting QEMU..." >&2
 
   # Try up to 10 random port numbers until one succeeds.
   for i in {0..10}; do
@@ -103,22 +103,22 @@ function boot_qemu {
   # Fail fast if QEMU is not running.
   ps -p "${QEMU_PID}" &>/dev/null
 
-  echo "Waiting for QEMU ssh daemon..."
+  echo "Waiting for QEMU ssh daemon..." >&2
   for i in {0..10}; do
     sleep 5
 
-    echo "SSH into VM, try ${i}"
+    echo "SSH into VM, try ${i}" >&2
 
     # Set up persistent SSH connection for faster command execution inside QEMU.
     ssh -p "${SSH_PORT}" -o "StrictHostKeyChecking=no" \
         -o "UserKnownHostsFile=/dev/null" -o "ControlPersist=30m" \
-        -M -S "${SSH_CONTROL_SOCKET}" -i "${SSH_KEY}" root@localhost "echo" &&
+        -M -S "${SSH_CONTROL_SOCKET}" -i "${SSH_KEY}" root@localhost "echo" 1>&2 &&
       break
   done
 
   # Fail fast if SSH is not working.
-  run_in_qemu "echo" &>/dev/null || {
-    echo "SSH is not ready"
+  run_in_qemu "echo" 1>&2 || {
+    echo "SSH is not ready" >&2
     exit 1
   }
 }
