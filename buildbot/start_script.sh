@@ -59,7 +59,7 @@ kernel.softlockup_panic = 0
 kernel.core_pattern = core
 EOF
 
-sysctl -p
+sysctl --system
 
 # Generate Debian image for QEMU bot.
 (
