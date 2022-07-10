@@ -56,7 +56,7 @@ fs.suid_dumpable = 0
 kernel.core_pipe_limit = 0
 kernel.panic_on_oops = 0
 kernel.softlockup_panic = 0
-kernel.core_pattern = core
+kernel.core_pattern = |/bin/false
 EOF
 
 sysctl --system
