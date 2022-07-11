@@ -62,7 +62,7 @@ EOF
 sysctl --system
 
 cat <<EOF >/etc/exports
-/b/${BOT_DIR} 127.0.0.1(rw,sync,all_squash,insecure,anonuid=999,anongid=999,no_subtree_check)
+${BOT_DIR} 127.0.0.1(rw,sync,all_squash,insecure,anonuid=999,anongid=999,no_subtree_check)
 EOF
 exportfs -rav
 
