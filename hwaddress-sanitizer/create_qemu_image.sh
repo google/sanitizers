@@ -17,7 +17,8 @@ if [[ -f /etc/os-release ]] ; then
   RELEASE=${VERSION_CODENAME}
 fi
 
-: ${PREINSTALL_PKGS:="openssh-server"}  # Comma-separated list of packages.
+# Comma-separated list of packages.
+: ${PREINSTALL_PKGS:="openssh-server,nfs-common"}
 
 readonly DIR="$(mktemp -d)"
 readonly IMAGE_DIR="${DIR}/${RELEASE}"

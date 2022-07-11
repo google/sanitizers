@@ -61,6 +61,11 @@ EOF
 
 sysctl --system
 
+cat <<EOF >/etc/exports
+/b/${BOT_DIR} 127.0.0.1(rw,sync,all_squash,insecure,anonuid=999,anongid=999,no_subtree_check)
+EOF
+exportfs -rav
+
 # Generate Debian image for QEMU bot.
 (
   [[ -f ${QEMU_IMAGE_DIR}/debian.img ]] && exit 0

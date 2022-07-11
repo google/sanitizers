@@ -57,6 +57,7 @@
         mdadm \
         m4 \
         make \
+        nfs-kernel-server \
         ninja-build \
         openssh-client \
         pkg-config \
