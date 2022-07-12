@@ -34,8 +34,8 @@ var (
 		{"x86_64-linux-android", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-android"},
 		{"x86_64-linux-autoconf", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-autoconf"},
 		{"x86_64-linux-qemu", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-qemu"},
-		{"ppc64be-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
-		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/clang-ppc64le-linux-lnt"},
+		{"ppc64be-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64be-linux"},
+		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
 		{"LibFuzzer (x86_64-linux)", ""},
 		{"sanitizer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan/"},
@@ -389,10 +389,10 @@ table {
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
 // Reload without flickering.
-$(function() { 
+$(function() {
   setTimeout(function() {
     $.get('', function(data) { $(document.body).html(data); });
-  },60000); 
+  },60000);
 });
 </script>
 </head>
