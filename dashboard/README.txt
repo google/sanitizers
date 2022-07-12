@@ -1,4 +1,7 @@
 To build a new binary and upload it to the GCE instance:
 
-$ GO111MODULE=off go build -ldflags '-I /lib64/ld-linux-x86-64.so.2'
-$ gcloud compute --project "sanitizer-bots" scp --zone "us-east1-d" dashboard "dashboard:/opt"
+$ go build
+$ gcloud compute --project "sanitizer-bots" scp --zone "us-east1-d" sanitizers "dashboard-v2:/opt"
+
+Note: If you get a message about "scp: /opt/sanitizers: Text file busy", wait a
+few seconds and try again.
