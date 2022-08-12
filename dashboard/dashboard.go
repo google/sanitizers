@@ -359,8 +359,8 @@ func GetOssFuzzStatusString() string {
 			}
 		}
 		htmlStatuses += fmt.Sprintf(
-			"<span class='%s'><a href='%s/log-%s.txt'>%s</a>&nbsp;</span> ",
-			class, stausUrl, status.Projects[i].BuildId, status.Projects[i].Name)
+			"<span class='%s'><a href='%s/index.html#%s'>%s</a>&nbsp;</span> ",
+			class, stausUrl, status.Projects[i].Name, status.Projects[i].Name)
 	}
 
 	return fmt.Sprintf("%s %s", header, htmlStatuses)
