@@ -38,7 +38,7 @@ var (
 		{"(WIP) aarch64-linux-ubsan", "http://lab.llvm.org/staging/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
 		{"ppc64be-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64be-linux"},
 		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
-		{"LibFuzzer (x86_64-linux)", ""},
+		{"LibFuzzer", ""},
 		{"x86_64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"(WIP) aarch64-linux-fuzzer", "http://lab.llvm.org/staging/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
 		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20ASan"},
@@ -146,7 +146,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		if !b.Complete {
 			continue
 		}
-		builder, _ := url.Parse(fmt.Sprintf("/buildbot/#/builders/%d", b.Builderid))
+		builder, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d", b.Builderid))
 		sl.builderUrl = baseUrl.ResolveReference(builder).String()
 		time := time.Unix(int64(b.CompleteAt), 0)
 		if sl.lastbuild.Before(time) {
@@ -158,7 +158,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		build, _ := url.Parse(fmt.Sprintf("/buildbot/#/builders/%d/builds/%d", b.Builderid, b.Number))
+		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
 		sl.statuses = append(sl.statuses, status{baseUrl.ResolveReference(build).String(), success})
 		if len(sl.statuses) >= 31 {
 			break
