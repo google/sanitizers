@@ -11,12 +11,18 @@
       apt-get -qq -y update || exit 1
       apt-get install -qq -y gnupg || exit 1
 
-      dpkg --add-architecture i386
+      ARCH_PACKAGES=
+      if [[ "$(arch)" == "x86_64" ]]; then
+        dpkg --add-architecture i386
+        ARCH_PACKAGES="g++-multilib gcc-multilib libc6-dev:i386"
+      fi
+
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
       apt-get -qq -y update || exit 1
       
       apt-get install -qq -y \
+        ${ARCH_PACKAGES} \
         automake \
         bc \
         binutils-dev \
@@ -30,15 +36,12 @@
         e2fsprogs \
         flex \
         g++ \
-        g++-multilib \
         gawk \
-        gcc-multilib \
         git \
         inetutils-ping \
         jq \
         libattr1-dev \
         libc6-dev \
-        libc6-dev:i386 \
         libcap-ng-dev \
         libelf-dev \
         libfdt-dev \

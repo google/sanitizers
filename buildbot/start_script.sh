@@ -27,13 +27,15 @@ mountpoint /tmp     || mount -o nosuid -t tmpfs tmpfs /tmp || $ON_ERROR
 
 ${SCRIPT_DIR}/install_deps.sh
 
-# Format and mount scratch drive.
-[[ -e /dev/md0 ]] || {
-  yes | mdadm --create /dev/md0 --level=0 -q -f --raid-devices=$(ls /dev/nvme*n* | wc -l) /dev/nvme*n*
-  mkfs.xfs /dev/md0
-}
 mkdir -p $BOT_DIR
-mountpoint $BOT_DIR || mount -o nosuid /dev/md0 $BOT_DIR || $ON_ERROR
+if [[ "$(arch)" == "x86_64" ]]; then
+  # Format and mount scratch drive.
+  [[ -e /dev/md0 ]] || {
+    yes | mdadm --create /dev/md0 --level=0 -q -f --raid-devices=$(ls /dev/nvme*n* | wc -l) /dev/nvme*n*
+    mkfs.xfs /dev/md0
+  }
+  mountpoint $BOT_DIR || mount -o nosuid /dev/md0 $BOT_DIR || $ON_ERROR
+fi
 
 # Move home to the scratch drive.
 usermod -d $BOT_DIR buildbot
@@ -61,31 +63,32 @@ EOF
 
 sysctl --system
 
-cat <<EOF >/etc/exports
+if [[ "$(arch)" == "x86_64" ]]; then
+  cat <<EOF >/etc/exports
 ${BOT_DIR} 127.0.0.1(rw,sync,all_squash,insecure,anonuid=999,anongid=999,no_subtree_check)
 EOF
-exportfs -rav
+  exportfs -rav
 
-# Generate Debian image for QEMU bot.
-(
-  [[ -f ${QEMU_IMAGE_DIR}/debian.img ]] && exit 0
-  set -ux
-  rm -rf $QEMU_IMAGE_DIR
-  mkdir -p $QEMU_IMAGE_DIR
-  cd $QEMU_IMAGE_DIR
+  # Generate Debian image for QEMU bot.
+  (
+    [[ -f ${QEMU_IMAGE_DIR}/debian.img ]] && exit 0
+    set -ux
+    rm -rf $QEMU_IMAGE_DIR
+    mkdir -p $QEMU_IMAGE_DIR
+    cd $QEMU_IMAGE_DIR
 
-  SLEEP=0
-  for i in `seq 1 5`; do
-    sleep $SLEEP
-    SLEEP=$(( SLEEP + 10 ))
-    ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && {
-      chown -R buildbot:buildbot $QEMU_IMAGE_DIR
-      exit 0
-    }
-  done
-  
-  $ON_ERROR
-) &
+    SLEEP=0
+    for i in `seq 1 5`; do
+      sleep $SLEEP
+      SLEEP=$(( SLEEP + 10 ))
+      ${SCRIPT_DIR}/../hwaddress-sanitizer/create_qemu_image.sh && {
+        chown -R buildbot:buildbot $QEMU_IMAGE_DIR
+        exit 0
+      }
+    done
+    exit 1
+  ) || $ON_ERROR
+fi
 
 function create_worker() {
   local WORKER_NAME="$1"
