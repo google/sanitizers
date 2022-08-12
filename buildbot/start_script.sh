@@ -7,7 +7,8 @@
 # with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
 # the instance and reload the script.
 
-USE_STAGING=${USE_STAGING:-0}
+USE_STAGING=${USE_STAGING:-1}
+SHUTDOWN_ON_ERROR=${SHUTDOWN_ON_ERROR:-0}
 
 if [[ "${USE_STAGING}" == "1" ]] ; then
   SERVER_PORT=9994
@@ -17,7 +18,12 @@ else
   API_URL=https://lab.llvm.org/buildbot/api/v2/workers
 fi
 
-ON_ERROR=${ON_ERROR:-shutdown now}
+if [[ "${SHUTDOWN_ON_ERROR}" == "1" ]] ; then
+  ON_ERROR=${ON_ERROR:-shutdown now}
+else
+  ON_ERROR=${ON_ERROR:-echo "FAILED"}
+fi
+
 BOT_DIR=/b
 QEMU_IMAGE_DIR=${BOT_DIR}/qemu_image
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
