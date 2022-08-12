@@ -21,9 +21,9 @@ var (
 		name, url string
 	}{
 		{"Chromium", ""},
-		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/ToTLinux"},
-		{"CFI Linux ToT", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20ToT"},
-		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/CFI%20Linux%20CF"},
+		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/p/chromium/builders/ci/ToTLinux"},
+		{"CFI Linux ToT", "https://ci.chromium.org/p/chromium/builders/ci/CFI%20Linux%20ToT"},
+		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/ci/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux"},
@@ -37,11 +37,10 @@ var (
 		{"ppc64be-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64be-linux"},
 		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
 		{"LibFuzzer (x86_64-linux)", ""},
-		{"sanitizer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan/"},
-		{"chromium-asan-dbg", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20ASan%20Debug/"},
-		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20MSan/"},
-		{"chromium-ubsan", "https://ci.chromium.org/p/chromium/builders/luci.chromium.ci/Libfuzzer%20Upload%20Linux%20UBSan/"},
+		{"x86_64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20ASan"},
+		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20MSan"},
+		{"chromium-ubsan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20UBSan"},
 	}
 )
 
