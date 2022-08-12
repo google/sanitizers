@@ -1,3 +1,5 @@
+# Updating dashboard
+
 To build a new binary and upload it to the GCE instance:
 
 ```
