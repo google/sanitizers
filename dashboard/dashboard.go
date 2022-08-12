@@ -99,8 +99,8 @@ type Builds struct {
 	} `json:"builds"`
 }
 
-func GetStatusFromJson(buildUrl string) (statusLine, error) {
-	if buildUrl == "" {
+func GetStatusFromJson(builderUrl string) (statusLine, error) {
+	if builderUrl == "" {
 		return *new(statusLine), nil
 	}
 
@@ -110,7 +110,7 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(buildUrl + "/builds")
+		resp, err = client.Get(builderUrl + "/builds")
 		if err == nil {
 			break
 		}
@@ -120,7 +120,7 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	baseUrl, err := url.Parse(buildUrl)
+	baseUrl, err := url.Parse(builderUrl)
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -137,7 +137,7 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 		return builds.Builds[i].Number > builds.Builds[j].Number
 	})
 	var sl statusLine = statusLine{
-		builderUrl: buildUrl,
+		builderUrl: builderUrl,
 	}
 	for _, b := range builds.Builds {
 		if !b.Complete {
@@ -164,13 +164,13 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 	return sl, nil
 }
 
-func GetStatus(buildUrl string) (statusLine, error) {
-	if buildUrl == "" {
+func GetStatus(builderUrl string) (statusLine, error) {
+	if builderUrl == "" {
 		return *new(statusLine), nil
 	}
 
-	if strings.Contains(buildUrl, "lab.llvm.org") {
-		return GetStatusFromJson(buildUrl)
+	if strings.Contains(builderUrl, "lab.llvm.org") {
+		return GetStatusFromJson(builderUrl)
 	}
 
 	var resp *http.Response
@@ -179,7 +179,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(buildUrl + "?numbuilds=31")
+		resp, err = client.Get(builderUrl + "?numbuilds=31")
 		if err == nil {
 			break
 		}
@@ -189,7 +189,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	baseUrl, err := url.Parse(buildUrl)
+	baseUrl, err := url.Parse(builderUrl)
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -263,7 +263,7 @@ func GetStatus(buildUrl string) (statusLine, error) {
 
 						statuses = append(statuses, status{buildUrl, success})
 					}
-					return statusLine{lastbuild, statuses, buildUrl}
+					return statusLine{lastbuild, statuses, builderUrl}
 				}
 			}
 		}
