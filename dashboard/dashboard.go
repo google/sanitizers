@@ -22,8 +22,6 @@ var (
 	}{
 		{"Chromium", ""},
 		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/p/chromium/builders/ci/ToTLinux"},
-		{"CFI Linux ToT", "https://ci.chromium.org/p/chromium/builders/ci/CFI%20Linux%20ToT"},
-		{"CFI Linux CF", "https://ci.chromium.org/p/chromium/builders/ci/CFI%20Linux%20CF"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux"},
