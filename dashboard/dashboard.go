@@ -136,7 +136,9 @@ func GetStatusFromJson(buildUrl string) (statusLine, error) {
 	sort.SliceStable(builds.Builds, func(i, j int) bool {
 		return builds.Builds[i].Number > builds.Builds[j].Number
 	})
-	var sl statusLine
+	var sl statusLine = statusLine{
+		builderUrl: buildUrl,
+	}
 	for _, b := range builds.Builds {
 		if !b.Complete {
 			continue
