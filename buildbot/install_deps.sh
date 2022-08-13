@@ -31,6 +31,7 @@
         buildbot-worker \
         ccache \
         cmake \
+        clang lld \
         debootstrap \
         dos2unix \
         e2fsprogs \
@@ -82,5 +83,6 @@
 curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
 bash add-google-cloud-ops-agent-repo.sh --also-install
 
+update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.lld" 30
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
