@@ -32,6 +32,7 @@
         ccache \
         cmake \
         clang lld \
+        curl \
         debootstrap \
         dos2unix \
         e2fsprogs \
