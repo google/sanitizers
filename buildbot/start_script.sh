@@ -186,9 +186,9 @@ function claim_worker() {
 }
 
 if [[ "$(arch)" == "x86_64" ]]; then
-  BOTS="1 2 3 4 5 7" # 7 -> 6
+  BOTS="1 2 3 4 5 6"
 else
-  BOTS="8" # add 7
+  BOTS="7 8"
 fi
 BOTS=$(echo "$BOTS" | tr ' ' '\n' | shuf)
 while true ; do
