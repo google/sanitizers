@@ -53,7 +53,7 @@
         liblzma-dev \
         libpixman-1-dev \
         libssl-dev \
-        libstdc++*-dev-*-cross \
+        libstdc++*-dev-* \
         libtinfo-dev \
         libtinfo5 \
         libtool \
