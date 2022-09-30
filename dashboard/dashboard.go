@@ -281,17 +281,17 @@ func GetStatus(builderUrl string) (statusLine, error) {
 	return f(doc), err
 }
 
+type OssFuzzBuild struct {
+	Success    bool `json:"success"`
+}
+
 type OssFuzzProject struct {
 	Name    string `json:"name"`
-	BuildId string `json:"build_id"`
+	Builds []OssFuzzBuild `json:"history"`
 }
 
 type OssFuzzStatus struct {
 	Projects    []OssFuzzProject
-	Successes   []OssFuzzProject
-	Failures    []OssFuzzProject
-	Unstable    []OssFuzzProject
-	LastUpdated string `json:"last_updated"`
 }
 
 type ByName []OssFuzzProject
@@ -346,13 +346,8 @@ func GetOssFuzzStatusString() string {
 			continue
 		}
 		class := "success"
-		for j := range status.Unstable {
-			if status.Unstable[j].Name == status.Projects[i].Name {
-				class = "warning"
-			}
-		}
-		for j := range status.Failures {
-			if status.Failures[j].Name == status.Projects[i].Name {
+		for j := range status.Projects[i].Builds {
+			if !status.Projects[i].Builds[j].Success {
 				class = "error"
 			}
 		}
