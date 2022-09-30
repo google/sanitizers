@@ -346,10 +346,8 @@ func GetOssFuzzStatusString() string {
 			continue
 		}
 		class := "success"
-		for j := range status.Projects[i].Builds {
-			if !status.Projects[i].Builds[j].Success {
-				class = "error"
-			}
+		if len(status.Projects[i].Builds) > 0 && !status.Projects[i].Builds[0].Success {
+			class = "error"
 		}
 		htmlStatuses += fmt.Sprintf(
 			"<span class='%s'><a href='%s/index.html#%s'>%s</a>&nbsp;</span> ",
