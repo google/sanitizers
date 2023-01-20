@@ -113,7 +113,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(builderUrl + "/builds")
+		resp, err = client.Get(builderUrl + "/builds?limit=40&order=-number")
 		if err == nil {
 			break
 		}
