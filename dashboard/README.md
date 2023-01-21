@@ -3,7 +3,7 @@
 To build a new binary and upload it to the GCE instance:
 
 ```
-go build && \
+go build --ldflags '-linkmode external -extldflags=-static' && \
 gcloud compute ssh --project "sanitizer-bots" --zone "us-east1-d" dashboard-v2 --command "sudo rm -f /opt/sanitizers" && \
 gcloud compute --project "sanitizer-bots" scp --zone "us-east1-d" sanitizers "dashboard-v2:/opt" && \
 gcloud compute ssh --project "sanitizer-bots" --zone "us-east1-d" dashboard-v2 --command "sudo chown root:root /opt/sanitizers"
