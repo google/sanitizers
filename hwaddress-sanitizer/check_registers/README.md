@@ -21,7 +21,7 @@ https://lore.kernel.org/lkml/20230123220500.21077-1-kirill.shutemov@linux.intel.
 ## Building
 
 ```
-  $ gcc check_registers.cc -o check_registers
+  $ g++ check_registers.cc -o check_registers
 ```
 
 ## Running
