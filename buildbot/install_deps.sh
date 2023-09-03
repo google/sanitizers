@@ -70,6 +70,7 @@
         python3-dev \
         python3-distutils \
         python3-psutil \
+        python3-venv \
         psmisc \
         rsync \
         wget \
