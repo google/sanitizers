@@ -89,3 +89,5 @@
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.lld" 30
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
+
+apt-get -qq -y clean
