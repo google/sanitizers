@@ -34,7 +34,7 @@ mountpoint /tmp     || mount -o nosuid -t tmpfs tmpfs /tmp || $ON_ERROR
 ${SCRIPT_DIR}/install_deps.sh
 
 mkdir -p $BOT_DIR
-if [[ "$(arch)" == "x86_64" ]]; then
+if lsblk /dev/nvme0n2 ; then
   # Format and mount scratch drive.
   [[ -e /dev/md0 ]] || {
     yes | mdadm --create /dev/md0 --level=0 -q -f --raid-devices=$(ls /dev/nvme*n* | wc -l) /dev/nvme*n*
