@@ -81,11 +81,6 @@
   exit 1
 ) || $ON_ERROR
 
-# Optional, ingore if it fails.
-# Nice to have, but does not work on arm or newest OS images.
-# curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
-# bash add-google-cloud-ops-agent-repo.sh --also-install
-
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.lld" 30
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
