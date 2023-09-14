@@ -1,0 +1,114 @@
+diff --git a/arch/arm64/include/asm/uaccess.h b/arch/arm64/include/asm/uaccess.h
+index 064cef9ae2d1..a5351a0f0fd3 100644
+--- a/arch/arm64/include/asm/uaccess.h
++++ b/arch/arm64/include/asm/uaccess.h
+@@ -126,8 +126,11 @@ static inline void set_fs(mm_segment_t fs)
+  * pass on to access_ok(), for instance.
+  */
+ #define untagged_addr(addr)		sign_extend64(addr, 55)
++#define canonicalize_user_addr(addr) \
++  (void *)untagged_addr((unsigned long __force)addr)
+ 
+-#define access_ok(type, addr, size)	__range_ok(addr, size)
++#define access_ok(type, addr, size) \
++  __range_ok(canonicalize_user_addr(addr), size)
+ #define user_addr_max			get_fs
+ 
+ #define _ASM_EXTABLE(from, to)						\
+diff --git a/lib/strncpy_from_user.c b/lib/strncpy_from_user.c
+index b4aacfc0b4b3..ccd44706a50f 100644
+--- a/lib/strncpy_from_user.c
++++ b/lib/strncpy_from_user.c
+@@ -114,9 +114,10 @@ efault:
+  * If @count is smaller than the length of the string, copies @count bytes
+  * and returns @count.
+  */
+-long strncpy_from_user(char *dst, const char __user *src, long count)
++long strncpy_from_user(char *dst, const char __user *user_src, long count)
+ {
+ 	unsigned long max_addr, src_addr;
++        const char __user *src = canonicalize_user_addr(user_src);
+ 
+ 	if (unlikely(count <= 0))
+ 		return 0;
+diff --git a/lib/strnlen_user.c b/lib/strnlen_user.c
+index 8e105ed4df12..a3eee7b40242 100644
+--- a/lib/strnlen_user.c
++++ b/lib/strnlen_user.c
+@@ -100,9 +100,10 @@ efault:
+  * threads. Use "strncpy_from_user()" instead to get a stable copy
+  * of the string.
+  */
+-long strnlen_user(const char __user *str, long count)
++long strnlen_user(const char __user *user_str, long count)
+ {
+ 	unsigned long max_addr, src_addr;
++        const char __user *str = canonicalize_user_addr(user_str);
+ 
+ 	if (unlikely(count <= 0))
+ 		return 0;
+@@ -137,9 +138,10 @@ EXPORT_SYMBOL(strnlen_user);
+  * If there is a limit on the length of a valid string, you may wish to
+  * consider using strnlen_user() instead.
+  */
+-long strlen_user(const char __user *str)
++long strlen_user(const char __user *user_str)
+ {
+ 	unsigned long max_addr, src_addr;
++        const char __user *str = canonicalize_user_addr(user_str);
+ 
+ 	max_addr = user_addr_max();
+ 	src_addr = (unsigned long)str;
+diff --git a/mm/madvise.c b/mm/madvise.c
+index c154e1076303..4d0dc9e3fe6b 100644
+--- a/mm/madvise.c
++++ b/mm/madvise.c
+@@ -467,6 +467,8 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
+ 	size_t len;
+ 	struct blk_plug plug;
+ 
++        start = (unsigned long)canonicalize_user_addr(start);
++
+ #ifdef CONFIG_MEMORY_FAILURE
+ 	if (behavior == MADV_HWPOISON || behavior == MADV_SOFT_OFFLINE)
+ 		return madvise_hwpoison(behavior, start, start+len_in);
+diff --git a/mm/mempolicy.c b/mm/mempolicy.c
+index 5acc1f979dda..961d61c289d5 100644
+--- a/mm/mempolicy.c
++++ b/mm/mempolicy.c
+@@ -1299,6 +1299,8 @@ SYSCALL_DEFINE6(mbind, unsigned long, start, unsigned long, len,
+ 	int err;
+ 	unsigned short mode_flags;
+ 
++        start = canonicalize_user_addr(start);
++
+ 	mode_flags = mode & MPOL_MODE_FLAGS;
+ 	mode &= ~MPOL_MODE_FLAGS;
+ 	if (mode >= MPOL_MAX)
+@@ -1436,6 +1438,8 @@ SYSCALL_DEFINE5(get_mempolicy, int __user *, policy,
+ 	int uninitialized_var(pval);
+ 	nodemask_t nodes;
+ 
++        addr = canonicalize_user_addr(addr);
++
+ 	if (nmask != NULL && maxnode < MAX_NUMNODES)
+ 		return -EINVAL;
+ 
+@@ -1465,6 +1469,8 @@ COMPAT_SYSCALL_DEFINE5(get_mempolicy, int __user *, policy,
+ 	unsigned long nr_bits, alloc_size;
+ 	DECLARE_BITMAP(bm, MAX_NUMNODES);
+ 
++        addr = canonicalize_user_addr(addr);
++
+ 	nr_bits = min_t(unsigned long, maxnode-1, MAX_NUMNODES);
+ 	alloc_size = ALIGN(nr_bits, BITS_PER_LONG) / 8;
+ 
+@@ -1514,6 +1520,8 @@ COMPAT_SYSCALL_DEFINE6(mbind, compat_ulong_t, start, compat_ulong_t, len,
+ 	unsigned long nr_bits, alloc_size;
+ 	nodemask_t bm;
+ 
++        start = canonicalize_user_addr(start);
++
+ 	nr_bits = min_t(unsigned long, maxnode-1, MAX_NUMNODES);
+ 	alloc_size = ALIGN(nr_bits, BITS_PER_LONG) / 8;
+ 
