@@ -20,8 +20,6 @@ var (
 	bots = []struct {
 		name, url string
 	}{
-		{"Chromium", ""},
-		{"(FYI) Clang Linux ToT", "https://ci.chromium.org/p/chromium/builders/ci/ToTLinux"},
 		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux"},
@@ -41,9 +39,6 @@ var (
 		{"LibFuzzer", ""},
 		{"x86_64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"aarch64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
-		{"chromium-asan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20ASan"},
-		{"chromium-msan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20MSan"},
-		{"chromium-ubsan", "https://ci.chromium.org/p/chromium/builders/ci/Libfuzzer%20Upload%20Linux%20UBSan"},
 	}
 )
 
