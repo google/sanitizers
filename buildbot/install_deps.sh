@@ -5,11 +5,13 @@
   for i in `seq 1 5`; do
     sleep $SLEEP
     SLEEP=$(( SLEEP + 10))
+    APT_OPTS="-o DPkg::Lock::Timeout=300 -qq -y"
 
     (
       set -ex
-      apt-get -qq -y update || exit 1
-      apt-get install -qq -y gnupg || exit 1
+      rm -f /etc/apt/sources.list.d/scalibr-apt.list # can't update
+      apt ${APT_OPTS} update || exit 1
+      apt ${APT_OPTS} install gnupg || exit 1
 
       ARCH_PACKAGES=
       if [[ "$(arch)" == "x86_64" ]]; then
@@ -19,9 +21,9 @@
 
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
-      apt-get -qq -y update || exit 1
+      apt ${APT_OPTS} update || exit 1
       
-      apt-get install -qq -y \
+      apt ${APT_OPTS} install \
         ${ARCH_PACKAGES} \
         automake \
         bc \
@@ -85,4 +87,4 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.lld" 30
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
-apt-get -qq -y clean
+apt ${APT_OPTS} clean
