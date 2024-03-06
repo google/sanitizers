@@ -57,7 +57,7 @@
         libssl-dev \
         libstdc++*-dev* \
         libtinfo-dev \
-        libtinfo5 \
+        libtinfo.$ \
         libtool \
         libxml2-dev \
         mc \
