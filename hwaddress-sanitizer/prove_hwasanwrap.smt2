@@ -1,5 +1,7 @@
 ; Proves the validity of the stack ring buffer wrapping logic in
 ; HWAddressSanitizer.cpp
+;
+; Run this with z3 (https://github.com/Z3Prover/z3)
 (declare-const ThreadLong (_ BitVec 64))
 (declare-const N (_ BitVec 64))
 (declare-const Size (_ BitVec 64))
