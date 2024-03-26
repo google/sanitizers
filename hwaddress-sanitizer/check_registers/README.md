@@ -91,7 +91,7 @@ tagging-enabled host:
  - `jump_cs_$reg` - performs `jmpq *%$reg`,
  - `ret_cs`       - performs `ret`.
 
-For the data flow tests tests the address in `$reg` is tagged (is in the
+For the data flow tests the address in `$reg` is tagged (is in the
 non-canonical form). `mov` and `movaps` tests accept userspace pointers
 with bits 57:58 set to 1. `tls` tests accept negative offsets with bits
 57 and 58 set to 0. `mov` and `movaps` tests also support different segment
