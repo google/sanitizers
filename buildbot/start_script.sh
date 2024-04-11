@@ -56,8 +56,7 @@ rm -rf $BOT_DIR/.cache
 mkdir -p $BOT_DIR/.ccache
 cat <<EOF >$BOT_DIR/.ccache/ccache.conf
 max_size = 200.0G
-compression = false
-file_clone = true
+compression = true
 EOF
 
 chown -R buildbot:buildbot $BOT_DIR
