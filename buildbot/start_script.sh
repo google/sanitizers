@@ -177,7 +177,10 @@ function is_worker_myself() {
 }
 
 function shutdown_maybe() {
-  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] || (w -h | wc -l) || $ON_ERROR
+  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] && return
+  #(w -h | wc -l) && return
+  while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
+  $ON_ERROR
 }
 
 function claim_worker() {
