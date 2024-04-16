@@ -156,8 +156,16 @@ function is_worker_connected() {
   )
 }
 
+function shutdown_maybe() {
+  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] && return
+  (w -h | wc -l) && return
+  while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
+  shutdown now
+}
+
 function get_worker_host() {
   local WORKER_NAME="$1"
+  shutdown_maybe
   (
     set -o pipefail
     curl ${API_URL}/${WORKER_NAME} \
@@ -176,20 +184,12 @@ function is_worker_myself() {
   ) | grep " ${FULL_HOSTNAME}"
 }
 
-function shutdown_maybe() {
-  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] && return
-  (w -h | wc -l) && return
-  while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
-  shutdown now
-}
-
 function claim_worker() {
   local WORKER_NAME="$1"
   #is_worker_connected ${WORKER_NAME} && return 1
   create_worker "$WORKER_NAME" || return 2
   sleep 30
   while is_worker_myself ${WORKER_NAME} ; do
-    shutdown_maybe
     sleep 900
   done
   # Notify caller that we've seen at least 1 disconnected worker.
