@@ -156,8 +156,17 @@ function is_worker_connected() {
   )
 }
 
+function shutdown_maybe() {
+  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt $((3600*72)) ]] && return
+  (w -h | wc -l) && return
+  while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
+  shutdown now
+  sleep 1000
+}
+
 function get_worker_host() {
   local WORKER_NAME="$1"
+  shutdown_maybe
   (
     set -o pipefail
     curl ${API_URL}/${WORKER_NAME} \
