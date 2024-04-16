@@ -176,12 +176,17 @@ function is_worker_myself() {
   ) | grep " ${FULL_HOSTNAME}"
 }
 
+function shutdown_maybe() {
+  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] || (w -h | wc -l) || $ON_ERROR
+}
+
 function claim_worker() {
   local WORKER_NAME="$1"
   #is_worker_connected ${WORKER_NAME} && return 1
   create_worker "$WORKER_NAME" || return 2
   sleep 30
   while is_worker_myself ${WORKER_NAME} ; do
+    shutdown_maybe()
     sleep 900
   done
   # Notify caller that we've seen at least 1 disconnected worker.
