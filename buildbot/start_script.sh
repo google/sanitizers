@@ -180,7 +180,7 @@ function shutdown_maybe() {
   [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] && return
   #(w -h | wc -l) && return
   while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
-  $ON_ERROR
+  shutdown now
 }
 
 function claim_worker() {
@@ -189,7 +189,7 @@ function claim_worker() {
   create_worker "$WORKER_NAME" || return 2
   sleep 30
   while is_worker_myself ${WORKER_NAME} ; do
-    shutdown_maybe()
+    shutdown_maybe
     sleep 900
   done
   # Notify caller that we've seen at least 1 disconnected worker.
