@@ -158,7 +158,7 @@ function is_worker_connected() {
 
 function shutdown_maybe() {
   [[ $(cat /proc/uptime | grep -oP "^\d+") -lt 3600 ]] && return
-  (w -h | wc -l) && return
+  #(w -h | wc -l) && return
   while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
   shutdown now
 }
