@@ -1,0 +1,92 @@
+\section{Background}
+\label{sec:background}
+
+Before diving deeper, we will take a brief look at the types of bugs that
+GWP-ASan will be able to detect, and trade-offs in dynamic program analysis.
+
+\runinsec{Heap memory-safety bugs.} Fundamentally, memory-safety is a property
+of a programming language. Different languages choose different strategies for
+memory safety~\cite{SzekeresPWS2013}. Unsafe languages, specifically the C and
+C++ programming languages, define some well-typed programs to have
+\emph{undefined behavior}, the source of which are considered bugs in the
+program. Heap buffer overflows (viz. out-of-bounds accesses) and use-after-free
+accesses (viz. dangling-pointer accesses) are two such bugs.
+
+A \emph{heap buffer overflow} happens when an object of a certain size is
+allocated on the heap, and then a pointer to this object is used to access
+memory outside of the object's bounds. Typically, the object is an array of $n$
+elements, and the code accesses the $i$-th element where $i < 0$ or $i \geq n$.
+Listing~\ref{lst:oob} shows examples of buffer overflows in C code. Modern
+compilers can provide warnings for simple buffer overflows, including the ones
+shown in the example. Unfortunately, the non-obvious cases that also evade
+human review are far more common.
+
+\vspace{-1em}
+\begin{lstlisting}[language=C, frame=single, xleftmargin=0.5em,
+  xrightmargin=0.5em, caption=Buffer overflow examples., label=lst:oob]
+// heap allocation
+int *array = malloc(n * sizeof(int));
+// buffer overflow
+array[n] = 42;
+// buffer overflow (underflow)
+array[-1] = 42;
+// buffer overflow, assuming n <= 100500
+array[100500] = 42;
+\end{lstlisting}
+
+A \emph{heap use-after-free} happens when an object is allocated on the heap,
+and later deallocated, while a pointer to the object is preserved elsewhere and
+is used to access the deallocated memory after the deallocation.
+Listing~\ref{lst:uaf} shows an example of a simple use-after free. Again,
+modern compilers will provide warnings for simple cases as shown, but the
+non-obvious cases are much more common and difficult to find (esp. cases
+involving racy use-after-frees).
+
+\begin{lstlisting}[language=C, frame=single, xleftmargin=0.5em,
+xrightmargin=0.5em, caption=Use-after-free example., label=lst:uaf]
+// heap allocation
+int *val = malloc(sizeof(int));
+// heap deallocation
+free(val);
+// heap use-after-free
+*val = 0;
+\end{lstlisting}
+
+In both cases, the buggy memory access touches memory not belonging to the
+respective objects. In the C and C++ standards, this is considered undefined
+behavior. In practice, however, this may result in a crash, a silent data
+corruption, or an exploitable security vulnerability~\cite{SzekeresPWS2013}.
+
+\runinsec{Dynamic analysis.} Dynamic analysis tools perform program analysis at
+runtime, observing state changes by instrumenting relevant instructions and
+functions as the program is running on real inputs. More complex dynamic
+analyses also maintain \emph{shadow state}, which uses additional memory or
+metadata to maintain additional information about the program's state that is
+not efficiently available otherwise (e.g. if memory is allocated or freed).
+
+Consequently, typical dynamic analysis can only observe the program
+transitioning into \emph{erroneous states}.  Consider the taxonomy defined by
+Randell~\cite{Randell2003}, with a \emph{fault}---or simply ``bug''---being a
+flaw in the program's logic, causing \emph{errors} which are bad states that
+can ultimately lead to program \emph{failure}, i.e. the program crashes, cannot
+deliver the requested service or worse. One of the biggest challenges in
+dynamic analysis is giving developers the information to localize faults,
+despite only being able to detect the resulting error. Indeed, producing
+helpful reports that allow developers to debug and fix a bug requires
+maintaining additional information (e.g. stack traces of where memory was
+allocated or freed), which can be very costly.
+
+Analyzing memory accesses, as required for memory-safety analysis, adds
+additional overheads, depending on the precision of the analysis. Tools such as
+AddressSanitizer choose to analyze every memory access, along with maintaining
+every allocation's and deallocation's metadata (valid, invalid, size, stack
+trace).  Unsurprisingly, this results in significant runtime and memory
+overheads, which make such approaches unsuitable for production environments.
+
+Hardware-based solutions make use of new CPU features, such as Arm
+MTE~\cite{Serebryany2019}, to offload storing some or all of the additional
+metadata and checking to dedicated hardware. Unfortunately, some of the newer
+hardware-based solutions are not yet widely available. GWP-ASan makes use of a
+hardware feature available in all modern CPUs' Memory Management Units
+(MMUs)~\cite{CAR}: paged virtual memory and the ability to set memory pages
+inaccessible.

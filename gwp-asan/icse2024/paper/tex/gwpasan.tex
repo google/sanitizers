@@ -1,0 +1,434 @@
+\section{GWP-ASan Algorithm}
+\label{sec:algo}
+
+This section describes the basic GWP-ASan algorithm design. Given all
+implementations discussed in \S\ref{sec:impls} are either implemented in the C
+or C++ languages, the code snippets in this section show simplified C language
+snippets. For the description of our implementation, we assume a
+POSIX-compatible operating system.
+
+We define the original pseudo-implementation of the heap allocator in
+Listing~\ref{lst:original}; the details of the original algorithms for heap
+allocation, in \inlcode{Allocate()}, and deallocation, in
+\inlcode{Deallocate()}, can be treated as a black box for the simple algorithm
+described here.
+
+%\vspace{-1em}
+\begin{lstlisting}[language=C, frame=single, xleftmargin=3em,
+  xrightmargin=3em, caption=Unmodified heap allocation., label=lst:original]
+  void *malloc(size_t size) {
+    return Allocate(size);
+  }
+
+  void free(void *ptr) {
+    Deallocate(ptr);
+  }
+\end{lstlisting}
+
+In order to implement sampling heap error detection, the change as shown in
+Listing~\ref{lst:sampling} should be made.
+
+\begin{lstlisting}[language=C, frame=single, xleftmargin=3em,
+  xrightmargin=3em, caption=Heap allocation with sampling error detection.,
+  label=lst:sampling, escapechar=@]
+  void *malloc(size_t size) {
+@$\oplus$@   if (WantToSample(size))
+@$\oplus$@     return GuardAlloc(size);
+    return Allocate(size);
+  }
+
+  void free(void *ptr) {
+@$\oplus$@   if (IsGuarded(ptr)) {
+@$\oplus$@     GuardDealloc(ptr);
+@$\oplus$@     return;
+@$\oplus$@   }
+    Deallocate(ptr);
+  }
+\end{lstlisting}
+
+\inlcode{WantToSample()} returns true infrequently. \inlcode{GuardAlloc()}
+allocates, and \inlcode{GuardDealloc()} deallocates memory similar to Electric
+Fence.  \inlcode{IsGuarded()} returns true if its argument is a pointer
+previously returned by \inlcode{GuardAlloc()}.  Details vary between
+implementations and some of them are described below.
+
+\subsection{Simple Version}
+
+In this section we describe a very simple, yet fully capable, implementation of
+GWP-ASan.
+
+\runinsec{Initialization.} At process start-up the GWP-ASan pool is allocated
+using \inlcode{mmap()} as a fixed-size region of virtual memory consisting of
+\(N\) page-sized allocation slots and \(N+1\) page-sized guards, such that
+guards on both ends surround every slot. Figure~\ref{fig:initial} illustrates
+the initial memory state of the GWP-ASan pool. Initially all of this memory is
+marked as inaccessible (with \inlcode{PROT\_NONE}). The red zones remain
+inaccessible throughout the program execution.
+
+\begin{lstlisting}[language=C++, frame=single, xleftmargin=0.5em,
+  xrightmargin=0.5em, caption=Basic implementation of \inlcode{WantToSample()}., label=lst:want_to_sample]
+// Returns a random number in the range
+// [1 ... sample_rate * 2].
+int RandSkip();
+
+// Initialized to a non-zero random number
+// at thread start up.
+static thread_local int skip = RandSkip();
+
+bool WantToSample() {
+  if (--skip> 0) return false;
+  skip = RandSkip();
+  return true;
+}
+\end{lstlisting}
+
+\runinsec{Sampling allocations.} A possible implementation of
+\inlcode{WantToSample()} is shown in Listing~\ref{lst:want_to_sample}. A
+thread-local allocation \emph{skip} counter is used to decide which allocations
+to skip sampling (the common case), and which to sample. The counter is
+initialized to a random number in the range \([1 \ldots \inlcode{sample\_rate}
+* 2]\), so that the median value is \inlcode{sample\_rate}. The skip counter is
+then decremented by one per unsampled allocation. When the number reaches zero,
+we try to service the \inlcode{malloc()} through GWP-ASan, and regenerate a new
+random number.  Therefore, \inlcode{WantToSample()} in the common case is just
+a single thread-local decrement and conditional branch.
+
+\runinsec{Guarded allocation.} \inlcode{GuardAlloc()} checks if there are any
+allocation slots available, chooses one, makes it accessible (with
+\inlcode{PROT\_READ|PROT\_WRITE}), and returns to the caller.
+Figure~\ref{fig:alloc} illustrates the pool's memory state after an allocation.
+
+This way, buffer underflows (accesses below the allocation address by up to a
+page) will always be detected, but overflows (accesses above the end of the
+allocated region) will be detected only if the access crosses the page
+boundary. To find overflows, the allocated region needs to be aligned right by
+the page boundary. The implementation may randomly choose to align left or
+right.
+
+\runinsec{Deallocation of sampled allocations.} \inlcode{GuardDealloc()} marks
+the allocation slot as inaccessible (with \inlcode{PROT\_NONE}). For
+heap-use-after-free bugs to be detected with high probability, this
+allocation slot needs to remain unallocated for some amount of time.
+\inlcode{IsGuarded()} can be implemented as a range check.
+
+\runinsec{Limitations.} The obvious limitations of this simple implementation
+are:
+\begin{enumerate}
+
+  \item Only allocations of up to 1 page can be guarded.
+
+  \item Only up to $N$ allocations can be guarded at the same time. For large
+    enough $N$ this stops being a significant limitation because we want to
+    avoid more than a certain number of guarded allocations anyway, to avoid
+    high overheads.
+
+\end{enumerate}
+
+\DeclareRobustCommand{\redzone}{%
+  \raisebox{-1pt}{\tikz \path [draw=gray,pattern={crosshatch}, pattern color=red] (0,0) rectangle (0.4,0.2);}
+}
+\DeclareRobustCommand{\unalloc}{%
+  \raisebox{-1pt}{\tikz \path [draw=gray,fill=black] (0,0) rectangle (0.4,0.2);}
+}
+\DeclareRobustCommand{\alloc}{%
+  \raisebox{-1pt}{\tikz \path [draw=gray,pattern={dots}, pattern color=green] (0,0) rectangle (0.4,0.2);}
+}
+\begin{figure}
+  \begin{tikzpicture}
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (0,0) rectangle (1,0.6);
+    \path [draw=gray,fill=black] (1,0) rectangle (2,0.6);
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (2,0) rectangle (3,0.6);
+    \path [draw=gray,fill=black] (3,0) rectangle (4,0.6);
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (4,0) rectangle (5,0.6);
+    \path [draw=gray,fill=black] (5,0) rectangle (6,0.6);
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (6,0) rectangle (7,0.6);
+  \end{tikzpicture}
+  \caption{GWP-ASan pool initial memory state. Guard pages, viz. ``red zones'',
+  are shown as \redzone (red hatch pattern), and remain always inaccessible.
+  Allocation slots are shown as \unalloc (black filled) when inaccessible.}
+  \label{fig:initial}
+\end{figure}
+\begin{figure}
+  \begin{tikzpicture}
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (0,0) rectangle (1,0.6);
+    \path [draw=gray,pattern={dots}, pattern color=green] (1,0) rectangle (2,0.6);
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (2,0) rectangle (3,0.6);
+    \path [draw=gray,fill=black] (3,0) rectangle (4,0.6);
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (4,0) rectangle (5,0.6);
+    \path [draw=gray,fill=black] (5,0) rectangle (6,0.6);
+    \path [draw=gray,pattern={crosshatch}, pattern color=red] (6,0) rectangle (7,0.6);
+  \end{tikzpicture}
+  \caption{GWP-ASan pool memory state after an allocation. The allocation slot
+  shown as \alloc (green dots) is allocated and accessible.}
+  \label{fig:alloc}
+\end{figure}
+
+\subsection{Generating Descriptive Error Messages}
+
+Generating descriptive error messages is crucial for GWP-ASan to be maximally
+useful, given it is designed to run in production, where reproduction of any
+given error is rather challenging. Without an easy way to reproduce an error,
+developers require detailed information about detected errors to debug.
+
+When a memory access hits a protected page, the operating-system kernel raises
+a signal (\inlcode{SIGSEGV} on POSIX systems). If this page is a GWP-ASan guard
+or a deallocated allocation slot, the signal handler producing the report can
+provide additional information, such as the offset from the allocation start,
+the stack trace of deallocation (for heap-use-after-free), and the stack trace
+of allocation (for both classes of bugs). Where possible, the report should
+indicate if the erroneous access is a read or write.
+
+This makes GWP-ASan error messages more informative than other typical crash
+reports. In other words, GWP-ASan is capable of producing the same quality of
+reports as ASan or HWASan. Listings~\ref{lst:uafreport} and \ref{lst:oobreport}
+show examples of GWP-ASan reports.\footnote{The examples are modified to fit
+this document's layout. All implementations in \S\ref{sec:impls} display
+variations of these example reports.}
+
+\begin{lstlisting}[frame=single, caption=Example GWP-ASan use-after-free report.,
+  label=lst:uafreport, basicstyle=\footnotesize]
+*** GWP-ASan detected a memory error ***
+Use-after-free write at 0x7feccab26008 by thread 31027:
+  #1 ./test(foo+0x45) [0x55585c0afa55]
+  #2 ./test(main+0x9f) [0x55585c0af7cf]
+
+The access is within 41B allocation at 0x7feccab26000
+
+0x7feccab26000 was deallocated by thread 31027:
+  #1 ./test(main+0x83) [0x55585c0af7b3]
+
+0x7feccab26000 was allocated by thread 31027:
+  #1 ./test(main+0x57) [0x55585c0af787]
+*** End GWP-ASan report ***
+\end{lstlisting}
+
+\begin{lstlisting}[frame=single, caption=Example GWP-ASan out-of-bounds report.,
+  label=lst:oobreport, basicstyle=\footnotesize]
+*** GWP-ASan detected a memory error ***
+Out-of-bounds read at 0x7feccab25ffe by thread 31027:
+  #1 ./test(foo+0x45) [0x55585c0afa55]
+  #2 ./test(main+0x9f) [0x55585c0af7cf]
+
+The access is 2B left of 41B allocation at 0x7feccab26000
+
+0x7feccab26000 was allocated by thread 31027:
+  #1 ./test(main+0x57) [0x55585c0af787]
+*** End GWP-ASan report ***
+\end{lstlisting}
+
+\section{Implementations}
+\label{sec:impls}
+
+This section lists various existing variants of GWP-ASan and some of their most
+notable features.
+
+\subsection{TCMalloc}
+
+TCMalloc~\cite{TCMalloc} is the open-source \inlcode{malloc()} implementation
+used in Google server-side code. It is highly optimized for CPU and RAM
+efficiency on large multi-threaded applications.  It contains the first
+(historically) implementation of GWP-ASan.
+
+TCMalloc's implementation of \inlcode{WantToSample()} did not introduce a single new
+instruction on the hot path of the allocator. This was made possible by
+piggybacking on the existing sampling mechanism in TCMalloc used for heap
+profiling. Effectively, the GWP-ASan sampling logic hides behind
+pre-existing sampling logic.
+
+\inlcode{IsGuarded()} is implemented as a bit test on the pointer value, thus
+requiring zero memory loads.
+
+\subsection{Google Chrome}
+\label{sec:chrome}
+
+Chrome implements a custom version of GWP-ASan, which hooks \inlcode{malloc()}
+using Chrome's unified \inlcode{malloc()} shim that works on all of Chrome's
+supported platforms.\footnote{Open source as part of the Chromium project:
+\url{https://chromium.googlesource.com/chromium/src/+/lkgr/docs/gwp\_asan.md}}
+The \inlcode{malloc()} shim requires an indirect call in every process using
+GWP-ASan's hook.  This hook uses the simple \inlcode{WantToSample()}
+implementation above.
+
+For stability and security reasons, Chrome has a multiprocess architecture,
+including a main browser process, a GPU process that renders to the screen, and
+a group of many ``renderers'' that run websites or tabs. GWP-ASan is randomly
+enabled in each process at process startup time, with a small probability in
+frequently-launched renderer processes, and a larger probability in the
+unsandboxed security-sensitive browser process, of which only a single instance
+exists. If not enabled this avoids the runtime overhead of the indirect call
+and allows GWP-ASan to use more memory per enabled process. It also prevents
+some user frustration if a frequently occurring bug is causing many GWP-ASan
+crashes.
+
+Chrome's GWP-ASan uses the simple implementation described above, with the
+exception that the maximum number of simultaneously allocated slots is set to
+be significantly smaller than the total number of reserved allocation slots
+(constant \inlcode{kReservedSlots}). This setup delays the reallocation of each slot,
+forming a quarantine, while limiting the amount of physical memory overhead.
+Finally, because each slot is associated with out-of-line memory-hogging
+metadata such as compressed stack traces, the total number of slots associated
+with metadata is selected to be much smaller than \inlcode{kReservedSlots}. If
+\inlcode{kReservedSlots} were lower the quarantine would be much less effective.
+The downside is that if a UAF occurs on a slot that has lost its metadata, the
+resulting bug report is far less detailed and actionable.
+
+Because GWP-ASan is an alternative allocator, it must provide at least the same
+security guarantees as Chrome's hardened allocator, PartitionAlloc. This
+includes never allocating object types from separate ``partitions'' in the same
+slot for the lifetime of the process (to avoid simple type confusion exploits)
+and never reusing a memory address as long as there are known references to the
+object that once resided at that address~\cite{MiraclePtr}.
+
+\subsection{Android/LLVM}
+
+The \emph{compiler-rt} project~\cite{compiler-rt}, which exists within
+LLVM~\cite{LattnerA2004}, contains an implementation of GWP-ASan that's used
+for both Android and the Scudo hardened allocator.\footnote{Open source
+documentation available at: \url{https://llvm.org/docs/GwpAsan.html}} This
+implementation of GWP-ASan is designed to be used as a library, and can be
+integrated with any allocator through a simple hook in \inlcode{malloc()} and
+\inlcode{free()}.
+
+Android, by default, has been using GWP-ASan for its system processes since
+Android 11 (September 2020), and apps have historically been opt-in. As of
+Android 14 though, apps will have GWP-ASan enabled by default (with an
+opt-out), but in what we call a ``recoverable'' mode. In this mode, apps will get
+a full GWP-ASan crash report, with stack traces and an error description, but
+the app won't be forced to crash with a segmentation fault. Instead, the
+system's signal handler (libsigchain, which runs before any signal handler
+installed by the app) will also disable GWP-ASan, make the faulting page
+read/write-able, and retry the faulting instruction. Use-after-free and
+buffer-overflow will thus succeed in writing to a wrong memory location on the
+restart, and reads will return zero. The primary benefit here is app
+compatibility---the Android app ecosystem contains large quantities of apps
+with memory-unsafe native code, and in the interest of user experience, such
+apps should not be forced to crash when an Android user updates their device to
+Android 14.
+
+An additional Android-specific challenge is memory consumption. Unlike server
+binaries, where hundreds of kilobytes is unnoticeable, Android has many
+processes (\({\sim}200\)) running simultaneously, and runs on
+memory-constrained devices. To reduce memory pressure, we apply two techniques:
+
+\begin{enumerate}
+
+  \item \runinsec{Metadata compression.} The largest part of GWP-ASan's
+  metadata are the stack traces, the LLVM implementation of GWP-ASan encodes
+  each stack frame as the ULEB-encoded difference between the return address of
+  the current frame, and the frame before it. This provides a 50-75\% decrease
+  in memory usage of storing stack traces.
+
+  \item \runinsec{Process sampling.} We introduce another layer of sampling,
+  and only turn on GWP-ASan for \(1/128\) process launches.
+
+\end{enumerate}
+
+These two techniques, combined with a carefully tuned small pool of allocations
+(only 16 at any one time), means that an average device is only using
+\({\sim}140\) KiB of extra memory for GWP-ASan (\({\sim}70\) KiB per sampled
+process).  In addition, like in Chrome, the process sampling prevents frequent
+crashes on the same process, which can lead to user frustration.
+
+\subsection{Firefox}
+
+Firefox implements its own custom version of GWP-ASan, named Probabilistic Heap
+Checker (PHC).\footnote{PHC is open source, available at:
+\url{https://searchfox.org/mozilla-central/source/memory/replace/phc/PHC.cpp}}
+PHC is closely related to Chrome's GWP-ASan (\S\ref{sec:chrome}). The internal
+Firefox allocator \emph{mozjemalloc} offers \inlcode{malloc()}-replace support,
+allowing the PHC implementation to intercept the respective allocator
+functionality and handle PHC-controlled allocations separately.
+
+Since Firefox has a different allocation profile compared to Chrome (both in
+frequency and allocation size), PHC uses slightly different parameters to
+decide when and how to sample allocations. This is particularly relevant to
+decide when to start sampling at process startup.
+
+\subsection{Apple Platforms}
+
+Apple's variant of GWP-ASan, named Probabilistic Guard Malloc~(PGM), is
+implemented in the standard user space allocator.\footnote{PGM is part of Apple
+libmalloc:
+\url{https://github.com/apple-oss-distributions/libmalloc/blob/main/src/pgm\_malloc.c}}
+It was first deployed to customer populations with iOS~14.5 and macOS~11.3
+(April~2021) and deployment gradually expanded to additional platforms,
+including watchOS and tvOS.  PGM is enabled for all Apple-owned user space
+processes (including apps) and integrates with the existing crash reporting
+pipeline.  Crash reports are augmented with additional information about the
+guarded allocation, most notably the allocation and deallocation stack traces.
+PGM does not apply to third-party apps and there are a small number of
+processes that use a custom memory allocator for some or all of their
+allocations.  Since these allocations are served by a different allocator
+implementation, they do not benefit from PGM.
+
+PGM uses conservative sampling rates and a fixed per-process memory budget to
+ensure performance remains unaffected.  The per-process memory budget is 2~MiB
+(except for macOS, where it is 8~MiB) and bounds PGM's total memory footprint.
+It accounts for all reserved VM pages (guard, allocation, and quarantine pages)
+and allocation metadata.  Stack traces are stored in compressed form.
+\emph{Process sampling} is used to ensure the number of simultaneously
+protected processes on a device is very small.  The average number of protected
+processes per device is tuned to be~0.5.  In addition to tuning system-wide
+overhead, process sampling also limits user impact by avoiding crash loops.
+
+\subsection{Linux Kernel}
+
+The Linux kernel (since version 5.12) has its own implementation, named Kernel
+Electric-Fence (KFENCE).\footnote{KFENCE is part of the mainline Linux kernel:
+\url{https://docs.kernel.org/dev-tools/kfence.html}} KFENCE's implementation
+has to integrate with the Linux kernel SLAB and SLUB heap
+allocators~\cite{SLUB}, with the latter having become the recommended default
+allocator of the Linux kernel.
+
+By virtue of being implemented in an OS kernel, KFENCE's implementation is more
+complex. Several abstractions that user space can rely on are unavailable in an
+OS kernel environment (signals, page-protection). Instead, per-target
+architecture support is required to deal with both page-fault handling and page
+protection. Indeed, page-protection from user space (using a default
+\inlcode{mprotect()}) is rather costly, especially due to TLB shootdowns.
+Instead, on some architectures (such as X86), KFENCE implements lazy
+page-protection, where only the local TLB is invalidated, with the only
+downside being few missed bugs (viz. false negatives).
+
+Another significant difference in KFENCE's implementation is that its decision
+to sample allocations is time-based: the implementation uses a fixed sample
+interval (with a default of 100 milliseconds) and a timer to toggle a bit
+checked by the SLAB or SLUB allocators. The kernel's allocator pressure is
+entirely workload dependent and hard to predict. Since the kernel has to serve
+any number of different workloads at different points in time or even
+concurrently for the entire uptime of the system, KFENCE's decision to sample
+should be independent of potentially pathological or even malicious workloads,
+yet remain predictable to derive reliable performance characteristics of the
+system with KFENCE enabled. A time-based sampling policy is independent of
+allocator pressure, relatively uniform, and therefore provides for a
+predictable upper bound on kernel-wide sample rate.
+
+The current default implementation checks a simple boolean ``gate'' in the
+allocator fast path, which results in a load, compare, and conditional jump:
+this implementation has been measured to have negligible impact across a
+variety of real-world production workloads. We note that an initial version of
+KFENCE used a dynamically patched branch (self-modifying code) to avoid
+checking a boolean in the fast path at all. In certain configurations with
+relatively large sample intervals of more than 500 milliseconds, this can
+minimally perform better, especially on systems with few CPUs (dual or quad
+core systems). On larger systems with large CPU counts, however, patching the
+branch using the kernel's existing code-patching machinery (called "Static
+Keys"~\cite{LinuxStaticKeys}) is equivalent to taking a global system lock
+which turned out to be unacceptable.
+
+\subsubsection{\textbf{Optimizing KFENCE Pool Utilization}}
+\label{sec:kfence_bloom}
+
+KFENCE uses a fixed pool of object pages and adjacent guard pages that are set
+up once on boot. This pool must be able to service KFENCE allocation requests
+until the next reboot of a system. One problem with that is dealing with
+long-lived allocations eventually consuming the entire pool: we implement a
+policy that rejects new allocations if they are unlikely to contribute to new
+\emph{coverage}. We define the \emph{coverage source} of an allocation to be
+based on its allocation stack trace. More specifically, if pool utilization
+reaches 75\% or above, KFENCE skips new allocations if an existing valid
+allocation of the same coverage source exists. The implementation hashes the
+stack trace and a Counting Bloom filter is used to efficiently query if one or
+more allocations of the same coverage source exist. The policy ensures diverse
+coverage of allocations, and as a side-effect limits frequent long-lived
+allocations (e.g.  filesystem caches).

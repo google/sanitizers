@@ -1,0 +1,16 @@
+*.pdf
+*.log
+*.aux
+*.out
+*.swp
+*.bbl
+*.blg
+*.toc
+*.lof
+*.lol
+*.lot
+*.bcf
+*.run.xml
+*.nav
+*.snm
+*.tar.gz

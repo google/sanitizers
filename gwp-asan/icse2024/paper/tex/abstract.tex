@@ -1,0 +1,21 @@
+\begin{abstract}
+
+  Despite the recent advances in pre-production bug detection,
+  heap-use-after-free and heap-buffer-overflow bugs remain the primary problem
+  for security, reliability, and developer productivity for applications
+  written in C or C++, across all major software ecosystems. Memory-safe
+  languages solve this problem when they are used, but the existing code bases
+  consisting of billions of lines of C and C++ continue to grow, and we need
+  additional bug detection mechanisms.
+
+  This paper describes a family of tools that detect these two classes of
+  memory-safety bugs, while running in production, at near-zero overhead. These
+  tools combine page-granular guarded allocation and low-rate sampling. In
+  other words, we added an ``if'' statement to a 36-year-old idea and made it
+  work at scale.
+
+  We describe the basic algorithm, several of its variants and implementations,
+  and the results of multi-year deployments across mobile, desktop, and server
+  applications.
+
+\end{abstract}
