@@ -1,0 +1,78 @@
+\section{Introduction}
+
+Memory-safety bugs have been well-known since at least
+1972~\cite{Anderson1972}.  Exploitation of memory unsafety made news in
+1988~\cite{Orman2003} and ever since.  Numerous dynamic-analysis-based
+detection mechanisms for pre-production use have been implemented: Valgrind
+Memcheck~\cite{NethercoteS2007}, AddressSanitizer
+(ASan)~\cite{SerebryanyBPV2012}, and HardwareAddressSanitizer
+(HWASan)~\cite{SerebryanySSTV2018} being the most popular. At least two
+hardware detection mechanisms have been introduced; namely SPARC
+ADI~\cite{AingaranJKLLMPR2015}, which has disappeared alongside its hardware
+platform, and Arm MTE~\cite{Serebryany2019}, which is not yet widely available.
+The devastating impact of memory unsafety was one of the reasons for the
+creation of newer and safe(r) languages: Java, C\#, Go, Swift, and Rust.
+Advancements in automated pre-production testing and fuzzing (``shift left''
+testing~\cite{Smith2001}) lead to detection and elimination of millions of
+memory-safety bugs.  Yet they remain the single major source of security
+vulnerabilities, and continue to negatively impact reliability and developer
+productivity~\cite{SzekeresPWS2013, Gaynor2020}.
+
+In the meantime, perhaps the oldest known detection mechanism remained
+underutilized. The Electric Fence Malloc Debugger~\cite{EFence}, introduced in
+1987, detects heap-use-after-free and heap-buffer-overflow bugs. It replaces
+the standard \inlcode{malloc()} and \inlcode{free()} functions. The
+\inlcode{malloc()} function rounds up the allocation size to the virtual memory
+system's page size, allocates the required size plus two extra pages directly
+via the \inlcode{mmap()} system call, and uses the \inlcode{mprotect()} system
+call to make the first and the last page inaccessible. These pages are called
+the ``redzone'' or ``guard pages''. The address of the first unprotected page
+is returned to the user. The original implementation uses only one guard page
+at a time, but other variants use two.  The \inlcode{free()} function calls
+\inlcode{mprotect()} on the entire memory region and prevents this virtual
+address range from being reused soon. Any memory access to the guard page or
+the deallocated address range causes a segmentation fault, at no additional
+effort.
+
+Elegant and easy to use, this mechanism suffers from high execution costs.
+Rounding up the allocation size to the page granularity may cause \(100\times\)
+RAM overhead, while one system call per allocation and deallocation causes
+slowdowns of comparable magnitude. Electric Fence~\cite{EFence} and its many
+clones~\cite{PageHeap} remain unusable outside of small tests.
+
+The tool named \emph{GWP-ASan} and its variants, first introduced in 2018, adds
+an ``if'' statement to the Electric Fence algorithm and makes it a successful
+sampling-based bug detector for production use, with amortized near-zero
+overhead. Today several implementations of GWP-ASan run in production in
+mobile, desktop, and server ecosystems. They have detected thousands of
+memory-safety bugs in production that evaded all other kinds of detection.
+GWP-ASan is a feature inside of \inlcode{malloc()} implementations and does
+not require any modifications to program binaries.
+
+GWP-ASan does not replace tools like ASan or HWASan for regular pre-production
+testing due to its extremely low probability of detecting a bug, per instance.
+However, the low probability of per-instance detection is offset by large-scale
+production deployment, with the aggregate detection probability resulting in a
+large number of detections. The detailed error messages usually enable
+developers to fix the bugs without the reproducers being available.
+
+We do not know how many memory-safety bugs remain undetected. GWP-ASan finds
+the bugs that occur in production \emph{frequently} and misses most others.
+GWP-ASan is \emph{not a security mitigation} tool due to its low detection
+probability.
+
+The name ``GWP-ASan'' is derived from Google-Wide Profiling
+(GWP)~\cite{RenTMSRH2010}---a tool that collects profiling data by, amongst
+other things, sampling \inlcode{malloc()}---and AddressSanitizer
+(ASan)~\cite{SerebryanyBPV2012}---a tool that detects use-after-frees and
+heap-buffer-overflows---even though GWP-ASan is neither GWP nor ASan. Three
+independent implementations of this tool use this name, and other
+implementations are named differently.
+
+\runinsec{Paper organization.} The following section, \S\ref{sec:background},
+will introduce background on the types of bugs that GWP-ASan can detect;
+\S\ref{sec:algo} describes the high-level GWP-ASan algorithm design;
+\S\ref{sec:impls} describes several implementations of that algorithm for a
+variety of platforms; \S\ref{sec:results} discusses real-world results from
+deployment of the implementations; \S\ref{sec:related} and \S\ref{sec:future}
+discuss related work and opportunities for future work.

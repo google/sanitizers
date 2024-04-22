@@ -1,0 +1,240 @@
+% NOTE: LaTeX places floats usually not where we want it. Just move the use of
+% the command around until it looks right.
+\newcommand{\figCrashes}{%
+  \begin{figure*}[t!]
+    \centering
+    \begin{tikzpicture}
+      \node (img1)  {\includegraphics[width=0.95\linewidth]{fig/crashes__svg.pdf}};
+      \node[below=of img1, node distance=0cm, yshift=1.7cm] {Number of GWP-ASan crash reports received ($2^n$)};
+      \node[left=of img1, node distance=0cm, rotate=90,anchor=center,yshift=-1.3cm] {Number of unique bugs ($10^n$)};
+    \end{tikzpicture}
+    \vspace{-1.2em}
+    \caption{Bug occurrences across Google server-side applications, Android, and
+    Chrome.}
+    \label{fig:crashes}
+  \end{figure*}
+}
+
+\section{Results}
+\label{sec:results}
+
+This section discusses the results of real-world deployment of GWP-ASan
+variants and our experience over the past several years.
+
+\subsection{Google Server-Side Software}
+
+GWP-ASan for the Google server-side software was the first variant we deployed,
+with the first production bugs observed in late 2018. In 2019, 300+ bugs were
+reported and fixed. In 2020 and 2021 we observed 450+ fixed bugs annually, and
+500+ bugs in 2022. The trend continued in 2023 with a total of 550+ bugs fixed.
+
+Approximately 80\% of the fixed bugs were heap-use-after frees, and 20\% were
+heap-buffer-overflows.
+
+Since 2019 100+ bugs were marked as ``can't reproduce'', which would typically
+indicate that the developers did not have sufficient information to understand
+and fix the bug. 400+ bugs were marked as ``obsolete'', which would typically
+indicate that the bug is unimportant for some reason (e.g. the code is deleted
+or represents a one-time experiment).
+
+The GWP-ASan reports are processed by the telemetry and bug reporting systems
+in the same way as any other process crashes. The only notable difference is
+that GWP-ASan reports have two (for buffer overflows) or three (for use after
+free) stack traces, while the majority of other crashes (e.g. NULL
+dereferences) have only one stack trace.
+
+We have evaluated GWP-ASan performance using performance-sensitive load tests
+and production telemetry~\cite{RenTMSRH2010}.  With the selected sampling rate,
+the performance impact is effectively undetectable.
+
+There were several cases where GWP-ASan detected and reported that the root
+cause of an ongoing issue in a production service was caused by a
+use-after-free or heap-buffer-overflow.
+
+\subsection{Google Chrome}
+
+GWP-ASan has been enabled by default on Windows and Mac since Chrome 80 in
+2019, and has been partially enabled on Linux and ChromeOS since 2022.
+
+Bug reports are prescreened by security team members before filing them in the
+bug tracker, as GWP-ASan sometimes produces inactionable reports. A faulty
+access to GWP-ASan's guarded region may occur long after another memory-safety
+error has occurred and the resulting bug report appears nonsensical. Some
+methods can be used to reduce or eliminate some classes of common inactionable
+reports (e.g. those that occur when ASCII values happen to form a valid
+pointer to a guarded allocation.) In the last 120 days (as of Jun 07 2023),
+71\% of crashes are reported as bugs after the prescreening (after filtering
+for crashes in old system-provided libraries and third-party code).
+
+There have been 271 bugs
+filed,\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\&can=1}}
+of which 176
+(65\%)\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20Type\%3DBug-Security\&can=1}}
+have been judged to be possibly exploitable by attackers.
+
+Of the 243 bugs that have been marked as
+resolved,\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20status\%3AFixed\%2CVerified\%2CDuplicate\%2CWontFix\%2CArchived\&can=1}}
+168 (69\%) have been marked as
+fixed.\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20status\%3AFixed\%2CVerified\&can=1}}
+35 (14.4\%) have been marked as
+``WontFix'',\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20status\%3AWontFix\&can=1}}
+meaning the developer has judged the bug to not be actionable in any way. Other
+resolutions include marking the bug as a duplicate, or marking it as the
+responsibility of an external dependency, for example, bugs in macOS system
+code, for which we receive crash reports when they occur in a Chrome process.
+
+180 of the bugs are
+heap-use-after-free,\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20heap-use-after-free\&can=1}}
+and 35 are
+heap-buffer-overflow.\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20heap-buffer-overflow\&can=1}}
+21/32 (65.6\%) of the resolved heap-buffer overflows are marked as fixed or a
+duplicate of an existing
+issue,\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20heap-buffer-overflow\&can=1}}$^,$\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20heap-buffer-overflow\%20status\%3AFixed\%2CVerified\%2CDuplicate\&can=1}}
+and 148/167 (88.6\%) of the resolved heap use-after-frees are marked as fixed
+or
+duplicate.\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20heap-use-after-free\%20status\%3AFixed\%2CVerified\%2CDuplicate\%2CWontFix\%2CArchived\&can=1}}$^,$\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20heap-use-after-free\%20status\%3AFixed\%2CVerified\%2CDuplicate\&can=1}}
+
+218/271
+(80.4\%)\footnote{\url{https://crbug.com?q=Hotlist\%3DGWP-ASan\%20\%22reported\%20by\%20GWP-ASan\%22\&can=1}}
+of the GWP-ASan bugs filed were found and reported by GWP-ASan before any other
+crash bug was filed for the same crash. This is likely because GWP-ASan bugs
+can be filed when only one crash has occurred (subject to prescreening),
+whereas regular crash bugs are typically inactionable with only a single
+report.
+
+\subsection{Android}
+
+GWP-ASan has been enabled by default for system processes and system apps since
+Android 11. Since then, we've detected and fixed a large quantity of both
+previously undetected memory-safety bugs, and new regressions.
+
+Within 60 days (starting in May 2023), we detected 1,972 unique stack traces in
+system processes across the Android ecosystem from ${\sim}11.7M$ crash reports.
+We consider a stack trace to be unique when the function name (where available)
+or dynamic shared object (DSO) from the most significant frame of the bad
+memory access (excluding common frames like libc or Android Runtime), is
+unique.
+
+We believe that a small fraction of these crashes are caused by hardware
+failures and not by software bugs, however, reports observed more than once
+clearly indicate real memory-safety bugs: 54\% (1,066) of unique stack traces
+were observed 5 or more times.
+%
+Of these crashes, 57\% were use-after-free, 27\% were buffer-overflow, 4\% were
+buffer-underflow, and the remainder were double free, invalid free, or
+indeterminate bugs.
+
+\figCrashes
+
+\subsection{Firefox}
+
+To understand PHC results on Firefox, there are two important aspects to
+consider. First, PHC is currently only running on the \emph{Nightly}
+channel and therefore has limited user exposure. We are working on bringing PHC
+to Firefox Release by the end of 2023. Second, prior to PHC the ``ASan Nightly
+Project'' was used on Firefox. In this project, a Firefox Nightly version built
+with AddressSanitizer was shipped to users who manually opted in to this (much
+slower) version. Although the user base was of course limited, ASan Nightly did
+not rely on probabilistic sampling and therefore it found a significant chunk
+of existing use-after-free issues. Overall we assume that this project is
+responsible for eliminating a lot of the long-standing bugs that we would have
+found otherwise at the beginning of PHC deployment. It is important to note
+that results from the ASan Nightly Project directly influenced the decision to
+implement PHC: the project showed us that use-after-free issues can be fixed
+almost 100\% of the time if the developers have the ``free'' stack trace in
+addition to the usual ``use'' stack trace.
+
+To date, PHC in Firefox has uncovered 7 use-after-free issues and 2
+buffer-overflows, some of which were in third-party code and fixed upstream.
+For some of these bugs, we also saw collisions with reports from other sources
+(e.g. the ASan Nightly Project). We expect that deployment to more clients
+through the Release channel will further increase the detection rate and allow
+us to identify regressions more quickly.
+
+\subsection{Apple Platforms}
+
+The Apple crash reporting pipeline groups crashes using the notion of an
+\emph{issue signature}.  Conceptually, an issue signature consists of the stack
+trace of the crashing thread.  For Probabilistic Guard Malloc~(PGM) crashes,
+the system files a bug for every new pair of process and issue signature (see
+\S\ref{sec:occurrences_per_bug}).
+
+As of September~2023, a total of 3,748 PGM bugs have been filed of which 1,438
+are marked fixed with an associated code change.  Of all bug reports, only 13
+were closed without a resolution, meaning that despite the additional
+information in the crash report component owners were unable to diagnose the
+bug without a reproducer.  This compares very favorably with standard crash
+reports for memory errors, resulting in a 99\% fix rate for PGM bugs.  Another
+27 bugs were found in local experiments and code that was recently removed.
+The remaining 2270 bugs were marked as duplicates resulting from PGM finding
+already-fixed bugs and finding the same bug in code shared by multiple
+processes (bugs are filed for pairs of process and issue signature).
+
+Of the found bugs, 77\% constitute use-after-free bugs and 23\% are
+buffer-overflows.  For about a third of fixed bugs the diagnosed root cause was
+a concurrency or thread safety issue.  Interestingly, there even was an example
+for a locally-reproducible bug that was detected using PGM, but eluded
+detection by AddressSanitizer. Our explanation is that PGM's lower overhead
+was more conducive to reproducing the error condition.
+
+In summary, PGM has been an effective tool for finding and diagnosing memory
+errors at Apple.  On average, 2.1 new bugs have been found \emph{every day}
+since it was first deployed at scale in April~2021.  The additional information
+in PGM crash reports (most notably, allocation and deallocation stack traces)
+makes them actionable even without a reproducer, resulting in a high 99\% fix
+rate.  In a handful of cases, a single PGM crash report made the difference for
+diagnosing a known high-impact bug.  PGM even found bugs (now fixed) in code
+that had remained unchanged for over 20 years.
+
+\subsection{Meta}
+
+Meta has used a variant of GWP-ASan in the Facebook and Messenger Apps on
+Android since 2020. GWP-ASan is bundled with the applications in a way that
+allows for it to be dynamically configured and tuned for a device population.
+This has allowed Meta to ship and enable GWP-ASan on a wide range of Android
+devices and versions, control key allocator properties such as the sampling
+rate, and an allow-list of modules subject to allocation sampling. The default
+sampling rate for a process is 1/1000 with a memory budget of 1024 object
+pages (8 MiB). Meta can additionally opt devices in or out of sampling at
+application launch time based on eligibility criteria such as available system
+memory.
+
+When a sampled allocation is determined to have resulted in a memory-safety
+issue, a crash report is generated containing custom streams with relevant
+information from the sampling such as allocation and deallocation stack traces.
+Reports are ingested by Meta infrastructure as part of the regular crash
+reporting pipeline and integrated directly with crash analysis tools that
+engineers already frequently use. Integration of GWP-ASan in their stack has
+over time helped Meta fix multiple difficult-to-debug reliability issues caused
+by use-after-frees and buffer overflows.
+
+\subsection{Linux Kernel}
+
+KFENCE has been deployed in Google's server kernels, Android, and ChromeOS
+kernels. We're also aware of numerous third parties using KFENCE, given it
+works out of the box by simply changing a kernel build-time configuration
+parameter. More effort is required to collect and analyze KFENCE reports from a
+fleet of machines, which needs additional tooling. To date, KFENCE has reported
+60+ bugs in Google's downstream Linux kernels. The upstream Linux kernel up to
+version 6.3 has 12 fix commits mentioning KFENCE-reported bugs since the
+introduction of KFENCE in 2021 with Linux 5.12.
+
+\subsection{Analysis of Occurrences Per Bug}
+\label{sec:occurrences_per_bug}
+
+The number of occurrences of every bug detected by GWP-ASan in production
+deserves a separate discussion. Intuitively, bugs that occur in production
+frequently will also be frequently reported with a sampling-based bug detector.
+But we don't know the frequency of the bug occurrences, only their detection
+frequency.
+
+We analyzed the detection frequency in the Google server-side applications, the
+Android platform (both the user space and the kernel), and Chrome, shown in
+Figure~\ref{fig:crashes}. In all cases, we observed a very similar picture.
+Roughly half of the bugs are only ever seen once, a quarter of the bugs are
+seen 2-10 times, and very few bugs are detected hundreds of times. The log-log
+plot looks like a straight line, which is frequent for such phenomena.
+
+Because of the low sampling rate GWP-ASan uses, most bugs are only detected
+once. We suspect that many more bugs occur in production infrequently enough to
+have never been detected by GWP-ASan.

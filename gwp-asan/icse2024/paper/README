@@ -1,0 +1,15 @@
+Notes
+=====
+
+* To install required LaTeX packages on Debian:
+
+    $ make install-deps
+
+* To build latest from-source:
+
+    $ make
+
+* pub/ contains the latest publication-ready version;
+  regenerate with:
+
+    $ make publish

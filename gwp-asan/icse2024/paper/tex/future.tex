@@ -1,0 +1,43 @@
+\section{Future Work}
+\label{sec:future}
+
+Assuming memory unsafe code will remain in wide use and pre-production testing
+will remain imperfect, we need to keep improving tools like GWP-ASan. Some
+notable directions are:
+
+\begin{enumerate}
+
+  \item Extend GWP-ASan or explore new low-overhead sampling-based bug
+    detection algorithms for bug classes currently not found by GWP-ASan. Of
+    particular interest are stack-use-after-return bugs: our estimate based on
+    pre-production testing is that these bugs are roughly 40\% as frequent as
+    heap-use-after-free bugs; their frequency in production is unknown to us.
+    Furthermore, too many concurrency issues escape to production, and we
+    expect solutions for low-overhead sampling-based data-race detection to be
+    profitable~\cite{GWPTsan}.
+
+  \item Tune the existing implementations to skew towards less frequent heap
+    allocation sites, similar to what KFENCE does (\S\ref{sec:kfence_bloom}).
+    This assumes that frequent allocations are better tested anyway.
+
+  \item Find mechanisms that allow higher sampling rates. This may include
+    improving the scalability of the mmap system call in operating system
+    kernels, or using hardware features such as Intel Memory Protection Keys
+    (MPK)~\cite{PKU} or Arm Memory Tagging (MTE)~\cite{Serebryany2019}.
+
+  \item Combine with other related detection mechanisms, e.g. Chrome's
+    lightweight use-after-free detector which has a higher sampling rate but
+    does not detect all types of use-after-frees~\cite{LightweightUafDetector}.
+
+  \item Ensure that major implementations can handle allocations of any size.
+
+  \item Create a feedback loop from earlier executions to newer ones. For
+    example, by increasing sampling rates for allocations previously involved
+    in a bug report, and decreasing sampling rates for long-lived allocations
+    that are less likely to cause bugs.
+
+  \item Create mechanisms to dynamically direct the sampling budget towards a
+    specific process to help project teams track down hard-to-diagnose bugs
+    that evaded all other forms of testing.
+
+\end{enumerate}

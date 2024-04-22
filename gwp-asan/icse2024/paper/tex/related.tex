@@ -1,0 +1,40 @@
+\section{Related Work}
+\label{sec:related}
+
+As discussed in the introduction, the idea to rely on page protection and
+dedicated guard pages around the object page for memory-safety error detection
+was first found in the Electric Fence Malloc Debugger~\cite{EFence} for various
+POSIX-compatible operating systems. For Microsoft Windows,
+PageHeap~\cite{PageHeap} serves a similar purpose and can find memory-safety
+errors. To the best of our knowledge, PageHeap has a sampled mode but was never
+intended for production use due to large overheads. The Debug Malloc
+Library~\cite{DMalloc} is another allocator replacement, giving developers a
+library to track object state to help debug errors; however, its overheads also
+make it unsuitable for production.
+
+While sampling program executions to analyze system performance at scale has
+become ubiquitous~\cite{RenTMSRH2010}, sampling to detect errors is less
+common. Liblit et al.~\cite{LiblitAZJ2003} first proposed compile-time
+assertion sampling to detect bugs, including memory safety bugs. A large number
+of builds for a single application are made, where different builds have a
+small subset of assertions enabled; instrumentation with
+CCured~\cite{NeculaMW2002} is used as an ``assertion source'' to find memory
+safety bugs. A benefit of this approach is that it is not tied to any
+particular compile-time instrumentation, and could be combined with newer
+state-of-the art compiler-instrumentation based dynamic analysis, such as
+HWASan~\cite{SerebryanySSTV2018}. Cooperative Bug Isolation
+(CBI)~\cite{NainarCRL2007} applies compiler instrumentation to collect values
+of simple predicates observed at run-time; a post-execution statistical
+analysis is performed to find anomalies and predict bugs. Here as well,
+compile-time sampling is used to reduce the instrumentation overhead.  These
+approaches have at least two challenges: (a) maintaining multiple builds for a
+single application may be expensive at scale and (b) the overhead of
+compiler-instrumented code is still non-zero and if a hot function happens to
+be instrumented in a given build, the slowdown may be significant.
+
+Hauswirth et al.~\cite{HauswirthC2004} propose using a binary rewriting system
+to instrument the code for bug detection and a dynamic dispatch to choose
+between instrumented and non-instrumented code in order to sample the checks at
+run-time. The drawback is that the dynamic dispatch code is not free. The paper
+describes the idea of ``sampling executions of code segments at a rate
+inversely proportional to their execution frequency,'' which remains promising.
