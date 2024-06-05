@@ -50,7 +50,7 @@ EOF
 
 echo "/dev/root / ext4 defaults 0 0" >> "${IMAGE_DIR}/etc/fstab"
 echo -en "127.0.0.1\tlocalhost\n" > "${IMAGE_DIR}/etc/hosts"
-echo "nameserver 8.8.8.8" >> "${IMAGE_DIR}/etc/resolve.conf"
+echo "nameserver 8.8.8.8" >> "${IMAGE_DIR}/etc/resolv.conf"
 echo "debian" > "${IMAGE_DIR}/etc/hostname"
 
 # Set up SSH.
