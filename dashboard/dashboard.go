@@ -94,6 +94,9 @@ type Builds struct {
 		CompleteAt int  `json:"complete_at"`
 		Number     int  `json:"number"`
 		Results    int  `json:"results"`
+		Properties struct {
+			Reason []string `json:"reason"`
+		} `json:"properties"`
 	} `json:"builds"`
 }
 
@@ -108,7 +111,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(builderUrl + "/builds?limit=40&order=-number")
+		resp, err = client.Get(builderUrl + "/builds?limit=40&order=-number&property=reason")
 		if err == nil {
 			break
 		}
@@ -141,6 +144,17 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		if !b.Complete {
 			continue
 		}
+		foundForceBuild := false
+		for _, v := range b.Properties.Reason {
+			if v == "Force Build Form" {
+				foundForceBuild = true
+				break
+			}
+		}
+		if foundForceBuild {
+			continue
+		}
+
 		builder, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d", b.Builderid))
 		sl.builderUrl = baseUrl.ResolveReference(builder).String()
 		time := time.Unix(int64(b.CompleteAt), 0)
