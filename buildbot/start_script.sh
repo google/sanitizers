@@ -68,6 +68,9 @@ kernel.core_pipe_limit = 0
 kernel.panic_on_oops = 0
 kernel.softlockup_panic = 0
 kernel.core_pattern = |/bin/false
+
+# FIXME: Upgrade bots and fix this.
+kernel.randomize_va_space=0
 EOF
 
 sysctl --system
