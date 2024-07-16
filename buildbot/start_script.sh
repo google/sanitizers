@@ -152,7 +152,7 @@ function is_worker_connected() {
 }
 
 function script_needs_update() {
-  git -C ${SCRIPT_DIR} fetch && ! git -C ${SCRIPT_DIR} diff FETCH_HEAD -- buildbot/
+  git -C ${SCRIPT_DIR} fetch && ! git -C ${SCRIPT_DIR} diff FETCH_HEAD -- .
 }
 
 function shutdown_maybe() {
@@ -163,7 +163,7 @@ function shutdown_maybe() {
     cat /proc/uptime
   fi
   echo "Rebooting..."
-  while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
+  while pkill -SIGHUP buildbot-worker; do sleep 5; done;
   shutdown now
   sleep 1000
 }
