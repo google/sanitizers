@@ -150,12 +150,18 @@ function is_worker_connected() {
   )
 }
 
+function script_needs_update() {
+  git -C ${SCRIPT_DIR} fetch && ! git -C ${SCRIPT_DIR} diff FETCH_HEAD -- buildbot/
+}
+
 function shutdown_maybe() {
-  [[ $(cat /proc/uptime | grep -oP "^\d+") -lt $((3600*72)) ]] && return
-  (w -h | wc -l) && return
+  if ! script_needs_update ; then
+    [[ $(cat /proc/uptime | grep -oP "^\d+") -lt $((3600*72)) ]] && return
+    (w -h | wc -l) && return
+    w -h
+    cat /proc/uptime
+  fi
   echo "Rebooting..."
-  w -h
-  cat /proc/uptime
   while sudo pkill -SIGHUP buildbot-worker; do sleep 5; done;
   shutdown now
   sleep 1000
