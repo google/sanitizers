@@ -176,7 +176,7 @@ function get_worker_host() {
 
 function is_worker_myself() {
   local WORKER_NAME="$1"
-  shutdown_maybe()
+  shutdown_maybe
   (
     for i in `seq 1 5`; do
       is_worker_connected ${WORKER_NAME} && exit 0
