@@ -2,10 +2,8 @@
 
 # Script to configure GCE instance to run sanitizer build bots.
 
-# NOTE: GCE can wait up to 20 hours before reloading this file.
-# If some instance needs changes sooner just shutdown the instance
-# with GCE UI or "sudo shutdown now" over ssh. GCE will recreate
-# the instance and reload the script.
+# NOTE: If there was changes in this dir, GCE will try to reboot
+# after compeeting current builtd.
 
 USE_STAGING=${USE_STAGING:-1}
 SHUTDOWN_ON_ERROR=${SHUTDOWN_ON_ERROR:-0}
