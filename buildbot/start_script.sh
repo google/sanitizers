@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 # Script to configure GCE instance to run sanitizer build bots.
 
 # NOTE: If there were changes in this directory, GCE instance will try to reboot after completing the current build.
@@ -113,9 +115,11 @@ EOF
   while pkill buildbot-worker; do sleep 5; done;
   rm -f ${BOT_DIR}/twistd.log ${BOT_DIR}/buildbot.tac
 
+  set +x
   buildbot-worker create-worker -f --allow-shutdown=signal ${BOT_DIR} lab.llvm.org:$SERVER_PORT \
     "$WORKER_NAME" \
     "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
+  set -x
 
   mkdir -p /var/lib/buildbot/workers/b
   ln -fs $BOT_DIR/buildbot.tac /var/lib/buildbot/workers/b/
