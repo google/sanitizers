@@ -2,7 +2,7 @@
 
 # Script to configure GCE instance to run sanitizer build bots.
 
-# NOTE: If there were changes in this directory, GCE will try to reboot after completing the current build.
+# NOTE: If there were changes in this directory, GCE instance will try to reboot after completing the current build.
 
 USE_STAGING=${USE_STAGING:-1}
 SHUTDOWN_ON_ERROR=${SHUTDOWN_ON_ERROR:-0}
