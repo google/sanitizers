@@ -126,15 +126,7 @@ EOF
   echo "Vitaly Buka <vitalybuka@google.com>" > ${BOT_DIR}/info/admin
 
   {
-    echo "How to reproduce locally: https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild"
-    echo
-    uname -a | head -n1
-    date
-    cmake --version | head -n1
-    g++ --version | head -n1
-    ld --version | head -n1
-    lscpu
-    echo "Host: ${FULL_HOSTNAME}"
+    echo 'See "Info" step of each build and https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild'
   } > ${BOT_DIR}/info/host
 
   chown -R buildbot:buildbot $BOT_DIR
