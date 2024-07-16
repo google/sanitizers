@@ -125,8 +125,10 @@ EOF
 
   echo "Vitaly Buka <vitalybuka@google.com>" > ${BOT_DIR}/info/admin
 
+  # "Host:" is used by get_worker_host below.
   {
     echo 'See "Info" step of each build and https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild'
+    echo "Host: ${FULL_HOSTNAME}"
   } > ${BOT_DIR}/info/host
 
   chown -R buildbot:buildbot $BOT_DIR
