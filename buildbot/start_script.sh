@@ -163,7 +163,7 @@ function shutdown_maybe() {
     cat /proc/uptime
   fi
   echo "Rebooting..."
-  while pkill -SIGHUP buildbot-worker; do sleep 5; done;
+  #while pkill -SIGHUP buildbot-worker; do sleep 5; done;
   shutdown now
   sleep 1000
 }
