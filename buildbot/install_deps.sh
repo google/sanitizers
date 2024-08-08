@@ -75,6 +75,7 @@
         python3-venv \
         psmisc \
         rsync \
+        time \
         wget \
         xfsprogs \
         zlib1g-dev || exit 1
