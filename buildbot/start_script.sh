@@ -209,7 +209,7 @@ else
 fi
 BOTS=$(echo "$BOTS" | tr ' ' '\n' | shuf)
 while true ; do
-  sleep 30
+  sleep $((30 + $RANDOM % 150))
   (
     # Try claim the same bot.
     for W in $BOTS ; do
