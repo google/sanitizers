@@ -23,7 +23,9 @@
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
       apt ${APT_OPTS} update || exit 1
-      
+
+      apt ${APT_OPTS} install gcc || exit 1
+
       apt ${APT_OPTS} install \
         ${ARCH_PACKAGES} \
         automake \
@@ -56,7 +58,7 @@
         liblzma-dev \
         libpixman-1-dev \
         libssl-dev \
-        libstdc++*-dev* \
+        libstdc++-$(gcc -dumpversion)-dev* \
         libtinfo-dev \
         libtinfo.$ \
         libtool \
