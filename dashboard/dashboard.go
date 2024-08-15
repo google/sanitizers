@@ -34,7 +34,6 @@ var (
 		{"aarch64-linux-hwasan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-hwasan"},
 		{"aarch64-linux-msan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-msan"},
 		{"aarch64-linux-ubsan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
-		{"ppc64be-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64be-linux"},
 		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
 		{"LibFuzzer", ""},
 		{"x86_64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
