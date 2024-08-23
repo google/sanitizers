@@ -158,7 +158,7 @@ function script_needs_update() {
 function shutdown_maybe() {
   if ! script_needs_update ; then
     [[ $(cat /proc/uptime | grep -oP "^\d+") -lt $((3600*72)) ]] && return
-    (w -h | wc -l) && return
+    (w -h | grep .) && return
     w -h
     cat /proc/uptime
   fi
