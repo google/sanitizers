@@ -419,7 +419,6 @@ $(function() {
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
-			bots[i].url = s.builderUrl
 			status_ch <- status_ret{i, s, err}
 		}(i)
 	}
@@ -437,7 +436,7 @@ $(function() {
 	go func() { ossfuzz_ch <- GetOssFuzzStatusString() }()
 
 	for i := range bots {
-		if bots[i].url == "" {
+		if statuses[i].builderUrl == "" {
 			fmt.Println(fmt.Sprintf("<tr><td colspan=%d><h2>", maxStatuses+3))
 			fmt.Println(bots[i].name)
 			fmt.Println("</h2></td></tr>")
@@ -492,7 +491,7 @@ $(function() {
 			style = class(statuses[i].statuses[0].success)
 		}
 
-		r += td("", a(bots[i].url, span(style, bots[i].name)))
+		r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
