@@ -290,16 +290,16 @@ func GetStatus(builderUrl string) (statusLine, error) {
 }
 
 type OssFuzzBuild struct {
-	Success    bool `json:"success"`
+	Success bool `json:"success"`
 }
 
 type OssFuzzProject struct {
-	Name    string `json:"name"`
+	Name   string         `json:"name"`
 	Builds []OssFuzzBuild `json:"history"`
 }
 
 type OssFuzzStatus struct {
-	Projects    []OssFuzzProject
+	Projects []OssFuzzProject
 }
 
 type ByName []OssFuzzProject
