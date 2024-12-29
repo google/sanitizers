@@ -13,4 +13,4 @@ The documentation for our tools:
 Some of the sanitizers are also available for different OS Kernels:
 * [KASAN](https://www.kernel.org/doc/html/v4.12/dev-tools/kasan.html)
 * [KMSAN](https://github.com/google/kmsan)
-* [KCSAN](https://github.com/google/ktsan/wiki/KCSAN)
+* [KCSAN](https://github.com/google/kernel-sanitizers/blob/master/KCSAN.md)
