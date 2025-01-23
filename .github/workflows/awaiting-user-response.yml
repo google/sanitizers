@@ -1,0 +1,117 @@
+name: Handle AwaitingUserResponse
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: '*/15 * * * *' # TODO(glider): change to '0 0 * * *' once we finish testing.
+
+jobs:
+  handle-awaiting-user-response:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Handle Issues and Comments
+        if: github.event_name == 'issues' && github.event.action == 'labeled' || github.event_name == 'issue_comment'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo, number } = context.issue;
+
+            if (context.event_name === 'issues' && context.payload.action === 'labeled') {
+              const labelName = context.payload.label.name;
+
+              if (labelName === 'AwaitingUserResponse') {
+                // Add a comment notifying the user.
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  body: 'We are awaiting your response. If we do not hear back from you within 90 days, this issue will be automatically closed.'
+                });
+              }
+            } else if (context.event_name === 'issue_comment') {
+              const issue = context.payload.issue;
+
+              // Check if the "AwaitingUserResponse" label is present.
+              const labels = issue.labels.map(label => label.name);
+              if (labels.includes('AwaitingUserResponse')) {
+                // Remove the label.
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  name: 'AwaitingUserResponse'
+                });
+              }
+            }
+
+      - name: Handle Scheduled Cleanup
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+
+            // Fetch all open issues with the "AwaitingUserResponse" label.
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: 'AwaitingUserResponse',
+              per_page: 100
+            });
+
+            const now = new Date();
+
+            for (const issue of issues) {
+              const timelineEvents = await github.paginate(github.rest.issues.listEventsForTimeline, {
+                owner,
+                repo,
+                issue_number: issue.number,
+                per_page: 100
+              });
+
+              // Find the latest labeled event for "AwaitingUserResponse".
+              const labeledEvents = timelineEvents.filter(event =>
+                event.event === 'labeled' && event.label.name === 'AwaitingUserResponse'
+              );
+
+              if (labeledEvents.length > 0) {
+                const latestLabelEvent = labeledEvents.reduce((latest, event) =>
+                  new Date(event.created_at) > new Date(latest.created_at) ? event : latest
+                );
+
+                const labelAppliedAt = new Date(latestLabelEvent.created_at);
+		// TODO(glider): use diffDays instead of diffHours once we finish testing.
+                // const diffDays = (now - labelAppliedAt) / (1000 * 60 * 60 * 24);
+                const diffHours = (now - labelAppliedAt) / (1000 * 60 * 60);
+
+                //if (diffDays > 90) {
+                if (diffHours > 2) {
+                  // Close the issue.
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    state: 'closed'
+                  });
+
+                  // Add a comment notifying the user.
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    body: 'This issue has been automatically closed as it has been marked "AwaitingUserResponse" for more than 90 days with no activity.'
+                  });
+                }
+              }
+            }
+
