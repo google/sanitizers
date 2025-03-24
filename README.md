@@ -8,7 +8,7 @@ The Sanitizers project, which includes AddressSanitizer, MemorySanitizer, Thread
 
 **Where to Report Bugs:**
 
-* **LLVM:** For bugs related to the sanitizer runtimes and instrumentation, please report them to the [LLVM Bug Tracker]([https://bugs.llvm.org/](https://github.com/llvm/llvm-project/issues/)).
+* **LLVM:** For bugs related to the sanitizer runtimes and instrumentation, please report them to the [LLVM Bug Tracker](https://github.com/llvm/llvm-project/issues/).
 * **GCC:** For bugs related to the GCC port of the sanitizers, please report them to the [GCC Bugzilla](https://gcc.gnu.org/bugzilla/).
 * **Linux Kernel:** For bugs related to Kernel AddressSanitizer (KASAN), Kernel MemorySanitizer (KMSAN), or Kernel ConcurrencySanitizer (KCSAN), please report them through the appropriate Linux kernel bug reporting channels, such as the [Linux kernel mailing list](https://vger.kernel.org/vger-lists.html#linux-kernel).
 * **Linux Distributions:** For bugs related to compiler issues in specific Linux distributions that are not reproducible in trunk compilers, please report them to the respective distribution's bug tracker (e.g., Debian Bug Tracking System, Red Hat Bugzilla).
