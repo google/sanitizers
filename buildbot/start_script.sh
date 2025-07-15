@@ -71,7 +71,8 @@ EOF
 
 sysctl --system
 
-if [[ "$(arch)" == "x86_64" ]]; then
+# FIXME: create_qemu_image.sh fails for unknown reasons.
+if [[ false && "$(arch)" == "x86_64" ]]; then
   cat <<EOF >/etc/exports
 ${BOT_DIR} 127.0.0.1(rw,sync,all_squash,insecure,anonuid=999,anongid=999,no_subtree_check)
 EOF
