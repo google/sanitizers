@@ -83,6 +83,7 @@ type statusLine struct {
 	lastbuild  time.Time
 	statuses   []status
 	builderUrl string
+	lkgb       string
 }
 
 type Builds struct {
@@ -97,6 +98,15 @@ type Builds struct {
 			Reason []string `json:"reason"`
 		} `json:"properties"`
 	} `json:"builds"`
+}
+
+func AnyContains(lst []string, s string) bool {
+	for _, v := range lst {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func QueryJSONBuilds(url string) (*Builds, error) {
@@ -144,18 +154,13 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	var sl statusLine = statusLine{
 		builderUrl: builderUrl,
 	}
+	lkgb := 0
+	lkgbUrl := ""
 	for _, b := range builds.Builds {
 		if !b.Complete {
 			continue
 		}
-		foundForceBuild := false
-		for _, v := range b.Properties.Reason {
-			if v == "Force Build Form" {
-				foundForceBuild = true
-				break
-			}
-		}
-		if foundForceBuild {
+		if AnyContains(b.Properties.Reason, "Force Build Form") {
 			continue
 		}
 
@@ -165,17 +170,43 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		if sl.lastbuild.Before(time) {
 			sl.lastbuild = time
 		}
+
+		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
+		thisUrl := baseUrl.ResolveReference(build).String()
+
 		success := 0
 		if b.Results < 2 {
 			success = 1
+			if b.Number > lkgb {
+				lkgb = b.Number
+				lkgbUrl = thisUrl
+			}
 		} else if b.Results == 2 {
 			success = -1
 		}
-		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
-		sl.statuses = append(sl.statuses, status{baseUrl.ResolveReference(build).String(), success})
+		sl.statuses = append(sl.statuses, status{thisUrl, success})
 		if len(sl.statuses) >= 31 {
 			break
 		}
+	}
+	if lkgb == 0 {
+		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
+		if err != nil {
+			return sl, nil
+		}
+		for _, b := range lkgbBuilds.Builds {
+			if AnyContains(b.Properties.Reason, "Force Build Form") {
+				continue
+			}
+			if b.Number > lkgb {
+				build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
+				lkgbUrl = baseUrl.ResolveReference(build).String()
+				lkgb = b.Number
+			}
+		}
+	}
+	if lkgbUrl != "" {
+		sl.lkgb = lkgbUrl
 	}
 	return sl, nil
 }
@@ -279,7 +310,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 
 						statuses = append(statuses, status{buildUrl, success})
 					}
-					return statusLine{lastbuild, statuses, builderUrl}
+					return statusLine{lastbuild, statuses, builderUrl, ""}
 				}
 			}
 		}
@@ -496,7 +527,11 @@ $(function() {
 			style = class(statuses[i].statuses[0].success)
 		}
 
-		r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
+		if statuses[i].lkgb != "" {
+			r += td("", a(statuses[i].builderUrl, span(style, bots[i].name))+" "+a(statuses[i].lkgb, "&star;"))
+		} else {
+			r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
+		}
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
