@@ -99,30 +99,21 @@ type Builds struct {
 	} `json:"builds"`
 }
 
-func GetStatusFromJson(builderUrl string) (statusLine, error) {
-	if builderUrl == "" {
-		return *new(statusLine), nil
-	}
-
+func QueryJSONBuilds(url string) (*Builds, error) {
 	var resp *http.Response
 	var err error
 	for i := 0; i < 3; i++ {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(builderUrl + "/builds?limit=40&order=-number&property=reason")
+		resp, err = client.Get(url)
 		if err == nil {
 			break
 		}
 	}
 
 	if err != nil {
-		return *new(statusLine), err
-	}
-
-	baseUrl, err := url.Parse(builderUrl)
-	if err != nil {
-		return *new(statusLine), err
+		return nil, err
 	}
 
 	var builds Builds
@@ -131,11 +122,25 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	err = json.Unmarshal(bodyBytes, &builds)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to parse JS: %s\n", err.Error())
-		return *new(statusLine), err
+		return nil, err
 	}
 	sort.SliceStable(builds.Builds, func(i, j int) bool {
 		return builds.Builds[i].Number > builds.Builds[j].Number
 	})
+	return &builds, nil
+}
+
+func GetStatusFromJson(builderUrl string) (statusLine, error) {
+	baseUrl, err := url.Parse(builderUrl)
+	if err != nil {
+		return *new(statusLine), err
+	}
+
+	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=40&order=-number&property=reason")
+	if err != nil {
+		return *new(statusLine), err
+	}
+
 	var sl statusLine = statusLine{
 		builderUrl: builderUrl,
 	}
