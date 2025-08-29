@@ -39,6 +39,14 @@ var (
 		{"x86_64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"aarch64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
 	}
+
+	masters = []struct {
+		isStaging bool
+		name string
+	}{
+		{false, "buildbot"},
+		{true, "staging"},
+	}
 )
 
 func attr(n *html.Node, attrName string) string {
@@ -84,6 +92,7 @@ type statusLine struct {
 	statuses   []status
 	builderUrl string
 	lkgb       string
+	isStaging  bool
 }
 
 type Builds struct {
@@ -310,7 +319,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 
 						statuses = append(statuses, status{buildUrl, success})
 					}
-					return statusLine{lastbuild, statuses, builderUrl, ""}
+					return statusLine{lastbuild, statuses, builderUrl, "", false}
 				}
 			}
 		}
@@ -459,9 +468,10 @@ $(function() {
 			var best_s statusLine
 			var best_err error
 			
-			for _, instance := range []string{"buildbot", "staging"} {
-				url := fmt.Sprintf(bots[i].url, instance)
+			for _, instance := range masters {
+				url := fmt.Sprintf(bots[i].url, instance.name)
 				s, err := GetStatus(url)
+				s.isStaging = instance.isStaging
 				if err == nil && !s.lastbuild.IsZero() && time.Now().Sub(s.lastbuild).Hours() <= 24 {
 					status_ch <- status_ret{i, s, err}
 					return
@@ -524,7 +534,11 @@ $(function() {
 
 		r := ""
 		if statuses[i].lkgb != "" {
-			r += td("", a(statuses[i].lkgb, "&#129351;"))
+			medal := "&#129351;"
+			if statuses[i].isStaging {
+				medal = "&#129352;"
+			}
+			r += td("", a(statuses[i].lkgb, medal))
 		} else {
 			r += td("", "")
 		}
