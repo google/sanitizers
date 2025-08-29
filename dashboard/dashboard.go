@@ -21,23 +21,23 @@ var (
 		name, url string
 	}{
 		{"Sanitizers", ""},
-		{"windows", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-windows"},
-		{"x86_64-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-asan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-bootstrap-asan"},
-		{"x86_64-linux-msan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
-		{"x86_64-linux-ubsan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
-		{"x86_64-linux-fast", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-android"},
-		{"x86_64-linux-qemu", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-qemu"},
-		{"aarch64-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux"},
-		{"aarch64-linux-asan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-asan"},
-		{"aarch64-linux-hwasan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-hwasan"},
-		{"aarch64-linux-msan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-msan"},
-		{"aarch64-linux-ubsan", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
-		{"ppc64le-linux", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-ppc64le-linux"},
+		{"windows", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-windows"},
+		{"x86_64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux"},
+		{"x86_64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-asan"},
+		{"x86_64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
+		{"x86_64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
+		{"x86_64-linux-fast", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fast"},
+		{"x86_64-linux-android", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-android"},
+		{"x86_64-linux-qemu", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-qemu"},
+		{"aarch64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux"},
+		{"aarch64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-asan"},
+		{"aarch64-linux-hwasan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-hwasan"},
+		{"aarch64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-msan"},
+		{"aarch64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
+		{"ppc64le-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-ppc64le-linux"},
 		{"LibFuzzer", ""},
-		{"x86_64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"aarch64-linux-fuzzer", "http://lab.llvm.org/buildbot/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
+		{"x86_64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
+		{"aarch64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
 	}
 )
 
@@ -451,11 +451,29 @@ $(function() {
 	status_ch := make(chan status_ret)
 	for i := range bots {
 		go func(i int) {
-			s, err := GetStatus(bots[i].url)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+			if bots[i].url == "" {
+				status_ch <- status_ret{i, statusLine{}, nil}
+				return
 			}
-			status_ch <- status_ret{i, s, err}
+
+			var best_s statusLine
+			var best_err error
+			
+			for _, instance := range []string{"buildbot", "staging"} {
+				url := fmt.Sprintf(bots[i].url, instance)
+				s, err := GetStatus(url)
+				if err == nil && !s.lastbuild.IsZero() && time.Now().Sub(s.lastbuild).Hours() <= 24 {
+					status_ch <- status_ret{i, s, err}
+					return
+				}
+				if best_s.lastbuild.IsZero() || (!s.lastbuild.IsZero() && s.lastbuild.After(best_s.lastbuild)) {
+					best_s = s
+					best_err = err
+				}
+			}
+			
+			
+			status_ch <- status_ret{i, best_s, best_err}
 		}(i)
 	}
 
