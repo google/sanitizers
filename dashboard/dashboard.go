@@ -505,6 +505,13 @@ $(function() {
 		}
 
 		r := ""
+		if statuses[i].lkgb != "" {
+			r += td("", a(statuses[i].lkgb, "&#129351;"))
+		} else {
+			r += td("", "")
+		}
+		
+		
 		date := "??:??"
 		if !statuses[i].lastbuild.IsZero() {
 			// Localize times to PST
@@ -520,18 +527,14 @@ $(function() {
 				date = lastbuild.Format("<span class=other>Jan 2 15:04</span>")
 			}
 		}
-		r += td("", date+"&nbsp;")
+		r += td("", date)
 
 		style := class(0)
 		if len(statuses[i].statuses) > 0 {
 			style = class(statuses[i].statuses[0].success)
 		}
 
-		if statuses[i].lkgb != "" {
-			r += td("", a(statuses[i].builderUrl, span(style, bots[i].name))+" "+a(statuses[i].lkgb, "&star;"))
-		} else {
-			r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
-		}
+		r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
