@@ -12,7 +12,7 @@
       rm -f /etc/apt/sources.list.d/scalibr-apt.list # can't update
       apt ${APT_OPTS} update || true
       apt ${APT_OPTS} install gnupg || exit 1
-      curl -f https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - || exit 1
+      # curl -f https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - || exit 1
 
       ARCH_PACKAGES=
       if [[ "$(arch)" == "x86_64" ]]; then
