@@ -13,6 +13,7 @@ The Sanitizers project, which includes AddressSanitizer, MemorySanitizer, Thread
 * **Linux Kernel:** For bugs related to Kernel AddressSanitizer (KASAN), Kernel MemorySanitizer (KMSAN), or Kernel ConcurrencySanitizer (KCSAN), please report them through the appropriate Linux kernel bug reporting channels, such as the [Linux kernel mailing list](https://vger.kernel.org/vger-lists.html#linux-kernel).
 * **Linux Distributions:** For bugs related to compiler issues in specific Linux distributions that are not reproducible in trunk compilers, please report them to the respective distribution's bug tracker (e.g., Debian Bug Tracking System, Red Hat Bugzilla).
 * **Apple and Microsoft:** For bugs related to the compilers provided by Apple (Xcode) or Microsoft (Visual Studio), please report them through the respective vendor's bug reporting channels.
+* **Android NDK:** For bugs related to Android, please report them to the [NDK issue tracker](https://github.com/android/ndk).
 
 **Documentation (Archived):**
 
