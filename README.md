@@ -1,8 +1,8 @@
 # sanitizers (Archived)
 
-**This project has been archived and is no longer actively maintained.**
+**This _repository_ has been archived and is no longer actively maintained.**
 
-The Sanitizers project, which includes AddressSanitizer, MemorySanitizer, ThreadSanitizer, LeakSanitizer, and more, is now archived. The core code for these sanitizers resides within the [LLVM](http://llvm.org) repository. This repository will be retained for archival purposes, providing access to historical documentation, bugfixes, and helper code.
+The Sanitizers _repository_, which includes AddressSanitizer, MemorySanitizer, ThreadSanitizer, LeakSanitizer, and more, is now archived. The core code for these sanitizers resides within the [LLVM](http://llvm.org) repository. This repository will be retained for archival purposes, providing access to historical documentation, bugfixes, and helper code.
 
 **Important:** Please do not file new bug reports in this repository.
 
