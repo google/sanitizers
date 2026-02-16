@@ -119,7 +119,7 @@ EOF
   set +x
   buildbot-worker create-worker -f --allow-shutdown=signal ${BOT_DIR} lab.llvm.org:$SERVER_PORT \
     "$WORKER_NAME" \
-    "$(gsutil cat gs://sanitizer-buildbot/buildbot_password)"
+    "$(gcloud storage cat gs://sanitizer-buildbot/buildbot_password)"
   set -x
 
   mkdir -p /var/lib/buildbot/workers/b
