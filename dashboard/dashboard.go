@@ -507,6 +507,10 @@ $(function() {
 			continue
 		}
 
+		if !statuses[i].lastbuild.IsZero() && time.Since(statuses[i].lastbuild) > 7*24*time.Hour {
+			continue
+		}
+
 		tr := func(s string) string {
 			return fmt.Sprintf("<tr>%s</tr>", s)
 		}
