@@ -90,4 +90,7 @@ update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.lld" 30
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
 
+# Work around for https://sourceware.org/git/?p=glibc.git;a=commit;h=243bdfec8f7cd4a85a8ce6e4e9a5a5accd3ce1aa
+find / -type f -name "struct_mutex.h" -exec sed -i 's/short __unused;/short __glibc_unused;/' {} +
+
 apt ${APT_OPTS} clean
