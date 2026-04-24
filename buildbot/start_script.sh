@@ -6,7 +6,7 @@ set -x
 
 # NOTE: If there were changes in this directory, GCE instance will try to reboot after completing the current build.
 
-USE_STAGING=${USE_STAGING:-$( [[ $(hostname) == *"-main-"* ]] && echo 1 || echo 0 )}
+USE_STAGING=${USE_STAGING:-$( [[ $(hostname) == *"-main-"* ]] && echo 0 || echo 1 )}
 SHUTDOWN_ON_ERROR=${SHUTDOWN_ON_ERROR:-0}
 
 if [[ "${USE_STAGING}" == "1" ]] ; then
