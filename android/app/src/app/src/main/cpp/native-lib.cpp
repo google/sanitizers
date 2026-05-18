@@ -8,8 +8,9 @@ Java_com_example_sanitizertest_MainActivity_doUseAfterFree(
         JNIEnv *env,
         jobject /* this */) {
     char * volatile p = new char[10];
-    delete[] p;
     p[5] = 42;
+    delete[] p;
+    p = nullptr;
 }
 
 extern "C" JNIEXPORT void JNICALL
