@@ -190,7 +190,8 @@ function is_worker_myself() {
       sleep 30
     done
     exit 1
-  ) | grep " ${FULL_HOSTNAME}"
+  ) | grep --fixed-strings "${FULL_HOSTNAME}"
+  # Use --fixed-strings since ${FULL_HOSTNAME} may have hyphens
 }
 
 function claim_worker() {
