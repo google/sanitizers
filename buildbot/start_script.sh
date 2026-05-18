@@ -140,7 +140,9 @@ EOF
   systemctl status $SERVICE_NAME
   sleep 30
   cat ${BOT_DIR}/twistd.log
-  grep "worker is ready" $BOT_DIR/twistd.log
+  # Disabled by Thurston as an experiment (5/17/26)
+  # I suspect this isn't emitted after https://github.com/llvm/llvm-zorg/commit/452bbd4eeb83c53fa1b904098581991af0d11e6c
+  # grep "worker is ready" $BOT_DIR/twistd.log
 }
 
 function is_worker_connected() {
