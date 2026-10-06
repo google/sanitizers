@@ -158,7 +158,7 @@ function shutdown_maybe() {
   fi
   echo "Rebooting..."
   #while pkill -SIGHUP buildbot-worker; do sleep 5; done;
-  do_shutdown
+  $ON_ERROR
 }
 
 function write_lock() {
