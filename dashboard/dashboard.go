@@ -20,7 +20,6 @@ var (
 	bots = []struct {
 		name, url string
 	}{
-		{"Sanitizers", ""},
 		{"windows", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-windows"},
 		{"x86_64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux"},
 		{"x86_64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-asan"},
@@ -37,7 +36,6 @@ var (
 		{"aarch64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-msan"},
 		{"aarch64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
 		{"ppc64le-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-ppc64le-linux"},
-		{"LibFuzzer", ""},
 		{"x86_64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
 		{"aarch64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
 	}
