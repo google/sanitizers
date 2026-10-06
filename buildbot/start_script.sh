@@ -186,7 +186,7 @@ function claim_worker() {
   create_worker "$WORKER_NAME" || return 2
 
   while sleep 300; do
-    write_lock "${LOCK_FILE}" 1 || return 1
+    write_lock "${LOCK_FILE}" 1 || $ON_ERROR
     shutdown_maybe
   done
 }
