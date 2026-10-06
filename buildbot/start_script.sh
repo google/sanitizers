@@ -15,8 +15,13 @@ else
   SERVER_PORT=9990
 fi
 
+function do_shutdown() {
+  shutdown now
+  sleep 1000
+}
+
 if [[ "${SHUTDOWN_ON_ERROR}" == "1" ]] ; then
-  ON_ERROR=${ON_ERROR:-shutdown now}
+  ON_ERROR=${ON_ERROR:-do_shutdown}
 else
   ON_ERROR=${ON_ERROR:-echo "FAILED"}
 fi
@@ -153,8 +158,7 @@ function shutdown_maybe() {
   fi
   echo "Rebooting..."
   #while pkill -SIGHUP buildbot-worker; do sleep 5; done;
-  shutdown now
-  sleep 1000
+  do_shutdown
 }
 
 function write_lock() {
