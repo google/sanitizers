@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,16 +82,34 @@ func findSubtags(n *html.Node, tagName string) []*html.Node {
 }
 
 type status struct {
-	buildUrl string
-	success  int
+	BuildUrl string `json:"build_url"`
+	Success  int    `json:"success"`
 }
 
 type statusLine struct {
-	lastbuild  time.Time
-	statuses   []status
-	builderUrl string
-	lkgb       string
-	isStaging  bool
+	Lastbuild  time.Time `json:"lastbuild"`
+	Statuses   []status  `json:"statuses"`
+	BuilderUrl string    `json:"builder_url"`
+	Lkgb       string    `json:"lkgb"`
+	IsStaging  bool      `json:"is_staging"`
+}
+
+func loadCache(path string) map[string]statusLine {
+	cache := make(map[string]statusLine)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cache
+	}
+	_ = json.Unmarshal(data, &cache)
+	return cache
+}
+
+func saveCache(path string, cache map[string]statusLine) {
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0666)
 }
 
 type Builds struct {
@@ -159,7 +178,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	}
 
 	var sl statusLine = statusLine{
-		builderUrl: builderUrl,
+		BuilderUrl: builderUrl,
 	}
 	lkgb := 0
 	lkgbUrl := ""
@@ -172,10 +191,10 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		}
 
 		builder, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d", b.Builderid))
-		sl.builderUrl = baseUrl.ResolveReference(builder).String()
+		sl.BuilderUrl = baseUrl.ResolveReference(builder).String()
 		time := time.Unix(int64(b.CompleteAt), 0)
-		if sl.lastbuild.Before(time) {
-			sl.lastbuild = time
+		if sl.Lastbuild.Before(time) {
+			sl.Lastbuild = time
 		}
 
 		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
@@ -191,8 +210,8 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		sl.statuses = append(sl.statuses, status{thisUrl, success})
-		if len(sl.statuses) >= 31 {
+		sl.Statuses = append(sl.Statuses, status{thisUrl, success})
+		if len(sl.Statuses) >= 31 {
 			break
 		}
 	}
@@ -213,7 +232,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		}
 	}
 	if lkgbUrl != "" {
-		sl.lkgb = lkgbUrl
+		sl.Lkgb = lkgbUrl
 	}
 	return sl, nil
 }
@@ -322,7 +341,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if s := f(c); !s.lastbuild.IsZero() {
+			if s := f(c); !s.Lastbuild.IsZero() {
 				return s
 			}
 		}
@@ -372,6 +391,9 @@ $(function() {
 <table>
 `)
 
+	cachePath := filepath.Join(os.TempDir(), "sanitizer-dashboard-cache.json")
+	cache := loadCache(cachePath)
+
 	statuses := make([]statusLine, len(bots))
 	errors := make([]error, len(bots))
 	type status_ret struct {
@@ -388,12 +410,12 @@ $(function() {
 			for _, instance := range masters {
 				url := fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builders/%s", instance.name, bots[i])
 				s, err := GetStatus(url)
-				s.isStaging = instance.isStaging
-				if err == nil && !s.lastbuild.IsZero() && time.Now().Sub(s.lastbuild).Hours() <= 24 {
+				s.IsStaging = instance.isStaging
+				if err == nil && !s.Lastbuild.IsZero() && time.Now().Sub(s.Lastbuild).Hours() <= 24 {
 					status_ch <- status_ret{i, s, err}
 					return
 				}
-				if best_s.lastbuild.IsZero() || (!s.lastbuild.IsZero() && s.lastbuild.After(best_s.lastbuild)) {
+				if best_s.Lastbuild.IsZero() || (!s.Lastbuild.IsZero() && s.Lastbuild.After(best_s.Lastbuild)) {
 					best_s = s
 					best_err = err
 				}
@@ -407,15 +429,23 @@ $(function() {
 	maxStatuses := 0
 	for range bots {
 		status := <-status_ch
+		cached, hasCached := cache[bots[status.n]]
+		if hasCached && !cached.Lastbuild.IsZero() && (status.err != nil || status.line.Lastbuild.IsZero() || cached.Lastbuild.After(status.line.Lastbuild)) {
+			status.line = cached
+			status.err = nil
+		} else if !status.line.Lastbuild.IsZero() {
+			cache[bots[status.n]] = status.line
+		}
 		statuses[status.n] = status.line
 		errors[status.n] = status.err
-		if maxStatuses < len(status.line.statuses) {
-			maxStatuses = len(status.line.statuses)
+		if maxStatuses < len(status.line.Statuses) {
+			maxStatuses = len(status.line.Statuses)
 		}
 	}
+	saveCache(cachePath, cache)
 
 	for i := range bots {
-		if !statuses[i].lastbuild.IsZero() && time.Since(statuses[i].lastbuild) > 7*24*time.Hour {
+		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
 			continue
 		}
 
@@ -445,21 +475,21 @@ $(function() {
 		}
 
 		r := ""
-		if statuses[i].lkgb != "" {
+		if statuses[i].Lkgb != "" {
 			medal := "&#129351;"
-			if statuses[i].isStaging {
+			if statuses[i].IsStaging {
 				medal = "&#129352;"
 			}
-			r += td("", a(statuses[i].lkgb, medal))
+			r += td("", a(statuses[i].Lkgb, medal))
 		} else {
 			r += td("", "")
 		}
 		
 		
 		date := "??:??"
-		if !statuses[i].lastbuild.IsZero() {
+		if !statuses[i].Lastbuild.IsZero() {
 			// Localize times to PST
-			lastbuild := statuses[i].lastbuild
+			lastbuild := statuses[i].Lastbuild
 			loc, err := time.LoadLocation("America/Los_Angeles")
 			if err == nil {
 				lastbuild = lastbuild.In(loc)
@@ -474,11 +504,11 @@ $(function() {
 		r += td("", date)
 
 		style := class(0)
-		if len(statuses[i].statuses) > 0 {
-			style = class(statuses[i].statuses[0].success)
+		if len(statuses[i].Statuses) > 0 {
+			style = class(statuses[i].Statuses[0].Success)
 		}
 
-		r += td("", a(statuses[i].builderUrl, span(style, bots[i])))
+		r += td("", a(statuses[i].BuilderUrl, span(style, bots[i])))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
@@ -487,11 +517,11 @@ $(function() {
 				errStr = errStr[trim+1:]
 			}
 			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
-		} else if !statuses[i].lastbuild.IsZero() {
-			for j := range statuses[i].statuses[:len(statuses[i].statuses)-1] {
-				s := statuses[i].statuses[j]
-				style := class(s.success)
-				r += td("", a(s.buildUrl, span(style+" symbol", "")))
+		} else if !statuses[i].Lastbuild.IsZero() {
+			for j := range statuses[i].Statuses[:len(statuses[i].Statuses)-1] {
+				s := statuses[i].Statuses[j]
+				style := class(s.Success)
+				r += td("", a(s.BuildUrl, span(style+" symbol", "")))
 			}
 		}
 		fmt.Println(tr(r))
