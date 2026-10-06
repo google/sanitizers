@@ -82,6 +82,7 @@ func findSubtags(n *html.Node, tagName string) []*html.Node {
 }
 
 type status struct {
+	Number   int    `json:"number"`
 	BuildUrl string `json:"build_url"`
 	Success  int    `json:"success"`
 }
@@ -114,10 +115,13 @@ func loadCache(path string) map[string]statusLine {
 
 func saveCache(path string, cache map[string]statusLine) {
 	for k, sl := range cache {
+		sort.SliceStable(sl.Statuses, func(i, j int) bool {
+			return sl.Statuses[i].Number > sl.Statuses[j].Number
+		})
 		if len(sl.Statuses) > 1000 {
 			sl.Statuses = sl.Statuses[:1000]
-			cache[k] = sl
 		}
+		cache[k] = sl
 	}
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
@@ -156,6 +160,9 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 			merged = append(merged, s)
 		}
 	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		return merged[i].Number > merged[j].Number
+	})
 	fresh.Statuses = merged
 	if fresh.Lkgb == "" {
 		fresh.Lkgb = cached.Lkgb
@@ -261,7 +268,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		sl.Statuses = append(sl.Statuses, status{thisUrl, success})
+		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success})
 		if len(sl.Statuses) >= 30 {
 			break
 		}
@@ -385,7 +392,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{buildUrl, success})
+						statuses = append(statuses, status{0, buildUrl, success})
 					}
 					return statusLine{lastbuild, statuses, builderUrl, "", false}
 				}
