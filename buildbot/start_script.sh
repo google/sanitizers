@@ -201,7 +201,7 @@ function write_lock() {
 
 function claim_worker() {
   local WORKER_NAME="$1"
-  local LOCK_FILE="gs://sanitizer-buildbot/slot-${SERVER_PORT}-${WORKER_NAME}.lock"
+  local LOCK_FILE="gs://sanitizer-buildbot-out/slot-${SERVER_PORT}-${WORKER_NAME}.lock"
   #is_worker_connected ${WORKER_NAME} && return 1
   create_worker "$WORKER_NAME" || return 2
   sleep 30
