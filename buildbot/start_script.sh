@@ -153,7 +153,7 @@ function is_worker_connected() {
 }
 
 function script_needs_update() {
-  git -C ${SCRIPT_DIR} fetch && ! git -C ${SCRIPT_DIR} diff FETCH_HEAD -- .
+  git -C ${SCRIPT_DIR} fetch && ! git -C ${SCRIPT_DIR} diff --exit-code FETCH_HEAD -- .
 }
 
 function shutdown_maybe() {
