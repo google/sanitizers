@@ -336,82 +336,6 @@ func GetStatus(builderUrl string) (statusLine, error) {
 	return f(doc), err
 }
 
-type OssFuzzBuild struct {
-	Success bool `json:"success"`
-}
-
-type OssFuzzProject struct {
-	Name   string         `json:"name"`
-	Builds []OssFuzzBuild `json:"history"`
-}
-
-type OssFuzzStatus struct {
-	Projects []OssFuzzProject
-}
-
-type ByName []OssFuzzProject
-
-func (a ByName) Len() int           { return len(a) }
-func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
-
-var OssFuzzOurProjects = map[string]bool{
-	"fuzzing-puzzles":     true,
-	"libpng-proto":        true,
-	"libprotobuf-mutator": true,
-	"llvm":                true,
-	"llvm_libcxxabi":      true,
-}
-
-func GetOssFuzzStatusString() string {
-	header := "<h2>OSS-Fuzz</h2>"
-
-	var resp *http.Response
-	var err error
-	stausUrl := "https://oss-fuzz-build-logs.storage.googleapis.com"
-	for i := 0; i < 3; i++ {
-		client := http.Client{
-			Timeout: time.Duration(120 * time.Second),
-		}
-		resp, err = client.Get(stausUrl + "/status.json")
-		if err == nil {
-			break
-		}
-	}
-
-	if err != nil {
-		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
-	}
-
-	var status OssFuzzStatus
-	jsonBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
-	}
-
-	err = json.Unmarshal(jsonBytes, &status)
-	if err != nil {
-		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
-	}
-
-	htmlStatuses := ""
-	sort.Sort(ByName(status.Projects))
-	for i := range status.Projects {
-		if !OssFuzzOurProjects[status.Projects[i].Name] {
-			continue
-		}
-		class := "success"
-		if len(status.Projects[i].Builds) > 0 && !status.Projects[i].Builds[0].Success {
-			class = "error"
-		}
-		htmlStatuses += fmt.Sprintf(
-			"<span class='%s'><a href='%s/index.html#%s'>%s</a>&nbsp;</span> ",
-			class, stausUrl, status.Projects[i].Name, status.Projects[i].Name)
-	}
-
-	return fmt.Sprintf("%s %s", header, htmlStatuses)
-}
-
 func main() {
 	fmt.Println(`
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
@@ -498,8 +422,6 @@ $(function() {
 			maxStatuses = len(status.line.statuses)
 		}
 	}
-	ossfuzz_ch := make(chan string)
-	go func() { ossfuzz_ch <- GetOssFuzzStatusString() }()
 
 	for i := range bots {
 		if statuses[i].builderUrl == "" {
@@ -591,7 +513,6 @@ $(function() {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	fmt.Println(<-ossfuzz_ch)
 	fmt.Println(`<p><font size=".8em">go/dynamic-tools-dashboard, `)
 	tz, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
