@@ -159,15 +159,7 @@ function shutdown_maybe() {
 
 function write_lock() {
   local LOCK_FILE="$1"
-  shift
-  echo "{\"owner\":\"${FULL_HOSTNAME}\",\"expires_at\":$(($(date +%s) + 900))}" | \
-    gcloud storage cp "$@" - "${LOCK_FILE}"
-}
-
-function claim_worker() {
-  local WORKER_NAME="$1"
   local ONLY_SELF="${2:-0}"
-  local LOCK_FILE="gs://sanitizer-buildbot-out/slot-${SERVER_PORT}-${WORKER_NAME}.lock"
 
   local GEN
   GEN=$(gcloud storage objects describe "${LOCK_FILE}" --format="value(generation)" 2>/dev/null || echo 0)
@@ -180,12 +172,21 @@ function claim_worker() {
   [[ "${ONLY_SELF}" == "1" ]] && FILTER='.owner == $h'
   echo "${LOCK_DATA}" | jq -e --arg h "${FULL_HOSTNAME}" "${FILTER}" || return 1
 
-  write_lock "${LOCK_FILE}" --if-generation-match="${GEN}" || return 1
+  echo "{\"owner\":\"${FULL_HOSTNAME}\",\"expires_at\":$(($(date +%s) + 900))}" | \
+    gcloud storage cp --if-generation-match="${GEN}" - "${LOCK_FILE}"
+}
+
+function claim_worker() {
+  local WORKER_NAME="$1"
+  local ONLY_SELF="${2:-0}"
+  local LOCK_FILE="gs://sanitizer-buildbot-out/slot-${SERVER_PORT}-${WORKER_NAME}.lock"
+
+  write_lock "${LOCK_FILE}" "${ONLY_SELF}" || return 1
 
   create_worker "$WORKER_NAME" || return 2
 
   while sleep 300; do
-    write_lock "${LOCK_FILE}" 2>/dev/null
+    write_lock "${LOCK_FILE}" 1 || return 1
     shutdown_maybe
   done
 }
