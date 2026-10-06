@@ -192,13 +192,22 @@ function is_worker_myself() {
   # Use --fixed-strings since ${FULL_HOSTNAME} may have hyphens
 }
 
+function write_lock() {
+  local LOCK_FILE="$1"
+  shift
+  echo "{\"owner\":\"${FULL_HOSTNAME}\",\"expires_at\":$(($(date +%s) + 900))}" | \
+    gcloud storage cp "$@" - "${LOCK_FILE}"
+}
+
 function claim_worker() {
   local WORKER_NAME="$1"
+  local LOCK_FILE="gs://sanitizer-buildbot-out/slot-${SERVER_PORT}-${WORKER_NAME}.lock"
   #is_worker_connected ${WORKER_NAME} && return 1
   create_worker "$WORKER_NAME" || return 2
   sleep 30
   while is_worker_myself ${WORKER_NAME} ; do
-    sleep 900
+    write_lock "${LOCK_FILE}" 2>/dev/null
+    sleep 300
   done
   # Notify caller that we've seen at least 1 disconnected worker.
   return 0
