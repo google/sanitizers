@@ -94,13 +94,21 @@ type statusLine struct {
 	IsStaging  bool      `json:"is_staging"`
 }
 
+func countBuilds(cache map[string]statusLine) int {
+	n := 0
+	for _, sl := range cache {
+		n += len(sl.Statuses)
+	}
+	return n
+}
+
 func loadCache(path string) map[string]statusLine {
 	cache := make(map[string]statusLine)
 	data, err := os.ReadFile(path)
-	if err != nil {
-		return cache
+	if err == nil {
+		_ = json.Unmarshal(data, &cache)
 	}
-	_ = json.Unmarshal(data, &cache)
+	fmt.Fprintf(os.Stderr, "Loaded %d builds from cache in %s\n", countBuilds(cache), path)
 	return cache
 }
 
@@ -109,7 +117,47 @@ func saveCache(path string, cache map[string]statusLine) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0666)
+	if err := os.WriteFile(path, data, 0666); err == nil {
+		fmt.Fprintf(os.Stderr, "Saved %d builds to cache in %s\n", countBuilds(cache), path)
+	}
+}
+
+func mergeStatusLine(fresh, cached statusLine) statusLine {
+	if fresh.Lastbuild.IsZero() {
+		return cached
+	}
+	if cached.Lastbuild.IsZero() {
+		return fresh
+	}
+	if fresh.BuilderUrl != cached.BuilderUrl {
+		if cached.Lastbuild.After(fresh.Lastbuild) {
+			return cached
+		}
+		return fresh
+	}
+	if cached.Lastbuild.After(fresh.Lastbuild) {
+		fresh, cached = cached, fresh
+	}
+	seen := make(map[string]bool, len(fresh.Statuses))
+	merged := make([]status, 0, len(fresh.Statuses)+len(cached.Statuses))
+	for _, s := range fresh.Statuses {
+		seen[s.BuildUrl] = true
+		merged = append(merged, s)
+	}
+	for _, s := range cached.Statuses {
+		if !seen[s.BuildUrl] {
+			seen[s.BuildUrl] = true
+			merged = append(merged, s)
+		}
+	}
+	if len(merged) > 30 {
+		merged = merged[:30]
+	}
+	fresh.Statuses = merged
+	if fresh.Lkgb == "" {
+		fresh.Lkgb = cached.Lkgb
+	}
+	return fresh
 }
 
 type Builds struct {
@@ -172,7 +220,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=40&order=-number&property=reason")
+	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=3&order=-number&property=reason")
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -211,12 +259,12 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 			success = -1
 		}
 		sl.Statuses = append(sl.Statuses, status{thisUrl, success})
-		if len(sl.Statuses) >= 31 {
+		if len(sl.Statuses) >= 30 {
 			break
 		}
 	}
 	if lkgb == 0 {
-		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
+		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=3&order=-number&property=reason&results__lt=2")
 		if err != nil {
 			return sl, nil
 		}
@@ -430,10 +478,13 @@ $(function() {
 	for range bots {
 		status := <-status_ch
 		cached, hasCached := cache[bots[status.n]]
-		if hasCached && !cached.Lastbuild.IsZero() && (status.err != nil || status.line.Lastbuild.IsZero() || cached.Lastbuild.After(status.line.Lastbuild)) {
-			status.line = cached
-			status.err = nil
-		} else if !status.line.Lastbuild.IsZero() {
+		if hasCached {
+			status.line = mergeStatusLine(status.line, cached)
+			if !status.line.Lastbuild.IsZero() {
+				status.err = nil
+			}
+		}
+		if !status.line.Lastbuild.IsZero() {
 			cache[bots[status.n]] = status.line
 		}
 		statuses[status.n] = status.line
@@ -518,7 +569,7 @@ $(function() {
 			}
 			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
-			for j := range statuses[i].Statuses[:len(statuses[i].Statuses)-1] {
+			for j := range statuses[i].Statuses {
 				s := statuses[i].Statuses[j]
 				style := class(s.Success)
 				r += td("", a(s.BuildUrl, span(style+" symbol", "")))
