@@ -114,15 +114,6 @@ func loadCache(path string) map[string]statusLine {
 }
 
 func saveCache(path string, cache map[string]statusLine) {
-	for k, sl := range cache {
-		sort.SliceStable(sl.Statuses, func(i, j int) bool {
-			return sl.Statuses[i].Number > sl.Statuses[j].Number
-		})
-		if len(sl.Statuses) > 1000 {
-			sl.Statuses = sl.Statuses[:1000]
-		}
-		cache[k] = sl
-	}
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return
@@ -163,6 +154,9 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 	sort.SliceStable(merged, func(i, j int) bool {
 		return merged[i].Number > merged[j].Number
 	})
+	if len(merged) > 1000 {
+		merged = merged[:1000]
+	}
 	fresh.Statuses = merged
 	if fresh.Lkgb == "" {
 		fresh.Lkgb = cached.Lkgb
