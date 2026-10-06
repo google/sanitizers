@@ -17,27 +17,25 @@ import (
 )
 
 var (
-	bots = []struct {
-		name, url string
-	}{
-		{"windows", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-windows"},
-		{"x86_64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-asan"},
-		{"x86_64-linux-cfi", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-cfi"},
-		{"x86_64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
-		{"x86_64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
-		{"x86_64-linux-fast", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-android"},
-		{"x86_64-linux-qemu", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-qemu"},
-		{"aarch64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux"},
-		{"aarch64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-asan"},
-		{"aarch64-linux-cfi", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-cfi"},
-		{"aarch64-linux-hwasan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-hwasan"},
-		{"aarch64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-msan"},
-		{"aarch64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
-		{"ppc64le-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-ppc64le-linux"},
-		{"x86_64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"aarch64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
+	bots = []string{
+		"sanitizer-windows",
+		"sanitizer-x86_64-linux",
+		"sanitizer-x86_64-linux-bootstrap-asan",
+		"sanitizer-x86_64-linux-bootstrap-cfi",
+		"sanitizer-x86_64-linux-bootstrap-msan",
+		"sanitizer-x86_64-linux-bootstrap-ubsan",
+		"sanitizer-x86_64-linux-fast",
+		"sanitizer-x86_64-linux-android",
+		"sanitizer-x86_64-linux-qemu",
+		"sanitizer-aarch64-linux",
+		"sanitizer-aarch64-linux-bootstrap-asan",
+		"sanitizer-aarch64-linux-bootstrap-cfi",
+		"sanitizer-aarch64-linux-bootstrap-hwasan",
+		"sanitizer-aarch64-linux-bootstrap-msan",
+		"sanitizer-aarch64-linux-bootstrap-ubsan",
+		"sanitizer-ppc64le-linux",
+		"sanitizer-x86_64-linux-fuzzer",
+		"sanitizer-aarch64-linux-fuzzer",
 	}
 
 	masters = []struct {
@@ -384,16 +382,11 @@ $(function() {
 	status_ch := make(chan status_ret)
 	for i := range bots {
 		go func(i int) {
-			if bots[i].url == "" {
-				status_ch <- status_ret{i, statusLine{}, nil}
-				return
-			}
-
 			var best_s statusLine
 			var best_err error
 			
 			for _, instance := range masters {
-				url := fmt.Sprintf(bots[i].url, instance.name)
+				url := fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builders/%s", instance.name, bots[i])
 				s, err := GetStatus(url)
 				s.isStaging = instance.isStaging
 				if err == nil && !s.lastbuild.IsZero() && time.Now().Sub(s.lastbuild).Hours() <= 24 {
@@ -422,13 +415,6 @@ $(function() {
 	}
 
 	for i := range bots {
-		if statuses[i].builderUrl == "" {
-			fmt.Println(fmt.Sprintf("<tr><td colspan=%d><h2>", maxStatuses+3))
-			fmt.Println(bots[i].name)
-			fmt.Println("</h2></td></tr>")
-			continue
-		}
-
 		if !statuses[i].lastbuild.IsZero() && time.Since(statuses[i].lastbuild) > 7*24*time.Hour {
 			continue
 		}
@@ -492,7 +478,7 @@ $(function() {
 			style = class(statuses[i].statuses[0].success)
 		}
 
-		r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
+		r += td("", a(statuses[i].builderUrl, span(style, bots[i])))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
