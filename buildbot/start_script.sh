@@ -16,24 +16,22 @@ else
 fi
 
 function do_shutdown() {
-  shutdown now
-  sleep 1000
+  if [[ "${SHUTDOWN_ON_ERROR}" == "1" ]] ; then
+    shutdown now
+    sleep 1000
+  else
+    echo "FAILED"
+  fi
 }
-
-if [[ "${SHUTDOWN_ON_ERROR}" == "1" ]] ; then
-  ON_ERROR=${ON_ERROR:-do_shutdown}
-else
-  ON_ERROR=${ON_ERROR:-echo "FAILED"}
-fi
 
 BOT_DIR=/home/b
 QEMU_IMAGE_DIR=${BOT_DIR}/qemu_image
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
 FULL_HOSTNAME="$(hostname -f)"
 
-mountpoint /tmp     || mount -o nosuid -t tmpfs tmpfs /tmp || $ON_ERROR
+mountpoint /tmp     || mount -o nosuid -t tmpfs tmpfs /tmp || do_shutdown
 
-${SCRIPT_DIR}/install_deps.sh
+${SCRIPT_DIR}/install_deps.sh || do_shutdown
 
 # Optional, ingore if it fails.
 curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
@@ -46,7 +44,7 @@ if lsblk /dev/nvme0n2 ; then
     yes | mdadm --create /dev/md0 --level=0 -q -f --raid-devices=$(ls /dev/nvme*n* | wc -l) /dev/nvme*n*
     mkfs.xfs /dev/md0
   }
-  mountpoint $BOT_DIR || mount -o nosuid /dev/md0 $BOT_DIR || $ON_ERROR
+  mountpoint $BOT_DIR || mount -o nosuid /dev/md0 $BOT_DIR || do_shutdown
 fi
 
 # Move home to the scratch drive.
@@ -99,7 +97,7 @@ EOF
       }
     done
     exit 1
-  ) || $ON_ERROR
+  ) || do_shutdown
 fi
 
 function create_worker() {
@@ -158,7 +156,7 @@ function shutdown_maybe() {
   fi
   echo "Rebooting..."
   #while pkill -SIGHUP buildbot-worker; do sleep 5; done;
-  $ON_ERROR
+  do_shutdown
 }
 
 function write_lock() {
@@ -190,7 +188,7 @@ function claim_worker() {
   create_worker "$WORKER_NAME" || return 2
 
   while sleep 300; do
-    write_lock "${LOCK_FILE}" 1 || $ON_ERROR
+    write_lock "${LOCK_FILE}" 1 || do_shutdown
     shutdown_maybe
   done
 }
@@ -212,5 +210,5 @@ while true ; do
   done
 
   # No unclaimed workers?
-  $ON_ERROR
+  do_shutdown
 done
