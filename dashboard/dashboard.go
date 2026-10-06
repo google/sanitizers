@@ -113,6 +113,12 @@ func loadCache(path string) map[string]statusLine {
 }
 
 func saveCache(path string, cache map[string]statusLine) {
+	for k, sl := range cache {
+		if len(sl.Statuses) > 1000 {
+			sl.Statuses = sl.Statuses[:1000]
+			cache[k] = sl
+		}
+	}
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return
@@ -149,9 +155,6 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 			seen[s.BuildUrl] = true
 			merged = append(merged, s)
 		}
-	}
-	if len(merged) > 30 {
-		merged = merged[:30]
 	}
 	fresh.Statuses = merged
 	if fresh.Lkgb == "" {
@@ -494,6 +497,9 @@ $(function() {
 		}
 	}
 	saveCache(cachePath, cache)
+	if maxStatuses > 30 {
+		maxStatuses = 30
+	}
 
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
@@ -569,8 +575,11 @@ $(function() {
 			}
 			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
-			for j := range statuses[i].Statuses {
-				s := statuses[i].Statuses[j]
+			displayStatuses := statuses[i].Statuses
+			if len(displayStatuses) > 30 {
+				displayStatuses = displayStatuses[:30]
+			}
+			for _, s := range displayStatuses {
 				style := class(s.Success)
 				r += td("", a(s.BuildUrl, span(style+" symbol", "")))
 			}
