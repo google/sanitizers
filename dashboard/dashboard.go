@@ -17,29 +17,25 @@ import (
 )
 
 var (
-	bots = []struct {
-		name, url string
-	}{
-		{"Sanitizers", ""},
-		{"windows", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-windows"},
-		{"x86_64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux"},
-		{"x86_64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-asan"},
-		{"x86_64-linux-cfi", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-cfi"},
-		{"x86_64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-msan"},
-		{"x86_64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-bootstrap-ubsan"},
-		{"x86_64-linux-fast", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fast"},
-		{"x86_64-linux-android", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-android"},
-		{"x86_64-linux-qemu", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-qemu"},
-		{"aarch64-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux"},
-		{"aarch64-linux-asan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-asan"},
-		{"aarch64-linux-cfi", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-cfi"},
-		{"aarch64-linux-hwasan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-hwasan"},
-		{"aarch64-linux-msan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-msan"},
-		{"aarch64-linux-ubsan", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-bootstrap-ubsan"},
-		{"ppc64le-linux", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-ppc64le-linux"},
-		{"LibFuzzer", ""},
-		{"x86_64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-x86_64-linux-fuzzer"},
-		{"aarch64-linux-fuzzer", "http://lab.llvm.org/%s/api/v2/builders/sanitizer-aarch64-linux-fuzzer"},
+	bots = []string{
+		"sanitizer-windows",
+		"sanitizer-x86_64-linux",
+		"sanitizer-x86_64-linux-bootstrap-asan",
+		"sanitizer-x86_64-linux-bootstrap-cfi",
+		"sanitizer-x86_64-linux-bootstrap-msan",
+		"sanitizer-x86_64-linux-bootstrap-ubsan",
+		"sanitizer-x86_64-linux-fast",
+		"sanitizer-x86_64-linux-android",
+		"sanitizer-x86_64-linux-qemu",
+		"sanitizer-aarch64-linux",
+		"sanitizer-aarch64-linux-bootstrap-asan",
+		"sanitizer-aarch64-linux-bootstrap-cfi",
+		"sanitizer-aarch64-linux-bootstrap-hwasan",
+		"sanitizer-aarch64-linux-bootstrap-msan",
+		"sanitizer-aarch64-linux-bootstrap-ubsan",
+		"sanitizer-ppc64le-linux",
+		"sanitizer-x86_64-linux-fuzzer",
+		"sanitizer-aarch64-linux-fuzzer",
 	}
 
 	masters = []struct {
@@ -336,82 +332,6 @@ func GetStatus(builderUrl string) (statusLine, error) {
 	return f(doc), err
 }
 
-type OssFuzzBuild struct {
-	Success bool `json:"success"`
-}
-
-type OssFuzzProject struct {
-	Name   string         `json:"name"`
-	Builds []OssFuzzBuild `json:"history"`
-}
-
-type OssFuzzStatus struct {
-	Projects []OssFuzzProject
-}
-
-type ByName []OssFuzzProject
-
-func (a ByName) Len() int           { return len(a) }
-func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByName) Less(i, j int) bool { return a[i].Name < a[j].Name }
-
-var OssFuzzOurProjects = map[string]bool{
-	"fuzzing-puzzles":     true,
-	"libpng-proto":        true,
-	"libprotobuf-mutator": true,
-	"llvm":                true,
-	"llvm_libcxxabi":      true,
-}
-
-func GetOssFuzzStatusString() string {
-	header := "<h2>OSS-Fuzz</h2>"
-
-	var resp *http.Response
-	var err error
-	stausUrl := "https://oss-fuzz-build-logs.storage.googleapis.com"
-	for i := 0; i < 3; i++ {
-		client := http.Client{
-			Timeout: time.Duration(120 * time.Second),
-		}
-		resp, err = client.Get(stausUrl + "/status.json")
-		if err == nil {
-			break
-		}
-	}
-
-	if err != nil {
-		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
-	}
-
-	var status OssFuzzStatus
-	jsonBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
-	}
-
-	err = json.Unmarshal(jsonBytes, &status)
-	if err != nil {
-		return fmt.Sprintf("%s<p><span class=other>%v</span></p>", header, err)
-	}
-
-	htmlStatuses := ""
-	sort.Sort(ByName(status.Projects))
-	for i := range status.Projects {
-		if !OssFuzzOurProjects[status.Projects[i].Name] {
-			continue
-		}
-		class := "success"
-		if len(status.Projects[i].Builds) > 0 && !status.Projects[i].Builds[0].Success {
-			class = "error"
-		}
-		htmlStatuses += fmt.Sprintf(
-			"<span class='%s'><a href='%s/index.html#%s'>%s</a>&nbsp;</span> ",
-			class, stausUrl, status.Projects[i].Name, status.Projects[i].Name)
-	}
-
-	return fmt.Sprintf("%s %s", header, htmlStatuses)
-}
-
 func main() {
 	fmt.Println(`
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
@@ -462,16 +382,11 @@ $(function() {
 	status_ch := make(chan status_ret)
 	for i := range bots {
 		go func(i int) {
-			if bots[i].url == "" {
-				status_ch <- status_ret{i, statusLine{}, nil}
-				return
-			}
-
 			var best_s statusLine
 			var best_err error
 			
 			for _, instance := range masters {
-				url := fmt.Sprintf(bots[i].url, instance.name)
+				url := fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builders/%s", instance.name, bots[i])
 				s, err := GetStatus(url)
 				s.isStaging = instance.isStaging
 				if err == nil && !s.lastbuild.IsZero() && time.Now().Sub(s.lastbuild).Hours() <= 24 {
@@ -498,17 +413,8 @@ $(function() {
 			maxStatuses = len(status.line.statuses)
 		}
 	}
-	ossfuzz_ch := make(chan string)
-	go func() { ossfuzz_ch <- GetOssFuzzStatusString() }()
 
 	for i := range bots {
-		if statuses[i].builderUrl == "" {
-			fmt.Println(fmt.Sprintf("<tr><td colspan=%d><h2>", maxStatuses+3))
-			fmt.Println(bots[i].name)
-			fmt.Println("</h2></td></tr>")
-			continue
-		}
-
 		if !statuses[i].lastbuild.IsZero() && time.Since(statuses[i].lastbuild) > 7*24*time.Hour {
 			continue
 		}
@@ -572,7 +478,7 @@ $(function() {
 			style = class(statuses[i].statuses[0].success)
 		}
 
-		r += td("", a(statuses[i].builderUrl, span(style, bots[i].name)))
+		r += td("", a(statuses[i].builderUrl, span(style, bots[i])))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
@@ -591,7 +497,6 @@ $(function() {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	fmt.Println(<-ossfuzz_ch)
 	fmt.Println(`<p><font size=".8em">go/dynamic-tools-dashboard, `)
 	tz, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
