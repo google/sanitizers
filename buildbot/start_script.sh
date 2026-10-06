@@ -137,6 +137,7 @@ EOF
   systemctl status $SERVICE_NAME
   sleep 30
   cat ${BOT_DIR}/twistd.log
+  grep "worker is ready" $BOT_DIR/twistd.log
 }
 
 function script_needs_update() {
@@ -181,7 +182,7 @@ function claim_worker() {
 
   write_lock "${LOCK_FILE}" --if-generation-match="${GEN}" || return 1
 
-  create_worker "$WORKER_NAME"
+  create_worker "$WORKER_NAME" || return 2
 
   while sleep 300; do
     write_lock "${LOCK_FILE}" 2>/dev/null
