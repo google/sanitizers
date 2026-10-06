@@ -85,7 +85,7 @@
     ) && exit 0
   done
   exit 1
-) || $ON_ERROR
+) || exit 1
 
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.lld" 30
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
