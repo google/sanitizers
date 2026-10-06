@@ -11,10 +11,8 @@ SHUTDOWN_ON_ERROR=${SHUTDOWN_ON_ERROR:-0}
 
 if [[ "${USE_STAGING}" == "1" ]] ; then
   SERVER_PORT=9994
-  API_URL=https://lab.llvm.org/staging/api/v2/workers
 else
   SERVER_PORT=9990
-  API_URL=https://lab.llvm.org/buildbot/api/v2/workers
 fi
 
 if [[ "${SHUTDOWN_ON_ERROR}" == "1" ]] ; then
@@ -127,7 +125,6 @@ EOF
 
   echo "Vitaly Buka <vitalybuka@google.com>" > ${BOT_DIR}/info/admin
 
-  # "Host:" is used by get_worker_host below.
   {
     echo 'See "Info" step of each build and https://github.com/google/sanitizers/wiki/SanitizerBotReproduceBuild'
     echo "Host: ${FULL_HOSTNAME}"
@@ -141,15 +138,6 @@ EOF
   sleep 30
   cat ${BOT_DIR}/twistd.log
   grep "worker is ready" $BOT_DIR/twistd.log
-}
-
-function is_worker_connected() {
-  local WORKER_NAME="$1"
-  (
-    set -o pipefail
-    curl ${API_URL}/${WORKER_NAME} \
-      | jq -e '.workers[] | select(.connected_to[] | length!=0)'
-  )
 }
 
 function script_needs_update() {
@@ -169,29 +157,6 @@ function shutdown_maybe() {
   sleep 1000
 }
 
-function get_worker_host() {
-  local WORKER_NAME="$1"
-  shutdown_maybe
-  (
-    set -o pipefail
-    curl ${API_URL}/${WORKER_NAME} \
-      | jq -re '.workers[].workerinfo.host | capture("(?<p>Host): *(?<v>.*)").v'
-  )
-}
-
-function is_worker_myself() {
-  local WORKER_NAME="$1"
-  shutdown_maybe
-  (
-    for i in `seq 1 5`; do
-      is_worker_connected ${WORKER_NAME} && exit 0
-      sleep 30
-    done
-    exit 1
-  ) | grep --fixed-strings "${FULL_HOSTNAME}"
-  # Use --fixed-strings since ${FULL_HOSTNAME} may have hyphens
-}
-
 function write_lock() {
   local LOCK_FILE="$1"
   shift
@@ -201,16 +166,28 @@ function write_lock() {
 
 function claim_worker() {
   local WORKER_NAME="$1"
+  local ONLY_SELF="${2:-0}"
   local LOCK_FILE="gs://sanitizer-buildbot-out/slot-${SERVER_PORT}-${WORKER_NAME}.lock"
-  #is_worker_connected ${WORKER_NAME} && return 1
+
+  local GEN
+  GEN=$(gcloud storage objects describe "${LOCK_FILE}" --format="value(generation)" 2>/dev/null || echo 0)
+
+  local LOCK_DATA="{}"
+  if [[ "${GEN}" != "0" ]]; then
+    LOCK_DATA=$(gcloud storage cat "${LOCK_FILE}" 2>/dev/null) || return 1
+  fi
+  local FILTER='(.expires_at // 0) < now'
+  [[ "${ONLY_SELF}" == "1" ]] && FILTER='.owner == $h'
+  echo "${LOCK_DATA}" | jq -e --arg h "${FULL_HOSTNAME}" "${FILTER}" || return 1
+
+  write_lock "${LOCK_FILE}" --if-generation-match="${GEN}" || return 1
+
   create_worker "$WORKER_NAME" || return 2
-  sleep 30
-  while is_worker_myself ${WORKER_NAME} ; do
+
+  while sleep 300; do
     write_lock "${LOCK_FILE}" 2>/dev/null
-    sleep 300
+    shutdown_maybe
   done
-  # Notify caller that we've seen at least 1 disconnected worker.
-  return 0
 }
 
 if [[ "$(arch)" == "x86_64" ]]; then
@@ -221,24 +198,14 @@ fi
 BOTS=$(echo "$BOTS" | tr ' ' '\n' | shuf)
 while true ; do
   sleep $((30 + $RANDOM % 150))
-  (
-    # Try claim the same bot.
-    for W in $BOTS ; do
-      [[ "$(get_worker_host sanitizer-buildbot${W})" == "${FULL_HOSTNAME}" ]] || continue
-      claim_worker "sanitizer-buildbot${W}" && exit
-    done
+  shutdown_maybe
 
-    # Ignore bots with online hosts.
+  for ONLY_SELF in 1 0 ; do
     for W in $BOTS ; do
-      ping "$(get_worker_host sanitizer-buildbot${W})" -c3 && continue
-      claim_worker "sanitizer-buildbot${W}" && exit
+      claim_worker "sanitizer-buildbot${W}" "${ONLY_SELF}"
     done
+  done
 
-    for W in $BOTS ; do
-      claim_worker "sanitizer-buildbot${W}" && exit
-    done
-
-    # No unclaimed workers?
-    $ON_ERROR
-  )
+  # No unclaimed workers?
+  $ON_ERROR
 done
