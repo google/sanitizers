@@ -224,7 +224,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=3&order=-number&property=reason")
+	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason")
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -268,7 +268,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		}
 	}
 	if lkgb == 0 {
-		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=3&order=-number&property=reason&results__lt=2")
+		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
 		if err != nil {
 			return sl, nil
 		}
