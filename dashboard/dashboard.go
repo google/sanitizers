@@ -473,13 +473,14 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .warning.symbol::before {content: "?"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .other { color: #c6c; }
 .other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.missing { color: #444; }
+.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.symbol { display: inline-block; width: 1ch; text-align: center; }
 table {
    width: 100%;
 }
 td { white-space: nowrap; padding-right: 0.6em; }
-td.timeline { width: 100%; position: relative; padding-right: 0; font-family: 'Inconsolata', monospace; }
-td.timeline div { position: relative; overflow: hidden; width: 100%; }
-td.timeline a { position: absolute; top: 0; }
+td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
@@ -547,6 +548,22 @@ $(function() {
 	}
 	saveCache(cachePath, cache)
 	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+
+	maxDist := 0
+	for i := range bots {
+		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
+			continue
+		}
+		displayStatuses := statuses[i].Statuses
+		if len(displayStatuses) > *renderLimit {
+			displayStatuses = displayStatuses[:*renderLimit]
+		}
+		for _, s := range displayStatuses {
+			if d, ok := commits[s.Revision]; ok && d > maxDist {
+				maxDist = d
+			}
+		}
+	}
 
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
@@ -622,23 +639,27 @@ $(function() {
 			}
 			r += td("class=\"timeline\"", span(class(0), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
-			displayStatuses := statuses[i].Statuses
-			if len(displayStatuses) > *renderLimit {
-				displayStatuses = displayStatuses[:*renderLimit]
-			}
-			timeline := "&nbsp;"
-			seenDist := make(map[int]bool, len(displayStatuses))
-			for _, s := range displayStatuses {
+			byDist := make(map[int]status, len(statuses[i].Statuses))
+			for _, s := range statuses[i].Statuses {
 				d, ok := commits[s.Revision]
-				if !ok || seenDist[d] {
+				if !ok || d > maxDist {
 					continue
 				}
-				seenDist[d] = true
-				style := class(s.Success)
-				timeline += fmt.Sprintf("<a href=\"%s\" target=_top style=\"left:%dch\" title=\"%s (-%d)\">%s</a>",
-					s.BuildUrl, d, s.Revision, d, span(style+" symbol", ""))
+				if _, exists := byDist[d]; !exists {
+					byDist[d] = s
+				}
 			}
-			r += td("class=\"timeline\"", "<div>"+timeline+"</div>")
+			var timeline strings.Builder
+			for d := 0; d <= maxDist; d++ {
+				if s, ok := byDist[d]; ok {
+					style := class(s.Success)
+					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
+						s.BuildUrl, s.Revision, d, span(style+" symbol", ""))
+				} else {
+					timeline.WriteString(span("missing symbol", ""))
+				}
+			}
+			r += td("class=\"timeline\"", timeline.String())
 		}
 		fmt.Println(tr(r))
 	}
