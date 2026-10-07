@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -121,6 +122,30 @@ func saveCache(path string, cache map[string]statusLine) {
 	if err := os.WriteFile(path, data, 0666); err == nil {
 		fmt.Fprintf(os.Stderr, "Saved %d builds to cache in %s\n", countBuilds(cache), path)
 	}
+}
+
+func fetchCommits(repoPath string) []string {
+	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
+		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "git fetch failed: %v: %s\n", err, out)
+		}
+	} else {
+		_ = os.RemoveAll(repoPath)
+		cmd := exec.Command("git", "clone", "--bare", "--no-tags", "--filter=tree:0", "--depth=10000", "--single-branch", "-b", "main", "https://github.com/llvm/llvm-project.git", repoPath)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "git clone failed: %v: %s\n", err, out)
+			return nil
+		}
+	}
+	out, err := exec.Command("git", "--git-dir="+repoPath, "rev-list", "-n", "10000", "main").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git rev-list failed: %v\n", err)
+		return nil
+	}
+	commits := strings.Fields(string(out))
+	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s\n", len(commits), repoPath)
+	return commits
 }
 
 func mergeStatusLine(fresh, cached statusLine) statusLine {
@@ -498,6 +523,8 @@ $(function() {
 		}
 	}
 	saveCache(cachePath, cache)
+	commits := fetchCommits(filepath.Join(os.TempDir(), "llvm-project-commits.git"))
+	_ = commits
 	if maxStatuses > 30 {
 		maxStatuses = 30
 	}
