@@ -493,16 +493,16 @@ body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
-.error.symbol::before { content: "\1f525"; font-family: 'Inconsolata', monospace; font-weight: bold; font-size: 60%; vertical-align: middle;}
+.error.symbol::before { content: "\1f525"; font-size: 55%; }
 .success { color: green; }
-.success.symbol::before { content: "\1f9f4"; font-family: 'Inconsolata', monospace; font-weight: bold; font-size: 60%; vertical-align: middle;}
+.success.symbol::before { content: "\1f9f4"; font-size: 55%; }
 .warning { color: yellow; }
-.warning.symbol::before { content: "\21bb"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.warning.symbol::before { content: "\21bb"; font-size: 80%; }
 .other { color: #c6c; }
-.other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.other.symbol::before { content: "~"; }
 .missing { color: #444; }
-.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.symbol { display: inline-block; width: 1ch; text-align: center; }
+.missing.symbol::before { content: "\00b7"; }
+.symbol { display: inline-flex; width: 1ch; height: 1em; align-items: center; justify-content: center; vertical-align: middle; font-family: 'Inconsolata', monospace; font-weight: bold; }
 table {
    width: 100%;
 }
