@@ -130,7 +130,7 @@ func saveCache(path string, cache map[string]statusLine) {
 	}
 }
 
-func fetchCommits(repoPath string) []string {
+func fetchCommits(repoPath string) map[string]int {
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -149,12 +149,16 @@ func fetchCommits(repoPath string) []string {
 		fmt.Fprintf(os.Stderr, "git rev-list failed: %v\n", err)
 		return nil
 	}
-	commits := strings.Fields(string(out))
+	hashes := strings.Fields(string(out))
 	topCommit := ""
-	if len(commits) > 0 {
-		topCommit = commits[0]
+	if len(hashes) > 0 {
+		topCommit = hashes[0]
 	}
-	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(commits), repoPath, topCommit)
+	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(hashes), repoPath, topCommit)
+	commits := make(map[string]int, len(hashes))
+	for i, h := range hashes {
+		commits[h] = i
+	}
 	return commits
 }
 
@@ -546,6 +550,7 @@ $(function() {
 	}
 	saveCache(cachePath, cache)
 	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+	_ = commits
 	if maxStatuses > *renderLimit {
 		maxStatuses = *renderLimit
 	}
@@ -642,9 +647,6 @@ $(function() {
 		fmt.Println("err: ", err.Error())
 	}
 	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
-	if len(commits) > 0 {
-		fmt.Printf(", %s\n", commits[0])
-	}
 	fmt.Println(`
 </font></p>
 </body>
