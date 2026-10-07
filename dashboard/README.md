@@ -1,23 +1,29 @@
-# Updating dashboard
+# Sanitizer Dashboard
 
-To build a new binary and upload it to the GCE instance:
+The dashboard is automatically built and updated from `master` on the GCE instance via [`start_script.sh`](start_script.sh).
 
+## Creating the GCE instance
+
+```bash
+gcloud compute instances create dashboard-v3 \
+  --project="sanitizer-bots" \
+  --zone="us-east1-d" \
+  --machine-type="e2-micro" \
+  --network-tier="STANDARD" \
+  --address="35.207.33.19" \
+  --tags="http-server,https-server" \
+  --no-service-account \
+  --no-scopes \
+  --shielded-secure-boot \
+  --shielded-vtpm \
+  --shielded-integrity-monitoring \
+  --image-family="debian-13" \
+  --image-project="debian-cloud" \
+  --boot-disk-size="10GB" \
+  --metadata=startup-script='#! /bin/bash
+command -v curl >/dev/null || (apt-get -qq update && apt-get -qq install -y curl)
+while true; do
+  curl -fsSL https://raw.githubusercontent.com/google/sanitizers/master/dashboard/start_script.sh | bash >/var/log/sanitizer-dashboard.log 2>&1
+  sleep 600
+done'
 ```
-go build --ldflags '-linkmode external -extldflags=-static' && \
-gcloud compute ssh --project "sanitizer-bots" --zone "us-east1-d" dashboard-v2 --command "sudo rm -f /opt/sanitizers" && \
-gcloud compute --project "sanitizer-bots" scp --zone "us-east1-d" sanitizers "dashboard-v2:/opt" && \
-gcloud compute ssh --project "sanitizer-bots" --zone "us-east1-d" dashboard-v2 --command "sudo chown root:root /opt/sanitizers"
-```
-
-or 
-
-```
-go build --ldflags '-linkmode external -extldflags=-static' && \
-gcloud compute config-ssh --remove && gcloud compute config-ssh --force-key-file-overwrite && \
-ssh dashboard-v2.us-east1-d.sanitizer-bots "sudo rm -f /opt/sanitizers" && \
-scp sanitizers "dashboard-v2.us-east1-d.sanitizer-bots:/opt" && \
-ssh dashboard-v2.us-east1-d.sanitizer-bots "sudo chown root:root /opt/sanitizers"
-```
-
-Note: If you get a message about "scp: /opt/sanitizers: Text file busy", wait a
-few seconds and try again.
