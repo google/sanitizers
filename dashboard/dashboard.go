@@ -142,7 +142,7 @@ func saveCache(path string, cache map[string]statusLine) {
 	}
 }
 
-func fetchCommits(repoPath string) map[string]int {
+func fetchCommits(repoPath string) ([]string, map[string]int) {
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -153,13 +153,13 @@ func fetchCommits(repoPath string) map[string]int {
 		cmd := exec.Command("git", "clone", "--bare", "--no-tags", "--filter=tree:0", "--depth=10000", "--single-branch", "-b", "main", "https://github.com/llvm/llvm-project.git", repoPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "git clone failed: %v: %s\n", err, out)
-			return nil
+			return nil, nil
 		}
 	}
 	out, err := exec.Command("git", "--git-dir="+repoPath, "rev-list", "-n", "10000", "main").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git rev-list failed: %v\n", err)
-		return nil
+		return nil, nil
 	}
 	hashes := strings.Fields(string(out))
 	topCommit := ""
@@ -171,7 +171,7 @@ func fetchCommits(repoPath string) map[string]int {
 	for i, h := range hashes {
 		commits[h] = i
 	}
-	return commits
+	return hashes, commits
 }
 
 func mergeStatusLine(fresh, cached statusLine) statusLine {
@@ -499,6 +499,7 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .missing { color: #444; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .symbol { display: inline-block; width: 1ch; text-align: center; }
+.commit { display: inline-block; writing-mode: vertical-rl; font-size: 12px; line-height: 12px; color: #888; }
 table {
    width: 100%;
 }
@@ -570,7 +571,7 @@ $(function() {
 		errors[status.n] = status.err
 	}
 	saveCache(cachePath, cache)
-	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+	hashes, commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
 
 	maxDist := 0
 	for i := range bots {
@@ -588,25 +589,41 @@ $(function() {
 		}
 	}
 
+	tr := func(s string) string {
+		return fmt.Sprintf("<tr>%s</tr>", s)
+	}
+
+	td := func(attrs string, s string) string {
+		return fmt.Sprintf("<td %s>%s</td>", attrs, s)
+	}
+
+	span := func(class string, s string) string {
+		return fmt.Sprintf("<span class=\"%s\">%s</span>", class, s)
+	}
+
+	a := func(url string, text string) string {
+		return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
+	}
+
+	if len(hashes) > 0 {
+		var header strings.Builder
+		for d := 0; d <= maxDist && d < len(hashes); d++ {
+			h := hashes[d]
+			short := h
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			commitUrl := "https://github.com/llvm/llvm-project/commit/" + h
+			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
+				commitUrl, h, d, span("symbol", span("commit", short)))
+		}
+		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
+		fmt.Println(tr(r))
+	}
+
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
 			continue
-		}
-
-		tr := func(s string) string {
-			return fmt.Sprintf("<tr>%s</tr>", s)
-		}
-
-		td := func(attrs string, s string) string {
-			return fmt.Sprintf("<td %s>%s</td>", attrs, s)
-		}
-
-		span := func(class string, s string) string {
-			return fmt.Sprintf("<span class=\"%s\">%s</span>", class, s)
-		}
-
-		a := func(url string, text string) string {
-			return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
 		}
 
 		class := func(s status) string {
