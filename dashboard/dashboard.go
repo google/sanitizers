@@ -214,8 +214,8 @@ type Builds struct {
 		Number     int  `json:"number"`
 		Results    int  `json:"results"`
 		Properties struct {
-			Reason      []string `json:"reason"`
-			GotRevision []string `json:"got_revision"`
+			Reason   []string `json:"reason"`
+			Revision []string `json:"revision"`
 		} `json:"properties"`
 	} `json:"builds"`
 }
@@ -266,7 +266,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(fmt.Sprintf("%s/builds?limit=%d&order=-number&property=reason&property=got_revision", builderUrl, *fetchLimit))
+	builds, err := QueryJSONBuilds(fmt.Sprintf("%s/builds?limit=%d&order=-number&property=reason&property=revision", builderUrl, *fetchLimit))
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -305,8 +305,8 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 			success = -1
 		}
 		revision := ""
-		if len(b.Properties.GotRevision) > 0 {
-			revision = b.Properties.GotRevision[0]
+		if len(b.Properties.Revision) > 0 {
+			revision = b.Properties.Revision[0]
 		}
 		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
 	}
@@ -476,8 +476,9 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 table {
    width: 100%;
 }
-td { white-space: nowrap; padding-right: 0.4em; }
-td.timeline { width: 100%; position: relative; padding-right: 0; }
+td { white-space: nowrap; }
+td.timeline { width: 100%; position: relative; font-family: 'Inconsolata', monospace; }
+td.timeline div { position: relative; overflow: hidden; width: 100%; }
 td.timeline a { position: absolute; top: 0; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
@@ -546,22 +547,6 @@ $(function() {
 	}
 	saveCache(cachePath, cache)
 	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
-
-	maxDist := 1
-	for i := range bots {
-		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
-			continue
-		}
-		displayStatuses := statuses[i].Statuses
-		if len(displayStatuses) > *renderLimit {
-			displayStatuses = displayStatuses[:*renderLimit]
-		}
-		for _, s := range displayStatuses {
-			if d, ok := commits[s.Revision]; ok && d > maxDist {
-				maxDist = d
-			}
-		}
-	}
 
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
@@ -642,17 +627,18 @@ $(function() {
 				displayStatuses = displayStatuses[:*renderLimit]
 			}
 			timeline := "&nbsp;"
+			seenDist := make(map[int]bool, len(displayStatuses))
 			for _, s := range displayStatuses {
 				d, ok := commits[s.Revision]
-				if !ok {
+				if !ok || seenDist[d] {
 					continue
 				}
-				pct := float64(d) * 98.0 / float64(maxDist)
+				seenDist[d] = true
 				style := class(s.Success)
-				timeline += fmt.Sprintf("<a href=\"%s\" target=_top style=\"left:%.2f%%\" title=\"%s (-%d)\">%s</a>",
-					s.BuildUrl, pct, s.Revision, d, span(style+" symbol", ""))
+				timeline += fmt.Sprintf("<a href=\"%s\" target=_top style=\"left:%dch\" title=\"%s (-%d)\">%s</a>",
+					s.BuildUrl, d, s.Revision, d, span(style+" symbol", ""))
 			}
-			r += td("class=\"timeline\"", timeline)
+			r += td("class=\"timeline\"", "<div>"+timeline+"</div>")
 		}
 		fmt.Println(tr(r))
 	}
