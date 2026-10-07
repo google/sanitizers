@@ -497,7 +497,9 @@ func main() {
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
+html, body { height: 100%; margin: 0; }
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; display: flex; flex-direction: column; box-sizing: border-box; padding: 8px; }
+p { margin: auto 0 0 0; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
@@ -515,8 +517,8 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .missing { color: #444; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .symbol { display: inline-block; width: 1ch; text-align: center; }
-.commit { display: inline-block; writing-mode: sideways-lr; font-size: 12px; line-height: 12px; color: #888; }
-.symbol:has(.commit) { vertical-align: top; }
+.symbol:has(.commit) { position: relative; height: 260px; vertical-align: bottom; }
+.commit { position: absolute; bottom: 4px; left: 50%; transform-origin: 0 50%; transform: rotate(-45deg); font-size: 11px; line-height: 11px; color: #888; white-space: nowrap; }
 table {
    width: 100%;
 }
@@ -534,6 +536,7 @@ $(function() {
 </script>
 </head>
 <body bgcolor=black>
+<table>
 `)
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
@@ -589,15 +592,6 @@ $(function() {
 	saveCache(cachePath, cache)
 	commitList, commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
 
-	fmt.Print(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
-	tz, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		fmt.Println("err: ", err.Error())
-	}
-	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
-	fmt.Println(`</font></p>
-<table>`)
-
 	maxDist := 0
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
@@ -628,6 +622,19 @@ $(function() {
 
 	a := func(url string, text string) string {
 		return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
+	}
+
+	if len(commitList) > 0 {
+		var header strings.Builder
+		for d := 0; d <= maxDist && d < len(commitList); d++ {
+			c := commitList[d]
+			escapedTitle := html.EscapeString(c.Title)
+			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
+			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
+				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", escapedTitle)))
+		}
+		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
+		fmt.Println(tr(r))
 	}
 
 	for i := range bots {
@@ -718,21 +725,15 @@ $(function() {
 		}
 		fmt.Println(tr(r))
 	}
-
-	if len(commitList) > 0 {
-		var footer strings.Builder
-		for d := 0; d <= maxDist && d < len(commitList); d++ {
-			c := commitList[d]
-			escapedTitle := html.EscapeString(c.Title)
-			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
-			fmt.Fprintf(&footer, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
-				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", escapedTitle)))
-		}
-		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", footer.String())
-		fmt.Println(tr(r))
+	fmt.Println(`</table>`)
+	fmt.Println(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
+	tz, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		fmt.Println("err: ", err.Error())
 	}
-
-	fmt.Println(`</table>
+	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
+	fmt.Println(`
+</font></p>
 </body>
 </html>
 `)
