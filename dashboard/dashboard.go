@@ -643,7 +643,7 @@ $(function() {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	fmt.Println(`<p><font size=".8em">go/dynamic-tools-dashboard, `)
+	fmt.Println(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
 	tz, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		fmt.Println("err: ", err.Error())
