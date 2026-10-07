@@ -497,7 +497,8 @@ func main() {
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; margin: 8px; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
 p { margin: 0.25em 0 0 0; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
@@ -513,16 +514,16 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .warning.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
 .other { color: #e040fb; text-shadow: 0 0 8px rgba(224, 64, 251, 0.55); }
 .other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.missing { color: #444; }
+.missing { color: #666; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+td.timeline > .missing:nth-child(even) { color: #333; }
 .symbol { display: inline-block; width: 1ch; text-align: center; }
 .symbol:has(.commit) { vertical-align: bottom; }
-.commit { display: inline-block; writing-mode: sideways-lr; max-height: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 12px; color: #aaa; padding-top: 4px; }
+.commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; color: #aaa; padding-bottom: 4px; }
 td.timeline > :nth-child(even) .commit { color: #666; }
-td.timeline > :nth-child(even) { background-color: rgba(255, 255, 255, 0.03); }
 table {
    width: 100%;
-   border-collapse: collapse;
+   flex-shrink: 0;
 }
 td { white-space: nowrap; padding-right: 0.6em; }
 td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; }
@@ -630,10 +631,15 @@ $(function() {
 		var header strings.Builder
 		for d := 0; d <= maxDist && d < len(commitList); d++ {
 			c := commitList[d]
+			short := c.Hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
 			escapedTitle := html.EscapeString(c.Title)
+			label := short + " " + escapedTitle
 			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
 			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
-				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", escapedTitle)))
+				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", label)))
 		}
 		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
 		fmt.Println(tr(r))
