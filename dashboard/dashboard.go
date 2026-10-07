@@ -501,7 +501,7 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .success { color: green; }
 .success.symbol::before { content: "\2713"; }
 .warning { color: yellow; }
-.warning.symbol::before { content: ""; box-sizing: border-box; width: 0.85ch; height: 0.85ch; border: 2px solid #444; border-top-color: yellow; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.warning.symbol::before { content: ""; box-sizing: border-box; width: 0.85ch; height: 0.85ch; border: 2px solid #444; border-top-color: yellow; border-radius: 50%; animation: spin 3.2s linear infinite; }
 .other { color: #c6c; }
 .other.symbol::before { content: "~"; }
 .missing { color: #444; }
