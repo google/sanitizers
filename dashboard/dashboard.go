@@ -497,9 +497,8 @@ func main() {
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
-html, body { height: 100%; margin: 0; }
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; display: flex; flex-direction: column; box-sizing: border-box; padding: 8px; }
-p { margin: auto 0 0 0; }
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; margin: 8px; }
+p { margin: 0.25em 0 0 0; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
@@ -517,10 +516,13 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .missing { color: #444; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .symbol { display: inline-block; width: 1ch; text-align: center; }
-.symbol:has(.commit) { position: relative; height: 260px; vertical-align: bottom; }
-.commit { position: absolute; bottom: 4px; left: 50%; transform-origin: 0 50%; transform: rotate(-45deg); font-size: 11px; line-height: 11px; color: #888; white-space: nowrap; }
+.symbol:has(.commit) { vertical-align: bottom; }
+.commit { display: inline-block; writing-mode: sideways-lr; max-height: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 12px; color: #aaa; padding-top: 4px; }
+td.timeline > :nth-child(even) .commit { color: #666; }
+td.timeline > :nth-child(even) { background-color: rgba(255, 255, 255, 0.03); }
 table {
    width: 100%;
+   border-collapse: collapse;
 }
 td { white-space: nowrap; padding-right: 0.6em; }
 td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; }
