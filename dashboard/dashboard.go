@@ -495,7 +495,7 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .error { color: red; }
 .error.symbol::before { content: "\1f525"; font-family: 'Inconsolata', monospace; font-weight: bold; font-size: 60%; vertical-align: middle;}
 .success { color: green; }
-.success.symbol::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.success.symbol::before { content: "\1f9f4"; font-family: 'Inconsolata', monospace; font-weight: bold; font-size: 60%; vertical-align: middle;}
 .warning { color: yellow; }
 .warning.symbol::before { content: "\21bb"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .other { color: #c6c; }
