@@ -22,7 +22,7 @@ import (
 var (
 	cacheDir    = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
 	fetchLimit  = flag.Int("fetch", 10, "Number of builds to fetch per bot")
-	renderLimit = flag.Int("render", 200, "Number of builds to render per bot")
+	renderLimit = flag.Int("render", 30, "Number of builds to render per bot")
 
 	bots = []string{
 		"sanitizer-windows",
@@ -150,7 +150,11 @@ func fetchCommits(repoPath string) []string {
 		return nil
 	}
 	commits := strings.Fields(string(out))
-	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s\n", len(commits), repoPath)
+	topCommit := ""
+	if len(commits) > 0 {
+		topCommit = commits[0]
+	}
+	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(commits), repoPath, topCommit)
 	return commits
 }
 
@@ -542,7 +546,6 @@ $(function() {
 	}
 	saveCache(cachePath, cache)
 	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
-	_ = commits
 	if maxStatuses > *renderLimit {
 		maxStatuses = *renderLimit
 	}
@@ -639,6 +642,9 @@ $(function() {
 		fmt.Println("err: ", err.Error())
 	}
 	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
+	if len(commits) > 0 {
+		fmt.Printf(", %s\n", commits[0])
+	}
 	fmt.Println(`
 </font></p>
 </body>
