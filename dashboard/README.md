@@ -24,6 +24,6 @@ gcloud compute instances create dashboard-v3 \
 command -v curl >/dev/null || (apt-get -qq update && apt-get -qq install -y curl)
 while true; do
   curl -fsSL https://raw.githubusercontent.com/google/sanitizers/master/dashboard/start_script.sh | bash >/var/log/sanitizer-dashboard.log 2>&1
-  sleep 60
+  sleep 600
 done'
 ```
