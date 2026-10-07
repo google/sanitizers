@@ -205,7 +205,6 @@ type Builds struct {
 		Results    int  `json:"results"`
 		Properties struct {
 			Reason      []string `json:"reason"`
-			Revision    []string `json:"revision"`
 			GotRevision []string `json:"got_revision"`
 		} `json:"properties"`
 	} `json:"builds"`
@@ -257,7 +256,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason&property=revision&property=got_revision")
+	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason&property=got_revision")
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -296,9 +295,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 			success = -1
 		}
 		revision := ""
-		if len(b.Properties.Revision) > 0 && b.Properties.Revision[0] != "" {
-			revision = b.Properties.Revision[0]
-		} else if len(b.Properties.GotRevision) > 0 {
+		if len(b.Properties.GotRevision) > 0 {
 			revision = b.Properties.GotRevision[0]
 		}
 		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
