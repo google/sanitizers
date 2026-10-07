@@ -1,10 +1,10 @@
 #!/bin/bash
-set -euo pipefail
+set -exuo pipefail
 
-if ! command -v go >/dev/null || ! command -v git >/dev/null || ! command -v lighttpd >/dev/null; then
+if ! which go git lighttpd; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get -qq update
-  apt-get -qq install -y golang-go git curl lighttpd
+  apt-get update
+  apt-get install -y golang-go git curl lighttpd
   rm -f /var/www/html/index.lighttpd.html
 fi
 

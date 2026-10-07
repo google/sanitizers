@@ -21,9 +21,11 @@ gcloud compute instances create dashboard-v3 \
   --image-project="debian-cloud" \
   --boot-disk-size="10GB" \
   --metadata=startup-script='#! /bin/bash
-command -v curl >/dev/null || (apt-get -qq update && apt-get -qq install -y curl)
+# for logs: sudo journalctl -u google-startup-scripts.service
+set -x
+which curl || (apt-get update && apt-get install -y curl)
 while true; do
-  curl -fsSL https://raw.githubusercontent.com/google/sanitizers/master/dashboard/start_script.sh | bash >/var/log/sanitizer-dashboard.log 2>&1
+  curl -fL https://raw.githubusercontent.com/google/sanitizers/master/dashboard/start_script.sh | bash
   sleep 600
 done'
 ```
