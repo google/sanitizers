@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -18,6 +20,10 @@ import (
 )
 
 var (
+	cacheDir    = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
+	fetchLimit  = flag.Int("fetch", 10, "Number of builds to fetch per bot")
+	renderLimit = flag.Int("render", 30, "Number of builds to render per bot")
+
 	bots = []string{
 		"sanitizer-windows",
 		"sanitizer-x86_64-linux",
@@ -85,6 +91,7 @@ type status struct {
 	Number   int    `json:"number"`
 	BuildUrl string `json:"build_url"`
 	Success  int    `json:"success"`
+	Revision string `json:"revision"`
 }
 
 type statusLine struct {
@@ -123,6 +130,38 @@ func saveCache(path string, cache map[string]statusLine) {
 	}
 }
 
+func fetchCommits(repoPath string) map[string]int {
+	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
+		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "git fetch failed: %v: %s\n", err, out)
+		}
+	} else {
+		_ = os.RemoveAll(repoPath)
+		cmd := exec.Command("git", "clone", "--bare", "--no-tags", "--filter=tree:0", "--depth=10000", "--single-branch", "-b", "main", "https://github.com/llvm/llvm-project.git", repoPath)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "git clone failed: %v: %s\n", err, out)
+			return nil
+		}
+	}
+	out, err := exec.Command("git", "--git-dir="+repoPath, "rev-list", "-n", "10000", "main").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "git rev-list failed: %v\n", err)
+		return nil
+	}
+	hashes := strings.Fields(string(out))
+	topCommit := ""
+	if len(hashes) > 0 {
+		topCommit = hashes[0]
+	}
+	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(hashes), repoPath, topCommit)
+	commits := make(map[string]int, len(hashes))
+	for i, h := range hashes {
+		commits[h] = i
+	}
+	return commits
+}
+
 func mergeStatusLine(fresh, cached statusLine) statusLine {
 	if fresh.Lastbuild.IsZero() {
 		return cached
@@ -139,16 +178,18 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 	if cached.Lastbuild.After(fresh.Lastbuild) {
 		fresh, cached = cached, fresh
 	}
-	seen := make(map[string]bool, len(fresh.Statuses))
+	seen := make(map[string]int, len(fresh.Statuses))
 	merged := make([]status, 0, len(fresh.Statuses)+len(cached.Statuses))
 	for _, s := range fresh.Statuses {
-		seen[s.BuildUrl] = true
+		seen[s.BuildUrl] = len(merged)
 		merged = append(merged, s)
 	}
 	for _, s := range cached.Statuses {
-		if !seen[s.BuildUrl] {
-			seen[s.BuildUrl] = true
+		if idx, ok := seen[s.BuildUrl]; !ok {
+			seen[s.BuildUrl] = len(merged)
 			merged = append(merged, s)
+		} else if merged[idx].Revision == "" && s.Revision != "" {
+			merged[idx].Revision = s.Revision
 		}
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
@@ -173,7 +214,8 @@ type Builds struct {
 		Number     int  `json:"number"`
 		Results    int  `json:"results"`
 		Properties struct {
-			Reason []string `json:"reason"`
+			Reason   []string `json:"reason"`
+			Revision []string `json:"revision"`
 		} `json:"properties"`
 	} `json:"builds"`
 }
@@ -224,7 +266,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason")
+	builds, err := QueryJSONBuilds(fmt.Sprintf("%s/builds?limit=%d&order=-number&property=reason&property=revision", builderUrl, *fetchLimit))
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -262,10 +304,11 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success})
-		if len(sl.Statuses) >= 30 {
-			break
+		revision := ""
+		if len(b.Properties.Revision) > 0 {
+			revision = b.Properties.Revision[0]
 		}
+		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
 	}
 	if lkgb == 0 {
 		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
@@ -304,7 +347,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(builderUrl + "?numbuilds=31")
+		resp, err = client.Get(fmt.Sprintf("%s?numbuilds=%d", builderUrl, *fetchLimit))
 		if err == nil {
 			break
 		}
@@ -386,7 +429,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{0, buildUrl, success})
+						statuses = append(statuses, status{0, buildUrl, success, ""})
 					}
 					return statusLine{lastbuild, statuses, builderUrl, "", false}
 				}
@@ -404,6 +447,11 @@ func GetStatus(builderUrl string) (statusLine, error) {
 }
 
 func main() {
+	flag.Parse()
+	if err := os.MkdirAll(*cacheDir, 0777); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create cache dir %s: %v\n", *cacheDir, err)
+	}
+
 	fmt.Println(`
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
    "http://www.w3.org/TR/html4/loose.dtd">
@@ -425,9 +473,14 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .warning.symbol::before {content: "?"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .other { color: #c6c; }
 .other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.missing { color: #444; }
+.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.symbol { display: inline-block; width: 1ch; text-align: center; }
 table {
    width: 100%;
 }
+td { white-space: nowrap; padding-right: 0.6em; }
+td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
@@ -443,7 +496,7 @@ $(function() {
 <table>
 `)
 
-	cachePath := filepath.Join(os.TempDir(), "sanitizer-dashboard-cache.json")
+	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
 
 	statuses := make([]statusLine, len(bots))
@@ -478,7 +531,6 @@ $(function() {
 		}(i)
 	}
 
-	maxStatuses := 0
 	for range bots {
 		status := <-status_ch
 		cached, hasCached := cache[bots[status.n]]
@@ -493,13 +545,24 @@ $(function() {
 		}
 		statuses[status.n] = status.line
 		errors[status.n] = status.err
-		if maxStatuses < len(status.line.Statuses) {
-			maxStatuses = len(status.line.Statuses)
-		}
 	}
 	saveCache(cachePath, cache)
-	if maxStatuses > 30 {
-		maxStatuses = 30
+	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+
+	maxDist := 0
+	for i := range bots {
+		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
+			continue
+		}
+		displayStatuses := statuses[i].Statuses
+		if len(displayStatuses) > *renderLimit {
+			displayStatuses = displayStatuses[:*renderLimit]
+		}
+		for _, s := range displayStatuses {
+			if d, ok := commits[s.Revision]; ok && d > maxDist {
+				maxDist = d
+			}
+		}
 	}
 
 	for i := range bots {
@@ -574,21 +637,34 @@ $(function() {
 			if trim != -1 {
 				errStr = errStr[trim+1:]
 			}
-			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
+			r += td("class=\"timeline\"", span(class(0), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
-			displayStatuses := statuses[i].Statuses
-			if len(displayStatuses) > 30 {
-				displayStatuses = displayStatuses[:30]
+			byDist := make(map[int]status, len(statuses[i].Statuses))
+			for _, s := range statuses[i].Statuses {
+				d, ok := commits[s.Revision]
+				if !ok || d > maxDist {
+					continue
+				}
+				if _, exists := byDist[d]; !exists {
+					byDist[d] = s
+				}
 			}
-			for _, s := range displayStatuses {
-				style := class(s.Success)
-				r += td("", a(s.BuildUrl, span(style+" symbol", "")))
+			var timeline strings.Builder
+			for d := 0; d <= maxDist; d++ {
+				if s, ok := byDist[d]; ok {
+					style := class(s.Success)
+					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
+						s.BuildUrl, s.Revision, d, span(style+" symbol", ""))
+				} else {
+					timeline.WriteString(span("missing symbol", ""))
+				}
 			}
+			r += td("class=\"timeline\"", timeline.String())
 		}
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	fmt.Println(`<p><font size=".8em">go/dynamic-tools-dashboard, `)
+	fmt.Println(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
 	tz, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
 		fmt.Println("err: ", err.Error())
