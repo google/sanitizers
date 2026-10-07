@@ -161,7 +161,7 @@ func fetchCommits(repoPath string) ([]commitInfo, map[string]int) {
 			return nil, nil
 		}
 	}
-	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "-n", "10000", "--format=%H\t%s", "main").Output()
+	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%s", "main").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git log failed: %v\n", err)
 		return nil, nil
@@ -519,8 +519,11 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 td.timeline > .missing:nth-child(even) { color: #333; }
 .symbol { display: inline-block; width: 1ch; text-align: center; }
 .symbol:has(.commit) { vertical-align: bottom; }
-.commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; color: #aaa; padding-bottom: 4px; }
-td.timeline > :nth-child(even) .commit { color: #666; }
+.commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; padding-bottom: 4px; }
+.c0 { color: #4285f4; }
+.c1 { color: #ea4335; }
+.c2 { color: #fbbc05; }
+.c3 { color: #34a853; }
 table {
    width: 100%;
    flex-shrink: 0;
@@ -628,6 +631,7 @@ $(function() {
 	}
 
 	if len(commitList) > 0 {
+		googleColors := []string{"c0", "c1", "c2", "c0", "c3", "c1"}
 		var header strings.Builder
 		for d := 0; d <= maxDist && d < len(commitList); d++ {
 			c := commitList[d]
@@ -638,8 +642,9 @@ $(function() {
 			escapedTitle := html.EscapeString(c.Title)
 			label := short + " " + escapedTitle
 			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
+			color := googleColors[(6-(len(commitList)-d)%6)%6]
 			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
-				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", label)))
+				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit "+color, label)))
 		}
 		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
 		fmt.Println(tr(r))
