@@ -142,7 +142,12 @@ func saveCache(path string, cache map[string]statusLine) {
 	}
 }
 
-func fetchCommits(repoPath string) map[string]int {
+type commitInfo struct {
+	Hash  string
+	Title string
+}
+
+func fetchCommits(repoPath string) ([]commitInfo, map[string]int) {
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -153,25 +158,36 @@ func fetchCommits(repoPath string) map[string]int {
 		cmd := exec.Command("git", "clone", "--bare", "--no-tags", "--filter=tree:0", "--depth=10000", "--single-branch", "-b", "main", "https://github.com/llvm/llvm-project.git", repoPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "git clone failed: %v: %s\n", err, out)
-			return nil
+			return nil, nil
 		}
 	}
-	out, err := exec.Command("git", "--git-dir="+repoPath, "rev-list", "-n", "10000", "main").Output()
+	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "-n", "10000", "--format=%H\t%s", "main").Output()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "git rev-list failed: %v\n", err)
-		return nil
+		fmt.Fprintf(os.Stderr, "git log failed: %v\n", err)
+		return nil, nil
 	}
-	hashes := strings.Fields(string(out))
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var list []commitInfo
+	commits := make(map[string]int, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		h := parts[0]
+		title := ""
+		if len(parts) > 1 {
+			title = parts[1]
+		}
+		commits[h] = len(list)
+		list = append(list, commitInfo{Hash: h, Title: title})
+	}
 	topCommit := ""
-	if len(hashes) > 0 {
-		topCommit = hashes[0]
+	if len(list) > 0 {
+		topCommit = list[0].Hash
 	}
-	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(hashes), repoPath, topCommit)
-	commits := make(map[string]int, len(hashes))
-	for i, h := range hashes {
-		commits[h] = i
-	}
-	return commits
+	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(list), repoPath, topCommit)
+	return list, commits
 }
 
 func mergeStatusLine(fresh, cached statusLine) statusLine {
@@ -481,7 +497,9 @@ func main() {
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
+p { margin: 0.25em 0 0 0; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
@@ -496,11 +514,16 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .warning.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
 .other { color: #e040fb; text-shadow: 0 0 8px rgba(224, 64, 251, 0.55); }
 .other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.missing { color: #444; }
+.missing { color: #666; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+td.timeline > .missing:nth-child(even) { color: #333; }
 .symbol { display: inline-block; width: 1ch; text-align: center; }
+.symbol:has(.commit) { vertical-align: bottom; }
+.commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; color: #aaa; padding-bottom: 4px; }
+td.timeline > :nth-child(even) .commit { color: #666; }
 table {
    width: 100%;
+   flex-shrink: 0;
 }
 td { white-space: nowrap; padding-right: 0.6em; }
 td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; }
@@ -570,7 +593,7 @@ $(function() {
 		errors[status.n] = status.err
 	}
 	saveCache(cachePath, cache)
-	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+	commitList, commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
 
 	maxDist := 0
 	for i := range bots {
@@ -588,25 +611,43 @@ $(function() {
 		}
 	}
 
+	tr := func(s string) string {
+		return fmt.Sprintf("<tr>%s</tr>", s)
+	}
+
+	td := func(attrs string, s string) string {
+		return fmt.Sprintf("<td %s>%s</td>", attrs, s)
+	}
+
+	span := func(class string, s string) string {
+		return fmt.Sprintf("<span class=\"%s\">%s</span>", class, s)
+	}
+
+	a := func(url string, text string) string {
+		return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
+	}
+
+	if len(commitList) > 0 {
+		var header strings.Builder
+		for d := 0; d <= maxDist && d < len(commitList); d++ {
+			c := commitList[d]
+			short := c.Hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			escapedTitle := html.EscapeString(c.Title)
+			label := short + " " + escapedTitle
+			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
+			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
+				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", label)))
+		}
+		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
+		fmt.Println(tr(r))
+	}
+
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
 			continue
-		}
-
-		tr := func(s string) string {
-			return fmt.Sprintf("<tr>%s</tr>", s)
-		}
-
-		td := func(attrs string, s string) string {
-			return fmt.Sprintf("<td %s>%s</td>", attrs, s)
-		}
-
-		span := func(class string, s string) string {
-			return fmt.Sprintf("<span class=\"%s\">%s</span>", class, s)
-		}
-
-		a := func(url string, text string) string {
-			return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
 		}
 
 		class := func(s status) string {
