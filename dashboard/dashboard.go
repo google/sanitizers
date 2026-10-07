@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -19,6 +20,8 @@ import (
 )
 
 var (
+	cacheDir = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
+
 	bots = []string{
 		"sanitizer-windows",
 		"sanitizer-x86_64-linux",
@@ -429,6 +432,11 @@ func GetStatus(builderUrl string) (statusLine, error) {
 }
 
 func main() {
+	flag.Parse()
+	if err := os.MkdirAll(*cacheDir, 0777); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create cache dir %s: %v\n", *cacheDir, err)
+	}
+
 	fmt.Println(`
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
    "http://www.w3.org/TR/html4/loose.dtd">
@@ -468,7 +476,7 @@ $(function() {
 <table>
 `)
 
-	cachePath := filepath.Join(os.TempDir(), "sanitizer-dashboard-cache.json")
+	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
 
 	statuses := make([]statusLine, len(bots))
@@ -523,7 +531,7 @@ $(function() {
 		}
 	}
 	saveCache(cachePath, cache)
-	commits := fetchCommits(filepath.Join(os.TempDir(), "llvm-project-commits.git"))
+	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
 	_ = commits
 	if maxStatuses > 30 {
 		maxStatuses = 30
