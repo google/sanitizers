@@ -309,9 +309,6 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 			revision = b.Properties.GotRevision[0]
 		}
 		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
-		if len(sl.Statuses) >= *fetchLimit {
-			break
-		}
 	}
 	if lkgb == 0 {
 		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
