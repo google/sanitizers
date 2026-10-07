@@ -27,5 +27,3 @@ mkdir -p /var/www/html
 /opt/sanitizers > /var/www/html/index.new.html
 chmod 644 /var/www/html/index.new.html
 mv -f /var/www/html/index.new.html /var/www/html/index.html
-
-sleep 540
