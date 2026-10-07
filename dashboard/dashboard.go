@@ -479,6 +479,9 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 table {
    width: 100%;
 }
+td { white-space: nowrap; padding-right: 0.4em; }
+td.timeline { width: 100%; position: relative; padding-right: 0; }
+td.timeline a { position: absolute; top: 0; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
@@ -529,7 +532,6 @@ $(function() {
 		}(i)
 	}
 
-	maxStatuses := 0
 	for range bots {
 		status := <-status_ch
 		cached, hasCached := cache[bots[status.n]]
@@ -544,15 +546,24 @@ $(function() {
 		}
 		statuses[status.n] = status.line
 		errors[status.n] = status.err
-		if maxStatuses < len(status.line.Statuses) {
-			maxStatuses = len(status.line.Statuses)
-		}
 	}
 	saveCache(cachePath, cache)
 	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
-	_ = commits
-	if maxStatuses > *renderLimit {
-		maxStatuses = *renderLimit
+
+	maxDist := 1
+	for i := range bots {
+		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
+			continue
+		}
+		displayStatuses := statuses[i].Statuses
+		if len(displayStatuses) > *renderLimit {
+			displayStatuses = displayStatuses[:*renderLimit]
+		}
+		for _, s := range displayStatuses {
+			if d, ok := commits[s.Revision]; ok && d > maxDist {
+				maxDist = d
+			}
+		}
 	}
 
 	for i := range bots {
@@ -627,16 +638,24 @@ $(function() {
 			if trim != -1 {
 				errStr = errStr[trim+1:]
 			}
-			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
+			r += td("class=\"timeline\"", span(class(0), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
 			displayStatuses := statuses[i].Statuses
 			if len(displayStatuses) > *renderLimit {
 				displayStatuses = displayStatuses[:*renderLimit]
 			}
+			timeline := "&nbsp;"
 			for _, s := range displayStatuses {
+				d, ok := commits[s.Revision]
+				if !ok {
+					continue
+				}
+				pct := float64(d) * 98.0 / float64(maxDist)
 				style := class(s.Success)
-				r += td("", a(s.BuildUrl, span(style+" symbol", "")))
+				timeline += fmt.Sprintf("<a href=\"%s\" target=_top style=\"left:%.2f%%\" title=\"%s (-%d)\">%s</a>",
+					s.BuildUrl, pct, s.Revision, d, span(style+" symbol", ""))
 			}
+			r += td("class=\"timeline\"", timeline)
 		}
 		fmt.Println(tr(r))
 	}
