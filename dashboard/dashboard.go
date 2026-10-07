@@ -89,6 +89,7 @@ type status struct {
 	Number   int    `json:"number"`
 	BuildUrl string `json:"build_url"`
 	Success  int    `json:"success"`
+	Revision string `json:"revision"`
 }
 
 type statusLine struct {
@@ -167,16 +168,18 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 	if cached.Lastbuild.After(fresh.Lastbuild) {
 		fresh, cached = cached, fresh
 	}
-	seen := make(map[string]bool, len(fresh.Statuses))
+	seen := make(map[string]int, len(fresh.Statuses))
 	merged := make([]status, 0, len(fresh.Statuses)+len(cached.Statuses))
 	for _, s := range fresh.Statuses {
-		seen[s.BuildUrl] = true
+		seen[s.BuildUrl] = len(merged)
 		merged = append(merged, s)
 	}
 	for _, s := range cached.Statuses {
-		if !seen[s.BuildUrl] {
-			seen[s.BuildUrl] = true
+		if idx, ok := seen[s.BuildUrl]; !ok {
+			seen[s.BuildUrl] = len(merged)
 			merged = append(merged, s)
+		} else if merged[idx].Revision == "" && s.Revision != "" {
+			merged[idx].Revision = s.Revision
 		}
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
@@ -201,7 +204,9 @@ type Builds struct {
 		Number     int  `json:"number"`
 		Results    int  `json:"results"`
 		Properties struct {
-			Reason []string `json:"reason"`
+			Reason      []string `json:"reason"`
+			Revision    []string `json:"revision"`
+			GotRevision []string `json:"got_revision"`
 		} `json:"properties"`
 	} `json:"builds"`
 }
@@ -252,7 +257,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason")
+	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason&property=revision&property=got_revision")
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -290,7 +295,13 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success})
+		revision := ""
+		if len(b.Properties.Revision) > 0 && b.Properties.Revision[0] != "" {
+			revision = b.Properties.Revision[0]
+		} else if len(b.Properties.GotRevision) > 0 {
+			revision = b.Properties.GotRevision[0]
+		}
+		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
 		if len(sl.Statuses) >= 30 {
 			break
 		}
@@ -414,7 +425,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{0, buildUrl, success})
+						statuses = append(statuses, status{0, buildUrl, success, ""})
 					}
 					return statusLine{lastbuild, statuses, builderUrl, "", false}
 				}
