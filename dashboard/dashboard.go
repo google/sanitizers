@@ -133,16 +133,12 @@ func loadCache(path string) map[string]statusLine {
 }
 
 func saveCache(path string, cache map[string]statusLine) {
-	filtered := make(map[string]statusLine, len(cache))
-	for k, sl := range cache {
-		filtered[k] = filterCompleted(sl)
-	}
-	data, err := json.MarshalIndent(filtered, "", "  ")
+	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return
 	}
 	if err := os.WriteFile(path, data, 0666); err == nil {
-		fmt.Fprintf(os.Stderr, "Saved %d builds to cache in %s\n", countBuilds(filtered), path)
+		fmt.Fprintf(os.Stderr, "Saved %d builds to cache in %s\n", countBuilds(cache), path)
 	}
 }
 
@@ -179,7 +175,7 @@ func fetchCommits(repoPath string) map[string]int {
 }
 
 func mergeStatusLine(fresh, cached statusLine) statusLine {
-	if fresh.Lastbuild.IsZero() && len(fresh.Statuses) == 0 {
+	if fresh.Lastbuild.IsZero() {
 		return cached
 	}
 	if cached.Lastbuild.IsZero() {
@@ -204,12 +200,8 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 		if idx, ok := seen[s.BuildUrl]; !ok {
 			seen[s.BuildUrl] = len(merged)
 			merged = append(merged, s)
-		} else {
-			if merged[idx].Pending && !s.Pending {
-				merged[idx] = s
-			} else if merged[idx].Revision == "" && s.Revision != "" {
-				merged[idx].Revision = s.Revision
-			}
+		} else if merged[idx].Revision == "" && s.Revision != "" {
+			merged[idx].Revision = s.Revision
 		}
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
@@ -456,7 +448,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{BuildUrl: buildUrl, Success: success})
+						statuses = append(statuses, status{0, buildUrl, success, "", false})
 					}
 					return statusLine{lastbuild, statuses, builderUrl, "", false}
 				}
@@ -496,17 +488,17 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-.error { color: red; }
-.error.symbol::before { content: "\2717"; }
-.success { color: green; }
-.success.symbol::before { content: "\2713"; }
-.warning { color: yellow; }
-.warning.symbol::before { content: ""; box-sizing: border-box; width: 0.85ch; height: 0.85ch; border: 2px solid #444; border-top-color: yellow; border-radius: 50%; animation: spin 3.2s linear infinite; }
-.other { color: #c6c; }
-.other.symbol::before { content: "~"; }
+.error { color: #ff3355; text-shadow: 0 0 8px rgba(255, 23, 68, 0.65); }
+.error.symbol::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.success { color: #00e676; text-shadow: 0 0 8px rgba(0, 230, 118, 0.55); }
+.success.symbol::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.warning { color: #ffd600; text-shadow: 0 0 8px rgba(255, 214, 0, 0.55); }
+.warning.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
+.other { color: #e040fb; text-shadow: 0 0 8px rgba(224, 64, 251, 0.55); }
+.other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .missing { color: #444; }
-.missing.symbol::before { content: "\00b7"; }
-.symbol { display: inline-flex; width: 1ch; height: 1em; align-items: center; justify-content: center; vertical-align: middle; font-family: 'Inconsolata', monospace; font-weight: bold; }
+.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.symbol { display: inline-block; width: 1ch; text-align: center; }
 table {
    width: 100%;
 }
@@ -551,7 +543,7 @@ $(function() {
 					status_ch <- status_ret{i, s, err}
 					return
 				}
-				if (best_s.Lastbuild.IsZero() && len(best_s.Statuses) == 0) || (!s.Lastbuild.IsZero() && s.Lastbuild.After(best_s.Lastbuild)) {
+				if best_s.Lastbuild.IsZero() || (!s.Lastbuild.IsZero() && s.Lastbuild.After(best_s.Lastbuild)) {
 					best_s = s
 					best_err = err
 				}
@@ -658,10 +650,7 @@ $(function() {
 		}
 		r += td("", date)
 
-		style := "other"
-		if len(statuses[i].Statuses) > 0 {
-			style = class(statuses[i].Statuses[0])
-		}
+		style := class(status{})
 		for _, s := range statuses[i].Statuses {
 			if !s.Pending {
 				style = class(s)
@@ -677,8 +666,8 @@ $(function() {
 			if trim != -1 {
 				errStr = errStr[trim+1:]
 			}
-			r += td("class=\"timeline\"", span("other", errStr))
-		} else if !statuses[i].Lastbuild.IsZero() || len(statuses[i].Statuses) > 0 {
+			r += td("class=\"timeline\"", span(class(status{}), errStr))
+		} else if !statuses[i].Lastbuild.IsZero() {
 			byDist := make(map[int]status, len(statuses[i].Statuses))
 			for _, s := range statuses[i].Statuses {
 				d, ok := commits[s.Revision]
