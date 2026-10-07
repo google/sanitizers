@@ -142,7 +142,12 @@ func saveCache(path string, cache map[string]statusLine) {
 	}
 }
 
-func fetchCommits(repoPath string) ([]string, map[string]int) {
+type commitInfo struct {
+	Hash  string
+	Title string
+}
+
+func fetchCommits(repoPath string) ([]commitInfo, map[string]int) {
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -156,22 +161,33 @@ func fetchCommits(repoPath string) ([]string, map[string]int) {
 			return nil, nil
 		}
 	}
-	out, err := exec.Command("git", "--git-dir="+repoPath, "rev-list", "-n", "10000", "main").Output()
+	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "-n", "10000", "--format=%H\t%s", "main").Output()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "git rev-list failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "git log failed: %v\n", err)
 		return nil, nil
 	}
-	hashes := strings.Fields(string(out))
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var list []commitInfo
+	commits := make(map[string]int, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		h := parts[0]
+		title := ""
+		if len(parts) > 1 {
+			title = parts[1]
+		}
+		commits[h] = len(list)
+		list = append(list, commitInfo{Hash: h, Title: title})
+	}
 	topCommit := ""
-	if len(hashes) > 0 {
-		topCommit = hashes[0]
+	if len(list) > 0 {
+		topCommit = list[0].Hash
 	}
-	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(hashes), repoPath, topCommit)
-	commits := make(map[string]int, len(hashes))
-	for i, h := range hashes {
-		commits[h] = i
-	}
-	return hashes, commits
+	fmt.Fprintf(os.Stderr, "Loaded %d commits from %s (top: %s)\n", len(list), repoPath, topCommit)
+	return list, commits
 }
 
 func mergeStatusLine(fresh, cached statusLine) statusLine {
@@ -499,7 +515,8 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .missing { color: #444; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .symbol { display: inline-block; width: 1ch; text-align: center; }
-.commit { display: inline-block; writing-mode: vertical-rl; font-size: 12px; line-height: 12px; color: #888; }
+.commit { display: inline-block; writing-mode: sideways-lr; font-size: 12px; line-height: 12px; color: #888; }
+.symbol:has(.commit) { vertical-align: top; }
 table {
    width: 100%;
 }
@@ -517,7 +534,6 @@ $(function() {
 </script>
 </head>
 <body bgcolor=black>
-<table>
 `)
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
@@ -571,7 +587,16 @@ $(function() {
 		errors[status.n] = status.err
 	}
 	saveCache(cachePath, cache)
-	hashes, commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+	commitList, commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
+
+	fmt.Print(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
+	tz, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		fmt.Println("err: ", err.Error())
+	}
+	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
+	fmt.Println(`</font></p>
+<table>`)
 
 	maxDist := 0
 	for i := range bots {
@@ -603,22 +628,6 @@ $(function() {
 
 	a := func(url string, text string) string {
 		return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
-	}
-
-	if len(hashes) > 0 {
-		var header strings.Builder
-		for d := 0; d <= maxDist && d < len(hashes); d++ {
-			h := hashes[d]
-			short := h
-			if len(short) > 7 {
-				short = short[:7]
-			}
-			commitUrl := "https://github.com/llvm/llvm-project/commit/" + h
-			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
-				commitUrl, h, d, span("symbol", span("commit", short)))
-		}
-		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
-		fmt.Println(tr(r))
 	}
 
 	for i := range bots {
@@ -709,15 +718,21 @@ $(function() {
 		}
 		fmt.Println(tr(r))
 	}
-	fmt.Println(`</table>`)
-	fmt.Println(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
-	tz, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		fmt.Println("err: ", err.Error())
+
+	if len(commitList) > 0 {
+		var footer strings.Builder
+		for d := 0; d <= maxDist && d < len(commitList); d++ {
+			c := commitList[d]
+			escapedTitle := html.EscapeString(c.Title)
+			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
+			fmt.Fprintf(&footer, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
+				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit", escapedTitle)))
+		}
+		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", footer.String())
+		fmt.Println(tr(r))
 	}
-	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
-	fmt.Println(`
-</font></p>
+
+	fmt.Println(`</table>
 </body>
 </html>
 `)
