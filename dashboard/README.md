@@ -2,6 +2,12 @@
 
 The dashboard is automatically built and updated from `master` on the GCE instance via [`start_script.sh`](start_script.sh).
 
+## Local testing
+
+```bash
+go build -o /tmp/sanitizers . && /tmp/sanitizers > /tmp/sanitizers.html && xdg-open /tmp/sanitizers.html
+```
+
 ## Creating the GCE instance
 
 ```bash
