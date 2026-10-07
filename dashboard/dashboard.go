@@ -476,8 +476,8 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 table {
    width: 100%;
 }
-td { white-space: nowrap; }
-td.timeline { width: 100%; position: relative; font-family: 'Inconsolata', monospace; }
+td { white-space: nowrap; padding-right: 0.6em; }
+td.timeline { width: 100%; position: relative; padding-right: 0; font-family: 'Inconsolata', monospace; }
 td.timeline div { position: relative; overflow: hidden; width: 100%; }
 td.timeline a { position: absolute; top: 0; }
 </style>
