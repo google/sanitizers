@@ -20,7 +20,9 @@ import (
 )
 
 var (
-	cacheDir = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
+	cacheDir    = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
+	fetchLimit  = flag.Int("fetch", 10, "Number of builds to fetch per bot")
+	renderLimit = flag.Int("render", 200, "Number of builds to render per bot")
 
 	bots = []string{
 		"sanitizer-windows",
@@ -256,7 +258,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(builderUrl + "/builds?limit=10&order=-number&property=reason&property=got_revision")
+	builds, err := QueryJSONBuilds(fmt.Sprintf("%s/builds?limit=%d&order=-number&property=reason&property=got_revision", builderUrl, *fetchLimit))
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -299,7 +301,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 			revision = b.Properties.GotRevision[0]
 		}
 		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
-		if len(sl.Statuses) >= 30 {
+		if len(sl.Statuses) >= *fetchLimit {
 			break
 		}
 	}
@@ -340,7 +342,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(builderUrl + "?numbuilds=31")
+		resp, err = client.Get(fmt.Sprintf("%s?numbuilds=%d", builderUrl, *fetchLimit))
 		if err == nil {
 			break
 		}
@@ -541,8 +543,8 @@ $(function() {
 	saveCache(cachePath, cache)
 	commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
 	_ = commits
-	if maxStatuses > 30 {
-		maxStatuses = 30
+	if maxStatuses > *renderLimit {
+		maxStatuses = *renderLimit
 	}
 
 	for i := range bots {
@@ -620,8 +622,8 @@ $(function() {
 			r += td(fmt.Sprintf("colspan=%d", maxStatuses+1), span(class(0), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
 			displayStatuses := statuses[i].Statuses
-			if len(displayStatuses) > 30 {
-				displayStatuses = displayStatuses[:30]
+			if len(displayStatuses) > *renderLimit {
+				displayStatuses = displayStatuses[:*renderLimit]
 			}
 			for _, s := range displayStatuses {
 				style := class(s.Success)
