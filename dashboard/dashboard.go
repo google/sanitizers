@@ -519,8 +519,11 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 td.timeline > .missing:nth-child(even) { color: #333; }
 .symbol { display: inline-block; width: 1ch; text-align: center; }
 .symbol:has(.commit) { vertical-align: bottom; }
-.commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; color: #aaa; padding-bottom: 4px; }
-td.timeline > :nth-child(even) .commit { color: #666; }
+.commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; padding-bottom: 4px; }
+td.timeline > :nth-child(6n+1) .commit, td.timeline > :nth-child(6n+4) .commit { color: #4285f4; }
+td.timeline > :nth-child(6n+2) .commit, td.timeline > :nth-child(6n+6) .commit { color: #ea4335; }
+td.timeline > :nth-child(6n+3) .commit { color: #fbbc05; }
+td.timeline > :nth-child(6n+5) .commit { color: #34a853; }
 table {
    width: 100%;
    flex-shrink: 0;
