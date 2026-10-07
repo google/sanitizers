@@ -492,12 +492,16 @@ func main() {
 body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .error { color: red; }
-.error.symbol::before { content: "\1f525"; font-size: 55%; }
+.error.symbol::before { content: "\2717"; }
 .success { color: green; }
-.success.symbol::before { content: "\1f9f4"; font-size: 55%; }
+.success.symbol::before { content: "\2713"; }
 .warning { color: yellow; }
-.warning.symbol::before { content: "\21bb"; font-size: 80%; }
+.warning.symbol::before { content: ""; box-sizing: border-box; width: 0.85ch; height: 0.85ch; border: 2px solid #444; border-top-color: yellow; border-radius: 50%; animation: spin 0.8s linear infinite; }
 .other { color: #c6c; }
 .other.symbol::before { content: "~"; }
 .missing { color: #444; }
