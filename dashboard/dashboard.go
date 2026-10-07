@@ -92,6 +92,7 @@ type status struct {
 	BuildUrl string `json:"build_url"`
 	Success  int    `json:"success"`
 	Revision string `json:"revision"`
+	Pending  bool   `json:"-"`
 }
 
 type statusLine struct {
@@ -110,6 +111,17 @@ func countBuilds(cache map[string]statusLine) int {
 	return n
 }
 
+func filterCompleted(sl statusLine) statusLine {
+	completed := make([]status, 0, len(sl.Statuses))
+	for _, s := range sl.Statuses {
+		if !s.Pending {
+			completed = append(completed, s)
+		}
+	}
+	sl.Statuses = completed
+	return sl
+}
+
 func loadCache(path string) map[string]statusLine {
 	cache := make(map[string]statusLine)
 	data, err := os.ReadFile(path)
@@ -121,12 +133,16 @@ func loadCache(path string) map[string]statusLine {
 }
 
 func saveCache(path string, cache map[string]statusLine) {
-	data, err := json.MarshalIndent(cache, "", "  ")
+	filtered := make(map[string]statusLine, len(cache))
+	for k, sl := range cache {
+		filtered[k] = filterCompleted(sl)
+	}
+	data, err := json.MarshalIndent(filtered, "", "  ")
 	if err != nil {
 		return
 	}
 	if err := os.WriteFile(path, data, 0666); err == nil {
-		fmt.Fprintf(os.Stderr, "Saved %d builds to cache in %s\n", countBuilds(cache), path)
+		fmt.Fprintf(os.Stderr, "Saved %d builds to cache in %s\n", countBuilds(filtered), path)
 	}
 }
 
@@ -163,7 +179,7 @@ func fetchCommits(repoPath string) map[string]int {
 }
 
 func mergeStatusLine(fresh, cached statusLine) statusLine {
-	if fresh.Lastbuild.IsZero() {
+	if fresh.Lastbuild.IsZero() && len(fresh.Statuses) == 0 {
 		return cached
 	}
 	if cached.Lastbuild.IsZero() {
@@ -188,8 +204,12 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 		if idx, ok := seen[s.BuildUrl]; !ok {
 			seen[s.BuildUrl] = len(merged)
 			merged = append(merged, s)
-		} else if merged[idx].Revision == "" && s.Revision != "" {
-			merged[idx].Revision = s.Revision
+		} else {
+			if merged[idx].Pending && !s.Pending {
+				merged[idx] = s
+			} else if merged[idx].Revision == "" && s.Revision != "" {
+				merged[idx].Revision = s.Revision
+			}
 		}
 	}
 	sort.SliceStable(merged, func(i, j int) bool {
@@ -277,22 +297,33 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	lkgb := 0
 	lkgbUrl := ""
 	for _, b := range builds.Builds {
-		if !b.Complete {
-			continue
-		}
 		if AnyContains(b.Properties.Reason, "Force Build Form") {
 			continue
 		}
 
 		builder, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d", b.Builderid))
 		sl.BuilderUrl = baseUrl.ResolveReference(builder).String()
+		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
+		thisUrl := baseUrl.ResolveReference(build).String()
+		revision := ""
+		if len(b.Properties.Revision) > 0 {
+			revision = b.Properties.Revision[0]
+		}
+
+		if !b.Complete {
+			sl.Statuses = append(sl.Statuses, status{
+				Number:   b.Number,
+				BuildUrl: thisUrl,
+				Revision: revision,
+				Pending:  true,
+			})
+			continue
+		}
+
 		time := time.Unix(int64(b.CompleteAt), 0)
 		if sl.Lastbuild.Before(time) {
 			sl.Lastbuild = time
 		}
-
-		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
-		thisUrl := baseUrl.ResolveReference(build).String()
 
 		success := 0
 		if b.Results < 2 {
@@ -304,11 +335,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		} else if b.Results == 2 {
 			success = -1
 		}
-		revision := ""
-		if len(b.Properties.Revision) > 0 {
-			revision = b.Properties.Revision[0]
-		}
-		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision})
+		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision, false})
 	}
 	if lkgb == 0 {
 		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
@@ -429,7 +456,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 							}
 						}
 
-						statuses = append(statuses, status{0, buildUrl, success, ""})
+						statuses = append(statuses, status{BuildUrl: buildUrl, Success: success})
 					}
 					return statusLine{lastbuild, statuses, builderUrl, "", false}
 				}
@@ -465,17 +492,21 @@ func main() {
 body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .error { color: red; }
-.error.symbol::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.error.symbol::before { content: "\2717"; }
 .success { color: green; }
-.success.symbol::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.success.symbol::before { content: "\2713"; }
 .warning { color: yellow; }
-.warning.symbol::before {content: "?"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.warning.symbol::before { content: ""; box-sizing: border-box; width: 0.85ch; height: 0.85ch; border: 2px solid #444; border-top-color: yellow; border-radius: 50%; animation: spin 3.2s linear infinite; }
 .other { color: #c6c; }
-.other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.other.symbol::before { content: "~"; }
 .missing { color: #444; }
-.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.symbol { display: inline-block; width: 1ch; text-align: center; }
+.missing.symbol::before { content: "\00b7"; }
+.symbol { display: inline-flex; width: 1ch; height: 1em; align-items: center; justify-content: center; vertical-align: middle; font-family: 'Inconsolata', monospace; font-weight: bold; }
 table {
    width: 100%;
 }
@@ -520,7 +551,7 @@ $(function() {
 					status_ch <- status_ret{i, s, err}
 					return
 				}
-				if best_s.Lastbuild.IsZero() || (!s.Lastbuild.IsZero() && s.Lastbuild.After(best_s.Lastbuild)) {
+				if (best_s.Lastbuild.IsZero() && len(best_s.Statuses) == 0) || (!s.Lastbuild.IsZero() && s.Lastbuild.After(best_s.Lastbuild)) {
 					best_s = s
 					best_err = err
 				}
@@ -541,7 +572,7 @@ $(function() {
 			}
 		}
 		if !status.line.Lastbuild.IsZero() {
-			cache[bots[status.n]] = status.line
+			cache[bots[status.n]] = filterCompleted(status.line)
 		}
 		statuses[status.n] = status.line
 		errors[status.n] = status.err
@@ -586,10 +617,13 @@ $(function() {
 			return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
 		}
 
-		class := func(status int) string {
-			if status == 1 {
+		class := func(s status) string {
+			if s.Pending {
+				return "warning"
+			}
+			if s.Success == 1 {
 				return "success"
-			} else if status == -1 {
+			} else if s.Success == -1 {
 				return "error"
 			}
 			return "other"
@@ -624,9 +658,15 @@ $(function() {
 		}
 		r += td("", date)
 
-		style := class(0)
+		style := "other"
 		if len(statuses[i].Statuses) > 0 {
-			style = class(statuses[i].Statuses[0].Success)
+			style = class(statuses[i].Statuses[0])
+		}
+		for _, s := range statuses[i].Statuses {
+			if !s.Pending {
+				style = class(s)
+				break
+			}
 		}
 
 		r += td("", a(statuses[i].BuilderUrl, span(style, bots[i])))
@@ -637,8 +677,8 @@ $(function() {
 			if trim != -1 {
 				errStr = errStr[trim+1:]
 			}
-			r += td("class=\"timeline\"", span(class(0), errStr))
-		} else if !statuses[i].Lastbuild.IsZero() {
+			r += td("class=\"timeline\"", span("other", errStr))
+		} else if !statuses[i].Lastbuild.IsZero() || len(statuses[i].Statuses) > 0 {
 			byDist := make(map[int]status, len(statuses[i].Statuses))
 			for _, s := range statuses[i].Statuses {
 				d, ok := commits[s.Revision]
@@ -652,7 +692,7 @@ $(function() {
 			var timeline strings.Builder
 			for d := 0; d <= maxDist; d++ {
 				if s, ok := byDist[d]; ok {
-					style := class(s.Success)
+					style := class(s)
 					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
 						s.BuildUrl, s.Revision, d, span(style+" symbol", ""))
 				} else {
