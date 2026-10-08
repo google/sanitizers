@@ -499,7 +499,7 @@ func main() {
 <style type="text/css">
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { color: white; font-family: 'Inconsolata', monospace; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
-p { position: fixed; top: 8px; left: 8px; margin: 0; font-size: 18px; }
+p { margin: 4px 0 0 0; font-size: 12px; color: #666; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
@@ -547,9 +547,8 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 </script>
 </head>
 <body bgcolor=black>
+<table>
 `)
-	fmt.Printf("<p id=t></p><script>document.getElementById('t').innerHTML = new Date(%d).toLocaleString('sv-SE').replace(' ', '<br>');</script>\n", time.Now().UnixMilli())
-	fmt.Println(`<table>`)
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
@@ -719,7 +718,8 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 		}
 		fmt.Println(tr(r))
 	}
-	fmt.Println(`</table>
-</body>
+	fmt.Println(`</table>`)
+	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, <span id=t></span></p><script>document.getElementById('t').textContent = new Date(%d).toLocaleString('sv-SE');</script>\n", time.Now().UnixMilli())
+	fmt.Println(`</body>
 </html>`)
 }
