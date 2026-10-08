@@ -541,11 +541,7 @@ $(function() {
 </head>
 <body bgcolor=black>
 `)
-	tz, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		fmt.Println("err: ", err.Error())
-	}
-	fmt.Println(time.Now().In(tz).Format("<p>2006-Jan-2<br>15:04:05 MST</p>"))
+	fmt.Printf("<p id=t></p><script>document.getElementById('t').innerHTML = new Date(%d).toLocaleString('sv-SE').replace(' ', '<br>');</script>\n", time.Now().UnixMilli())
 	fmt.Println(`<table>`)
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
