@@ -528,8 +528,8 @@ table {
    width: 100%;
    flex-shrink: 0;
 }
-td { white-space: nowrap; padding-right: 0.6em; }
-td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; }
+td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; }
+td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; font-size: 24px; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
@@ -646,10 +646,11 @@ $(function() {
 			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
 				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit "+color, label)))
 		}
-		r := td("", "") + td("", "") + td("", "") + td("class=\"timeline\"", header.String())
+		r := td("", "") + td("", "") + td("class=\"timeline\"", header.String())
 		fmt.Println(tr(r))
 	}
 
+	shortBotName := strings.NewReplacer("sanitizer-", "", "-linux", "", "-bootstrap", "")
 	for i := range bots {
 		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
 			continue
@@ -667,7 +668,17 @@ $(function() {
 			return "other"
 		}
 
-		r := ""
+		style := class(status{})
+		for _, s := range statuses[i].Statuses {
+			if !s.Pending {
+				style = class(s)
+				break
+			}
+		}
+
+		r := td("", fmt.Sprintf("<a href=\"%s\" target=_top title=\"%s\">%s</a>",
+			statuses[i].BuilderUrl, bots[i], span(style, shortBotName.Replace(bots[i]))))
+
 		if statuses[i].Lkgb != "" {
 			medal := "&#129351;"
 			if statuses[i].IsStaging {
@@ -677,34 +688,6 @@ $(function() {
 		} else {
 			r += td("", "")
 		}
-		
-		
-		date := "??:??"
-		if !statuses[i].Lastbuild.IsZero() {
-			// Localize times to PST
-			lastbuild := statuses[i].Lastbuild
-			loc, err := time.LoadLocation("America/Los_Angeles")
-			if err == nil {
-				lastbuild = lastbuild.In(loc)
-			}
-
-			if time.Now().Sub(lastbuild).Hours() <= 12 {
-				date = lastbuild.Format("15:04")
-			} else {
-				date = lastbuild.Format("<span class=other>Jan 2 15:04</span>")
-			}
-		}
-		r += td("", date)
-
-		style := class(status{})
-		for _, s := range statuses[i].Statuses {
-			if !s.Pending {
-				style = class(s)
-				break
-			}
-		}
-
-		r += td("", a(statuses[i].BuilderUrl, span(style, bots[i])))
 
 		if errors[i] != nil {
 			errStr := errors[i].Error()
