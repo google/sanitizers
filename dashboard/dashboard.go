@@ -22,7 +22,7 @@ import (
 var (
 	cacheDir    = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
 	fetchLimit  = flag.Int("fetch", 10, "Number of builds to fetch per bot")
-	renderLimit = flag.Int("render", 30, "Number of builds to render per bot")
+	renderLimit = flag.Int("render", 300, "Number of commits to render")
 
 	bots = []string{
 		"sanitizer-windows",
@@ -604,20 +604,9 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 	saveCache(cachePath, cache)
 	commitList, commits := fetchCommits(filepath.Join(*cacheDir, "llvm-project.git"))
 
-	maxDist := 0
-	for i := range bots {
-		if !statuses[i].Lastbuild.IsZero() && time.Since(statuses[i].Lastbuild) > 7*24*time.Hour {
-			continue
-		}
-		displayStatuses := statuses[i].Statuses
-		if len(displayStatuses) > *renderLimit {
-			displayStatuses = displayStatuses[:*renderLimit]
-		}
-		for _, s := range displayStatuses {
-			if d, ok := commits[s.Revision]; ok && d > maxDist {
-				maxDist = d
-			}
-		}
+	maxDist := *renderLimit
+	if len(commitList) < maxDist {
+		maxDist = len(commitList)
 	}
 
 	tr := func(s string) string {
@@ -636,10 +625,10 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 		return fmt.Sprintf("<a href=\"%s\" target=_top>%s</a>", url, text)
 	}
 
-	if len(commitList) > 0 {
+	if maxDist > 0 {
 		googleColors := []string{"c0", "c1", "c2", "c0", "c3", "c1"}
 		var header strings.Builder
-		for d := 0; d <= maxDist && d < len(commitList); d++ {
+		for d := 0; d < maxDist; d++ {
 			c := commitList[d]
 			short := c.Hash
 			if len(short) > 7 {
@@ -706,7 +695,7 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 			byDist := make(map[int]status, len(statuses[i].Statuses))
 			for _, s := range statuses[i].Statuses {
 				d, ok := commits[s.Revision]
-				if !ok || d > maxDist {
+				if !ok || d >= maxDist {
 					continue
 				}
 				if _, exists := byDist[d]; !exists {
@@ -715,7 +704,7 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 			}
 			var timeline strings.Builder
 			style := ""
-			for d := 0; d <= maxDist; d++ {
+			for d := 0; d < maxDist; d++ {
 				if s, ok := byDist[d]; ok {
 					style = class(s)
 					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
