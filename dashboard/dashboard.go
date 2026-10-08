@@ -493,30 +493,28 @@ func main() {
 <html>
 <head>
 <title>dashboard</title>
-<link href="https://fonts.googleapis.com/css?family=Open+Sans|Inconsolata" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet">
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
 html, body { height: 100%; margin: 0; overflow: hidden; }
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
-p { margin: 0.25em 0 0 0; }
+body { color: white; font-family: 'Inconsolata', monospace; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
+p { position: fixed; top: 8px; left: 8px; margin: 0; font-size: 18px; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-.error { color: #ff3355; text-shadow: 0 0 8px rgba(255, 23, 68, 0.65); }
-.error.symbol::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.success { color: #00e676; text-shadow: 0 0 8px rgba(0, 230, 118, 0.55); }
-.success.symbol::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-.warning { color: #ffd600; text-shadow: 0 0 8px rgba(255, 214, 0, 0.55); }
-.warning.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
-.other { color: #e040fb; text-shadow: 0 0 8px rgba(224, 64, 251, 0.55); }
-.other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .missing { color: #666; }
-.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
-td.timeline > .missing:nth-child(even) { color: #333; }
+.error { color: #ff3355; }
+.success { color: #00e676; }
+.warning { color: #ffd600; }
+.other { color: #e040fb; }
+.error:not(.missing).symbol::before, .success:not(.missing).symbol::before, .other:not(.missing).symbol::before { content: ""; display: inline-block; position: relative; top: -2px; width: 0.8ch; height: 0.8ch; background: currentColor; border-radius: 50%; }
+.warning:not(.missing).symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
+.missing.symbol::before { content: "\00b7"; font-weight: bold;}
+td.timeline > .missing:nth-child(even) { opacity: 0.5; }
 .symbol { display: inline-block; width: 1ch; text-align: center; }
 .symbol:has(.commit) { vertical-align: bottom; }
 .commit { display: inline-block; writing-mode: sideways-lr; white-space: nowrap; font-size: 12px; line-height: 12px; padding-bottom: 4px; }
@@ -527,9 +525,11 @@ td.timeline > .missing:nth-child(even) { color: #333; }
 table {
    width: 100%;
    flex-shrink: 0;
+   border-collapse: collapse;
 }
-td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; }
-td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; font-size: 24px; }
+td { white-space: nowrap; padding: 0 0.6em 0 0; font-size: 18px; line-height: 20px; text-align: right; }
+td:nth-child(2) { font-size: 14px; }
+td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-size: 24px; line-height: 20px; text-align: left; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
@@ -539,11 +539,19 @@ $(function() {
     $.get('', function(data) { $(document.body).html(data); });
   },60000);
 });
+$(document).on('mouseenter', 'td.timeline > .missing', function() {
+  var a = $('tr:first-child td.timeline > a')[$(this).index()];
+  if (a) this.title = a.title;
+}).on('click', 'td.timeline > .missing', function() {
+  var a = $('tr:first-child td.timeline > a')[$(this).index()];
+  if (a) a.click();
+});
 </script>
 </head>
 <body bgcolor=black>
-<table>
 `)
+	fmt.Printf("<p id=t></p><script>document.getElementById('t').innerHTML = new Date(%d).toLocaleString('sv-SE').replace(' ', '<br>');</script>\n", time.Now().UnixMilli())
+	fmt.Println(`<table>`)
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
@@ -708,29 +716,21 @@ $(function() {
 				}
 			}
 			var timeline strings.Builder
+			style := ""
 			for d := 0; d <= maxDist; d++ {
 				if s, ok := byDist[d]; ok {
-					style := class(s)
+					style = class(s)
 					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
 						s.BuildUrl, s.Revision, d, span(style+" symbol", ""))
 				} else {
-					timeline.WriteString(span("missing symbol", ""))
+					timeline.WriteString(span("missing "+style+" symbol", ""))
 				}
 			}
 			r += td("class=\"timeline\"", timeline.String())
 		}
 		fmt.Println(tr(r))
 	}
-	fmt.Println(`</table>`)
-	fmt.Println(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
-	tz, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		fmt.Println("err: ", err.Error())
-	}
-	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
-	fmt.Println(`
-</font></p>
+	fmt.Println(`</table>
 </body>
-</html>
-`)
+</html>`)
 }
