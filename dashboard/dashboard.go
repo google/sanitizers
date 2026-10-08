@@ -493,12 +493,12 @@ func main() {
 <html>
 <head>
 <title>dashboard</title>
-<link href="https://fonts.googleapis.com/css?family=Open+Sans|Inconsolata" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet">
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 <meta http-equiv="refresh" content="43200">
 <style type="text/css">
 html, body { height: 100%; margin: 0; overflow: hidden; }
-body { color: white; font-family: 'Open Sans', sans-serif; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
+body { color: white; font-family: 'Inconsolata', monospace; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
 p { margin: 0.25em 0 0 0; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
@@ -513,7 +513,7 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
 .other { color: #e040fb; }
 .error:not(.missing).symbol::before, .success:not(.missing).symbol::before, .other:not(.missing).symbol::before { content: ""; display: inline-block; position: relative; top: -2px; width: 0.8ch; height: 0.8ch; background: currentColor; border-radius: 50%; }
 .warning:not(.missing).symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
-.missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.missing.symbol::before { content: "\00b7"; font-weight: bold;}
 td.timeline > .missing:nth-child(even) { opacity: 0.5; }
 .symbol { display: inline-block; width: 1ch; text-align: center; }
 .symbol:has(.commit) { vertical-align: bottom; }
@@ -526,8 +526,8 @@ table {
    width: 100%;
    flex-shrink: 0;
 }
-td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; }
-td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-family: 'Inconsolata', monospace; font-size: 24px; }
+td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; text-align: right; }
+td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-size: 24px; text-align: left; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
