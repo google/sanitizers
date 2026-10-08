@@ -525,11 +525,9 @@ td.timeline > .missing:nth-child(even) { opacity: 0.5; }
 table {
    width: 100%;
    flex-shrink: 0;
-   border-collapse: collapse;
 }
-td { white-space: nowrap; padding: 0 0.6em 0 0; font-size: 18px; line-height: 20px; text-align: right; }
-td:nth-child(2) { font-size: 14px; }
-td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-size: 24px; line-height: 20px; text-align: left; }
+td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; text-align: right; }
+td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-size: 24px; text-align: left; }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
