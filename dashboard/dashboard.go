@@ -499,7 +499,7 @@ func main() {
 <style type="text/css">
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { color: white; font-family: 'Inconsolata', monospace; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
-p { margin: 0.25em 0 0 0; }
+p { position: fixed; top: 8px; left: 8px; margin: 0; font-size: 18px; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
@@ -540,8 +540,13 @@ $(function() {
 </script>
 </head>
 <body bgcolor=black>
-<table>
 `)
+	tz, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		fmt.Println("err: ", err.Error())
+	}
+	fmt.Println(time.Now().In(tz).Format("<p>2006-Jan-2<br>15:04:05 MST</p>"))
+	fmt.Println(`<table>`)
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
@@ -720,16 +725,7 @@ $(function() {
 		}
 		fmt.Println(tr(r))
 	}
-	fmt.Println(`</table>`)
-	fmt.Println(`<p><font size=".8em"><a href="http://go/dynamic-tools-dashboard" target="_top">go/dynamic-tools-dashboard</a>, `)
-	tz, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		fmt.Println("err: ", err.Error())
-	}
-	fmt.Println(time.Now().In(tz).Format("2006-Jan-2 15:04:05 MST"))
-	fmt.Println(`
-</font></p>
+	fmt.Println(`</table>
 </body>
-</html>
-`)
+</html>`)
 }
