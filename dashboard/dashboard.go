@@ -507,13 +507,11 @@ h2 { margin: .25em 0 0 0; font-size: 110%; }
   to { transform: rotate(360deg); }
 }
 .error { color: #ff3355; }
-.error.symbol::before { content: "\2717"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .success { color: #00e676; }
-.success.symbol::before { content: "\2713"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 .warning { color: #ffd600; }
-.warning.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
 .other { color: #e040fb; }
-.other.symbol::before { content: "~"; font-family: 'Inconsolata', monospace; font-weight: bold;}
+.error.symbol::before, .success.symbol::before, .other.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; width: 0.8ch; height: 0.8ch; background: currentColor; border-radius: 50%; }
+.warning.symbol::before { content: ""; display: inline-block; position: relative; top: -2px; box-sizing: border-box; width: 0.8ch; height: 0.8ch; border: 2px solid #444; border-top-color: #ffd600; border-radius: 50%; animation: spin 3.2s linear infinite; }
 .missing { color: #666; }
 .missing.symbol::before { content: "\00b7"; font-family: 'Inconsolata', monospace; font-weight: bold;}
 td.timeline > .missing:nth-child(even) { color: #333; }
