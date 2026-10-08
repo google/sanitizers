@@ -706,9 +706,11 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 			style := ""
 			for d := 0; d < maxDist; d++ {
 				if s, ok := byDist[d]; ok {
-					style = class(s)
+					if !s.Pending {
+						style = class(s)
+					}
 					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
-						s.BuildUrl, s.Revision, d, span(style+" symbol", ""))
+						s.BuildUrl, s.Revision, d, span(class(s)+" symbol", ""))
 				} else {
 					timeline.WriteString(span("missing "+style+" symbol", ""))
 				}
