@@ -539,6 +539,13 @@ $(function() {
     $.get('', function(data) { $(document.body).html(data); });
   },60000);
 });
+$(document).on('mouseenter', 'td.timeline > .missing', function() {
+  var a = $('tr:first-child td.timeline > a')[$(this).index()];
+  if (a) this.title = a.title;
+}).on('click', 'td.timeline > .missing', function() {
+  var a = $('tr:first-child td.timeline > a')[$(this).index()];
+  if (a) a.click();
+});
 </script>
 </head>
 <body bgcolor=black>
