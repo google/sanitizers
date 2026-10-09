@@ -288,6 +288,37 @@ func QueryJSONBuilds(url string) (*Builds, error) {
 	return &builds, nil
 }
 
+func getMasterRestart(master string) time.Time {
+	queries := []string{
+		fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builds?results=5&state_string=building&state_string=created&order=-buildid&limit=1", master),
+		fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builds?state_string__contains=Master+Shutdown&order=-buildid&limit=1", master),
+		fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builds?results=6&order=-buildid&limit=1", master),
+	}
+	ch := make(chan time.Time, len(queries))
+	for _, q := range queries {
+		go func(q string) {
+			builds, err := QueryJSONBuilds(q)
+			var t time.Time
+			if err == nil {
+				for _, b := range builds.Builds {
+					bt := time.Unix(int64(b.CompleteAt), 0)
+					if bt.After(t) {
+						t = bt
+					}
+				}
+			}
+			ch <- t
+		}(q)
+	}
+	var latest time.Time
+	for range queries {
+		if t := <-ch; t.After(latest) {
+			latest = t
+		}
+	}
+	return latest
+}
+
 func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	baseUrl, err := url.Parse(builderUrl)
 	if err != nil {
@@ -553,6 +584,14 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
 
+	masterRestartChs := make([]chan time.Time, len(masters))
+	for i, m := range masters {
+		masterRestartChs[i] = make(chan time.Time, 1)
+		go func(ch chan time.Time, name string) {
+			ch <- getMasterRestart(name)
+		}(masterRestartChs[i], m.name)
+	}
+
 	statuses := make([]statusLine, len(bots))
 	errors := make([]error, len(bots))
 	type status_ret struct {
@@ -719,7 +758,14 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, <span id=t></span></p><script>document.getElementById('t').textContent = new Date(%d).toLocaleString('sv-SE');</script>\n", time.Now().UnixMilli())
+	var masterSpans, masterScripts strings.Builder
+	for i, m := range masters {
+		if masterRestart := <-masterRestartChs[i]; !masterRestart.IsZero() {
+			fmt.Fprintf(&masterSpans, ", <a href=\"https://lab.llvm.org/%s/\" target=_top>%s</a> started: <span id=m%d></span>", m.name, m.name, i)
+			fmt.Fprintf(&masterScripts, " document.getElementById('m%d').textContent = new Date(%d).toLocaleString('sv-SE');", i, masterRestart.UnixMilli())
+		}
+	}
+	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, generated: <span id=t></span>%s</p><script>document.getElementById('t').textContent = new Date(%d).toLocaleString('sv-SE');%s</script>\n", masterSpans.String(), time.Now().UnixMilli(), masterScripts.String())
 	fmt.Println(`</body>
 </html>`)
 }
