@@ -288,6 +288,37 @@ func QueryJSONBuilds(url string) (*Builds, error) {
 	return &builds, nil
 }
 
+func getMasterRestart() time.Time {
+	queries := []string{
+		"http://lab.llvm.org/buildbot/api/v2/builds?results=5&state_string=building&state_string=created&order=-buildid&limit=1",
+		"http://lab.llvm.org/buildbot/api/v2/builds?state_string__contains=Master+Shutdown&order=-buildid&limit=1",
+		"http://lab.llvm.org/buildbot/api/v2/builds?results=6&order=-buildid&limit=1",
+	}
+	ch := make(chan time.Time, len(queries))
+	for _, q := range queries {
+		go func(q string) {
+			builds, err := QueryJSONBuilds(q)
+			var t time.Time
+			if err == nil {
+				for _, b := range builds.Builds {
+					bt := time.Unix(int64(b.CompleteAt), 0)
+					if bt.After(t) {
+						t = bt
+					}
+				}
+			}
+			ch <- t
+		}(q)
+	}
+	var latest time.Time
+	for range queries {
+		if t := <-ch; t.After(latest) {
+			latest = t
+		}
+	}
+	return latest
+}
+
 func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	baseUrl, err := url.Parse(builderUrl)
 	if err != nil {
@@ -499,7 +530,7 @@ func main() {
 <style type="text/css">
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body { color: white; font-family: 'Inconsolata', monospace; font-size: 24px; display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; padding: 8px; }
-p { margin: 4px 0 0 0; font-size: 12px; color: #666; }
+p { margin: 4px 0 0 0; font-size: 12px; color: #666; display: flex; justify-content: space-between; }
 a { color: inherit; text-decoration: none; }
 h2 { margin: .25em 0 0 0; font-size: 110%; }
 @keyframes spin {
@@ -552,6 +583,11 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 
 	cachePath := filepath.Join(*cacheDir, "cache.json")
 	cache := loadCache(cachePath)
+
+	masterRestartCh := make(chan time.Time, 1)
+	go func() {
+		masterRestartCh <- getMasterRestart()
+	}()
 
 	statuses := make([]statusLine, len(bots))
 	errors := make([]error, len(bots))
@@ -719,7 +755,13 @@ $(document).on('mouseenter', 'td.timeline > .missing', function() {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, <span id=t></span></p><script>document.getElementById('t').textContent = new Date(%d).toLocaleString('sv-SE');</script>\n", time.Now().UnixMilli())
+	masterSpan := ""
+	masterScript := ""
+	if masterRestart := <-masterRestartCh; !masterRestart.IsZero() {
+		masterSpan = "<span><a href=\"https://lab.llvm.org/buildbot/\" target=_top>master</a>, <span id=m></span></span>"
+		masterScript = fmt.Sprintf(" document.getElementById('m').textContent = new Date(%d).toLocaleString('sv-SE');", masterRestart.UnixMilli())
+	}
+	fmt.Printf("<p><span><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, <span id=t></span></span>%s</p><script>document.getElementById('t').textContent = new Date(%d).toLocaleString('sv-SE');%s</script>\n", masterSpan, time.Now().UnixMilli(), masterScript)
 	fmt.Println(`</body>
 </html>`)
 }
