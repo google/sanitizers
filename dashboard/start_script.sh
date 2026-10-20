@@ -9,21 +9,23 @@ if ! which go git lighttpd; then
 fi
 
 export HOME="${HOME:-/root}"
-REPO_DIR="/tmp/sanitizer-dashboard/sanitizers"
+CACHE_DIR="/var/cache/sanitizer-dashboard"
+REPO_DIR="${CACHE_DIR}/sanitizers"
 
-if [[ ! -d "${REPO_DIR}/.git" ]]; then
+mkdir -p "${CACHE_DIR}"
+if [[ ! -f "${CACHE_DIR}/cache.json" && -f /tmp/sanitizer-dashboard/cache.json ]]; then
+  cp /tmp/sanitizer-dashboard/cache.json "${CACHE_DIR}/cache.json"
+fi
+
+if ! (git -C "${REPO_DIR}" fetch --depth=1 origin master && git -C "${REPO_DIR}" reset --hard FETCH_HEAD); then
   rm -rf "${REPO_DIR}"
-  mkdir -p "$(dirname "${REPO_DIR}")"
   git clone --depth=1 https://github.com/google/sanitizers.git "${REPO_DIR}"
-else
-  git -C "${REPO_DIR}" fetch --depth=1 origin master
-  git -C "${REPO_DIR}" reset --hard FETCH_HEAD
 fi
 
 cd "${REPO_DIR}/dashboard"
 go build -o /opt/sanitizers .
 
 mkdir -p /var/www/html
-/opt/sanitizers > /var/www/html/index.new.html
+/opt/sanitizers -cache_dir="${CACHE_DIR}" > /var/www/html/index.new.html
 chmod 644 /var/www/html/index.new.html
 mv -f /var/www/html/index.new.html /var/www/html/index.html

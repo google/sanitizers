@@ -148,23 +148,38 @@ type commitInfo struct {
 }
 
 func fetchCommits(repoPath string) ([]commitInfo, map[string]int) {
-	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
-		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "git fetch failed: %v: %s\n", err, out)
-		}
-	} else {
+	cloneRepo := func() error {
 		_ = os.RemoveAll(repoPath)
 		cmd := exec.Command("git", "clone", "--bare", "--no-tags", "--filter=tree:0", "--depth=10000", "--single-branch", "-b", "main", "https://github.com/llvm/llvm-project.git", repoPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "git clone failed: %v: %s\n", err, out)
-			return nil, nil
+			return err
 		}
+		return nil
+	}
+
+	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
+		cmd := exec.Command("git", "--git-dir="+repoPath, "fetch", "-u", "--no-tags", "--filter=tree:0", "origin", "+main:main")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "git fetch failed: %v: %s\n", err, out)
+			if cloneRepo() != nil {
+				return nil, nil
+			}
+		}
+	} else if cloneRepo() != nil {
+		return nil, nil
 	}
 	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%s", "main").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git log failed: %v\n", err)
-		return nil, nil
+		if cloneRepo() != nil {
+			return nil, nil
+		}
+		out, err = exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%s", "main").Output()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "git log failed after clone: %v\n", err)
+			return nil, nil
+		}
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var list []commitInfo
