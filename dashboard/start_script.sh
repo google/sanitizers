@@ -8,6 +8,14 @@ if ! which go git lighttpd; then
   rm -f /var/www/html/index.lighttpd.html
 fi
 
+if [[ ! -f /etc/lighttpd/conf-enabled/99-no-cache.conf ]]; then
+  cat << 'EOF' > /etc/lighttpd/conf-enabled/99-no-cache.conf
+server.modules += ( "mod_setenv" )
+setenv.set-response-header = ( "Cache-Control" => "no-cache" )
+EOF
+  systemctl reload lighttpd
+fi
+
 export HOME="${HOME:-/root}"
 CACHE_DIR="/var/cache/sanitizer-dashboard"
 REPO_DIR="${CACHE_DIR}/sanitizers"

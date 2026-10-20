@@ -575,19 +575,22 @@ table {
 td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; text-align: right; }
 td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-size: 24px; text-align: left; }
 </style>
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 <script>
 // Reload without flickering.
-$(function() {
-  setTimeout(function() {
-    $.get('', function(data) { $(document.body).html(data); });
-  },60000);
+setInterval(async () => {
+  const r = await fetch('', {cache: 'no-store'});
+  if (r.ok) document.body.innerHTML = new DOMParser().parseFromString(await r.text(), 'text/html').body.innerHTML;
+}, 60000);
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest('td.timeline > .missing');
+  if (!el || el.title) return;
+  const a = document.querySelectorAll('tr:first-child td.timeline > a')[[...el.parentNode.children].indexOf(el)];
+  if (a) el.title = a.title;
 });
-$(document).on('mouseenter', 'td.timeline > .missing', function() {
-  var a = $('tr:first-child td.timeline > a')[$(this).index()];
-  if (a) this.title = a.title;
-}).on('click', 'td.timeline > .missing', function() {
-  var a = $('tr:first-child td.timeline > a')[$(this).index()];
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('td.timeline > .missing');
+  if (!el) return;
+  const a = document.querySelectorAll('tr:first-child td.timeline > a')[[...el.parentNode.children].indexOf(el)];
   if (a) a.click();
 });
 </script>
