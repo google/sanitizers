@@ -699,12 +699,16 @@ document.addEventListener('click', (e) => {
 		var header strings.Builder
 		for d := 0; d < maxDist; d++ {
 			c := commitList[d]
+			short := c.Hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
 			escapedTitle := html.EscapeString(c.Title)
-			label := c.Time + " " + escapedTitle
+			label := c.Time + " " + short + " " + escapedTitle
 			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
 			color := googleColors[(6-(len(commitList)-d)%6)%6]
-			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
-				commitUrl, c.Time, d, escapedTitle, span("symbol", span("commit "+color, label)))
+			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s %s (-%d) %s\">%s</a>",
+				commitUrl, c.Time, c.Hash, d, escapedTitle, span("symbol", span("commit "+color, label)))
 		}
 		r := td("", "") + td("", "") + td("class=\"timeline\"", header.String())
 		fmt.Println(tr(r))
@@ -774,8 +778,8 @@ document.addEventListener('click', (e) => {
 					if !s.Pending {
 						style = class(s)
 					}
-					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
-						s.BuildUrl, commitList[d].Time, d, span(class(s)+" symbol", ""))
+					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s %s (-%d)\">%s</a>",
+						s.BuildUrl, commitList[d].Time, s.Revision, d, span(class(s)+" symbol", ""))
 				} else {
 					timeline.WriteString(span("missing "+style+" symbol", ""))
 				}
