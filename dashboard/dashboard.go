@@ -144,6 +144,7 @@ func saveCache(path string, cache map[string]statusLine) {
 
 type commitInfo struct {
 	Hash  string
+	Time  string
 	Title string
 }
 
@@ -169,17 +170,22 @@ func fetchCommits(repoPath string) ([]commitInfo, map[string]int) {
 	} else if cloneRepo() != nil {
 		return nil, nil
 	}
-	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%s", "main").Output()
+	out, err := exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%ct\t%s", "main").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "git log failed: %v\n", err)
 		if cloneRepo() != nil {
 			return nil, nil
 		}
-		out, err = exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%s", "main").Output()
+		out, err = exec.Command("git", "--git-dir="+repoPath, "log", "--format=%H\t%ct\t%s", "main").Output()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "git log failed after clone: %v\n", err)
 			return nil, nil
 		}
+	}
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load TZ: %v\n", err)
+		loc = time.UTC
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var list []commitInfo
@@ -188,14 +194,21 @@ func fetchCommits(repoPath string) ([]commitInfo, map[string]int) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 2)
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
+			continue
+		}
 		h := parts[0]
+		commitTime := ""
+		if ts, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+			commitTime = time.Unix(ts, 0).In(loc).Format("01-02 15:04")
+		}
 		title := ""
-		if len(parts) > 1 {
-			title = parts[1]
+		if len(parts) > 2 {
+			title = parts[2]
 		}
 		commits[h] = len(list)
-		list = append(list, commitInfo{Hash: h, Title: title})
+		list = append(list, commitInfo{Hash: h, Time: commitTime, Title: title})
 	}
 	topCommit := ""
 	if len(list) > 0 {
@@ -686,16 +699,12 @@ document.addEventListener('click', (e) => {
 		var header strings.Builder
 		for d := 0; d < maxDist; d++ {
 			c := commitList[d]
-			short := c.Hash
-			if len(short) > 7 {
-				short = short[:7]
-			}
 			escapedTitle := html.EscapeString(c.Title)
-			label := short + " " + escapedTitle
+			label := c.Time + " " + escapedTitle
 			commitUrl := "https://github.com/llvm/llvm-project/commit/" + c.Hash
 			color := googleColors[(6-(len(commitList)-d)%6)%6]
 			fmt.Fprintf(&header, "<a href=\"%s\" target=_top title=\"%s (-%d) %s\">%s</a>",
-				commitUrl, c.Hash, d, escapedTitle, span("symbol", span("commit "+color, label)))
+				commitUrl, c.Time, d, escapedTitle, span("symbol", span("commit "+color, label)))
 		}
 		r := td("", "") + td("", "") + td("class=\"timeline\"", header.String())
 		fmt.Println(tr(r))
@@ -766,7 +775,7 @@ document.addEventListener('click', (e) => {
 						style = class(s)
 					}
 					fmt.Fprintf(&timeline, "<a href=\"%s\" target=_top title=\"%s (-%d)\">%s</a>",
-						s.BuildUrl, s.Revision, d, span(class(s)+" symbol", ""))
+						s.BuildUrl, commitList[d].Time, d, span(class(s)+" symbol", ""))
 				} else {
 					timeline.WriteString(span("missing "+style+" symbol", ""))
 				}
