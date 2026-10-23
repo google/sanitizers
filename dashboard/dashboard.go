@@ -704,11 +704,23 @@ document.addEventListener('click', (e) => {
 			return "other"
 		}
 
-		style := class(status{})
+		byDist := make(map[int]status, len(statuses[i].Statuses))
 		for _, s := range statuses[i].Statuses {
-			if !s.Pending {
+			d, ok := commits[s.Revision]
+			if !ok {
+				continue
+			}
+			if _, exists := byDist[d]; !exists {
+				byDist[d] = s
+			}
+		}
+
+		style := class(status{})
+		bestDist := len(commitList)
+		for d, s := range byDist {
+			if !s.Pending && d < bestDist {
+				bestDist = d
 				style = class(s)
-				break
 			}
 		}
 
@@ -733,16 +745,6 @@ document.addEventListener('click', (e) => {
 			}
 			r += td("class=\"timeline\"", span(class(status{}), errStr))
 		} else if !statuses[i].Lastbuild.IsZero() {
-			byDist := make(map[int]status, len(statuses[i].Statuses))
-			for _, s := range statuses[i].Statuses {
-				d, ok := commits[s.Revision]
-				if !ok || d >= maxDist {
-					continue
-				}
-				if _, exists := byDist[d]; !exists {
-					byDist[d] = s
-				}
-			}
 			var timeline strings.Builder
 			style := ""
 			for d := 0; d < maxDist; d++ {
