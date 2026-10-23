@@ -283,6 +283,7 @@ func QueryJSONBuilds(url string) (*Builds, error) {
 		defer func() { <-sem }()
 	}
 	url = strings.Replace(url, "http://lab.llvm.org/", "https://lab.llvm.org/", 1)
+	fmt.Fprintf(os.Stderr, "Querying %s\n", url)
 	var resp *http.Response
 	var err error
 	for i := 0; i < 3; i++ {
@@ -381,13 +382,15 @@ func GetStatus(builderUrl string) (statusLine, error) {
 		return GetStatusFromJson(builderUrl)
 	}
 
+	qUrl := fmt.Sprintf("%s?numbuilds=%d", builderUrl, *fetchLimit)
+	fmt.Fprintf(os.Stderr, "Querying %s\n", qUrl)
 	var resp *http.Response
 	var err error
 	for i := 0; i < 3; i++ {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(fmt.Sprintf("%s?numbuilds=%d", builderUrl, *fetchLimit))
+		resp, err = client.Get(qUrl)
 		if err == nil {
 			break
 		}
