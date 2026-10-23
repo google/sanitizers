@@ -23,6 +23,7 @@ var (
 	cacheDir    = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
 	fetchLimit  = flag.Int("fetch", 10, "Number of builds to fetch per bot")
 	renderLimit = flag.Int("render", 300, "Number of commits to render")
+	staging     = flag.Bool("staging", false, "Use staging buildbot instead of main buildbot")
 
 	bots = []string{
 		"sanitizer-windows",
@@ -43,14 +44,6 @@ var (
 		"sanitizer-ppc64le-linux",
 		"sanitizer-x86_64-linux-fuzzer",
 		"sanitizer-aarch64-linux-fuzzer",
-	}
-
-	masters = []struct {
-		isStaging bool
-		name string
-	}{
-		{false, "buildbot"},
-		{true, "staging"},
 	}
 )
 
@@ -619,16 +612,19 @@ document.addEventListener('click', (e) => {
 <table>
 `)
 
-	cachePath := filepath.Join(*cacheDir, "cache.json")
+	master := "buildbot"
+	cacheFile := "cache.json"
+	if *staging {
+		master = "staging"
+		cacheFile = "cache-staging.json"
+	}
+	cachePath := filepath.Join(*cacheDir, cacheFile)
 	cache := loadCache(cachePath)
 
-	masterRestartChs := make([]chan time.Time, len(masters))
-	for i, m := range masters {
-		masterRestartChs[i] = make(chan time.Time, 1)
-		go func(ch chan time.Time, name string) {
-			ch <- getMasterRestart(name)
-		}(masterRestartChs[i], m.name)
-	}
+	masterRestartCh := make(chan time.Time, 1)
+	go func() {
+		masterRestartCh <- getMasterRestart(master)
+	}()
 
 	statuses := make([]statusLine, len(bots))
 	errors := make([]error, len(bots))
@@ -640,31 +636,20 @@ document.addEventListener('click', (e) => {
 	status_ch := make(chan status_ret)
 	for i := range bots {
 		go func(i int) {
-			var best_s statusLine
-			var best_err error
-			
-			for _, instance := range masters {
-				url := fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builders/%s", instance.name, bots[i])
-				s, err := GetStatus(url)
-				s.IsStaging = instance.isStaging
-				if err == nil && !s.Lastbuild.IsZero() && time.Now().Sub(s.Lastbuild).Hours() <= 24 {
-					status_ch <- status_ret{i, s, err}
-					return
-				}
-				if best_s.Lastbuild.IsZero() || (!s.Lastbuild.IsZero() && s.Lastbuild.After(best_s.Lastbuild)) {
-					best_s = s
-					best_err = err
-				}
-			}
-			
-			
-			status_ch <- status_ret{i, best_s, best_err}
+			url := fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builders/%s", master, bots[i])
+			s, err := GetStatus(url)
+			s.IsStaging = *staging
+			status_ch <- status_ret{i, s, err}
 		}(i)
 	}
 
 	for range bots {
 		status := <-status_ch
 		cached, hasCached := cache[bots[status.n]]
+		if hasCached && cached.IsStaging != *staging {
+			delete(cache, bots[status.n])
+			hasCached = false
+		}
 		if hasCached {
 			status.line = mergeStatusLine(status.line, cached)
 			if !status.line.Lastbuild.IsZero() {
@@ -797,10 +782,8 @@ document.addEventListener('click', (e) => {
 	}
 	fmt.Println(`</table>`)
 	var masterSpans strings.Builder
-	for i, m := range masters {
-		if masterRestart := <-masterRestartChs[i]; !masterRestart.IsZero() {
-			fmt.Fprintf(&masterSpans, ", <a href=\"https://lab.llvm.org/%s/\" target=_top>%s</a> started: <span data-ts=\"%d\"></span>", m.name, m.name, masterRestart.UnixMilli())
-		}
+	if masterRestart := <-masterRestartCh; !masterRestart.IsZero() {
+		fmt.Fprintf(&masterSpans, ", <a href=\"https://lab.llvm.org/%s/\" target=_top>%s</a> started: <span data-ts=\"%d\"></span>", master, master, masterRestart.UnixMilli())
 	}
 	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, generated: <span data-ts=\"%d\"></span>%s</p>\n", time.Now().UnixMilli(), masterSpans.String())
 	fmt.Println(`</body>
