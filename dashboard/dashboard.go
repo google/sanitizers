@@ -262,19 +262,9 @@ type Builds struct {
 		Number     int  `json:"number"`
 		Results    int  `json:"results"`
 		Properties struct {
-			Reason   []string `json:"reason"`
 			Revision []string `json:"revision"`
 		} `json:"properties"`
 	} `json:"builds"`
-}
-
-func AnyContains(lst []string, s string) bool {
-	for _, v := range lst {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 func QueryJSONBuilds(url string) (*Builds, error) {
@@ -325,7 +315,7 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		return *new(statusLine), err
 	}
 
-	builds, err := QueryJSONBuilds(fmt.Sprintf("%s/builds?limit=%d&order=-number&property=reason&property=revision", builderUrl, *fetchLimit))
+	builds, err := QueryJSONBuilds(fmt.Sprintf("%s/builds?limit=%d&order=-number&property=revision", builderUrl, *fetchLimit))
 	if err != nil {
 		return *new(statusLine), err
 	}
@@ -334,18 +324,14 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		BuilderUrl: builderUrl,
 	}
 	for _, b := range builds.Builds {
-		if AnyContains(b.Properties.Reason, "Force Build Form") {
-			continue
-		}
-
 		builder, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d", b.Builderid))
 		sl.BuilderUrl = baseUrl.ResolveReference(builder).String()
+		if len(b.Properties.Revision) == 0 || b.Properties.Revision[0] == "" {
+			continue
+		}
+		revision := b.Properties.Revision[0]
 		build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
 		thisUrl := baseUrl.ResolveReference(build).String()
-		revision := ""
-		if len(b.Properties.Revision) > 0 {
-			revision = b.Properties.Revision[0]
-		}
 
 		if !b.Complete {
 			sl.Statuses = append(sl.Statuses, status{
