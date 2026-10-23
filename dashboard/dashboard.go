@@ -22,8 +22,11 @@ import (
 var (
 	cacheDir    = flag.String("cache_dir", filepath.Join(os.TempDir(), "sanitizer-dashboard"), "Directory for caches and git checkout")
 	fetchLimit  = flag.Int("fetch", 10, "Number of builds to fetch per bot")
+	jobs        = flag.Int("jobs", 2, "Maximum number of concurrent buildbot requests")
 	renderLimit = flag.Int("render", 300, "Number of commits to render")
 	staging     = flag.Bool("staging", false, "Use staging buildbot instead of main buildbot")
+
+	sem chan struct{}
 
 	bots = []string{
 		"sanitizer-windows",
@@ -279,6 +282,11 @@ func AnyContains(lst []string, s string) bool {
 }
 
 func QueryJSONBuilds(url string) (*Builds, error) {
+	if sem != nil {
+		sem <- struct{}{}
+		defer func() { <-sem }()
+	}
+	url = strings.Replace(url, "http://lab.llvm.org/", "https://lab.llvm.org/", 1)
 	var resp *http.Response
 	var err error
 	for i := 0; i < 3; i++ {
@@ -312,37 +320,6 @@ func QueryJSONBuilds(url string) (*Builds, error) {
 		return builds.Builds[i].Number > builds.Builds[j].Number
 	})
 	return &builds, nil
-}
-
-func getMasterRestart(master string) time.Time {
-	queries := []string{
-		fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builds?results=5&state_string=building&state_string=created&order=-buildid&limit=1", master),
-		fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builds?state_string__contains=Master+Shutdown&order=-buildid&limit=1", master),
-		fmt.Sprintf("http://lab.llvm.org/%s/api/v2/builds?results=6&order=-buildid&limit=1", master),
-	}
-	ch := make(chan time.Time, len(queries))
-	for _, q := range queries {
-		go func(q string) {
-			builds, err := QueryJSONBuilds(q)
-			var t time.Time
-			if err == nil {
-				for _, b := range builds.Builds {
-					bt := time.Unix(int64(b.CompleteAt), 0)
-					if bt.After(t) {
-						t = bt
-					}
-				}
-			}
-			ch <- t
-		}(q)
-	}
-	var latest time.Time
-	for range queries {
-		if t := <-ch; t.After(latest) {
-			latest = t
-		}
-	}
-	return latest
 }
 
 func GetStatusFromJson(builderUrl string) (statusLine, error) {
@@ -540,6 +517,9 @@ func GetStatus(builderUrl string) (statusLine, error) {
 
 func main() {
 	flag.Parse()
+	if *jobs > 0 {
+		sem = make(chan struct{}, *jobs)
+	}
 	if err := os.MkdirAll(*cacheDir, 0777); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create cache dir %s: %v\n", *cacheDir, err)
 	}
@@ -625,11 +605,6 @@ document.addEventListener('click', (e) => {
 	}
 	cachePath := filepath.Join(*cacheDir, cacheFile)
 	cache := loadCache(cachePath)
-
-	masterRestartCh := make(chan time.Time, 1)
-	go func() {
-		masterRestartCh <- getMasterRestart(master)
-	}()
 
 	statuses := make([]statusLine, len(bots))
 	errors := make([]error, len(bots))
@@ -786,11 +761,7 @@ document.addEventListener('click', (e) => {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	var masterSpans strings.Builder
-	if masterRestart := <-masterRestartCh; !masterRestart.IsZero() {
-		fmt.Fprintf(&masterSpans, ", <a href=\"https://lab.llvm.org/%s/\" target=_top>%s</a> started: <span data-ts=\"%d\"></span>", master, master, masterRestart.UnixMilli())
-	}
-	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, generated: <span data-ts=\"%d\"></span>%s</p>\n", time.Now().UnixMilli(), masterSpans.String())
+	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, generated: <span data-ts=\"%d\"></span></p>\n", time.Now().UnixMilli())
 	fmt.Println(`</body>
 </html>`)
 }
