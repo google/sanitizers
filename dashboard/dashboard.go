@@ -95,7 +95,6 @@ type statusLine struct {
 	Lastbuild  time.Time `json:"lastbuild"`
 	Statuses   []status  `json:"statuses"`
 	BuilderUrl string    `json:"builder_url"`
-	Lkgb       string    `json:"lkgb"`
 	IsStaging  bool      `json:"is_staging"`
 }
 
@@ -251,9 +250,6 @@ func mergeStatusLine(fresh, cached statusLine) statusLine {
 		merged = merged[:1000]
 	}
 	fresh.Statuses = merged
-	if fresh.Lkgb == "" {
-		fresh.Lkgb = cached.Lkgb
-	}
 	return fresh
 }
 
@@ -336,8 +332,6 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 	var sl statusLine = statusLine{
 		BuilderUrl: builderUrl,
 	}
-	lkgb := 0
-	lkgbUrl := ""
 	for _, b := range builds.Builds {
 		if AnyContains(b.Properties.Reason, "Force Build Form") {
 			continue
@@ -370,33 +364,10 @@ func GetStatusFromJson(builderUrl string) (statusLine, error) {
 		success := 0
 		if b.Results < 2 {
 			success = 1
-			if b.Number > lkgb {
-				lkgb = b.Number
-				lkgbUrl = thisUrl
-			}
 		} else if b.Results == 2 {
 			success = -1
 		}
 		sl.Statuses = append(sl.Statuses, status{b.Number, thisUrl, success, revision, false})
-	}
-	if lkgb == 0 {
-		lkgbBuilds, err := QueryJSONBuilds(builderUrl + "/builds?limit=5&order=-number&property=reason&results__lt=2")
-		if err != nil {
-			return sl, nil
-		}
-		for _, b := range lkgbBuilds.Builds {
-			if AnyContains(b.Properties.Reason, "Force Build Form") {
-				continue
-			}
-			if b.Number > lkgb {
-				build, _ := url.Parse(fmt.Sprintf("../../../#/builders/%d/builds/%d", b.Builderid, b.Number))
-				lkgbUrl = baseUrl.ResolveReference(build).String()
-				lkgb = b.Number
-			}
-		}
-	}
-	if lkgbUrl != "" {
-		sl.Lkgb = lkgbUrl
 	}
 	return sl, nil
 }
@@ -500,7 +471,7 @@ func GetStatus(builderUrl string) (statusLine, error) {
 
 						statuses = append(statuses, status{0, buildUrl, success, "", false})
 					}
-					return statusLine{lastbuild, statuses, builderUrl, "", false}
+					return statusLine{lastbuild, statuses, builderUrl, false}
 				}
 			}
 		}
@@ -717,22 +688,30 @@ document.addEventListener('click', (e) => {
 
 		style := class(status{})
 		bestDist := len(commitList)
+		lkgb := ""
+		bestLkgbDist := len(commitList)
 		for d, s := range byDist {
-			if !s.Pending && d < bestDist {
-				bestDist = d
-				style = class(s)
+			if !s.Pending {
+				if d < bestDist {
+					bestDist = d
+					style = class(s)
+				}
+				if s.Success == 1 && d < bestLkgbDist {
+					bestLkgbDist = d
+					lkgb = s.BuildUrl
+				}
 			}
 		}
 
 		r := td("", fmt.Sprintf("<a href=\"%s\" target=_top title=\"%s\">%s</a>",
 			statuses[i].BuilderUrl, bots[i], span(style, shortBotName.Replace(bots[i]))))
 
-		if statuses[i].Lkgb != "" {
+		if lkgb != "" {
 			medal := "&#129351;"
 			if statuses[i].IsStaging {
 				medal = "&#129352;"
 			}
-			r += td("", a(statuses[i].Lkgb, medal))
+			r += td("", a(lkgb, medal))
 		} else {
 			r += td("", "")
 		}
