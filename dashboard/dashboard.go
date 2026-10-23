@@ -589,10 +589,17 @@ td { white-space: nowrap; padding-right: 0.6em; font-size: 18px; text-align: rig
 td.timeline { width: 100%; max-width: 0; overflow: hidden; padding-right: 0; font-size: 24px; text-align: left; }
 </style>
 <script>
+const updateTimes = () => document.querySelectorAll('[data-ts]').forEach(
+  el => el.textContent = new Date(+el.dataset.ts).toLocaleString('sv-SE')
+);
+window.addEventListener('DOMContentLoaded', updateTimes);
 // Reload without flickering.
 setInterval(async () => {
   const r = await fetch('', {cache: 'no-store'});
-  if (r.ok) document.body.innerHTML = new DOMParser().parseFromString(await r.text(), 'text/html').body.innerHTML;
+  if (r.ok) {
+    document.body.innerHTML = new DOMParser().parseFromString(await r.text(), 'text/html').body.innerHTML;
+    updateTimes();
+  }
 }, 60000);
 document.addEventListener('mouseover', (e) => {
   const el = e.target.closest('td.timeline > .missing');
@@ -789,14 +796,13 @@ document.addEventListener('click', (e) => {
 		fmt.Println(tr(r))
 	}
 	fmt.Println(`</table>`)
-	var masterSpans, masterScripts strings.Builder
+	var masterSpans strings.Builder
 	for i, m := range masters {
 		if masterRestart := <-masterRestartChs[i]; !masterRestart.IsZero() {
-			fmt.Fprintf(&masterSpans, ", <a href=\"https://lab.llvm.org/%s/\" target=_top>%s</a> started: <span id=m%d></span>", m.name, m.name, i)
-			fmt.Fprintf(&masterScripts, " document.getElementById('m%d').textContent = new Date(%d).toLocaleString('sv-SE');", i, masterRestart.UnixMilli())
+			fmt.Fprintf(&masterSpans, ", <a href=\"https://lab.llvm.org/%s/\" target=_top>%s</a> started: <span data-ts=\"%d\"></span>", m.name, m.name, masterRestart.UnixMilli())
 		}
 	}
-	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, generated: <span id=t></span>%s</p><script>document.getElementById('t').textContent = new Date(%d).toLocaleString('sv-SE');%s</script>\n", masterSpans.String(), time.Now().UnixMilli(), masterScripts.String())
+	fmt.Printf("<p><a href=\"http://go/dynamic-tools-dashboard\" target=_top>go/dynamic-tools-dashboard</a>, generated: <span data-ts=\"%d\"></span>%s</p>\n", time.Now().UnixMilli(), masterSpans.String())
 	fmt.Println(`</body>
 </html>`)
 }
