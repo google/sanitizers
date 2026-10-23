@@ -285,7 +285,12 @@ func QueryJSONBuilds(url string) (*Builds, error) {
 		client := http.Client{
 			Timeout: time.Duration(120 * time.Second),
 		}
-		resp, err = client.Get(url)
+		req, reqErr := http.NewRequest("GET", url, nil)
+		if reqErr != nil {
+			return nil, reqErr
+		}
+		req.Header.Set("User-Agent", "sanitizer-dashboard/1.0")
+		resp, err = client.Do(req)
 		if err == nil {
 			break
 		}
