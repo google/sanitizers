@@ -50,6 +50,11 @@ fi
 # Move home to the scratch drive.
 usermod -d $BOT_DIR buildbot
 
+if [[ -e /dev/kvm ]]; then
+  usermod -aG kvm buildbot
+  chmod 0666 /dev/kvm
+fi
+
 # Make sure .cache/clang/ModuleCache/ does not grow over time.
 rm -rf $BOT_DIR/.cache
 
