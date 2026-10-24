@@ -40,6 +40,7 @@
         clang lld \
         curl \
         debootstrap \
+        default-jre-headless \
         dos2unix \
         e2fsprogs \
         flex \
@@ -58,11 +59,15 @@
         libgss-dev \
         liblzma-dev \
         libpixman-1-dev \
+        libpulse0 \
         libssl-dev \
         libstdc++-$(gcc -dumpversion)-dev* \
         libtinfo-dev \
         libtinfo.$ \
         libtool \
+        libx11-6 \
+        libx11-xcb1 \
+        libxcb1 \
         libxml2-dev \
         mc \
         mdadm \
@@ -79,6 +84,7 @@
         psmisc \
         rsync \
         time \
+        unzip \
         wget \
         xfsprogs \
         zlib1g-dev || exit 1
