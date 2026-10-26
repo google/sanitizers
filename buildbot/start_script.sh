@@ -197,7 +197,7 @@ function claim_worker() {
 }
 
 if [[ "$(arch)" == "x86_64" ]]; then
-  BOTS="1 2 3 4 5 6"
+  BOTS="0 1 2 3 4 5 6"
 else
   BOTS="7 8 9 10 11 12"
 fi
@@ -208,7 +208,11 @@ while true ; do
 
   for ONLY_SELF in 1 0 ; do
     for W in $BOTS ; do
-      claim_worker "sanitizer-buildbot${W}" "${ONLY_SELF}"
+      if [[ "${W}" == "0" ]]; then
+        claim_worker "sanitizer-buildbot-android" "${ONLY_SELF}"
+      else
+        claim_worker "sanitizer-buildbot${W}" "${ONLY_SELF}"
+      fi
     done
   done
 
