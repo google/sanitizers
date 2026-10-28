@@ -66,6 +66,7 @@ chown -R buildbot:buildbot $BOT_DIR
 
 # Suppress dmesg spam "Pid <N>(qemu-aarch64) over core_pipe_limit".
 cat <<EOF >/etc/sysctl.d/999-buildbot.conf
+fs.pipe-user-pages-soft = 0
 fs.suid_dumpable = 0
 kernel.core_pipe_limit = 0
 kernel.panic_on_oops = 0
