@@ -50,8 +50,13 @@ fi
 # Move home to the scratch drive.
 usermod -d $BOT_DIR buildbot
 
-usermod -aG kvm buildbot || echo "No kvm group"
-chmod 0666 /dev/kvm || echo "No /dev/kvm"
+if [[ "$(arch)" == "x86_64" ]]; then
+  for grp in kvm cvdnetwork render; do
+    usermod -aG "$grp" buildbot || echo "No $grp group"
+  done
+  chmod 0666 /dev/kvm || echo "No /dev/kvm"
+  modprobe vhost_vsock vhost_net tun || true
+fi
 
 # Make sure .cache/clang/ModuleCache/ does not grow over time.
 rm -rf $BOT_DIR/.cache

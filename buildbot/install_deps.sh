@@ -11,13 +11,18 @@
       set -ex
       rm -f /etc/apt/sources.list.d/scalibr-apt.list /etc/apt/sources.list.d/google-cloud-ops-agent.list # can't update
       apt ${APT_OPTS} update || true
-      apt ${APT_OPTS} install gnupg || exit 1
+      apt ${APT_OPTS} install ca-certificates curl gnupg || exit 1
       # curl -f https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - || exit 1
 
       ARCH_PACKAGES=
       if [[ "$(arch)" == "x86_64" ]]; then
+        curl -fsSL https://us-apt.pkg.dev/doc/repo-signing-key.gpg \
+          -o /etc/apt/trusted.gpg.d/artifact-registry.asc || exit 1
+        echo "deb https://us-apt.pkg.dev/projects/android-cuttlefish-artifacts android-cuttlefish main" \
+          >/etc/apt/sources.list.d/artifact-registry.list
+
         dpkg --add-architecture i386
-        ARCH_PACKAGES="g++-multilib gcc-multilib libc6-dev:i386"
+        ARCH_PACKAGES="adb g++-multilib gcc-multilib libc6-dev:i386"
       fi
 
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -88,6 +93,12 @@
         wget \
         xfsprogs \
         zlib1g-dev || exit 1
+
+      if [[ "$(arch)" == "x86_64" ]]; then
+        # Fall back to 1.56.0 while 1.57.0 depends on libxml2 (removed in Ubuntu 26.04+).
+        apt ${APT_OPTS} install cuttlefish-base cuttlefish-user || \
+          apt ${APT_OPTS} install cuttlefish-base=1.56.0 cuttlefish-user=1.56.0 || exit 1
+      fi
     ) && exit 0
   done
   exit 1
