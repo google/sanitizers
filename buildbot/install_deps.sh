@@ -30,7 +30,6 @@
 
       apt ${APT_OPTS} install gcc || exit 1
 
-      # Pin cuttlefish 1.56.0: 1.57.0 depends on libxml2, removed in Ubuntu 26.04+.
       apt ${APT_OPTS} install \
         ${ARCH_PACKAGES} \
         adb \
@@ -45,8 +44,6 @@
         cmake \
         clang lld \
         curl \
-        cuttlefish-base=1.56.0 \
-        cuttlefish-user=1.56.0 \
         debootstrap \
         default-jre-headless \
         dos2unix \
@@ -96,6 +93,10 @@
         wget \
         xfsprogs \
         zlib1g-dev || exit 1
+
+      # Fall back to 1.56.0 while 1.57.0 depends on libxml2 (removed in Ubuntu 26.04+).
+      apt ${APT_OPTS} install cuttlefish-base cuttlefish-user || \
+        apt ${APT_OPTS} install cuttlefish-base=1.56.0 cuttlefish-user=1.56.0 || exit 1
     ) && exit 0
   done
   exit 1
