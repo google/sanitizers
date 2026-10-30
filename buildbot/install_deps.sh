@@ -22,7 +22,9 @@
           >/etc/apt/sources.list.d/artifact-registry.list
 
         dpkg --add-architecture i386
-        ARCH_PACKAGES="adb g++-multilib gcc-multilib libc6-dev:i386"
+        # libasound2t64 and libpulse0 are dynamically linked by Cuttlefish's
+        # prebuilt qemu-system-aarch64.
+        ARCH_PACKAGES="adb g++-multilib gcc-multilib libasound2t64 libc6-dev:i386 libpulse0"
       fi
 
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -45,7 +47,6 @@
         clang lld \
         curl \
         debootstrap \
-        default-jre-headless \
         dos2unix \
         e2fsprogs \
         flex \
@@ -64,15 +65,11 @@
         libgss-dev \
         liblzma-dev \
         libpixman-1-dev \
-        libpulse0 \
         libssl-dev \
         libstdc++-$(gcc -dumpversion)-dev* \
         libtinfo-dev \
         libtinfo.$ \
         libtool \
-        libx11-6 \
-        libx11-xcb1 \
-        libxcb1 \
         libxml2-dev \
         mc \
         mdadm \
