@@ -120,6 +120,7 @@ function create_worker() {
   cat <<EOF >/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
 [Service]
 LimitNOFILE=1048576:1048576
+LimitNICE=40
 EOF
   
   systemctl stop $SERVICE_NAME || true
