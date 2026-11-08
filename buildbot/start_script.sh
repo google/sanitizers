@@ -204,7 +204,11 @@ function claim_worker() {
 }
 
 if [[ "$(arch)" == "x86_64" ]]; then
-  BOTS="1 2 3 4 5 6"
+  if [[ "${USE_STAGING}" == "1" ]]; then
+    BOTS="2"
+  else
+    BOTS="1 2 3 4 5 6"
+  fi
 else
   BOTS="7 8 9 10 11 12"
 fi
